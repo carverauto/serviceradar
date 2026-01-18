@@ -441,7 +441,10 @@ fn parse_single_stats_agg(expr: &str) -> Option<StatsAggregation> {
     }
 
     // Parse the function: count(), sum(field), avg(field), min(field), max(field)
-    if let Some(inner) = func_part.strip_prefix("count(").and_then(|s| s.strip_suffix(')')) {
+    if let Some(inner) = func_part
+        .strip_prefix("count(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
         // count() or count(field) - we ignore field for count
         let _ = inner; // count doesn't need a field
         return Some(StatsAggregation {
@@ -451,7 +454,10 @@ fn parse_single_stats_agg(expr: &str) -> Option<StatsAggregation> {
         });
     }
 
-    if let Some(inner) = func_part.strip_prefix("sum(").and_then(|s| s.strip_suffix(')')) {
+    if let Some(inner) = func_part
+        .strip_prefix("sum(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
         let field = inner.trim();
         if !field.is_empty() {
             return Some(StatsAggregation {
@@ -462,7 +468,10 @@ fn parse_single_stats_agg(expr: &str) -> Option<StatsAggregation> {
         }
     }
 
-    if let Some(inner) = func_part.strip_prefix("avg(").and_then(|s| s.strip_suffix(')')) {
+    if let Some(inner) = func_part
+        .strip_prefix("avg(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
         let field = inner.trim();
         if !field.is_empty() {
             return Some(StatsAggregation {
@@ -473,7 +482,10 @@ fn parse_single_stats_agg(expr: &str) -> Option<StatsAggregation> {
         }
     }
 
-    if let Some(inner) = func_part.strip_prefix("min(").and_then(|s| s.strip_suffix(')')) {
+    if let Some(inner) = func_part
+        .strip_prefix("min(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
         let field = inner.trim();
         if !field.is_empty() {
             return Some(StatsAggregation {
@@ -484,7 +496,10 @@ fn parse_single_stats_agg(expr: &str) -> Option<StatsAggregation> {
         }
     }
 
-    if let Some(inner) = func_part.strip_prefix("max(").and_then(|s| s.strip_suffix(')')) {
+    if let Some(inner) = func_part
+        .strip_prefix("max(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
         let field = inner.trim();
         if !field.is_empty() {
             return Some(StatsAggregation {
@@ -758,7 +773,10 @@ mod tests {
         let stats = ast.stats.as_ref().unwrap();
         assert_eq!(stats.raw, "count() as total");
         assert_eq!(stats.aggregations.len(), 1);
-        assert!(matches!(stats.aggregations[0].agg_type, StatsAggType::Count));
+        assert!(matches!(
+            stats.aggregations[0].agg_type,
+            StatsAggType::Count
+        ));
         assert_eq!(stats.aggregations[0].alias, "total");
     }
 
@@ -768,7 +786,10 @@ mod tests {
         let stats = ast.stats.as_ref().unwrap();
         assert_eq!(stats.raw, "count() as total");
         assert_eq!(stats.aggregations.len(), 1);
-        assert!(matches!(stats.aggregations[0].agg_type, StatsAggType::Count));
+        assert!(matches!(
+            stats.aggregations[0].agg_type,
+            StatsAggType::Count
+        ));
     }
 
     #[test]
@@ -794,7 +815,10 @@ mod tests {
         let ast = parse("in:devices stats:\"count() as total, sum(value) as sum_val\"").unwrap();
         let stats = ast.stats.as_ref().unwrap();
         assert_eq!(stats.aggregations.len(), 2);
-        assert!(matches!(stats.aggregations[0].agg_type, StatsAggType::Count));
+        assert!(matches!(
+            stats.aggregations[0].agg_type,
+            StatsAggType::Count
+        ));
         assert!(matches!(stats.aggregations[1].agg_type, StatsAggType::Sum));
     }
 

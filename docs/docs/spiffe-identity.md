@@ -91,8 +91,8 @@ runtime expectations:
 
 1. **Socket mount** – Pods mount `/run/spire/sockets` from the host. Our Helm
    chart and demo manifests add the hostPath volume automatically.
-2. **KV overlay protection** – `pkg/config` strips `.security` blocks from KV
-   overlays so the SPIFFE mode cannot be overwritten by remote configuration.
+2. **Config immutability** – SPIFFE mode is set in the on-disk config and
+   should not be overridden by remote configuration.
 3. **RBAC checks** – Datasvc and other control-plane services inspect the
    SPIFFE URI from client certificates (SAN URI) instead of CN values.
 

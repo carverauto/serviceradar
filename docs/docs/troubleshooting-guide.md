@@ -61,7 +61,7 @@ For detailed edge agent documentation, see [Edge Agents](./edge-agents.md).
 
 - **Check pod health**: `kubectl get pods -n demo` (or the equivalent Docker Compose status). Pods stuck in `CrashLoopBackOff` usually point to missing secrets or PVC mounts.
 - **Verify API availability**: `curl -k https://<core-host>/healthz`. TLS errors tie back to mismatched certificates—reissue them with the [Self-Signed Certificates guide](./self-signed.md).
-- **Configuration drift**: Reconcile changes with the [Configuration Basics](./configuration.md) checklist and commit updates to KV.
+- **Configuration drift**: Reconcile changes with the [Configuration Basics](./configuration.md) checklist and update the on-disk configs.
 
 ## SNMP
 
@@ -89,7 +89,7 @@ For detailed edge agent documentation, see [Edge Agents](./edge-agents.md).
 
 ## Discovery
 
-- **Empty results**: Confirm scopes exist in KV under `discovery/jobs/*`. Reconcile job ownership using the [Discovery guide](./discovery.md).
+- **Empty results**: Confirm discovery jobs exist and are scoped correctly in the admin UI or API. Reconcile job ownership using the [Discovery guide](./discovery.md).
 - **Mapper stalled**: Tail `serviceradar-mapper` logs for `scheduler` messages. Ensure `/etc/serviceradar/mapper.json` has at least one enabled `scheduled_jobs` entry and that credentials cover the target CIDRs.
 - **Missing interfaces/topology**: Verify `stream_config` in `mapper.json` still points to `discovered_interfaces` and `topology_discovery_events`. Mapper only emits interface/topology data when those fields are present.
 - **Duplicate devices**: Enable canonical matching in the embedded sync runtime so NetBox and Armis merges succeed.

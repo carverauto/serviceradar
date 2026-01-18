@@ -16,7 +16,7 @@
 
 use anyhow::{Context, Result};
 use clap::{App, Arg};
-use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat, RestartHandle};
+use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat};
 use log::{info, warn};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -55,40 +55,18 @@ async fn main() -> Result<()> {
     template::ensure_config_file(&config_path)
         .with_context(|| format!("failed to install default config at {config_path:?}"))?;
     let config_path_str = config_path.display().to_string();
-    let use_kv = std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv");
-    let kv_key = use_kv.then(|| "config/rperf-checker.json".to_string());
+    let pinned_path = config_bootstrap::pinned_path_from_env();
     let mut bootstrap = Bootstrap::new(BootstrapOptions {
         service_name: "rperf-checker".to_string(),
         config_path: config_path_str.clone(),
         format: ConfigFormat::Json,
-        kv_key,
-        pinned_path: config_bootstrap::pinned_path_from_env(),
-        seed_kv: use_kv,
-        watch_kv: use_kv,
+        pinned_path: pinned_path.clone(),
     })
     .await?;
     let config: Config = bootstrap
         .load()
         .await
         .with_context(|| format!("failed to load configuration from {config_path_str}"))?;
-
-    if use_kv {
-        if let Some(watcher) = bootstrap.watch::<Config>().await? {
-            let restarter = RestartHandle::new("rperf-checker", "config/rperf-checker.json");
-            tokio::spawn(async move {
-                let mut cfg_watcher = watcher;
-                let mut is_initial = true;
-                while cfg_watcher.recv().await.is_some() {
-                    if is_initial {
-                        // First event is the current value; don't restart on initial sync.
-                        is_initial = false;
-                        continue;
-                    }
-                    restarter.trigger();
-                }
-            });
-        }
-    }
 
     // Print configuration summary
     info!("Loaded configuration with {} targets", config.targets.len());

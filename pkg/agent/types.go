@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker"
-	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -45,9 +44,7 @@ type Server struct {
 	done               chan struct{}
 	config             *ServerConfig
 	connections        map[string]*CheckerConnection
-	configStore        KVStore
 	createSweepService func(ctx context.Context, sweepConfig *SweepConfig) (Service, error)
-	setupDataStores    func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig, log logger.Logger) (KVStore, error)
 	logger             logger.Logger
 	sysmonService      *SysmonService
 	snmpService        *SNMPAgentService

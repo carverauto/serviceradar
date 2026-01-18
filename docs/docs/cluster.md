@@ -13,7 +13,7 @@ The ServiceRadar demo cluster bundles the core platform services into a single K
 | Core API     | core-elx control plane for ingestion, APIs, and notifications.                               | `deploy/serviceradar-core` |
 | Agent-Gateway | Edge ingress for agent and collector traffic.                                                | `deploy/serviceradar-agent-gateway` |
 | Web UI       | Serves dashboards and embeds SRQL inside web-ng.                                             | `deploy/serviceradar-web-ng` |
-| Data Service | Provides dynamic configuration (KV) and object storage via NATS JetStream.                   | `statefulset/serviceradar-datasvc` |
+| Data Service | Provides object storage and KV-backed rule metadata via NATS JetStream.                      | `statefulset/serviceradar-datasvc` |
 | Zen          | Rule engine for alerting and automation.                                                     | `deploy/serviceradar-zen` |
 | DB Writer    | Persists high-volume events into CNPG.                                                       | `deploy/serviceradar-db-event-writer` |
 
@@ -34,7 +34,7 @@ Each deployment surfaces the `serviceradar.io/component` label; use it to filter
 ## Operational Tips
 
 - Use `kubectl get pods -n demo` to verify rollouts. Most deployments support at least two replicas; scale `serviceradar-agent` during heavy reconciliation.
-- Persistent stores (`registry`, `kv`, `cnpg`, `faker`) rely on PVCs; confirm volume mounts before recycling pods.
+- Persistent stores (`registry`, `cnpg`, `faker`) rely on PVCs; confirm volume mounts before recycling pods.
 - The demo namespace is designed for experimentation. When you need a clean slate, follow the runbooks in `agents.md` to reset Faker, truncate the CNPG hypertables, and rebuild materialized views.
 
 For component-specific configuration, see the guides under **Deployment** and **Get Data In**. SRQL-specific authentication and rate limit settings live in the [SRQL Service Configuration](./srql-service.md) guide.

@@ -5,8 +5,8 @@ use crate::{
     parser::{Entity, Filter, OrderClause, OrderDirection},
     schema::memory_metrics::dsl::{
         agent_id as col_agent_id, available_bytes as col_available_bytes,
-        device_id as col_device_id, host_id as col_host_id, memory_metrics,
-        partition as col_partition, gateway_id as col_gateway_id, timestamp as col_timestamp,
+        device_id as col_device_id, gateway_id as col_gateway_id, host_id as col_host_id,
+        memory_metrics, partition as col_partition, timestamp as col_timestamp,
         total_bytes as col_total_bytes, usage_percent as col_usage_percent,
         used_bytes as col_used_bytes,
     },

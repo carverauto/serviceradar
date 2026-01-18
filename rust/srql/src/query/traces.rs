@@ -19,7 +19,7 @@ use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
 use diesel::sql_query;
-use diesel::sql_types::{Nullable, Jsonb, Timestamptz, Text, Int4};
+use diesel::sql_types::{Int4, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;

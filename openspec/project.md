@@ -56,7 +56,7 @@ Edge proxies terminate TLS and route traffic; watchers + KV descriptors keep ser
 - Must operate across unreliable links; gateways continue orchestrating agents locally and buffer until core connectivity returns.
 - All internal RPCs require mTLS with SPIFFE identities; KV, gateways, agents, and sync will refuse plaintext (docs/docs/kv-configuration.md, docs/docs/tls-security.md).
 - Core is the policy enforcement point—JWT/JWKS must stay in sync with clients or the web UI cannot reach APIs.
-- KV service expects co-located NATS JetStream and enforces RBAC per certificate DN; watchers rely on `CONFIG_SOURCE=kv` to auto-reload.
+- KV service expects co-located NATS JetStream and enforces RBAC per certificate DN; service configuration is file- or gRPC-based (no KV auto-reload).
 - CNPG datasets (device_updates/unified_devices) must stay pruned to keep queries fast and storage bounded; follow the reset procedure before reseeding demo data.
 - Docker/Bazel outputs must target both AMD64 and ARM64; CI enforces multi-arch builds.
 

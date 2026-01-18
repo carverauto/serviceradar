@@ -66,11 +66,10 @@ Navigate through our documentation to get ServiceRadar up and running:
 3. **[TLS Security](./tls-security.md)** - Secure your ServiceRadar communications
 4. **[Authentication Configuration](./auth-configuration.md)** - Set up user authentication
 5. **[Web UI Configuration](./web-ui.md)** - Set up the web interface and dashboard
-6. **[KV Store Configuration](./kv-configuration.md)** - Configure dynamic configuration store
-7. **[Sync Runtime Configuration](./sync.md)** - Integrate with external systems
+6. **[Sync Runtime Configuration](./sync.md)** - Integrate with external systems
 
 ### Advanced Topics
-8. **[Architecture](./architecture.md)** - Understand the system architecture
-9. **[Custom Checkers](./custom-checkers.md)** - Create custom checkers for specific services
+7. **[Architecture](./architecture.md)** - Understand the system architecture
+8. **[Custom Checkers](./custom-checkers.md)** - Create custom checkers for specific services
 
 **Recommended**: Start with the [Docker Setup Guide](./docker-setup.md) for the fastest and most reliable deployment experience.

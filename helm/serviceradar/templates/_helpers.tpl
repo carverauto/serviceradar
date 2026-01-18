@@ -36,14 +36,12 @@ imagePullSecrets:
 
 {{- define "serviceradar.kvEnv" -}}
 {{- $vals := .Values -}}
-{{- $ns := default .Release.Namespace $vals.spire.namespace -}}
-{{- $datasvcSA := default "serviceradar-datasvc" $vals.spire.datasvcServiceAccount -}}
 {{- $trustDomain := default $vals.spire.trustDomain $vals.kv.trustDomain -}}
 {{- $serverID := include "serviceradar.kvServerSPIFFEID" . -}}
-{{- if or (not $vals.kv.enabled) (ne (lower (default "kv" $vals.kv.configSource)) "kv") }}
+{{- if not $vals.kv.enabled }}
 {{- else }}
 - name: CONFIG_SOURCE
-  value: "{{ default "kv" $vals.kv.configSource }}"
+  value: "file"
 - name: KV_ADDRESS
   value: "{{ default "serviceradar-datasvc:50057" $vals.kv.address }}"
 - name: KV_SEC_MODE

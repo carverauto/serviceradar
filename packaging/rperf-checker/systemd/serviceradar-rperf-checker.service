@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/serviceradar-rperf-checker --config /etc/serviceradar/checkers/rperf.json
-Environment="CONFIG_SOURCE=kv"
+Environment="CONFIG_SOURCE=file"
 Environment="KV_ADDRESS=127.0.0.1:50057"
 Environment="KV_SEC_MODE=mtls"
 Environment="KV_CERT_DIR=/etc/serviceradar/certs"

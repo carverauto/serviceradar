@@ -343,7 +343,6 @@ For air-gapped environments:
 3. Set environment variables:
    ```bash
    export ONBOARDING_PACKAGE=/path/to/edge-package.tar.gz
-   export KV_ENDPOINT=your-kv-server:50057
    ```
 4. Start the service normally
 
@@ -377,7 +376,7 @@ See the [API Documentation](/api-reference) for complete details.
 
 ## Migration from Legacy Onboarding
 
-If you have existing deployments using the manual SPIRE/KV workflow:
+If you have existing deployments using the manual SPIRE workflow:
 
 1. Create new packages via the UI for each component
 2. Download and extract the bundles

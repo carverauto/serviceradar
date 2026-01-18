@@ -32,21 +32,15 @@ import (
 )
 
 var (
-	errTemplateDataEmpty          = errors.New("template data is empty")
-	errTemplateStorageUnavailable = errors.New("template storage unavailable")
-	errCoreAddressNotSet          = errors.New("CORE_ADDRESS environment variable not set")
-	errTemplateRegistration       = errors.New("failed to register template with core")
+	errTemplateDataEmpty    = errors.New("template data is empty")
+	errCoreAddressNotSet    = errors.New("CORE_ADDRESS environment variable not set")
+	errTemplateRegistration = errors.New("failed to register template with core")
 )
 
-const (
-	templatePublishTimeout      = 5 * time.Second
-	templatePublishRetryBackoff = 30 * time.Second
-)
+const templatePublishTimeout = 5 * time.Second
 
-// ServiceWithTemplateRegistration is a convenience function that combines Service() with template publishing.
-// Each service loads its configuration, then writes its embedded default template to the KV-backed template store
-// so that the Admin API (and other tooling) can seed missing configs without requiring the workload to contact
-// the core service directly.
+// ServiceWithTemplateRegistration is a convenience function that combines Service() with
+// template registration to core for tooling that needs default config templates.
 func ServiceWithTemplateRegistration(
 	ctx context.Context,
 	desc config.ServiceDescriptor,
@@ -60,120 +54,17 @@ func ServiceWithTemplateRegistration(
 	}
 
 	if len(templateData) > 0 {
-		if err := publishTemplateWithFallback(ctx, result.Manager(), desc, cfg, templateData, opts); err != nil {
+		if err := registerTemplateWithCore(ctx, desc, cfg, templateData, opts); err != nil {
 			if opts.Logger != nil {
 				opts.Logger.Warn().
 					Err(err).
 					Str("service", desc.Name).
-					Msg("failed to publish configuration template; service will continue")
+					Msg("failed to register configuration template; service will continue")
 			}
 		}
 	}
 
 	return result, nil
-}
-
-func publishTemplateWithFallback(ctx context.Context, manager *config.KVManager, desc config.ServiceDescriptor, cfg interface{}, templateData []byte, opts ServiceOptions) error {
-	if len(templateData) == 0 {
-		return errTemplateDataEmpty
-	}
-
-	var kvErr error
-	hasManager := manager != nil
-	if hasManager {
-		kvErr = persistTemplateToKV(ctx, manager, desc, templateData, opts.Logger)
-		if kvErr == nil {
-			return nil
-		}
-	} else {
-		kvErr = errTemplateStorageUnavailable
-	}
-
-	regErr := registerTemplateWithCore(ctx, desc, cfg, templateData, opts)
-	if regErr == nil {
-		return nil
-	}
-
-	if kvErr == nil || errors.Is(kvErr, errTemplateStorageUnavailable) {
-		return regErr
-	}
-
-	return fmt.Errorf("kv template publish failed: %w; core registration failed: %w", kvErr, regErr)
-}
-
-func persistTemplateToKV(ctx context.Context, manager *config.KVManager, desc config.ServiceDescriptor, templateData []byte, log logger.Logger) error {
-	if len(templateData) == 0 {
-		return errTemplateDataEmpty
-	}
-	if manager == nil {
-		return errTemplateStorageUnavailable
-	}
-
-	templateKey := config.TemplateStorageKey(desc)
-	if templateKey == "" {
-		return errTemplateStorageUnavailable
-	}
-
-	if log == nil {
-		log = logger.NewTestLogger()
-	}
-
-	publishOnce := func(ctx context.Context) error {
-		writeCtx, cancel := context.WithTimeout(ctx, templatePublishTimeout)
-		defer cancel()
-		return manager.Put(writeCtx, templateKey, templateData, 0)
-	}
-
-	if err := publishOnce(ctx); err != nil {
-		log.Warn().
-			Err(err).
-			Str("service", desc.Name).
-			Str("template_key", templateKey).
-			Msg("failed to publish configuration template; will retry in background")
-
-		go retryTemplatePublish(ctx, manager, templateKey, desc.Name, templateData, log)
-		return err
-	}
-
-	log.Debug().
-		Str("service", desc.Name).
-		Str("template_key", templateKey).
-		Msg("published configuration template to KV")
-	return nil
-}
-
-func retryTemplatePublish(
-	ctx context.Context,
-	manager *config.KVManager,
-	templateKey string,
-	serviceName string,
-	templateData []byte,
-	log logger.Logger,
-) {
-	ticker := time.NewTicker(templatePublishRetryBackoff)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := manager.Put(context.Background(), templateKey, templateData, 0); err != nil {
-				log.Warn().
-					Err(err).
-					Str("service", serviceName).
-					Str("template_key", templateKey).
-					Msg("retrying template publish failed")
-				continue
-			}
-
-			log.Info().
-				Str("service", serviceName).
-				Str("template_key", templateKey).
-				Msg("published configuration template to KV after retry")
-			return
-		}
-	}
 }
 
 func registerTemplateWithCore(ctx context.Context, desc config.ServiceDescriptor, _ interface{}, templateData []byte, opts ServiceOptions) error {
@@ -221,14 +112,18 @@ func registerTemplateWithCore(ctx context.Context, desc config.ServiceDescriptor
 	if err != nil {
 		return fmt.Errorf("%w: %w", errTemplateRegistration, err)
 	}
+
 	if !resp.GetSuccess() {
-		return fmt.Errorf("%w: %s", errTemplateRegistration, resp.GetMessage())
+		msg := strings.TrimSpace(resp.GetMessage())
+		if msg == "" {
+			msg = "core rejected template"
+		}
+		return fmt.Errorf("%w: %s", errTemplateRegistration, msg)
 	}
 
 	log.Debug().
 		Str("service", desc.Name).
-		Str("core_address", coreAddr).
-		Msg("published configuration template to core registry")
+		Msg("registered configuration template with core")
 
 	return nil
 }
