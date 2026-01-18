@@ -24,31 +24,23 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/registry"
 )
 
-// RegistryPublisher implements the Publisher interface using the device registry for devices
-// and direct database access for interfaces and topology (until registry supports them)
+// RegistryPublisher implements the Publisher interface using direct database access.
 type RegistryPublisher struct {
-	deviceRegistry registry.Manager
-	dbService      db.Service // TODO: Remove when registry handles interfaces/topology
-	config         *StreamConfig
+	dbService db.Service
+	config    *StreamConfig
 }
 
-// NewRegistryPublisher creates a new publisher backed by the registry and db service.
-func NewRegistryPublisher(deviceRegistry registry.Manager, dbService db.Service, config *StreamConfig) (Publisher, error) {
-	if deviceRegistry == nil {
-		return nil, ErrDeviceRegistryRequired
-	}
-
+// NewRegistryPublisher creates a new publisher backed by the db service.
+func NewRegistryPublisher(dbService db.Service, config *StreamConfig) (Publisher, error) {
 	if dbService == nil {
 		return nil, ErrDatabaseServiceRequired
 	}
 
 	return &RegistryPublisher{
-		deviceRegistry: deviceRegistry,
-		dbService:      dbService,
-		config:         config,
+		dbService: dbService,
+		config:    config,
 	}, nil
 }
 
@@ -116,13 +108,12 @@ func (p *RegistryPublisher) convertDiscoveredDeviceToUpdate(device *DiscoveredDe
 	}
 }
 
-// PublishDevice publishes a discovered device via the device registry
+// PublishDevice publishes a discovered device via the database service
 func (p *RegistryPublisher) PublishDevice(ctx context.Context, device *DiscoveredDevice) error {
 	update := p.convertDiscoveredDeviceToUpdate(device)
 
-	// Publish via the device registry
-	if err := p.deviceRegistry.ProcessDeviceUpdate(ctx, update); err != nil {
-		return fmt.Errorf("failed to publish device via registry: %w", err)
+	if err := p.dbService.PublishDeviceUpdate(ctx, update); err != nil {
+		return fmt.Errorf("failed to publish device update: %w", err)
 	}
 
 	return nil
@@ -222,7 +213,7 @@ func (p *RegistryPublisher) PublishTopologyLink(ctx context.Context, link *Topol
 	return nil
 }
 
-// PublishBatchDevices publishes multiple devices in a batch via the device registry
+// PublishBatchDevices publishes multiple devices in a batch via the database service
 func (p *RegistryPublisher) PublishBatchDevices(ctx context.Context, devices []*DiscoveredDevice) error {
 	if len(devices) == 0 {
 		return nil
@@ -234,9 +225,8 @@ func (p *RegistryPublisher) PublishBatchDevices(ctx context.Context, devices []*
 		updates[i] = p.convertDiscoveredDeviceToUpdate(device)
 	}
 
-	// Use the device registry batch method
-	if err := p.deviceRegistry.ProcessBatchDeviceUpdates(ctx, updates); err != nil {
-		return fmt.Errorf("failed to publish batch devices via registry: %w", err)
+	if err := p.dbService.PublishBatchDeviceUpdates(ctx, updates); err != nil {
+		return fmt.Errorf("failed to publish batch devices: %w", err)
 	}
 
 	return nil

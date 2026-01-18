@@ -52,7 +52,6 @@ const (
 	serviceRperf         = "rperf"
 	serviceRperfChecker  = "rperf-checker"
 	serviceSysmonChecker = "sysmon"
-	serviceSnmpChecker   = "snmp-checker"
 )
 
 // defaultServices returns the list of default components for certificate generation.
@@ -63,7 +62,6 @@ func defaultServices() []string {
 		serviceRperfChecker,
 		serviceSysmonChecker,
 		serviceDuskChecker,
-		serviceSnmpChecker,
 	}
 }
 
@@ -192,7 +190,6 @@ func getCertName(component string) string {
 		serviceRperf:         "rperf",
 		serviceRperfChecker:  "rperf-checker",
 		serviceSysmonChecker: "sysmon",
-		serviceSnmpChecker:   "snmp-checker",
 	}
 
 	if name, ok := certNames[component]; ok {

@@ -49,8 +49,6 @@
       {"identity": "CN=zen.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "spiffe://carverauto.dev/services/otel", "role": "writer"},
       {"identity": "CN=otel.serviceradar,O=ServiceRadar", "role": "writer"},
-      {"identity": "spiffe://carverauto.dev/services/snmp-checker", "role": "writer"},
-      {"identity": "CN=snmp-checker.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "spiffe://carverauto.dev/services/rperf-client", "role": "writer"},
       {"identity": "CN=rperf-client.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=web.serviceradar,O=ServiceRadar", "role": "reader"}
