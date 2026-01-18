@@ -136,10 +136,9 @@ defmodule ServiceRadarAgentGateway.Application do
          start_server: true,
          adapter_opts: build_adapter_opts(grpc_ssl_opts)}
 
-        # NOTE: AgentClient and TaskExecutor have been removed.
-        # In the new architecture, agents push status to the gateway.
+        # NOTE: Legacy polling modules (AgentClient, TaskExecutor) have been deleted.
+        # In the new push-only architecture, agents push status to the gateway.
         # The gateway never initiates connections to agents.
-        # See agent_client.ex and task_executor.ex for deprecation notices.
       ] ++ registration_children
 
     children = core_children ++ gateway_children
