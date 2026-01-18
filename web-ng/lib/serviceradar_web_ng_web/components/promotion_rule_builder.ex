@@ -541,18 +541,18 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
 
   defp build_form(params) do
     data = %{
-      name: params["name"] || "",
-      body_contains: params["body_contains"] || "",
-      body_contains_enabled: to_boolean(params["body_contains_enabled"], false),
-      severity_text: params["severity_text"] || "",
-      severity_enabled: to_boolean(params["severity_enabled"], false),
-      service_name: params["service_name"] || "",
-      service_name_enabled: to_boolean(params["service_name_enabled"], false),
-      attribute_key: params["attribute_key"] || "",
-      attribute_value: params["attribute_value"] || "",
-      attribute_enabled: to_boolean(params["attribute_enabled"], false),
-      auto_alert: to_boolean(params["auto_alert"], false),
-      parsed_attributes: params["parsed_attributes"] || %{}
+      "name" => params["name"] || "",
+      "body_contains" => params["body_contains"] || "",
+      "body_contains_enabled" => to_boolean(params["body_contains_enabled"], false),
+      "severity_text" => params["severity_text"] || "",
+      "severity_enabled" => to_boolean(params["severity_enabled"], false),
+      "service_name" => params["service_name"] || "",
+      "service_name_enabled" => to_boolean(params["service_name_enabled"], false),
+      "attribute_key" => params["attribute_key"] || "",
+      "attribute_value" => params["attribute_value"] || "",
+      "attribute_enabled" => to_boolean(params["attribute_enabled"], false),
+      "auto_alert" => to_boolean(params["auto_alert"], false),
+      "parsed_attributes" => params["parsed_attributes"] || %{}
     }
 
     to_form(data, as: :rule)
