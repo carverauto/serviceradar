@@ -16,8 +16,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   @impl true
   def handle_params(%{"log_id" => log_id}, _uri, socket) do
-    # Try log_id first, then fall back to checking if it matches any unique identifier
-    query = "in:logs log_id:\"#{escape_value(log_id)}\" limit:1"
+    # Use 'id' field (not 'log_id') to filter logs
+    query = "in:logs id:\"#{escape_value(log_id)}\" limit:1"
 
     {log, error} =
       case srql_module().query(query) do

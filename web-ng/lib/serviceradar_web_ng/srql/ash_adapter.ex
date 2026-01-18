@@ -57,6 +57,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   require Logger
   require Ash.Query
+  import Ash.Expr
 
   # ALL entities are routed through Ash - no exceptions
   @ash_entities ~w(
@@ -204,7 +205,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     }
   }
 
-  # Fields that should be ignored (don't exist in Ash resources)
+  # Fields that should be ignored globally (don't exist in any Ash resources)
   @ignored_fields MapSet.new([
                     # otel_trace_summaries doesn't have stats
                     "stats",
@@ -215,10 +216,21 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
                     # TimescaleDB aggregation fields not in Ash resources
                     "series",
                     "agg",
-                    "bucket",
-                    # SRQL uses uid but TimeseriesMetric doesn't have it
-                    "uid"
+                    "bucket"
                   ])
+
+  # Fields that should be ignored for specific entities only
+  @entity_ignored_fields %{
+    # TimeseriesMetric doesn't have uid field
+    "timeseries_metrics" => MapSet.new(["uid"]),
+    "snmp_metrics" => MapSet.new(["uid"]),
+    "rperf_metrics" => MapSet.new(["uid"]),
+    # cpu_metrics uses device_id, not uid
+    "cpu_metrics" => MapSet.new(["uid"]),
+    "memory_metrics" => MapSet.new(["uid"]),
+    "disk_metrics" => MapSet.new(["uid"]),
+    "process_metrics" => MapSet.new(["uid"])
+  }
 
   # Check if a field is an array type by introspecting the Ash resource
   # This is dynamic so we don't need to hardcode array field names
@@ -445,19 +457,26 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp apply_filter(query, _resource, _entity, _), do: query
 
   defp apply_filter_op(query, resource, entity, field, op, value) when is_binary(field) do
-    # Skip ignored fields
+    # Skip globally ignored fields
     if MapSet.member?(@ignored_fields, field) do
       query
     else
-      # Map SRQL field name to Ash attribute name
-      mapped_field = map_field(entity, field)
-      field_atom = String.to_existing_atom(mapped_field)
+      # Skip entity-specific ignored fields
+      entity_ignored = Map.get(@entity_ignored_fields, entity, MapSet.new())
 
-      # Use Ash resource introspection to detect array fields dynamically
-      if array_field?(resource, field_atom) do
-        apply_array_filter(query, field_atom, op, value)
+      if MapSet.member?(entity_ignored, field) do
+        query
       else
-        apply_scalar_filter(query, field_atom, op, value)
+        # Map SRQL field name to Ash attribute name
+        mapped_field = map_field(entity, field)
+        field_atom = String.to_existing_atom(mapped_field)
+
+        # Use Ash resource introspection to detect array fields dynamically
+        if array_field?(resource, field_atom) do
+          apply_array_filter(query, field_atom, op, value)
+        else
+          apply_scalar_filter(query, field_atom, op, value)
+        end
       end
     end
   rescue
@@ -467,22 +486,20 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   defp apply_filter_op(query, _, _, _, _, _), do: query
 
-  # Handle array field filters using array containment
+  # Handle array field filters using PostgreSQL array operators via fragments
   defp apply_array_filter(query, field_atom, op, value) do
-    # Convert scalar to list for array containment check
+    # Convert scalar to list
     values = if is_list(value), do: value, else: [value]
 
     case op do
       op when op in ["in", "eq", "contains", "like"] ->
-        # For arrays, check if array contains any of the values
-        # Uses Ash's has_any filter which translates to array && ARRAY[values]
-        Ash.Query.filter_input(query, %{field_atom => %{has_any: values}})
+        # Check if array contains any of the values using @> operator
+        # PostgreSQL: array_field @> ARRAY['value'] checks containment
+        Ash.Query.filter(query, expr(fragment("? @> ?::text[]", field(^field_atom), ^values)))
 
       op when op in ["not_in", "neq", "not_like"] ->
-        # Negated - array doesn't have any of the values
-        # Note: not_has_any might not exist, so we skip the filter
-        # TODO: Implement proper negation when Ash supports it
-        query
+        # Negated - array doesn't contain all the values
+        Ash.Query.filter(query, expr(not fragment("? @> ?::text[]", field(^field_atom), ^values)))
 
       _ ->
         query
@@ -555,22 +572,29 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp apply_sort(query, _entity, _), do: query
 
   defp apply_sort_field(query, entity, field, dir) when is_binary(field) do
-    # Skip ignored fields
+    # Skip globally ignored fields
     if MapSet.member?(@ignored_fields, field) do
       query
     else
-      # Map SRQL field name to Ash attribute name
-      mapped_field = map_field(entity, field)
-      field_atom = String.to_existing_atom(mapped_field)
+      # Skip entity-specific ignored fields
+      entity_ignored = Map.get(@entity_ignored_fields, entity, MapSet.new())
 
-      direction =
-        case dir do
-          d when d in ["asc", :asc] -> :asc
-          d when d in ["desc", :desc] -> :desc
-          _ -> :desc
-        end
+      if MapSet.member?(entity_ignored, field) do
+        query
+      else
+        # Map SRQL field name to Ash attribute name
+        mapped_field = map_field(entity, field)
+        field_atom = String.to_existing_atom(mapped_field)
 
-      Ash.Query.sort(query, [{field_atom, direction}])
+        direction =
+          case dir do
+            d when d in ["asc", :asc] -> :asc
+            d when d in ["desc", :desc] -> :desc
+            _ -> :desc
+          end
+
+        Ash.Query.sort(query, [{field_atom, direction}])
+      end
     end
   rescue
     # Field doesn't exist as atom, skip sort
@@ -644,10 +668,20 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     }
   end
 
+  # Ash internal fields that should never be exposed in SRQL responses
+  @ash_internal_fields MapSet.new([
+    :__meta__,
+    :__metadata__,
+    :__lateral_join_source__,
+    :__order__,
+    :aggregates,
+    :calculations
+  ])
+
   defp format_result(record, entity) when is_struct(record) do
     record
     |> Map.from_struct()
-    |> Map.drop([:__meta__, :__metadata__])
+    |> Map.reject(fn {k, _v} -> MapSet.member?(@ash_internal_fields, k) end)
     |> Enum.map(fn {k, v} ->
       field_name = Atom.to_string(k)
       # Optionally reverse map to SRQL field names for UI compatibility

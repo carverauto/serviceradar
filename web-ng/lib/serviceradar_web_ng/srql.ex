@@ -164,10 +164,11 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp convert_filter_op("eq"), do: "eq"
   defp convert_filter_op("not_eq"), do: "neq"
-  defp convert_filter_op("like"), do: "contains"
-  defp convert_filter_op("not_like"), do: "neq"
+  # Keep "like" as "like" so Ash adapter can strip % wildcards
+  defp convert_filter_op("like"), do: "like"
+  defp convert_filter_op("not_like"), do: "not_like"
   defp convert_filter_op("in"), do: "in"
-  defp convert_filter_op("not_in"), do: "neq"
+  defp convert_filter_op("not_in"), do: "not_in"
   defp convert_filter_op("gt"), do: "gt"
   defp convert_filter_op("gte"), do: "gte"
   defp convert_filter_op("lt"), do: "lt"
