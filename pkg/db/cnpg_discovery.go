@@ -20,27 +20,6 @@ func normalizeRawJSON(raw json.RawMessage) json.RawMessage {
 	return raw
 }
 
-const insertDiscoveredInterfaceSQL = `
-INSERT INTO discovered_interfaces (
-    timestamp,
-    agent_id,
-    gateway_id,
-    device_ip,
-    device_id,
-    if_index,
-    if_name,
-    if_descr,
-    if_alias,
-    if_speed,
-    if_phys_address,
-    ip_addresses,
-    if_admin_status,
-    if_oper_status,
-    metadata
-) VALUES (
-    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
-)`
-
 const insertTopologyEventSQL = `
 INSERT INTO topology_discovery_events (
     timestamp,
@@ -84,33 +63,6 @@ ON CONFLICT (uid) DO UPDATE SET
     )
   ),
   modified_time = NOW()`
-
-func (db *DB) cnpgInsertDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error {
-	if len(interfaces) == 0 || !db.useCNPGWrites() {
-		return nil
-	}
-
-	batch := &pgx.Batch{}
-	queued := 0
-
-	for _, iface := range interfaces {
-		args, err := buildDiscoveredInterfaceArgs(iface)
-		if err != nil {
-			db.logger.Warn().Err(err).
-				Str("device_ip", safeInterfaceIP(iface)).
-				Msg("skipping discovered interface")
-			continue
-		}
-		batch.Queue(insertDiscoveredInterfaceSQL, args...)
-		queued++
-	}
-
-	if queued == 0 {
-		return nil
-	}
-
-	return db.sendCNPG(ctx, batch, "discovered interfaces")
-}
 
 func (db *DB) cnpgInsertTopologyEvents(ctx context.Context, events []*models.TopologyDiscoveryEvent) error {
 	if len(events) == 0 || !db.useCNPGWrites() {
@@ -236,40 +188,6 @@ func discoveredInterfaceToOCSF(iface *models.DiscoveredInterface) models.OCSFNet
 	}
 }
 
-func buildDiscoveredInterfaceArgs(iface *models.DiscoveredInterface) ([]interface{}, error) {
-	if iface == nil {
-		return nil, ErrDiscoveredInterfaceNil
-	}
-
-	agentID := strings.TrimSpace(iface.AgentID)
-	gatewayID := strings.TrimSpace(iface.GatewayID)
-	deviceIP := strings.TrimSpace(iface.DeviceIP)
-
-	if agentID == "" || gatewayID == "" || deviceIP == "" {
-		return nil, ErrDiscoveredIdentifiersMissing
-	}
-
-	metadata := normalizeRawJSON(iface.Metadata)
-
-	return []interface{}{
-		sanitizeTimestamp(iface.Timestamp),
-		agentID,
-		gatewayID,
-		deviceIP,
-		strings.TrimSpace(iface.DeviceID),
-		iface.IfIndex,
-		strings.TrimSpace(iface.IfName),
-		strings.TrimSpace(iface.IfDescr),
-		strings.TrimSpace(iface.IfAlias),
-		iface.IfSpeed,
-		strings.TrimSpace(iface.IfPhysAddress),
-		iface.IPAddresses,
-		iface.IfAdminStatus,
-		iface.IfOperStatus,
-		metadata,
-	}, nil
-}
-
 func buildTopologyEventArgs(event *models.TopologyDiscoveryEvent) ([]interface{}, error) {
 	if event == nil {
 		return nil, ErrTopologyEventNil
@@ -306,13 +224,6 @@ func buildTopologyEventArgs(event *models.TopologyDiscoveryEvent) ([]interface{}
 		strings.TrimSpace(event.BGPSessionState),
 		metadata,
 	}, nil
-}
-
-func safeInterfaceIP(iface *models.DiscoveredInterface) string {
-	if iface == nil {
-		return ""
-	}
-	return strings.TrimSpace(iface.DeviceIP)
 }
 
 func safeTopologyIP(event *models.TopologyDiscoveryEvent) string {
