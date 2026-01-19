@@ -65,6 +65,7 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
       sweep_group_id: execution.sweep_group_id,
       agent_id: execution.agent_id,
       started_at: execution.started_at,
+      hosts_total: Map.get(execution, :hosts_total),
       config_version: execution.config_version
     }}
 

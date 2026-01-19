@@ -215,6 +215,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         type_id: 1,
         type: "Server",
         is_available: true,
+        is_managed: true,
+        is_trusted: true,
         discovery_sources: discovery_sources,
         first_seen_time: now,
         last_seen_time: now,
@@ -252,9 +254,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       %{
         agent_id: agent_id,
         is_available: true,
+        is_managed: true,
+        is_trusted: true,
         discovery_sources: new_sources,
-        last_seen_time: now,
-        modified_time: now
+        last_seen_time: now
       }
       |> maybe_put(:hostname, hostname)
       |> maybe_put(:ip, source_ip)
@@ -262,7 +265,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
     # DB connection's search_path determines the schema
     device
-    |> Ash.Changeset.for_update(:update, update_attrs)
+    |> Ash.Changeset.for_update(:gateway_sync, update_attrs)
     |> Ash.update(actor: actor)
     |> case do
       {:ok, _device} ->

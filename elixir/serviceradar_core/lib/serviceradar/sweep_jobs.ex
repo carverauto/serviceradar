@@ -18,16 +18,9 @@ defmodule ServiceRadar.SweepJobs do
 
   ## Device Targeting
 
-  Groups use a criteria DSL to target devices:
+  Groups use SRQL stored in `target_query` to target devices, for example:
 
-      %{
-        "discovery_sources" => %{"contains" => "armis"},
-        "device_class" => %{"eq" => "network"},
-        "type_id" => %{"in" => [9, 10, 12]},
-        "ip" => %{"in_cidr" => "10.0.0.0/8"}
-      }
-
-  See `ServiceRadar.SweepJobs.TargetCriteria` for the full DSL specification.
+      "in:devices discovery_sources:armis ip:10.0.0.0/8"
   """
 
   use Ash.Domain, extensions: [AshAdmin.Domain]

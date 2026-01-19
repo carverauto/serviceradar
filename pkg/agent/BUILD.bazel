@@ -19,6 +19,7 @@ go_library(
         "snmp_checker.go",
         "snmp_service.go",
         "sweep_config_gateway.go",
+        "sweep_results_limits.go",
         "sweep_service.go",
         "sysmon_service.go",
         "test_helpers.go",

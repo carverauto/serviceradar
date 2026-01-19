@@ -17,10 +17,8 @@ The system SHALL provide Ash resources and UI for creating sweep groups that com
 
 #### Scenario: Sweep group with tag-based targeting
 - **GIVEN** a sweep group configuration form
-- **WHEN** the user configures targeting with:
-  - tags has_any ["critical", "prod"]
-  - tags.env = "prod"
-- **THEN** the filter SHALL be saved as part of the sweep group
+- **WHEN** the user configures targeting with SRQL `tags:critical tags.env:prod`
+- **THEN** the SRQL query SHALL be saved as part of the sweep group
 - **AND** the query SHALL be evaluated at sweep execution time
 
 #### Scenario: Multiple sweep groups with different schedules
@@ -43,37 +41,34 @@ The system SHALL provide Ash resources and UI for creating sweep groups that com
 
 ### Requirement: Device Targeting DSL
 
-The system SHALL provide a flexible device targeting language for sweep groups based on device attributes.
+The system SHALL provide SRQL-based device targeting for sweep groups based on device attributes.
 
 #### Scenario: Target by tag key
 - **GIVEN** a sweep group targeting configuration
-- **WHEN** the user specifies `tags has_any ['critical']`
+- **WHEN** the user specifies SRQL `tags:critical`
 - **THEN** the sweep SHALL target all devices with the "critical" tag key
 
 #### Scenario: Target by tag key/value
 - **GIVEN** a sweep group targeting configuration
-- **WHEN** the user specifies `tags.env = 'prod'`
+- **WHEN** the user specifies SRQL `tags.env:prod`
 - **THEN** the sweep SHALL target devices with `tags.env` set to "prod"
 
 #### Scenario: Target by IP range
 - **GIVEN** a sweep group targeting configuration
-- **WHEN** the user specifies `ip in_cidr '10.0.0.0/8'`
+- **WHEN** the user specifies SRQL `ip:10.0.0.0/8`
 - **THEN** the sweep SHALL target devices with IPs in the 10.x.x.x range
 
 #### Scenario: Target by static targets
 - **GIVEN** a sweep group targeting configuration
 - **WHEN** the user provides static targets `["10.0.0.10", "10.0.2.0/24"]`
 - **THEN** the sweep SHALL always include those targets
-- **AND** merge them with tag-based criteria results
+- **AND** merge them with SRQL query results
 
-#### Scenario: Combined targeting criteria
-- **GIVEN** a sweep group with multiple targeting criteria
-- **WHEN** the criteria are:
-  - tags has_any ['critical', 'prod']
-  - ip in_cidr '10.0.0.0/8'
-  - partition = 'datacenter-1'
-- **THEN** the criteria SHALL support boolean grouping (all/any)
-- **AND** only devices matching the configured logic SHALL be targeted
+#### Scenario: Combined targeting clauses
+- **GIVEN** a sweep group with multiple targeting clauses
+- **WHEN** the SRQL query is `tags:critical tags.env:prod ip:10.0.0.0/8 partition:datacenter-1`
+- **THEN** the clauses SHALL be combined with implicit AND logic
+- **AND** only devices matching the configured query SHALL be targeted
 
 ---
 
@@ -108,7 +103,7 @@ The system SHALL provide Ash resources for defining sweep jobs that target speci
 
 #### Scenario: Create sweep job by device query
 - **GIVEN** an admin in Settings > Networks
-- **WHEN** they create a sweep job with device query criteria
+- **WHEN** they create a sweep job with an SRQL device query
 - **THEN** they SHALL be able to filter by:
   - Tag keys and optional tag values
   - Static targets (IPs/CIDRs/ranges)
@@ -258,4 +253,3 @@ The system SHALL display sweep status details in the device detail view.
 - **WHEN** viewing the device details
 - **THEN** the sweep status SHALL be displayed
 - **AND** include last sweep time, availability status, and open ports
-

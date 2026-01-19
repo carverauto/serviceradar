@@ -43,6 +43,10 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
       index [:execution_id],
         name: "sweep_host_results_execution_idx"
 
+      index [:execution_id, :ip],
+        unique: true,
+        name: "sweep_host_results_execution_ip_uidx"
+
       index [:ip],
         name: "sweep_host_results_ip_idx"
 
@@ -115,7 +119,7 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
     end
 
     read :recent_for_device do
-      argument :device_id, :uuid, allow_nil?: false
+      argument :device_id, :string, allow_nil?: false
       argument :limit, :integer, default: 10
 
       filter expr(device_id == ^arg(:device_id))
@@ -203,10 +207,10 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
       description "The sweep execution this result belongs to"
     end
 
-    attribute :device_id, :uuid do
+    attribute :device_id, :string do
       allow_nil? true
       public? true
-      description "Associated device ID (if matched to inventory)"
+      description "Associated device UID (if matched to inventory)"
     end
 
     create_timestamp :inserted_at

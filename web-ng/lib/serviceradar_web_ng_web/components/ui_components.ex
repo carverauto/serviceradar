@@ -99,10 +99,10 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   end
 
   attr :class, :any, default: nil
+  attr :rule_id, :any, default: nil
 
   attr :rest, :global,
-    include: ~w(name value disabled phx-change phx-target phx-debounce phx-throttle phx-value-id
-                phx-value-field)
+    include: ~w(name value form disabled phx-change phx-target phx-debounce phx-throttle)
 
   slot :inner_block, required: true
 
@@ -110,6 +110,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     ~H"""
     <select
       class={["bg-transparent text-sm font-medium outline-none disabled:opacity-60", @class]}
+      phx-value-id={@rule_id}
       {@rest}
     >
       {render_slot(@inner_block)}
@@ -118,15 +119,18 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   end
 
   attr :class, :any, default: nil
+  attr :rule_id, :any, default: nil
 
   attr :rest, :global,
-    include: ~w(name value type placeholder disabled min max step phx-change phx-blur phx-target
-                phx-debounce phx-throttle phx-value-id phx-value-field)
+    include:
+      ~w(name value form type placeholder disabled min max step phx-change phx-blur phx-target
+                phx-debounce phx-throttle)
 
   def ui_inline_input(assigns) do
     ~H"""
     <input
       class={["bg-transparent text-sm font-medium outline-none disabled:opacity-60", @class]}
+      phx-value-id={@rule_id}
       {@rest}
     />
     """

@@ -43,18 +43,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert html =~ profile.name
   end
 
-  test "renders new sweep group form and adds a rule", %{conn: conn} do
+  test "renders new sweep group form with SRQL targeting", %{conn: conn} do
     {:ok, lv, html} = live(conn, ~p"/settings/networks/groups/new")
 
     assert html =~ "New Sweep Group"
-    assert html =~ "Targeting Rules"
+    assert html =~ "Target Query (SRQL)"
 
     html =
       lv
-      |> element("button", "Add Tag")
+      |> element("button[aria-label='Toggle query builder']")
       |> render_click()
 
-    assert html =~ "Rule"
+    assert html =~ "Query Builder"
   end
 
   test "renders new scanner profile form", %{conn: conn} do

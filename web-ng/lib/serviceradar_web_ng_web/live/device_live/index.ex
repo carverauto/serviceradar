@@ -720,17 +720,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       />
                     </td>
                     <td class="text-sm max-w-[18rem] truncate">
-                      <.link
-                        :if={is_binary(device_uid)}
-                        navigate={~p"/devices/#{device_uid}"}
-                        class="link link-hover"
-                        title={"UID: #{device_uid}"}
-                      >
-                        {Map.get(row, "hostname") || device_uid}
-                      </.link>
-                      <span :if={not is_binary(device_uid)}>
-                        {Map.get(row, "hostname") || "—"}
-                      </span>
+                      <div class="flex items-center gap-2 min-w-0">
+                        <.icon
+                          :if={agent_device_row?(row)}
+                          name="hero-bolt"
+                          class="size-3 text-accent"
+                          title="Agent device"
+                        />
+                        <.link
+                          :if={is_binary(device_uid)}
+                          navigate={~p"/devices/#{device_uid}"}
+                          class="link link-hover truncate"
+                          title={"UID: #{device_uid}"}
+                        >
+                          {Map.get(row, "hostname") || device_uid}
+                        </.link>
+                        <span :if={not is_binary(device_uid)} class="truncate">
+                          {Map.get(row, "hostname") || "—"}
+                        </span>
+                      </div>
                     </td>
                     <td class="font-mono text-xs">{Map.get(row, "ip") || "—"}</td>
                     <td class="text-xs">
@@ -1979,6 +1987,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp latency_ms(_), do: 0.0
+
+  defp agent_device_row?(row) when is_map(row) do
+    agent_id = Map.get(row, "agent_id")
+    sources = Map.get(row, "discovery_sources") || []
+    agent_list = Map.get(row, "agent_list") || []
+
+    (is_binary(agent_id) and agent_id != "") or
+      (is_list(agent_list) and agent_list != []) or
+      Enum.any?(sources, &(&1 == "agent"))
+  end
+
+  defp agent_device_row?(_), do: false
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
