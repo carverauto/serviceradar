@@ -21,6 +21,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     SweepPubSub
   }
 
+  alias ServiceRadar.NetworkDiscovery.{
+    MapperJob,
+    MapperSeed,
+    MapperSNMPCredential,
+    MapperUnifiController
+  }
+
   @refresh_interval :timer.seconds(15)
 
   alias ServiceRadarWebNGWeb.SRQL.Catalog
@@ -40,6 +47,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     socket =
       socket
       |> assign(:page_title, "Network Sweeps")
+      |> assign(:current_path, "/settings/networks")
       |> assign(:active_tab, :groups)
       |> assign(:sweep_groups, load_sweep_groups(scope))
       |> assign(:sweep_profiles, load_sweep_profiles(scope))
@@ -56,6 +64,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:builder_open, false)
       |> assign(:builder, default_builder_state())
       |> assign(:builder_sync, true)
+      |> assign(:show_mapper_form, nil)
+      |> assign(:mapper_jobs, load_mapper_jobs(scope))
+      |> assign(:mapper_job, nil)
+      |> assign(:mapper_form, nil)
+      |> assign(:mapper_seeds_text, "")
+      |> assign(:mapper_snmp_form, nil)
+      |> assign(:mapper_snmp_present, %{})
+      |> assign(:mapper_unifi_form, nil)
+      |> assign(:mapper_unifi_present, false)
 
     {:ok, socket}
   end
@@ -68,6 +85,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp apply_action(socket, :index, _params) do
     socket
     |> assign(:page_title, "Network Sweeps")
+    |> assign(:current_path, "/settings/networks")
     |> assign(:show_form, nil)
     |> assign(:ash_form, nil)
     |> assign(:selected_group, nil)
@@ -80,6 +98,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
     socket
     |> assign(:page_title, "New Sweep Group")
+    |> assign(:current_path, "/settings/networks")
     |> assign(:show_form, :new_group)
     |> assign(:ash_form, ash_form)
     |> assign(:form, to_form(ash_form))
@@ -106,6 +125,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
         socket
         |> assign(:page_title, "Edit Sweep Group")
+        |> assign(:current_path, "/settings/networks")
         |> assign(:show_form, :edit_group)
         |> assign(:selected_group, group)
         |> assign(:ash_form, ash_form)
@@ -114,6 +134,76 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:builder_open, false)
         |> assign(:builder, builder)
         |> assign(:builder_sync, builder_sync)
+    end
+  end
+
+  defp apply_action(socket, :discovery, _params) do
+    socket
+    |> assign(:page_title, "Discovery Jobs")
+    |> assign(:current_path, "/settings/networks/discovery")
+    |> assign(:show_form, nil)
+    |> assign(:show_mapper_form, nil)
+    |> assign(:mapper_job, nil)
+    |> assign(:mapper_form, nil)
+    |> assign(:mapper_seeds_text, "")
+    |> assign(:mapper_snmp_form, nil)
+    |> assign(:mapper_unifi_form, nil)
+  end
+
+  defp apply_action(socket, :new_mapper_job, _params) do
+    defaults = %{
+      "name" => "",
+      "description" => "",
+      "enabled" => true,
+      "interval" => "2h",
+      "partition" => "default",
+      "agent_id" => "",
+      "discovery_mode" => "snmp",
+      "discovery_type" => "full",
+      "concurrency" => 10,
+      "timeout" => "45s",
+      "retries" => 2
+    }
+
+    socket
+    |> assign(:page_title, "New Discovery Job")
+    |> assign(:current_path, "/settings/networks/discovery")
+    |> assign(:show_form, nil)
+    |> assign(:show_mapper_form, :new_mapper_job)
+    |> assign(:mapper_job, nil)
+    |> assign(:mapper_form, to_form(defaults, as: :mapper_job))
+    |> assign(:mapper_seeds_text, "")
+    |> assign(:mapper_snmp_form, to_form(%{"version" => "v2c"}, as: :snmp))
+    |> assign(:mapper_snmp_present, %{})
+    |> assign(:mapper_unifi_form, to_form(%{}, as: :unifi))
+    |> assign(:mapper_unifi_present, false)
+  end
+
+  defp apply_action(socket, :edit_mapper_job, %{"id" => id}) do
+    scope = socket.assigns.current_scope
+
+    case load_mapper_job(scope, id) do
+      nil ->
+        socket
+        |> put_flash(:error, "Discovery job not found")
+        |> push_navigate(to: ~p"/settings/networks/discovery")
+
+      job ->
+        {snmp_form, snmp_present} = mapper_snmp_form(job.snmp_credential)
+        {unifi_form, unifi_present} = mapper_unifi_form(job.unifi_controllers)
+
+        socket
+        |> assign(:page_title, "Edit Discovery Job")
+        |> assign(:current_path, "/settings/networks/discovery")
+        |> assign(:show_form, nil)
+        |> assign(:show_mapper_form, :edit_mapper_job)
+        |> assign(:mapper_job, job)
+        |> assign(:mapper_form, to_form(mapper_job_to_form(job), as: :mapper_job))
+        |> assign(:mapper_seeds_text, seeds_to_text(job.seeds || []))
+        |> assign(:mapper_snmp_form, snmp_form)
+        |> assign(:mapper_snmp_present, snmp_present)
+        |> assign(:mapper_unifi_form, unifi_form)
+        |> assign(:mapper_unifi_present, unifi_present)
     end
   end
 
@@ -127,6 +217,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       group ->
         socket
         |> assign(:page_title, group.name)
+        |> assign(:current_path, "/settings/networks")
         |> assign(:show_form, :show_group)
         |> assign(:selected_group, group)
     end
@@ -140,6 +231,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
     socket
     |> assign(:page_title, "New Scanner Profile")
+    |> assign(:current_path, "/settings/networks")
     |> assign(:show_form, :new_profile)
     |> assign(:ash_form, ash_form)
     |> assign(:form, to_form(ash_form))
@@ -158,6 +250,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
         socket
         |> assign(:page_title, "Edit Scanner Profile")
+        |> assign(:current_path, "/settings/networks")
         |> assign(:show_form, :edit_profile)
         |> assign(:selected_profile, profile)
         |> assign(:ash_form, ash_form)
@@ -221,6 +314,74 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Failed to delete sweep group")}
         end
+    end
+  end
+
+  def handle_event("toggle_mapper_job", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, job} <- fetch_mapper_job(scope, id),
+         {:ok, _updated} <-
+           Ash.update(job, %{enabled: not job.enabled}, action: :update, scope: scope) do
+      message = if job.enabled, do: "Discovery job disabled", else: "Discovery job enabled"
+
+      {:noreply,
+       socket
+       |> assign(:mapper_jobs, load_mapper_jobs(scope))
+       |> put_flash(:info, message)}
+    else
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "Discovery job not found")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to update discovery job")}
+    end
+  end
+
+  def handle_event("delete_mapper_job", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, job} <- fetch_mapper_job(scope, id),
+         :ok <- Ash.destroy(job, scope: scope) do
+      {:noreply,
+       socket
+       |> assign(:mapper_jobs, load_mapper_jobs(scope))
+       |> put_flash(:info, "Discovery job deleted")}
+    else
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "Discovery job not found")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to delete discovery job")}
+    end
+  end
+
+  def handle_event("save_mapper_job", params, socket) do
+    scope = socket.assigns.current_scope
+    job_params = normalize_mapper_job_params(Map.get(params, "mapper_job", %{}))
+    seeds = parse_seeds_text(Map.get(params, "seeds", ""))
+    snmp_params = normalize_snmp_params(Map.get(params, "snmp", %{}))
+    unifi_params = normalize_unifi_params(Map.get(params, "unifi", %{}))
+
+    case save_mapper_job(
+           socket.assigns.mapper_job,
+           job_params,
+           seeds,
+           snmp_params,
+           unifi_params,
+           scope
+         ) do
+      {:ok, _job} ->
+        {:noreply,
+         socket
+         |> assign(:mapper_jobs, load_mapper_jobs(scope))
+         |> put_flash(:info, "Discovery job saved")
+         |> push_navigate(to: ~p"/settings/networks/discovery")}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to save discovery job: #{format_error(reason)}")}
     end
   end
 
@@ -392,7 +553,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       else
         assign(socket, :builder_open, false)
       end
-
     {:noreply, socket}
   end
 
@@ -612,9 +772,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path="/settings/networks">
-        <.settings_nav current_path="/settings/networks" />
-        <.network_nav current_path="/settings/networks" />
+      <.settings_shell current_path={@current_path}>
+        <.settings_nav current_path={@current_path} />
+        <.network_nav current_path={@current_path} />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -625,42 +785,55 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           </div>
         </div>
 
-        <%= if @show_form in [:new_group, :edit_group] do %>
-          <.group_form
-            form={@form}
-            show_form={@show_form}
-            profiles={@sweep_profiles}
-            target_device_count={@target_device_count}
-            builder_open={@builder_open}
-            builder_sync={@builder_sync}
-            builder={@builder}
+        <%= if @live_action in [:discovery, :new_mapper_job, :edit_mapper_job] do %>
+          <.discovery_panel
+            jobs={@mapper_jobs}
+            show_form={@show_mapper_form}
+            form={@mapper_form}
+            seeds_text={@mapper_seeds_text}
+            snmp_form={@mapper_snmp_form}
+            snmp_present={@mapper_snmp_present}
+            unifi_form={@mapper_unifi_form}
+            unifi_present={@mapper_unifi_present}
           />
         <% else %>
-          <%= if @show_form in [:new_profile, :edit_profile] do %>
-            <.profile_form form={@form} show_form={@show_form} />
+          <%= if @show_form in [:new_group, :edit_group] do %>
+            <.group_form
+              form={@form}
+              show_form={@show_form}
+              profiles={@sweep_profiles}
+              target_device_count={@target_device_count}
+              builder_open={@builder_open}
+              builder_sync={@builder_sync}
+              builder={@builder}
+            />
           <% else %>
-            <%= if @show_form == :show_group do %>
-              <.group_detail group={@selected_group} />
+            <%= if @show_form in [:new_profile, :edit_profile] do %>
+              <.profile_form form={@form} show_form={@show_form} />
             <% else %>
-              <.tab_navigation
-                active_tab={@active_tab}
-                running_count={
-                  length(merge_running_with_progress(@running_executions, @execution_progress))
-                }
-              />
+              <%= if @show_form == :show_group do %>
+                <.group_detail group={@selected_group} />
+              <% else %>
+                <.tab_navigation
+                  active_tab={@active_tab}
+                  running_count={
+                    length(merge_running_with_progress(@running_executions, @execution_progress))
+                  }
+                />
 
-              <%= case @active_tab do %>
-                <% :groups -> %>
-                  <.sweep_groups_panel groups={@sweep_groups} />
-                <% :profiles -> %>
-                  <.profiles_panel profiles={@sweep_profiles} />
-                <% :active_scans -> %>
-                  <.active_scans_panel
-                    running={merge_running_with_progress(@running_executions, @execution_progress)}
-                    recent={@recent_executions}
-                    groups={@sweep_groups}
-                    execution_progress={@execution_progress}
-                  />
+                <%= case @active_tab do %>
+                  <% :groups -> %>
+                    <.sweep_groups_panel groups={@sweep_groups} />
+                  <% :profiles -> %>
+                    <.profiles_panel profiles={@sweep_profiles} />
+                  <% :active_scans -> %>
+                    <.active_scans_panel
+                      running={merge_running_with_progress(@running_executions, @execution_progress)}
+                      recent={@recent_executions}
+                      groups={@sweep_groups}
+                      execution_progress={@execution_progress}
+                    />
+                <% end %>
               <% end %>
             <% end %>
           <% end %>
@@ -708,6 +881,263 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         </span>
       </button>
     </div>
+    """
+  end
+
+  # Discovery Jobs Panel
+  attr :jobs, :list, required: true
+  attr :show_form, :any, default: nil
+  attr :form, :any, default: nil
+  attr :seeds_text, :string, default: ""
+  attr :snmp_form, :any, default: nil
+  attr :snmp_present, :map, default: %{}
+  attr :unifi_form, :any, default: nil
+  attr :unifi_present, :boolean, default: false
+
+  defp discovery_panel(assigns) do
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div class="flex items-center justify-between w-full">
+          <div>
+            <div class="text-sm font-semibold">Discovery Jobs</div>
+            <p class="text-xs text-base-content/60">
+              {length(@jobs)} job(s) configured
+            </p>
+          </div>
+          <%= if @show_form in [:new_mapper_job, :edit_mapper_job] do %>
+            <.link navigate={~p"/settings/networks/discovery"}>
+              <.ui_button variant="ghost" size="sm">Cancel</.ui_button>
+            </.link>
+          <% else %>
+            <.link navigate={~p"/settings/networks/discovery/new"}>
+              <.ui_button variant="primary" size="sm">
+                <.icon name="hero-plus" class="size-4" /> New Job
+              </.ui_button>
+            </.link>
+          <% end %>
+        </div>
+      </:header>
+
+      <%= if @show_form in [:new_mapper_job, :edit_mapper_job] do %>
+        <.mapper_job_form
+          form={@form}
+          seeds_text={@seeds_text}
+          snmp_form={@snmp_form}
+          snmp_present={@snmp_present}
+          unifi_form={@unifi_form}
+          unifi_present={@unifi_present}
+        />
+      <% else %>
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                <th>Status</th>
+                <th>Name</th>
+                <th>Interval</th>
+                <th>Type</th>
+                <th>Partition</th>
+                <th>Last Run</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :if={@jobs == []}>
+                <td colspan="7" class="text-center text-base-content/60 py-8">
+                  No discovery jobs configured. Create one to start mapper discovery.
+                </td>
+              </tr>
+              <%= for job <- @jobs do %>
+                <tr class="hover:bg-base-200/40">
+                  <td>
+                    <button
+                      phx-click="toggle_mapper_job"
+                      phx-value-id={job.id}
+                      class="flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <span class={"size-2 rounded-full #{if job.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                      </span>
+                      <span class="text-xs">{if job.enabled, do: "Enabled", else: "Disabled"}</span>
+                    </button>
+                  </td>
+                  <td>
+                    <div class="font-medium">{job.name}</div>
+                    <p :if={job.description} class="text-xs text-base-content/60 truncate max-w-xs">
+                      {job.description}
+                    </p>
+                  </td>
+                  <td class="text-xs font-mono">Every {job.interval}</td>
+                  <td class="text-xs capitalize">{job.discovery_type}</td>
+                  <td class="text-xs">{job.partition}</td>
+                  <td class="text-xs text-base-content/60">{format_last_run(job.last_run_at)}</td>
+                  <td>
+                    <div class="flex items-center gap-1">
+                      <.link navigate={~p"/settings/networks/discovery/#{job.id}/edit"}>
+                        <.ui_button variant="ghost" size="xs">
+                          <.icon name="hero-pencil" class="size-3" />
+                        </.ui_button>
+                      </.link>
+                      <.ui_button
+                        variant="ghost"
+                        size="xs"
+                        phx-click="delete_mapper_job"
+                        phx-value-id={job.id}
+                        data-confirm="Are you sure you want to delete this discovery job?"
+                      >
+                        <.icon name="hero-trash" class="size-3" />
+                      </.ui_button>
+                    </div>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      <% end %>
+    </.ui_panel>
+    """
+  end
+
+  attr :form, :any, required: true
+  attr :seeds_text, :string, default: ""
+  attr :snmp_form, :any, required: true
+  attr :snmp_present, :map, default: %{}
+  attr :unifi_form, :any, required: true
+  attr :unifi_present, :boolean, default: false
+
+  defp mapper_job_form(assigns) do
+    ~H"""
+    <.form for={@form} id="mapper-job-form" phx-submit="save_mapper_job" class="space-y-6">
+      <div class="grid gap-4 md:grid-cols-2">
+        <.input field={@form[:name]} type="text" label="Job Name" required />
+        <.input field={@form[:enabled]} type="checkbox" label="Enabled" />
+        <.input field={@form[:description]} type="text" label="Description" />
+        <.input field={@form[:interval]} type="text" label="Interval (e.g. 15m, 2h)" required />
+        <.input field={@form[:partition]} type="text" label="Partition" required />
+        <.input field={@form[:agent_id]} type="text" label="Agent ID (optional)" />
+        <.input
+          field={@form[:discovery_mode]}
+          type="select"
+          label="Discovery Mode"
+          options={[{"SNMP", "snmp"}, {"API", "api"}]}
+        />
+        <.input
+          field={@form[:discovery_type]}
+          type="select"
+          label="Discovery Type"
+          options={[
+            {"Full", "full"},
+            {"Basic", "basic"},
+            {"Interfaces", "interfaces"},
+            {"Topology", "topology"}
+          ]}
+        />
+        <.input field={@form[:concurrency]} type="number" label="Concurrency" />
+        <.input field={@form[:timeout]} type="text" label="Timeout (e.g. 30s)" />
+        <.input field={@form[:retries]} type="number" label="Retries" />
+      </div>
+
+      <div>
+        <label class="text-sm font-medium text-base-content">Seed Targets</label>
+        <.input
+          name="seeds"
+          type="textarea"
+          value={@seeds_text}
+          label="Seeds (one per line or comma-separated)"
+          placeholder="10.0.0.0/24\n10.0.1.10\nhost.example.com"
+        />
+      </div>
+
+      <div class="rounded-xl border border-base-200 p-4 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-semibold">SNMP Credentials</h3>
+            <p class="text-xs text-base-content/60">Stored secrets are masked unless replaced.</p>
+          </div>
+          <span class="text-xs text-base-content/60">
+            <%= if map_secret_present?(@snmp_present) do %>
+              Secrets stored
+            <% else %>
+              No secrets saved
+            <% end %>
+          </span>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2">
+          <.input
+            field={@snmp_form[:version]}
+            type="select"
+            label="SNMP Version"
+            options={[{"v1", "v1"}, {"v2c", "v2c"}, {"v3", "v3"}]}
+          />
+          <.input field={@snmp_form[:name]} type="text" label="Credential Name" />
+          <.input
+            field={@snmp_form[:community]}
+            type="password"
+            label="Community"
+            placeholder={secret_placeholder(@snmp_present, "community")}
+          />
+          <.input field={@snmp_form[:username]} type="text" label="Username" />
+          <.input field={@snmp_form[:auth_protocol]} type="text" label="Auth Protocol" />
+          <.input
+            field={@snmp_form[:auth_password]}
+            type="password"
+            label="Auth Password"
+            placeholder={secret_placeholder(@snmp_present, "auth_password")}
+          />
+          <.input field={@snmp_form[:privacy_protocol]} type="text" label="Privacy Protocol" />
+          <.input
+            field={@snmp_form[:privacy_password]}
+            type="password"
+            label="Privacy Password"
+            placeholder={secret_placeholder(@snmp_present, "privacy_password")}
+          />
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-base-200 p-4 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-semibold">UniFi Controller</h3>
+            <p class="text-xs text-base-content/60">Optional API discovery integration.</p>
+          </div>
+          <span class="text-xs text-base-content/60">
+            <%= if @unifi_present do %>
+              API key stored
+            <% else %>
+              No API key saved
+            <% end %>
+          </span>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2">
+          <.input field={@unifi_form[:name]} type="text" label="Controller Name" />
+          <.input
+            field={@unifi_form[:base_url]}
+            type="text"
+            label="Base URL"
+            placeholder="https://controller:8443"
+          />
+          <.input
+            field={@unifi_form[:api_key]}
+            type="password"
+            label="API Key"
+            placeholder={if(@unifi_present, do: "stored", else: "optional")}
+          />
+          <.input
+            field={@unifi_form[:insecure_skip_verify]}
+            type="checkbox"
+            label="Skip TLS Verification"
+          />
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <.ui_button type="submit" variant="primary">Save Discovery Job</.ui_button>
+        <.link navigate={~p"/settings/networks/discovery"}>
+          <.ui_button variant="ghost">Cancel</.ui_button>
+        </.link>
+      </div>
+    </.form>
     """
   end
 
@@ -1258,7 +1688,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
             <span>
-              of {if(is_number(@hosts_total) and @hosts_total > 0, do: @hosts_total, else: "—")} hosts
+              of {if(is_number(@hosts_total) and @hosts_total > 0, do: @hosts_total, else: @hosts_processed)} hosts
             </span>
           </div>
           <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
@@ -2070,6 +2500,47 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
+  defp load_mapper_jobs(scope) do
+    query =
+      MapperJob
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.load([
+        :seeds,
+        :snmp_credential,
+        :unifi_controllers,
+        snmp_credential: [:secrets_present],
+        unifi_controllers: [:api_key_present]
+      ])
+
+    case Ash.read(query, scope: scope) do
+      {:ok, jobs} -> jobs
+      {:error, _} -> []
+    end
+  end
+
+  defp load_mapper_job(scope, id) do
+    case Ash.get(MapperJob, id, scope: scope) do
+      {:ok, job} ->
+        case Ash.load(
+               job,
+               [
+                 :seeds,
+                 :snmp_credential,
+                 :unifi_controllers,
+                 snmp_credential: [:secrets_present],
+                 unifi_controllers: [:api_key_present]
+               ],
+               scope: scope
+             ) do
+          {:ok, loaded} -> loaded
+          {:error, _} -> job
+        end
+
+      {:error, _} ->
+        nil
+    end
+  end
+
   defp load_running_executions(scope) do
     case Ash.read(SweepGroupExecution, action: :running, scope: scope) do
       {:ok, executions} -> executions
@@ -2146,7 +2617,248 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       Map.get(execution, :started_at) ||
       DateTime.from_unix!(0)
   end
+  defp mapper_job_to_form(job) do
+    %{
+      "name" => job.name,
+      "description" => job.description || "",
+      "enabled" => job.enabled,
+      "interval" => job.interval,
+      "partition" => job.partition,
+      "agent_id" => job.agent_id || "",
+      "discovery_mode" => to_string(job.discovery_mode),
+      "discovery_type" => to_string(job.discovery_type),
+      "concurrency" => job.concurrency,
+      "timeout" => job.timeout,
+      "retries" => job.retries
+    }
+  end
 
+  defp mapper_snmp_form(nil), do: {to_form(%{"version" => "v2c"}, as: :snmp), %{}}
+
+  defp mapper_snmp_form(credential) do
+    form = %{
+      "name" => credential.name || "",
+      "version" => to_string(credential.version),
+      "username" => credential.username || "",
+      "auth_protocol" => credential.auth_protocol || "",
+      "privacy_protocol" => credential.privacy_protocol || ""
+    }
+
+    secrets_present = credential.secrets_present || %{}
+    {to_form(form, as: :snmp), secrets_present}
+  end
+
+  defp mapper_unifi_form([]), do: {to_form(%{}, as: :unifi), false}
+
+  defp mapper_unifi_form([controller | _]) do
+    form = %{
+      "name" => controller.name || "",
+      "base_url" => controller.base_url || "",
+      "insecure_skip_verify" => controller.insecure_skip_verify || false
+    }
+
+    {to_form(form, as: :unifi), controller.api_key_present || false}
+  end
+
+  defp seeds_to_text(seeds) do
+    Enum.map_join(seeds, "\n", & &1.seed)
+  end
+
+  defp parse_seeds_text(text) do
+    text
+    |> String.split(~r/[\n,]+/, trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp normalize_mapper_job_params(params) do
+    params
+    |> normalize_boolean("enabled")
+    |> normalize_integer("concurrency")
+    |> normalize_integer("retries")
+  end
+
+  defp normalize_snmp_params(params) do
+    params
+    |> drop_blank(~w(community auth_password privacy_password))
+  end
+
+  defp normalize_unifi_params(params) do
+    params
+    |> normalize_boolean("insecure_skip_verify")
+    |> drop_blank(~w(api_key))
+  end
+
+  defp normalize_boolean(params, key) do
+    case Map.get(params, key) do
+      "true" -> Map.put(params, key, true)
+      "false" -> Map.put(params, key, false)
+      true -> params
+      false -> params
+      _ -> params
+    end
+  end
+
+  defp normalize_integer(params, key) do
+    case Map.get(params, key) do
+      value when is_integer(value) ->
+        params
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, _} -> Map.put(params, key, parsed)
+          :error -> Map.delete(params, key)
+        end
+
+      _ ->
+        params
+    end
+  end
+
+  defp drop_blank(params, keys) do
+    Enum.reduce(keys, params, fn key, acc ->
+      case Map.get(acc, key) do
+        nil -> acc
+        "" -> Map.delete(acc, key)
+        _ -> acc
+      end
+    end)
+  end
+
+  defp snmp_params_present?(params) do
+    Enum.any?(
+      ~w(community username auth_protocol auth_password privacy_protocol privacy_password name),
+      fn key ->
+        value = Map.get(params, key)
+        is_binary(value) and String.trim(value) != ""
+      end
+    )
+  end
+
+  defp save_mapper_job(job, job_params, seeds, snmp_params, unifi_params, scope) do
+    with {:ok, job} <- upsert_mapper_job(job, job_params, scope),
+         :ok <- replace_mapper_seeds(job, seeds, scope),
+         :ok <- upsert_snmp_credential(job, snmp_params, scope),
+         :ok <- upsert_unifi_controller(job, unifi_params, scope) do
+      {:ok, job}
+    end
+  end
+
+  defp upsert_mapper_job(nil, params, scope) do
+    MapperJob
+    |> Ash.Changeset.for_create(:create, params)
+    |> Ash.create(scope: scope)
+  end
+
+  defp upsert_mapper_job(job, params, scope) do
+    job
+    |> Ash.Changeset.for_update(:update, params)
+    |> Ash.update(scope: scope)
+  end
+
+  defp replace_mapper_seeds(job, seeds, scope) do
+    existing = job.seeds || []
+
+    Enum.each(existing, fn seed ->
+      _ = Ash.destroy(seed, scope: scope)
+    end)
+
+    Enum.reduce_while(seeds, :ok, fn seed, _acc ->
+      case MapperSeed
+           |> Ash.Changeset.for_create(:create, %{seed: seed, mapper_job_id: job.id})
+           |> Ash.create(scope: scope) do
+        {:ok, _} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp upsert_snmp_credential(_job, params, _scope) when map_size(params) == 0, do: :ok
+
+  defp upsert_snmp_credential(job, params, scope) do
+    if snmp_params_present?(params) do
+      params = Map.put(params, "mapper_job_id", job.id)
+
+      result =
+        case job.snmp_credential do
+          nil ->
+            MapperSNMPCredential
+            |> Ash.Changeset.for_create(:create, params)
+            |> Ash.create(scope: scope)
+
+          existing ->
+            existing
+            |> Ash.Changeset.for_update(:update, params)
+            |> Ash.update(scope: scope)
+        end
+
+      case result do
+        {:ok, _} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp upsert_unifi_controller(_job, params, _scope) when map_size(params) == 0, do: :ok
+
+  defp upsert_unifi_controller(job, params, scope) do
+    base_url = Map.get(params, "base_url") |> to_string() |> String.trim()
+
+    if base_url == "" do
+      :ok
+    else
+      params = Map.put(params, "mapper_job_id", job.id)
+      persist_unifi_controller(job, params, scope)
+    end
+  end
+
+  defp fetch_mapper_job(scope, id) do
+    case load_mapper_job(scope, id) do
+      nil -> {:error, :not_found}
+      job -> {:ok, job}
+    end
+  end
+
+  defp persist_unifi_controller(job, params, scope) do
+    result =
+      case List.first(job.unifi_controllers) do
+        nil ->
+          MapperUnifiController
+          |> Ash.Changeset.for_create(:create, params)
+          |> Ash.create(scope: scope)
+
+        existing ->
+          existing
+          |> Ash.Changeset.for_update(:update, params)
+          |> Ash.update(scope: scope)
+      end
+
+    case result do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp map_secret_present?(present) when is_map(present) do
+    Enum.any?(present, fn {_key, value} -> value == true end)
+  end
+
+  defp map_secret_present?(_), do: false
+
+  defp secret_placeholder(present, key) do
+    if Map.get(present, key) do
+      "stored"
+    else
+      "optional"
+    end
+  end
+
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_error(reason), do: inspect(reason)
   defp format_ports([]), do: "—"
   defp format_ports(ports) when length(ports) <= 5, do: Enum.join(ports, ", ")
   defp format_ports(ports), do: "#{length(ports)} ports"
