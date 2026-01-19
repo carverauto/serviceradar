@@ -315,17 +315,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         acc
 
       index ->
-        rows
-        |> Enum.reduce(acc, fn row, set ->
-          case Enum.at(row, index) do
-            value when is_binary(value) -> MapSet.put(set, value)
-            _ -> set
-          end
-        end)
+        Enum.reduce(rows, acc, &put_ip_from_row(&1, &2, index))
     end
   end
 
   defp add_ips(acc, _), do: acc
+
+  defp put_ip_from_row(row, set, index) do
+    case Enum.at(row, index) do
+      value when is_binary(value) -> MapSet.put(set, value)
+      _ -> set
+    end
+  end
 
   defp next_cursor(translation, %Postgrex.Result{rows: rows}) do
     limit = get_in(translation, ["pagination", "limit"])

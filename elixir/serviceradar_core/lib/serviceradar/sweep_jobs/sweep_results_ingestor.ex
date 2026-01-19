@@ -496,7 +496,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, _actor) do
-    timestamp = DateTime.utc_now()
+    now = DateTime.utc_now()
+    completed_at = DateTime.truncate(now, :second)
+    updated_at = DateTime.truncate(now, :microsecond)
 
     # DB connection's search_path determines the schema
     # Calculate duration if we can fetch started_at
@@ -510,7 +512,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     duration_ms =
       case started_at_result do
         nil -> nil
-        started_at -> DateTime.diff(timestamp, started_at, :millisecond)
+        started_at -> DateTime.diff(completed_at, started_at, :millisecond)
       end
 
     # Build update fields, including scanner_metrics if present
@@ -519,9 +521,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_available: stats.hosts_available,
       hosts_failed: stats.hosts_failed,
       status: :completed,
-      completed_at: timestamp,
+      completed_at: completed_at,
       duration_ms: duration_ms,
-      updated_at: timestamp
+      updated_at: updated_at
     ]
 
     update_fields =
@@ -541,7 +543,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       id: execution_id,
       sweep_group_id: sweep_group_id,
       started_at: started_at_result,
-      completed_at: timestamp,
+      completed_at: completed_at,
       duration_ms: duration_ms,
       hosts_total: stats.hosts_total,
       hosts_available: stats.hosts_available,
@@ -576,7 +578,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp create_execution(execution_id, sweep_group_id, agent_id, config_version) do
-    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.utc_now()
+    started_at = DateTime.truncate(now, :second)
+    inserted_at = DateTime.truncate(now, :microsecond)
 
     # DB connection's search_path determines the schema
     record = %{
@@ -585,12 +589,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       agent_id: agent_id,
       config_version: config_version,
       status: :running,
-      started_at: timestamp,
+      started_at: started_at,
       hosts_total: 0,
       hosts_available: 0,
       hosts_failed: 0,
-      inserted_at: timestamp,
-      updated_at: timestamp
+      inserted_at: inserted_at,
+      updated_at: inserted_at
     }
 
     case Repo.insert_all(
@@ -607,7 +611,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           id: execution_id,
           sweep_group_id: sweep_group_id,
           agent_id: agent_id,
-          started_at: timestamp,
+          started_at: started_at,
           config_version: config_version
         }
 

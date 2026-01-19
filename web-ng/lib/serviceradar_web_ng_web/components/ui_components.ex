@@ -102,7 +102,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :rule_id, :any, default: nil
 
   attr :rest, :global,
-    include: ~w(name value disabled phx-change phx-target phx-debounce phx-throttle)
+    include: ~w(name value form disabled phx-change phx-target phx-debounce phx-throttle)
 
   slot :inner_block, required: true
 
@@ -122,7 +122,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :rule_id, :any, default: nil
 
   attr :rest, :global,
-    include: ~w(name value type placeholder disabled min max step phx-change phx-blur phx-target
+    include: ~w(name value form type placeholder disabled min max step phx-change phx-blur phx-target
                 phx-debounce phx-throttle)
 
   def ui_inline_input(assigns) do

@@ -268,6 +268,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     socket =
       socket
       |> assign(:builder, builder)
+      |> assign(:builder_sync, true)
       |> maybe_sync_builder_to_form()
 
     {:noreply, socket}
@@ -293,6 +294,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     socket =
       socket
       |> assign(:builder, updated_builder)
+      |> assign(:builder_sync, true)
       |> maybe_sync_builder_to_form()
 
     {:noreply, socket}
@@ -323,6 +325,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     socket =
       socket
       |> assign(:builder, updated_builder)
+      |> assign(:builder_sync, true)
       |> maybe_sync_builder_to_form()
 
     {:noreply, socket}
@@ -559,6 +562,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         </div>
       </:header>
 
+      <form id="sysmon-builder-form" phx-change="builder_change" phx-debounce="200">
+      </form>
+
       <.form
         for={@form}
         id="sysmon-profile-form"
@@ -680,88 +686,92 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                   </div>
                 </div>
 
-                <form phx-change="builder_change" autocomplete="off">
-                  <div class="flex flex-col gap-4">
-                    <!-- Filters Section -->
-                    <div class="flex flex-col gap-3">
-                      <div class="text-xs text-base-content/60 font-medium">
-                        Match devices where:
-                      </div>
+                <div class="flex flex-col gap-4">
+                  <!-- Filters Section -->
+                  <div class="flex flex-col gap-3">
+                    <div class="text-xs text-base-content/60 font-medium">
+                      Match devices where:
+                    </div>
 
-                      <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
-                        <div class="flex items-center gap-3">
-                          <.query_builder_pill label="Filter">
-                            <%= if @config.filter_fields == [] do %>
-                              <.ui_inline_input
-                                type="text"
-                                name={"builder[filters][#{idx}][field]"}
-                                value={filter["field"] || ""}
-                                placeholder="field"
-                                class="w-40 placeholder:text-base-content/40"
-                              />
-                            <% else %>
-                              <.ui_inline_select name={"builder[filters][#{idx}][field]"}>
-                                <%= for field <- @config.filter_fields do %>
-                                  <option value={field} selected={filter["field"] == field}>
-                                    {field}
-                                  </option>
-                                <% end %>
-                              </.ui_inline_select>
-                            <% end %>
-
-                            <.ui_inline_select
-                              name={"builder[filters][#{idx}][op]"}
-                              class="text-xs text-base-content/70"
-                            >
-                              <option
-                                value="contains"
-                                selected={(filter["op"] || "contains") == "contains"}
-                              >
-                                contains
-                              </option>
-                              <option value="not_contains" selected={filter["op"] == "not_contains"}>
-                                does not contain
-                              </option>
-                              <option value="equals" selected={filter["op"] == "equals"}>
-                                equals
-                              </option>
-                              <option value="not_equals" selected={filter["op"] == "not_equals"}>
-                                does not equal
-                              </option>
-                            </.ui_inline_select>
-
+                    <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
+                      <div class="flex items-center gap-3">
+                        <.query_builder_pill label="Filter">
+                          <%= if @config.filter_fields == [] do %>
                             <.ui_inline_input
                               type="text"
-                              name={"builder[filters][#{idx}][value]"}
-                              value={filter["value"] || ""}
-                              placeholder="value"
-                              class="placeholder:text-base-content/40 w-48"
+                              name={"builder[filters][#{idx}][field]"}
+                              value={filter["field"] || ""}
+                              placeholder="field"
+                              form="sysmon-builder-form"
+                              class="w-40 placeholder:text-base-content/40"
                             />
-                          </.query_builder_pill>
+                          <% else %>
+                            <.ui_inline_select
+                              name={"builder[filters][#{idx}][field]"}
+                              form="sysmon-builder-form"
+                            >
+                              <%= for field <- @config.filter_fields do %>
+                                <option value={field} selected={filter["field"] == field}>
+                                  {field}
+                                </option>
+                              <% end %>
+                            </.ui_inline_select>
+                          <% end %>
 
-                          <.ui_icon_button
-                            size="xs"
-                            aria-label="Remove filter"
-                            title="Remove filter"
-                            type="button"
-                            phx-click="builder_remove_filter"
-                            phx-value-idx={idx}
+                          <.ui_inline_select
+                            name={"builder[filters][#{idx}][op]"}
+                            class="text-xs text-base-content/70"
+                            form="sysmon-builder-form"
                           >
-                            <.icon name="hero-x-mark" class="size-4" />
-                          </.ui_icon_button>
-                        </div>
-                      <% end %>
+                            <option
+                              value="contains"
+                              selected={(filter["op"] || "contains") == "contains"}
+                            >
+                              contains
+                            </option>
+                            <option value="not_contains" selected={filter["op"] == "not_contains"}>
+                              does not contain
+                            </option>
+                            <option value="equals" selected={filter["op"] == "equals"}>
+                              equals
+                            </option>
+                            <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                              does not equal
+                            </option>
+                          </.ui_inline_select>
 
-                      <button
-                        type="button"
-                        class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
-                        phx-click="builder_add_filter"
-                      >
-                        <.icon name="hero-plus" class="size-4" /> Add filter
-                      </button>
-                    </div>
+                          <.ui_inline_input
+                            type="text"
+                            name={"builder[filters][#{idx}][value]"}
+                            value={filter["value"] || ""}
+                            placeholder="value"
+                            form="sysmon-builder-form"
+                            class="placeholder:text-base-content/40 w-48"
+                          />
+                        </.query_builder_pill>
+
+                        <.ui_icon_button
+                          size="xs"
+                          aria-label="Remove filter"
+                          title="Remove filter"
+                          type="button"
+                          phx-click="builder_remove_filter"
+                          phx-value-idx={idx}
+                        >
+                          <.icon name="hero-x-mark" class="size-4" />
+                        </.ui_icon_button>
+                      </div>
+                    <% end %>
+
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                      phx-click="builder_add_filter"
+                    >
+                      <.icon name="hero-plus" class="size-4" /> Add filter
+                    </button>
                   </div>
-                </form>
+                </div>
               </div>
               
     <!-- Device Count Preview -->
@@ -1073,7 +1083,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         field_name = String.trim(field_name)
         value = String.trim(value) |> String.replace("\\ ", " ")
 
-        {op, final_value} = parse_filter_value(negated, value)
+        {op, final_value} = parse_filter_value(field_name, negated, value)
 
         %{
           "field" => field_name,
@@ -1086,14 +1096,20 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     end
   end
 
-  defp parse_filter_value(negated, value) do
-    if String.contains?(value, "%") do
-      op = if negated, do: "not_contains", else: "contains"
-      unwrapped = unwrap_like(value)
-      {op, unwrapped}
-    else
+  defp parse_filter_value(field, negated, value) do
+    if list_filter_field?(field) do
+      normalized = normalize_list_value(value) |> Enum.join(", ")
       op = if negated, do: "not_equals", else: "equals"
-      {op, value}
+      {op, normalized}
+    else
+      if String.contains?(value, "%") do
+        op = if negated, do: "not_contains", else: "contains"
+        unwrapped = unwrap_like(value)
+        {op, unwrapped}
+      else
+        op = if negated, do: "not_equals", else: "equals"
+        {op, value}
+      end
     end
   end
 
@@ -1104,6 +1120,31 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   end
 
   defp unwrap_like(value), do: value
+
+  defp list_filter_field?(field) when is_binary(field) do
+    field in ["discovery_sources"]
+  end
+
+  defp list_filter_field?(_), do: false
+
+  defp normalize_list_value(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.trim_leading("(")
+    |> String.trim_trailing(")")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp normalize_list_value(value) when is_list(value) do
+    value
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp normalize_list_value(_), do: []
 
   defp update_builder(builder, params) do
     builder
@@ -1131,9 +1172,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
   defp normalize_filters_list(filters, config) when is_list(filters) do
     Enum.map(filters, fn filter ->
+      field = normalize_filter_field(filter["field"], config)
+
       %{
-        "field" => normalize_filter_field(filter["field"], config),
-        "op" => normalize_filter_op(filter["op"]),
+        "field" => field,
+        "op" => normalize_filter_op(filter["op"], field),
         "value" => filter["value"] || ""
       }
     end)
@@ -1159,10 +1202,25 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   defp normalize_filter_field("", config), do: config.default_filter_field
   defp normalize_filter_field(field, _config), do: field
 
-  defp normalize_filter_op(op) when op in ["contains", "not_contains", "equals", "not_equals"],
-    do: op
-
-  defp normalize_filter_op(_), do: "contains"
+  defp normalize_filter_op(op, field) do
+    if list_filter_field?(field) do
+      case op do
+        "not_equals" -> "not_equals"
+        "not_contains" -> "not_equals"
+        "equals" -> "equals"
+        "contains" -> "equals"
+        _ -> "equals"
+      end
+    else
+      case op do
+        "contains" -> "contains"
+        "not_contains" -> "not_contains"
+        "equals" -> "equals"
+        "not_equals" -> "not_equals"
+        _ -> "contains"
+      end
+    end
+  end
 
   defp build_target_query(builder) do
     filters = Map.get(builder, "filters", [])
@@ -1180,13 +1238,28 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     if field == "" or value == "" do
       nil
     else
-      escaped = String.replace(value, " ", "\\ ")
+      if list_filter_field?(field) do
+        values =
+          value
+          |> normalize_list_value()
+          |> Enum.map(&String.replace(&1, " ", "\\ "))
 
-      case op do
-        "equals" -> "#{field}:#{escaped}"
-        "not_equals" -> "!#{field}:#{escaped}"
-        "not_contains" -> "!#{field}:%#{escaped}%"
-        _ -> "#{field}:%#{escaped}%"
+        token = Enum.join(values, ",")
+
+        case op do
+          "not_equals" -> "!#{field}:(#{token})"
+          "not_contains" -> "!#{field}:(#{token})"
+          _ -> "#{field}:(#{token})"
+        end
+      else
+        escaped = String.replace(value, " ", "\\ ")
+
+        case op do
+          "equals" -> "#{field}:#{escaped}"
+          "not_equals" -> "!#{field}:#{escaped}"
+          "not_contains" -> "!#{field}:%#{escaped}%"
+          _ -> "#{field}:%#{escaped}%"
+        end
       end
     end
   end
