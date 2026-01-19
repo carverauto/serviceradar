@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -64,6 +65,26 @@ INSERT INTO topology_discovery_events (
     $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
 )`
 
+const upsertNetworkInterfacesSQL = `
+INSERT INTO ocsf_devices (uid, network_interfaces, modified_time)
+VALUES (
+  $1,
+  ARRAY(SELECT jsonb_array_elements($2::jsonb)),
+  NOW()
+)
+ON CONFLICT (uid) DO UPDATE SET
+  network_interfaces = (
+    SELECT ARRAY(
+      SELECT DISTINCT elem
+      FROM (
+        SELECT unnest(COALESCE(ocsf_devices.network_interfaces, ARRAY[]::jsonb[])) AS elem
+        UNION
+        SELECT jsonb_array_elements($2::jsonb) AS elem
+      ) AS merged
+    )
+  ),
+  modified_time = NOW()`
+
 func (db *DB) cnpgInsertDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error {
 	if len(interfaces) == 0 || !db.useCNPGWrites() {
 		return nil
@@ -116,6 +137,103 @@ func (db *DB) cnpgInsertTopologyEvents(ctx context.Context, events []*models.Top
 	}
 
 	return db.sendCNPG(ctx, batch, "topology discovery event")
+}
+
+func (db *DB) cnpgUpsertNetworkInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error {
+	if len(interfaces) == 0 || !db.useCNPGWrites() {
+		return nil
+	}
+
+	deviceInterfaces := make(map[string][]models.OCSFNetworkInterface)
+	seen := make(map[string]map[interfaceKey]struct{})
+
+	for _, iface := range interfaces {
+		if iface == nil {
+			continue
+		}
+
+		deviceID := strings.TrimSpace(iface.DeviceID)
+		if deviceID == "" {
+			continue
+		}
+
+		entry := discoveredInterfaceToOCSF(iface)
+		key := interfaceKey{
+			name: entry.Name,
+			mac:  entry.MAC,
+			ip:   entry.IP,
+			uid:  entry.UID,
+		}
+
+		if _, ok := seen[deviceID]; !ok {
+			seen[deviceID] = make(map[interfaceKey]struct{})
+		}
+		if _, dup := seen[deviceID][key]; dup {
+			continue
+		}
+		seen[deviceID][key] = struct{}{}
+
+		deviceInterfaces[deviceID] = append(deviceInterfaces[deviceID], entry)
+	}
+
+	if len(deviceInterfaces) == 0 {
+		return nil
+	}
+
+	batch := &pgx.Batch{}
+	for deviceID, entries := range deviceInterfaces {
+		if len(entries) == 0 {
+			continue
+		}
+
+		payload, err := json.Marshal(entries)
+		if err != nil {
+			db.logger.Warn().Err(err).
+				Str("device_id", deviceID).
+				Msg("skipping network interface update")
+			continue
+		}
+
+		batch.Queue(upsertNetworkInterfacesSQL, deviceID, payload)
+	}
+
+	return db.sendCNPG(ctx, batch, "ocsf network interfaces")
+}
+
+type interfaceKey struct {
+	name string
+	mac  string
+	ip   string
+	uid  string
+}
+
+func discoveredInterfaceToOCSF(iface *models.DiscoveredInterface) models.OCSFNetworkInterface {
+	ip := ""
+	if len(iface.IPAddresses) > 0 {
+		ip = strings.TrimSpace(iface.IPAddresses[0])
+	}
+	if ip == "" {
+		ip = strings.TrimSpace(iface.DeviceIP)
+	}
+
+	name := strings.TrimSpace(iface.IfName)
+	if name == "" {
+		name = strings.TrimSpace(iface.IfDescr)
+	}
+
+	mac := strings.TrimSpace(iface.IfPhysAddress)
+
+	uid := ""
+	if iface.IfIndex != 0 {
+		uid = fmt.Sprintf("%d", iface.IfIndex)
+	}
+
+	return models.OCSFNetworkInterface{
+		MAC:  mac,
+		IP:   ip,
+		Name: name,
+		UID:  uid,
+	}
 }
 
 func buildDiscoveredInterfaceArgs(iface *models.DiscoveredInterface) ([]interface{}, error) {
