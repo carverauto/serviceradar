@@ -530,6 +530,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       socket.assigns.ash_form
       |> Form.validate(params)
 
+    builder_sync = socket.assigns.builder_sync
+
+    socket =
+      if Map.has_key?(params, "target_query") do
+        target_query = Map.get(params, "target_query")
+        {parsed_builder, parsed_sync} = parse_target_query_to_builder(target_query)
+
+        socket = assign(socket, :builder_sync, parsed_sync)
+
+        if builder_sync do
+          assign(socket, :builder, parsed_builder)
+        else
+          socket
+        end
+      else
+        socket
+      end
+
     {:noreply,
      socket
      |> assign(:ash_form, ash_form)
