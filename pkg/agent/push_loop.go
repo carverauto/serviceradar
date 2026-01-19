@@ -164,7 +164,6 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	}
 }
 
-
 // Start begins the push loop. It runs until the context is cancelled or Stop is called.
 func (p *PushLoop) Start(ctx context.Context) error {
 	// Ensure done is closed when Start exits (only once)
@@ -230,7 +229,6 @@ func (p *PushLoop) Stop(ctx context.Context) error {
 		p.cancel()
 	}
 	p.cancelMu.Unlock()
-
 
 	p.stateMu.RLock()
 	started := p.started
@@ -430,10 +428,7 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsC
 		return nil, nil
 	}
 
-	const (
-		maxChunkSize     = 1024 * 1024
-		maxHostsPerChunk = 1000
-	)
+	maxChunkSize, maxHostsPerChunk := sweepResultsChunkLimits()
 
 	if len(response.Data) <= maxChunkSize {
 		return []*proto.ResultsChunk{{
@@ -932,7 +927,6 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 		Str("agent_id", helloResp.AgentId).
 		Str("gateway_id", helloResp.GatewayId).
 		Msg("Successfully enrolled with gateway")
-
 
 	// Fetch initial config if outdated or not yet fetched
 	if helloResp.ConfigOutdated || p.getConfigVersion() == "" {

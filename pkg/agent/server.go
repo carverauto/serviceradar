@@ -803,10 +803,7 @@ func (s *Server) streamMultipleChunks(
 	sweepData map[string]interface{},
 	hosts []interface{},
 ) error {
-	const (
-		maxChunkSize     = 1024 * 1024
-		maxHostsPerChunk = 1000
-	)
+	maxChunkSize, maxHostsPerChunk := sweepResultsChunkLimits()
 
 	totalHosts := len(hosts)
 

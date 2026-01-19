@@ -270,8 +270,12 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Check if sweep data has changed based on timestamp
-	if summary.LastSweep != s.lastSweepTimestamp {
+	totalHosts := summary.TotalHosts
+	hostsProcessed := len(summary.Hosts)
+	sweepComplete := totalHosts > 0 && hostsProcessed >= totalHosts
+
+	// Only publish results when a sweep has completed
+	if sweepComplete && summary.LastSweep != s.lastSweepTimestamp {
 		// Update cached results and increment sequence
 		s.cachedResults = summary
 		s.lastSweepTimestamp = summary.LastSweep
@@ -284,12 +288,6 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 			Uint64("newSequence", s.currentSequence).
 			Str("executionID", s.executionID).
 			Msg("Sweep data changed, updated sequence and execution ID")
-	}
-
-	// Populate execution context in cached results
-	if s.cachedResults != nil {
-		s.cachedResults.ExecutionID = s.executionID
-		s.cachedResults.SweepGroupID = s.sweepGroupID
 	}
 
 	currentSeqStr := fmt.Sprintf("%d", s.currentSequence)
@@ -308,8 +306,40 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		}, nil
 	}
 
+	if s.cachedResults == nil || len(s.cachedResults.Hosts) == 0 {
+		s.logger.Debug().
+			Str("sequence", currentSeqStr).
+			Int("totalHosts", totalHosts).
+			Int("hostsProcessed", hostsProcessed).
+			Msg("No completed sweep results available to return")
+
+		return &proto.ResultsResponse{
+			HasNewData:      false,
+			CurrentSequence: currentSeqStr,
+			ServiceName:     "network_sweep",
+			ServiceType:     "sweep",
+			ExecutionId:     s.executionID,
+			SweepGroupId:    s.sweepGroupID,
+		}, nil
+	}
+
 	// Marshal the full sweep results
-	resultData, err := json.Marshal(s.cachedResults)
+	resultPayload := map[string]interface{}{
+		"network":         s.cachedResults.Network,
+		"total_hosts":     s.cachedResults.TotalHosts,
+		"available_hosts": s.cachedResults.AvailableHosts,
+		"last_sweep":      s.cachedResults.LastSweep,
+		"ports":           s.cachedResults.Ports,
+		"hosts":           s.cachedResults.Hosts,
+		"execution_id":    s.executionID,
+		"sweep_group_id":  s.sweepGroupID,
+	}
+
+	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
+		resultPayload["scanner_stats"] = scannerStats
+	}
+
+	resultData, err := json.Marshal(resultPayload)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to marshal sweep results")
 		return nil, fmt.Errorf("failed to marshal sweep results: %w", err)

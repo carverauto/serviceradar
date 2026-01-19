@@ -79,12 +79,19 @@ defmodule ServiceRadar.ResultsRouter do
     with {:ok, payload} <- decode_payload(status[:message]),
          {:ok, results, execution_id, sweep_group_id} <- sweep_results(payload) do
       actor = SystemActor.system(:sweep_ingestor)
+      expected_total_hosts = parse_total_hosts(payload)
+      scanner_metrics = parse_scanner_metrics(payload)
 
       opts =
         [
           sweep_group_id: sweep_group_id,
           agent_id: status[:agent_id],
-          actor: actor
+          actor: actor,
+          expected_total_hosts: expected_total_hosts,
+          scanner_metrics: scanner_metrics,
+          chunk_index: status[:chunk_index],
+          total_chunks: status[:total_chunks],
+          is_final: status[:is_final]
         ]
         |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
 
@@ -216,6 +223,28 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp parse_time(_value), do: nil
+
+  defp parse_total_hosts(payload) when is_map(payload) do
+    payload
+    |> Map.get("total_hosts")
+    |> fallback_value(payload["totalHosts"])
+    |> fallback_value(payload["total_targets"])
+    |> fallback_value(payload["totalTargets"])
+    |> parse_integer()
+  end
+
+  defp parse_total_hosts(_payload), do: nil
+
+  defp parse_scanner_metrics(payload) when is_map(payload) do
+    value = payload["scanner_stats"] || payload["scannerStats"]
+
+    if is_map(value), do: value, else: nil
+  end
+
+  defp parse_scanner_metrics(_payload), do: nil
+
+  defp fallback_value(nil, fallback), do: fallback
+  defp fallback_value(value, _fallback), do: value
 
   defp build_sweep_result(host, last_sweep_time, network) when is_map(host) do
     with host_ip when is_binary(host_ip) and host_ip != "" <- host_ip(host) do

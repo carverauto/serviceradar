@@ -969,10 +969,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     # Calculate stats from recent executions
     completed_recent = Enum.filter(assigns.recent, &(&1.status == :completed))
 
-    total_hosts = Enum.reduce(completed_recent, 0, fn e, acc -> acc + (e.hosts_total || 0) end)
+    latest_completed = latest_execution(completed_recent)
 
-    available_hosts =
-      Enum.reduce(completed_recent, 0, fn e, acc -> acc + (e.hosts_available || 0) end)
+    total_hosts = if latest_completed, do: latest_completed.hosts_total || 0, else: 0
+    available_hosts = if latest_completed, do: latest_completed.hosts_available || 0, else: 0
 
     avg_success_rate = average_success_rate(completed_recent)
 
@@ -989,6 +989,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:failed_count, failed_count)
       |> assign(:completed_count, length(completed_recent))
       |> assign(:aggregate_metrics, aggregate_metrics)
+      |> assign(:latest_completed, latest_completed)
 
     ~H"""
     <div class="space-y-4">
@@ -1005,7 +1006,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         <div class="bg-base-200/50 rounded-lg p-4">
           <div class="text-xs text-base-content/60 uppercase tracking-wide">Hosts Scanned</div>
           <div class="text-2xl font-bold mt-1">{@total_hosts}</div>
-          <div class="text-xs text-base-content/60">{@available_hosts} available</div>
+          <div class="text-xs text-base-content/60">
+            {@available_hosts} available
+            <%= if @latest_completed do %>
+              • {format_last_run(@latest_completed.completed_at || @latest_completed.updated_at)}
+            <% end %>
+          </div>
         </div>
         <div class="bg-base-200/50 rounded-lg p-4">
           <div class="text-xs text-base-content/60 uppercase tracking-wide">Avg Success Rate</div>
@@ -2059,6 +2065,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp format_last_run(_), do: "—"
+
+  defp latest_execution(executions) do
+    Enum.max_by(executions, &latest_execution_time/1, fn -> nil end)
+  end
+
+  defp latest_execution_time(execution) do
+    execution.completed_at || execution.updated_at || execution.started_at || DateTime.from_unix!(0)
+  end
 
   defp format_ports([]), do: "—"
   defp format_ports(ports) when length(ports) <= 5, do: Enum.join(ports, ", ")

@@ -539,7 +539,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       partition: normalize_partition(service.partition || metadata.partition),
       source: source,
       kv_store_id: service.kv_store_id || metadata.kv_store_id,
-      timestamp: metadata.timestamp
+      timestamp: metadata.timestamp,
+      agent_timestamp: metadata.agent_timestamp,
+      chunk_index: metadata.chunk_index,
+      total_chunks: metadata.total_chunks,
+      is_final: metadata.is_final
     }
 
     # Forward to the status processor (delegates to core)
