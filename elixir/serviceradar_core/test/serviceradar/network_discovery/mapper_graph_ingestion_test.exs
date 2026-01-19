@@ -123,7 +123,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   defp cleanup_graph(ids) when is_list(ids) do
-    quoted_ids = Enum.map(ids, &"'" <> &1 <> "'") |> Enum.join(", ")
+    quoted_ids = Enum.map_join(ids, ", ", &("'" <> &1 <> "'"))
 
     cypher = "MATCH (n) WHERE n.id IN [#{quoted_ids}] DETACH DELETE n"
     _ = SQL.query(Repo, "SELECT * FROM ag_catalog.cypher($1, $$#{cypher}$$) AS (v agtype)", [@graph_name])
