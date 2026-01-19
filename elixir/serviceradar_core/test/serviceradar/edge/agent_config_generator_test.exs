@@ -370,7 +370,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       AgentRegistry.unregister_agent(agent_uid)
     end
 
-    test "agent receives sweep groups with resolved targeting criteria", %{
+    test "agent receives sweep groups with resolved SRQL targeting", %{
       actor: actor,
       unique_id: unique_id
     } do
@@ -387,17 +387,14 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         }, actor: actor)
         |> Ash.create()
 
-      # Create sweep group with targeting criteria
+      # Create sweep group with SRQL targeting
       {:ok, _group} =
         SweepGroup
         |> Ash.Changeset.for_create(:create, %{
           name: "Criteria Sweep Group #{unique_id}",
           partition: "default",
           interval: "15m",
-          target_criteria: %{
-            "ip" => %{"in_cidr" => "10.100.0.0/16"},
-            "tags" => %{"has_any" => ["env=prod"]}
-          },
+          target_query: "in:devices ip:10.100.0.0/16 tags.env:prod",
           enabled: true
         }, actor: actor)
         |> Ash.create()
@@ -419,7 +416,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       end
     end
 
-    test "sweep config version changes when targeting criteria updated", %{
+    test "sweep config version changes when SRQL targeting updated", %{
       actor: actor,
       unique_id: unique_id
     } do
@@ -431,7 +428,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           name: "Version Test Sweep #{unique_id}",
           partition: "default",
           interval: "15m",
-          target_criteria: %{"ip" => %{"in_cidr" => "10.0.0.0/8"}},
+          target_query: "in:devices ip:10.0.0.0/8",
           static_targets: ["192.168.1.1"],
           enabled: true
         }, actor: actor)
@@ -442,11 +439,11 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
       version1 = config1.config_version
 
-      # Update targeting criteria
+      # Update SRQL targeting
       {:ok, _updated} =
         group
         |> Ash.Changeset.for_update(:update, %{
-          target_criteria: %{"ip" => %{"in_cidr" => "172.16.0.0/12"}}
+          target_query: "in:devices ip:172.16.0.0/12"
         })
         |> Ash.update(actor: actor)
 

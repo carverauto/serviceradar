@@ -810,10 +810,7 @@ func (s *Server) streamMultipleChunks(
 	sweepData map[string]interface{},
 	hosts []interface{},
 ) error {
-	const (
-		maxChunkSize     = 1024 * 1024
-		maxHostsPerChunk = 1000
-	)
+	maxChunkSize, maxHostsPerChunk := sweepResultsChunkLimits()
 
 	totalHosts := len(hosts)
 
@@ -1020,6 +1017,32 @@ func (s *Server) handleSweepGetResults(ctx context.Context, req *proto.ResultsRe
 		// Set AgentId and GatewayId from the request
 		response.AgentId = s.config.AgentID
 		response.GatewayId = req.GatewayId
+
+		// Ensure the initial sweep response (sequence 0) returns a JSON payload for clients that expect it.
+		if !response.HasNewData && len(response.Data) == 0 && response.CurrentSequence == "0" {
+			statusResp, statusErr := sweepSvc.GetStatus(ctx)
+			if statusErr == nil && len(statusResp.Message) > 0 {
+				var summary map[string]interface{}
+				if err := json.Unmarshal(statusResp.Message, &summary); err == nil {
+					if _, ok := summary["hosts"]; !ok {
+						summary["hosts"] = []interface{}{}
+					}
+					if response.ExecutionId != "" {
+						summary["execution_id"] = response.ExecutionId
+					}
+					if response.SweepGroupId != "" {
+						summary["sweep_group_id"] = response.SweepGroupId
+					}
+					if resultData, err := json.Marshal(summary); err == nil {
+						response.Data = resultData
+					}
+				}
+			}
+
+			if len(response.Data) == 0 {
+				response.Data = []byte(`{"hosts":[]}`)
+			}
+		}
 
 		return response, nil
 	}

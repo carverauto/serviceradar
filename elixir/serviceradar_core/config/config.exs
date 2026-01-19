@@ -109,5 +109,9 @@ config :serviceradar_core,
 config :serviceradar_core,
   run_startup_migrations: false
 
+# Sweep SRQL paging configuration
+config :serviceradar_core,
+  sweep_srql_page_limit: 500
+
 # Import environment specific config
 import_config "#{config_env()}.exs"

@@ -67,7 +67,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
           partition: "default",
           interval: "15m",
           profile_id: profile.id,
-          target_criteria: %{"tags" => %{"has_any" => ["env=prod"]}},
+          target_query: "in:devices tags.env:prod",
           static_targets: ["10.0.2.0/24"]
         }, actor: actor)
       |> Ash.create()

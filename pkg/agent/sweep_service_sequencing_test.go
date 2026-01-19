@@ -34,8 +34,8 @@ func TestSweepService_GetSweepResults_InitialCall(t *testing.T) {
 	// Setup mock sweeper with initial data
 	mockSweeperInstance := &mockSweeper{
 		summary: &models.SweepSummary{
-			TotalHosts:     10,
-			AvailableHosts: 8,
+			TotalHosts:     2,
+			AvailableHosts: 2,
 			LastSweep:      time.Now().Unix(),
 			Hosts: []models.HostResult{
 				{Host: "192.168.1.1", Available: true},
@@ -77,8 +77,8 @@ func TestSweepService_GetSweepResults_InitialCall(t *testing.T) {
 
 	err = json.Unmarshal(response.Data, &unmarshaledData)
 	require.NoError(t, err)
-	assert.Equal(t, 10, unmarshaledData.TotalHosts)
-	assert.Equal(t, 8, unmarshaledData.AvailableHosts)
+	assert.Equal(t, 2, unmarshaledData.TotalHosts)
+	assert.Equal(t, 2, unmarshaledData.AvailableHosts)
 	assert.Len(t, unmarshaledData.Hosts, 2)
 }
 
@@ -87,8 +87,8 @@ func TestSweepService_GetSweepResults_NoNewData(t *testing.T) {
 	sweepTimestamp := time.Now().Unix()
 	mockSweeperInstance := &mockSweeper{
 		summary: &models.SweepSummary{
-			TotalHosts:     5,
-			AvailableHosts: 4,
+			TotalHosts:     1,
+			AvailableHosts: 1,
 			LastSweep:      sweepTimestamp,
 			Hosts: []models.HostResult{
 				{Host: "192.168.1.1", Available: true},

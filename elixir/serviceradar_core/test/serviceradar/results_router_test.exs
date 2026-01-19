@@ -103,6 +103,8 @@ defmodule ServiceRadar.ResultsRouterTest do
       "execution_id" => execution_id,
       "sweep_group_id" => sweep_group_id,
       "last_sweep" => last_sweep,
+      "total_hosts" => 50,
+      "scanner_stats" => %{"packets_sent" => 100, "packets_recv" => 90},
       "hosts" => [
         %{
           "host" => "192.168.1.10",
@@ -121,7 +123,10 @@ defmodule ServiceRadar.ResultsRouterTest do
       source: "results",
       service_type: "sweep",
       message: Jason.encode!(payload),
-      agent_id: "agent-1"
+      agent_id: "agent-1",
+      chunk_index: 0,
+      total_chunks: 4,
+      is_final: false
     }
 
     assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
@@ -133,6 +138,11 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert Enum.all?(results, &(&1["last_sweep_time"] == DateTime.to_iso8601(DateTime.from_unix!(last_sweep))))
     assert opts[:sweep_group_id] == sweep_group_id
     assert opts[:agent_id] == "agent-1"
+    assert opts[:expected_total_hosts] == 50
+    assert opts[:scanner_metrics] == %{"packets_sent" => 100, "packets_recv" => 90}
+    assert opts[:chunk_index] == 0
+    assert opts[:total_chunks] == 4
+    assert opts[:is_final] == false
   end
 
   test "routes sysmon metrics payloads" do

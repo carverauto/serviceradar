@@ -69,6 +69,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     agent_id = Keyword.get(opts, :agent_id)
     config_version = Keyword.get(opts, :config_version)
     scanner_metrics = Keyword.get(opts, :scanner_metrics)
+    expected_total_hosts = Keyword.get(opts, :expected_total_hosts)
+    chunk_index = Keyword.get(opts, :chunk_index)
+    total_chunks = Keyword.get(opts, :total_chunks)
+    is_final = Keyword.get(opts, :is_final, true)
 
     results = List.wrap(results)
     total_count = length(results)
@@ -76,7 +80,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     Logger.info("SweepResultsIngestor: Processing #{total_count} results for execution #{execution_id}")
 
     # Ensure execution record exists (creates one if missing)
-    case ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, actor) do
+    case ensure_execution_exists(
+           execution_id,
+           sweep_group_id,
+           agent_id,
+           config_version,
+           expected_total_hosts,
+           actor
+         ) do
       :ok ->
         :ok
 
@@ -118,17 +129,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
             merged_stats = merge_stats(acc_stats, batch_stats)
 
-            # Broadcast progress after each batch for real-time UI updates
-            SweepPubSub.broadcast_progress(execution_id, %{
-              batch_num: batch_num,
-              total_batches: total_batches,
-              hosts_processed: merged_stats.hosts_total,
-              hosts_available: merged_stats.hosts_available,
-              hosts_failed: merged_stats.hosts_failed,
-              devices_created: merged_stats.devices_created,
-              devices_updated: merged_stats.devices_updated
-            })
-
             {:cont, {:ok, merged_stats}}
 
           {:error, reason} ->
@@ -139,12 +139,26 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     case result do
       {:ok, final_stats} ->
         # Update execution with final statistics and scanner metrics
-        update_execution(
+        execution =
+          update_execution(
           execution_id,
           sweep_group_id,
           final_stats,
           scanner_metrics,
-          actor
+          actor,
+          expected_total_hosts: expected_total_hosts,
+          chunk_index: chunk_index,
+          total_chunks: total_chunks,
+          is_final: is_final
+        )
+
+        broadcast_execution_progress(
+          execution_id,
+          execution,
+          final_stats,
+          chunk_index,
+          total_chunks,
+          is_final
         )
 
         elapsed = System.monotonic_time(:millisecond) - start_time
@@ -398,7 +412,18 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     case Repo.insert_all(
            SweepHostResult,
            records,
-           on_conflict: :nothing,
+           on_conflict:
+             {:replace,
+              [
+                :hostname,
+                :status,
+                :response_time_ms,
+                :sweep_modes_results,
+                :open_ports,
+                :error_message,
+                :device_id
+              ]},
+           conflict_target: [:execution_id, :ip],
            returning: false
          ) do
       {count, _} ->
@@ -495,63 +520,128 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     :ok
   end
 
-  defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, _actor) do
-    timestamp = DateTime.utc_now()
+  defp update_execution(execution_id, _sweep_group_id, stats, scanner_metrics, _actor, opts) do
+    expected_total_hosts = Keyword.get(opts, :expected_total_hosts)
+    is_final = Keyword.get(opts, :is_final, true)
 
-    # DB connection's search_path determines the schema
-    # Calculate duration if we can fetch started_at
-    started_at_result =
+    {completed_at, updated_at} = execution_timestamps(is_final)
+    duration_ms = execution_duration_ms(execution_id, is_final, completed_at)
+    inc_fields = execution_inc_fields(stats, expected_total_hosts)
+
+    set_fields =
+      execution_set_fields(updated_at, scanner_metrics)
+      |> maybe_mark_execution_complete(is_final, completed_at, duration_ms)
+
+    update_execution_row(execution_id, inc_fields, set_fields)
+    maybe_set_expected_total(execution_id, expected_total_hosts, updated_at)
+    fetch_execution(execution_id)
+  end
+
+  defp execution_timestamps(true) do
+    now = DateTime.utc_now()
+    {DateTime.truncate(now, :second), DateTime.truncate(now, :microsecond)}
+  end
+
+  defp execution_timestamps(false) do
+    now = DateTime.utc_now()
+    {nil, DateTime.truncate(now, :microsecond)}
+  end
+
+  defp execution_duration_ms(_execution_id, false, _completed_at), do: nil
+
+  defp execution_duration_ms(execution_id, true, completed_at) do
+    started_at =
       from(e in SweepGroupExecution,
         where: e.id == ^execution_id,
         select: e.started_at
       )
       |> Repo.one()
 
-    duration_ms =
-      case started_at_result do
-        nil -> nil
-        started_at -> DateTime.diff(timestamp, started_at, :millisecond)
-      end
+    case started_at do
+      nil -> nil
+      _ -> DateTime.diff(completed_at, started_at, :millisecond)
+    end
+  end
 
-    # Build update fields, including scanner_metrics if present
-    update_fields = [
-      hosts_total: stats.hosts_total,
+  defp execution_inc_fields(stats, nil) do
+    [
       hosts_available: stats.hosts_available,
       hosts_failed: stats.hosts_failed,
-      status: :completed,
-      completed_at: timestamp,
-      duration_ms: duration_ms,
-      updated_at: timestamp
+      hosts_total: stats.hosts_total
     ]
+  end
 
-    update_fields =
-      if scanner_metrics do
-        Keyword.put(update_fields, :scanner_metrics, scanner_metrics)
-      else
-        update_fields
-      end
+  defp execution_inc_fields(stats, _expected_total_hosts) do
+    [
+      hosts_available: stats.hosts_available,
+      hosts_failed: stats.hosts_failed
+    ]
+  end
 
+  defp execution_set_fields(updated_at, scanner_metrics) do
+    set_fields = [updated_at: updated_at]
+
+    if scanner_metrics do
+      Keyword.put(set_fields, :scanner_metrics, scanner_metrics)
+    else
+      set_fields
+    end
+  end
+
+  defp maybe_mark_execution_complete(set_fields, false, _completed_at, _duration_ms), do: set_fields
+
+  defp maybe_mark_execution_complete(set_fields, true, completed_at, duration_ms) do
+    set_fields
+    |> Keyword.put(:status, :completed)
+    |> Keyword.put(:completed_at, completed_at)
+    |> Keyword.put(:duration_ms, duration_ms)
+  end
+
+  defp update_execution_row(execution_id, inc_fields, set_fields) do
     from(e in SweepGroupExecution,
       where: e.id == ^execution_id
     )
-    |> Repo.update_all(set: update_fields)
-
-    # Broadcast execution completion for real-time UI updates
-    execution = %{
-      id: execution_id,
-      sweep_group_id: sweep_group_id,
-      started_at: started_at_result,
-      completed_at: timestamp,
-      duration_ms: duration_ms,
-      hosts_total: stats.hosts_total,
-      hosts_available: stats.hosts_available,
-      hosts_failed: stats.hosts_failed
-    }
-
-    SweepPubSub.broadcast_completed(execution, stats)
+    |> Repo.update_all(inc: inc_fields, set: set_fields)
   end
 
-  defp ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, _actor) do
+  defp maybe_set_expected_total(_execution_id, nil, _updated_at), do: :ok
+
+  defp maybe_set_expected_total(execution_id, expected_total_hosts, updated_at) do
+    from(e in SweepGroupExecution,
+      where: e.id == ^execution_id and (is_nil(e.hosts_total) or e.hosts_total < ^expected_total_hosts),
+      update: [set: [hosts_total: ^expected_total_hosts, updated_at: ^updated_at]]
+    )
+    |> Repo.update_all([])
+
+    :ok
+  end
+
+  defp fetch_execution(execution_id) do
+    from(e in SweepGroupExecution,
+      where: e.id == ^execution_id,
+      select: %{
+        id: e.id,
+        sweep_group_id: e.sweep_group_id,
+        agent_id: e.agent_id,
+        started_at: e.started_at,
+        completed_at: e.completed_at,
+        duration_ms: e.duration_ms,
+        hosts_total: e.hosts_total,
+        hosts_available: e.hosts_available,
+        hosts_failed: e.hosts_failed
+      }
+    )
+    |> Repo.one()
+  end
+
+  defp ensure_execution_exists(
+         execution_id,
+         sweep_group_id,
+         agent_id,
+         config_version,
+         expected_total_hosts,
+         _actor
+       ) do
     # DB connection's search_path determines the schema
     # Check if execution exists
     existing =
@@ -567,7 +657,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     else
       # Create execution record if we have a sweep_group_id
       if sweep_group_id && sweep_group_id != "" do
-        create_execution(execution_id, sweep_group_id, agent_id, config_version)
+        create_execution(execution_id, sweep_group_id, agent_id, config_version, expected_total_hosts)
       else
         Logger.warning("SweepResultsIngestor: Cannot create execution - no sweep_group_id provided")
         :ok
@@ -575,8 +665,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp create_execution(execution_id, sweep_group_id, agent_id, config_version) do
-    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+  defp create_execution(execution_id, sweep_group_id, agent_id, config_version, expected_total_hosts) do
+    now = DateTime.utc_now()
+    started_at = DateTime.truncate(now, :second)
+    inserted_at = DateTime.truncate(now, :microsecond)
+    hosts_total = expected_total_hosts || 0
+
+    mark_superseded_executions(sweep_group_id, agent_id, started_at)
 
     # DB connection's search_path determines the schema
     record = %{
@@ -585,12 +680,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       agent_id: agent_id,
       config_version: config_version,
       status: :running,
-      started_at: timestamp,
-      hosts_total: 0,
+      started_at: started_at,
+      hosts_total: hosts_total,
       hosts_available: 0,
       hosts_failed: 0,
-      inserted_at: timestamp,
-      updated_at: timestamp
+      inserted_at: inserted_at,
+      updated_at: inserted_at
     }
 
     case Repo.insert_all(
@@ -607,7 +702,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           id: execution_id,
           sweep_group_id: sweep_group_id,
           agent_id: agent_id,
-          started_at: timestamp,
+          started_at: started_at,
           config_version: config_version
         }
 
@@ -626,6 +721,35 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:error, e}
   end
 
+  defp mark_superseded_executions(nil, _agent_id, _now), do: :ok
+  defp mark_superseded_executions("", _agent_id, _now), do: :ok
+
+  defp mark_superseded_executions(sweep_group_id, agent_id, now) do
+    base_query =
+      from(e in SweepGroupExecution,
+        where: e.sweep_group_id == ^sweep_group_id and e.status == :running
+      )
+
+    query =
+      if is_binary(agent_id) and agent_id != "" do
+        from(e in base_query, where: e.agent_id == ^agent_id)
+      else
+        base_query
+      end
+
+    query
+    |> Repo.update_all(
+      set: [
+        status: :failed,
+        completed_at: now,
+        updated_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
+        error_message: "superseded by new execution"
+      ]
+    )
+
+    :ok
+  end
+
   defp merge_stats(stats1, stats2) do
     %{
       hosts_total: stats1.hosts_total + stats2.hosts_total,
@@ -634,5 +758,48 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       devices_updated: stats1.devices_updated + Map.get(stats2, :devices_updated, 0),
       devices_created: stats1.devices_created + Map.get(stats2, :devices_created, 0)
     }
+  end
+
+  defp broadcast_execution_progress(
+         execution_id,
+         execution,
+         stats,
+         chunk_index,
+         total_chunks,
+         is_final
+       ) do
+    if is_nil(execution) do
+      :ok
+    else
+      hosts_available = execution.hosts_available || 0
+      hosts_failed = execution.hosts_failed || 0
+      hosts_processed = hosts_available + hosts_failed
+
+      progress = %{
+        sweep_group_id: Map.get(execution, :sweep_group_id),
+        agent_id: Map.get(execution, :agent_id),
+        started_at: Map.get(execution, :started_at),
+        batch_num: (chunk_index || 0) + 1,
+        total_batches: total_chunks || 1,
+        hosts_processed: hosts_processed,
+        hosts_available: hosts_available,
+        hosts_failed: hosts_failed,
+        hosts_total: Map.get(execution, :hosts_total) || 0,
+        devices_created: stats.devices_created,
+        devices_updated: stats.devices_updated
+      }
+
+      SweepPubSub.broadcast_progress(execution_id, progress)
+
+      if is_final do
+        SweepPubSub.broadcast_completed(execution, %{
+          hosts_total: execution.hosts_total,
+          hosts_available: hosts_available,
+          hosts_failed: hosts_failed,
+          devices_created: stats.devices_created,
+          devices_updated: stats.devices_updated
+        })
+      end
+    end
   end
 end

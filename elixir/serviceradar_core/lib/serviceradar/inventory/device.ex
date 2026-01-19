@@ -173,6 +173,23 @@ defmodule ServiceRadar.Inventory.Device do
       ]
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      validate ServiceRadar.Inventory.Validations.AgentManaged
+    end
+
+    update :gateway_sync do
+      accept [
+        :agent_id,
+        :hostname,
+        :ip,
+        :is_available,
+        :is_managed,
+        :is_trusted,
+        :discovery_sources,
+        :last_seen_time,
+        :metadata
+      ]
+
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     update :assign_to_group do
@@ -547,4 +564,5 @@ defmodule ServiceRadar.Inventory.Device do
     # MAC uniqueness is optional - skipping unique index
     # identity :unique_mac, [:mac], where: expr(not is_nil(mac))
   end
+
 end

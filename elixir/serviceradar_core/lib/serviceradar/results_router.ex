@@ -98,12 +98,19 @@ defmodule ServiceRadar.ResultsRouter do
     with {:ok, payload} <- decode_payload(status[:message]),
          {:ok, results, execution_id, sweep_group_id} <- sweep_results(payload) do
       actor = SystemActor.system(:sweep_ingestor)
+      expected_total_hosts = parse_total_hosts(payload)
+      scanner_metrics = parse_scanner_metrics(payload)
 
       opts =
         [
           sweep_group_id: sweep_group_id,
           agent_id: status[:agent_id],
-          actor: actor
+          actor: actor,
+          expected_total_hosts: expected_total_hosts,
+          scanner_metrics: scanner_metrics,
+          chunk_index: status[:chunk_index],
+          total_chunks: status[:total_chunks],
+          is_final: status[:is_final]
         ]
         |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
 
@@ -133,9 +140,9 @@ defmodule ServiceRadar.ResultsRouter do
   defp decode_payload(_message), do: {:error, :empty_payload}
 
   defp sweep_results(%{"hosts" => hosts} = payload) when is_list(hosts) do
-    execution_id = parse_execution_id(payload)
     sweep_group_id = parse_sweep_group_id(payload)
     last_sweep_time = parse_last_sweep(payload)
+    execution_id = execution_id_from_payload(payload, sweep_group_id, last_sweep_time)
     network = payload["network"] || payload["network_cidr"] || payload["networkCidr"]
 
     results =
@@ -181,16 +188,49 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp sweep_results(_payload), do: {:error, :unsupported_payload}
 
-  defp parse_execution_id(payload) do
-    value =
-      payload["execution_id"] ||
-        payload["executionId"]
+  defp execution_id_from_payload(payload, sweep_group_id, last_sweep_time) do
+    value = payload["execution_id"] || payload["executionId"]
+    payload_id = normalize_uuid(value)
+    deterministic_id = deterministic_execution_id(sweep_group_id, last_sweep_time)
 
-    case normalize_uuid(value) do
-      nil -> Ash.UUID.generate()
-      normalized -> normalized
+    cond do
+      is_binary(deterministic_id) and deterministic_id != "" and
+          is_binary(payload_id) and payload_id != "" and payload_id != deterministic_id ->
+        Logger.warning(
+          "Sweep results execution_id mismatch; using deterministic execution id",
+          payload_execution_id: payload_id,
+          deterministic_execution_id: deterministic_id
+        )
+
+        deterministic_id
+
+      is_binary(deterministic_id) and deterministic_id != "" and is_nil(payload_id) ->
+        Logger.warning("Sweep results missing execution_id; using deterministic execution id")
+        deterministic_id
+
+      is_binary(payload_id) and payload_id != "" ->
+        payload_id
+
+      is_binary(deterministic_id) and deterministic_id != "" ->
+        deterministic_id
+
+      true ->
+        Ash.UUID.generate()
     end
   end
+
+  defp deterministic_execution_id(sweep_group_id, last_sweep_time)
+       when is_binary(sweep_group_id) and sweep_group_id != "" and
+              is_binary(last_sweep_time) and last_sweep_time != "" do
+    hash = :crypto.hash(:md5, "#{sweep_group_id}:#{last_sweep_time}")
+
+    <<a::binary-size(8), b::binary-size(4), c::binary-size(4), d::binary-size(4), e::binary-size(12)>> =
+      Base.encode16(hash, case: :lower)
+
+    Enum.join([a, b, c, d, e], "-")
+  end
+
+  defp deterministic_execution_id(_sweep_group_id, _last_sweep_time), do: nil
 
   defp parse_sweep_group_id(payload) do
     value =
@@ -235,6 +275,28 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp parse_time(_value), do: nil
+
+  defp parse_total_hosts(payload) when is_map(payload) do
+    payload
+    |> Map.get("total_hosts")
+    |> fallback_value(payload["totalHosts"])
+    |> fallback_value(payload["total_targets"])
+    |> fallback_value(payload["totalTargets"])
+    |> parse_integer()
+  end
+
+  defp parse_total_hosts(_payload), do: nil
+
+  defp parse_scanner_metrics(payload) when is_map(payload) do
+    value = payload["scanner_stats"] || payload["scannerStats"]
+
+    if is_map(value), do: value, else: nil
+  end
+
+  defp parse_scanner_metrics(_payload), do: nil
+
+  defp fallback_value(nil, fallback), do: fallback
+  defp fallback_value(value, _fallback), do: value
 
   defp build_sweep_result(host, last_sweep_time, network) when is_map(host) do
     with host_ip when is_binary(host_ip) and host_ip != "" <- host_ip(host) do

@@ -193,6 +193,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             "type" => Map.get(device_row, "type", ""),
             "vendor_name" => Map.get(device_row, "vendor_name", ""),
             "model" => Map.get(device_row, "model", ""),
+            "is_managed" => Map.get(device_row, "is_managed", false),
+            "is_trusted" => Map.get(device_row, "is_trusted", false),
             "tags" => format_tags_for_edit(Map.get(device_row, "tags"))
           }
         else
@@ -275,7 +277,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         <.header>
           Device
           <:subtitle>
-            <span class="font-mono text-xs">{@device_uid}</span>
+            <span class="flex items-center gap-2">
+              <span class="font-mono text-xs">{@device_uid}</span>
+              <span
+                :if={agent_device?(@device_row)}
+                class="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent"
+              >
+                <.icon name="hero-bolt" class="size-3" /> Agent
+              </span>
+            </span>
           </:subtitle>
           <:actions>
             <.ui_button
@@ -306,6 +316,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
               <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
               <.kv_inline label="Model" value={Map.get(@device_row, "model")} />
+              <.kv_inline
+                :if={agent_device?(@device_row)}
+                label="Agent"
+                value={agent_label(@device_row)}
+                mono
+              />
               <.kv_inline label="Gateway" value={Map.get(@device_row, "gateway_id")} mono />
               <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
             </div>
@@ -433,6 +449,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   />
                   <label class="label py-0">
                     <span class="label-text-alt text-xs text-base-content/50">Read-only</span>
+                  </label>
+                </div>
+
+                <div class="form-control">
+                  <label class="label py-1">
+                    <span class="label-text text-xs font-medium">Managed</span>
+                  </label>
+                  <input
+                    type="hidden"
+                    name="device[is_managed]"
+                    value={if agent_device?(@device_row), do: "true", else: "false"}
+                  />
+                  <label class="inline-flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      name="device[is_managed]"
+                      value="true"
+                      checked={truthy?(@device_form[:is_managed].value)}
+                      disabled={agent_device?(@device_row)}
+                      class="checkbox checkbox-xs checkbox-primary"
+                    />
+                    <span>Mark as managed</span>
+                  </label>
+                  <label :if={agent_device?(@device_row)} class="label py-0">
+                    <span class="label-text-alt text-xs text-base-content/50">
+                      Agent devices are always managed.
+                    </span>
+                  </label>
+                </div>
+
+                <div class="form-control">
+                  <label class="label py-1">
+                    <span class="label-text text-xs font-medium">Trusted</span>
+                  </label>
+                  <input type="hidden" name="device[is_trusted]" value="false" />
+                  <label class="inline-flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      name="device[is_trusted]"
+                      value="true"
+                      checked={truthy?(@device_form[:is_trusted].value)}
+                      class="checkbox checkbox-xs checkbox-primary"
+                    />
+                    <span>Mark as trusted</span>
                   </label>
                 </div>
               </div>
@@ -2189,6 +2249,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         ip: params["ip"],
         vendor_name: params["vendor_name"],
         model: params["model"],
+        is_managed: parse_bool_param(params["is_managed"]),
+        is_trusted: parse_bool_param(params["is_trusted"]),
         tags: parse_tags_input(params["tags"])
       }
       |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
@@ -2238,6 +2300,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         [key] -> Map.put(acc, String.trim(key), nil)
       end
     end)
+  end
+
+  defp parse_bool_param(value) when value in [true, false], do: value
+  defp parse_bool_param("true"), do: true
+  defp parse_bool_param("false"), do: false
+  defp parse_bool_param("on"), do: true
+  defp parse_bool_param("1"), do: true
+  defp parse_bool_param("0"), do: false
+  defp parse_bool_param(_), do: nil
+
+  defp truthy?(value), do: value in [true, "true", "on", "1", 1]
+
+  defp agent_device?(row) when is_map(row) do
+    agent_id = Map.get(row, "agent_id")
+    sources = Map.get(row, "discovery_sources") || []
+    agent_list = Map.get(row, "agent_list") || []
+
+    (is_binary(agent_id) and agent_id != "") or
+      (is_list(agent_list) and agent_list != []) or
+      Enum.any?(sources, &(&1 == "agent"))
+  end
+
+  defp agent_device?(_), do: false
+
+  defp agent_label(row) do
+    case Map.get(row, "agent_id") do
+      value when is_binary(value) and value != "" -> value
+      _ -> "Agent"
+    end
   end
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do

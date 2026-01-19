@@ -519,7 +519,20 @@ func (s *NetworkSweeper) ensureScannersInitialized() {
 
 // GetStatus returns current sweep status.
 func (s *NetworkSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, error) {
-	return s.store.GetSweepSummary(ctx)
+	summary, err := s.store.GetSweepSummary(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.RLock()
+	lastSweep := s.lastSweep
+	s.mu.RUnlock()
+
+	if !lastSweep.IsZero() {
+		summary.LastSweep = lastSweep.Unix()
+	}
+
+	return summary, nil
 }
 
 // GetResults retrieves sweep results based on filter.

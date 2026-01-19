@@ -128,6 +128,17 @@ if config_env() == :prod do
   config :serviceradar_core,
     run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
 
+  sweep_srql_page_limit =
+    System.get_env("SWEEP_SRQL_PAGE_LIMIT")
+    |> case do
+      nil -> nil
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  config :serviceradar_core,
+    sweep_srql_page_limit: sweep_srql_page_limit || 500
+
   sync_ingestor_batch_concurrency =
     System.get_env("SYNC_INGESTOR_BATCH_CONCURRENCY")
     |> case do

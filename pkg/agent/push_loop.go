@@ -436,10 +436,7 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsC
 		return nil, nil
 	}
 
-	const (
-		maxChunkSize     = 1024 * 1024
-		maxHostsPerChunk = 1000
-	)
+	maxChunkSize, maxHostsPerChunk := sweepResultsChunkLimits()
 
 	if len(response.Data) <= maxChunkSize {
 		return []*proto.ResultsChunk{{

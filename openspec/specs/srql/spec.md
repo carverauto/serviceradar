@@ -116,18 +116,18 @@ All rollup_stats queries SHALL respect the `time:` filter to constrain which CAG
 ### Requirement: SweepCompiler uses SRQL for target extraction
 The SweepCompiler SHALL use SRQL queries to extract target IP addresses from device criteria, ensuring consistency between preview counts and compiled target lists.
 
-#### Scenario: Criteria compiled to SRQL for target extraction
-- **GIVEN** a SweepGroup with `target_criteria = %{"discovery_sources" => %{"contains" => "armis"}}`
+#### Scenario: SRQL query used for target extraction
+- **GIVEN** a SweepGroup with `target_query = "in:devices discovery_sources:armis"`
 - **WHEN** the SweepCompiler compiles the group
-- **THEN** it executes `in:devices discovery_sources:armis select:ip` and returns matching IPs as targets.
+- **THEN** it executes the SRQL query and returns matching device IPs as targets.
 
 #### Scenario: Multiple criteria combined with AND
-- **GIVEN** a SweepGroup with `target_criteria` containing discovery_sources and partition rules
+- **GIVEN** a SweepGroup with `target_query = "in:devices discovery_sources:armis partition:datacenter-1"`
 - **WHEN** the SweepCompiler compiles the group
-- **THEN** it executes `in:devices discovery_sources:armis partition:datacenter-1 select:ip` (space-separated = AND).
+- **THEN** it executes the SRQL query with space-separated clauses (implicit AND).
 
-### Requirement: Device criteria operators are exposed in the targeting rules UI
-The sweep targeting rules UI SHALL expose device operators that map to TargetCriteria operators including list membership, numeric comparisons, IP CIDR/range matching, and tag matching.
+### Requirement: SRQL operators are exposed in the targeting rules UI
+The sweep targeting rules UI SHALL expose SRQL operators for device filters including list membership, numeric comparisons, IP CIDR/range matching, and tag matching.
 
 #### Scenario: IP CIDR operator
 - **GIVEN** a rule with field `ip` and operator `in_cidr`
@@ -143,7 +143,7 @@ The sweep targeting rules UI SHALL expose device operators that map to TargetCri
 The sweep targeting rules UI SHALL show accurate device preview counts by executing SRQL queries against the device inventory.
 
 #### Scenario: Preview count matches compiled targets
-- **GIVEN** a targeting rule for `discovery_sources contains armis`
+- **GIVEN** a target query `in:devices discovery_sources:armis`
 - **WHEN** the UI shows a preview count of 47 devices
 - **THEN** the compiled target list from SweepCompiler contains exactly 47 IPs.
 
@@ -161,4 +161,3 @@ The system SHALL periodically refresh sweep configs when the SRQL result set cha
 - **AND** a device's partition is updated from `datacenter-2` to `datacenter-1`
 - **WHEN** the `SweepConfigRefreshWorker` runs
 - **THEN** the device is now included in the compiled target list.
-

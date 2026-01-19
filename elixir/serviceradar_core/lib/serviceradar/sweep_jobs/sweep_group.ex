@@ -13,13 +13,9 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
   ## Device Targeting
 
-  Use `target_criteria` to define which devices to sweep using a DSL:
+  Use `target_query` to define which devices to sweep using SRQL:
 
-      %{
-        "tags" => %{"has_any" => ["critical", "env=prod"]},
-        "ip" => %{"in_cidr" => "10.0.0.0/8"},
-        "partition" => %{"eq" => "datacenter-1"}
-      }
+      "in:devices tags:critical ip:10.0.0.0/8 partition:datacenter-1"
 
   You can also add `static_targets` as explicit CIDRs/IPs to include.
 
@@ -65,7 +61,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         :interval,
         :schedule_type,
         :cron_expression,
-        :target_criteria,
+        :target_query,
         :static_targets,
         :ports,
         :sweep_modes,
@@ -74,10 +70,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       ]
 
       change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
-
-      validate fn changeset, _context ->
-        validate_target_criteria(changeset)
-      end
+      change ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
     end
 
     update :update do
@@ -92,7 +85,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         :interval,
         :schedule_type,
         :cron_expression,
-        :target_criteria,
+        :target_query,
         :static_targets,
         :ports,
         :sweep_modes,
@@ -101,10 +94,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       ]
 
       change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
-
-      validate fn changeset, _context ->
-        validate_target_criteria(changeset)
-      end
+      change ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
     end
 
     update :enable do
@@ -191,19 +181,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
                  partition == ^arg(:partition) and
                  (is_nil(^arg(:agent_id)) or agent_id == ^arg(:agent_id) or is_nil(agent_id))
              )
-    end
-  end
-
-  defp validate_target_criteria(changeset) do
-    if Ash.Changeset.changing_attribute?(changeset, :target_criteria) do
-      criteria = Ash.Changeset.get_attribute(changeset, :target_criteria) || %{}
-
-      case ServiceRadar.SweepJobs.TargetCriteria.validate(criteria) do
-        :ok -> :ok
-        {:error, reason} -> {:error, field: :target_criteria, message: reason}
-      end
-    else
-      :ok
     end
   end
 
@@ -294,18 +271,17 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     end
 
     # Device targeting
-    attribute :target_criteria, :map do
-      allow_nil? false
+    attribute :target_query, :string do
+      allow_nil? true
       public? true
-      default %{}
-      description "DSL-based device targeting criteria"
+      description "SRQL query for device targeting (e.g., 'in:devices tags.role:database')"
     end
 
     attribute :static_targets, {:array, :string} do
       allow_nil? false
       public? true
       default []
-      description "Explicit CIDRs/IPs to include (merged with criteria)"
+      description "Explicit CIDRs/IPs to include (merged with SRQL targets)"
     end
 
     # Scan configuration (overrides profile)
