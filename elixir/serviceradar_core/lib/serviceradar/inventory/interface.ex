@@ -59,6 +59,27 @@ defmodule ServiceRadar.Inventory.Interface do
   actions do
     defaults [:read]
 
+    create :create do
+      accept [
+        :timestamp,
+        :device_id,
+        :agent_id,
+        :gateway_id,
+        :device_ip,
+        :if_index,
+        :if_name,
+        :if_descr,
+        :if_alias,
+        :if_speed,
+        :if_phys_address,
+        :ip_addresses,
+        :if_admin_status,
+        :if_oper_status,
+        :metadata,
+        :created_at
+      ]
+    end
+
     read :by_device do
       description "Get interfaces for a specific device"
       argument :device_id, :string, allow_nil?: false
@@ -91,8 +112,17 @@ defmodule ServiceRadar.Inventory.Interface do
   end
 
   policies do
+    # System actors can perform all operations (schema isolation via search_path)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    policy action_type(:create) do
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :operator)
+    end
+
     # Read access for authenticated users
-    # DB connection's search_path determines the schema.
     policy action_type(:read) do
       authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
     end

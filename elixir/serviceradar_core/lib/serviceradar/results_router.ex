@@ -9,6 +9,7 @@ defmodule ServiceRadar.ResultsRouter do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.SyncIngestorQueue
+  alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Observability.SysmonMetricsIngestor
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
@@ -48,6 +49,10 @@ defmodule ServiceRadar.ResultsRouter do
     case status[:service_type] do
       "sync" -> handle_sync_results(status)
       "sweep" -> handle_sweep_results(status)
+      "mapper" -> handle_mapper_results(status)
+      "mapper_discovery" -> handle_mapper_results(status)
+      "mapper_interfaces" -> handle_mapper_interfaces(status)
+      "mapper_topology" -> handle_mapper_topology(status)
       _ -> :ok
     end
   end
@@ -61,6 +66,20 @@ defmodule ServiceRadar.ResultsRouter do
   defp handle_sync_results(status) do
     # In schema-agnostic mode, DB schema is set by CNPG search_path
     schedule_sync_ingestion(status)
+  end
+
+  defp handle_mapper_results(status) do
+    # Mapper results are device updates; use sync ingestion pipeline.
+    MapperResultsIngestor.record_runs_from_payload(status[:message])
+    schedule_sync_ingestion(status)
+  end
+
+  defp handle_mapper_interfaces(status) do
+    MapperResultsIngestor.ingest_interfaces(status[:message], status)
+  end
+
+  defp handle_mapper_topology(status) do
+    MapperResultsIngestor.ingest_topology(status[:message], status)
   end
 
   defp schedule_sync_ingestion(status) do
@@ -213,7 +232,6 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp present_id?(value) when is_binary(value), do: value != ""
   defp present_id?(_value), do: false
-
   defp deterministic_execution_id(sweep_group_id, last_sweep_time)
        when is_binary(sweep_group_id) and sweep_group_id != "" and
               is_binary(last_sweep_time) and last_sweep_time != "" do

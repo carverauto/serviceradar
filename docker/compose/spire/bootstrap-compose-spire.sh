@@ -19,7 +19,6 @@ core|serviceradar-core
 datasvc|serviceradar-datasvc
 agent|serviceradar-agent
 db-event-writer|serviceradar-db-event-writer
-mapper|serviceradar-mapper
 otel|serviceradar-otel
 flowgger|serviceradar-flowgger
 trapd|serviceradar-trapd

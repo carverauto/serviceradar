@@ -19,16 +19,10 @@ package agent
 
 import (
 	"context"
-	"errors"
 
 	"github.com/carverauto/serviceradar/pkg/checker"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-)
-
-var (
-	// ErrDetailsRequiredMapperDiscovery indicates details field is required for mapper_discovery checks
-	ErrDetailsRequiredMapperDiscovery = errors.New("details field is required for mapper_discovery checks")
 )
 
 // initRegistry creates a registry with logger support for agent package checkers
@@ -77,10 +71,6 @@ func initRegistry(log logger.Logger) checker.Registry {
 				actualGrpcServiceCheckName = defaultMonitoringServiceName
 			case "sysmon-osx":
 				actualGrpcServiceCheckName = defaultMonitoringServiceName
-			case "mapper":
-				// For mapper, we should use the monitoring.AgentService
-				// but the CheckHealth method needs to be modified to handle this
-				actualGrpcServiceCheckName = defaultMonitoringServiceName
 			case "rperf-checker":
 				actualGrpcServiceCheckName = defaultMonitoringServiceName
 			case "sync":
@@ -104,16 +94,6 @@ func initRegistry(log logger.Logger) checker.Registry {
 
 		return NewSNMPChecker(ctx, details, security, log)
 	})
-
-	// Register the mapper_discovery checker with logger support
-	registry.Register("mapper_discovery",
-		func(ctx context.Context, _, details string, security *models.SecurityConfig) (checker.Checker, error) {
-			if details == "" {
-				return nil, ErrDetailsRequiredMapperDiscovery
-			}
-
-			return NewMapperDiscoveryChecker(ctx, details, security, log)
-		})
 
 	return registry
 }

@@ -21,7 +21,8 @@ config :serviceradar_core,
     ServiceRadar.AgentConfig,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
-    ServiceRadar.SNMPProfiles
+    ServiceRadar.SNMPProfiles,
+    ServiceRadar.NetworkDiscovery
   ]
 
 # Mailer configuration

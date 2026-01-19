@@ -23,7 +23,6 @@ image:
     agentGateway: *appTag
     dbEventWriter: *appTag
     otel: *appTag
-    mapper: *appTag
     trapd: *appTag
     flowgger: *appTag
     zen: *appTag
@@ -248,7 +247,6 @@ spire:
   joinTokenTTL: 15m
   otelServiceAccount: serviceradar-otel
   zenServiceAccount: serviceradar-zen
-  mapperServiceAccount: serviceradar-mapper
   dbEventWriterServiceAccount: serviceradar-db-event-writer
   rperfCheckerServiceAccount: serviceradar-rperf-checker
   flowggerServiceAccount: serviceradar-flowgger

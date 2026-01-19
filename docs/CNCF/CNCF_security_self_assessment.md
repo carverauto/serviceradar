@@ -52,7 +52,7 @@ serviceradar-core: Core API services -- authentication, device registry, service
 serviceradar-agent: Agents provide minimal functionality (TCP/ICMP scanning) and primarily serve as a pass-through between the gateways and the checkers, designed for multi-tenancy and overlapping IP space challenges.
 serviceradar-agent-gateway: Gateways ask the agents to collect data from checkers and forwards to the core, using unary or streaming gRPC calls and has built-in chunking for large payloads.
 serviceradar-edge-proxy: Edge proxy (Caddy/Nginx/Ingress) terminates TLS and routes `/api/*` to the Core API and `/api/query` to Web-NG/SRQL.
-serviceradar-mapper: Network discovery/mapper service, uses SNMP/CDP/LLDP and API to interrogate network devices, mapping interfaces to devices and adding newly discovered devices.
+serviceradar-mapper: Network discovery engine embedded in serviceradar-agent; uses SNMP/CDP/LLDP and API to interrogate network devices, mapping interfaces to devices and adding newly discovered devices.
 serviceradar-nats: NATS JetStream offers message broker and KV services. Hub/Leaf configurations are fully supported at this time, allowing network operators to easily position message brokers in the edge or compartmented networks for ETL or aggregation functions.
 serviceradar-datasvc: gRPC API for the NATS JetStream Data (KV/Object Store) service.
 serviceradar-nginx: nginx ingress configured to route `/api` calls directly to the Core API
