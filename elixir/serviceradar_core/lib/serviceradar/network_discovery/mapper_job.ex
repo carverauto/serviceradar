@@ -9,8 +9,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
   use Ash.Resource,
     domain: ServiceRadar.NetworkDiscovery,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    notifiers: [ServiceRadar.NetworkDiscovery.MapperConfigNotifier]
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "mapper_jobs"

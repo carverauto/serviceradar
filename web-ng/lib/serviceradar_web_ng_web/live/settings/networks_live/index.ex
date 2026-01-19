@@ -2660,6 +2660,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp mapper_snmp_form(nil), do: {to_form(%{"version" => "v2c"}, as: :snmp), %{}}
+  defp mapper_snmp_form(%Ash.NotLoaded{}), do: {to_form(%{"version" => "v2c"}, as: :snmp), %{}}
 
   defp mapper_snmp_form(credential) do
     form = %{
@@ -2670,11 +2671,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       "privacy_protocol" => credential.privacy_protocol || ""
     }
 
-    secrets_present = credential.secrets_present || %{}
+    # Handle Ash.NotLoaded for the calculation
+    secrets_present =
+      case credential.secrets_present do
+        %Ash.NotLoaded{} -> %{}
+        nil -> %{}
+        value -> value
+      end
+
     {to_form(form, as: :snmp), secrets_present}
   end
 
   defp mapper_unifi_form([]), do: {to_form(%{}, as: :unifi), false}
+  defp mapper_unifi_form(%Ash.NotLoaded{}), do: {to_form(%{}, as: :unifi), false}
 
   defp mapper_unifi_form([controller | _]) do
     form = %{
@@ -2683,7 +2692,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       "insecure_skip_verify" => controller.insecure_skip_verify || false
     }
 
-    {to_form(form, as: :unifi), controller.api_key_present || false}
+    # Handle Ash.NotLoaded for the calculation
+    api_key_present =
+      case controller.api_key_present do
+        %Ash.NotLoaded{} -> false
+        nil -> false
+        value -> value
+      end
+
+    {to_form(form, as: :unifi), api_key_present}
   end
 
   defp seeds_to_text(seeds) do
@@ -2784,7 +2801,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp replace_mapper_seeds(job, seeds, scope) do
-    existing = job.seeds || []
+    # Load the seeds relationship if not already loaded
+    existing =
+      case Ash.load(job, [:seeds], scope: scope) do
+        {:ok, loaded} -> loaded.seeds || []
+        {:error, _} -> []
+      end
 
     Enum.each(existing, fn seed ->
       _ = Ash.destroy(seed, scope: scope)
@@ -2804,17 +2826,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp upsert_snmp_credential(job, params, scope) do
     if snmp_params_present?(params) do
-      params = Map.put(params, "mapper_job_id", job.id)
+      # Load the snmp_credential relationship if not already loaded
+      existing =
+        case Ash.load(job, [:snmp_credential], scope: scope) do
+          {:ok, loaded} -> loaded.snmp_credential
+          {:error, _} -> nil
+        end
 
       result =
-        case job.snmp_credential do
+        case existing do
           nil ->
+            create_params = Map.put(params, "mapper_job_id", job.id)
+
             MapperSNMPCredential
-            |> Ash.Changeset.for_create(:create, params)
+            |> Ash.Changeset.for_create(:create, create_params)
             |> Ash.create(scope: scope)
 
-          existing ->
-            existing
+          credential ->
+            # Don't include mapper_job_id in update - it's not accepted
+            credential
             |> Ash.Changeset.for_update(:update, params)
             |> Ash.update(scope: scope)
         end
@@ -2836,7 +2866,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     if base_url == "" do
       :ok
     else
-      params = Map.put(params, "mapper_job_id", job.id)
       persist_unifi_controller(job, params, scope)
     end
   end
@@ -2849,15 +2878,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp persist_unifi_controller(job, params, scope) do
+    # Load the unifi_controllers relationship if not already loaded
+    existing =
+      case Ash.load(job, [:unifi_controllers], scope: scope) do
+        {:ok, loaded} -> List.first(loaded.unifi_controllers || [])
+        {:error, _} -> nil
+      end
+
     result =
-      case List.first(job.unifi_controllers) do
+      case existing do
         nil ->
+          create_params = Map.put(params, "mapper_job_id", job.id)
+
           MapperUnifiController
-          |> Ash.Changeset.for_create(:create, params)
+          |> Ash.Changeset.for_create(:create, create_params)
           |> Ash.create(scope: scope)
 
-        existing ->
-          existing
+        controller ->
+          # Don't include mapper_job_id in update - it's not accepted
+          controller
           |> Ash.Changeset.for_update(:update, params)
           |> Ash.update(scope: scope)
       end
