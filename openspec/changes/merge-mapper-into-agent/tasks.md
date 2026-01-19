@@ -28,5 +28,5 @@
 
 ## 6. Tests + docs
 - [x] 6.1 Add/adjust tests for mapper config compilation and gRPC delivery.
-- [ ] 6.2 Add UI tests or smoke coverage for discovery job CRUD and credential masking.
+- [x] 6.2 Add UI tests or smoke coverage for discovery job CRUD and credential masking.
 - [ ] 6.3 Update docs/runbooks to reflect agent-based discovery and mapper removal.
