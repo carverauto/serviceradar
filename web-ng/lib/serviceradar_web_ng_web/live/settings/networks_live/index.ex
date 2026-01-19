@@ -1652,6 +1652,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         do: "Batch #{progress.batch_num}/#{progress.total_batches}",
         else: nil
 
+    hosts_total_display =
+      cond do
+        is_number(hosts_total) and hosts_total > 0 -> hosts_total
+        is_number(hosts_processed) and hosts_processed > 0 -> hosts_processed
+        true -> "—"
+      end
+
     assigns =
       assigns
       |> assign(:elapsed_ms, elapsed_ms)
@@ -1659,6 +1666,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:hosts_available, hosts_available)
       |> assign(:hosts_failed, hosts_failed)
       |> assign(:hosts_total, hosts_total)
+      |> assign(:hosts_total_display, hosts_total_display)
       |> assign(:batch_info, batch_info)
       |> assign(:has_progress, progress != nil)
 
@@ -1688,7 +1696,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
             <span>
-              of {if(is_number(@hosts_total) and @hosts_total > 0, do: @hosts_total, else: @hosts_processed)} hosts
+              of {@hosts_total_display} hosts
             </span>
           </div>
           <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">

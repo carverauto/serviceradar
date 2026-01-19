@@ -329,7 +329,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp result_available?(result) do
-    result["icmp_available"] || result["icmpAvailable"] || false
+    result["available"] || result["icmp_available"] || result["icmpAvailable"] || false
   end
 
   defp host_status(_result, true), do: :available
