@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -18,27 +19,6 @@ func normalizeRawJSON(raw json.RawMessage) json.RawMessage {
 	}
 	return raw
 }
-
-const insertDiscoveredInterfaceSQL = `
-INSERT INTO discovered_interfaces (
-    timestamp,
-    agent_id,
-    gateway_id,
-    device_ip,
-    device_id,
-    if_index,
-    if_name,
-    if_descr,
-    if_alias,
-    if_speed,
-    if_phys_address,
-    ip_addresses,
-    if_admin_status,
-    if_oper_status,
-    metadata
-) VALUES (
-    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
-)`
 
 const insertTopologyEventSQL = `
 INSERT INTO topology_discovery_events (
@@ -64,32 +44,25 @@ INSERT INTO topology_discovery_events (
     $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
 )`
 
-func (db *DB) cnpgInsertDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error {
-	if len(interfaces) == 0 || !db.useCNPGWrites() {
-		return nil
-	}
-
-	batch := &pgx.Batch{}
-	queued := 0
-
-	for _, iface := range interfaces {
-		args, err := buildDiscoveredInterfaceArgs(iface)
-		if err != nil {
-			db.logger.Warn().Err(err).
-				Str("device_ip", safeInterfaceIP(iface)).
-				Msg("skipping discovered interface")
-			continue
-		}
-		batch.Queue(insertDiscoveredInterfaceSQL, args...)
-		queued++
-	}
-
-	if queued == 0 {
-		return nil
-	}
-
-	return db.sendCNPG(ctx, batch, "discovered interfaces")
-}
+const upsertNetworkInterfacesSQL = `
+INSERT INTO ocsf_devices (uid, network_interfaces, modified_time)
+VALUES (
+  $1,
+  ARRAY(SELECT jsonb_array_elements($2::jsonb)),
+  NOW()
+)
+ON CONFLICT (uid) DO UPDATE SET
+  network_interfaces = (
+    SELECT ARRAY(
+      SELECT DISTINCT elem
+      FROM (
+        SELECT unnest(COALESCE(ocsf_devices.network_interfaces, ARRAY[]::jsonb[])) AS elem
+        UNION
+        SELECT jsonb_array_elements($2::jsonb) AS elem
+      ) AS merged
+    )
+  ),
+  modified_time = NOW()`
 
 func (db *DB) cnpgInsertTopologyEvents(ctx context.Context, events []*models.TopologyDiscoveryEvent) error {
 	if len(events) == 0 || !db.useCNPGWrites() {
@@ -118,38 +91,101 @@ func (db *DB) cnpgInsertTopologyEvents(ctx context.Context, events []*models.Top
 	return db.sendCNPG(ctx, batch, "topology discovery event")
 }
 
-func buildDiscoveredInterfaceArgs(iface *models.DiscoveredInterface) ([]interface{}, error) {
-	if iface == nil {
-		return nil, ErrDiscoveredInterfaceNil
+func (db *DB) cnpgUpsertNetworkInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error {
+	if len(interfaces) == 0 || !db.useCNPGWrites() {
+		return nil
 	}
 
-	agentID := strings.TrimSpace(iface.AgentID)
-	gatewayID := strings.TrimSpace(iface.GatewayID)
-	deviceIP := strings.TrimSpace(iface.DeviceIP)
+	deviceInterfaces := make(map[string][]models.OCSFNetworkInterface)
+	seen := make(map[string]map[interfaceKey]struct{})
 
-	if agentID == "" || gatewayID == "" || deviceIP == "" {
-		return nil, ErrDiscoveredIdentifiersMissing
+	for _, iface := range interfaces {
+		if iface == nil {
+			continue
+		}
+
+		deviceID := strings.TrimSpace(iface.DeviceID)
+		if deviceID == "" {
+			continue
+		}
+
+		entry := discoveredInterfaceToOCSF(iface)
+		key := interfaceKey{
+			name: entry.Name,
+			mac:  entry.MAC,
+			ip:   entry.IP,
+			uid:  entry.UID,
+		}
+
+		if _, ok := seen[deviceID]; !ok {
+			seen[deviceID] = make(map[interfaceKey]struct{})
+		}
+		if _, dup := seen[deviceID][key]; dup {
+			continue
+		}
+		seen[deviceID][key] = struct{}{}
+
+		deviceInterfaces[deviceID] = append(deviceInterfaces[deviceID], entry)
 	}
 
-	metadata := normalizeRawJSON(iface.Metadata)
+	if len(deviceInterfaces) == 0 {
+		return nil
+	}
 
-	return []interface{}{
-		sanitizeTimestamp(iface.Timestamp),
-		agentID,
-		gatewayID,
-		deviceIP,
-		strings.TrimSpace(iface.DeviceID),
-		iface.IfIndex,
-		strings.TrimSpace(iface.IfName),
-		strings.TrimSpace(iface.IfDescr),
-		strings.TrimSpace(iface.IfAlias),
-		iface.IfSpeed,
-		strings.TrimSpace(iface.IfPhysAddress),
-		iface.IPAddresses,
-		iface.IfAdminStatus,
-		iface.IfOperStatus,
-		metadata,
-	}, nil
+	batch := &pgx.Batch{}
+	for deviceID, entries := range deviceInterfaces {
+		if len(entries) == 0 {
+			continue
+		}
+
+		payload, err := json.Marshal(entries)
+		if err != nil {
+			db.logger.Warn().Err(err).
+				Str("device_id", deviceID).
+				Msg("skipping network interface update")
+			continue
+		}
+
+		batch.Queue(upsertNetworkInterfacesSQL, deviceID, payload)
+	}
+
+	return db.sendCNPG(ctx, batch, "ocsf network interfaces")
+}
+
+type interfaceKey struct {
+	name string
+	mac  string
+	ip   string
+	uid  string
+}
+
+func discoveredInterfaceToOCSF(iface *models.DiscoveredInterface) models.OCSFNetworkInterface {
+	ip := ""
+	if len(iface.IPAddresses) > 0 {
+		ip = strings.TrimSpace(iface.IPAddresses[0])
+	}
+	if ip == "" {
+		ip = strings.TrimSpace(iface.DeviceIP)
+	}
+
+	name := strings.TrimSpace(iface.IfName)
+	if name == "" {
+		name = strings.TrimSpace(iface.IfDescr)
+	}
+
+	mac := strings.TrimSpace(iface.IfPhysAddress)
+
+	uid := ""
+	if iface.IfIndex != 0 {
+		uid = fmt.Sprintf("%d", iface.IfIndex)
+	}
+
+	return models.OCSFNetworkInterface{
+		MAC:  mac,
+		IP:   ip,
+		Name: name,
+		UID:  uid,
+	}
 }
 
 func buildTopologyEventArgs(event *models.TopologyDiscoveryEvent) ([]interface{}, error) {
@@ -188,13 +224,6 @@ func buildTopologyEventArgs(event *models.TopologyDiscoveryEvent) ([]interface{}
 		strings.TrimSpace(event.BGPSessionState),
 		metadata,
 	}, nil
-}
-
-func safeInterfaceIP(iface *models.DiscoveredInterface) string {
-	if iface == nil {
-		return ""
-	}
-	return strings.TrimSpace(iface.DeviceIP)
 }
 
 func safeTopologyIP(event *models.TopologyDiscoveryEvent) string {

@@ -97,7 +97,7 @@ func (p *RegistryPublisher) convertDiscoveredDeviceToUpdate(device *DiscoveredDe
 		IP:          device.IP,
 		Source:      discoverySource,
 		AgentID:     p.config.AgentID,
-		GatewayID:    p.config.GatewayID,
+		GatewayID:   p.config.GatewayID,
 		Partition:   partition,
 		Timestamp:   time.Now(),
 		Hostname:    &hostname,
@@ -121,7 +121,7 @@ func (p *RegistryPublisher) PublishDevice(ctx context.Context, device *Discovere
 
 // In pkg/discovery/publisher.go
 
-// PublishInterface publishes a discovered interface to the discovered_interfaces stream
+// PublishInterface publishes a discovered interface into device inventory interfaces.
 func (p *RegistryPublisher) PublishInterface(ctx context.Context, iface *DiscoveredInterface) error {
 	// Convert metadata to a JSON representation
 	metadata := make(map[string]string)
@@ -147,7 +147,7 @@ func (p *RegistryPublisher) PublishInterface(ctx context.Context, iface *Discove
 	discoveredInterface := &models.DiscoveredInterface{
 		Timestamp:     time.Now(),
 		AgentID:       p.config.AgentID,
-		GatewayID:      p.config.GatewayID,
+		GatewayID:     p.config.GatewayID,
 		DeviceIP:      iface.DeviceIP,
 		DeviceID:      iface.DeviceID,
 		IfIndex:       iface.IfIndex,
@@ -164,7 +164,7 @@ func (p *RegistryPublisher) PublishInterface(ctx context.Context, iface *Discove
 
 	// Call the DB service method directly
 	if err := p.dbService.PublishDiscoveredInterface(ctx, discoveredInterface); err != nil {
-		return fmt.Errorf("failed to publish interface to discovered_interfaces: %w", err)
+		return fmt.Errorf("failed to publish interface to inventory: %w", err)
 	}
 
 	return nil
@@ -191,7 +191,7 @@ func (p *RegistryPublisher) PublishTopologyLink(ctx context.Context, link *Topol
 	topologyEvent := &models.TopologyDiscoveryEvent{
 		Timestamp:              time.Now(),
 		AgentID:                p.config.AgentID,
-		GatewayID:               p.config.GatewayID,
+		GatewayID:              p.config.GatewayID,
 		LocalDeviceIP:          link.LocalDeviceIP,
 		LocalDeviceID:          link.LocalDeviceID,
 		LocalIfIndex:           link.LocalIfIndex,
@@ -232,7 +232,7 @@ func (p *RegistryPublisher) PublishBatchDevices(ctx context.Context, devices []*
 	return nil
 }
 
-// PublishBatchInterfaces publishes multiple interfaces in a batch
+// PublishBatchInterfaces publishes multiple interfaces in a batch.
 func (p *RegistryPublisher) PublishBatchInterfaces(ctx context.Context, interfaces []*DiscoveredInterface) error {
 	// Convert discovery types to models types
 	modelInterfaces := make([]*models.DiscoveredInterface, len(interfaces))
@@ -240,7 +240,7 @@ func (p *RegistryPublisher) PublishBatchInterfaces(ctx context.Context, interfac
 		modelInterfaces[i] = &models.DiscoveredInterface{
 			Timestamp:     time.Now(),
 			AgentID:       p.config.AgentID,
-			GatewayID:      p.config.GatewayID,
+			GatewayID:     p.config.GatewayID,
 			DeviceIP:      iface.DeviceIP,
 			DeviceID:      iface.DeviceID,
 			IfIndex:       iface.IfIndex,
@@ -274,7 +274,7 @@ func (p *RegistryPublisher) PublishBatchTopologyLinks(ctx context.Context, links
 		modelEvents[i] = &models.TopologyDiscoveryEvent{
 			Timestamp:              time.Now(),
 			AgentID:                p.config.AgentID,
-			GatewayID:               p.config.GatewayID,
+			GatewayID:              p.config.GatewayID,
 			LocalDeviceIP:          link.LocalDeviceIP,
 			LocalDeviceID:          link.LocalDeviceID,
 			LocalIfIndex:           link.LocalIfIndex,
