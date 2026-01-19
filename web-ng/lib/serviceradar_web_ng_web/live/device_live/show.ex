@@ -608,12 +608,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <% end %>
             </div>
           </div>
-
+          
     <!-- Interfaces Tab Content -->
           <div :if={@active_tab == "interfaces" and @has_ifaces}>
             <.interfaces_tab_content interfaces={@network_interfaces} />
           </div>
-
+          
     <!-- Profiles Tab Content (only when sysmon is active) -->
           <div :if={@active_tab == "profiles" and @sysmon_presence}>
             <div class="grid grid-cols-1 gap-4">

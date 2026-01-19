@@ -571,6 +571,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       else
         assign(socket, :builder_open, false)
       end
+
     {:noreply, socket}
   end
 
@@ -1631,15 +1632,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   # Computes progress data for running scan card (extracted to reduce complexity)
   defp compute_scan_progress(execution, progress) do
     started_at = Map.get(execution, :started_at)
-    elapsed_ms = if started_at, do: DateTime.diff(DateTime.utc_now(), started_at, :millisecond), else: 0
+
+    elapsed_ms =
+      if started_at, do: DateTime.diff(DateTime.utc_now(), started_at, :millisecond), else: 0
 
     {hosts_processed, hosts_available, hosts_failed, hosts_total, batch_info} =
       if progress do
-        batch = if progress.total_batches, do: "Batch #{progress.batch_num}/#{progress.total_batches}"
-        {progress.hosts_processed, progress.hosts_available, progress.hosts_failed, progress.hosts_total, batch}
+        batch =
+          if progress.total_batches, do: "Batch #{progress.batch_num}/#{progress.total_batches}"
+
+        {progress.hosts_processed, progress.hosts_available, progress.hosts_failed,
+         progress.hosts_total, batch}
       else
         processed = Map.get(execution, :hosts_available, 0) + Map.get(execution, :hosts_failed, 0)
-        {processed, Map.get(execution, :hosts_available) || 0, Map.get(execution, :hosts_failed) || 0, Map.get(execution, :hosts_total), nil}
+
+        {processed, Map.get(execution, :hosts_available) || 0,
+         Map.get(execution, :hosts_failed) || 0, Map.get(execution, :hosts_total), nil}
       end
 
     hosts_total_display = compute_hosts_total_display(hosts_total, hosts_processed)
@@ -2638,6 +2646,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       Map.get(execution, :started_at) ||
       DateTime.from_unix!(0)
   end
+
   defp mapper_job_to_form(job) do
     %{
       "name" => job.name,
