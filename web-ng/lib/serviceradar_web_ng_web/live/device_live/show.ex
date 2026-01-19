@@ -55,6 +55,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      # Edit mode
      |> assign(:editing, false)
      |> assign(:device_form, to_form(%{}, as: :device))
+     # Network interfaces for dedicated tab
+     |> assign(:network_interfaces, [])
+     |> assign(:has_ifaces, false)
      # Tab state for device details
      |> assign(:active_tab, "details")}
   end
@@ -129,11 +132,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     # Load sysmon profile info
     {sysmon_profile_info, available_profiles} = load_sysmon_profile_info(scope, uid)
 
+    # Load network interfaces for dedicated tab
+    network_interfaces = (device_row && Map.get(device_row, "network_interfaces")) || []
+    has_ifaces = is_list(network_interfaces) and network_interfaces != []
+
     {:noreply,
      socket
      |> assign(:device_uid, uid)
      |> assign(:limit, limit)
      |> assign(:results, results)
+     |> assign(:network_interfaces, network_interfaces)
+     |> assign(:has_ifaces, has_ifaces)
      |> assign(
        :panels,
        srql_response
@@ -513,8 +522,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             </.form>
           </div>
           
-    <!-- Tabs Navigation (only show if sysmon is active) -->
-          <div :if={@sysmon_presence and is_map(@device_row)} class="tabs tabs-box">
+    <!-- Tabs Navigation (show if sysmon or interfaces present) -->
+          <div :if={(@sysmon_presence or @has_ifaces) and is_map(@device_row)} class="tabs tabs-box">
             <button
               type="button"
               phx-click="switch_tab"
@@ -524,6 +533,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.icon name="hero-document-text" class="size-4 mr-1.5" /> Details
             </button>
             <button
+              :if={@has_ifaces}
+              type="button"
+              phx-click="switch_tab"
+              phx-value-tab="interfaces"
+              class={["tab", @active_tab == "interfaces" && "tab-active"]}
+            >
+              <.icon name="hero-signal" class="size-4 mr-1.5" /> Interfaces
+            </button>
+            <button
+              :if={@sysmon_presence}
               type="button"
               phx-click="switch_tab"
               phx-value-tab="profiles"
@@ -534,7 +553,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           </div>
           
     <!-- Details Tab Content -->
-          <div :if={@active_tab == "details" or not @sysmon_presence}>
+          <div :if={@active_tab == "details" or not (@sysmon_presence or @has_ifaces)}>
             <div class="grid grid-cols-1 gap-4">
               <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
 
@@ -589,7 +608,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <% end %>
             </div>
           </div>
-          
+
+    <!-- Interfaces Tab Content -->
+          <div :if={@active_tab == "interfaces" and @has_ifaces}>
+            <.interfaces_tab_content interfaces={@network_interfaces} />
+          </div>
+
     <!-- Profiles Tab Content (only when sysmon is active) -->
           <div :if={@active_tab == "profiles" and @sysmon_presence}>
             <div class="grid grid-cols-1 gap-4">
@@ -751,7 +775,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         is_compliant={@is_compliant}
         is_trusted={@is_trusted}
       />
-      <.network_interfaces_card :if={@has_ifaces} interfaces={@network_interfaces} />
     </div>
     """
   end
@@ -759,7 +782,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp assign_ocsf_info(assigns) do
     os = Map.get(assigns.device_row, "os")
     hw_info = Map.get(assigns.device_row, "hw_info")
-    network_interfaces = Map.get(assigns.device_row, "network_interfaces") || []
     risk_level = Map.get(assigns.device_row, "risk_level")
     risk_score = Map.get(assigns.device_row, "risk_score")
     is_managed = Map.get(assigns.device_row, "is_managed")
@@ -768,14 +790,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     has_os = map_present?(os)
     has_hw = map_present?(hw_info)
-    has_ifaces = list_present?(network_interfaces)
     has_compliance = compliance_present?(risk_level, is_managed, is_compliant)
-    has_any = has_os or has_hw or has_ifaces or has_compliance
+    has_any = has_os or has_hw or has_compliance
 
     assigns
     |> assign(:os, os)
     |> assign(:hw_info, hw_info)
-    |> assign(:network_interfaces, network_interfaces)
     |> assign(:risk_level, risk_level)
     |> assign(:risk_score, risk_score)
     |> assign(:is_managed, is_managed)
@@ -783,13 +803,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:is_trusted, is_trusted)
     |> assign(:has_os, has_os)
     |> assign(:has_hw, has_hw)
-    |> assign(:has_ifaces, has_ifaces)
     |> assign(:has_compliance, has_compliance)
     |> assign(:has_any, has_any)
   end
 
   defp map_present?(value), do: is_map(value) and map_size(value) > 0
-  defp list_present?(value), do: is_list(value) and value != []
 
   defp compliance_present?(risk_level, is_managed, is_compliant) do
     not is_nil(risk_level) or not is_nil(is_managed) or not is_nil(is_compliant)
@@ -973,11 +991,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
+  # ---------------------------------------------------------------------------
+  # Interfaces Tab Content (full interfaces list)
+  # ---------------------------------------------------------------------------
+
   attr :interfaces, :list, required: true
 
-  defp network_interfaces_card(assigns) do
+  defp interfaces_tab_content(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm lg:col-span-2">
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200">
         <div class="flex items-center gap-2">
           <.icon name="hero-signal" class="size-4 text-primary" />
@@ -986,19 +1008,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         </div>
       </div>
       <div class="p-4">
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
           <table class="table table-xs w-full">
-            <thead>
+            <thead class="sticky top-0 bg-base-100">
               <tr>
                 <th class="text-xs">Name</th>
-                <th class="text-xs">IP</th>
-                <th class="text-xs">MAC</th>
+                <th class="text-xs">IP Address</th>
+                <th class="text-xs">MAC Address</th>
                 <th class="text-xs">Type</th>
               </tr>
             </thead>
             <tbody>
-              <%= for iface <- Enum.take(@interfaces, 10) do %>
-                <tr>
+              <%= for iface <- @interfaces do %>
+                <tr class="hover:bg-base-200/50">
                   <td class="font-mono text-xs">{Map.get(iface, "name") || "—"}</td>
                   <td class="font-mono text-xs">{Map.get(iface, "ip") || "—"}</td>
                   <td class="font-mono text-xs">{Map.get(iface, "mac") || "—"}</td>
@@ -1007,9 +1029,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <% end %>
             </tbody>
           </table>
-        </div>
-        <div :if={length(@interfaces) > 10} class="text-xs text-base-content/50 mt-2">
-          Showing 10 of {length(@interfaces)} interfaces
         </div>
       </div>
     </div>

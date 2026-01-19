@@ -1628,65 +1628,60 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
+  # Computes progress data for running scan card (extracted to reduce complexity)
+  defp compute_scan_progress(execution, progress) do
+    started_at = Map.get(execution, :started_at)
+    elapsed_ms = if started_at, do: DateTime.diff(DateTime.utc_now(), started_at, :millisecond), else: 0
+
+    {hosts_processed, hosts_available, hosts_failed, hosts_total, batch_info} =
+      if progress do
+        batch = if progress.total_batches, do: "Batch #{progress.batch_num}/#{progress.total_batches}"
+        {progress.hosts_processed, progress.hosts_available, progress.hosts_failed, progress.hosts_total, batch}
+      else
+        processed = Map.get(execution, :hosts_available, 0) + Map.get(execution, :hosts_failed, 0)
+        {processed, Map.get(execution, :hosts_available) || 0, Map.get(execution, :hosts_failed) || 0, Map.get(execution, :hosts_total), nil}
+      end
+
+    hosts_total_display = compute_hosts_total_display(hosts_total, hosts_processed)
+
+    %{
+      elapsed_ms: elapsed_ms,
+      hosts_processed: hosts_processed,
+      hosts_available: hosts_available,
+      hosts_failed: hosts_failed,
+      hosts_total: hosts_total,
+      hosts_total_display: hosts_total_display,
+      batch_info: batch_info,
+      has_progress: progress != nil
+    }
+  end
+
+  defp compute_hosts_total_display(hosts_total, hosts_processed) do
+    cond do
+      is_number(hosts_total) and hosts_total > 0 -> hosts_total
+      is_number(hosts_processed) and hosts_processed > 0 -> hosts_processed
+      true -> "—"
+    end
+  end
+
   # Running Scan Card Component
   attr :execution, :map, required: true
   attr :group, :map, default: nil
   attr :progress, :map, default: nil
 
   defp running_scan_card(assigns) do
-    # Calculate elapsed time
-    started_at = Map.get(assigns.execution, :started_at)
-
-    elapsed_ms =
-      if started_at do
-        DateTime.diff(DateTime.utc_now(), started_at, :millisecond)
-      else
-        0
-      end
-
-    # Use real-time progress if available, otherwise fall back to execution data
-    progress = assigns.progress
-
-    hosts_processed =
-      if progress,
-        do: progress.hosts_processed,
-        else:
-          Map.get(assigns.execution, :hosts_available, 0) +
-            Map.get(assigns.execution, :hosts_failed, 0)
-
-    hosts_available =
-      if progress,
-        do: progress.hosts_available,
-        else: Map.get(assigns.execution, :hosts_available) || 0
-
-    hosts_failed =
-      if progress, do: progress.hosts_failed, else: Map.get(assigns.execution, :hosts_failed) || 0
-
-    hosts_total =
-      if progress, do: progress.hosts_total, else: Map.get(assigns.execution, :hosts_total)
-
-    batch_info =
-      if progress && progress.total_batches,
-        do: "Batch #{progress.batch_num}/#{progress.total_batches}",
-        else: nil
-
-    hosts_total_display =
-      cond do
-        is_number(hosts_total) and hosts_total > 0 -> hosts_total
-        is_number(hosts_processed) and hosts_processed > 0 -> hosts_processed
-        true -> "—"
-      end
+    progress_data = compute_scan_progress(assigns.execution, assigns.progress)
 
     assigns =
       assigns
-      |> assign(:elapsed_ms, elapsed_ms)
-      |> assign(:hosts_processed, hosts_processed)
-      |> assign(:hosts_available, hosts_available)
-      |> assign(:hosts_failed, hosts_failed)
-      |> assign(:hosts_total, hosts_total)
-      |> assign(:hosts_total_display, hosts_total_display)
-      |> assign(:batch_info, batch_info)
-      |> assign(:has_progress, progress != nil)
+      |> assign(:elapsed_ms, progress_data.elapsed_ms)
+      |> assign(:hosts_processed, progress_data.hosts_processed)
+      |> assign(:hosts_available, progress_data.hosts_available)
+      |> assign(:hosts_failed, progress_data.hosts_failed)
+      |> assign(:hosts_total, progress_data.hosts_total)
+      |> assign(:hosts_total_display, progress_data.hosts_total_display)
+      |> assign(:batch_info, progress_data.batch_info)
+      |> assign(:has_progress, progress_data.has_progress)
 
     ~H"""
     <div class="bg-base-200/30 rounded-lg p-4 border border-base-200">
