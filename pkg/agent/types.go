@@ -48,6 +48,7 @@ type Server struct {
 	logger             logger.Logger
 	sysmonService      *SysmonService
 	snmpService        *SNMPAgentService
+	mapperService      *MapperService
 }
 
 // Duration represents a time duration that can be unmarshaled from JSON.

@@ -73,38 +73,6 @@ PACKAGES = {
             "/etc/serviceradar/checkers/sweep/sweep.json",
         ],
     },
-    "mapper": {
-        "package_name": "serviceradar-mapper",
-        "description": "ServiceRadar Mapper Service",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd"],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//cmd/mapper:mapper",
-            "dest": "/usr/local/bin/serviceradar-mapper",
-        },
-        "files": [
-            {
-                "src": "config/mapper.json",
-                "dest": "/etc/serviceradar/mapper.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-                "allow_empty": True,
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-mapper.service",
-            "dest": "/lib/systemd/system/serviceradar-mapper.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/mapper.json",
-        ],
-    },
     "datasvc": {
         "package_name": "serviceradar-datasvc",
         "description": "ServiceRadar Data Service (KV + object store)",
