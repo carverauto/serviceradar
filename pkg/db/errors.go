@@ -50,10 +50,8 @@ var (
 
 	// CNPG discovery + topology validation errors.
 
-	ErrDiscoveredInterfaceNil       = errors.New("discovered interface is nil")
-	ErrDiscoveredIdentifiersMissing = errors.New("agent_id, gateway_id, and device_ip are required")
-	ErrTopologyEventNil             = errors.New("topology discovery event is nil")
-	ErrTopologyIdentifiersMissing   = errors.New("agent_id, gateway_id, local_device_ip, and protocol_type are required")
+	ErrTopologyEventNil           = errors.New("topology discovery event is nil")
+	ErrTopologyIdentifiersMissing = errors.New("agent_id, gateway_id, local_device_ip, and protocol_type are required")
 
 	// Edge onboarding helpers.
 
@@ -69,10 +67,10 @@ var (
 
 	// Sweep validation errors.
 
-	ErrSweepStateNil        = errors.New("sweep host state is nil")
-	ErrSweepHostIPMissing   = errors.New("host ip is required")
+	ErrSweepStateNil         = errors.New("sweep host state is nil")
+	ErrSweepHostIPMissing    = errors.New("host ip is required")
 	ErrSweepGatewayIDMissing = errors.New("gateway id is required")
-	ErrSweepAgentIDMissing  = errors.New("agent id is required")
+	ErrSweepAgentIDMissing   = errors.New("agent id is required")
 
 	// Rows helpers.
 
