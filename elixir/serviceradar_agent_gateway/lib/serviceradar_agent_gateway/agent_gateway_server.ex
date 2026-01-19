@@ -155,9 +155,27 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     Logger.info("Config request received: component_type=#{component_type}, agent_id=#{agent_id}")
 
     # Generate config from database using the config generator
-    case core_call(AgentGatewaySync, :get_config_if_changed, [agent_id, config_version]) do
+    case core_call(AgentGatewaySync, :get_config_if_changed, [agent_id, config_version], 15_000) do
       {:error, :core_unavailable} ->
-        raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
+        Logger.warning(
+          "Core unavailable for config request: agent_id=#{agent_id}, version=#{config_version}"
+        )
+
+        if config_version != "" do
+          %Monitoring.AgentConfigResponse{
+            not_modified: true,
+            config_version: config_version
+          }
+        else
+          %Monitoring.AgentConfigResponse{
+            not_modified: false,
+            config_version: "v0-unavailable",
+            config_timestamp: System.os_time(:second),
+            heartbeat_interval_sec: @default_heartbeat_interval_sec,
+            config_poll_interval_sec: 300,
+            checks: []
+          }
+        end
 
       {:ok, :not_modified} ->
         Logger.debug("Agent config not modified: agent_id=#{agent_id}, version=#{config_version}")
@@ -541,9 +559,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       kv_store_id: service.kv_store_id || metadata.kv_store_id,
       timestamp: metadata.timestamp,
       agent_timestamp: metadata.agent_timestamp,
-      chunk_index: metadata.chunk_index,
-      total_chunks: metadata.total_chunks,
-      is_final: metadata.is_final
+      chunk_index: Map.get(metadata, :chunk_index, 0),
+      total_chunks: Map.get(metadata, :total_chunks, 1),
+      is_final: Map.get(metadata, :is_final, true)
     }
 
     # Forward to the status processor (delegates to core)

@@ -513,80 +513,99 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     expected_total_hosts = Keyword.get(opts, :expected_total_hosts)
     is_final = Keyword.get(opts, :is_final, true)
 
+    {completed_at, updated_at} = execution_timestamps(is_final)
+    duration_ms = execution_duration_ms(execution_id, is_final, completed_at)
+    inc_fields = execution_inc_fields(stats, expected_total_hosts)
+
+    set_fields =
+      execution_set_fields(updated_at, scanner_metrics)
+      |> maybe_mark_execution_complete(is_final, completed_at, duration_ms)
+
+    update_execution_row(execution_id, inc_fields, set_fields)
+    maybe_set_expected_total(execution_id, expected_total_hosts, updated_at)
+    fetch_execution(execution_id)
+  end
+
+  defp execution_timestamps(true) do
     now = DateTime.utc_now()
-    completed_at = if is_final, do: DateTime.truncate(now, :second), else: nil
-    updated_at = DateTime.truncate(now, :microsecond)
+    {DateTime.truncate(now, :second), DateTime.truncate(now, :microsecond)}
+  end
 
-    # DB connection's search_path determines the schema
-    # Calculate duration if we can fetch started_at
-    started_at_result =
-      if is_final do
-        from(e in SweepGroupExecution,
-          where: e.id == ^execution_id,
-          select: e.started_at
-        )
-        |> Repo.one()
-      else
-        nil
-      end
+  defp execution_timestamps(false) do
+    now = DateTime.utc_now()
+    {nil, DateTime.truncate(now, :microsecond)}
+  end
 
-    duration_ms =
-      case started_at_result do
-        nil -> nil
-        started_at -> DateTime.diff(completed_at, started_at, :millisecond)
-      end
+  defp execution_duration_ms(_execution_id, false, _completed_at), do: nil
 
-    inc_fields = [
+  defp execution_duration_ms(execution_id, true, completed_at) do
+    started_at =
+      from(e in SweepGroupExecution,
+        where: e.id == ^execution_id,
+        select: e.started_at
+      )
+      |> Repo.one()
+
+    case started_at do
+      nil -> nil
+      _ -> DateTime.diff(completed_at, started_at, :millisecond)
+    end
+  end
+
+  defp execution_inc_fields(stats, nil) do
+    [
+      hosts_available: stats.hosts_available,
+      hosts_failed: stats.hosts_failed,
+      hosts_total: stats.hosts_total
+    ]
+  end
+
+  defp execution_inc_fields(stats, _expected_total_hosts) do
+    [
       hosts_available: stats.hosts_available,
       hosts_failed: stats.hosts_failed
     ]
+  end
 
-    inc_fields =
-      if is_nil(expected_total_hosts) do
-        Keyword.put(inc_fields, :hosts_total, stats.hosts_total)
-      else
-        inc_fields
-      end
+  defp execution_set_fields(updated_at, scanner_metrics) do
+    set_fields = [updated_at: updated_at]
 
-    set_fields = [
-      updated_at: updated_at
-    ]
+    if scanner_metrics do
+      Keyword.put(set_fields, :scanner_metrics, scanner_metrics)
+    else
+      set_fields
+    end
+  end
 
-    set_fields =
-      if expected_total_hosts do
-        Keyword.put(
-          set_fields,
-          :hosts_total,
-          fragment("GREATEST(COALESCE(hosts_total, 0), ?)", expected_total_hosts)
-        )
-      else
-        set_fields
-      end
+  defp maybe_mark_execution_complete(set_fields, false, _completed_at, _duration_ms), do: set_fields
 
-    set_fields =
-      if scanner_metrics do
-        Keyword.put(set_fields, :scanner_metrics, scanner_metrics)
-      else
-        set_fields
-      end
+  defp maybe_mark_execution_complete(set_fields, true, completed_at, duration_ms) do
+    set_fields
+    |> Keyword.put(:status, :completed)
+    |> Keyword.put(:completed_at, completed_at)
+    |> Keyword.put(:duration_ms, duration_ms)
+  end
 
-    set_fields =
-      if is_final do
-        set_fields
-        |> Keyword.put(:status, :completed)
-        |> Keyword.put(:completed_at, completed_at)
-        |> Keyword.put(:duration_ms, duration_ms)
-      else
-        set_fields
-      end
-
-    update_opts = [inc: inc_fields, set: set_fields]
-
+  defp update_execution_row(execution_id, inc_fields, set_fields) do
     from(e in SweepGroupExecution,
       where: e.id == ^execution_id
     )
-    |> Repo.update_all(update_opts)
+    |> Repo.update_all(inc: inc_fields, set: set_fields)
+  end
 
+  defp maybe_set_expected_total(_execution_id, nil, _updated_at), do: :ok
+
+  defp maybe_set_expected_total(execution_id, expected_total_hosts, updated_at) do
+    from(e in SweepGroupExecution,
+      where: e.id == ^execution_id and (is_nil(e.hosts_total) or e.hosts_total < ^expected_total_hosts),
+      update: [set: [hosts_total: ^expected_total_hosts, updated_at: ^updated_at]]
+    )
+    |> Repo.update_all([])
+
+    :ok
+  end
+
+  defp fetch_execution(execution_id) do
     from(e in SweepGroupExecution,
       where: e.id == ^execution_id,
       select: %{
@@ -714,6 +733,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_processed = hosts_available + hosts_failed
 
       progress = %{
+        sweep_group_id: execution.sweep_group_id,
+        agent_id: execution.agent_id,
+        started_at: execution.started_at,
         batch_num: (chunk_index || 0) + 1,
         total_batches: total_chunks || 1,
         hosts_processed: hosts_processed,

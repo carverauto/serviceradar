@@ -1097,21 +1097,22 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   end
 
   defp parse_filter_value(field, negated, value) do
-    if list_filter_field?(field) do
-      normalized = normalize_list_value(value) |> Enum.join(", ")
-      op = if negated, do: "not_equals", else: "equals"
-      {op, normalized}
-    else
-      if String.contains?(value, "%") do
-        op = if negated, do: "not_contains", else: "contains"
-        unwrapped = unwrap_like(value)
-        {op, unwrapped}
-      else
-        op = if negated, do: "not_equals", else: "equals"
-        {op, value}
-      end
+    cond do
+      list_filter_field?(field) ->
+        normalized = normalize_list_value(value) |> Enum.join(", ")
+        {maybe_negate_op("equals", negated), normalized}
+
+      String.contains?(value, "%") ->
+        {maybe_negate_op("contains", negated), unwrap_like(value)}
+
+      true ->
+        {maybe_negate_op("equals", negated), value}
     end
   end
+
+  defp maybe_negate_op("equals", true), do: "not_equals"
+  defp maybe_negate_op("contains", true), do: "not_contains"
+  defp maybe_negate_op(op, _), do: op
 
   defp unwrap_like("%" <> rest) do
     rest
@@ -1235,36 +1236,45 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     field = String.trim(field || "")
     value = String.trim(value || "")
 
-    if field == "" or value == "" do
-      nil
-    else
-      if list_filter_field?(field) do
-        values =
-          value
-          |> normalize_list_value()
-          |> Enum.map(&String.replace(&1, " ", "\\ "))
+    cond do
+      field == "" or value == "" ->
+        nil
 
-        token = Enum.join(values, ",")
+      list_filter_field?(field) ->
+        build_list_filter_token(field, op, value)
 
-        case op do
-          "not_equals" -> "!#{field}:(#{token})"
-          "not_contains" -> "!#{field}:(#{token})"
-          _ -> "#{field}:(#{token})"
-        end
-      else
-        escaped = String.replace(value, " ", "\\ ")
-
-        case op do
-          "equals" -> "#{field}:#{escaped}"
-          "not_equals" -> "!#{field}:#{escaped}"
-          "not_contains" -> "!#{field}:%#{escaped}%"
-          _ -> "#{field}:%#{escaped}%"
-        end
-      end
+      true ->
+        build_scalar_filter_token(field, op, value)
     end
   end
 
   defp build_filter_token(_), do: nil
+
+  defp build_list_filter_token(field, op, value) do
+    values =
+      value
+      |> normalize_list_value()
+      |> Enum.map(&String.replace(&1, " ", "\\ "))
+
+    token = Enum.join(values, ",")
+
+    case op do
+      "not_equals" -> "!#{field}:(#{token})"
+      "not_contains" -> "!#{field}:(#{token})"
+      _ -> "#{field}:(#{token})"
+    end
+  end
+
+  defp build_scalar_filter_token(field, op, value) do
+    escaped = String.replace(value, " ", "\\ ")
+
+    case op do
+      "equals" -> "#{field}:#{escaped}"
+      "not_equals" -> "!#{field}:#{escaped}"
+      "not_contains" -> "!#{field}:%#{escaped}%"
+      _ -> "#{field}:%#{escaped}%"
+    end
+  end
 
   defp maybe_sync_builder_to_form(socket) do
     if socket.assigns.builder_sync do

@@ -525,6 +525,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         hosts_processed: 0,
         hosts_available: 0,
         hosts_failed: 0,
+        hosts_total: Map.get(execution_data, :hosts_total),
+        sweep_group_id: Map.get(execution_data, :sweep_group_id),
+        agent_id: Map.get(execution_data, :agent_id),
         started_at: execution_data.started_at
       })
 
@@ -537,15 +540,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   # Handle sweep execution progress event (real-time batch updates)
   def handle_info({:sweep_execution_progress, progress_data}, socket) do
     execution_id = progress_data.execution_id
+    existing = Map.get(socket.assigns.execution_progress, execution_id, %{})
 
     # Update progress tracking for this execution
     progress =
       Map.put(socket.assigns.execution_progress, execution_id, %{
+        sweep_group_id: Map.get(progress_data, :sweep_group_id) || existing[:sweep_group_id],
+        agent_id: Map.get(progress_data, :agent_id) || existing[:agent_id],
+        started_at: Map.get(progress_data, :started_at) || existing[:started_at],
         batch_num: progress_data.batch_num,
         total_batches: progress_data.total_batches,
         hosts_processed: progress_data.hosts_processed,
         hosts_available: progress_data.hosts_available,
         hosts_failed: progress_data.hosts_failed,
+        hosts_total: Map.get(progress_data, :hosts_total) || existing[:hosts_total],
         devices_created: progress_data[:devices_created] || 0,
         devices_updated: progress_data[:devices_updated] || 0,
         updated_at: progress_data.updated_at
@@ -620,7 +628,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             <%= if @show_form == :show_group do %>
               <.group_detail group={@selected_group} />
             <% else %>
-              <.tab_navigation active_tab={@active_tab} running_count={length(@running_executions)} />
+                <.tab_navigation
+                  active_tab={@active_tab}
+                  running_count={length(merge_running_with_progress(@running_executions, @execution_progress))}
+                />
 
               <%= case @active_tab do %>
                 <% :groups -> %>
@@ -629,7 +640,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                   <.profiles_panel profiles={@sweep_profiles} />
                 <% :active_scans -> %>
                   <.active_scans_panel
-                    running={@running_executions}
+                    running={merge_running_with_progress(@running_executions, @execution_progress)}
                     recent={@recent_executions}
                     groups={@sweep_groups}
                     execution_progress={@execution_progress}
@@ -913,7 +924,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             <.running_scan_card
               execution={execution}
               group={Map.get(@groups_map, execution.sweep_group_id)}
-              progress={Map.get(@execution_progress, execution.execution_id || execution.id)}
+              progress={Map.get(@execution_progress, Map.get(execution, :execution_id) || execution.id)}
             />
           <% end %>
         </div>
@@ -2066,6 +2077,36 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp format_last_run(_), do: "—"
 
+  defp merge_running_with_progress(running, progress_map) do
+    running = List.wrap(running)
+    progress_map = progress_map || %{}
+
+    running_ids =
+      running
+      |> Enum.map(&(Map.get(&1, :execution_id) || &1.id))
+      |> MapSet.new()
+
+    virtuals =
+      progress_map
+      |> Enum.reject(fn {execution_id, _} -> MapSet.member?(running_ids, execution_id) end)
+      |> Enum.map(fn {execution_id, progress} ->
+        %{
+          id: execution_id,
+          execution_id: execution_id,
+          sweep_group_id: Map.get(progress, :sweep_group_id),
+          agent_id: Map.get(progress, :agent_id),
+          started_at: Map.get(progress, :started_at),
+          status: :running,
+          hosts_total: Map.get(progress, :hosts_total),
+          hosts_available: Map.get(progress, :hosts_available),
+          hosts_failed: Map.get(progress, :hosts_failed)
+        }
+      end)
+
+    (running ++ virtuals)
+    |> Enum.sort_by(&latest_execution_time/1, {:desc, DateTime})
+  end
+
   defp latest_execution(executions) do
     Enum.max_by(executions, &latest_execution_time/1, fn -> nil end)
   end
@@ -2203,21 +2244,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp parse_filter_value(field, negated, value) do
-    if list_filter_field?(field) do
-      normalized = normalize_list_value(value) |> Enum.join(", ")
-      op = if negated, do: "not_equals", else: "equals"
-      {op, normalized}
-    else
-      if String.contains?(value, "%") do
-        op = if negated, do: "not_contains", else: "contains"
-        unwrapped = unwrap_like(value)
-        {op, unwrapped}
-      else
-        op = if negated, do: "not_equals", else: "equals"
-        {op, value}
-      end
+    cond do
+      list_filter_field?(field) ->
+        normalized = normalize_list_value(value) |> Enum.join(", ")
+        {maybe_negate_op("equals", negated), normalized}
+
+      String.contains?(value, "%") ->
+        {maybe_negate_op("contains", negated), unwrap_like(value)}
+
+      true ->
+        {maybe_negate_op("equals", negated), value}
     end
   end
+
+  defp maybe_negate_op("equals", true), do: "not_equals"
+  defp maybe_negate_op("contains", true), do: "not_contains"
+  defp maybe_negate_op(op, _), do: op
 
   defp unwrap_like("%" <> rest) do
     rest
@@ -2341,36 +2383,45 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     field = String.trim(field || "")
     value = String.trim(value || "")
 
-    if field == "" or value == "" do
-      nil
-    else
-      if list_filter_field?(field) do
-        values =
-          value
-          |> normalize_list_value()
-          |> Enum.map(&String.replace(&1, " ", "\\ "))
+    cond do
+      field == "" or value == "" ->
+        nil
 
-        token = Enum.join(values, ",")
+      list_filter_field?(field) ->
+        build_list_filter_token(field, op, value)
 
-        case op do
-          "not_equals" -> "!#{field}:(#{token})"
-          "not_contains" -> "!#{field}:(#{token})"
-          _ -> "#{field}:(#{token})"
-        end
-      else
-        escaped = String.replace(value, " ", "\\ ")
-
-        case op do
-          "equals" -> "#{field}:#{escaped}"
-          "not_equals" -> "!#{field}:#{escaped}"
-          "not_contains" -> "!#{field}:%#{escaped}%"
-          _ -> "#{field}:%#{escaped}%"
-        end
-      end
+      true ->
+        build_scalar_filter_token(field, op, value)
     end
   end
 
   defp build_filter_token(_), do: nil
+
+  defp build_list_filter_token(field, op, value) do
+    values =
+      value
+      |> normalize_list_value()
+      |> Enum.map(&String.replace(&1, " ", "\\ "))
+
+    token = Enum.join(values, ",")
+
+    case op do
+      "not_equals" -> "!#{field}:(#{token})"
+      "not_contains" -> "!#{field}:(#{token})"
+      _ -> "#{field}:(#{token})"
+    end
+  end
+
+  defp build_scalar_filter_token(field, op, value) do
+    escaped = String.replace(value, " ", "\\ ")
+
+    case op do
+      "equals" -> "#{field}:#{escaped}"
+      "not_equals" -> "!#{field}:#{escaped}"
+      "not_contains" -> "!#{field}:%#{escaped}%"
+      _ -> "#{field}:%#{escaped}%"
+    end
+  end
 
   defp maybe_sync_builder_to_form(socket) do
     if socket.assigns.builder_sync do

@@ -175,6 +175,20 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    update :gateway_sync do
+      accept [
+        :agent_id,
+        :hostname,
+        :ip,
+        :is_available,
+        :discovery_sources,
+        :last_seen_time,
+        :metadata
+      ]
+
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
     update :assign_to_group do
       description "Assign device to a group"
       accept [:group_id]
