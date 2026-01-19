@@ -1693,25 +1693,67 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
+  # Computes progress data for running scan card (extracted to reduce complexity)
+  defp compute_scan_progress(execution, progress) do
+    started_at = Map.get(execution, :started_at)
+
+    elapsed_ms =
+      if started_at, do: DateTime.diff(DateTime.utc_now(), started_at, :millisecond), else: 0
+
+    {hosts_processed, hosts_available, hosts_failed, hosts_total, batch_info} =
+      if progress do
+        batch =
+          if progress.total_batches, do: "Batch #{progress.batch_num}/#{progress.total_batches}"
+
+        {progress.hosts_processed, progress.hosts_available, progress.hosts_failed,
+         progress.hosts_total, batch}
+      else
+        processed = Map.get(execution, :hosts_available, 0) + Map.get(execution, :hosts_failed, 0)
+
+        {processed, Map.get(execution, :hosts_available) || 0,
+         Map.get(execution, :hosts_failed) || 0, Map.get(execution, :hosts_total), nil}
+      end
+
+    hosts_total_display = compute_hosts_total_display(hosts_total, hosts_processed)
+
+    %{
+      elapsed_ms: elapsed_ms,
+      hosts_processed: hosts_processed,
+      hosts_available: hosts_available,
+      hosts_failed: hosts_failed,
+      hosts_total: hosts_total,
+      hosts_total_display: hosts_total_display,
+      batch_info: batch_info,
+      has_progress: progress != nil
+    }
+  end
+
+  defp compute_hosts_total_display(hosts_total, hosts_processed) do
+    cond do
+      is_number(hosts_total) and hosts_total > 0 -> hosts_total
+      is_number(hosts_processed) and hosts_processed > 0 -> hosts_processed
+      true -> "—"
+    end
+  end
+
   # Running Scan Card Component
   attr :execution, :map, required: true
   attr :group, :map, default: nil
   attr :progress, :map, default: nil
 
   defp running_scan_card(assigns) do
-    elapsed_ms = calculate_elapsed_ms(assigns.execution)
-    progress_data = extract_progress_data(assigns.progress, assigns.execution)
+    progress_data = compute_scan_progress(assigns.execution, assigns.progress)
 
     assigns =
       assigns
-      |> assign(:elapsed_ms, elapsed_ms)
+      |> assign(:elapsed_ms, progress_data.elapsed_ms)
       |> assign(:hosts_processed, progress_data.hosts_processed)
       |> assign(:hosts_available, progress_data.hosts_available)
       |> assign(:hosts_failed, progress_data.hosts_failed)
       |> assign(:hosts_total, progress_data.hosts_total)
       |> assign(:hosts_total_display, progress_data.hosts_total_display)
       |> assign(:batch_info, progress_data.batch_info)
-      |> assign(:has_progress, assigns.progress != nil)
+      |> assign(:has_progress, progress_data.has_progress)
 
     ~H"""
     <div class="bg-base-200/30 rounded-lg p-4 border border-base-200">
@@ -1965,57 +2007,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp batch_progress_percent(_), do: 0
-
-  # Helper for running_scan_card: calculate elapsed time
-  defp calculate_elapsed_ms(execution) do
-    case Map.get(execution, :started_at) do
-      nil -> 0
-      started_at -> DateTime.diff(DateTime.utc_now(), started_at, :millisecond)
-    end
-  end
-
-  # Helper for running_scan_card: extract progress data from real-time progress or execution
-  defp extract_progress_data(nil, execution) do
-    hosts_available = Map.get(execution, :hosts_available) || 0
-    hosts_failed = Map.get(execution, :hosts_failed) || 0
-    hosts_processed = hosts_available + hosts_failed
-    hosts_total = Map.get(execution, :hosts_total)
-
-    %{
-      hosts_processed: hosts_processed,
-      hosts_available: hosts_available,
-      hosts_failed: hosts_failed,
-      hosts_total: hosts_total,
-      hosts_total_display: hosts_total_display(hosts_total, hosts_processed),
-      batch_info: nil
-    }
-  end
-
-  defp extract_progress_data(progress, _execution) do
-    %{
-      hosts_processed: progress.hosts_processed,
-      hosts_available: progress.hosts_available,
-      hosts_failed: progress.hosts_failed,
-      hosts_total: progress.hosts_total,
-      hosts_total_display: hosts_total_display(progress.hosts_total, progress.hosts_processed),
-      batch_info: batch_info_text(progress)
-    }
-  end
-
-  defp hosts_total_display(hosts_total, _) when is_number(hosts_total) and hosts_total > 0,
-    do: hosts_total
-
-  defp hosts_total_display(_, hosts_processed)
-       when is_number(hosts_processed) and hosts_processed > 0,
-       do: hosts_processed
-
-  defp hosts_total_display(_, _), do: "—"
-
-  defp batch_info_text(%{total_batches: total_batches, batch_num: batch_num})
-       when is_integer(total_batches) and total_batches > 0,
-       do: "Batch #{batch_num}/#{total_batches}"
-
-  defp batch_info_text(_), do: nil
 
   defp format_relative_time(nil), do: "—"
 

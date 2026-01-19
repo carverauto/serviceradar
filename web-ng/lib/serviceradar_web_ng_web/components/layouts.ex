@@ -159,14 +159,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
-                  href={~p"/interfaces"}
-                  label="Interfaces"
-                  icon="hero-globe-alt"
-                  active={@current_path == "/interfaces"}
-                />
-              </li>
-              <li>
-                <.sidebar_link
                   href={~p"/events"}
                   label="Events"
                   icon="hero-bell-alert"
@@ -415,7 +407,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_label("logs"), do: "Logs"
   defp section_label("observability"), do: "Observability"
   defp section_label("services"), do: "Services"
-  defp section_label("interfaces"), do: "Interfaces"
   defp section_label("admin"), do: "Settings"
   defp section_label("settings"), do: "Settings"
   defp section_label(other), do: String.capitalize(other)
@@ -433,7 +424,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_icon("settings"), do: "hero-adjustments-horizontal-micro"
   defp section_icon("observability"), do: "hero-presentation-chart-line-micro"
   defp section_icon("services"), do: "hero-cog-6-tooth-micro"
-  defp section_icon("interfaces"), do: "hero-globe-alt-micro"
   defp section_icon(_), do: nil
 
   defp format_id(id) when is_binary(id), do: URI.decode(id)
