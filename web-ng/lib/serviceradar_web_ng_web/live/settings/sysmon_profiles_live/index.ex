@@ -562,8 +562,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         </div>
       </:header>
 
-      <form id="sysmon-builder-form" phx-change="builder_change" phx-debounce="200">
-      </form>
+      <form id="sysmon-builder-form" phx-change="builder_change" phx-debounce="200"></form>
 
       <.form
         for={@form}

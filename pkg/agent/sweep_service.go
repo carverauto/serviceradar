@@ -272,7 +272,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 
 	totalHosts := summary.TotalHosts
 	hostsProcessed := len(summary.Hosts)
-	sweepComplete := totalHosts > 0 && hostsProcessed >= totalHosts
+	sweepComplete := summary.LastSweep > 0 && hostsProcessed > 0
 
 	// Only publish results when a sweep has completed
 	if sweepComplete && summary.LastSweep != s.lastSweepTimestamp {
@@ -303,6 +303,8 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 			ServiceType:     "sweep",
 			ExecutionId:     s.executionID,
 			SweepGroupId:    s.sweepGroupID,
+			Available:       true,
+			Timestamp:       time.Now().Unix(),
 		}, nil
 	}
 
@@ -320,6 +322,8 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 			ServiceType:     "sweep",
 			ExecutionId:     s.executionID,
 			SweepGroupId:    s.sweepGroupID,
+			Available:       true,
+			Timestamp:       time.Now().Unix(),
 		}, nil
 	}
 

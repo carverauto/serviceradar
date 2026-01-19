@@ -13,7 +13,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   alias AshPhoenix.Form
 
-  alias ServiceRadar.SweepJobs.{ObanSupport, SweepGroup, SweepGroupExecution, SweepProfile, SweepPubSub}
+  alias ServiceRadar.SweepJobs.{
+    ObanSupport,
+    SweepGroup,
+    SweepGroupExecution,
+    SweepProfile,
+    SweepPubSub
+  }
 
   @refresh_interval :timer.seconds(15)
 
@@ -506,10 +512,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   @impl true
   def handle_info(:refresh_active_scans, socket) do
     scope = socket.assigns.current_scope
+    running = load_running_executions(scope)
+    running_ids = MapSet.new(Enum.map(running, & &1.id))
+
+    progress =
+      socket.assigns.execution_progress
+      |> Enum.filter(fn {execution_id, _} -> MapSet.member?(running_ids, execution_id) end)
+      |> Map.new()
 
     {:noreply,
      socket
-     |> assign(:running_executions, load_running_executions(scope))
+     |> assign(:running_executions, running)
+     |> assign(:execution_progress, progress)
      |> assign(:recent_executions, load_recent_executions(scope))}
   end
 
@@ -628,10 +642,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             <%= if @show_form == :show_group do %>
               <.group_detail group={@selected_group} />
             <% else %>
-                <.tab_navigation
-                  active_tab={@active_tab}
-                  running_count={length(merge_running_with_progress(@running_executions, @execution_progress))}
-                />
+              <.tab_navigation
+                active_tab={@active_tab}
+                running_count={
+                  length(merge_running_with_progress(@running_executions, @execution_progress))
+                }
+              />
 
               <%= case @active_tab do %>
                 <% :groups -> %>
@@ -924,7 +940,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             <.running_scan_card
               execution={execution}
               group={Map.get(@groups_map, execution.sweep_group_id)}
-              progress={Map.get(@execution_progress, Map.get(execution, :execution_id) || execution.id)}
+              progress={
+                Map.get(@execution_progress, Map.get(execution, :execution_id) || execution.id)
+              }
             />
           <% end %>
         </div>
@@ -1169,9 +1187,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp running_scan_card(assigns) do
     # Calculate elapsed time
+    started_at = Map.get(assigns.execution, :started_at)
+
     elapsed_ms =
-      if assigns.execution.started_at do
-        DateTime.diff(DateTime.utc_now(), assigns.execution.started_at, :millisecond)
+      if started_at do
+        DateTime.diff(DateTime.utc_now(), started_at, :millisecond)
       else
         0
       end
@@ -1180,13 +1200,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     progress = assigns.progress
 
     hosts_processed =
-      if progress, do: progress.hosts_processed, else: assigns.execution.hosts_total || 0
+      if progress,
+        do: progress.hosts_processed,
+        else:
+          Map.get(assigns.execution, :hosts_available, 0) +
+            Map.get(assigns.execution, :hosts_failed, 0)
 
     hosts_available =
-      if progress, do: progress.hosts_available, else: assigns.execution.hosts_available || 0
+      if progress,
+        do: progress.hosts_available,
+        else: Map.get(assigns.execution, :hosts_available) || 0
 
     hosts_failed =
-      if progress, do: progress.hosts_failed, else: assigns.execution.hosts_failed || 0
+      if progress, do: progress.hosts_failed, else: Map.get(assigns.execution, :hosts_failed) || 0
+
+    hosts_total =
+      if progress, do: progress.hosts_total, else: Map.get(assigns.execution, :hosts_total)
 
     batch_info =
       if progress && progress.total_batches,
@@ -1199,6 +1228,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:hosts_processed, hosts_processed)
       |> assign(:hosts_available, hosts_available)
       |> assign(:hosts_failed, hosts_failed)
+      |> assign(:hosts_total, hosts_total)
       |> assign(:batch_info, batch_info)
       |> assign(:has_progress, progress != nil)
 
@@ -1214,11 +1244,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
               {if @group, do: @group.name, else: "Unknown Group"}
             </div>
             <div class="text-xs text-base-content/60 flex items-center gap-2">
-              <span :if={@execution.agent_id}>
+              <span :if={Map.get(@execution, :agent_id)}>
                 <.icon name="hero-server" class="size-3 inline" />
-                {@execution.agent_id}
+                {Map.get(@execution, :agent_id)}
               </span>
-              <span>Started {format_relative_time(@execution.started_at)}</span>
+              <span>Started {format_relative_time(Map.get(@execution, :started_at))}</span>
             </div>
           </div>
         </div>
@@ -1227,7 +1257,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <div class="text-xs text-base-content/60">
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
-            <span> of    {@hosts_processed} hosts</span>
+            <span>
+              of {if(is_number(@hosts_total) and @hosts_total > 0, do: @hosts_total, else: "—")} hosts
+            </span>
           </div>
           <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
             {@batch_info}
@@ -1507,8 +1539,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         </div>
       </:header>
 
-      <form id="sweep-group-builder-form" phx-change="builder_change" phx-debounce="200">
-      </form>
+      <form id="sweep-group-builder-form" phx-change="builder_change" phx-debounce="200"></form>
 
       <.form
         for={@form}
@@ -1630,9 +1661,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             </div>
             <label class="label">
               <span class="label-text-alt text-base-content/50">
-                SRQL filters to match devices. Examples:
-                <code class="bg-base-200 px-1 rounded">tags.environment:production</code>,
-                <code class="bg-base-200 px-1 rounded">hostname:%prod%</code>,
+                SRQL filters to match devices. Examples: <code class="bg-base-200 px-1 rounded">tags.environment:production</code>, <code class="bg-base-200 px-1 rounded">hostname:%prod%</code>,
                 <code class="bg-base-200 px-1 rounded">type:Server</code>
               </span>
             </label>
@@ -2112,7 +2141,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp latest_execution_time(execution) do
-    execution.completed_at || execution.updated_at || execution.started_at || DateTime.from_unix!(0)
+    Map.get(execution, :completed_at) ||
+      Map.get(execution, :updated_at) ||
+      Map.get(execution, :started_at) ||
+      DateTime.from_unix!(0)
   end
 
   defp format_ports([]), do: "—"

@@ -412,7 +412,18 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     case Repo.insert_all(
            SweepHostResult,
            records,
-           on_conflict: :nothing,
+           on_conflict:
+             {:replace,
+              [
+                :hostname,
+                :status,
+                :response_time_ms,
+                :sweep_modes_results,
+                :open_ports,
+                :error_message,
+                :device_id
+              ]},
+           conflict_target: [:execution_id, :ip],
            returning: false
          ) do
       {count, _} ->
@@ -611,6 +622,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       select: %{
         id: e.id,
         sweep_group_id: e.sweep_group_id,
+        agent_id: e.agent_id,
         started_at: e.started_at,
         completed_at: e.completed_at,
         duration_ms: e.duration_ms,
@@ -658,6 +670,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     started_at = DateTime.truncate(now, :second)
     inserted_at = DateTime.truncate(now, :microsecond)
     hosts_total = expected_total_hosts || 0
+
+    mark_superseded_executions(sweep_group_id, agent_id, started_at)
 
     # DB connection's search_path determines the schema
     record = %{
@@ -707,6 +721,35 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:error, e}
   end
 
+  defp mark_superseded_executions(nil, _agent_id, _now), do: :ok
+  defp mark_superseded_executions("", _agent_id, _now), do: :ok
+
+  defp mark_superseded_executions(sweep_group_id, agent_id, now) do
+    base_query =
+      from(e in SweepGroupExecution,
+        where: e.sweep_group_id == ^sweep_group_id and e.status == :running
+      )
+
+    query =
+      if is_binary(agent_id) and agent_id != "" do
+        from(e in base_query, where: e.agent_id == ^agent_id)
+      else
+        base_query
+      end
+
+    query
+    |> Repo.update_all(
+      set: [
+        status: :failed,
+        completed_at: now,
+        updated_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
+        error_message: "superseded by new execution"
+      ]
+    )
+
+    :ok
+  end
+
   defp merge_stats(stats1, stats2) do
     %{
       hosts_total: stats1.hosts_total + stats2.hosts_total,
@@ -733,15 +776,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_processed = hosts_available + hosts_failed
 
       progress = %{
-        sweep_group_id: execution.sweep_group_id,
-        agent_id: execution.agent_id,
-        started_at: execution.started_at,
+        sweep_group_id: Map.get(execution, :sweep_group_id),
+        agent_id: Map.get(execution, :agent_id),
+        started_at: Map.get(execution, :started_at),
         batch_num: (chunk_index || 0) + 1,
         total_batches: total_chunks || 1,
         hosts_processed: hosts_processed,
         hosts_available: hosts_available,
         hosts_failed: hosts_failed,
-        hosts_total: execution.hosts_total || 0,
+        hosts_total: Map.get(execution, :hosts_total) || 0,
         devices_created: stats.devices_created,
         devices_updated: stats.devices_updated
       }

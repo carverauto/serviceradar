@@ -122,7 +122,8 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :rule_id, :any, default: nil
 
   attr :rest, :global,
-    include: ~w(name value form type placeholder disabled min max step phx-change phx-blur phx-target
+    include:
+      ~w(name value form type placeholder disabled min max step phx-change phx-blur phx-target
                 phx-debounce phx-throttle)
 
   def ui_inline_input(assigns) do

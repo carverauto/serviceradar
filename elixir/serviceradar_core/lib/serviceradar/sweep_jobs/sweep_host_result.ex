@@ -43,6 +43,10 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
       index [:execution_id],
         name: "sweep_host_results_execution_idx"
 
+      index [:execution_id, :ip],
+        unique: true,
+        name: "sweep_host_results_execution_ip_uidx"
+
       index [:ip],
         name: "sweep_host_results_ip_idx"
 
