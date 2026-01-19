@@ -97,8 +97,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperSNMPCredential do
       allow_nil? false
       public? true
       default :v2c
-      constraints one_of: [:v1, :v2c, :v3]
-      description "SNMP protocol version"
+      constraints one_of: [:v2c, :v3]
+      description "SNMP protocol version (v2c or v3)"
     end
 
     attribute :community, :string do

@@ -158,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       "interval" => "2h",
       "partition" => "default",
       "agent_id" => "",
-      "discovery_mode" => "snmp",
+      "discovery_mode" => "snmp_api",
       "discovery_type" => "full",
       "concurrency" => 10,
       "timeout" => "45s",
@@ -385,6 +385,35 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
+  def handle_event("mapper_form_change", params, socket) do
+    # Update the form with changed values to trigger conditional rendering
+    job_params = Map.get(params, "mapper_job", %{})
+    snmp_params = Map.get(params, "snmp", %{})
+    seeds_text = Map.get(params, "seeds", socket.assigns.mapper_seeds_text)
+
+    # Merge changed params into existing form
+    current_form_data = socket.assigns.mapper_form.source
+    updated_form_data = Map.merge(current_form_data, job_params)
+    updated_form = to_form(updated_form_data, as: :mapper_job)
+
+    # Update SNMP form
+    current_snmp_data =
+      if socket.assigns.mapper_snmp_form do
+        socket.assigns.mapper_snmp_form.source
+      else
+        %{"version" => "v2c"}
+      end
+
+    updated_snmp_data = Map.merge(current_snmp_data, snmp_params)
+    updated_snmp_form = to_form(updated_snmp_data, as: :snmp)
+
+    {:noreply,
+     socket
+     |> assign(:mapper_form, updated_form)
+     |> assign(:mapper_snmp_form, updated_snmp_form)
+     |> assign(:mapper_seeds_text, seeds_text)}
+  end
+
   def handle_event("delete_profile", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
@@ -571,6 +600,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       else
         assign(socket, :builder_open, false)
       end
+
     {:noreply, socket}
   end
 
@@ -1025,8 +1055,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :unifi_present, :boolean, default: false
 
   defp mapper_job_form(assigns) do
+    # Get current values for conditional rendering
+    discovery_mode = Phoenix.HTML.Form.input_value(assigns.form, :discovery_mode) || "snmp_api"
+    snmp_version = Phoenix.HTML.Form.input_value(assigns.snmp_form, :version) || "v2c"
+
+    assigns =
+      assigns
+      |> assign(:discovery_mode, discovery_mode)
+      |> assign(:snmp_version, snmp_version)
+      |> assign(:show_snmp, discovery_mode in ["snmp", "snmp_api"])
+      |> assign(:show_api, discovery_mode in ["api", "snmp_api"])
+      |> assign(:show_snmp_v3, snmp_version == "v3")
+
     ~H"""
-    <.form for={@form} id="mapper-job-form" phx-submit="save_mapper_job" class="space-y-6">
+    <.form
+      for={@form}
+      id="mapper-job-form"
+      phx-submit="save_mapper_job"
+      phx-change="mapper_form_change"
+      class="space-y-6"
+    >
       <div class="grid gap-4 md:grid-cols-2">
         <.input field={@form[:name]} type="text" label="Job Name" required />
         <.input field={@form[:enabled]} type="checkbox" label="Enabled" />
@@ -1038,7 +1086,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           field={@form[:discovery_mode]}
           type="select"
           label="Discovery Mode"
-          options={[{"SNMP", "snmp"}, {"API", "api"}]}
+          options={[
+            {"API & SNMP", "snmp_api"},
+            {"SNMP Only", "snmp"},
+            {"API Only", "api"}
+          ]}
         />
         <.input
           field={@form[:discovery_type]}
@@ -1067,7 +1119,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         />
       </div>
 
-      <div class="rounded-xl border border-base-200 p-4 space-y-4">
+      <div :if={@show_snmp} class="rounded-xl border border-base-200 p-4 space-y-4">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-sm font-semibold">SNMP Credentials</h3>
@@ -1086,38 +1138,51 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             field={@snmp_form[:version]}
             type="select"
             label="SNMP Version"
-            options={[{"v1", "v1"}, {"v2c", "v2c"}, {"v3", "v3"}]}
+            options={[{"v2c", "v2c"}, {"v3", "v3"}]}
           />
           <.input field={@snmp_form[:name]} type="text" label="Credential Name" />
           <.input
             field={@snmp_form[:community]}
             type="password"
-            label="Community"
+            label="Community String"
             placeholder={secret_placeholder(@snmp_present, "community")}
           />
-          <.input field={@snmp_form[:username]} type="text" label="Username" />
-          <.input field={@snmp_form[:auth_protocol]} type="text" label="Auth Protocol" />
-          <.input
-            field={@snmp_form[:auth_password]}
-            type="password"
-            label="Auth Password"
-            placeholder={secret_placeholder(@snmp_present, "auth_password")}
-          />
-          <.input field={@snmp_form[:privacy_protocol]} type="text" label="Privacy Protocol" />
-          <.input
-            field={@snmp_form[:privacy_password]}
-            type="password"
-            label="Privacy Password"
-            placeholder={secret_placeholder(@snmp_present, "privacy_password")}
-          />
+          <%!-- SNMPv3 fields only shown when v3 is selected --%>
+          <div :if={@show_snmp_v3} class="col-span-2 grid gap-4 md:grid-cols-2">
+            <.input field={@snmp_form[:username]} type="text" label="Username" />
+            <.input
+              field={@snmp_form[:auth_protocol]}
+              type="select"
+              label="Auth Protocol"
+              options={[{"None", ""}, {"MD5", "MD5"}, {"SHA", "SHA"}]}
+            />
+            <.input
+              field={@snmp_form[:auth_password]}
+              type="password"
+              label="Auth Password"
+              placeholder={secret_placeholder(@snmp_present, "auth_password")}
+            />
+            <.input
+              field={@snmp_form[:privacy_protocol]}
+              type="select"
+              label="Privacy Protocol"
+              options={[{"None", ""}, {"DES", "DES"}, {"AES", "AES"}]}
+            />
+            <.input
+              field={@snmp_form[:privacy_password]}
+              type="password"
+              label="Privacy Password"
+              placeholder={secret_placeholder(@snmp_present, "privacy_password")}
+            />
+          </div>
         </div>
       </div>
 
-      <div class="rounded-xl border border-base-200 p-4 space-y-4">
+      <div :if={@show_api} class="rounded-xl border border-base-200 p-4 space-y-4">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-sm font-semibold">UniFi Controller</h3>
-            <p class="text-xs text-base-content/60">Optional API discovery integration.</p>
+            <p class="text-xs text-base-content/60">API discovery integration.</p>
           </div>
           <span class="text-xs text-base-content/60">
             <%= if @unifi_present do %>
@@ -1139,7 +1204,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             field={@unifi_form[:api_key]}
             type="password"
             label="API Key"
-            placeholder={if(@unifi_present, do: "stored", else: "optional")}
+            placeholder={if(@unifi_present, do: "stored", else: "required")}
           />
           <.input
             field={@unifi_form[:insecure_skip_verify]}
@@ -1634,59 +1699,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :progress, :map, default: nil
 
   defp running_scan_card(assigns) do
-    # Calculate elapsed time
-    started_at = Map.get(assigns.execution, :started_at)
-
-    elapsed_ms =
-      if started_at do
-        DateTime.diff(DateTime.utc_now(), started_at, :millisecond)
-      else
-        0
-      end
-
-    # Use real-time progress if available, otherwise fall back to execution data
-    progress = assigns.progress
-
-    hosts_processed =
-      if progress,
-        do: progress.hosts_processed,
-        else:
-          Map.get(assigns.execution, :hosts_available, 0) +
-            Map.get(assigns.execution, :hosts_failed, 0)
-
-    hosts_available =
-      if progress,
-        do: progress.hosts_available,
-        else: Map.get(assigns.execution, :hosts_available) || 0
-
-    hosts_failed =
-      if progress, do: progress.hosts_failed, else: Map.get(assigns.execution, :hosts_failed) || 0
-
-    hosts_total =
-      if progress, do: progress.hosts_total, else: Map.get(assigns.execution, :hosts_total)
-
-    batch_info =
-      if progress && progress.total_batches,
-        do: "Batch #{progress.batch_num}/#{progress.total_batches}",
-        else: nil
-
-    hosts_total_display =
-      cond do
-        is_number(hosts_total) and hosts_total > 0 -> hosts_total
-        is_number(hosts_processed) and hosts_processed > 0 -> hosts_processed
-        true -> "—"
-      end
+    elapsed_ms = calculate_elapsed_ms(assigns.execution)
+    progress_data = extract_progress_data(assigns.progress, assigns.execution)
 
     assigns =
       assigns
       |> assign(:elapsed_ms, elapsed_ms)
-      |> assign(:hosts_processed, hosts_processed)
-      |> assign(:hosts_available, hosts_available)
-      |> assign(:hosts_failed, hosts_failed)
-      |> assign(:hosts_total, hosts_total)
-      |> assign(:hosts_total_display, hosts_total_display)
-      |> assign(:batch_info, batch_info)
-      |> assign(:has_progress, progress != nil)
+      |> assign(:hosts_processed, progress_data.hosts_processed)
+      |> assign(:hosts_available, progress_data.hosts_available)
+      |> assign(:hosts_failed, progress_data.hosts_failed)
+      |> assign(:hosts_total, progress_data.hosts_total)
+      |> assign(:hosts_total_display, progress_data.hosts_total_display)
+      |> assign(:batch_info, progress_data.batch_info)
+      |> assign(:has_progress, assigns.progress != nil)
 
     ~H"""
     <div class="bg-base-200/30 rounded-lg p-4 border border-base-200">
@@ -1940,6 +1965,57 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp batch_progress_percent(_), do: 0
+
+  # Helper for running_scan_card: calculate elapsed time
+  defp calculate_elapsed_ms(execution) do
+    case Map.get(execution, :started_at) do
+      nil -> 0
+      started_at -> DateTime.diff(DateTime.utc_now(), started_at, :millisecond)
+    end
+  end
+
+  # Helper for running_scan_card: extract progress data from real-time progress or execution
+  defp extract_progress_data(nil, execution) do
+    hosts_available = Map.get(execution, :hosts_available) || 0
+    hosts_failed = Map.get(execution, :hosts_failed) || 0
+    hosts_processed = hosts_available + hosts_failed
+    hosts_total = Map.get(execution, :hosts_total)
+
+    %{
+      hosts_processed: hosts_processed,
+      hosts_available: hosts_available,
+      hosts_failed: hosts_failed,
+      hosts_total: hosts_total,
+      hosts_total_display: hosts_total_display(hosts_total, hosts_processed),
+      batch_info: nil
+    }
+  end
+
+  defp extract_progress_data(progress, _execution) do
+    %{
+      hosts_processed: progress.hosts_processed,
+      hosts_available: progress.hosts_available,
+      hosts_failed: progress.hosts_failed,
+      hosts_total: progress.hosts_total,
+      hosts_total_display: hosts_total_display(progress.hosts_total, progress.hosts_processed),
+      batch_info: batch_info_text(progress)
+    }
+  end
+
+  defp hosts_total_display(hosts_total, _) when is_number(hosts_total) and hosts_total > 0,
+    do: hosts_total
+
+  defp hosts_total_display(_, hosts_processed)
+       when is_number(hosts_processed) and hosts_processed > 0,
+       do: hosts_processed
+
+  defp hosts_total_display(_, _), do: "—"
+
+  defp batch_info_text(%{total_batches: total_batches, batch_num: batch_num})
+       when is_integer(total_batches) and total_batches > 0,
+       do: "Batch #{batch_num}/#{total_batches}"
+
+  defp batch_info_text(_), do: nil
 
   defp format_relative_time(nil), do: "—"
 
@@ -2643,6 +2719,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       Map.get(execution, :started_at) ||
       DateTime.from_unix!(0)
   end
+
   defp mapper_job_to_form(job) do
     %{
       "name" => job.name,
@@ -2671,15 +2748,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       "privacy_protocol" => credential.privacy_protocol || ""
     }
 
-    # Handle Ash.NotLoaded for the calculation
-    secrets_present =
-      case credential.secrets_present do
-        %Ash.NotLoaded{} -> %{}
-        nil -> %{}
-        value -> value
-      end
+    # Check for secrets by directly inspecting the struct
+    # AshCloak stores encrypted ciphertext as binary values
+    secrets_present = %{
+      "community" => has_secret_value?(credential, :community),
+      "auth_password" => has_secret_value?(credential, :auth_password),
+      "privacy_password" => has_secret_value?(credential, :privacy_password)
+    }
 
     {to_form(form, as: :snmp), secrets_present}
+  end
+
+  defp has_secret_value?(struct, field) do
+    case Map.get(struct, field) do
+      nil -> false
+      "" -> false
+      value when is_binary(value) -> byte_size(value) > 0
+      _ -> false
+    end
   end
 
   defp mapper_unifi_form([]), do: {to_form(%{}, as: :unifi), false}
@@ -2692,13 +2778,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       "insecure_skip_verify" => controller.insecure_skip_verify || false
     }
 
-    # Handle Ash.NotLoaded for the calculation
-    api_key_present =
-      case controller.api_key_present do
-        %Ash.NotLoaded{} -> false
-        nil -> false
-        value -> value
-      end
+    # Check for API key by directly inspecting the struct
+    api_key_present = has_secret_value?(controller, :api_key)
 
     {to_form(form, as: :unifi), api_key_present}
   end
