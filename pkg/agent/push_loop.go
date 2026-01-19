@@ -63,7 +63,6 @@ type PushLoop struct {
 	enrollMu           sync.Mutex
 	enrollInFlight     bool
 	sweepResultsSeq    string
-	mapperResultsSeq   string
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -129,18 +128,6 @@ func (p *PushLoop) getSweepResultsSequence() string {
 func (p *PushLoop) setSweepResultsSequence(seq string) {
 	p.stateMu.Lock()
 	p.sweepResultsSeq = seq
-	p.stateMu.Unlock()
-}
-
-func (p *PushLoop) getMapperResultsSequence() string {
-	p.stateMu.RLock()
-	defer p.stateMu.RUnlock()
-	return p.mapperResultsSeq
-}
-
-func (p *PushLoop) setMapperResultsSequence(seq string) {
-	p.stateMu.Lock()
-	p.mapperResultsSeq = seq
 	p.stateMu.Unlock()
 }
 
@@ -1208,7 +1195,6 @@ func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
 		return false
 	}
 
-	p.setMapperResultsSequence(seq)
 
 	p.logger.Info().
 		Int("update_count", len(updates)).
@@ -1218,64 +1204,36 @@ func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
 }
 
 func (p *PushLoop) pushMapperInterfaces(ctx context.Context) bool {
-	p.server.mu.RLock()
-	mapperSvc := p.server.mapperService
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	p.server.mu.RUnlock()
-
-	if mapperSvc == nil {
-		return false
-	}
-
-	updates, ok := mapperSvc.DrainInterfaces(1000)
-	if !ok || len(updates) == 0 {
-		return false
-	}
-
-	payload, err := buildMapperInterfacePayload(updates, agentID, partition)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to build mapper interface payload")
-		return false
-	}
-
-	if len(payload) == 0 {
-		return false
-	}
-
-	seq := fmt.Sprintf("%d", time.Now().UnixNano())
-	response := mapperResultsResponse(payload, seq, "mapper", "mapper_interfaces")
-	chunks := []*proto.ResultsChunk{{
-		Data:            response.Data,
-		IsFinal:         true,
-		ChunkIndex:      0,
-		TotalChunks:     1,
-		CurrentSequence: response.CurrentSequence,
-		Timestamp:       response.Timestamp,
-	}}
-
-	statusChunks := p.buildResultsStatusChunks(chunks, response.ServiceName, response.ServiceType)
-	if len(statusChunks) == 0 {
-		return false
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream mapper interface results to gateway")
-		return false
-	}
-
-	p.logger.Info().
-		Int("interface_count", len(updates)).
-		Msg("Streamed mapper interface results to gateway")
-
-	return true
+	return p.pushMapperDerivedResults(
+		ctx,
+		func(svc *MapperService) ([]map[string]interface{}, bool) {
+			return svc.DrainInterfaces(1000)
+		},
+		buildMapperInterfacePayload,
+		"mapper_interfaces",
+		"interface_count",
+	)
 }
 
 func (p *PushLoop) pushMapperTopology(ctx context.Context) bool {
+	return p.pushMapperDerivedResults(
+		ctx,
+		func(svc *MapperService) ([]map[string]interface{}, bool) {
+			return svc.DrainTopology(1000)
+		},
+		buildMapperTopologyPayload,
+		"mapper_topology",
+		"topology_count",
+	)
+}
+
+func (p *PushLoop) pushMapperDerivedResults(
+	ctx context.Context,
+	drain func(*MapperService) ([]map[string]interface{}, bool),
+	buildPayload func([]map[string]interface{}, string, string) ([]byte, error),
+	serviceType string,
+	countField string,
+) bool {
 	p.server.mu.RLock()
 	mapperSvc := p.server.mapperService
 	agentID := p.server.config.AgentID
@@ -1286,14 +1244,14 @@ func (p *PushLoop) pushMapperTopology(ctx context.Context) bool {
 		return false
 	}
 
-	updates, ok := mapperSvc.DrainTopology(1000)
+	updates, ok := drain(mapperSvc)
 	if !ok || len(updates) == 0 {
 		return false
 	}
 
-	payload, err := buildMapperTopologyPayload(updates, agentID, partition)
+	payload, err := buildPayload(updates, agentID, partition)
 	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to build mapper topology payload")
+		p.logger.Error().Err(err).Msg("Failed to build mapper payload")
 		return false
 	}
 
@@ -1302,7 +1260,7 @@ func (p *PushLoop) pushMapperTopology(ctx context.Context) bool {
 	}
 
 	seq := fmt.Sprintf("%d", time.Now().UnixNano())
-	response := mapperResultsResponse(payload, seq, "mapper", "mapper_topology")
+	response := mapperResultsResponse(payload, seq, "mapper", serviceType)
 	chunks := []*proto.ResultsChunk{{
 		Data:            response.Data,
 		IsFinal:         true,
@@ -1322,13 +1280,11 @@ func (p *PushLoop) pushMapperTopology(ctx context.Context) bool {
 
 	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
 	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream mapper topology results to gateway")
+		p.logger.Error().Err(err).Msg("Failed to stream mapper results to gateway")
 		return false
 	}
 
-	p.logger.Info().
-		Int("topology_count", len(updates)).
-		Msg("Streamed mapper topology results to gateway")
+	p.logger.Info().Int(countField, len(updates)).Msg("Streamed mapper results to gateway")
 
 	return true
 }

@@ -32,6 +32,12 @@ import (
 
 const mapperServiceType = "mapper"
 
+var (
+	errMapperConfigRequired    = errors.New("mapper config required")
+	errMapperEngineNotRunning  = errors.New("mapper engine not initialized")
+	errMapperUpdateUnsupported = errors.New("mapper UpdateConfig is not supported")
+)
+
 // MapperService wraps the mapper discovery engine for embedded agent use.
 type MapperService struct {
 	mu         sync.RWMutex
@@ -44,7 +50,7 @@ type MapperService struct {
 
 func NewMapperService(cfg *mapper.Config, log logger.Logger) (*MapperService, error) {
 	if cfg == nil {
-		return nil, errors.New("mapper config required")
+		return nil, errMapperConfigRequired
 	}
 
 	publisher := NewMapperResultPublisher()
@@ -67,7 +73,7 @@ func (s *MapperService) Start(ctx context.Context) error {
 	s.mu.RUnlock()
 
 	if engine == nil {
-		return errors.New("mapper engine not initialized")
+		return errMapperEngineNotRunning
 	}
 
 	return engine.Start(ctx)
@@ -91,27 +97,23 @@ func (*MapperService) Name() string {
 
 func (s *MapperService) UpdateConfig(cfg *models.Config) error {
 	if cfg == nil {
-		return errors.New("mapper config required")
+		return errMapperConfigRequired
 	}
 
-	return errors.New("mapper UpdateConfig is not supported")
+	return errMapperUpdateUnsupported
 }
 
 func (s *MapperService) ApplyMapperConfig(cfg *mapper.Config, hash string) error {
 	if cfg == nil {
-		return errors.New("mapper config required")
+		return errMapperConfigRequired
 	}
 
 	return s.applyConfigWithHash(cfg, hash)
 }
 
-func (s *MapperService) applyConfig(cfg *mapper.Config) error {
-	return s.applyConfigWithHash(cfg, "")
-}
-
 func (s *MapperService) applyConfigWithHash(cfg *mapper.Config, hash string) error {
 	if cfg == nil {
-		return errors.New("mapper config required")
+		return errMapperConfigRequired
 	}
 
 	s.mu.Lock()
@@ -397,7 +399,7 @@ func buildMapperResultsPayload(updates []map[string]interface{}, agentID, partit
 			update["gateway_id"] = agentID
 		}
 		if partition == "" {
-			partition = "default"
+			partition = defaultPartition
 		}
 		if update["partition"] == nil {
 			update["partition"] = partition
@@ -426,7 +428,7 @@ func buildMapperInterfacePayload(updates []map[string]interface{}, agentID, part
 	}
 
 	if partition == "" {
-		partition = "default"
+		partition = defaultPartition
 	}
 
 	for _, update := range updates {
@@ -458,7 +460,7 @@ func buildMapperTopologyPayload(updates []map[string]interface{}, agentID, parti
 	}
 
 	if partition == "" {
-		partition = "default"
+		partition = defaultPartition
 	}
 
 	for _, update := range updates {

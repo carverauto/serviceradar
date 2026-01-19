@@ -9,9 +9,9 @@ defmodule ServiceRadar.ResultsRouter do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.SyncIngestorQueue
+  alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Observability.SysmonMetricsIngestor
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
-  alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
 
   @duration_regex ~r/(\d+(?:\.\d+)?)(ns|us|µs|μs|ms|s|m|h)/
 

@@ -76,6 +76,8 @@ type mapperJobSpec struct {
 	Options     map[string]string      `json:"options"`
 }
 
+var errServerConfigRequired = errors.New("server config required")
+
 func parseGatewayMapperConfig(configJSON []byte) (*gatewayMapperConfig, error) {
 	if len(configJSON) == 0 {
 		return nil, nil
@@ -113,11 +115,11 @@ func mapperConfigHash(raw json.RawMessage) string {
 
 func buildMapperEngineConfig(cfg *gatewayMapperConfig, serverCfg *ServerConfig, log logger.Logger) (*mapper.Config, error) {
 	if cfg == nil {
-		return nil, errors.New("mapper config required")
+		return nil, errMapperConfigRequired
 	}
 
 	if serverCfg == nil {
-		return nil, errors.New("server config required")
+		return nil, errServerConfigRequired
 	}
 
 	parsed := &mapper.Config{

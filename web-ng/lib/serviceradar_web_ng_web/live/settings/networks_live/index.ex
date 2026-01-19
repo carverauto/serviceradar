@@ -397,46 +397,39 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   def handle_event("toggle_mapper_job", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    case load_mapper_job(scope, id) do
-      nil ->
+    with {:ok, job} <- fetch_mapper_job(scope, id),
+         {:ok, _updated} <-
+           Ash.update(job, %{enabled: not job.enabled}, action: :update, scope: scope) do
+      message = if job.enabled, do: "Discovery job disabled", else: "Discovery job enabled"
+
+      {:noreply,
+       socket
+       |> assign(:mapper_jobs, load_mapper_jobs(scope))
+       |> put_flash(:info, message)}
+    else
+      {:error, :not_found} ->
         {:noreply, put_flash(socket, :error, "Discovery job not found")}
 
-      job ->
-        params = %{enabled: not job.enabled}
-
-        case Ash.update(job, params, action: :update, scope: scope) do
-          {:ok, _updated} ->
-            message = if job.enabled, do: "Discovery job disabled", else: "Discovery job enabled"
-
-            {:noreply,
-             socket
-             |> assign(:mapper_jobs, load_mapper_jobs(scope))
-             |> put_flash(:info, message)}
-
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Failed to update discovery job")}
-        end
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to update discovery job")}
     end
   end
 
   def handle_event("delete_mapper_job", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    case load_mapper_job(scope, id) do
-      nil ->
+    with {:ok, job} <- fetch_mapper_job(scope, id),
+         :ok <- Ash.destroy(job, scope: scope) do
+      {:noreply,
+       socket
+       |> assign(:mapper_jobs, load_mapper_jobs(scope))
+       |> put_flash(:info, "Discovery job deleted")}
+    else
+      {:error, :not_found} ->
         {:noreply, put_flash(socket, :error, "Discovery job not found")}
 
-      job ->
-        case Ash.destroy(job, scope: scope) do
-          :ok ->
-            {:noreply,
-             socket
-             |> assign(:mapper_jobs, load_mapper_jobs(scope))
-             |> put_flash(:info, "Discovery job deleted")}
-
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Failed to delete discovery job")}
-        end
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to delete discovery job")}
     end
   end
 
@@ -447,7 +440,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     snmp_params = normalize_snmp_params(Map.get(params, "snmp", %{}))
     unifi_params = normalize_unifi_params(Map.get(params, "unifi", %{}))
 
-    case save_mapper_job(socket.assigns.mapper_job, job_params, seeds, snmp_params, unifi_params, scope) do
+    case save_mapper_job(
+           socket.assigns.mapper_job,
+           job_params,
+           seeds,
+           snmp_params,
+           unifi_params,
+           scope
+         ) do
       {:ok, _job} ->
         {:noreply,
          socket
@@ -679,7 +679,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("update_criteria_rule", params, socket) do
     require Logger
-    Logger.warning("[NetworksLive] update_criteria_rule - missing id in params: #{inspect(params)}")
+
+    Logger.warning(
+      "[NetworksLive] update_criteria_rule - missing id in params: #{inspect(params)}"
+    )
+
     {:noreply, socket}
   end
 
@@ -914,27 +918,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <% else %>
             <%= if @show_form in [:new_profile, :edit_profile] do %>
               <.profile_form form={@form} show_form={@show_form} />
-          <% else %>
-            <%= if @show_form == :show_group do %>
-              <.group_detail group={@selected_group} />
             <% else %>
-              <.tab_navigation active_tab={@active_tab} running_count={length(@running_executions)} />
+              <%= if @show_form == :show_group do %>
+                <.group_detail group={@selected_group} />
+              <% else %>
+                <.tab_navigation active_tab={@active_tab} running_count={length(@running_executions)} />
 
-              <%= case @active_tab do %>
-                <% :groups -> %>
-                  <.sweep_groups_panel groups={@sweep_groups} />
-                <% :profiles -> %>
-                  <.profiles_panel profiles={@sweep_profiles} />
-                <% :active_scans -> %>
-                  <.active_scans_panel
-                    running={@running_executions}
-                    recent={@recent_executions}
-                    groups={@sweep_groups}
-                    execution_progress={@execution_progress}
-                  />
+                <%= case @active_tab do %>
+                  <% :groups -> %>
+                    <.sweep_groups_panel groups={@sweep_groups} />
+                  <% :profiles -> %>
+                    <.profiles_panel profiles={@sweep_profiles} />
+                  <% :active_scans -> %>
+                    <.active_scans_panel
+                      running={@running_executions}
+                      recent={@recent_executions}
+                      groups={@sweep_groups}
+                      execution_progress={@execution_progress}
+                    />
+                <% end %>
               <% end %>
             <% end %>
-          <% end %>
           <% end %>
         <% end %>
       </.settings_shell>
@@ -1125,7 +1129,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           field={@form[:discovery_type]}
           type="select"
           label="Discovery Type"
-          options={[{"Full", "full"}, {"Basic", "basic"}, {"Interfaces", "interfaces"}, {"Topology", "topology"}]}
+          options={[
+            {"Full", "full"},
+            {"Basic", "basic"},
+            {"Interfaces", "interfaces"},
+            {"Topology", "topology"}
+          ]}
         />
         <.input field={@form[:concurrency]} type="number" label="Concurrency" />
         <.input field={@form[:timeout]} type="text" label="Timeout (e.g. 30s)" />
@@ -1205,14 +1214,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         </div>
         <div class="grid gap-4 md:grid-cols-2">
           <.input field={@unifi_form[:name]} type="text" label="Controller Name" />
-          <.input field={@unifi_form[:base_url]} type="text" label="Base URL" placeholder="https://controller:8443" />
+          <.input
+            field={@unifi_form[:base_url]}
+            type="text"
+            label="Base URL"
+            placeholder="https://controller:8443"
+          />
           <.input
             field={@unifi_form[:api_key]}
             type="password"
             label="API Key"
             placeholder={if(@unifi_present, do: "stored", else: "optional")}
           />
-          <.input field={@unifi_form[:insecure_skip_verify]} type="checkbox" label="Skip TLS Verification" />
+          <.input
+            field={@unifi_form[:insecure_skip_verify]}
+            type="checkbox"
+            label="Skip TLS Verification"
+          />
         </div>
       </div>
 
@@ -1752,7 +1770,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <div class="text-xs text-base-content/60">
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
-            <span> of    {@hosts_processed} hosts</span>
+            <span> of     {@hosts_processed} hosts</span>
           </div>
           <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
             {@batch_info}
@@ -2530,7 +2548,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp load_mapper_job(scope, id) do
     case Ash.get(MapperJob, id, scope: scope) do
       {:ok, job} ->
-        case Ash.load(job,
+        case Ash.load(
+               job,
                [
                  :seeds,
                  :snmp_credential,
@@ -2629,9 +2648,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp seeds_to_text(seeds) do
-    seeds
-    |> Enum.map(& &1.seed)
-    |> Enum.join("\n")
+    Enum.map_join(seeds, "\n", & &1.seed)
   end
 
   defp parse_seeds_text(text) do
@@ -2672,7 +2689,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp normalize_integer(params, key) do
     case Map.get(params, key) do
-      value when is_integer(value) -> params
+      value when is_integer(value) ->
+        params
+
       value when is_binary(value) ->
         case Integer.parse(value) do
           {parsed, _} -> Map.put(params, key, parsed)
@@ -2695,10 +2714,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp snmp_params_present?(params) do
-    Enum.any?(~w(community username auth_protocol auth_password privacy_protocol privacy_password name), fn key ->
-      value = Map.get(params, key)
-      is_binary(value) and String.trim(value) != ""
-    end)
+    Enum.any?(
+      ~w(community username auth_protocol auth_password privacy_protocol privacy_password name),
+      fn key ->
+        value = Map.get(params, key)
+        is_binary(value) and String.trim(value) != ""
+      end
+    )
   end
 
   defp save_mapper_job(job, job_params, seeds, snmp_params, unifi_params, scope) do
@@ -2730,9 +2752,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end)
 
     Enum.reduce_while(seeds, :ok, fn seed, _acc ->
-      case MapperSeed |> Ash.Changeset.for_create(:create, %{seed: seed, mapper_job_id: job.id}) |> Ash.create(
-             scope: scope
-           ) do
+      case MapperSeed
+           |> Ash.Changeset.for_create(:create, %{seed: seed, mapper_job_id: job.id})
+           |> Ash.create(scope: scope) do
         {:ok, _} -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -2742,60 +2764,68 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp upsert_snmp_credential(_job, params, _scope) when map_size(params) == 0, do: :ok
 
   defp upsert_snmp_credential(job, params, scope) do
-    if not snmp_params_present?(params) do
-      :ok
-    else
+    if snmp_params_present?(params) do
       params = Map.put(params, "mapper_job_id", job.id)
-      existing = job.snmp_credential
 
-      if existing do
-        existing
-        |> Ash.Changeset.for_update(:update, params)
-        |> Ash.update(scope: scope)
-        |> case do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, reason}
+      result =
+        case job.snmp_credential do
+          nil ->
+            MapperSNMPCredential
+            |> Ash.Changeset.for_create(:create, params)
+            |> Ash.create(scope: scope)
+
+          existing ->
+            existing
+            |> Ash.Changeset.for_update(:update, params)
+            |> Ash.update(scope: scope)
         end
-      else
-        MapperSNMPCredential
-        |> Ash.Changeset.for_create(:create, params)
-        |> Ash.create(scope: scope)
-        |> case do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
+
+      case result do
+        {:ok, _} -> :ok
+        {:error, reason} -> {:error, reason}
       end
+    else
+      :ok
     end
   end
 
   defp upsert_unifi_controller(_job, params, _scope) when map_size(params) == 0, do: :ok
 
   defp upsert_unifi_controller(job, params, scope) do
-    base_url = Map.get(params, "base_url") || ""
+    base_url = Map.get(params, "base_url") |> to_string() |> String.trim()
 
     if base_url == "" do
       :ok
     else
       params = Map.put(params, "mapper_job_id", job.id)
-      existing = job.unifi_controllers |> List.first()
+      persist_unifi_controller(job, params, scope)
+    end
+  end
 
-      if existing do
-        existing
-        |> Ash.Changeset.for_update(:update, params)
-        |> Ash.update(scope: scope)
-        |> case do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
-      else
-        MapperUnifiController
-        |> Ash.Changeset.for_create(:create, params)
-        |> Ash.create(scope: scope)
-        |> case do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
+  defp fetch_mapper_job(scope, id) do
+    case load_mapper_job(scope, id) do
+      nil -> {:error, :not_found}
+      job -> {:ok, job}
+    end
+  end
+
+  defp persist_unifi_controller(job, params, scope) do
+    result =
+      case List.first(job.unifi_controllers) do
+        nil ->
+          MapperUnifiController
+          |> Ash.Changeset.for_create(:create, params)
+          |> Ash.create(scope: scope)
+
+        existing ->
+          existing
+          |> Ash.Changeset.for_update(:update, params)
+          |> Ash.update(scope: scope)
       end
+
+    case result do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

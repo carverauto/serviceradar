@@ -16,7 +16,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     with {:ok, updates} <- decode_payload(message),
          records <- build_interface_records(updates) do
       record_job_runs(updates)
-      insert_bulk(records, Interface, actor, "interfaces")
+
+      case insert_bulk(records, Interface, actor, "interfaces") do
+        :ok ->
+          TopologyGraph.upsert_interfaces(records)
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     else
       {:error, reason} ->
         Logger.warning("Mapper interface ingestion failed: #{inspect(reason)}")
@@ -173,27 +181,29 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
       actor = SystemActor.system(:mapper_job_status)
 
-      Enum.each(job_ids, fn job_id ->
-        case Ash.get(MapperJob, job_id, actor: actor) do
-          {:ok, job} ->
-            job
-            |> Ash.Changeset.for_update(:record_run, %{last_run_at: now})
-            |> Ash.update(actor: actor)
-            |> case do
-              {:ok, _} -> :ok
-              {:error, reason} ->
-                Logger.warning("Failed to record mapper run: #{inspect(reason)}")
-            end
-
-          {:error, reason} ->
-            Logger.debug("Mapper job not found for run update: #{inspect(reason)}")
-        end
-      end)
+      Enum.each(job_ids, &record_job_run(&1, now, actor))
     end
   rescue
     error ->
       Logger.warning("Mapper run status update failed: #{inspect(error)}")
       :ok
+  end
+
+  defp record_job_run(job_id, now, actor) do
+    case Ash.get(MapperJob, job_id, actor: actor) do
+      {:ok, job} ->
+        job
+        |> Ash.Changeset.for_update(:record_run, %{last_run_at: now})
+        |> Ash.update(actor: actor)
+        |> case do
+          {:ok, _} -> :ok
+          {:error, reason} ->
+            Logger.warning("Failed to record mapper run: #{inspect(reason)}")
+        end
+
+      {:error, reason} ->
+        Logger.debug("Mapper job not found for run update: #{inspect(reason)}")
+    end
   end
 
   defp extract_job_ids(updates) do
