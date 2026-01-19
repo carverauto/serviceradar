@@ -174,9 +174,12 @@ defmodule ServiceRadar.ResultsRouter do
     payload_id = normalize_uuid(value)
     deterministic_id = deterministic_execution_id(sweep_group_id, last_sweep_time)
 
+    choose_execution_id(payload_id, deterministic_id)
+  end
+
+  defp choose_execution_id(payload_id, deterministic_id) do
     cond do
-      is_binary(deterministic_id) and deterministic_id != "" and
-          is_binary(payload_id) and payload_id != "" and payload_id != deterministic_id ->
+      mismatch_execution_id?(payload_id, deterministic_id) ->
         Logger.warning(
           "Sweep results execution_id mismatch; using deterministic execution id",
           payload_execution_id: payload_id,
@@ -185,20 +188,31 @@ defmodule ServiceRadar.ResultsRouter do
 
         deterministic_id
 
-      is_binary(deterministic_id) and deterministic_id != "" and is_nil(payload_id) ->
+      missing_payload_id?(payload_id, deterministic_id) ->
         Logger.warning("Sweep results missing execution_id; using deterministic execution id")
         deterministic_id
 
-      is_binary(payload_id) and payload_id != "" ->
+      present_id?(payload_id) ->
         payload_id
 
-      is_binary(deterministic_id) and deterministic_id != "" ->
+      present_id?(deterministic_id) ->
         deterministic_id
 
       true ->
         Ash.UUID.generate()
     end
   end
+
+  defp mismatch_execution_id?(payload_id, deterministic_id) do
+    present_id?(payload_id) and present_id?(deterministic_id) and payload_id != deterministic_id
+  end
+
+  defp missing_payload_id?(payload_id, deterministic_id) do
+    is_nil(payload_id) and present_id?(deterministic_id)
+  end
+
+  defp present_id?(value) when is_binary(value), do: value != ""
+  defp present_id?(_value), do: false
 
   defp deterministic_execution_id(sweep_group_id, last_sweep_time)
        when is_binary(sweep_group_id) and sweep_group_id != "" and
@@ -287,6 +301,7 @@ defmodule ServiceRadar.ResultsRouter do
       base = %{
         "host_ip" => host_ip,
         "hostname" => host["hostname"],
+        "available" => host_available(host, icmp_status),
         "icmp_available" => icmp_available(host, icmp_status),
         "icmp_response_time_ns" => icmp_response_time_ns(host, icmp_status),
         "icmp_packet_loss" => icmp_packet_loss(icmp_status),
@@ -326,6 +341,13 @@ defmodule ServiceRadar.ResultsRouter do
       icmp_status["available"] || icmp_status[:available] || false
     else
       host["available"] || host[:available] || false
+    end
+  end
+
+  defp host_available(host, icmp_status) do
+    case host["available"] || host[:available] do
+      value when is_boolean(value) -> value
+      _ -> icmp_available(host, icmp_status)
     end
   end
 
