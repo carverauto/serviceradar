@@ -9,7 +9,7 @@ Discovery keeps the registry aligned with real-world infrastructure. Use Mapper 
 ## Mapper Overview
 
 - SNMP-first discovery engine with scheduled jobs.
-- Configured via `mapper.json` (Compose or Helm values).
+- Runs inside `serviceradar-agent` and is configured via Settings → Networks → Discovery.
 - Writes inventory and topology into CNPG.
 
 ## Discovery Types

@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.NetworkDiscovery.{MapperJob, MapperSNMPCredential, MapperUnifiController}
   alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
@@ -61,6 +62,60 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
     assert html =~ "New Scanner Profile"
     assert html =~ "Sweep Modes"
+  end
+
+  test "lists discovery jobs on the discovery tab", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(:create, %{name: "Discovery #{unique}"})
+      |> Ash.create(scope: scope)
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/discovery")
+
+    assert html =~ "Discovery Jobs"
+    assert html =~ job.name
+  end
+
+  test "shows masked placeholders for stored discovery credentials", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(:create, %{name: "Discovery #{unique}"})
+      |> Ash.create(scope: scope)
+
+    {:ok, _credential} =
+      MapperSNMPCredential
+      |> Ash.Changeset.for_create(:create, %{
+        name: "snmp-#{unique}",
+        version: :v2c,
+        community: "public",
+        auth_password: "auth-secret",
+        privacy_password: "privacy-secret",
+        mapper_job_id: job.id
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, _controller} =
+      MapperUnifiController
+      |> Ash.Changeset.for_create(:create, %{
+        name: "unifi-#{unique}",
+        base_url: "https://controller.example",
+        api_key: "api-secret",
+        mapper_job_id: job.id
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/discovery/#{job.id}/edit")
+
+    assert html =~ "Secrets stored"
+    assert html =~ "API key stored"
+    assert has_element?(lv, "input[name='snmp[community]'][placeholder='stored']")
+    assert has_element?(lv, "input[name='snmp[auth_password]'][placeholder='stored']")
+    assert has_element?(lv, "input[name='snmp[privacy_password]'][placeholder='stored']")
+    assert has_element?(lv, "input[name='unifi[api_key]'][placeholder='stored']")
   end
 
   defp register_and_log_in_admin_user(%{conn: conn}) do

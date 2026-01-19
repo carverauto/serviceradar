@@ -141,14 +141,6 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 			"kv_address",
 		},
 	},
-	"mapper": {
-		Name:        "mapper",
-		DisplayName: "Mapper",
-		ServiceType: "mapper",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/mapper.json",
-		Format:      ConfigFormatJSON,
-	},
 	"netflow-consumer": {
 		Name:        "netflow-consumer",
 		DisplayName: "NetFlow Consumer",
@@ -227,14 +219,6 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		ServiceType:   "snmp",
 		Scope:         ConfigScopeAgent,
 		KVKeyTemplate: "agents/{{agent_id}}/checkers/snmp/snmp.json",
-		Format:        ConfigFormatJSON,
-	},
-	"agent-mapper": {
-		Name:          "agent-mapper",
-		DisplayName:   "Mapper Checker",
-		ServiceType:   "mapper",
-		Scope:         ConfigScopeAgent,
-		KVKeyTemplate: "agents/{{agent_id}}/checkers/mapper/mapper.json",
 		Format:        ConfigFormatJSON,
 	},
 	"agent-trapd": {

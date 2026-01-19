@@ -19,7 +19,6 @@
 [*] gRPC ALIASES:
     grpc-core            - Connect to core gRPC (supply method after alias)
     grpc-agent           - Connect to agent gRPC
-    grpc-mapper          - Connect to mapper gRPC
     grpc-trapd           - Connect to trapd gRPC
 
 [*] QUICK TESTS:

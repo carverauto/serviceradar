@@ -274,6 +274,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/settings/networks/groups/:id/edit", Settings.NetworksLive.Index, :edit_group
       live "/settings/networks/profiles/new", Settings.NetworksLive.Index, :new_profile
       live "/settings/networks/profiles/:id/edit", Settings.NetworksLive.Index, :edit_profile
+      live "/settings/networks/discovery", Settings.NetworksLive.Index, :discovery
+      live "/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job
+      live "/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job
 
       # Sysmon profiles configuration
       live "/settings/sysmon", Settings.SysmonProfilesLive.Index, :index

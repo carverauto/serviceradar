@@ -37,8 +37,6 @@
       {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "spiffe://carverauto.dev/services/sync", "role": "writer"},
       {"identity": "CN=sync.serviceradar,O=ServiceRadar", "role": "writer"},
-      {"identity": "spiffe://carverauto.dev/services/mapper", "role": "writer"},
-      {"identity": "CN=mapper.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "spiffe://carverauto.dev/services/flowgger", "role": "writer"},
       {"identity": "CN=flowgger.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "spiffe://carverauto.dev/services/db-event-writer", "role": "writer"},

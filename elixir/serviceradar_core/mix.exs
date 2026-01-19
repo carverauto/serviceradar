@@ -134,7 +134,8 @@ defmodule ServiceRadarCore.MixProject do
           ServiceRadar.Inventory,
           ServiceRadar.Infrastructure,
           ServiceRadar.Monitoring,
-          ServiceRadar.Edge
+          ServiceRadar.Edge,
+          ServiceRadar.NetworkDiscovery
         ],
         Cluster: [
           ServiceRadar.Cluster,

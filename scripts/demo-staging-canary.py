@@ -16,7 +16,6 @@ SERVICE_TAG_KEYS = [
     "agent",
     "dbEventWriter",
     "otel",
-    "mapper",
     "trapd",
     "flowgger",
     "zen",

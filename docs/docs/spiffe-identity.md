@@ -98,7 +98,7 @@ runtime expectations:
 
 `serviceradar-core`, `serviceradar-agent-gateway`, `serviceradar-datasvc`, and
 the `serviceradar-agent` chart/manifests ship in SPIFFE mode.
-Mapper/sync/checkers are queued for migration.
+Sync/checkers are queued for migration.
 
 ## Operational Notes
 
@@ -169,7 +169,7 @@ match across nodes, then re-check node visibility.
 
 ## Next Steps
 
-- Migrate the remaining workloads (mapper, sync, checkers) to SPIFFE and drop
+- Migrate the remaining workloads (sync, checkers) to SPIFFE and drop
   their ConfigMap-provided TLS certificates.
 - Mirror the same controller-manager deployment in production Helm values with
   the webhook configuration enabled once we supply the validating webhook

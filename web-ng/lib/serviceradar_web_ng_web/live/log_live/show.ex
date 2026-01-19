@@ -137,6 +137,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp augment_log(%{} = log) do
     attributes = parse_attributes(Map.get(log, "attributes")) || %{}
+
     resource_attributes =
       parse_attributes(Map.get(log, "resource_attributes")) ||
         extract_resource_from_attributes(attributes)
@@ -178,7 +179,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
             |> Map.get("resourceAttributes")
             |> parse_attributes()
 
-          resource -> resource
+          resource ->
+            resource
         end
 
       resource ->
@@ -230,7 +232,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp put_service_from_resource(log, _resource_attributes), do: log
 
-  defp put_if_blank(%{} = log, key, value) when value in [nil, ""], do: log
+  defp put_if_blank(%{} = log, _key, value) when value in [nil, ""], do: log
 
   defp put_if_blank(%{} = log, key, value) do
     case Map.get(log, key) do
@@ -405,7 +407,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
                   <span class="inline-flex items-center gap-2 rounded-full border border-base-200 bg-base-100 px-2.5 py-1 text-xs text-base-content/70 shadow-sm">
                     <span class="font-medium">{key}</span>
                     <span class="text-base-content/40">=</span>
-                    <span class="font-mono text-base-content/90">{format_attribute_value(value)}</span>
+                    <span class="font-mono text-base-content/90">
+                      {format_attribute_value(value)}
+                    </span>
                   </span>
                 <% end %>
               </div>

@@ -15,7 +15,6 @@ resources:
 - identity-prometheus-rules.yaml
 - serviceradar-flowgger.yaml
 - serviceradar-otel.yaml
-- serviceradar-mapper.yaml
 - serviceradar-trapd.yaml
 - serviceradar-tools.yaml
 - serviceradar-rperf-checker.yaml

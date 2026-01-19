@@ -45,7 +45,6 @@ alias nats-cert-check='echo "=== NATS Certificate Check ==="; echo "1. Client ce
 alias grpc-core='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core-elx:50052'
 alias grpc-agent='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent:50051'
 alias grpc-datasvc='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-datasvc:50057'
-alias grpc-mapper='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-mapper:50056'
 alias grpc-trapd='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd:50043'
 
 alias sr='serviceradar-cli'
@@ -106,7 +105,7 @@ nats_js_status() {
 
 test_grpc() {
     echo "=== gRPC Service Health Checks ==="
-    for service in core:50052 agent:50051 kv:50057 mapper:50056 trapd:50043; do
+    for service in core:50052 agent:50051 kv:50057 trapd:50043; do
         host="${service%%:*}"
         port="${service##*:}"
         echo "Testing serviceradar-${service}..."

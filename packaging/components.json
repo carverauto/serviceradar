@@ -11,7 +11,6 @@
           "otel",
           "profiler",
           "trapd",
-          "mapper",
           "flowgger",
           "goflow2",
           "nats",
@@ -214,54 +213,6 @@
     "systemd_service": {
       "dest": "/lib/systemd/system/serviceradar-agent.service",
       "source": "packaging/agent/systemd/serviceradar-agent.service"
-    },
-    "version": "1.0.58"
-  },
-  {
-    "architecture": "amd64",
-    "binary": {
-      "build_method": "go",
-      "output_path": "/usr/local/bin/serviceradar-mapper",
-      "source_path": "cmd/mapper"
-    },
-    "conffiles": [
-      "/etc/serviceradar/mapper.json"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/mapper.json",
-        "optional": true,
-        "source": "packaging/mapper/config/mapper.json"
-      }
-    ],
-    "deb": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": null
-    },
-    "description": "ServiceRadar Mapper Service",
-    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-    "name": "mapper",
-    "package_name": "serviceradar-mapper",
-    "postinst": {
-      "source": "packaging/mapper/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "packaging/mapper/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
-      "release": "1"
-    },
-    "section": "utils",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-mapper.service",
-      "source": "packaging/mapper/systemd/serviceradar-mapper.service"
     },
     "version": "1.0.58"
   },

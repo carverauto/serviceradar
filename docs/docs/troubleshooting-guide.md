@@ -90,8 +90,8 @@ For detailed edge agent documentation, see [Edge Agents](./edge-agents.md).
 ## Discovery
 
 - **Empty results**: Confirm discovery jobs exist and are scoped correctly in the admin UI or API. Reconcile job ownership using the [Discovery guide](./discovery.md).
-- **Mapper stalled**: Tail `serviceradar-mapper` logs for `scheduler` messages. Ensure `/etc/serviceradar/mapper.json` has at least one enabled `scheduled_jobs` entry and that credentials cover the target CIDRs.
-- **Missing interfaces/topology**: Verify `stream_config` in `mapper.json` still points to `discovered_interfaces` and `topology_discovery_events`. Mapper only emits interface/topology data when those fields are present.
+- **Mapper stalled**: Tail `serviceradar-agent` logs for mapper scheduler messages. Confirm the discovery job is enabled, scoped to the right partition/agent, and that credentials cover the target CIDRs.
+- **Missing interfaces/topology**: Confirm the mapper job `discovery_type` includes interfaces/topology and that results are flowing through agent-gateway into core.
 - **Duplicate devices**: Enable canonical matching in the embedded sync runtime so NetBox and Armis merges succeed.
 - **Sweep failures**: Check gateway network reachability and throttling limits.
 

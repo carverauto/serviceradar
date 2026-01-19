@@ -8,7 +8,6 @@
   "serviceradar-agent"
   "serviceradar-otel"
   "serviceradar-zen"
-  "serviceradar-mapper"
   "serviceradar-db-event-writer"
   "serviceradar-rperf-checker"
   "serviceradar-flowgger"

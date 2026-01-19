@@ -77,7 +77,6 @@ generate_cert "db-event-writer" "serviceradar-db-event-writer" "DNS:serviceradar
 generate_cert "zen" "serviceradar-zen" "DNS:serviceradar-zen,DNS:zen,DNS:zen.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "flowgger" "serviceradar-flowgger" "DNS:serviceradar-flowgger,DNS:flowgger,DNS:flowgger.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "otel" "serviceradar-otel" "DNS:serviceradar-otel,DNS:otel,DNS:otel.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "mapper" "serviceradar-mapper" "DNS:serviceradar-mapper,DNS:mapper,DNS:mapper.serviceradar,DNS:serviceradar-mapper.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "client" "serviceradar-debug-client" "DNS:serviceradar-tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
 if [ ! -f "$CERT_DIR/cnpg-client.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; then
