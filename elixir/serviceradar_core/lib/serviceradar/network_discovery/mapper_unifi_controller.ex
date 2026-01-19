@@ -7,8 +7,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperUnifiController do
     domain: ServiceRadar.NetworkDiscovery,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshCloak],
-    notifiers: [ServiceRadar.NetworkDiscovery.MapperConfigNotifier]
+    extensions: [AshCloak]
 
   postgres do
     table "mapper_unifi_controllers"
@@ -129,7 +128,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperUnifiController do
   calculations do
     calculate :api_key_present, :boolean, fn records, _opts ->
       Enum.map(records, fn record ->
-        present?(record.api_key)
+        # Access the raw struct field - AshCloak stores ciphertext
+        has_value?(Map.get(record, :api_key))
       end)
     end
   end
@@ -138,6 +138,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperUnifiController do
     identity :unique_base_url_per_job, [:mapper_job_id, :base_url]
   end
 
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(_), do: false
+  # Check if an encrypted field has a value (ciphertext is a binary)
+  defp has_value?(nil), do: false
+  defp has_value?(""), do: false
+  defp has_value?(value) when is_binary(value), do: byte_size(value) > 0
+  defp has_value?(_), do: false
 end

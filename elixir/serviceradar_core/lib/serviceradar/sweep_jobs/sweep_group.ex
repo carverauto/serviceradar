@@ -33,8 +33,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   use Ash.Resource,
     domain: ServiceRadar.SweepJobs,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    notifiers: [ServiceRadar.AgentConfig.ConfigInvalidationNotifier]
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "sweep_groups"

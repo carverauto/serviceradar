@@ -9,8 +9,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
   use Ash.Resource,
     domain: ServiceRadar.NetworkDiscovery,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    notifiers: [ServiceRadar.NetworkDiscovery.MapperConfigNotifier]
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "mapper_jobs"
@@ -154,9 +153,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
     attribute :discovery_mode, :atom do
       allow_nil? false
       public? true
-      default :snmp
-      constraints one_of: [:snmp, :api]
-      description "Discovery mode (SNMP or API)"
+      default :snmp_api
+      constraints one_of: [:snmp, :api, :snmp_api]
+      description "Discovery mode (SNMP, API, or both)"
     end
 
     attribute :discovery_type, :atom do

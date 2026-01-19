@@ -67,8 +67,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
   use Ash.Resource,
     domain: ServiceRadar.SysmonProfiles,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    notifiers: [ServiceRadar.AgentConfig.ConfigInvalidationNotifier]
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "sysmon_profiles"

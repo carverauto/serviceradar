@@ -51,8 +51,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   use Ash.Resource,
     domain: ServiceRadar.SNMPProfiles,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    notifiers: [ServiceRadar.AgentConfig.ConfigInvalidationNotifier]
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "snmp_profiles"

@@ -5,25 +5,34 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   require Logger
 
+  import Ecto.Query
+
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.{Device, Interface}
   alias ServiceRadar.NetworkDiscovery.{MapperJob, TopologyGraph, TopologyLink}
+  alias ServiceRadar.Repo
 
   @spec ingest_interfaces(binary() | nil, map()) :: :ok | {:error, term()}
   def ingest_interfaces(message, _status) do
     actor = SystemActor.system(:mapper_interface_ingestor)
 
     with {:ok, updates} <- decode_payload(message),
-         records <- build_interface_records(updates) do
+         records <- build_interface_records(updates),
+         resolved_records <- resolve_device_ids(records) do
       record_job_runs(updates)
 
-      case insert_bulk(records, Interface, actor, "interfaces") do
-        :ok ->
-          TopologyGraph.upsert_interfaces(records)
-          :ok
+      if resolved_records == [] do
+        Logger.debug("No interfaces to ingest after device ID resolution")
+        :ok
+      else
+        case insert_bulk(resolved_records, Interface, actor, "interfaces") do
+          :ok ->
+            TopologyGraph.upsert_interfaces(resolved_records)
+            :ok
 
-        {:error, reason} ->
-          {:error, reason}
+          {:error, reason} ->
+            {:error, reason}
+        end
       end
     else
       {:error, reason} ->
@@ -37,16 +46,22 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     actor = SystemActor.system(:mapper_topology_ingestor)
 
     with {:ok, updates} <- decode_payload(message),
-         records <- build_topology_records(updates) do
+         records <- build_topology_records(updates),
+         resolved_records <- resolve_topology_device_ids(records) do
       record_job_runs(updates)
 
-      case insert_bulk(records, TopologyLink, actor, "topology") do
-        :ok ->
-          TopologyGraph.upsert_links(records)
-          :ok
+      if resolved_records == [] do
+        Logger.debug("No topology links to ingest after device ID resolution")
+        :ok
+      else
+        case insert_bulk(resolved_records, TopologyLink, actor, "topology") do
+          :ok ->
+            TopologyGraph.upsert_links(resolved_records)
+            :ok
 
-        {:error, reason} ->
-          {:error, reason}
+          {:error, reason} ->
+            {:error, reason}
+        end
       end
     else
       {:error, reason} ->
@@ -87,6 +102,95 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end)
     |> Enum.reverse()
   end
+
+  # Resolve device_ids from device_ip addresses by looking up existing devices.
+  # The agent sends device_id as "partition:ip" but Device.uid is "sr:<uuid>".
+  # We need to look up the actual device UID from the IP address.
+  defp resolve_device_ids([]), do: []
+
+  defp resolve_device_ids(records) do
+    # Extract unique device IPs from records
+    device_ips =
+      records
+      |> Enum.map(& &1.device_ip)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    # Look up device UIDs by IP address
+    ip_to_uid = lookup_device_uids_by_ip(device_ips)
+
+    # Update records with resolved device_ids, filtering out those we can't resolve
+    records
+    |> Enum.map(fn record ->
+      case Map.get(ip_to_uid, record.device_ip) do
+        nil ->
+          # No device found for this IP - log and skip
+          Logger.debug("No device found for interface IP: #{record.device_ip}")
+          nil
+
+        device_uid ->
+          %{record | device_id: device_uid}
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp lookup_device_uids_by_ip([]), do: %{}
+
+  defp lookup_device_uids_by_ip(ips) do
+    query =
+      from(d in Device,
+        where: d.ip in ^ips,
+        select: {d.ip, d.uid}
+      )
+
+    Repo.all(query)
+    |> Map.new()
+  rescue
+    e ->
+      Logger.warning("Device UID lookup failed: #{inspect(e)}")
+      %{}
+  end
+
+  # Resolve device IDs for topology records (local_device_id and neighbor_device_id)
+  defp resolve_topology_device_ids([]), do: []
+
+  defp resolve_topology_device_ids(records) do
+    # Extract unique device IPs from records (both local and neighbor)
+    device_ips =
+      records
+      |> Enum.flat_map(fn record ->
+        [record.local_device_ip, record.neighbor_mgmt_addr]
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    # Look up device UIDs by IP address
+    ip_to_uid = lookup_device_uids_by_ip(device_ips)
+
+    # Update records with resolved device_ids
+    # For topology, we keep records even if we can't resolve neighbor (it may be external)
+    records
+    |> Enum.map(fn record ->
+      local_uid = Map.get(ip_to_uid, record.local_device_ip)
+      neighbor_uid = Map.get(ip_to_uid, record.neighbor_mgmt_addr)
+
+      if local_uid do
+        record
+        |> Map.put(:local_device_id, local_uid)
+        |> maybe_put_neighbor_id(neighbor_uid)
+      else
+        # No local device found - log and skip
+        Logger.debug("No device found for topology local IP: #{record.local_device_ip}")
+        nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp maybe_put_neighbor_id(record, nil), do: record
+  defp maybe_put_neighbor_id(record, uid), do: Map.put(record, :neighbor_device_id, uid)
 
   defp build_topology_records(updates) do
     Enum.reduce(updates, [], fn update, acc ->
@@ -196,7 +300,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         |> Ash.Changeset.for_update(:record_run, %{last_run_at: now})
         |> Ash.update(actor: actor)
         |> case do
-          {:ok, _} -> :ok
+          {:ok, _} ->
+            :ok
+
           {:error, reason} ->
             Logger.warning("Failed to record mapper run: #{inspect(reason)}")
         end
@@ -210,6 +316,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     updates
     |> Enum.reduce(MapSet.new(), fn update, acc ->
       meta = get_map(update, ["metadata", :metadata])
+
       case get_string(meta, ["mapper_job_id", :mapper_job_id]) do
         nil -> acc
         job_id -> MapSet.put(acc, job_id)
@@ -232,8 +339,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp get_integer(update, keys) do
     case get_value(update, keys) do
-      value when is_integer(value) -> value
-      value when is_float(value) -> trunc(value)
+      value when is_integer(value) ->
+        value
+
+      value when is_float(value) ->
+        trunc(value)
+
       value when is_binary(value) ->
         case Integer.parse(value) do
           {parsed, _} -> parsed

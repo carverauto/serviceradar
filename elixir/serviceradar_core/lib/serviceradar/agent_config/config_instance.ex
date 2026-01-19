@@ -9,8 +9,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
   use Ash.Resource,
     domain: ServiceRadar.AgentConfig,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    notifiers: [ServiceRadar.AgentConfig.ConfigInvalidationNotifier]
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "agent_config_instances"

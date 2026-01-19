@@ -40,12 +40,14 @@ var (
 
 // MapperService wraps the mapper discovery engine for embedded agent use.
 type MapperService struct {
-	mu         sync.RWMutex
-	logger     logger.Logger
-	config     *mapper.Config
-	engine     mapper.Mapper
-	publisher  *MapperResultPublisher
-	configHash string
+	mu           sync.RWMutex
+	logger       logger.Logger
+	config       *mapper.Config
+	engine       mapper.Mapper
+	publisher    *MapperResultPublisher
+	configHash   string
+	engineCtx    context.Context
+	engineCancel context.CancelFunc
 }
 
 func NewMapperService(cfg *mapper.Config, log logger.Logger) (*MapperService, error) {
@@ -80,12 +82,18 @@ func (s *MapperService) Start(ctx context.Context) error {
 }
 
 func (s *MapperService) Stop(ctx context.Context) error {
-	s.mu.RLock()
+	s.mu.Lock()
 	engine := s.engine
-	s.mu.RUnlock()
+	engineCancel := s.engineCancel
+	s.mu.Unlock()
 
 	if engine == nil {
 		return nil
+	}
+
+	// Cancel the engine context to signal workers to stop
+	if engineCancel != nil {
+		engineCancel()
 	}
 
 	return engine.Stop(ctx)
@@ -123,10 +131,15 @@ func (s *MapperService) applyConfigWithHash(cfg *mapper.Config, hash string) err
 		return nil
 	}
 
+	// Stop existing engine and cancel its context
 	if s.engine != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		_ = s.engine.Stop(stopCtx)
 		cancel()
+	}
+
+	if s.engineCancel != nil {
+		s.engineCancel()
 	}
 
 	publisher := NewMapperResultPublisher()
@@ -135,16 +148,21 @@ func (s *MapperService) applyConfigWithHash(cfg *mapper.Config, hash string) err
 		return err
 	}
 
-	startCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	// Create a long-lived context for the engine that won't be canceled
+	// when this function returns. It will only be canceled when Stop is called
+	// or when a new config is applied.
+	engineCtx, engineCancel := context.WithCancel(context.Background())
 
-	if err := engine.Start(startCtx); err != nil {
+	if err := engine.Start(engineCtx); err != nil {
+		engineCancel()
 		return err
 	}
 
 	s.config = cfg
 	s.engine = engine
 	s.publisher = publisher
+	s.engineCtx = engineCtx
+	s.engineCancel = engineCancel
 	if hash != "" {
 		s.configHash = hash
 	}
