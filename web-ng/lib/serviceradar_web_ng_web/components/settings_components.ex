@@ -105,7 +105,14 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       %{
         label: "Sweep Profiles",
         navigate: ~p"/settings/networks",
-        active: String.starts_with?(path, "/settings/networks")
+        active:
+          String.starts_with?(path, "/settings/networks") and
+            not String.starts_with?(path, "/settings/networks/discovery")
+      },
+      %{
+        label: "Discovery",
+        navigate: ~p"/settings/networks/discovery",
+        active: String.starts_with?(path, "/settings/networks/discovery")
       },
       %{
         label: "SNMP",

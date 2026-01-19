@@ -87,8 +87,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       {:ok, checks} ->
         sync_payload = load_sync_payload(agent_id)
         sweep_config = load_sweep_config(agent_id)
+        mapper_config = load_mapper_config(agent_id)
         sysmon_config = load_sysmon_config(agent_id)
-        config = build_config(checks, sync_payload, sweep_config, sysmon_config)
+        config = build_config(checks, sync_payload, sweep_config, mapper_config, sysmon_config)
         {:ok, config}
 
       {:error, reason} ->
@@ -186,11 +187,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Build the full config structure from database checks
-  defp build_config(checks, sync_payload, sweep_config, sysmon_config) do
+  defp build_config(checks, sync_payload, sweep_config, mapper_config, sysmon_config) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
 
     # Merge sweep config into the payload
-    full_payload = Map.put(sync_payload, "sweep", sweep_config)
+    full_payload =
+      sync_payload
+      |> Map.put("sweep", sweep_config)
+      |> Map.put("mapper", mapper_config)
 
     # Compute version hash from checks, sync payload, sweep config, and sysmon config
     config_version = compute_version_hash(check_configs, full_payload, sysmon_config)
@@ -320,6 +324,34 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       {:error, reason} ->
         Logger.warning(
           "AgentConfigGenerator: failed to load sweep config for agent #{agent_id}: #{inspect(reason)}"
+        )
+
+        %{}
+    end
+  end
+
+  # Load mapper discovery configuration from the AgentConfig system
+  defp load_mapper_config(agent_id) do
+    partition = get_agent_partition(agent_id)
+
+    Logger.debug(
+      "AgentConfigGenerator: loading mapper config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}"
+    )
+
+    case ConfigServer.get_config(:mapper, partition, agent_id) do
+      {:ok, entry} ->
+        entry.config
+
+      {:error, :no_config_found} ->
+        Logger.debug(
+          "AgentConfigGenerator: no mapper config found for agent #{agent_id} in partition #{partition}"
+        )
+
+        %{}
+
+      {:error, reason} ->
+        Logger.warning(
+          "AgentConfigGenerator: failed to load mapper config for agent #{agent_id}: #{inspect(reason)}"
         )
 
         %{}

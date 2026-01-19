@@ -278,8 +278,16 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	}
 
 	sentSweepResults := p.pushSweepResults(ctx)
+	sentMapperResults := p.pushMapperResults(ctx)
+	sentMapperInterfaces := p.pushMapperInterfaces(ctx)
+	sentMapperTopology := p.pushMapperTopology(ctx)
 
-	if len(statuses) == 0 && sysmonStatus == nil && !sentSweepResults {
+	if len(statuses) == 0 &&
+		sysmonStatus == nil &&
+		!sentSweepResults &&
+		!sentMapperResults &&
+		!sentMapperInterfaces &&
+		!sentMapperTopology {
 		p.logger.Debug().Msg("No statuses to push")
 	}
 }
@@ -1067,6 +1075,7 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 	// Apply the new checks
 	p.applyChecks(configResp.Checks)
 	p.applySweepConfig(configResp.ConfigJson)
+	p.applyMapperConfig(configResp.ConfigJson)
 
 	// Apply sysmon config if present
 	if configResp.SysmonConfig != nil {
@@ -1079,6 +1088,202 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		Str("version", p.getConfigVersion()).
 		Int("checks", len(configResp.Checks)).
 		Msg("Applied new config from gateway")
+}
+
+func (p *PushLoop) applyMapperConfig(configJSON []byte) {
+	mapperConfig, err := parseGatewayMapperConfig(configJSON)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to parse mapper config from gateway")
+		return
+	}
+
+	if mapperConfig == nil {
+		return
+	}
+
+	p.server.mu.RLock()
+	mapperSvc := p.server.mapperService
+	cfg := p.server.config
+	p.server.mu.RUnlock()
+
+	compiled, err := buildMapperEngineConfig(mapperConfig, cfg, p.logger)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to build mapper config from gateway payload")
+		return
+	}
+
+	if mapperSvc == nil {
+		service, err := NewMapperService(compiled, p.logger)
+		if err != nil {
+			p.logger.Error().Err(err).Msg("Failed to initialize mapper service")
+			return
+		}
+		mapperSvc = service
+		p.server.mu.Lock()
+		p.server.mapperService = mapperSvc
+		p.server.mu.Unlock()
+	}
+
+	if mapperConfig.ConfigHash != "" && mapperSvc.GetConfigHash() == mapperConfig.ConfigHash {
+		p.logger.Debug().Str("config_hash", mapperConfig.ConfigHash).Msg("Mapper config unchanged")
+		return
+	}
+
+	if err := mapperSvc.ApplyMapperConfig(compiled, mapperConfig.ConfigHash); err != nil {
+		p.logger.Error().Err(err).Msg("Failed to apply mapper config from gateway")
+		return
+	}
+
+	p.logger.Info().
+		Str("config_hash", mapperConfig.ConfigHash).
+		Int("scheduled_jobs", len(mapperConfig.ScheduledJobs)).
+		Msg("Applied mapper config from gateway")
+}
+
+func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
+	p.server.mu.RLock()
+	mapperSvc := p.server.mapperService
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	p.server.mu.RUnlock()
+
+	if mapperSvc == nil {
+		return false
+	}
+
+	updates, ok := mapperSvc.DrainResults(1000)
+	if !ok || len(updates) == 0 {
+		return false
+	}
+
+	payload, err := buildMapperResultsPayload(updates, agentID, partition)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to build mapper results payload")
+		return false
+	}
+
+	if len(payload) == 0 {
+		return false
+	}
+
+	seq := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	response := mapperResultsResponse(payload, seq, "mapper", mapperServiceType)
+	chunks := []*proto.ResultsChunk{{
+		Data:            response.Data,
+		IsFinal:         true,
+		ChunkIndex:      0,
+		TotalChunks:     1,
+		CurrentSequence: response.CurrentSequence,
+		Timestamp:       response.Timestamp,
+	}}
+
+	statusChunks := p.buildResultsStatusChunks(chunks, response.ServiceName, response.ServiceType)
+	if len(statusChunks) == 0 {
+		return false
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to stream mapper results to gateway")
+		return false
+	}
+
+
+	p.logger.Info().
+		Int("update_count", len(updates)).
+		Msg("Streamed mapper results to gateway")
+
+	return true
+}
+
+func (p *PushLoop) pushMapperInterfaces(ctx context.Context) bool {
+	return p.pushMapperDerivedResults(
+		ctx,
+		func(svc *MapperService) ([]map[string]interface{}, bool) {
+			return svc.DrainInterfaces(1000)
+		},
+		buildMapperInterfacePayload,
+		"mapper_interfaces",
+		"interface_count",
+	)
+}
+
+func (p *PushLoop) pushMapperTopology(ctx context.Context) bool {
+	return p.pushMapperDerivedResults(
+		ctx,
+		func(svc *MapperService) ([]map[string]interface{}, bool) {
+			return svc.DrainTopology(1000)
+		},
+		buildMapperTopologyPayload,
+		"mapper_topology",
+		"topology_count",
+	)
+}
+
+func (p *PushLoop) pushMapperDerivedResults(
+	ctx context.Context,
+	drain func(*MapperService) ([]map[string]interface{}, bool),
+	buildPayload func([]map[string]interface{}, string, string) ([]byte, error),
+	serviceType string,
+	countField string,
+) bool {
+	p.server.mu.RLock()
+	mapperSvc := p.server.mapperService
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	p.server.mu.RUnlock()
+
+	if mapperSvc == nil {
+		return false
+	}
+
+	updates, ok := drain(mapperSvc)
+	if !ok || len(updates) == 0 {
+		return false
+	}
+
+	payload, err := buildPayload(updates, agentID, partition)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to build mapper payload")
+		return false
+	}
+
+	if len(payload) == 0 {
+		return false
+	}
+
+	seq := fmt.Sprintf("%d", time.Now().UnixNano())
+	response := mapperResultsResponse(payload, seq, "mapper", serviceType)
+	chunks := []*proto.ResultsChunk{{
+		Data:            response.Data,
+		IsFinal:         true,
+		ChunkIndex:      0,
+		TotalChunks:     1,
+		CurrentSequence: response.CurrentSequence,
+		Timestamp:       response.Timestamp,
+	}}
+
+	statusChunks := p.buildResultsStatusChunks(chunks, response.ServiceName, response.ServiceType)
+	if len(statusChunks) == 0 {
+		return false
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to stream mapper results to gateway")
+		return false
+	}
+
+	p.logger.Info().Int(countField, len(updates)).Msg("Streamed mapper results to gateway")
+
+	return true
 }
 
 // applyChecks converts proto checks to checker configs and updates the server.

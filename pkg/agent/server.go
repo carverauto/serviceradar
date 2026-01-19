@@ -322,6 +322,13 @@ func (s *Server) Stop(_ context.Context) error {
 		}
 	}
 
+	// Stop mapper service if running
+	if s.mapperService != nil {
+		if err := s.mapperService.Stop(context.Background()); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop mapper service")
+		}
+	}
+
 	for _, svc := range s.services {
 		if err := svc.Stop(context.Background()); err != nil {
 			s.logger.Error().Err(err).Str("service", svc.Name()).Msg("Failed to stop service")
