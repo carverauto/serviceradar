@@ -7,8 +7,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperSNMPCredential do
     domain: ServiceRadar.NetworkDiscovery,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshCloak],
-    notifiers: [ServiceRadar.NetworkDiscovery.MapperConfigNotifier]
+    extensions: [AshCloak]
 
   postgres do
     table "mapper_snmp_credentials"
@@ -98,8 +97,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperSNMPCredential do
       allow_nil? false
       public? true
       default :v2c
-      constraints one_of: [:v1, :v2c, :v3]
-      description "SNMP protocol version"
+      constraints one_of: [:v2c, :v3]
+      description "SNMP protocol version (v2c or v3)"
     end
 
     attribute :community, :string do
@@ -164,10 +163,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperSNMPCredential do
   calculations do
     calculate :secrets_present, :map, fn records, _opts ->
       Enum.map(records, fn record ->
+        # Access the raw struct fields directly - AshCloak stores ciphertext
+        # which is a non-nil binary when a secret is present
         %{
-          "community" => present?(record.community),
-          "auth_password" => present?(record.auth_password),
-          "privacy_password" => present?(record.privacy_password)
+          "community" => has_value?(Map.get(record, :community)),
+          "auth_password" => has_value?(Map.get(record, :auth_password)),
+          "privacy_password" => has_value?(Map.get(record, :privacy_password))
         }
       end)
     end
@@ -177,6 +178,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperSNMPCredential do
     identity :unique_job_credential, [:mapper_job_id]
   end
 
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(_), do: false
+  # Check if an encrypted field has a value (ciphertext is a binary)
+  defp has_value?(nil), do: false
+  defp has_value?(""), do: false
+  defp has_value?(value) when is_binary(value), do: byte_size(value) > 0
+  defp has_value?(_), do: false
 end
