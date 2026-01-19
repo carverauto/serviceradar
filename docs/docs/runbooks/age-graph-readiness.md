@@ -6,7 +6,7 @@ Use this runbook to confirm the Apache AGE graph (`serviceradar`) is present and
 - Ensure CNPG is up: `docker compose ps cnpg`
 - Verify graph defaults:
   - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SHOW search_path; SHOW graph_path;"`
-  - Expected: `search_path` includes `ag_catalog,"$user",public` and `graph_path` is `serviceradar`.
+  - Expected: `search_path` includes `ag_catalog,"$user",public`. `graph_path` may be empty; ServiceRadar always passes the graph name explicitly.
 - Confirm AGE is ready:
   - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT extname FROM pg_extension WHERE extname='age';"`
   - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT name FROM ag_catalog.ag_graph WHERE name='serviceradar';"`
@@ -30,7 +30,7 @@ Use this runbook to confirm the Apache AGE graph (`serviceradar`) is present and
   - Local repo: `go run ./cmd/tools/age-backfill --host ${CNPG_HOST:-localhost} --database ${CNPG_DATABASE:-serviceradar} --username ${CNPG_USERNAME:-serviceradar} --password ${CNPG_PASSWORD:-serviceradar}`
   - Bazel: `bazel run //cmd/tools/age-backfill -- --host <host> --database <db> --username <user> --password <pass>`
   - Demo k8s: `kubectl -n demo exec deploy/serviceradar-tools -- age-backfill`
-- The job reads `unified_devices`, `discovered_interfaces`, and `topology_discovery_events` and writes MERGE batches via AGE cypher.
+- The job reads `unified_devices`, `discovered_interfaces`, and `mapper_topology_links` and writes MERGE batches via AGE cypher.
 - Ensure `CNPG_*` env (host, port, database, username, password/secret, sslmode) are available in the execution environment.
 
 ## Validate collector-owned vs target nodes (phantom device guard)

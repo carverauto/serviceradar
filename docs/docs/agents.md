@@ -160,7 +160,7 @@ This clears the CNPG-backed telemetry tables and repopulates them with a fresh d
    TRUNCATE TABLE unified_devices;
    TRUNCATE TABLE sweep_host_states;
    TRUNCATE TABLE discovered_interfaces;
-   TRUNCATE TABLE topology_discovery_events;
+   TRUNCATE TABLE mapper_topology_links;
    SQL
    ```
 

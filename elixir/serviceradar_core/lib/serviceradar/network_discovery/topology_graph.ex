@@ -76,7 +76,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp build_link_payload(link) do
     local_device_id = link_value(link, :local_device_id)
     neighbor_device_id = neighbor_device_id(link)
-    local_interface_id = interface_id(local_device_id, link_value(link, :local_if_name), link_value(link, :local_if_index))
+    local_interface_id =
+      interface_id(
+        local_device_id,
+        link_value(link, :local_if_name),
+        link_value(link, :local_if_index)
+      )
     neighbor_port =
       non_blank(link_value(link, :neighbor_port_id)) ||
         non_blank(link_value(link, :neighbor_port_descr))
@@ -196,7 +201,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp set_prop(_node, _field, ""), do: ""
 
   defp set_prop(node, field, value) when is_list(value) do
-    list = Enum.map(value, &cypher_value/1) |> Enum.join(", ")
+    list = Enum.map_join(value, ", ", &cypher_value/1)
     "SET #{node}.#{field} = [#{list}]"
   end
 
