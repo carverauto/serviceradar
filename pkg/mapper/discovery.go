@@ -196,7 +196,7 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 			Timeout:     timeout,
 			Retries:     jobConfig.Retries,
 			AgentID:     e.config.StreamConfig.AgentID,
-			GatewayID:    e.config.StreamConfig.GatewayID,
+			GatewayID:   e.config.StreamConfig.GatewayID,
 		}
 
 		// Start the job immediately
@@ -585,12 +585,32 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 	// Publish links
 	if e.publisher != nil {
 		for _, link := range links {
+			if link.Metadata == nil {
+				link.Metadata = make(map[string]string)
+			}
+			link.Metadata["discovery_id"] = job.ID
+			link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
+			applyJobOptionsMetadata(job, link.Metadata)
+
 			if err := e.publisher.PublishTopologyLink(job.ctx, link); err != nil {
 				e.logger.Error().Str("job_id", job.ID).Str("protocol", protocol).
 					Str("target", target).Int32("if_index", link.LocalIfIndex).
 					Err(err).Msg("Failed to publish link")
 			}
 		}
+	}
+}
+
+func applyJobOptionsMetadata(job *DiscoveryJob, metadata map[string]string) {
+	if job == nil || job.Params == nil || metadata == nil {
+		return
+	}
+
+	for key, value := range job.Params.Options {
+		if value == "" {
+			continue
+		}
+		metadata[key] = value
 	}
 }
 
@@ -1492,7 +1512,7 @@ func (e *DiscoveryEngine) trackJobProgress(
 }
 
 // finalizeDevice performs final setup on the device before returning it
-func (*DiscoveryEngine) finalizeDevice(device *DiscoveredDevice, target, jobID, source string) {
+func (*DiscoveryEngine) finalizeDevice(job *DiscoveryJob, device *DiscoveredDevice, target, jobID, source string) {
 	// Use IP as hostname if not provided
 	if device.Hostname == "" {
 		device.Hostname = target
@@ -1502,6 +1522,7 @@ func (*DiscoveryEngine) finalizeDevice(device *DiscoveredDevice, target, jobID, 
 	device.Metadata["discovery_id"] = jobID
 	device.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
 	device.Metadata["source"] = source
+	applyJobOptionsMetadata(job, device.Metadata)
 }
 
 // finalizeInterfaces finalizes the interfaces by ensuring they have names and adding metadata
@@ -1531,6 +1552,7 @@ func (*DiscoveryEngine) finalizeInterfaces(
 
 		iface.Metadata["discovery_id"] = jobID
 		iface.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
+		applyJobOptionsMetadata(job, iface.Metadata)
 
 		interfaces = append(interfaces, iface)
 	}

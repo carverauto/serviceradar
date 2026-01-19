@@ -592,37 +592,6 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  mapper:
-    image: ghcr.io/carverauto/serviceradar-mapper:${APP_TAG:-latest}
-    container_name: serviceradar-mapper-mtls
-    profiles:
-      - legacy
-    ports:
-      - "50056:50056"
-    volumes:
-      - ./docker/compose/mapper.docker.json:/etc/serviceradar/mapper.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - mapper-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      - CONFIG_SOURCE=file
-      - CONFIG_PATH=/etc/serviceradar/mapper.json
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      otel:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/mapper.pem", "-key", "/etc/serviceradar/certs/mapper-key.pem", "-servername", "mapper.serviceradar", "localhost:50056", "grpc.health.v1.Health/Check"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
   web-ng:
     image: ghcr.io/carverauto/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
@@ -732,7 +701,6 @@ volumes:
   zen-data:
   db-event-writer-data:
   db-event-writer-config:
-  mapper-data:
 
 networks:
   serviceradar-net:

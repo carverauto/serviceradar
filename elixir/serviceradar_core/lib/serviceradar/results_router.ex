@@ -11,6 +11,7 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.Observability.SysmonMetricsIngestor
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
+  alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
 
   @duration_regex ~r/(\d+(?:\.\d+)?)(ns|us|µs|μs|ms|s|m|h)/
 
@@ -48,6 +49,10 @@ defmodule ServiceRadar.ResultsRouter do
     case status[:service_type] do
       "sync" -> handle_sync_results(status)
       "sweep" -> handle_sweep_results(status)
+      "mapper" -> handle_mapper_results(status)
+      "mapper_discovery" -> handle_mapper_results(status)
+      "mapper_interfaces" -> handle_mapper_interfaces(status)
+      "mapper_topology" -> handle_mapper_topology(status)
       _ -> :ok
     end
   end
@@ -61,6 +66,20 @@ defmodule ServiceRadar.ResultsRouter do
   defp handle_sync_results(status) do
     # In schema-agnostic mode, DB schema is set by CNPG search_path
     schedule_sync_ingestion(status)
+  end
+
+  defp handle_mapper_results(status) do
+    # Mapper results are device updates; use sync ingestion pipeline.
+    MapperResultsIngestor.record_runs_from_payload(status[:message])
+    schedule_sync_ingestion(status)
+  end
+
+  defp handle_mapper_interfaces(status) do
+    MapperResultsIngestor.ingest_interfaces(status[:message], status)
+  end
+
+  defp handle_mapper_topology(status) do
+    MapperResultsIngestor.ingest_topology(status[:message], status)
   end
 
   defp schedule_sync_ingestion(status) do
