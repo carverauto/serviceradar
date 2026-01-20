@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "agent",
     srcs = [
+        "dusk_service.go",
         "errors.go",
         "icmp_checker.go",
         "interfaces.go",
@@ -26,6 +27,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/agentgateway",
+        "//pkg/checker/dusk",
         "//pkg/checker/snmp",
         "//pkg/config",
         "//pkg/config/kv",
@@ -48,6 +50,7 @@ go_library(
 go_test(
     name = "agent_test",
     srcs = [
+        "dusk_service_test.go",
         "server_test.go",
         "sweep_test_helpers_test.go",
         "sweep_performance_test.go",
