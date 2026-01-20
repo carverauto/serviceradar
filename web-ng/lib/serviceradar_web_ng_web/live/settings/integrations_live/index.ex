@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
+defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   @moduledoc """
   LiveView for managing integration sources (Armis, SNMP, etc.).
 
@@ -85,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     else
       socket
       |> put_flash(:error, "Install and register an agent before adding integrations.")
-      |> push_navigate(to: ~p"/admin/integrations")
+      |> push_navigate(to: ~p"/settings/networks/integrations")
     end
   end
 
@@ -101,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       {:error, _} ->
         socket
         |> put_flash(:error, "Integration source not found")
-        |> push_navigate(to: ~p"/admin/integrations")
+        |> push_navigate(to: ~p"/settings/networks/integrations")
     end
   end
 
@@ -125,7 +125,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       {:error, _} ->
         socket
         |> put_flash(:error, "Integration source not found")
-        |> push_navigate(to: ~p"/admin/integrations")
+        |> push_navigate(to: ~p"/settings/networks/integrations")
     end
   end
 
@@ -415,8 +415,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path="/admin/integrations">
-        <.settings_nav current_path="/admin/integrations" />
+      <.settings_shell current_path="/settings/networks/integrations">
+        <.settings_nav current_path="/settings/networks/integrations" />
+        <.network_nav current_path="/settings/networks/integrations" />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -550,14 +551,14 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
                           <.ui_button
                             variant="ghost"
                             size="xs"
-                            navigate={~p"/admin/integrations/#{source.id}"}
+                            navigate={~p"/settings/networks/integrations/#{source.id}"}
                           >
                             View
                           </.ui_button>
                           <.ui_button
                             variant="ghost"
                             size="xs"
-                            navigate={~p"/admin/integrations/#{source.id}/edit"}
+                            navigate={~p"/settings/networks/integrations/#{source.id}/edit"}
                           >
                             Edit
                           </.ui_button>
@@ -1125,7 +1126,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
           >
             Delete
           </button>
-          <.ui_button variant="ghost" navigate={~p"/admin/integrations/#{@source.id}/edit"}>
+          <.ui_button variant="ghost" navigate={~p"/settings/networks/integrations/#{@source.id}/edit"}>
             Edit
           </.ui_button>
           <button type="button" class="btn" phx-click="close_details_modal">Close</button>
