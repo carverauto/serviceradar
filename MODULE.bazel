@@ -1042,10 +1042,10 @@ http_archive(
 package(default_visibility = ["//visibility:public"])
 exports_files(["bun"])
 """,
-    sha256 = "368206c3038d8faabc63e3059eeea64c2af9c50ed0dfbfb86f64984ba69db1af",
+    sha256 = "9ba98d2134550d6690875b23a4f5c48e74b7cb267e8cc1b8f52605921c6c11ef",
     strip_prefix = "bun-linux-x64",
     urls = [
-        "https://github.com/oven-sh/bun/releases/download/bun-v1.1.42/bun-linux-x64.zip",
+        "https://github.com/oven-sh/bun/releases/download/bun-v1.3.6/bun-linux-x64.zip",
     ],
 )
 
