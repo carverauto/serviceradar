@@ -184,9 +184,6 @@ jobs:
           cat "$notes_file"
           echo "--------------------------------"
 
-      - name: Build Kong vendor artifacts
-        run: ./scripts/build-kong-vendor.sh
-
       - name: Authenticate Docker for GHCR
         env:
           GHCR_DOCKER_AUTH: ${{ secrets.GHCR_DOCKER_AUTH }}
