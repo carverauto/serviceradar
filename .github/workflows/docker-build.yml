@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       release_tag:
@@ -22,6 +20,7 @@ jobs:
     runs-on: arc-runner-set
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GHCR_DOCKER_AUTH: ${{ secrets.GHCR_DOCKER_AUTH }}
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
@@ -98,6 +97,29 @@ jobs:
 
       - name: Authenticate Docker for GHCR
         run: |
+          set -euo pipefail
+          login_ghcr() {
+            local user="${1:-}"
+            local token="${2:-}"
+            if [[ -z "${user}" || -z "${token}" ]]; then
+              return 1
+            fi
+            echo "${token}" | docker login ghcr.io -u "${user}" --password-stdin
+          }
+
+          if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
+            if ! login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"; then
+              echo "GHCR_TOKEN login failed; falling back to GITHUB_TOKEN." >&2
+              export GHCR_USERNAME="${GITHUB_ACTOR}"
+              export GHCR_TOKEN="${GITHUB_TOKEN}"
+              login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"
+            fi
+          else
+            export GHCR_USERNAME="${GITHUB_ACTOR}"
+            export GHCR_TOKEN="${GITHUB_TOKEN}"
+            login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"
+          fi
+
           bazel run \
             --config=remote \
             -c opt \
