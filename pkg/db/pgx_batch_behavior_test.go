@@ -61,21 +61,4 @@ func TestInsertOCSFEvents_SurfacesBatchInsertErrors(t *testing.T) {
 	require.Equal(t, 1, br.closeCalls)
 }
 
-func TestStoreBatchUsers_SurfacesBatchInsertErrors(t *testing.T) {
-	ctx := context.Background()
-
-	br := &fakeBatchResults{
-		execErrAt: 0,
-		execErr:   errInsertFailed,
-	}
-
-	db := &DB{executor: &fakePgxExecutor{br: br}}
-
-	err := db.StoreBatchUsers(ctx, []*models.User{
-		{ID: "u1", Email: "u1@example.com", Name: "u1", Provider: "local", Roles: []string{"admin"}},
-	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to store batch users")
-	require.Contains(t, err.Error(), "users batch exec (command 0)")
-	require.Equal(t, 1, br.closeCalls)
-}
+// StoreBatchUsers coverage removed with auth storage deprecation.
