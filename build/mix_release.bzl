@@ -250,7 +250,18 @@ if [ "{run_assets}" = "true" ]; then
   [ -f "$PRESERVED_STATIC/robots.txt" ] && cp "$PRESERVED_STATIC/robots.txt" priv/static/
   [ -d "$PRESERVED_STATIC/images" ] && cp -r "$PRESERVED_STATIC/images" priv/static/
 
-  # Install npm dependencies for React components (if bun is available)
+  # Install npm dependencies for React components (ensure bun is available)
+  if ! command -v bun >/dev/null 2>&1; then
+    export BUN_INSTALL="$HOME/.bun"
+    mkdir -p "$BUN_INSTALL"
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL https://bun.sh/install | bash
+      export PATH="$BUN_INSTALL/bin:$PATH"
+    else
+      echo "bun install skipped: curl not available" >&2
+    fi
+  fi
+
   if command -v bun >/dev/null 2>&1; then
     if [ -f assets/package.json ]; then
       (cd assets && bun install --frozen-lockfile 2>/dev/null || bun install)
@@ -258,6 +269,8 @@ if [ "{run_assets}" = "true" ]; then
     if [ -f assets/component/package.json ]; then
       (cd assets/component && bun install --frozen-lockfile 2>/dev/null || bun install)
     fi
+  else
+    echo "bun not available; assets dependencies may be missing" >&2
   fi
 
   TAILWIND_INPUT=assets/css/app.css \
