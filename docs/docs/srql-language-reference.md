@@ -21,7 +21,7 @@ Target data with the `in:` selector. Each logical entity routes to one or more O
 | `in:flows` | Flow-level telemetry aligned to OCSF network activity class 4001 | `ocsf_network_activity` |
 | `in:connections` | Connection state and summaries with endpoint metadata | `connections`, `ocsf_network_activity` |
 | `in:services` | Observed network/application services and their availability | `services` materialized view |
-| `in:interfaces` | Discovered interfaces with OCSF endpoint metadata | `discovered_interfaces` |
+| `in:interfaces` | Discovered interfaces with OCSF endpoint metadata | `ocsf_devices.network_interfaces` |
 | `in:logs` | Application and system logs normalized to OCSF logging classes | `logs`, `ocsf_system_activity` |
 | `in:gateways` | Gateway/agent operational telemetry | `gateways` |
 | `in:cpu_metrics` / `in:disk_metrics` / `in:memory_metrics` / `in:process_metrics` / `in:snmp_metrics` | Time-series metrics aligned with OCSF telemetry categories | `cpu_metrics`, `disk_metrics`, `memory_metrics`, `process_metrics`, `timeseries_metrics` |

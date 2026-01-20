@@ -13,8 +13,9 @@
 - [ ] 3.2 Batch interface updates per device to avoid excessive writes.
 
 ## 4. Backfill and Ops
-- [ ] 4.1 Add a mix task or one-off script to reconcile existing duplicates (demo-staging first).
-- [ ] 4.2 Run reconciliation + interface rollup in demo-staging and validate that `tonka01` is single and interfaces populate.
+- [ ] 4.1 Add AshOban scheduled reconciliation job with run logging/stats.
+- [ ] 4.2 Seed default reconciliation schedule configuration.
+- [ ] 4.3 Run reconciliation + interface rollup in demo-staging and validate that `tonka01` is single and interfaces populate.
 
 ## 5. Tests
 - [ ] 5.1 Add unit tests for multi-identifier resolution and merge outcomes.

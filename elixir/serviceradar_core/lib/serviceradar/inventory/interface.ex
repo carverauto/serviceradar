@@ -80,6 +80,10 @@ defmodule ServiceRadar.Inventory.Interface do
       ]
     end
 
+    destroy :destroy do
+      description "Delete interface records (used during device merges)"
+    end
+
     read :by_device do
       description "Get interfaces for a specific device"
       argument :device_id, :string, allow_nil?: false

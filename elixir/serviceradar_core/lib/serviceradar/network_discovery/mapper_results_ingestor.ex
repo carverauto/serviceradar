@@ -8,7 +8,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, Interface}
+  alias ServiceRadar.Inventory.{Device, IdentityReconciler}
   alias ServiceRadar.NetworkDiscovery.{MapperJob, TopologyGraph, TopologyLink}
   alias ServiceRadar.Repo
 
@@ -25,9 +25,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         Logger.debug("No interfaces to ingest after device ID resolution")
         :ok
       else
-        case insert_bulk(resolved_records, Interface, actor, "interfaces") do
+        case upsert_network_interfaces(resolved_records, actor) do
           :ok ->
             TopologyGraph.upsert_interfaces(resolved_records)
+            register_interface_identifiers(resolved_records, actor)
             :ok
 
           {:error, reason} ->
@@ -151,6 +152,220 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       Logger.warning("Device UID lookup failed: #{inspect(e)}")
       %{}
   end
+
+  defp register_interface_identifiers([], _actor), do: :ok
+
+  defp register_interface_identifiers(records, actor) do
+    records
+    |> Enum.group_by(& &1.device_id)
+    |> Enum.each(fn {device_id, iface_records} ->
+      macs =
+        iface_records
+        |> Enum.map(&IdentityReconciler.normalize_mac(&1.if_phys_address))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+
+      Enum.each(macs, fn mac ->
+        ids = %{
+          armis_id: nil,
+          integration_id: nil,
+          netbox_id: nil,
+          mac: mac,
+          ip: "",
+          partition: "default"
+        }
+
+        case IdentityReconciler.register_identifiers(device_id, ids, actor: actor) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to register interface MAC identifier for device #{device_id}: #{inspect(reason)}"
+            )
+        end
+      end)
+    end)
+  end
+
+  defp upsert_network_interfaces([], _actor), do: :ok
+
+  defp upsert_network_interfaces(records, actor) do
+    records
+    |> Enum.group_by(& &1.device_id)
+    |> Enum.reduce([], fn {device_id, iface_records}, errors ->
+      case upsert_device_network_interfaces(device_id, iface_records, actor) do
+        :ok -> errors
+        {:error, reason} -> [{device_id, reason} | errors]
+      end
+    end)
+    |> case do
+      [] -> :ok
+      errors -> {:error, Enum.reverse(errors)}
+    end
+  end
+
+  defp upsert_device_network_interfaces(device_id, iface_records, actor) do
+    entries = build_network_interfaces(iface_records)
+
+    if entries == [] do
+      :ok
+    else
+      case Ash.get(Device, device_id, actor: actor) do
+        {:ok, device} ->
+          existing = ensure_list(device.network_interfaces)
+          merged = merge_network_interfaces(existing, entries)
+
+          if merged == existing do
+            :ok
+          else
+            device
+            |> Ash.Changeset.for_update(:update, %{network_interfaces: merged})
+            |> Ash.update(actor: actor)
+            |> case do
+              {:ok, _device} ->
+                :ok
+
+              {:error, reason} ->
+                Logger.warning(
+                  "Failed to update network interfaces for device #{device_id}: #{inspect(reason)}"
+                )
+
+                {:error, reason}
+            end
+          end
+
+        {:error, %Ash.Error.Query.NotFound{}} ->
+          Logger.debug("No device found for interface update: #{device_id}")
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Device lookup failed for interface update #{device_id}: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
+  defp build_network_interfaces(records) do
+    records
+    |> Enum.reduce({MapSet.new(), []}, fn record, {seen, acc} ->
+      entry = discovered_interface_to_ocsf(record)
+
+      if map_size(entry) == 0 do
+        {seen, acc}
+      else
+        key = interface_key(entry)
+
+        if MapSet.member?(seen, key) do
+          {seen, acc}
+        else
+          {MapSet.put(seen, key), [entry | acc]}
+        end
+      end
+    end)
+    |> then(fn {_seen, entries} -> Enum.reverse(entries) end)
+  end
+
+  defp discovered_interface_to_ocsf(record) do
+    ip =
+      case record.ip_addresses do
+        [first | _rest] -> non_blank(first)
+        _ -> nil
+      end || non_blank(record.device_ip)
+
+    name = non_blank(record.if_name) || non_blank(record.if_descr)
+    mac = non_blank(record.if_phys_address)
+    descr = non_blank(record.if_descr)
+    alias_value = non_blank(record.if_alias)
+
+    ip_addresses =
+      record.ip_addresses
+      |> Enum.map(&non_blank/1)
+      |> Enum.reject(&is_nil/1)
+
+    uid =
+      case record.if_index do
+        index when is_integer(index) -> Integer.to_string(index)
+        _ -> nil
+      end
+
+    %{}
+    |> put_if_present("ip", ip)
+    |> put_if_list("ip_addresses", ip_addresses)
+    |> put_if_present("name", name)
+    |> put_if_present("descr", descr)
+    |> put_if_present("alias", alias_value)
+    |> put_if_present("mac", mac)
+    |> put_if_present("uid", uid)
+    |> put_if_present("speed", record.if_speed)
+    |> put_if_present("admin_status", record.if_admin_status)
+    |> put_if_present("oper_status", record.if_oper_status)
+  end
+
+  defp merge_network_interfaces(existing, incoming) do
+    {seen, existing_unique} =
+      Enum.reduce(existing, {MapSet.new(), []}, fn iface, {seen, acc} ->
+        key = interface_key(iface)
+
+        if MapSet.member?(seen, key) do
+          {seen, acc}
+        else
+          {MapSet.put(seen, key), [iface | acc]}
+        end
+      end)
+
+    existing_unique = Enum.reverse(existing_unique)
+
+    {_, incoming_unique} =
+      Enum.reduce(incoming, {seen, []}, fn iface, {seen, acc} ->
+        key = interface_key(iface)
+
+        if MapSet.member?(seen, key) do
+          {seen, acc}
+        else
+          {MapSet.put(seen, key), [iface | acc]}
+        end
+      end)
+
+    existing_unique ++ Enum.reverse(incoming_unique)
+  end
+
+  defp interface_key(iface) do
+    %{
+      name: normalize_key(iface_value(iface, :name)),
+      mac: normalize_key(iface_value(iface, :mac)),
+      ip: normalize_key(iface_value(iface, :ip)),
+      uid: normalize_key(iface_value(iface, :uid))
+    }
+  end
+
+  defp iface_value(iface, key) when is_atom(key) do
+    Map.get(iface, key) || Map.get(iface, Atom.to_string(key))
+  end
+
+  defp normalize_key(nil), do: ""
+  defp normalize_key(value) when is_binary(value), do: String.trim(value)
+  defp normalize_key(value), do: to_string(value)
+
+  defp ensure_list(value) when is_list(value), do: value
+  defp ensure_list(_value), do: []
+
+  defp non_blank(nil), do: nil
+
+  defp non_blank(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp non_blank(value), do: value
+
+  defp put_if_present(map, _key, nil), do: map
+  defp put_if_present(map, _key, ""), do: map
+  defp put_if_present(map, key, value), do: Map.put(map, key, value)
+
+  defp put_if_list(map, _key, []), do: map
+  defp put_if_list(map, key, value) when is_list(value), do: Map.put(map, key, value)
+  defp put_if_list(map, _key, _value), do: map
 
   # Resolve device IDs for topology records (local_device_id and neighbor_device_id)
   defp resolve_topology_device_ids([]), do: []

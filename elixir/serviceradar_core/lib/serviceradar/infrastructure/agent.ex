@@ -384,6 +384,12 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :connecting}
     end
 
+    update :reassign_device do
+      description "Reassign agent to a new device (used during merges)"
+      accept [:device_uid]
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
     # Legacy compatibility actions (mapped to state machine)
     update :connect do
       description "Mark agent as connected to a gateway (legacy - use establish_connection)"

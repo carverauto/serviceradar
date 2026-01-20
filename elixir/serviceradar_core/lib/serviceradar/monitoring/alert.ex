@@ -197,6 +197,11 @@ defmodule ServiceRadar.Monitoring.Alert do
       change set_attribute(:triggered_at, &DateTime.utc_now/0)
     end
 
+    update :reassign_device do
+      description "Reassign alert to a new device (used during merges)"
+      accept [:device_uid]
+    end
+
     update :acknowledge do
       description "Acknowledge an alert"
       argument :acknowledged_by, :string, allow_nil?: false

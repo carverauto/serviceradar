@@ -26,7 +26,11 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   IP is a "weak" identifier only used when no strong identifiers are present.
   """
 
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, MergeAudit}
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, Interface, MergeAudit}
+  alias ServiceRadar.Monitoring.{Alert, ServiceCheck}
 
   require Ash.Query
   require Logger
@@ -72,9 +76,9 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp do_resolve_device_id(update, actor) do
     ids = extract_strong_identifiers(update)
 
-    # Step 1: Lookup by strong identifiers
+    # Step 1: Lookup by strong identifiers (merge conflicts if multiple IDs found)
     with {:ok, device_id} when is_binary(device_id) and device_id != "" <-
-           lookup_by_strong_identifiers(ids, actor) do
+           lookup_by_strong_identifiers(ids, actor, update.device_id) do
       {:ok, device_id}
     else
       _ -> resolve_fallback_device_id(update, ids, actor)
@@ -167,36 +171,27 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   @doc """
   Lookup device by strong identifiers in priority order.
   """
-  @spec lookup_by_strong_identifiers(strong_identifiers(), term()) ::
+  @spec lookup_by_strong_identifiers(strong_identifiers(), term(), String.t() | nil) ::
           {:ok, String.t() | nil} | {:error, term()}
-  def lookup_by_strong_identifiers(ids, actor) do
+  def lookup_by_strong_identifiers(ids, actor, preferred_device_id \\ nil) do
     if has_strong_identifier?(ids) do
-      do_lookup_by_strong_identifiers(ids, actor)
+      matches = lookup_identifier_matches(ids, actor)
+      device_ids = matches |> Map.values() |> Enum.map(& &1.device_id) |> Enum.uniq()
+
+      case device_ids do
+        [] ->
+          {:ok, nil}
+
+        [device_id] ->
+          {:ok, device_id}
+
+        _ ->
+          canonical_id = select_canonical_device_id(preferred_device_id, matches, actor)
+          _ = merge_conflicting_devices(canonical_id, device_ids, matches, actor)
+          {:ok, canonical_id}
+      end
     else
       {:ok, nil}
-    end
-  end
-
-  defp do_lookup_by_strong_identifiers(ids, actor) do
-    # Try each identifier type in priority order
-    Enum.reduce_while(@identifier_priority, {:ok, nil}, fn id_type, _acc ->
-      case lookup_identifier(ids, id_type, actor) do
-        {:ok, device_id} -> {:halt, {:ok, device_id}}
-        :cont -> {:cont, {:ok, nil}}
-      end
-    end)
-  end
-
-  defp lookup_identifier(ids, id_type, actor) do
-    case get_identifier_value(ids, id_type) do
-      nil ->
-        :cont
-
-      id_value ->
-        case lookup_device_identifier(id_type, id_value, ids.partition, actor) do
-          {:ok, device_id} when is_binary(device_id) and device_id != "" -> {:ok, device_id}
-          _ -> :cont
-        end
     end
   end
 
@@ -341,13 +336,32 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     actor = Keyword.get(opts, :actor)
     partition = if ids.partition == "", do: "default", else: ids.partition
     query_opts = if actor, do: [actor: actor], else: []
+    canonical_id = resolve_identifier_conflicts(device_id, ids, actor)
+
+    if device_id != nil and device_id != "" and canonical_id != nil and canonical_id != "" and
+         device_id != canonical_id and not service_device_id?(device_id) do
+      _ =
+        merge_devices(device_id, canonical_id,
+          actor: actor,
+          reason: "identifier_conflict",
+          details: %{
+            source: "identifier_registration",
+            identifiers: %{
+              armis_id: ids.armis_id,
+              integration_id: ids.integration_id,
+              netbox_id: ids.netbox_id,
+              mac: ids.mac
+            }
+          }
+        )
+    end
 
     identifiers_to_register =
       []
-      |> maybe_add_identifier(device_id, :armis_device_id, ids.armis_id, partition)
-      |> maybe_add_identifier(device_id, :integration_id, ids.integration_id, partition)
-      |> maybe_add_identifier(device_id, :netbox_device_id, ids.netbox_id, partition)
-      |> maybe_add_identifier(device_id, :mac, ids.mac, partition)
+      |> maybe_add_identifier(canonical_id, :armis_device_id, ids.armis_id, partition)
+      |> maybe_add_identifier(canonical_id, :integration_id, ids.integration_id, partition)
+      |> maybe_add_identifier(canonical_id, :netbox_device_id, ids.netbox_id, partition)
+      |> maybe_add_identifier(canonical_id, :mac, ids.mac, partition)
 
     results =
       Enum.map(identifiers_to_register, fn params ->
@@ -362,6 +376,405 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       :ok
     else
       {:error, {:identifier_registration_failed, errors}}
+    end
+  end
+
+  @doc """
+  Reconcile duplicate devices by shared strong identifiers.
+
+  Returns stats for observability and logging.
+  """
+  @spec reconcile_duplicates(keyword()) :: {:ok, map()} | {:error, term()}
+  def reconcile_duplicates(opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:identity_reconciliation))
+    max_merges = Keyword.get(opts, :max_merges)
+    started_at = System.monotonic_time(:millisecond)
+
+    Logger.info("Device identity reconciliation started")
+
+    {identifier_index, scanned_count} = build_identifier_index(actor)
+
+    duplicate_entries =
+      identifier_index
+      |> Enum.filter(fn {_key, device_ids} -> MapSet.size(device_ids) > 1 end)
+
+    components =
+      duplicate_entries
+      |> build_duplicate_components()
+      |> Enum.filter(&(length(&1) > 1))
+
+    {merge_count, error_count} = merge_components(components, actor, max_merges)
+
+    duration_ms = System.monotonic_time(:millisecond) - started_at
+
+    stats = %{
+      identifiers_scanned: scanned_count,
+      duplicate_identifier_count: length(duplicate_entries),
+      duplicate_components: length(components),
+      merges: merge_count,
+      errors: error_count,
+      duration_ms: duration_ms
+    }
+
+    Logger.info("Device identity reconciliation completed: #{inspect(stats)}")
+
+    {:ok, stats}
+  rescue
+    error ->
+      Logger.warning("Device identity reconciliation failed: #{inspect(error)}")
+      {:error, error}
+  end
+
+  defp lookup_identifier_matches(ids, actor) do
+    Enum.reduce(@identifier_priority, %{}, fn id_type, acc ->
+      case get_identifier_value(ids, id_type) do
+        nil ->
+          acc
+
+        id_value ->
+          case lookup_device_identifier(id_type, id_value, ids.partition, actor) do
+            {:ok, device_id} when is_binary(device_id) and device_id != "" ->
+              Map.put(acc, id_type, %{value: id_value, device_id: device_id})
+
+            _ ->
+              acc
+          end
+      end
+    end)
+  end
+
+  defp select_canonical_device_id(preferred_device_id, matches, actor) do
+    device_ids = matches |> Map.values() |> Enum.map(& &1.device_id) |> Enum.uniq()
+
+    cond do
+      serviceradar_uuid?(preferred_device_id) and preferred_device_id in device_ids ->
+        preferred_device_id
+
+      true ->
+        case highest_priority_match(matches) do
+          nil -> most_recent_device_id(device_ids, actor)
+          device_id -> device_id
+        end
+    end
+  end
+
+  defp highest_priority_match(matches) do
+    Enum.find_value(@identifier_priority, fn id_type ->
+      case Map.get(matches, id_type) do
+        %{device_id: device_id} -> device_id
+        _ -> nil
+      end
+    end)
+  end
+
+  defp most_recent_device_id([], _actor), do: nil
+
+  defp most_recent_device_id(device_ids, actor) do
+    query =
+      Device
+      |> Ash.Query.filter(uid in ^device_ids)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, devices} when devices != [] ->
+        devices
+        |> Enum.max_by(fn device -> device.last_seen_time || ~U[1970-01-01 00:00:00Z] end)
+        |> Map.get(:uid)
+
+      _ ->
+        List.first(device_ids)
+    end
+  end
+
+  defp merge_conflicting_devices(canonical_id, device_ids, matches, actor) do
+    details = %{
+      identifiers:
+        Enum.map(matches, fn {id_type, %{value: value, device_id: device_id}} ->
+          %{type: id_type, value: value, device_id: device_id}
+        end)
+    }
+
+    device_ids
+    |> Enum.reject(&(&1 == canonical_id))
+    |> Enum.each(fn from_id ->
+      _ =
+        merge_devices(from_id, canonical_id,
+          actor: actor,
+          reason: "identifier_conflict",
+          details: details
+        )
+    end)
+  end
+
+  defp resolve_identifier_conflicts(device_id, ids, actor) do
+    matches = lookup_identifier_matches(ids, actor)
+    device_ids = matches |> Map.values() |> Enum.map(& &1.device_id) |> Enum.uniq()
+
+    case device_ids do
+      [] ->
+        device_id
+
+      [only_id] ->
+        only_id
+
+      _ ->
+        canonical_id = select_canonical_device_id(device_id, matches, actor)
+        _ = merge_conflicting_devices(canonical_id, device_ids, matches, actor)
+        canonical_id
+    end
+  end
+
+  defp build_identifier_index(actor) do
+    query =
+      DeviceIdentifier
+      |> Ash.Query.filter(identifier_type in ^@identifier_priority)
+      |> Ash.Query.select([:device_id, :identifier_type, :identifier_value, :partition])
+
+    Ash.stream!(query, actor: actor, batch_size: 2000)
+    |> Enum.reduce({%{}, 0}, fn record, {acc, count} ->
+      device_id = normalize_identifier_value(record.device_id)
+      identifier_value = normalize_identifier_value(record.identifier_value)
+
+      cond do
+        device_id == nil ->
+          {acc, count + 1}
+
+        identifier_value == nil ->
+          {acc, count + 1}
+
+        service_device_id?(device_id) ->
+          {acc, count + 1}
+
+        true ->
+          partition = normalize_identifier_value(record.partition) || "default"
+          key = {partition, record.identifier_type, identifier_value}
+
+          updated =
+            Map.update(acc, key, MapSet.new([device_id]), fn set ->
+              MapSet.put(set, device_id)
+            end)
+
+          {updated, count + 1}
+      end
+    end)
+  end
+
+  defp normalize_identifier_value(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_identifier_value(_), do: nil
+
+  defp build_duplicate_components(duplicate_entries) do
+    parents =
+      Enum.reduce(duplicate_entries, %{}, fn {_key, device_ids}, acc ->
+        ids = device_ids |> MapSet.to_list() |> Enum.uniq()
+        acc = Enum.reduce(ids, acc, &Map.put_new(&2, &1, &1))
+
+        case ids do
+          [first | rest] ->
+            Enum.reduce(rest, acc, fn id, parents -> union_devices(parents, first, id) end)
+
+          _ ->
+            acc
+        end
+      end)
+
+    parents
+    |> Map.keys()
+    |> Enum.reduce(%{}, fn device_id, acc ->
+      root = find_device_root(parents, device_id)
+      Map.update(acc, root, [device_id], &[device_id | &1])
+    end)
+    |> Map.values()
+  end
+
+  defp find_device_root(parents, device_id) do
+    parent = Map.get(parents, device_id, device_id)
+
+    if parent == device_id do
+      device_id
+    else
+      find_device_root(parents, parent)
+    end
+  end
+
+  defp union_devices(parents, device_a, device_b) do
+    root_a = find_device_root(parents, device_a)
+    root_b = find_device_root(parents, device_b)
+
+    if root_a == root_b do
+      parents
+    else
+      Map.put(parents, root_b, root_a)
+    end
+  end
+
+  defp merge_components(components, actor, max_merges) do
+    Enum.reduce_while(components, {0, 0}, fn device_ids, {merged, errors} ->
+      canonical_id = choose_canonical_device_id(device_ids, actor)
+
+      {merged_count, error_count} =
+        device_ids
+        |> Enum.reject(&(&1 == canonical_id))
+        |> Enum.reduce_while({0, 0}, fn from_id, {local_merged, local_errors} ->
+          if max_merges && merged + local_merged >= max_merges do
+            {:halt, {local_merged, local_errors}}
+          else
+            case merge_devices(from_id, canonical_id,
+                   actor: actor,
+                   reason: "identifier_backfill",
+                   details: %{source: "scheduled_reconciliation"}
+                 ) do
+              :ok ->
+                {:cont, {local_merged + 1, local_errors}}
+
+              {:error, reason} ->
+                Logger.warning(
+                  "Failed to merge device #{from_id} into #{canonical_id}: #{inspect(reason)}"
+                )
+
+                {:cont, {local_merged, local_errors + 1}}
+            end
+          end
+        end)
+
+      total_merged = merged + merged_count
+      total_errors = errors + error_count
+
+      if max_merges && total_merged >= max_merges do
+        {:halt, {total_merged, total_errors}}
+      else
+        {:cont, {total_merged, total_errors}}
+      end
+    end)
+  end
+
+  defp choose_canonical_device_id(device_ids, actor) do
+    candidates = Enum.filter(device_ids, &serviceradar_uuid?/1)
+    candidates = if candidates == [], do: device_ids, else: candidates
+
+    most_recent_device_id(candidates, actor) || List.first(candidates)
+  end
+
+  @doc """
+  Merge a duplicate device into a canonical device and reassign related records.
+  """
+  @spec merge_devices(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def merge_devices(from_device_id, to_device_id, opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:device_merge))
+    reason = Keyword.get(opts, :reason, "identity_resolution")
+    details = Keyword.get(opts, :details, %{})
+
+    if from_device_id == to_device_id do
+      :ok
+    else
+      resources = [
+        Device,
+        DeviceIdentifier,
+        Interface,
+        MergeAudit,
+        ServiceCheck,
+        Alert,
+        Agent,
+        DeviceAliasState
+      ]
+
+      Ash.transaction(resources, fn ->
+        with {:ok, %Device{} = from_device} <- Device.get_by_uid(from_device_id, actor: actor),
+             {:ok, %Device{} = _to_device} <- Device.get_by_uid(to_device_id, actor: actor),
+             :ok <- reassign_device_identifiers(from_device_id, to_device_id, actor),
+             :ok <- reassign_service_checks(from_device_id, to_device_id, actor),
+             :ok <- reassign_alerts(from_device_id, to_device_id, actor),
+             :ok <- reassign_agents(from_device_id, to_device_id, actor),
+             :ok <- reassign_alias_states(from_device_id, to_device_id, actor),
+             :ok <- delete_interfaces(from_device_id, actor),
+             {:ok, _merge} <-
+               MergeAudit.record(%{
+                 from_device_id: from_device_id,
+                 to_device_id: to_device_id,
+                 reason: reason,
+                 source: "identity_reconciler",
+                 details: details
+               }, actor: actor),
+             {:ok, _} <- Ash.destroy(from_device, actor: actor, action: :destroy) do
+          :ok
+        end
+      end)
+      |> case do
+        {:ok, :ok} -> :ok
+        {:ok, other} -> other
+        {:error, _} = error -> error
+      end
+    end
+  end
+
+  defp reassign_device_identifiers(from_id, to_id, actor) do
+    bulk_reassign(DeviceIdentifier, :reassign_device, {:==, [:device_id], from_id}, %{device_id: to_id}, actor)
+  end
+
+  defp reassign_service_checks(from_id, to_id, actor) do
+    bulk_reassign(ServiceCheck, :reassign_device, {:==, [:device_uid], from_id}, %{device_uid: to_id}, actor)
+  end
+
+  defp reassign_alerts(from_id, to_id, actor) do
+    bulk_reassign(Alert, :reassign_device, {:==, [:device_uid], from_id}, %{device_uid: to_id}, actor)
+  end
+
+  defp reassign_agents(from_id, to_id, actor) do
+    bulk_reassign(Agent, :reassign_device, {:==, [:device_uid], from_id}, %{device_uid: to_id}, actor)
+  end
+
+  defp reassign_alias_states(from_id, to_id, actor) do
+    bulk_reassign(DeviceAliasState, :reassign_device, {:==, [:device_id], from_id}, %{device_id: to_id}, actor)
+  end
+
+  defp delete_interfaces(from_id, actor) do
+    query =
+      Interface
+      |> Ash.Query.filter(device_id == ^from_id)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, records} ->
+        case Ash.bulk_destroy(records, :destroy, %{}, actor: actor) do
+          {:ok, _} -> :ok
+          :ok -> :ok
+          {:error, _} = error -> error
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp bulk_reassign(resource, action, _filter_expr, attrs, actor) do
+    query =
+      resource
+      |> Ash.Query.filter(_filter_expr)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, records} ->
+        case Ash.bulk_update(records, action, attrs, actor: actor) do
+          {:ok, _} -> :ok
+          :ok -> :ok
+          {:error, _} = error -> error
+        end
+
+      {:error, _} = error ->
+        error
     end
   end
 

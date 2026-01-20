@@ -25,11 +25,30 @@ defmodule ServiceRadar.Jobs.JobSchedule do
   use Ash.Resource,
     domain: ServiceRadar.Jobs,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshOban]
+
+  @identity_reconciliation_job_key "device_identity_reconciliation"
+  @identity_reconciliation_cron "*/5 * * * *"
 
   postgres do
     table "ng_job_schedules"
     repo ServiceRadar.Repo
+  end
+
+  oban do
+    triggers do
+      trigger :identity_reconciliation do
+        queue :maintenance
+        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
+        read_action :identity_reconciliation
+        scheduler_cron @identity_reconciliation_cron
+        action :run_identity_reconciliation
+
+        scheduler_module_name ServiceRadar.Jobs.JobSchedule.IdentityReconciliationScheduler
+        worker_module_name ServiceRadar.Jobs.JobSchedule.IdentityReconciliationWorker
+      end
+    end
   end
 
   code_interface do
@@ -49,6 +68,12 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     read :enabled do
       description "All enabled schedules"
       filter expr(enabled == true)
+    end
+
+    read :identity_reconciliation do
+      description "Identity reconciliation schedules eligible for execution"
+      filter expr(job_key == ^@identity_reconciliation_job_key and enabled == true)
+      pagination keyset?: true, default_limit: 1
     end
 
     create :create do
@@ -88,6 +113,34 @@ defmodule ServiceRadar.Jobs.JobSchedule do
       description "Update the last_enqueued_at timestamp"
       accept [:last_enqueued_at]
     end
+
+    update :run_identity_reconciliation do
+      description "Run scheduled device identity reconciliation (AshOban)"
+      require_atomic? false
+
+      change fn changeset, _context ->
+        schedule = changeset.data
+        actor = ServiceRadar.Actors.SystemActor.system(:identity_reconciliation_job)
+
+        require Logger
+        Logger.info("Starting identity reconciliation job #{schedule.job_key} (#{schedule.id})")
+
+        max_merges = extract_max_merges(schedule.args)
+
+        case ServiceRadar.Inventory.IdentityReconciler.reconcile_duplicates(
+               actor: actor,
+               max_merges: max_merges
+             ) do
+          {:ok, stats} ->
+            Logger.info("Identity reconciliation completed: #{inspect(stats)}")
+
+          {:error, reason} ->
+            Logger.warning("Identity reconciliation failed: #{inspect(reason)}")
+        end
+
+        Ash.Changeset.change_attribute(changeset, :last_enqueued_at, DateTime.utc_now())
+      end
+    end
   end
 
   policies do
@@ -97,7 +150,14 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     end
 
     # Operators and admins can create and update
-    policy action([:create, :update, :enable, :disable, :update_last_enqueued]) do
+    policy action([
+             :create,
+             :update,
+             :enable,
+             :disable,
+             :update_last_enqueued,
+             :run_identity_reconciliation
+           ]) do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
       # Allow system operations (no actor)
@@ -171,6 +231,9 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     identity :unique_job_key, [:job_key]
   end
 
+  def identity_reconciliation_job_key, do: @identity_reconciliation_job_key
+  def identity_reconciliation_cron, do: @identity_reconciliation_cron
+
   # Cron expression validation using Oban's parser
   defp validate_cron_expression(nil), do: :ok
   defp validate_cron_expression(""), do: {:error, field: :cron, message: "cannot be empty"}
@@ -184,4 +247,19 @@ defmodule ServiceRadar.Jobs.JobSchedule do
         {:error, field: :cron, message: "invalid cron expression: #{Exception.message(error)}"}
     end
   end
+
+  defp extract_max_merges(%{"max_merges" => value}), do: parse_positive_int(value)
+  defp extract_max_merges(%{max_merges: value}), do: parse_positive_int(value)
+  defp extract_max_merges(_), do: nil
+
+  defp parse_positive_int(value) when is_integer(value) and value > 0, do: value
+
+  defp parse_positive_int(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} when int > 0 -> int
+      _ -> nil
+    end
+  end
+
+  defp parse_positive_int(_), do: nil
 end
