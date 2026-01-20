@@ -1170,7 +1170,6 @@ genrule(
     tools = [
         "//docker/images:export_rootfs_from_layout.py",
         "//docker/images:extract_rootfs.py",
-        "//third_party/binaries:crane_linux_amd64",
     ],
     outs = ["cnpg_postgresql_16_6_rootfs.tar"],
     cmd = """
@@ -1183,9 +1182,7 @@ else
 fi
 # Normalize the path to remove any .. or .
 LAYOUT="$$(cd "$$(dirname "$${LAYOUT}")" && pwd)/$$(basename "$${LAYOUT}")"
-if ! "$(location //third_party/binaries:crane_linux_amd64)" export "layout:$${LAYOUT}" "$@"; then
-  python3 "$(location //docker/images:export_rootfs_from_layout.py)" --layout "$${LAYOUT}" --output "$@"
-fi
+python3 "$(location //docker/images:export_rootfs_from_layout.py)" --layout "$${LAYOUT}" --output "$@"
 """,
     visibility = ["//visibility:public"],
 )
