@@ -48,6 +48,7 @@ type Server struct {
 	logger             logger.Logger
 	sysmonService      *SysmonService
 	snmpService        *SNMPAgentService
+	duskService        *DuskService
 	mapperService      *MapperService
 }
 
