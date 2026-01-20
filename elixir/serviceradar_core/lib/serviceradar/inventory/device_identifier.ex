@@ -127,6 +127,12 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
       change set_attribute(:last_seen, &DateTime.utc_now/0)
     end
 
+    update :reassign_device do
+      description "Reassign identifier to a new device (used during merges)"
+      accept [:device_id]
+      change set_attribute(:last_seen, &DateTime.utc_now/0)
+    end
+
     create :upsert do
       description "Create or update identifier"
 
@@ -156,6 +162,11 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
   end
 
   policies do
+    # System actors can perform all operations (schema isolation via search_path)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Read access for authenticated users
     # DB connection's search_path determines the schema.
     policy action_type(:read) do
@@ -163,7 +174,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     end
 
     # Create/update: operators and admins
-    policy action([:register, :upsert, :touch, :verify]) do
+    policy action([:register, :upsert, :touch, :verify, :reassign_device]) do
       authorize_if expr(^actor(:role) in [:operator, :admin])
     end
   end

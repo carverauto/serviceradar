@@ -19,70 +19,14 @@ package db
 import "errors"
 
 var (
-
 	// Core database errors.
+	ErrFailedOpenDB = errors.New("failed to open database")
 
-	ErrDatabaseError = errors.New("database error")
-
-	// Operation errors.
-
-	ErrFailedToScan   = errors.New("failed to scan")
-	ErrFailedToQuery  = errors.New("failed to query")
-	ErrFailedToInsert = errors.New("failed to insert")
-	ErrFailedToInit   = errors.New("failed to initialize database")
-	ErrFailedOpenDB   = errors.New("failed to open database")
-
-	// Auth.
-
-	ErrUserNotFound = errors.New("user not found")
-
-	// Edge onboarding.
-
-	ErrEdgePackageNotFound = errors.New("edge onboarding package not found")
-	ErrEdgePackageInvalid  = errors.New("edge onboarding package invalid")
-
-	// Validation errors for discovered interfaces
-
-	ErrDeviceIPRequired      = errors.New("device IP is required")
-	ErrAgentIDRequired       = errors.New("agent ID is required")
-	ErrLocalDeviceIPRequired = errors.New("local device IP is required")
-	ErrProtocolTypeRequired  = errors.New("protocol type is required")
-
-	// CNPG discovery + topology validation errors.
-
-	ErrTopologyEventNil           = errors.New("topology discovery event is nil")
-	ErrTopologyIdentifiersMissing = errors.New("agent_id, gateway_id, local_device_ip, and protocol_type are required")
-
-	// Edge onboarding helpers.
-
-	ErrEdgePackageIDRequired = errors.New("edge onboarding package id is required")
-	ErrEdgeEventNil          = errors.New("edge onboarding event is nil")
-
-	// Timeseries + metrics validation.
-
-	ErrTimeseriesMetricNil         = errors.New("timeseries metric is nil")
-	ErrTimeseriesColumnRequired    = errors.New("timeseries column is required")
-	ErrTimeseriesColumnUnsupported = errors.New("unsupported timeseries column")
-	ErrNetflowMetricNil            = errors.New("netflow metric is nil")
-
-	// Sweep validation errors.
-
-	ErrSweepStateNil         = errors.New("sweep host state is nil")
-	ErrSweepHostIPMissing    = errors.New("host ip is required")
-	ErrSweepGatewayIDMissing = errors.New("gateway id is required")
-	ErrSweepAgentIDMissing   = errors.New("agent id is required")
-
-	// Rows helpers.
-
-	ErrCNPGRowsNotInitialized = errors.New("cnpg rows not initialized")
+	// Netflow validation errors.
+	ErrNetflowMetricNil = errors.New("netflow metric is nil")
 
 	// CNPG configuration helpers.
-
-	ErrCNPGConfigMissing = errors.New("cnpg: missing configuration")
-
-	// TLS helpers.
-
+	ErrCNPGConfigMissing   = errors.New("cnpg: missing configuration")
 	ErrCNPGLackingTLSFiles = errors.New("cnpg tls requires cert_file, key_file, and ca_file")
-	ErrCNPGAppendCACert    = errors.New("cnpg tls: unable to append CA certificate")
 	ErrCNPGTLSDisabled     = errors.New("cnpg tls configuration requires sslmode not be disable")
 )

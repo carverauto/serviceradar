@@ -148,6 +148,11 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
       ]
     end
 
+    update :reassign_device do
+      description "Reassign check to a new device (used during merges)"
+      accept [:device_uid]
+    end
+
     update :enable do
       change set_attribute(:enabled, true)
     end

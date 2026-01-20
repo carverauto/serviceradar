@@ -212,7 +212,8 @@ if config_env() != :test do
       {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
       # No Cron plugin - core-elx handles all scheduled jobs
     ],
-    peer: {Oban.Peers.Database, []}
+    # Avoid acquiring the Oban peer lock so core-elx remains the scheduler leader.
+    peer: false
   ]
 
   oban_config =

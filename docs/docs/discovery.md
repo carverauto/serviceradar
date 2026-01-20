@@ -10,7 +10,7 @@ Discovery keeps the registry aligned with real-world infrastructure. Use Mapper 
 
 - SNMP-first discovery engine with scheduled jobs.
 - Runs inside `serviceradar-agent` and is configured via Settings → Networks → Discovery.
-- Writes inventory into `discovered_interfaces` and topology into `mapper_topology_links` (then projects into the AGE graph).
+- Writes interface observations into `discovered_interfaces` (timeseries, 3-day retention) and topology into `mapper_topology_links` (then projects into the AGE graph).
 
 ## Discovery Types
 

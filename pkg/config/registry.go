@@ -9,7 +9,7 @@ import (
 var (
 	errNoKVKeyDefined         = fmt.Errorf("descriptor does not define a KV key")
 	errAgentIDRequired        = fmt.Errorf("descriptor requires agent_id")
-	errGatewayIDRequired       = fmt.Errorf("descriptor requires gateway_id")
+	errGatewayIDRequired      = fmt.Errorf("descriptor requires gateway_id")
 	errUnresolvedTemplateVars = fmt.Errorf("descriptor has unresolved template variables")
 )
 
@@ -27,9 +27,9 @@ const (
 type ConfigScope string
 
 const (
-	ConfigScopeGlobal ConfigScope = "global"
+	ConfigScopeGlobal  ConfigScope = "global"
 	ConfigScopeGateway ConfigScope = "gateway"
-	ConfigScopeAgent  ConfigScope = "agent"
+	ConfigScopeAgent   ConfigScope = "agent"
 )
 
 // ServiceDescriptor captures metadata about a managed service configuration.
@@ -46,7 +46,7 @@ type ServiceDescriptor struct {
 
 // KeyContext supplies identity information used to resolve scoped KV keys.
 type KeyContext struct {
-	AgentID  string
+	AgentID   string
 	GatewayID string
 }
 
@@ -149,12 +149,12 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		KVKey:       "config/netflow-consumer.json",
 		Format:      ConfigFormatJSON,
 	},
-	"snmp-checker": {
-		Name:        "snmp-checker",
-		DisplayName: "SNMP Checker",
-		ServiceType: "snmp-checker",
+	"dusk-checker": {
+		Name:        "dusk-checker",
+		DisplayName: "Dusk Checker",
+		ServiceType: "dusk-checker",
 		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/snmp-checker.json",
+		KVKey:       "config/dusk-checker.json",
 		Format:      ConfigFormatJSON,
 	},
 	"sysmon-osx-checker": {

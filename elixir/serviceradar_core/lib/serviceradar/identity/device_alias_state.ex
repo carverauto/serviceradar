@@ -129,6 +129,12 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
              )
     end
 
+    update :reassign_device do
+      description "Reassign alias state to a new device (used during merges)"
+      accept [:device_id]
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+    end
+
     # State machine transition actions
     update :confirm do
       description "Confirm alias as stable (seen multiple times)"

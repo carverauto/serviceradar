@@ -177,17 +177,24 @@ diesel::table! {
     use diesel::pg::sql_types::Array;
     use diesel::sql_types::*;
 
-    discovered_interfaces (timestamp, device_id, if_index) {
+    discovered_interfaces (timestamp, device_id, interface_uid) {
         timestamp -> Timestamptz,
         agent_id -> Nullable<Text>,
         gateway_id -> Nullable<Text>,
         device_ip -> Nullable<Text>,
         device_id -> Nullable<Text>,
+        interface_uid -> Text,
         if_index -> Nullable<Int4>,
         if_name -> Nullable<Text>,
         if_descr -> Nullable<Text>,
         if_alias -> Nullable<Text>,
         if_speed -> Nullable<Int8>,
+        speed_bps -> Nullable<Int8>,
+        mtu -> Nullable<Int4>,
+        duplex -> Nullable<Text>,
+        if_type -> Nullable<Int4>,
+        if_type_name -> Nullable<Text>,
+        interface_kind -> Nullable<Text>,
         if_phys_address -> Nullable<Text>,
         ip_addresses -> Nullable<Array<Text>>,
         if_admin_status -> Nullable<Int4>,

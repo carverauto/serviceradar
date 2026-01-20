@@ -20,6 +20,15 @@ The system SHALL register MAC addresses discovered on a device's interfaces as s
 - **THEN** each interface MAC SHALL be inserted into `device_identifiers` for the device's partition
 - **AND** subsequent updates that include any of those MACs SHALL resolve to the same device ID
 
+### Requirement: Scheduled Reconciliation Backfill
+The system SHALL run a scheduled reconciliation job that merges existing duplicate devices sharing strong identifiers and logs summary statistics for each run.
+
+#### Scenario: Scheduled reconciliation merges duplicates and logs results
+- **GIVEN** two device IDs that share the same strong identifier within a partition
+- **WHEN** the reconciliation job runs
+- **THEN** the non-canonical device SHALL be merged into the canonical device
+- **AND** the job SHALL emit logs summarizing the number of duplicates scanned and merges performed
+
 ### Requirement: Merge Preserves Inventory Associations
 The system SHALL reassign inventory-linked records to the canonical device ID during a merge.
 

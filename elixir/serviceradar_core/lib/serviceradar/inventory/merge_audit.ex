@@ -80,6 +80,11 @@ defmodule ServiceRadar.Inventory.MergeAudit do
   end
 
   policies do
+    # System actors can perform all operations (schema isolation via search_path)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Read access for authenticated users
     policy action_type(:read) do
       authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])

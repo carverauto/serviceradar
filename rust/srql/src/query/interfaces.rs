@@ -1,110 +1,60 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
-    models::DiscoveredInterfaceRow,
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
-    schema::discovered_interfaces::dsl::{
-        agent_id as col_agent_id, created_at as col_created_at, device_id as col_device_id,
-        device_ip as col_device_ip, discovered_interfaces, gateway_id as col_gateway_id,
-        if_admin_status as col_if_admin_status, if_alias as col_if_alias, if_descr as col_if_descr,
-        if_index as col_if_index, if_name as col_if_name, if_oper_status as col_if_oper_status,
-        if_phys_address as col_if_phys_address, if_speed as col_if_speed,
-        timestamp as col_timestamp,
-    },
     time::TimeRange,
 };
-use diesel::dsl::{not, sql};
+use chrono::{DateTime, Utc};
+use diesel::deserialize::QueryableByName;
 use diesel::pg::Pg;
-use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
-use diesel::sql_types::{Array, Bool, Text};
-use diesel::PgTextExpressionMethods;
+use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
+use diesel::sql_query;
+use diesel::sql_types::{Array, BigInt, Bool, Int4, Jsonb, Nullable, Text, Timestamptz};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
-type InterfacesTable = crate::schema::discovered_interfaces::table;
-type InterfacesFromClause = FromClause<InterfacesTable>;
-type InterfacesQuery<'a> =
-    BoxedSelectStatement<'a, <InterfacesTable as AsQuery>::SqlType, InterfacesFromClause, Pg>;
-
 const MAX_IP_ADDRESS_FILTER_VALUES: usize = 64;
-
-#[derive(Debug, Clone)]
-struct CountStatsSpec {
-    alias: String,
-}
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
 
     if let Some(stats) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
-        let payload = execute_stats(conn, plan, &stats).await?;
-        return Ok(vec![payload]);
+        let stats_sql = build_stats_sql(plan, &stats)?;
+        let mut query = sql_query(&stats_sql.sql).into_boxed::<Pg>();
+        for param in stats_sql.binds {
+            query = bind_param(query, param)?;
+        }
+        let rows: Vec<StatsPayload> = query
+            .load(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+        return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
     }
 
-    let query = build_query(plan)?;
-    let rows: Vec<DiscoveredInterfaceRow> = query
-        .limit(plan.limit)
-        .offset(plan.offset)
+    let query_sql = build_query_sql(plan)?;
+    let mut query = sql_query(&query_sql.sql).into_boxed::<Pg>();
+    for param in query_sql.binds {
+        query = bind_param(query, param)?;
+    }
+
+    let rows: Vec<InterfaceRow> = query
         .load(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
-    Ok(rows
-        .into_iter()
-        .map(DiscoveredInterfaceRow::into_json)
-        .collect())
+    Ok(rows.into_iter().map(InterfaceRow::into_json).collect())
 }
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
 
-    let mut params = Vec::new();
-    if let Some(TimeRange { start, end }) = &plan.time_range {
-        params.push(BindParam::timestamptz(*start));
-        params.push(BindParam::timestamptz(*end));
-    }
-    for filter in &plan.filters {
-        collect_filter_params(&mut params, filter)?;
+    if let Some(stats) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+        let stats_sql = build_stats_sql(plan, &stats)?;
+        return Ok((stats_sql.sql, stats_sql.binds));
     }
 
-    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
-        let base = base_query(plan)?;
-        let count = base.count();
-        let count_sql = super::diesel_sql(&count)?;
-
-        #[cfg(any(test, debug_assertions))]
-        {
-            let bind_count = super::diesel_bind_count(&count)?;
-            if bind_count != params.len() {
-                return Err(ServiceError::Internal(anyhow::anyhow!(
-                    "bind count mismatch (diesel {bind_count} vs params {})",
-                    params.len()
-                )));
-            }
-        }
-
-        let sql = format!("SELECT ({count_sql}) AS {}", spec.alias);
-        return Ok((sql, params));
-    }
-
-    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
-    let sql = super::diesel_sql(&query)?;
-
-    super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
-
-    #[cfg(any(test, debug_assertions))]
-    {
-        let bind_count = super::diesel_bind_count(&query)?;
-        if bind_count != params.len() {
-            return Err(ServiceError::Internal(anyhow::anyhow!(
-                "bind count mismatch (diesel {bind_count} vs params {})",
-                params.len()
-            )));
-        }
-    }
-
-    Ok((sql, params))
+    let query_sql = build_query_sql(plan)?;
+    Ok((query_sql.sql, query_sql.binds))
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
@@ -116,170 +66,333 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     }
 }
 
-fn build_query(plan: &QueryPlan) -> Result<InterfacesQuery<'static>> {
-    let mut query = base_query(plan)?;
-    query = apply_ordering(query, &plan.order);
-    Ok(query)
+#[derive(Debug, QueryableByName)]
+struct InterfaceRow {
+    #[diesel(sql_type = Timestamptz)]
+    timestamp: DateTime<Utc>,
+    #[diesel(sql_type = Nullable<Text>)]
+    agent_id: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    gateway_id: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    device_ip: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    device_id: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    interface_uid: Option<String>,
+    #[diesel(sql_type = Nullable<Int4>)]
+    if_index: Option<i32>,
+    #[diesel(sql_type = Nullable<Text>)]
+    if_name: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    if_descr: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    if_alias: Option<String>,
+    #[diesel(sql_type = Nullable<Int4>)]
+    if_type: Option<i32>,
+    #[diesel(sql_type = Nullable<Text>)]
+    if_type_name: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    interface_kind: Option<String>,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    if_speed: Option<i64>,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    speed_bps: Option<i64>,
+    #[diesel(sql_type = Nullable<Int4>)]
+    mtu: Option<i32>,
+    #[diesel(sql_type = Nullable<Text>)]
+    duplex: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    if_phys_address: Option<String>,
+    #[diesel(sql_type = Nullable<Array<Text>>)]
+    ip_addresses: Option<Vec<String>>,
+    #[diesel(sql_type = Nullable<Int4>)]
+    if_admin_status: Option<i32>,
+    #[diesel(sql_type = Nullable<Int4>)]
+    if_oper_status: Option<i32>,
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    metadata: Option<serde_json::Value>,
+    #[diesel(sql_type = Timestamptz)]
+    created_at: DateTime<Utc>,
 }
 
-fn base_query(plan: &QueryPlan) -> Result<InterfacesQuery<'static>> {
-    let mut query = discovered_interfaces.into_boxed::<Pg>();
+impl InterfaceRow {
+    fn into_json(self) -> serde_json::Value {
+        let speed_bps = self.speed_bps.or(self.if_speed);
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "agent_id": self.agent_id,
+            "gateway_id": self.gateway_id,
+            "device_ip": self.device_ip,
+            "device_id": self.device_id,
+            "uid": self.device_id,
+            "interface_uid": self.interface_uid,
+            "if_index": self.if_index,
+            "if_name": self.if_name,
+            "if_descr": self.if_descr,
+            "if_alias": self.if_alias,
+            "if_type": self.if_type,
+            "if_type_name": self.if_type_name,
+            "interface_kind": self.interface_kind,
+            "if_speed": self.if_speed,
+            "speed_bps": speed_bps,
+            "mtu": self.mtu,
+            "duplex": self.duplex,
+            "if_phys_address": self.if_phys_address,
+            "mac": self.if_phys_address,
+            "ip_addresses": self.ip_addresses.unwrap_or_default(),
+            "if_admin_status": self.if_admin_status,
+            "if_oper_status": self.if_oper_status,
+            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "created_at": self.created_at,
+        })
+    }
+}
+
+#[derive(Debug, QueryableByName)]
+struct StatsPayload {
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    payload: Option<Value>,
+}
+
+struct SqlBuildResult {
+    sql: String,
+    binds: Vec<BindParam>,
+}
+
+fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
+    let (latest_only, filters) = extract_latest_filter(&plan.filters)?;
+    let mut binds = Vec::new();
+    let mut clauses = Vec::new();
+    let mut bind_idx = 1;
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        query = query.filter(col_timestamp.ge(*start).and(col_timestamp.le(*end)));
+        clauses.push(format!(
+            "di.timestamp >= ${} AND di.timestamp <= ${}",
+            bind_idx,
+            bind_idx + 1
+        ));
+        binds.push(BindParam::timestamptz(*start));
+        binds.push(BindParam::timestamptz(*end));
+        bind_idx += 2;
     }
 
-    for filter in &plan.filters {
-        query = apply_filter(query, filter)?;
+    for filter in &filters {
+        if let Some(clause) = build_filter_clause(filter, &mut binds, &mut bind_idx)? {
+            clauses.push(clause);
+        }
     }
 
-    Ok(query)
+    let mut base_select = String::from(
+        "SELECT di.timestamp, di.agent_id, di.gateway_id, di.device_ip, di.device_id, di.interface_uid, \
+        di.if_index, di.if_name, di.if_descr, di.if_alias, di.if_type, di.if_type_name, di.interface_kind, \
+        di.if_speed, di.speed_bps, di.mtu, di.duplex, di.if_phys_address, di.ip_addresses, \
+        di.if_admin_status, di.if_oper_status, di.metadata, di.created_at FROM discovered_interfaces di",
+    );
+
+    if !clauses.is_empty() {
+        base_select.push_str(" WHERE ");
+        base_select.push_str(&clauses.join(" AND "));
+    }
+
+    let (sql, binds) = if latest_only {
+        let mut inner = String::from("SELECT DISTINCT ON (di.device_id, di.interface_uid) ");
+        inner.push_str(&base_select["SELECT ".len()..]);
+        inner.push_str(
+            " ORDER BY di.device_id, di.interface_uid, di.timestamp DESC, di.created_at DESC",
+        );
+
+        let mut outer = format!("SELECT * FROM ({inner}) AS latest");
+        if let Some(order_clause) = build_order_clause(&plan.order) {
+            outer.push(' ');
+            outer.push_str(&order_clause);
+        }
+        outer.push_str(&format!(" LIMIT ${} OFFSET ${}", bind_idx, bind_idx + 1));
+        let mut binds = binds;
+        binds.push(BindParam::Int(plan.limit));
+        binds.push(BindParam::Int(plan.offset));
+        (outer, binds)
+    } else {
+        let mut sql = base_select;
+        if let Some(order_clause) = build_order_clause(&plan.order) {
+            sql.push(' ');
+            sql.push_str(&order_clause);
+        }
+        sql.push_str(&format!(" LIMIT ${} OFFSET ${}", bind_idx, bind_idx + 1));
+        let mut binds = binds;
+        binds.push(BindParam::Int(plan.limit));
+        binds.push(BindParam::Int(plan.offset));
+        (sql, binds)
+    };
+
+    Ok(SqlBuildResult { sql, binds })
 }
 
-async fn execute_stats(
-    conn: &mut AsyncPgConnection,
-    plan: &QueryPlan,
-    spec: &CountStatsSpec,
-) -> Result<Value> {
-    let query = base_query(plan)?;
-    let total: i64 = query
-        .count()
-        .get_result(conn)
-        .await
-        .map_err(|err| ServiceError::Internal(err.into()))?;
-    Ok(serde_json::json!({ &spec.alias: total }))
+fn build_stats_sql(plan: &QueryPlan, spec: &CountStatsSpec) -> Result<SqlBuildResult> {
+    let (latest_only, filters) = extract_latest_filter(&plan.filters)?;
+    let mut binds = Vec::new();
+    let mut clauses = Vec::new();
+    let mut bind_idx = 1;
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push(format!(
+            "di.timestamp >= ${} AND di.timestamp <= ${}",
+            bind_idx,
+            bind_idx + 1
+        ));
+        binds.push(BindParam::timestamptz(*start));
+        binds.push(BindParam::timestamptz(*end));
+        bind_idx += 2;
+    }
+
+    for filter in &filters {
+        if let Some(clause) = build_filter_clause(filter, &mut binds, &mut bind_idx)? {
+            clauses.push(clause);
+        }
+    }
+
+    let mut base =
+        String::from("SELECT di.device_id, di.interface_uid FROM discovered_interfaces di");
+    if !clauses.is_empty() {
+        base.push_str(" WHERE ");
+        base.push_str(&clauses.join(" AND "));
+    }
+
+    let sql = if latest_only {
+        format!(
+            "SELECT jsonb_build_object('{}', COALESCE(COUNT(*), 0)::bigint) AS payload FROM (SELECT DISTINCT ON (di.device_id, di.interface_uid) {} ORDER BY di.device_id, di.interface_uid, di.timestamp DESC, di.created_at DESC) AS latest",
+            spec.alias, base
+        )
+    } else {
+        format!(
+            "SELECT jsonb_build_object('{}', COALESCE(COUNT(*), 0)::bigint) AS payload FROM {}",
+            spec.alias, base
+        )
+    };
+
+    Ok(SqlBuildResult { sql, binds })
 }
 
-fn apply_filter<'a>(
-    mut query: InterfacesQuery<'a>,
+fn extract_latest_filter(filters: &[Filter]) -> Result<(bool, Vec<Filter>)> {
+    let mut latest_only = false;
+    let mut remaining = Vec::new();
+
+    for filter in filters {
+        if filter.field == "latest" {
+            if !matches!(filter.op, FilterOp::Eq) {
+                return Err(ServiceError::InvalidRequest(
+                    "latest filter only supports equality".into(),
+                ));
+            }
+            let value = filter.value.as_scalar()?.trim().to_lowercase();
+            latest_only = parse_bool(&value).ok_or_else(|| {
+                ServiceError::InvalidRequest("latest filter expects boolean true/false".into())
+            })?;
+        } else {
+            remaining.push(filter.clone());
+        }
+    }
+
+    Ok((latest_only, remaining))
+}
+
+fn build_filter_clause(
     filter: &Filter,
-) -> Result<InterfacesQuery<'a>> {
+    binds: &mut Vec<BindParam>,
+    bind_idx: &mut usize,
+) -> Result<Option<String>> {
     match filter.field.as_str() {
-        "device_id" => {
-            query = apply_text_filter!(query, filter, col_device_id)?;
-        }
-        "device_ip" | "ip" => {
-            query = apply_text_filter_no_lists!(
-                query,
-                filter,
-                col_device_ip,
-                "device_ip filter does not support lists"
-            )?;
-        }
-        "gateway_id" => {
-            query = apply_text_filter!(query, filter, col_gateway_id)?;
-        }
-        "agent_id" => {
-            query = apply_text_filter!(query, filter, col_agent_id)?;
-        }
-        "if_name" => {
-            query = apply_text_filter!(query, filter, col_if_name)?;
-        }
-        "if_descr" | "description" => {
-            query = apply_text_filter!(query, filter, col_if_descr)?;
-        }
-        "if_alias" => {
-            query = apply_text_filter!(query, filter, col_if_alias)?;
-        }
+        "device_id" => build_text_clause("di.device_id", filter, binds, bind_idx),
+        "device_ip" | "ip" => build_text_clause("di.device_ip", filter, binds, bind_idx),
+        "gateway_id" => build_text_clause("di.gateway_id", filter, binds, bind_idx),
+        "agent_id" => build_text_clause("di.agent_id", filter, binds, bind_idx),
+        "interface_uid" => build_text_clause("di.interface_uid", filter, binds, bind_idx),
+        "if_name" => build_text_clause("di.if_name", filter, binds, bind_idx),
+        "if_descr" | "description" => build_text_clause("di.if_descr", filter, binds, bind_idx),
+        "if_alias" => build_text_clause("di.if_alias", filter, binds, bind_idx),
+        "if_type_name" => build_text_clause("di.if_type_name", filter, binds, bind_idx),
+        "interface_kind" => build_text_clause("di.interface_kind", filter, binds, bind_idx),
+        "duplex" => build_text_clause("di.duplex", filter, binds, bind_idx),
         "if_phys_address" | "mac" => {
-            query = apply_text_filter!(query, filter, col_if_phys_address)?;
+            build_text_clause("di.if_phys_address", filter, binds, bind_idx)
         }
-        "if_admin_status" => {
-            let value = parse_i32(filter.value.as_scalar()?)?;
-            query = apply_eq_filter!(
-                query,
-                filter,
-                col_if_admin_status,
-                value,
-                "if_admin_status filter only supports equality"
-            )?;
+        "if_index" => build_int_clause("di.if_index", filter, binds, bind_idx),
+        "if_type" => build_int_clause("di.if_type", filter, binds, bind_idx),
+        "if_admin_status" | "admin_status" => {
+            build_int_clause("di.if_admin_status", filter, binds, bind_idx)
         }
-        "if_oper_status" | "status" => {
-            let value = parse_i32(filter.value.as_scalar()?)?;
-            query = apply_eq_filter!(
-                query,
-                filter,
-                col_if_oper_status,
-                value,
-                "if_oper_status filter only supports equality"
-            )?;
+        "if_oper_status" | "oper_status" | "status" => {
+            build_int_clause("di.if_oper_status", filter, binds, bind_idx)
         }
-        "if_speed" | "speed" => {
-            let value = parse_i64(filter.value.as_scalar()?)?;
-            query = apply_eq_filter!(
-                query,
-                filter,
-                col_if_speed,
-                value,
-                "if_speed filter only supports equality"
-            )?;
-        }
-        "ip_addresses" | "ip_address" => {
-            let values: Vec<String> = match &filter.value {
-                FilterValue::Scalar(value) => vec![value.to_string()],
-                FilterValue::List(list) => list.clone(),
-            };
-            if values.is_empty() {
-                return Ok(query);
-            }
-            if values.len() > MAX_IP_ADDRESS_FILTER_VALUES {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "ip_addresses filter supports at most {MAX_IP_ADDRESS_FILTER_VALUES} values"
-                )));
-            }
-            let expr = sql::<Bool>("coalesce(ip_addresses, ARRAY[]::text[]) @> ")
-                .bind::<Array<Text>, _>(values);
-            match filter.op {
-                FilterOp::Eq | FilterOp::In => {
-                    query = query.filter(expr);
-                }
-                FilterOp::NotEq | FilterOp::NotIn => {
-                    query = query.filter(not(expr));
-                }
-                FilterOp::Like | FilterOp::NotLike => {
-                    return Err(ServiceError::InvalidRequest(
-                        "ip_addresses filter does not support pattern matching".into(),
-                    ));
-                }
-                _ => {
-                    return Err(ServiceError::InvalidRequest(format!(
-                        "ip_addresses filter does not support operator {:?}",
-                        filter.op
-                    )));
-                }
-            }
-        }
-        other => {
-            return Err(ServiceError::InvalidRequest(format!(
-                "unsupported filter field '{other}'"
-            )));
-        }
+        "if_speed" | "speed" | "speed_bps" => build_int_clause(
+            "COALESCE(di.speed_bps, di.if_speed)",
+            filter,
+            binds,
+            bind_idx,
+        ),
+        "mtu" => build_int_clause("di.mtu", filter, binds, bind_idx),
+        "ip_addresses" | "ip_address" => build_ip_addresses_clause(filter, binds, bind_idx),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field '{other}'"
+        ))),
     }
-
-    Ok(query)
 }
 
-fn collect_text_params(
-    params: &mut Vec<BindParam>,
+fn build_text_clause(
+    column: &str,
     filter: &Filter,
-    allow_lists: bool,
-) -> Result<()> {
+    binds: &mut Vec<BindParam>,
+    bind_idx: &mut usize,
+) -> Result<Option<String>> {
     match filter.op {
-        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
-            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
-            Ok(())
+        FilterOp::Eq => {
+            let value = filter.value.as_scalar()?.to_string();
+            let clause = format!("{column} = ${bind_idx}");
+            binds.push(BindParam::Text(value));
+            *bind_idx += 1;
+            Ok(Some(clause))
         }
-        FilterOp::In | FilterOp::NotIn if allow_lists => {
+        FilterOp::NotEq => {
+            let value = filter.value.as_scalar()?.to_string();
+            let clause = format!("{column} != ${bind_idx}");
+            binds.push(BindParam::Text(value));
+            *bind_idx += 1;
+            Ok(Some(clause))
+        }
+        FilterOp::Like => {
+            let value = filter.value.as_scalar()?.to_string();
+            let clause = format!("{column} ILIKE ${bind_idx}");
+            binds.push(BindParam::Text(value));
+            *bind_idx += 1;
+            Ok(Some(clause))
+        }
+        FilterOp::NotLike => {
+            let value = filter.value.as_scalar()?.to_string();
+            let clause = format!("{column} NOT ILIKE ${bind_idx}");
+            binds.push(BindParam::Text(value));
+            *bind_idx += 1;
+            Ok(Some(clause))
+        }
+        FilterOp::In => {
             let values = filter.value.as_list()?.to_vec();
             if values.is_empty() {
-                return Ok(());
+                return Ok(None);
             }
-            params.push(BindParam::TextArray(values));
-            Ok(())
+            let clause = format!("{column} = ANY(${bind_idx})");
+            binds.push(BindParam::TextArray(values));
+            *bind_idx += 1;
+            Ok(Some(clause))
         }
-        FilterOp::In | FilterOp::NotIn => Err(ServiceError::InvalidRequest(
-            "list filters are not supported for this field".into(),
-        )),
+        FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(None);
+            }
+            let clause = format!("NOT ({column} = ANY(${bind_idx}))");
+            binds.push(BindParam::TextArray(values));
+            *bind_idx += 1;
+            Ok(Some(clause))
+        }
         _ => Err(ServiceError::InvalidRequest(format!(
             "unsupported operator for text filter: {:?}",
             filter.op
@@ -287,114 +400,137 @@ fn collect_text_params(
     }
 }
 
-fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
-    match filter.field.as_str() {
-        "device_id" | "gateway_id" | "agent_id" | "if_name" | "if_descr" | "description"
-        | "if_alias" | "if_phys_address" | "mac" => collect_text_params(params, filter, true),
-        "device_ip" | "ip" => collect_text_params(params, filter, false),
-        "if_admin_status" | "if_oper_status" | "status" => {
-            params.push(BindParam::Int(i64::from(parse_i32(
-                filter.value.as_scalar()?,
-            )?)));
-            Ok(())
+fn build_int_clause(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+    bind_idx: &mut usize,
+) -> Result<Option<String>> {
+    let value = match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => parse_i64(filter.value.as_scalar()?)?,
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "numeric filters only support equality".into(),
+            ))
         }
-        "if_speed" | "speed" => {
-            params.push(BindParam::Int(parse_i64(filter.value.as_scalar()?)?));
-            Ok(())
+    };
+
+    let clause = match filter.op {
+        FilterOp::Eq => format!("{column} = ${bind_idx}"),
+        FilterOp::NotEq => format!("{column} != ${bind_idx}"),
+        _ => unreachable!("validated above"),
+    };
+
+    binds.push(BindParam::Int(value));
+    *bind_idx += 1;
+    Ok(Some(clause))
+}
+
+fn build_ip_addresses_clause(
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+    bind_idx: &mut usize,
+) -> Result<Option<String>> {
+    let values: Vec<String> = match &filter.value {
+        FilterValue::Scalar(value) => vec![value.to_string()],
+        FilterValue::List(list) => list.clone(),
+    };
+
+    if values.is_empty() {
+        return Ok(None);
+    }
+    if values.len() > MAX_IP_ADDRESS_FILTER_VALUES {
+        return Err(ServiceError::InvalidRequest(format!(
+            "ip_addresses filter supports at most {MAX_IP_ADDRESS_FILTER_VALUES} values"
+        )));
+    }
+
+    match filter.op {
+        FilterOp::Eq | FilterOp::In => {
+            let clause = format!("coalesce(di.ip_addresses, ARRAY[]::text[]) @> ${bind_idx}");
+            binds.push(BindParam::TextArray(values));
+            *bind_idx += 1;
+            Ok(Some(clause))
         }
-        "ip_addresses" | "ip_address" => {
-            let values: Vec<String> = match &filter.value {
-                FilterValue::Scalar(value) => vec![value.to_string()],
-                FilterValue::List(list) => list.clone(),
-            };
-            if values.is_empty() {
-                return Ok(());
-            }
-            if values.len() > MAX_IP_ADDRESS_FILTER_VALUES {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "ip_addresses filter supports at most {MAX_IP_ADDRESS_FILTER_VALUES} values"
-                )));
-            }
-            params.push(BindParam::TextArray(values));
-            Ok(())
+        FilterOp::NotEq | FilterOp::NotIn => {
+            let clause = format!("NOT (coalesce(di.ip_addresses, ARRAY[]::text[]) @> ${bind_idx})");
+            binds.push(BindParam::TextArray(values));
+            *bind_idx += 1;
+            Ok(Some(clause))
         }
-        other => Err(ServiceError::InvalidRequest(format!(
-            "unsupported filter field '{other}'"
+        FilterOp::Like | FilterOp::NotLike => Err(ServiceError::InvalidRequest(
+            "ip_addresses filter does not support pattern matching".into(),
+        )),
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "ip_addresses filter does not support operator {:?}",
+            filter.op
         ))),
     }
 }
 
-fn apply_ordering<'a>(
-    mut query: InterfacesQuery<'a>,
-    order: &[OrderClause],
-) -> InterfacesQuery<'a> {
-    let mut applied = false;
+fn build_order_clause(order: &[OrderClause]) -> Option<String> {
+    let mut clauses = Vec::new();
+
     for clause in order {
-        query = if !applied {
-            applied = true;
-            match clause.field.as_str() {
-                "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_timestamp.asc()),
-                    OrderDirection::Desc => query.order(col_timestamp.desc()),
-                },
-                "device_ip" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_device_ip.asc()),
-                    OrderDirection::Desc => query.order(col_device_ip.desc()),
-                },
-                "device_id" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_device_id.asc()),
-                    OrderDirection::Desc => query.order(col_device_id.desc()),
-                },
-                "if_name" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_if_name.asc()),
-                    OrderDirection::Desc => query.order(col_if_name.desc()),
-                },
-                "if_descr" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_if_descr.asc()),
-                    OrderDirection::Desc => query.order(col_if_descr.desc()),
-                },
-                "if_index" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_if_index.asc()),
-                    OrderDirection::Desc => query.order(col_if_index.desc()),
-                },
-                _ => query,
-            }
-        } else {
-            match clause.field.as_str() {
-                "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_timestamp.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_timestamp.desc()),
-                },
-                "device_ip" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_device_ip.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_device_ip.desc()),
-                },
-                "device_id" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_device_id.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_device_id.desc()),
-                },
-                "if_name" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_if_name.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_if_name.desc()),
-                },
-                "if_descr" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_if_descr.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_if_descr.desc()),
-                },
-                "if_index" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_if_index.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_if_index.desc()),
-                },
-                _ => query,
-            }
+        let column = match clause.field.as_str() {
+            "timestamp" => "timestamp",
+            "device_ip" => "device_ip",
+            "device_id" => "device_id",
+            "interface_uid" => "interface_uid",
+            "if_name" => "if_name",
+            "if_descr" => "if_descr",
+            "if_index" => "if_index",
+            "if_type" => "if_type",
+            "if_type_name" => "if_type_name",
+            "interface_kind" => "interface_kind",
+            "speed_bps" | "if_speed" | "speed" => "speed_bps",
+            "mtu" => "mtu",
+            _ => continue,
         };
+
+        let direction = match clause.direction {
+            OrderDirection::Asc => "ASC",
+            OrderDirection::Desc => "DESC",
+        };
+
+        clauses.push(format!("{column} {direction}"));
     }
 
-    if !applied {
-        query = query.order((col_timestamp.desc(), col_created_at.desc()));
+    if clauses.is_empty() {
+        Some("ORDER BY timestamp DESC, created_at DESC".to_string())
+    } else {
+        Some(format!("ORDER BY {}", clauses.join(", ")))
     }
+}
 
-    query
+fn bind_param<'a>(
+    query: BoxedSqlQuery<'a, Pg, SqlQuery>,
+    param: BindParam,
+) -> Result<BoxedSqlQuery<'a, Pg, SqlQuery>> {
+    match param {
+        BindParam::Text(value) => Ok(query.bind::<Text, _>(value)),
+        BindParam::TextArray(values) => Ok(query.bind::<Array<Text>, _>(values)),
+        BindParam::IntArray(values) => Ok(query.bind::<Array<BigInt>, _>(values)),
+        BindParam::Int(value) => Ok(query.bind::<BigInt, _>(value)),
+        BindParam::Bool(value) => Ok(query.bind::<Bool, _>(value)),
+        BindParam::Float(value) => Ok(query.bind::<diesel::sql_types::Float8, _>(value)),
+        BindParam::Timestamptz(value) => {
+            let timestamp = chrono::DateTime::parse_from_rfc3339(&value)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .map_err(|err| {
+                    ServiceError::Internal(anyhow::anyhow!(
+                        "invalid timestamptz bind {value:?}: {err}"
+                    ))
+                })?;
+            Ok(query.bind::<Timestamptz, _>(timestamp))
+        }
+        BindParam::Uuid(value) => Ok(query.bind::<diesel::sql_types::Uuid, _>(value)),
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CountStatsSpec {
+    alias: String,
 }
 
 fn parse_stats_spec(raw: Option<&str>) -> Result<Option<CountStatsSpec>> {
@@ -440,14 +576,16 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<CountStatsSpec>> {
     }))
 }
 
-fn parse_i32(raw: &str) -> Result<i32> {
-    raw.parse::<i32>()
-        .map_err(|_| ServiceError::InvalidRequest(format!("expected integer value for '{raw}'")))
-}
-
 fn parse_i64(raw: &str) -> Result<i64> {
     raw.parse::<i64>()
         .map_err(|_| ServiceError::InvalidRequest(format!("expected integer value for '{raw}'")))
+}
+
+fn parse_bool(input: &str) -> Option<bool> {
+    if input.is_empty() {
+        return None;
+    }
+    input.parse::<bool>().ok()
 }
 
 #[cfg(test)]

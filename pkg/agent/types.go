@@ -23,27 +23,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/checker"
-	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 )
 
-// Server represents the main agent server that handles checker coordination and service management.
-// In push-mode, the Server coordinates checkers and services, collecting their status
+// Server represents the main agent server that handles service coordination and management.
+// In push-mode, the Server coordinates embedded services, collecting their status
 // to be pushed to the gateway by PushLoop.
 type Server struct {
 	mu                 sync.RWMutex
-	checkers           map[string]checker.Checker
-	checkerConfs       map[string]*CheckerConfig
 	configDir          string
 	services           []Service
-	registry           checker.Registry
 	errChan            chan error
 	done               chan struct{}
 	config             *ServerConfig
-	connections        map[string]*CheckerConnection
 	createSweepService func(ctx context.Context, sweepConfig *SweepConfig) (Service, error)
 	logger             logger.Logger
 	sysmonService      *SysmonService
@@ -72,19 +66,6 @@ type SweepConfig struct {
 	ConfigHash    string                `json:"config_hash,omitempty"`    // Hash of config for change detection
 }
 
-// CheckerConfig defines the configuration for individual checker services.
-type CheckerConfig struct {
-	Name       string                 `json:"name"`
-	Type       string                 `json:"type"`
-	Address    string                 `json:"address,omitempty"`
-	Port       int                    `json:"port,omitempty"`
-	Timeout    Duration               `json:"timeout,omitempty"`
-	ListenAddr string                 `json:"listen_addr,omitempty"`
-	Additional json.RawMessage        `json:"additional,omitempty"`
-	Details    json.RawMessage        `json:"details,omitempty"`
-	Security   *models.SecurityConfig `json:"security,omitempty"`
-}
-
 // ServerConfig holds the configuration for the agent server.
 type ServerConfig struct {
 	AgentID     string                 `json:"agent_id"`              // Unique identifier for this agent
@@ -101,17 +82,6 @@ type ServerConfig struct {
 	GatewayAddr     string                 `json:"gateway_addr,omitempty"`     // Address of the agent-gateway to push status to
 	GatewaySecurity *models.SecurityConfig `json:"gateway_security,omitempty"` // Security config for gateway connection
 	PushInterval    Duration               `json:"push_interval,omitempty"`    // How often to push status (default: 30s)
-}
-
-// CheckerConnection represents a connection to an external checker service.
-type CheckerConnection struct {
-	client      *grpc.Client
-	serviceName string
-	serviceType string
-	mu          sync.RWMutex
-	address     string
-	healthy     bool
-	logger      logger.Logger
 }
 
 // ServiceError represents an error that occurred in a specific service.

@@ -10,6 +10,7 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
+  alias ServiceRadar.Observability.IcmpMetricsIngestor
   alias ServiceRadar.Observability.SysmonMetricsIngestor
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
@@ -45,16 +46,34 @@ defmodule ServiceRadar.ResultsRouter do
     {:noreply, state}
   end
 
-  defp process(%{source: source} = status) when source in ["results", :results] do
-    case status[:service_type] do
-      "sync" -> handle_sync_results(status)
-      "sweep" -> handle_sweep_results(status)
-      "mapper" -> handle_mapper_results(status)
-      "mapper_discovery" -> handle_mapper_results(status)
-      "mapper_interfaces" -> handle_mapper_interfaces(status)
-      "mapper_topology" -> handle_mapper_topology(status)
-      _ -> :ok
-    end
+  defp process(%{source: source, service_type: "sync"} = status)
+       when source in ["results", :results] do
+    handle_sync_results(status)
+  end
+
+  defp process(%{source: source, service_type: "sweep"} = status)
+       when source in ["results", :results] do
+    handle_sweep_results(status)
+  end
+
+  defp process(%{source: source, service_type: service_type} = status)
+       when source in ["results", :results] and service_type in ["icmp", "ping"] do
+    handle_icmp_results(status)
+  end
+
+  defp process(%{source: source, service_type: service_type} = status)
+       when source in ["results", :results] and service_type in ["mapper", "mapper_discovery"] do
+    handle_mapper_results(status)
+  end
+
+  defp process(%{source: source, service_type: "mapper_interfaces"} = status)
+       when source in ["results", :results] do
+    handle_mapper_interfaces(status)
+  end
+
+  defp process(%{source: source, service_type: "mapper_topology"} = status)
+       when source in ["results", :results] do
+    handle_mapper_topology(status)
   end
 
   defp process(%{source: source} = status) when source in ["sysmon-metrics", :sysmon_metrics] do
@@ -128,6 +147,14 @@ defmodule ServiceRadar.ResultsRouter do
     # In schema-agnostic mode, DB schema is set by CNPG search_path
     with {:ok, payload} <- decode_payload(status[:message]) do
       sysmon_ingestor().ingest(payload, status)
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp handle_icmp_results(status) do
+    with {:ok, payload} <- decode_payload(status[:message]) do
+      icmp_ingestor().ingest(payload, status)
     else
       {:error, reason} -> {:error, reason}
     end
@@ -478,5 +505,9 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp sysmon_ingestor do
     Application.get_env(:serviceradar_core, :sysmon_metrics_ingestor, SysmonMetricsIngestor)
+  end
+
+  defp icmp_ingestor do
+    Application.get_env(:serviceradar_core, :icmp_metrics_ingestor, IcmpMetricsIngestor)
   end
 end

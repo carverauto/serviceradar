@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @default_limit 50
   @max_limit 200
   @metrics_limit 200
+  @interfaces_limit 200
   @availability_window "last_24h"
   @availability_bucket "30m"
 
@@ -57,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_form, to_form(%{}, as: :device))
      # Network interfaces for dedicated tab
      |> assign(:network_interfaces, [])
+     |> assign(:interfaces_error, nil)
      |> assign(:has_ifaces, false)
      # Tab state for device details
      |> assign(:active_tab, "details")}
@@ -132,9 +134,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     # Load sysmon profile info
     {sysmon_profile_info, available_profiles} = load_sysmon_profile_info(scope, uid)
 
-    # Load network interfaces for dedicated tab
-    network_interfaces = (device_row && Map.get(device_row, "network_interfaces")) || []
-    has_ifaces = is_list(network_interfaces) and network_interfaces != []
+    # Load network interfaces via SRQL
+    {network_interfaces, interfaces_error} = load_interfaces(srql_module, uid, scope)
+
+    has_ifaces =
+      is_binary(interfaces_error) or
+        (is_list(network_interfaces) and network_interfaces != [])
+
+    active_tab =
+      if socket.assigns.active_tab == "interfaces" and not has_ifaces,
+        do: "details",
+        else: socket.assigns.active_tab
 
     {:noreply,
      socket
@@ -142,7 +152,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:limit, limit)
      |> assign(:results, results)
      |> assign(:network_interfaces, network_interfaces)
+     |> assign(:interfaces_error, interfaces_error)
      |> assign(:has_ifaces, has_ifaces)
+     |> assign(:active_tab, active_tab)
      |> assign(
        :panels,
        srql_response
@@ -259,6 +271,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp format_tags_for_edit(_), do: ""
+
+  defp load_interfaces(srql_module, device_uid, scope) do
+    query =
+      "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
+        "sort:if_name:asc limit:#{@interfaces_limit}"
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        {Enum.filter(results, &is_map/1), nil}
+
+      {:ok, other} ->
+        {[], "unexpected SRQL response: #{inspect(other)}"}
+
+      {:error, reason} ->
+        {[], "SRQL error: #{format_error(reason)}"}
+    end
+  end
 
   @impl true
   def render(assigns) do
@@ -611,7 +640,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           
     <!-- Interfaces Tab Content -->
           <div :if={@active_tab == "interfaces" and @has_ifaces}>
-            <.interfaces_tab_content interfaces={@network_interfaces} />
+            <.interfaces_tab_content
+              interfaces={@network_interfaces}
+              error={@interfaces_error}
+            />
           </div>
           
     <!-- Profiles Tab Content (only when sysmon is active) -->
@@ -996,6 +1028,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   # ---------------------------------------------------------------------------
 
   attr :interfaces, :list, required: true
+  attr :error, :string, default: nil
 
   defp interfaces_tab_content(assigns) do
     ~H"""
@@ -1008,23 +1041,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         </div>
       </div>
       <div class="p-4">
+        <div :if={is_binary(@error)} class="mb-3 text-xs text-error">
+          {@error}
+        </div>
         <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
           <table class="table table-xs w-full">
             <thead class="sticky top-0 bg-base-100">
               <tr>
-                <th class="text-xs">Name</th>
-                <th class="text-xs">IP Address</th>
-                <th class="text-xs">MAC Address</th>
+                <th class="text-xs">Interface</th>
+                <th class="text-xs">IP Addresses</th>
+                <th class="text-xs">MAC</th>
                 <th class="text-xs">Type</th>
+                <th class="text-xs">Speed</th>
+                <th class="text-xs">Status</th>
               </tr>
             </thead>
             <tbody>
               <%= for iface <- @interfaces do %>
                 <tr class="hover:bg-base-200/50">
-                  <td class="font-mono text-xs">{Map.get(iface, "name") || "—"}</td>
-                  <td class="font-mono text-xs">{Map.get(iface, "ip") || "—"}</td>
-                  <td class="font-mono text-xs">{Map.get(iface, "mac") || "—"}</td>
-                  <td class="text-xs">{Map.get(iface, "type") || "—"}</td>
+                  <td class="text-xs">
+                    <div class="font-mono" title={Map.get(iface, "interface_uid") || ""}>
+                      {interface_label(iface)}
+                    </div>
+                    <div :if={interface_secondary(iface)} class="text-[11px] text-base-content/60">
+                      {interface_secondary(iface)}
+                    </div>
+                  </td>
+                  <td class="text-xs font-mono">{format_ip_addresses(iface)}</td>
+                  <td class="text-xs font-mono">{Map.get(iface, "if_phys_address") || "—"}</td>
+                  <td class="text-xs">{format_interface_type(iface)}</td>
+                  <td class="text-xs font-mono">{format_bps(interface_speed(iface))}</td>
+                  <td class="text-xs">{format_interface_status(iface)}</td>
                 </tr>
               <% end %>
             </tbody>
@@ -1034,6 +1081,90 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     </div>
     """
   end
+
+  defp interface_label(iface) do
+    iface
+    |> interface_candidates()
+    |> Enum.find(&present?/1)
+    |> default_display()
+  end
+
+  defp interface_secondary(iface) do
+    label = interface_label(iface)
+
+    iface
+    |> interface_secondary_candidates()
+    |> Enum.find(fn value -> present?(value) and value != label end)
+  end
+
+  defp interface_candidates(iface) do
+    [
+      Map.get(iface, "if_name"),
+      Map.get(iface, "if_descr"),
+      Map.get(iface, "if_alias")
+    ]
+  end
+
+  defp interface_secondary_candidates(iface) do
+    [
+      Map.get(iface, "if_descr"),
+      Map.get(iface, "if_alias")
+    ]
+  end
+
+  defp format_ip_addresses(iface) do
+    iface
+    |> Map.get("ip_addresses", [])
+    |> case do
+      list when is_list(list) and list != [] -> Enum.join(list, ", ")
+      _ -> "—"
+    end
+  end
+
+  defp format_interface_type(iface) do
+    default_display(Map.get(iface, "if_type_name") || Map.get(iface, "interface_kind"))
+  end
+
+  defp interface_speed(iface) do
+    Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
+  end
+
+  defp format_interface_status(iface) do
+    oper = interface_status_label(Map.get(iface, "if_oper_status"))
+    admin = interface_status_label(Map.get(iface, "if_admin_status"))
+    duplex = Map.get(iface, "duplex")
+
+    [oper && "oper #{oper}", admin && "admin #{admin}", duplex]
+    |> Enum.filter(&present?/1)
+    |> case do
+      [] -> "—"
+      parts -> Enum.join(parts, " / ")
+    end
+  end
+
+  defp interface_status_label(1), do: "up"
+  defp interface_status_label(2), do: "down"
+  defp interface_status_label(3), do: "testing"
+  defp interface_status_label(_), do: nil
+
+  defp format_bps(nil), do: "—"
+
+  defp format_bps(bps) when is_number(bps) do
+    cond do
+      bps >= 1_000_000_000_000 -> "#{Float.round(bps / 1_000_000_000_000 * 1.0, 1)} Tbps"
+      bps >= 1_000_000_000 -> "#{Float.round(bps / 1_000_000_000 * 1.0, 1)} Gbps"
+      bps >= 1_000_000 -> "#{Float.round(bps / 1_000_000 * 1.0, 1)} Mbps"
+      bps >= 1_000 -> "#{Float.round(bps / 1_000 * 1.0, 1)} Kbps"
+      true -> "#{bps} bps"
+    end
+  end
+
+  defp default_display(nil), do: "—"
+  defp default_display(""), do: "—"
+  defp default_display(value), do: value
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(value), do: not is_nil(value)
 
   # ---------------------------------------------------------------------------
   # Agents Section (linked to OCSF Agents)
