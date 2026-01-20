@@ -181,10 +181,6 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/edge-packages", Admin.EdgePackageLive.Index, :index
       live "/edge-packages/new", Admin.EdgePackageLive.Index, :new
       live "/edge-packages/:id", Admin.EdgePackageLive.Index, :show
-      live "/integrations", Admin.IntegrationLive.Index, :index
-      live "/integrations/new", Admin.IntegrationLive.Index, :new
-      live "/integrations/:id", Admin.IntegrationLive.Index, :show
-      live "/integrations/:id/edit", Admin.IntegrationLive.Index, :edit
       live "/cluster", Admin.ClusterLive.Index, :index
       live "/collectors", Admin.CollectorLive.Index, :index
       live "/collectors/:id", Admin.CollectorLive.Index, :show
@@ -276,6 +272,12 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/settings/networks/discovery", Settings.NetworksLive.Index, :discovery
       live "/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job
       live "/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job
+
+      # Integration sources configuration
+      live "/settings/networks/integrations", Settings.IntegrationsLive.Index, :index
+      live "/settings/networks/integrations/new", Settings.IntegrationsLive.Index, :new
+      live "/settings/networks/integrations/:id", Settings.IntegrationsLive.Index, :show
+      live "/settings/networks/integrations/:id/edit", Settings.IntegrationsLive.Index, :edit
 
       # Sysmon profiles configuration
       live "/settings/sysmon", Settings.SysmonProfilesLive.Index, :index
