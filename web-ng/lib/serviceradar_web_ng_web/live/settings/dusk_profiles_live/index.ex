@@ -374,7 +374,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DuskProfilesLive.Index do
             <.profiles_panel profiles={@profiles} json_preview={@json_preview} />
           <% end %>
         </div>
-
+        
     <!-- JSON Preview Modal -->
         <.json_preview_modal :if={@json_preview && @show_form == nil} json_preview={@json_preview} />
       </.settings_shell>
@@ -599,7 +599,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DuskProfilesLive.Index do
             />
           </div>
         </div>
-
+        
     <!-- Dusk Node Configuration -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
@@ -638,7 +638,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DuskProfilesLive.Index do
             </div>
           </div>
         </div>
-
+        
     <!-- Device Targeting Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
@@ -683,11 +683,12 @@ defmodule ServiceRadarWebNGWeb.Settings.DuskProfilesLive.Index do
                 </div>
                 <label class="label">
                   <span class="label-text-alt text-base-content/50">
-                    SRQL filters to match devices. Examples: <code class="bg-base-200 px-1 rounded">tags.role:dusk-node</code>, <code class="bg-base-200 px-1 rounded">hostname:%dusk%</code>
+                    SRQL filters to match devices. Examples: <code class="bg-base-200 px-1 rounded">tags.role:dusk-node</code>,
+                    <code class="bg-base-200 px-1 rounded">hostname:%dusk%</code>
                   </span>
                 </label>
               </div>
-
+              
     <!-- Visual Query Builder -->
               <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
                 <div class="flex items-center justify-between mb-4">
@@ -793,7 +794,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DuskProfilesLive.Index do
                   </div>
                 </div>
               </div>
-
+              
     <!-- Device Count Preview -->
               <div :if={@target_device_count != nil} class="flex items-center gap-2">
                 <.icon name="hero-device-phone-mobile" class="size-4 text-base-content/60" />
@@ -802,7 +803,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DuskProfilesLive.Index do
                   <span class="text-base-content/60">device(s) match this query</span>
                 </span>
               </div>
-
+              
     <!-- Priority -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -824,7 +825,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DuskProfilesLive.Index do
             </div>
           <% end %>
         </div>
-
+        
     <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
           <.link navigate={~p"/settings/dusk"}>
@@ -1011,12 +1012,10 @@ defmodule ServiceRadarWebNGWeb.Settings.DuskProfilesLive.Index do
   end
 
   defp parse_filter_value(negated, value) do
-    cond do
-      String.contains?(value, "%") ->
-        {maybe_negate_op("contains", negated), unwrap_like(value)}
-
-      true ->
-        {maybe_negate_op("equals", negated), value}
+    if String.contains?(value, "%") do
+      {maybe_negate_op("contains", negated), unwrap_like(value)}
+    else
+      {maybe_negate_op("equals", negated), value}
     end
   end
 
@@ -1111,12 +1110,10 @@ defmodule ServiceRadarWebNGWeb.Settings.DuskProfilesLive.Index do
     field = String.trim(field || "")
     value = String.trim(value || "")
 
-    cond do
-      field == "" or value == "" ->
-        nil
-
-      true ->
-        build_scalar_filter_token(field, op, value)
+    if field == "" or value == "" do
+      nil
+    else
+      build_scalar_filter_token(field, op, value)
     end
   end
 

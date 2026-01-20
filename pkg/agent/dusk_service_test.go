@@ -28,6 +28,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testDuskConfigJSON is the JSON config used in file-based tests.
+const testDuskConfigJSON = `{
+	"enabled": false,
+	"node_address": "",
+	"timeout": "5m"
+}`
+
 // testDuskConfigDisabled returns a disabled dusk config for testing.
 func testDuskConfigDisabled() *DuskConfig {
 	return &DuskConfig{
@@ -37,6 +44,7 @@ func testDuskConfigDisabled() *DuskConfig {
 	}
 }
 
+//nolint:dupl // Test structure intentionally similar to other service tests
 func TestNewDuskService(t *testing.T) {
 	t.Parallel()
 
@@ -370,11 +378,7 @@ func TestDuskServiceConfigDirectory(t *testing.T) {
 
 	// Create a config file in the temp directory
 	configPath := tmpDir + "/dusk.json"
-	configData := `{
-		"enabled": false,
-		"node_address": "",
-		"timeout": "5m"
-	}`
+	configData := testDuskConfigJSON
 	err := os.WriteFile(configPath, []byte(configData), 0644)
 	require.NoError(t, err)
 
@@ -406,11 +410,7 @@ func TestDuskServiceConfigCaching(t *testing.T) {
 
 	// Create a config file (disabled to avoid connection attempts)
 	configPath := tmpDir + "/dusk.json"
-	configData := `{
-		"enabled": false,
-		"node_address": "",
-		"timeout": "5m"
-	}`
+	configData := testDuskConfigJSON
 	err := os.WriteFile(configPath, []byte(configData), 0644)
 	require.NoError(t, err)
 
@@ -486,11 +486,7 @@ func TestDuskConfigRefreshDetectsChanges(t *testing.T) {
 
 	// Create initial disabled config
 	configPath := tmpDir + "/dusk.json"
-	initialConfig := `{
-		"enabled": false,
-		"node_address": "",
-		"timeout": "5m"
-	}`
+	initialConfig := testDuskConfigJSON
 	err := os.WriteFile(configPath, []byte(initialConfig), 0644)
 	require.NoError(t, err)
 
@@ -540,11 +536,7 @@ func TestDuskConfigRefreshPreservesLocalOverride(t *testing.T) {
 
 	// Create a local config file
 	configPath := tmpDir + "/dusk.json"
-	configData := `{
-		"enabled": false,
-		"node_address": "",
-		"timeout": "5m"
-	}`
+	configData := testDuskConfigJSON
 	err := os.WriteFile(configPath, []byte(configData), 0644)
 	require.NoError(t, err)
 
@@ -659,6 +651,5 @@ func TestDuskServiceReconfigureNilConfig(t *testing.T) {
 
 	// Reconfigure with nil config should fail
 	err = svc.Reconfigure(nil, "test")
-	require.Error(t, err, "reconfigure should fail with nil config")
-	assert.Contains(t, err.Error(), "nil config")
+	require.ErrorIs(t, err, ErrDuskNilConfig, "reconfigure should fail with nil config")
 }

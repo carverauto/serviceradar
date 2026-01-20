@@ -63,8 +63,17 @@ const (
 	duskPlatformDarwin = "darwin"
 )
 
-// ErrDuskServiceNotInitialized is returned when attempting to reconfigure before starting.
-var ErrDuskServiceNotInitialized = fmt.Errorf("dusk service not initialized")
+// Dusk service errors.
+var (
+	// ErrDuskServiceNotInitialized is returned when attempting to reconfigure before starting.
+	ErrDuskServiceNotInitialized = fmt.Errorf("dusk service not initialized")
+
+	// ErrDuskNilConfig is returned when a nil config is provided.
+	ErrDuskNilConfig = fmt.Errorf("nil dusk config provided")
+
+	// ErrDuskMissingNodeAddress is returned when dusk is enabled but node_address is empty.
+	ErrDuskMissingNodeAddress = fmt.Errorf("node_address is required when dusk is enabled")
+)
 
 // DuskConfig represents the configuration for the embedded dusk service.
 // This extends the base dusk.Config with an enabled flag for agent integration.
@@ -575,7 +584,7 @@ func (s *DuskService) GetConfigHash() string {
 // This is called when the gateway sends a new config.
 func (s *DuskService) Reconfigure(cfg *DuskConfig, source string) error {
 	if cfg == nil {
-		return fmt.Errorf("nil config provided")
+		return ErrDuskNilConfig
 	}
 
 	// Compute hash of new config
@@ -612,7 +621,7 @@ func (s *DuskService) Reconfigure(cfg *DuskConfig, source string) error {
 	// Validate required fields
 	if cfg.NodeAddress == "" {
 		s.logger.Warn().Msg("Dusk node_address not configured in new config")
-		return fmt.Errorf("node_address is required when dusk is enabled")
+		return ErrDuskMissingNodeAddress
 	}
 
 	// Stop current checker if running

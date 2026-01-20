@@ -42,6 +42,11 @@ import (
 //nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
 
+const (
+	// configSourceRemote is the config source value for configs from the gateway.
+	configSourceRemote = "remote"
+)
+
 var (
 	errSweepMissingHosts  = errors.New("sweep data missing hosts field")
 	errSweepHostsNotArray = errors.New("hosts field is not an array")
@@ -1479,9 +1484,9 @@ func (p *PushLoop) applyDuskConfig(protoConfig *proto.DuskConfig) {
 	cfg := protoToDuskConfig(protoConfig)
 
 	// Build source string from proto metadata
-	source := "remote"
+	source := configSourceRemote
 	if protoConfig.ConfigSource != "" {
-		source = "remote:" + protoConfig.ConfigSource
+		source = configSourceRemote + ":" + protoConfig.ConfigSource
 	}
 
 	// Apply the configuration
