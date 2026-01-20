@@ -200,6 +200,31 @@ dbEventWriter:
   configSource: file
   kvBootstrap:
     enabled: true
+flowgger:
+  # External service configuration for syslog/NetFlow ingestion from outside the cluster.
+  # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
+  externalService:
+    enabled: false
+    # Service type: LoadBalancer, NodePort, or ClusterIP
+    type: LoadBalancer
+    # Annotations for load balancer configuration (MetalLB, cloud providers, etc.)
+    # Example for MetalLB: metallb.universe.tf/address-pool: k3s-pool
+    # Example for AWS NLB: service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    annotations: {}
+    # Optional static IP for the load balancer (if supported by provider)
+    loadBalancerIP: ""
+    # Port configuration for external access
+    ports:
+      syslog:
+        enabled: true
+        port: 514          # External port
+        targetPort: 514    # Container port
+        protocol: UDP
+      netflow:
+        enabled: false
+        port: 2055
+        targetPort: 2055
+        protocol: UDP
 configSync:
   flowgger:
     enabled: true

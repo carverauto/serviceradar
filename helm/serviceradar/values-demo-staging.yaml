@@ -11,7 +11,7 @@ image:
   registryPullSecret: ghcr-io-cred
 
 agentGateway:
-  enabled: false
+  enabled: true
 
 ingress:
   enabled: true
@@ -54,3 +54,9 @@ spire:
     clusterName: cnpg-staging
     instances: 3
     storageSize: 10Gi
+
+flowgger:
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool

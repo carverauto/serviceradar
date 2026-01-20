@@ -53,3 +53,9 @@ spire:
     clusterName: cnpg
     instances: 3
     storageSize: 100Gi
+
+flowgger:
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
