@@ -417,7 +417,6 @@ setup_mtls_certificates() {
             sysmon) components="$components,sysmon" ;;
             snmp) components="$components,snmp" ;;
             rperf-checker) components="$components,rperf-checker" ;;
-            dusk) components="$components,dusk-checker" ;;
         esac
     done
 
@@ -483,7 +482,6 @@ show_post_install_info() {
             sysmon) components+=("sysmon") ;;
             snmp) components+=("snmp") ;;
             rperf-checker) components+=("rperf-checker") ;;
-            dusk) components+=("dusk-checker") ;;
         esac
     done
     components=($(echo "${components[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
@@ -494,9 +492,6 @@ show_post_install_info() {
         case "$component" in
             nats)
                 cert_name="nats-server"
-                ;;
-            dusk-checker)
-                cert_name="checkers"
                 ;;
             sysmon)
                 cert_name="sysmon"
@@ -687,7 +682,6 @@ install_optional_checkers() {
     local INSTALL_SNMP=false
     local INSTALL_RPERF=false
     local INSTALL_RPERF_CHECKER=false
-    local INSTALL_DUSK=false
 
     if [ "$SKIP_CHECKER_PROMPTS" = "true" ] || [ "$INTERACTIVE" != "true" ]; then
         INSTALL_SYSMON=true
@@ -698,7 +692,6 @@ install_optional_checkers() {
             echo "$CHECKERS" | grep -q "snmp" && INSTALL_SNMP=true || INSTALL_SNMP=false
             echo "$CHECKERS" | grep -q "rperf" && INSTALL_RPERF=true
             echo "$CHECKERS" | grep -q "rperf-checker" && INSTALL_RPERF_CHECKER=true
-            echo "$CHECKERS" | grep -q "dusk" && INSTALL_DUSK=true
         fi
 
         log "Using predefined checker selection (skipping prompts)"
@@ -726,11 +719,6 @@ install_optional_checkers() {
         read -t $PROMPT_TIMEOUT rperf_checker_choice || { echo; log "No input received, defaulting to no"; rperf_checker_choice="n"; }
         [ "$rperf_checker_choice" = "y" ] || [ "$rperf_checker_choice" = "Y" ] && INSTALL_RPERF_CHECKER=true
         echo
-
-        echo -ne "${COLOR_CYAN}Install ${COLOR_YELLOW}Dusk Node monitoring Checker (crypto)${COLOR_CYAN}? (y/n) [n]: ${COLOR_RESET}"
-        read -t $PROMPT_TIMEOUT dusk_choice || { echo; log "No input received, defaulting to no"; dusk_choice="n"; }
-        [ "$dusk_choice" = "y" ] || [ "$dusk_choice" = "Y" ] && INSTALL_DUSK=true
-        echo
     fi
 
     echo
@@ -754,11 +742,6 @@ install_optional_checkers() {
 
     if [ "$INSTALL_RPERF_CHECKER" = "true" ]; then
         log "  - Network Performance Checker (rperf-checker)"
-        checker_count=$((checker_count + 1))
-    fi
-
-    if [ "$INSTALL_DUSK" = "true" ]; then
-        log "  - Time-based Event Checker (dusk)"
         checker_count=$((checker_count + 1))
     fi
 
@@ -791,11 +774,6 @@ install_optional_checkers() {
         INSTALLED_CHECKERS+=("rperf-checker")
     fi
 
-    if [ "$INSTALL_DUSK" = "true" ]; then
-        checker_packages+=("serviceradar-dusk-checker")
-        INSTALLED_CHECKERS+=("dusk")
-    fi
-
     for pkg in "${checker_packages[@]}"; do
         if [ "$SYSTEM" = "rhel" ] && { [ "$pkg" = "serviceradar-rperf" ] || [ "$pkg" = "serviceradar-rperf-checker" ]; }; then
             download_package "$pkg" "-1.el9.x86_64"
@@ -823,7 +801,6 @@ update_configs_for_mtls() {
     log "Updating configuration files to enable mTLS..."
 
     local configs=(
-        "/etc/serviceradar/checkers/dusk.json"
         "/etc/serviceradar/checkers/snmp.json"
         "/etc/serviceradar/checkers/sysmon.json"
     )

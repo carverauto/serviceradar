@@ -1,3 +1,17 @@
+# ServiceRadar v1.0.79
+
+Dusk blockchain monitoring is now embedded directly in the agent.
+
+## Whats New
+
+**1.0.79**
+- Dusk monitoring merged into serviceradar-agent: the standalone `dusk-checker` binary is removed; monitoring is now an embedded service following the same pattern as sysmon and SNMP.
+- Added `DuskProfile` Ash resource with SRQL-based device targeting for centralized dusk configuration management.
+- Added `DuskCompiler` for config generation and delivery via the agent config distribution system.
+- Agents with no dusk profile receive a disabled config by default (opt-in monitoring).
+- Config hot-reload support: agents pick up profile changes without restart.
+- New documentation: `docs/docs/dusk-profiles.md` covers profile management and migration.
+
 # ServiceRadar v1.0.78
 
 SNMP and network discovery configuration is now much easier to manage via the UI.
@@ -447,7 +461,6 @@ Release of ServiceRadar network management, observability, and stream processing
 - Zen Engine (GoRules Zen Engine - rust-based rule processor for events)
 
 ## Components
-- serviceradar-dusk-checker: Agent package for monitoring Dusk nodes
 - serviceradar-snmp-checker: SNMP Poller, polls OIDs and graphs results for most counters
 - serviceradar-sysmon-checker: SysMon collects host-based metrics (CPU, memory, filesystem)
 - serviceradar-rperf-checker: RPerf (iperf3-based) bandwidth measurement tool (client)

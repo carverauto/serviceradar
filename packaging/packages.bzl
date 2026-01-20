@@ -166,37 +166,6 @@ PACKAGES = {
             "/etc/serviceradar/faker.json",
         ],
     },
-    "dusk-checker": {
-        "package_name": "serviceradar-dusk-checker",
-        "description": "ServiceRadar Dusk Checker",
-        "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd"],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//cmd/checkers/dusk:dusk",
-            "dest": "/usr/local/bin/serviceradar-dusk-checker",
-        },
-        "files": [
-            {
-                "src": "config/dusk.json",
-                "dest": "/etc/serviceradar/checkers/dusk.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-dusk-checker.service",
-            "dest": "/lib/systemd/system/serviceradar-dusk-checker.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/checkers/dusk.json",
-        ],
-    },
     "trapd": {
         "package_name": "serviceradar-trapd",
         "description": "ServiceRadar SNMP trap receiver service",

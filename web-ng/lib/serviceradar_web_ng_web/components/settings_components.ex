@@ -55,7 +55,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         navigate: ~p"/settings/sysmon",
         active:
           String.starts_with?(path, "/settings/sysmon") or
-            String.starts_with?(path, "/settings/agents")
+            String.starts_with?(path, "/settings/agents") or
+            String.starts_with?(path, "/settings/dusk")
       },
       %{
         label: "Events",
@@ -144,6 +145,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         label: "Sysmon",
         navigate: ~p"/settings/sysmon",
         active: String.starts_with?(path, "/settings/sysmon")
+      },
+      %{
+        label: "Dusk",
+        navigate: ~p"/settings/dusk",
+        active: String.starts_with?(path, "/settings/dusk")
       },
       %{
         label: "Deploy",

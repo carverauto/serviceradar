@@ -30,6 +30,7 @@ import (
 
 	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
@@ -40,6 +41,11 @@ import (
 //
 //nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
+
+const (
+	// configSourceRemote is the config source value for configs from the gateway.
+	configSourceRemote = "remote"
+)
 
 var (
 	errSweepMissingHosts  = errors.New("sweep data missing hosts field")
@@ -1082,6 +1088,11 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		p.applySysmonConfig(configResp.SysmonConfig)
 	}
 
+	// Apply dusk config if present
+	if configResp.DuskConfig != nil {
+		p.applyDuskConfig(configResp.DuskConfig)
+	}
+
 	// Update version
 	p.setConfigVersion(configResp.ConfigVersion)
 	p.logger.Info().
@@ -1456,6 +1467,67 @@ func protoToSysmonConfig(proto *proto.SysmonConfig) sysmon.Config {
 
 	// Apply defaults for any unset values
 	return cfg.MergeWithDefaults()
+}
+
+// applyDuskConfig applies dusk configuration from the gateway to the embedded dusk service.
+func (p *PushLoop) applyDuskConfig(protoConfig *proto.DuskConfig) {
+	p.server.mu.RLock()
+	duskSvc := p.server.duskService
+	p.server.mu.RUnlock()
+
+	if duskSvc == nil {
+		p.logger.Debug().Msg("Dusk service not initialized, skipping config apply")
+		return
+	}
+
+	// Convert proto config to DuskConfig
+	cfg := protoToDuskConfig(protoConfig)
+
+	// Build source string from proto metadata
+	source := configSourceRemote
+	if protoConfig.ConfigSource != "" {
+		source = configSourceRemote + ":" + protoConfig.ConfigSource
+	}
+
+	// Apply the configuration
+	if err := duskSvc.Reconfigure(cfg, source); err != nil {
+		p.logger.Error().Err(err).Msg("Failed to apply dusk config from gateway")
+		return
+	}
+
+	p.logger.Info().
+		Str("profile_id", protoConfig.ProfileId).
+		Str("profile_name", protoConfig.ProfileName).
+		Str("config_source", protoConfig.ConfigSource).
+		Bool("enabled", cfg.Enabled).
+		Str("node_address", cfg.NodeAddress).
+		Msg("Applied dusk config from gateway")
+}
+
+// protoToDuskConfig converts a proto DuskConfig to a DuskConfig.
+func protoToDuskConfig(p *proto.DuskConfig) *DuskConfig {
+	if p == nil {
+		return DefaultDuskConfig()
+	}
+
+	cfg := &DuskConfig{
+		Enabled:     p.Enabled,
+		NodeAddress: p.NodeAddress,
+	}
+
+	// Parse timeout from string duration
+	if p.Timeout != "" {
+		d, err := time.ParseDuration(p.Timeout)
+		if err == nil {
+			cfg.Timeout = models.Duration(d)
+		} else {
+			cfg.Timeout = models.Duration(5 * time.Minute) // Default timeout
+		}
+	} else {
+		cfg.Timeout = models.Duration(5 * time.Minute)
+	}
+
+	return cfg
 }
 
 // Default timeout for checks when not specified or invalid
