@@ -193,6 +193,9 @@ jobs:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # Direct docker login first - needed for rules_oci during Bazel analysis
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
+          # Then run the Bazel auth setup for BuildBuddy
           bazel run --config=remote //:buildbuddy_setup_docker_auth
 
       - name: Publish container images
