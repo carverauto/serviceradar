@@ -11,6 +11,9 @@ Dusk blockchain monitoring is now embedded directly in the agent.
 - Agents with no dusk profile receive a disabled config by default (opt-in monitoring).
 - Config hot-reload support: agents pick up profile changes without restart.
 - New documentation: `docs/docs/dusk-profiles.md` covers profile management and migration.
+- Fixed missing `otel_trace_summaries` materialized view that was breaking Analytics and Observability pages.
+- Added database schema management rule: all schema changes must be in Elixir migrations only (db-event-writer is data ingestion only).
+- Improved ArgoCD application configs with CNPG cluster protection to prevent accidental data loss.
 
 # ServiceRadar v1.0.78
 
