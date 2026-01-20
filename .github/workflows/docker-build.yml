@@ -107,17 +107,19 @@ jobs:
             echo "${token}" | docker login ghcr.io -u "${user}" --password-stdin
           }
 
-          if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
-            if ! login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"; then
-              echo "GHCR_TOKEN login failed; falling back to GITHUB_TOKEN." >&2
-              export GHCR_USERNAME="${GITHUB_ACTOR}"
-              export GHCR_TOKEN="${GITHUB_TOKEN}"
-              login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"
-            fi
+          gh_user="${GITHUB_ACTOR:-github-actions}"
+          gh_token="${GITHUB_TOKEN:-}"
+          if login_ghcr "${gh_user}" "${gh_token}"; then
+            export GHCR_USERNAME="${gh_user}"
+            export GHCR_TOKEN="${gh_token}"
           else
-            export GHCR_USERNAME="${GITHUB_ACTOR}"
-            export GHCR_TOKEN="${GITHUB_TOKEN}"
-            login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"
+            echo "GITHUB_TOKEN login failed; falling back to GHCR_TOKEN." >&2
+            if ! login_ghcr "${GHCR_USERNAME:-}" "${GHCR_TOKEN:-}"; then
+              echo "GHCR_TOKEN login failed; unable to authenticate to GHCR." >&2
+              exit 1
+            fi
+            export GHCR_USERNAME="${GHCR_USERNAME}"
+            export GHCR_TOKEN="${GHCR_TOKEN}"
           fi
 
           bazel run \
