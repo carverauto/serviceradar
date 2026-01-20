@@ -175,3 +175,38 @@ metadata:
   name: {{ .Values.spire.flowggerServiceAccount | default "serviceradar-flowgger" }}
   labels:
     app.kubernetes.io/part-of: serviceradar
+{{- if .Values.flowgger.externalService.enabled }}
+---
+# External LoadBalancer service for syslog/NetFlow ingestion from outside the cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-flowgger-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with .Values.flowgger.externalService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.flowgger.externalService.type | default "LoadBalancer" }}
+  {{- if .Values.flowgger.externalService.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.flowgger.externalService.loadBalancerIP }}
+  {{- end }}
+  selector:
+    app: serviceradar-flowgger
+    app.kubernetes.io/part-of: serviceradar
+  ports:
+  {{- if .Values.flowgger.externalService.ports.syslog.enabled }}
+  - name: syslog
+    port: {{ .Values.flowgger.externalService.ports.syslog.port | default 514 }}
+    targetPort: {{ .Values.flowgger.externalService.ports.syslog.targetPort | default 514 }}
+    protocol: {{ .Values.flowgger.externalService.ports.syslog.protocol | default "UDP" }}
+  {{- end }}
+  {{- if .Values.flowgger.externalService.ports.netflow.enabled }}
+  - name: netflow
+    port: {{ .Values.flowgger.externalService.ports.netflow.port | default 2055 }}
+    targetPort: {{ .Values.flowgger.externalService.ports.netflow.targetPort | default 2055 }}
+    protocol: {{ .Values.flowgger.externalService.ports.netflow.protocol | default "UDP" }}
+  {{- end }}
+{{- end }}

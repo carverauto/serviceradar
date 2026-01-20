@@ -232,9 +232,12 @@ func (p *PushLoop) Start(ctx context.Context) error {
 			return context.Canceled
 
 		case <-timer.C:
-			// Only push when enrolled (enrollment can happen later via reconnect)
 			if p.isEnrolled() {
+				// Normal operation: push status
 				p.pushStatus(runCtx)
+			} else {
+				// Not enrolled: attempt to connect and enroll
+				p.attemptConnectionAndEnrollment(runCtx)
 			}
 			timer.Reset(p.getInterval())
 		}
@@ -268,6 +271,27 @@ func (p *PushLoop) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// attemptConnectionAndEnrollment tries to establish gateway connection and enroll.
+// Called periodically when the agent is not yet enrolled.
+func (p *PushLoop) attemptConnectionAndEnrollment(ctx context.Context) {
+	if p.gateway.IsConnected() {
+		// Already connected, just try to enroll
+		p.enroll(ctx)
+		return
+	}
+
+	// Not connected, attempt reconnection with backoff
+	p.logger.Debug().Msg("Attempting gateway connection")
+	if err := p.gateway.ReconnectWithBackoff(ctx); err != nil {
+		p.logger.Warn().Err(err).Msg("Gateway connection attempt failed")
+		return
+	}
+
+	// Connected, now try to enroll
+	p.logger.Info().Msg("Gateway connection established, attempting enrollment")
+	p.enroll(ctx)
 }
 
 // pushStatus collects status from all services and pushes to the gateway.
