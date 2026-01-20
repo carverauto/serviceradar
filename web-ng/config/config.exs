@@ -45,7 +45,8 @@ config :serviceradar_web_ng,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
-    ServiceRadar.NetworkDiscovery
+    ServiceRadar.NetworkDiscovery,
+    ServiceRadar.DuskProfiles
   ]
 
 # Also register domains for serviceradar_core OTP app (domains are defined there)
@@ -63,7 +64,8 @@ config :serviceradar_core,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
-    ServiceRadar.NetworkDiscovery
+    ServiceRadar.NetworkDiscovery,
+    ServiceRadar.DuskProfiles
   ]
 
 # Ash configuration

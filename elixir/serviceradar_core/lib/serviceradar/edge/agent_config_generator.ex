@@ -32,6 +32,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.Compilers.DuskCompiler
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentRegistry
@@ -89,7 +90,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         sweep_config = load_sweep_config(agent_id)
         mapper_config = load_mapper_config(agent_id)
         sysmon_config = load_sysmon_config(agent_id)
-        config = build_config(checks, sync_payload, sweep_config, mapper_config, sysmon_config)
+        dusk_config = load_dusk_config(agent_id)
+        config = build_config(checks, sync_payload, sweep_config, mapper_config, sysmon_config, dusk_config)
         {:ok, config}
 
       {:error, reason} ->
@@ -187,7 +189,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Build the full config structure from database checks
-  defp build_config(checks, sync_payload, sweep_config, mapper_config, sysmon_config) do
+  defp build_config(checks, sync_payload, sweep_config, mapper_config, sysmon_config, dusk_config) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
 
     # Merge sweep config into the payload
@@ -196,8 +198,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Map.put("sweep", sweep_config)
       |> Map.put("mapper", mapper_config)
 
-    # Compute version hash from checks, sync payload, sweep config, and sysmon config
-    config_version = compute_version_hash(check_configs, full_payload, sysmon_config)
+    # Compute version hash from checks, sync payload, sweep config, sysmon config, and dusk config
+    config_version = compute_version_hash(check_configs, full_payload, sysmon_config, dusk_config)
     config_json = Jason.encode!(full_payload)
 
     %{
@@ -207,7 +209,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       config_poll_interval_sec: @default_config_poll_interval_sec,
       checks: check_configs,
       config_json: config_json,
-      sysmon_config: build_sysmon_proto_config(sysmon_config)
+      sysmon_config: build_sysmon_proto_config(sysmon_config),
+      dusk_config: build_dusk_proto_config(dusk_config)
     }
   end
 
@@ -262,7 +265,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp stringify_value(v), do: v
 
   # Compute SHA256 hash of the config for versioning
-  defp compute_version_hash(check_configs, sync_payload, sysmon_config) do
+  defp compute_version_hash(check_configs, sync_payload, sysmon_config, dusk_config) do
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
 
@@ -270,7 +273,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     bin = :erlang.term_to_binary(%{
       checks: sorted_checks,
       sync: sync_payload,
-      sysmon: sysmon_config
+      sysmon: sysmon_config,
+      dusk: dusk_config
     })
 
     # Compute SHA256 hash
@@ -424,6 +428,47 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       thresholds: Map.get(config, "thresholds", %{}),
       profile_id: Map.get(config, "profile_id", ""),
       profile_name: Map.get(config, "profile_name", ""),
+      config_source: Map.get(config, "config_source", "default")
+    }
+  end
+
+  # Load dusk configuration from the AgentConfig system
+  # This uses the ConfigServer which compiles dusk configs from DuskProfile resources
+  defp load_dusk_config(agent_id) do
+    partition = get_agent_partition(agent_id)
+
+    Logger.debug(
+      "AgentConfigGenerator: loading dusk config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}"
+    )
+
+    case ConfigServer.get_config(:dusk, partition, agent_id) do
+      {:ok, entry} ->
+        entry.config
+
+      {:error, :no_config_found} ->
+        # Return default dusk config when none defined (disabled by default)
+        Logger.debug("No dusk config found for agent #{agent_id}, using default (disabled)")
+        DuskCompiler.default_config()
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load dusk config for agent #{agent_id}: #{inspect(reason)}"
+        )
+
+        DuskCompiler.default_config()
+    end
+  end
+
+  # Build the proto-compatible DuskConfig struct
+  defp build_dusk_proto_config(nil), do: nil
+
+  defp build_dusk_proto_config(config) when is_map(config) do
+    %Monitoring.DuskConfig{
+      enabled: Map.get(config, "enabled", false),
+      node_address: Map.get(config, "node_address", ""),
+      timeout: Map.get(config, "timeout", "5m"),
+      profile_id: Map.get(config, "profile_id") || "",
+      profile_name: Map.get(config, "profile_name") || "",
       config_source: Map.get(config, "config_source", "default")
     }
   end

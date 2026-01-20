@@ -16,8 +16,7 @@
           "nats",
           "zen",
           "snmp",
-          "rperf-checker",
-          "dusk-checker"
+          "rperf-checker"
         ],
         "root_dir": "/etc/serviceradar/certs"
       }
@@ -320,46 +319,6 @@
     "systemd_service": {
       "dest": "/lib/systemd/system/serviceradar-datasvc.service",
       "source": "packaging/datasvc/systemd/serviceradar-datasvc.service"
-    },
-    "version": "1.0.58"
-  },
-  {
-    "architecture": "amd64",
-    "binary": {
-      "build_method": "go",
-      "output_path": "/usr/local/bin/serviceradar-dusk-checker",
-      "source_path": "cmd/checkers/dusk"
-    },
-    "conffiles": [
-      "/etc/serviceradar/checkers/dusk.json"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/checkers/dusk.json",
-        "source": "packaging/dusk-checker/config/dusk.json"
-      }
-    ],
-    "deb": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": null
-    },
-    "description": "ServiceRadar Dusk node checker",
-    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-    "name": "dusk-checker",
-    "package_name": "serviceradar-dusk",
-    "postinst": {
-      "source": "packaging/dusk-checker/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "packaging/dusk-checker/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "section": "utils",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-dusk-checker.service",
-      "source": "packaging/dusk-checker/systemd/serviceradar-dusk-checker.service"
     },
     "version": "1.0.58"
   },
