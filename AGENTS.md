@@ -454,6 +454,20 @@ When a change must remain atomic, implement `atomic/3` or refactor the action to
 
 ServiceRadar is single-deployment. Do not add multitenancy features, per-customer routing, or multitenancy bypass modes (`:bypass`, `:bypass_all`, `allow_global` overrides). Keep all access scoped to the deployment and schema defined by the database connection.
 
+## Database Schema Management
+
+**CRITICAL:** All database schema changes (tables, views, indexes, materialized views, extensions) MUST be managed exclusively through Elixir migrations in `elixir/serviceradar_core/priv/repo/migrations/`.
+
+The `db-event-writer` Go service must NEVER create database schema or run DDL statements. It is a data ingestion service only - it writes to existing tables but does not create or modify schema.
+
+This rule exists because:
+- Elixir migrations provide a single source of truth for schema
+- Ecto migrations support up/down rollbacks and version tracking
+- Having schema scattered across Go and Elixir creates maintenance nightmares
+- The db-event-writer may be replaced or scaled differently than schema management
+
+If you need a new table, view, or materialized view that db-event-writer will write to, create the migration in Elixir first.
+
 ## Code Generation
 
 Start with generators wherever possible. They provide a starting point for your code and can be modified if needed.
