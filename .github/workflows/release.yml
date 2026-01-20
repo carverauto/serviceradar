@@ -193,9 +193,30 @@ jobs:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Direct docker login first - needed for rules_oci during Bazel analysis
-          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
-          # Then run the Bazel auth setup for BuildBuddy
+          login_ghcr() {
+            local user="${1:-}"
+            local token="${2:-}"
+            if [[ -z "${user}" || -z "${token}" ]]; then
+              return 1
+            fi
+            echo "${token}" | docker login ghcr.io -u "${user}" --password-stdin
+          }
+
+          # Direct docker login first - needed for rules_oci during Bazel analysis.
+          if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
+            if ! login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"; then
+              echo "GHCR_TOKEN login failed; falling back to GITHUB_TOKEN." >&2
+              login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
+              export GHCR_USERNAME="${GITHUB_ACTOR:-github-actions}"
+              export GHCR_TOKEN="${GITHUB_TOKEN:-}"
+            fi
+          else
+            login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
+            export GHCR_USERNAME="${GITHUB_ACTOR:-github-actions}"
+            export GHCR_TOKEN="${GITHUB_TOKEN:-}"
+          fi
+
+          # Then run the Bazel auth setup for BuildBuddy.
           bazel run --config=remote //:buildbuddy_setup_docker_auth
 
       - name: Publish container images
@@ -238,9 +259,24 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           set -euo pipefail
+          login_ghcr() {
+            local user="${1:-}"
+            local token="${2:-}"
+            if [[ -z "${user}" || -z "${token}" ]]; then
+              return 1
+            fi
+            echo "${token}" | helm registry login ghcr.io -u "${user}" --password-stdin
+          }
 
-          # Login to GHCR for Helm OCI
-          echo "${GHCR_TOKEN}" | helm registry login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
+          # Login to GHCR for Helm OCI (fallback to GITHUB_TOKEN if needed).
+          if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
+            if ! login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"; then
+              echo "GHCR_TOKEN Helm login failed; falling back to GITHUB_TOKEN." >&2
+              login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
+            fi
+          else
+            login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
+          fi
 
           # Package and push chart
           helm package helm/serviceradar
