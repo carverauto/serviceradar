@@ -190,7 +190,6 @@ pkg/cloud/api/web/dist/favicons/
 
 # Ignore versioned build outputs
 serviceradar-agent_*
-serviceradar-dusk-checker_*
 serviceradar-snmp-checker_*
 serviceradar-web_*
 

@@ -48,7 +48,6 @@ const (
 	defaultDirPerms      = 0755
 	defaultLshShift      = 128
 	serviceNats          = "nats"
-	serviceDuskChecker   = "dusk-checker"
 	serviceRperf         = "rperf"
 	serviceRperfChecker  = "rperf-checker"
 	serviceSysmonChecker = "sysmon"
@@ -61,7 +60,6 @@ func defaultServices() []string {
 		serviceRperf,
 		serviceRperfChecker,
 		serviceSysmonChecker,
-		serviceDuskChecker,
 	}
 }
 
@@ -186,7 +184,6 @@ func getCertName(component string) string {
 	// certNames maps component names to their corresponding certificate file names.
 	certNames := map[string]string{
 		serviceNats:          "nats-server",
-		serviceDuskChecker:   "checkers",
 		serviceRperf:         "rperf",
 		serviceRperfChecker:  "rperf-checker",
 		serviceSysmonChecker: "sysmon",

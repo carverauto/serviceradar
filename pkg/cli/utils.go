@@ -25,8 +25,6 @@ func normalizeServiceType(serviceType string) string {
 		return "sysmon"
 	case "snmpchecker", "snmp-service":
 		return "snmp"
-	case "dusk-checker", "dusk-service":
-		return "dusk"
 	case "sweep-checker", "network-sweep", "networksweep":
 		return "sweep"
 	case "ping":

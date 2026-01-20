@@ -287,6 +287,11 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/settings/snmp/new", Settings.SNMPProfilesLive.Index, :new_profile
       live "/settings/snmp/:id/edit", Settings.SNMPProfilesLive.Index, :edit_profile
 
+      # Dusk profiles configuration
+      live "/settings/dusk", Settings.DuskProfilesLive.Index, :index
+      live "/settings/dusk/new", Settings.DuskProfilesLive.Index, :new_profile
+      live "/settings/dusk/:id/edit", Settings.DuskProfilesLive.Index, :edit_profile
+
       # Agent deployment
       live "/settings/agents/deploy", Settings.AgentsLive.Deploy, :index
 
