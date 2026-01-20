@@ -9,6 +9,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   @graph "serviceradar"
 
+  # AGE queries return agtype which Postgrex cannot decode by default.
+  # Convert agtype to text to avoid Postgrex type handling errors.
+  # Pattern from: web-ng/lib/serviceradar_web_ng/graph.ex
+  @spec execute_cypher(String.t()) :: :ok | {:error, term()}
+  defp execute_cypher(cypher) do
+    query = """
+    SELECT ag_catalog.agtype_to_text(v)
+    FROM ag_catalog.cypher('#{@graph}', $$#{cypher}$$) AS (v agtype)
+    """
+
+    case Repo.query(query) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @spec upsert_links([map()]) :: :ok
   def upsert_links([]), do: :ok
 
@@ -126,10 +142,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET r.source = 'mapper'
     """
 
-    query = "SELECT * FROM ag_catalog.cypher('#{@graph}', $$#{cypher}$$) AS (v agtype);"
-
-    case Repo.query(query) do
-      {:ok, _} -> :ok
+    case execute_cypher(cypher) do
+      :ok -> :ok
       {:error, reason} -> Logger.warning("Interface graph upsert failed: #{inspect(reason)}")
     end
   end
@@ -155,10 +169,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET r.source = '#{escape(payload.protocol)}'
     """
 
-    query = "SELECT * FROM ag_catalog.cypher('#{@graph}', $$#{cypher}$$) AS (v agtype);"
-
-    case Repo.query(query) do
-      {:ok, _} -> :ok
+    case execute_cypher(cypher) do
+      :ok -> :ok
       {:error, reason} -> Logger.warning("Topology graph upsert failed: #{inspect(reason)}")
     end
   end
