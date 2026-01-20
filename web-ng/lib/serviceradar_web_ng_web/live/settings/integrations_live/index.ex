@@ -1126,7 +1126,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           >
             Delete
           </button>
-          <.ui_button variant="ghost" navigate={~p"/settings/networks/integrations/#{@source.id}/edit"}>
+          <.ui_button
+            variant="ghost"
+            navigate={~p"/settings/networks/integrations/#{@source.id}/edit"}
+          >
             Edit
           </.ui_button>
           <button type="button" class="btn" phx-click="close_details_modal">Close</button>
