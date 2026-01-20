@@ -89,12 +89,6 @@ type Service interface {
 	GetSweepHostStates(ctx context.Context, gatewayID string, limit int) ([]*models.SweepHostState, error)
 
 	// Discovery operations.
-
-	PublishDiscoveredInterface(ctx context.Context, iface *models.DiscoveredInterface) error
-	PublishTopologyDiscoveryEvent(ctx context.Context, event *models.TopologyDiscoveryEvent) error
-	PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error
-	PublishBatchTopologyDiscoveryEvents(ctx context.Context, events []*models.TopologyDiscoveryEvent) error
-
 	// Device operations (legacy - for backward compatibility).
 
 	GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error)
@@ -122,11 +116,6 @@ type Service interface {
 
 	// Transaction support
 	WithTx(ctx context.Context, fn func(tx Service) error) error
-
-	// DeviceUpdate operations (modern materialized view approach).
-
-	PublishDeviceUpdate(ctx context.Context, update *models.DeviceUpdate) error
-	PublishBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error
 
 	// Edge onboarding operations.
 

@@ -4,10 +4,8 @@ go_library(
     name = "db",
     srcs = [
         "auth.go",
-        "cnpg_device_updates.go",
         "cnpg_device_updates_metrics.go",
         "cnpg_device_updates_retry.go",
-        "cnpg_discovery.go",
         "cnpg_identity_engine.go",
         "cnpg_netflow.go",
         "cnpg_observability.go",
@@ -24,7 +22,6 @@ go_library(
         "constants.go",
         "db.go",
         "devices.go",
-        "discovery.go",
         "edge_onboarding.go",
         "errors.go",
         "interfaces.go",
@@ -40,7 +37,6 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/pkg/db",
     visibility = ["//visibility:public"],
     deps = [
-        "//pkg/deviceupdate",
         "//pkg/logger",
         "//pkg/models",
         "@com_github_jackc_pgx_v5//:pgx",

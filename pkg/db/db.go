@@ -27,7 +27,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/carverauto/serviceradar/pkg/deviceupdate"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -59,8 +58,8 @@ type DB struct {
 	logger   logger.Logger
 
 	// deviceUpdatesMu serializes CNPG device-related batch writes to prevent deadlocks.
-	// This mutex protects cnpgInsertDeviceUpdates, UpsertDeviceIdentifiers, and
-	// StoreNetworkSightings operations from circular lock dependencies.
+	// This mutex protects device identity and inventory batch operations from
+	// circular lock dependencies (e.g. identifier upserts and sighting writes).
 	// Using a pointer so transaction-scoped DB copies share the same mutex.
 	deviceUpdatesMu *sync.Mutex
 }
@@ -281,52 +280,6 @@ func normalizeCNPGValue(value interface{}) interface{} {
 		return v.UTC()
 	default:
 		return v
-	}
-}
-
-// GetAllMountPoints retrieves all unique mount points for a gateway.
-// PublishDeviceUpdate publishes a single device update to the device_updates stream.
-func (db *DB) PublishDeviceUpdate(ctx context.Context, update *models.DeviceUpdate) error {
-	return db.PublishBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
-}
-
-// PublishBatchDeviceUpdates publishes device updates directly to the device_updates stream.
-func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
-	if len(updates) == 0 {
-		return nil
-	}
-
-	for _, update := range updates {
-		deviceupdate.SanitizeMetadata(update)
-		normalizeDeviceUpdate(update)
-	}
-
-	return db.cnpgInsertDeviceUpdates(ctx, updates)
-}
-
-func normalizeDeviceUpdate(update *models.DeviceUpdate) {
-	if update == nil {
-		return
-	}
-
-	// Ensure required fields
-	if update.DeviceID == "" {
-		// Check if this is a service component (gateway/agent/checker)
-		if update.ServiceType != nil && update.ServiceID != "" {
-			// Generate service-aware device ID: serviceradar:type:id
-			update.DeviceID = models.GenerateServiceDeviceID(*update.ServiceType, update.ServiceID)
-			update.Partition = models.ServiceDevicePartition
-		} else {
-			// Generate network device ID: partition:ip
-			if update.Partition == "" {
-				update.Partition = defaultPartitionValue
-			}
-			update.DeviceID = models.GenerateNetworkDeviceID(update.Partition, update.IP)
-		}
-	}
-
-	if update.Metadata == nil {
-		update.Metadata = make(map[string]string)
 	}
 }
 
