@@ -120,17 +120,6 @@ alias(
     actual = "//pkg/mapper:mapper",
 )
 
-# pkg/metrics
-alias(
-    name = "metrics",
-    actual = "//pkg/metrics:metrics",
-)
-
-# pkg/metricstore
-alias(
-    name = "metricstore",
-    actual = "//pkg/metricstore:metricstore",
-)
 
 # pkg/models
 alias(

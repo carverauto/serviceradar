@@ -14,6 +14,7 @@ go_library(
         "netflow.go",
         "ocsf_events.go",
         "pgx_batch_helper.go",
+        "time_json_helpers.go",
     ],
     importpath = "github.com/carverauto/serviceradar/pkg/db",
     visibility = ["//visibility:public"],

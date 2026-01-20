@@ -18,6 +18,8 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/logger",
+        "//pkg/models",
+        "//proto",
         "@com_github_gosnmp_gosnmp//:gosnmp",
         "@org_uber_go_mock//gomock",
     ],
