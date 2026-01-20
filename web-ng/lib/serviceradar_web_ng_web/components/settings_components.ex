@@ -73,11 +73,6 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             String.starts_with?(path, "/admin/edge-packages")
       },
       %{
-        label: "Integrations",
-        navigate: ~p"/admin/integrations",
-        active: String.starts_with?(path, "/admin/integrations")
-      },
-      %{
         label: "Jobs",
         navigate: ~p"/admin/jobs",
         active: String.starts_with?(path, "/admin/jobs")
@@ -108,7 +103,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         navigate: ~p"/settings/networks",
         active:
           String.starts_with?(path, "/settings/networks") and
-            not String.starts_with?(path, "/settings/networks/discovery")
+            not String.starts_with?(path, "/settings/networks/discovery") and
+            not String.starts_with?(path, "/settings/networks/integrations")
       },
       %{
         label: "Discovery",
@@ -119,6 +115,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         label: "SNMP",
         navigate: ~p"/settings/snmp",
         active: String.starts_with?(path, "/settings/snmp")
+      },
+      %{
+        label: "Integrations",
+        navigate: ~p"/settings/networks/integrations",
+        active: String.starts_with?(path, "/settings/networks/integrations")
       }
     ]
   end
