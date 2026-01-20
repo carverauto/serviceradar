@@ -24,5 +24,7 @@
 ## 4. Validation
 
 - [x] 4.1 Run `helm template` to verify external service renders correctly
-- [ ] 4.2 Deploy to demo-staging with `helm upgrade` and verify LoadBalancer gets external IP
+- [x] 4.2 Deploy to demo-staging with `helm upgrade` and verify LoadBalancer gets external IP
+  - External IP: 23.138.124.23
+  - Port: 514/UDP
 - [ ] 4.3 Test syslog traffic reaches flowgger through external IP
