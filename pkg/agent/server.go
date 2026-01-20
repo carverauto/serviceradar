@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,19 +43,6 @@ const (
 	sweepType          = "sweep"
 	defaultErrChansize = 10
 )
-
-// safeIntToInt32 safely converts an int to int32, capping at int32 max value
-func safeIntToInt32(val int) int32 {
-	if val > math.MaxInt32 {
-		return math.MaxInt32
-	}
-
-	if val < math.MinInt32 {
-		return math.MinInt32
-	}
-
-	return int32(val)
-}
 
 // NewServer initializes a new Server instance.
 func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log logger.Logger) (*Server, error) {
