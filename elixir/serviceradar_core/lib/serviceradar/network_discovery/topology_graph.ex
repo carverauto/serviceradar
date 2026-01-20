@@ -5,9 +5,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   require Logger
 
-  alias ServiceRadar.Repo
-
-  @graph "serviceradar"
+  alias ServiceRadar.Graph
 
   @spec upsert_links([map()]) :: :ok
   def upsert_links([]), do: :ok
@@ -113,9 +111,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp upsert_interface_payload(payload) do
     cypher = """
-    MERGE (d:Device {id: '#{escape(payload.device_id)}'})
-    MERGE (i:Interface {id: '#{escape(payload.interface_id)}'})
-    SET i.device_id = '#{escape(payload.device_id)}'
+    MERGE (d:Device {id: '#{Graph.escape(payload.device_id)}'})
+    MERGE (i:Interface {id: '#{Graph.escape(payload.interface_id)}'})
+    SET i.device_id = '#{Graph.escape(payload.device_id)}'
     #{set_prop("i", "name", payload.if_name)}
     #{set_prop("i", "ifindex", payload.if_index)}
     #{set_prop("i", "descr", payload.if_descr)}
@@ -126,39 +124,35 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET r.source = 'mapper'
     """
 
-    query = "SELECT * FROM ag_catalog.cypher('#{@graph}', $$#{cypher}$$) AS (v agtype);"
-
-    case Repo.query(query) do
-      {:ok, _} -> :ok
+    case Graph.execute(cypher) do
+      :ok -> :ok
       {:error, reason} -> Logger.warning("Interface graph upsert failed: #{inspect(reason)}")
     end
   end
 
   defp upsert_link_payload(payload) do
     cypher = """
-    MERGE (a:Device {id: '#{escape(payload.local_device_id)}'})
-    MERGE (b:Device {id: '#{escape(payload.neighbor_device_id)}'})
+    MERGE (a:Device {id: '#{Graph.escape(payload.local_device_id)}'})
+    MERGE (b:Device {id: '#{Graph.escape(payload.neighbor_device_id)}'})
     #{set_prop("b", "name", payload.neighbor_name)}
     #{set_prop("b", "ip", payload.neighbor_ip)}
-    MERGE (ai:Interface {id: '#{escape(payload.local_interface_id)}'})
-    SET ai.device_id = '#{escape(payload.local_device_id)}'
+    MERGE (ai:Interface {id: '#{Graph.escape(payload.local_interface_id)}'})
+    SET ai.device_id = '#{Graph.escape(payload.local_device_id)}'
     #{set_prop("ai", "name", payload.local_if_name)}
     #{set_prop("ai", "ifindex", payload.local_if_index)}
-    MERGE (bi:Interface {id: '#{escape(payload.neighbor_interface_id)}'})
-    SET bi.device_id = '#{escape(payload.neighbor_device_id)}'
+    MERGE (bi:Interface {id: '#{Graph.escape(payload.neighbor_interface_id)}'})
+    SET bi.device_id = '#{Graph.escape(payload.neighbor_device_id)}'
     #{set_prop("bi", "name", payload.neighbor_port_name)}
     MERGE (a)-[r1:HAS_INTERFACE]->(ai)
     SET r1.source = 'mapper'
     MERGE (b)-[r2:HAS_INTERFACE]->(bi)
     SET r2.source = 'mapper'
     MERGE (ai)-[r:CONNECTS_TO]->(bi)
-    SET r.source = '#{escape(payload.protocol)}'
+    SET r.source = '#{Graph.escape(payload.protocol)}'
     """
 
-    query = "SELECT * FROM ag_catalog.cypher('#{@graph}', $$#{cypher}$$) AS (v agtype);"
-
-    case Repo.query(query) do
-      {:ok, _} -> :ok
+    case Graph.execute(cypher) do
+      :ok -> :ok
       {:error, reason} -> Logger.warning("Topology graph upsert failed: #{inspect(reason)}")
     end
   end
@@ -211,15 +205,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp cypher_value(value) when is_integer(value), do: Integer.to_string(value)
   defp cypher_value(value) when is_float(value), do: Float.to_string(value)
-  defp cypher_value(value) when is_binary(value), do: "'#{escape(value)}'"
-  defp cypher_value(value) when is_atom(value), do: "'#{escape(value)}'"
+  defp cypher_value(value) when is_binary(value), do: "'#{Graph.escape(value)}'"
+  defp cypher_value(value) when is_atom(value), do: "'#{Graph.escape(value)}'"
   defp cypher_value(_value), do: "null"
-
-  defp escape(nil), do: ""
-
-  defp escape(value) do
-    value
-    |> to_string()
-    |> String.replace("'", "''")
-  end
 end
