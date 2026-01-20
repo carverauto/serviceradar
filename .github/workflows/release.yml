@@ -49,6 +49,11 @@ on:
         required: false
         type: boolean
         default: true
+      allow_local_fallback:
+        description: "Allow local Bazel fallback if remote execution fails."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -64,6 +69,7 @@ jobs:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       GHCR_REGISTRY: ghcr.io
+      ALLOW_LOCAL_FALLBACK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.allow_local_fallback || 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -235,16 +241,21 @@ jobs:
           fi
 
           if ! bazel run --config=remote --stamp //docker/images:push_all "${extra_args[@]}"; then
-            echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
-            bazel run \
-              --remote_executor= \
-              --remote_cache= \
-              --noremote_accept_cached \
-              --noremote_upload_local_results \
-              --jobs=8 \
-              --stamp \
-              //docker/images:push_all \
-              "${extra_args[@]}"
+            if [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
+              echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
+              bazel run \
+                --remote_executor= \
+                --remote_cache= \
+                --noremote_accept_cached \
+                --noremote_upload_local_results \
+                --jobs=8 \
+                --stamp \
+                //docker/images:push_all \
+                "${extra_args[@]}"
+            else
+              echo "Remote bazel run failed; local fallback disabled." >&2
+              exit 1
+            fi
           fi
 
       - name: Install Helm
@@ -345,8 +356,13 @@ jobs:
           }
 
           if ! run_remote; then
-            echo "Remote packaging failed; retrying locally without remote executor/cache" >&2
-            run_local
+            if [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
+              echo "Remote packaging failed; retrying locally without remote executor/cache" >&2
+              run_local
+            else
+              echo "Remote packaging failed; local fallback disabled." >&2
+              exit 1
+            fi
           fi
 
       - name: Verify uploaded release assets via API

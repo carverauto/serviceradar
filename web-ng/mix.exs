@@ -72,6 +72,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:datasvc, path: "../elixir/datasvc"},
+      {:protobuf, "~> 0.16.0", override: true},
 
       # Ash Framework - Phoenix integration (UI components)
       {:ash_authentication_phoenix, "~> 2.0"},
