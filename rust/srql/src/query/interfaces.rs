@@ -78,6 +78,8 @@ struct InterfaceRow {
     device_ip: Option<String>,
     #[diesel(sql_type = Nullable<Text>)]
     device_id: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    interface_uid: Option<String>,
     #[diesel(sql_type = Nullable<Int4>)]
     if_index: Option<i32>,
     #[diesel(sql_type = Nullable<Text>)]
@@ -86,8 +88,20 @@ struct InterfaceRow {
     if_descr: Option<String>,
     #[diesel(sql_type = Nullable<Text>)]
     if_alias: Option<String>,
+    #[diesel(sql_type = Nullable<Int4>)]
+    if_type: Option<i32>,
+    #[diesel(sql_type = Nullable<Text>)]
+    if_type_name: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    interface_kind: Option<String>,
     #[diesel(sql_type = Nullable<BigInt>)]
     if_speed: Option<i64>,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    speed_bps: Option<i64>,
+    #[diesel(sql_type = Nullable<Int4>)]
+    mtu: Option<i32>,
+    #[diesel(sql_type = Nullable<Text>)]
+    duplex: Option<String>,
     #[diesel(sql_type = Nullable<Text>)]
     if_phys_address: Option<String>,
     #[diesel(sql_type = Nullable<Array<Text>>)]
@@ -104,18 +118,28 @@ struct InterfaceRow {
 
 impl InterfaceRow {
     fn into_json(self) -> serde_json::Value {
+        let speed_bps = self.speed_bps.or(self.if_speed);
         serde_json::json!({
             "timestamp": self.timestamp,
             "agent_id": self.agent_id,
             "gateway_id": self.gateway_id,
             "device_ip": self.device_ip,
+            "device_id": self.device_id,
             "uid": self.device_id,
+            "interface_uid": self.interface_uid,
             "if_index": self.if_index,
             "if_name": self.if_name,
             "if_descr": self.if_descr,
             "if_alias": self.if_alias,
+            "if_type": self.if_type,
+            "if_type_name": self.if_type_name,
+            "interface_kind": self.interface_kind,
             "if_speed": self.if_speed,
+            "speed_bps": speed_bps,
+            "mtu": self.mtu,
+            "duplex": self.duplex,
             "if_phys_address": self.if_phys_address,
+            "mac": self.if_phys_address,
             "ip_addresses": self.ip_addresses.unwrap_or_default(),
             "if_admin_status": self.if_admin_status,
             "if_oper_status": self.if_oper_status,
@@ -137,44 +161,14 @@ struct SqlBuildResult {
 }
 
 fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
-    let select = r#"
-SELECT
-    d.modified_time AS timestamp,
-    d.agent_id AS agent_id,
-    d.gateway_id AS gateway_id,
-    d.ip AS device_ip,
-    d.uid AS device_id,
-    CASE
-        WHEN (iface->>'uid') ~ '^[0-9]+$' THEN (iface->>'uid')::int
-        ELSE NULL
-    END AS if_index,
-    iface->>'name' AS if_name,
-    iface->>'descr' AS if_descr,
-    iface->>'alias' AS if_alias,
-    NULLIF(iface->>'speed', '')::bigint AS if_speed,
-    iface->>'mac' AS if_phys_address,
-    CASE
-        WHEN jsonb_typeof(iface->'ip_addresses') = 'array' THEN
-            ARRAY(SELECT jsonb_array_elements_text(iface->'ip_addresses'))
-        WHEN iface ? 'ip' AND (iface->>'ip') <> '' THEN ARRAY[iface->>'ip']
-        ELSE ARRAY[]::text[]
-    END AS ip_addresses,
-    NULLIF(iface->>'admin_status', '')::int AS if_admin_status,
-    NULLIF(iface->>'oper_status', '')::int AS if_oper_status,
-    iface AS metadata,
-    d.created_time AS created_at
-FROM ocsf_devices d
-JOIN LATERAL jsonb_array_elements(COALESCE(to_jsonb(d.network_interfaces), '[]'::jsonb)) AS iface ON TRUE
-"#;
-
-    let mut sql = select.trim().to_string();
+    let (latest_only, filters) = extract_latest_filter(&plan.filters)?;
     let mut binds = Vec::new();
     let mut clauses = Vec::new();
     let mut bind_idx = 1;
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         clauses.push(format!(
-            "d.modified_time >= ${} AND d.modified_time <= ${}",
+            "di.timestamp >= ${} AND di.timestamp <= ${}",
             bind_idx,
             bind_idx + 1
         ));
@@ -183,42 +177,66 @@ JOIN LATERAL jsonb_array_elements(COALESCE(to_jsonb(d.network_interfaces), '[]':
         bind_idx += 2;
     }
 
-    for filter in &plan.filters {
+    for filter in &filters {
         if let Some(clause) = build_filter_clause(filter, &mut binds, &mut bind_idx)? {
             clauses.push(clause);
         }
     }
 
+    let mut base_select = String::from(
+        "SELECT di.timestamp, di.agent_id, di.gateway_id, di.device_ip, di.device_id, di.interface_uid, \
+        di.if_index, di.if_name, di.if_descr, di.if_alias, di.if_type, di.if_type_name, di.interface_kind, \
+        di.if_speed, di.speed_bps, di.mtu, di.duplex, di.if_phys_address, di.ip_addresses, \
+        di.if_admin_status, di.if_oper_status, di.metadata, di.created_at FROM discovered_interfaces di",
+    );
+
     if !clauses.is_empty() {
-        sql.push_str(" WHERE ");
-        sql.push_str(&clauses.join(" AND "));
+        base_select.push_str(" WHERE ");
+        base_select.push_str(&clauses.join(" AND "));
     }
 
-    if let Some(order_clause) = build_order_clause(&plan.order) {
-        sql.push(' ');
-        sql.push_str(&order_clause);
-    }
+    let (sql, binds) = if latest_only {
+        let mut inner = String::from("SELECT DISTINCT ON (di.device_id, di.interface_uid) ");
+        inner.push_str(&base_select["SELECT ".len()..]);
+        inner.push_str(
+            " ORDER BY di.device_id, di.interface_uid, di.timestamp DESC, di.created_at DESC",
+        );
 
-    sql.push_str(&format!(" LIMIT ${} OFFSET ${}", bind_idx, bind_idx + 1));
-    binds.push(BindParam::Int(plan.limit));
-    binds.push(BindParam::Int(plan.offset));
+        let mut outer = format!("SELECT * FROM ({inner}) AS latest");
+        if let Some(order_clause) = build_order_clause(&plan.order) {
+            outer.push(' ');
+            outer.push_str(&order_clause);
+        }
+        outer.push_str(&format!(" LIMIT ${} OFFSET ${}", bind_idx, bind_idx + 1));
+        let mut binds = binds;
+        binds.push(BindParam::Int(plan.limit));
+        binds.push(BindParam::Int(plan.offset));
+        (outer, binds)
+    } else {
+        let mut sql = base_select;
+        if let Some(order_clause) = build_order_clause(&plan.order) {
+            sql.push(' ');
+            sql.push_str(&order_clause);
+        }
+        sql.push_str(&format!(" LIMIT ${} OFFSET ${}", bind_idx, bind_idx + 1));
+        let mut binds = binds;
+        binds.push(BindParam::Int(plan.limit));
+        binds.push(BindParam::Int(plan.offset));
+        (sql, binds)
+    };
 
     Ok(SqlBuildResult { sql, binds })
 }
 
 fn build_stats_sql(plan: &QueryPlan, spec: &CountStatsSpec) -> Result<SqlBuildResult> {
-    let mut sql = format!(
-        "SELECT jsonb_build_object('{}', COALESCE(COUNT(*), 0)::bigint) AS payload FROM ocsf_devices d JOIN LATERAL jsonb_array_elements(COALESCE(to_jsonb(d.network_interfaces), '[]'::jsonb)) AS iface ON TRUE",
-        spec.alias
-    );
-
+    let (latest_only, filters) = extract_latest_filter(&plan.filters)?;
     let mut binds = Vec::new();
     let mut clauses = Vec::new();
     let mut bind_idx = 1;
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         clauses.push(format!(
-            "d.modified_time >= ${} AND d.modified_time <= ${}",
+            "di.timestamp >= ${} AND di.timestamp <= ${}",
             bind_idx,
             bind_idx + 1
         ));
@@ -227,18 +245,55 @@ fn build_stats_sql(plan: &QueryPlan, spec: &CountStatsSpec) -> Result<SqlBuildRe
         bind_idx += 2;
     }
 
-    for filter in &plan.filters {
+    for filter in &filters {
         if let Some(clause) = build_filter_clause(filter, &mut binds, &mut bind_idx)? {
             clauses.push(clause);
         }
     }
 
+    let mut base =
+        String::from("SELECT di.device_id, di.interface_uid FROM discovered_interfaces di");
     if !clauses.is_empty() {
-        sql.push_str(" WHERE ");
-        sql.push_str(&clauses.join(" AND "));
+        base.push_str(" WHERE ");
+        base.push_str(&clauses.join(" AND "));
     }
 
+    let sql = if latest_only {
+        format!(
+            "SELECT jsonb_build_object('{}', COALESCE(COUNT(*), 0)::bigint) AS payload FROM (SELECT DISTINCT ON (di.device_id, di.interface_uid) {} ORDER BY di.device_id, di.interface_uid, di.timestamp DESC, di.created_at DESC) AS latest",
+            spec.alias, base
+        )
+    } else {
+        format!(
+            "SELECT jsonb_build_object('{}', COALESCE(COUNT(*), 0)::bigint) AS payload FROM {}",
+            spec.alias, base
+        )
+    };
+
     Ok(SqlBuildResult { sql, binds })
+}
+
+fn extract_latest_filter(filters: &[Filter]) -> Result<(bool, Vec<Filter>)> {
+    let mut latest_only = false;
+    let mut remaining = Vec::new();
+
+    for filter in filters {
+        if filter.field == "latest" {
+            if !matches!(filter.op, FilterOp::Eq) {
+                return Err(ServiceError::InvalidRequest(
+                    "latest filter only supports equality".into(),
+                ));
+            }
+            let value = filter.value.as_scalar()?.trim().to_lowercase();
+            latest_only = parse_bool(&value).ok_or_else(|| {
+                ServiceError::InvalidRequest("latest filter expects boolean true/false".into())
+            })?;
+        } else {
+            remaining.push(filter.clone());
+        }
+    }
+
+    Ok((latest_only, remaining))
 }
 
 fn build_filter_clause(
@@ -247,32 +302,35 @@ fn build_filter_clause(
     bind_idx: &mut usize,
 ) -> Result<Option<String>> {
     match filter.field.as_str() {
-        "device_id" => build_text_clause("d.uid", filter, binds, bind_idx),
-        "device_ip" | "ip" => build_text_clause("d.ip", filter, binds, bind_idx),
-        "gateway_id" => build_text_clause("d.gateway_id", filter, binds, bind_idx),
-        "agent_id" => build_text_clause("d.agent_id", filter, binds, bind_idx),
-        "if_name" => build_text_clause("iface->>'name'", filter, binds, bind_idx),
-        "if_descr" | "description" => build_text_clause("iface->>'descr'", filter, binds, bind_idx),
-        "if_alias" => build_text_clause("iface->>'alias'", filter, binds, bind_idx),
-        "if_phys_address" | "mac" => build_text_clause("iface->>'mac'", filter, binds, bind_idx),
-        "if_admin_status" => build_int_clause(
-            "NULLIF(iface->>'admin_status', '')::int",
+        "device_id" => build_text_clause("di.device_id", filter, binds, bind_idx),
+        "device_ip" | "ip" => build_text_clause("di.device_ip", filter, binds, bind_idx),
+        "gateway_id" => build_text_clause("di.gateway_id", filter, binds, bind_idx),
+        "agent_id" => build_text_clause("di.agent_id", filter, binds, bind_idx),
+        "interface_uid" => build_text_clause("di.interface_uid", filter, binds, bind_idx),
+        "if_name" => build_text_clause("di.if_name", filter, binds, bind_idx),
+        "if_descr" | "description" => build_text_clause("di.if_descr", filter, binds, bind_idx),
+        "if_alias" => build_text_clause("di.if_alias", filter, binds, bind_idx),
+        "if_type_name" => build_text_clause("di.if_type_name", filter, binds, bind_idx),
+        "interface_kind" => build_text_clause("di.interface_kind", filter, binds, bind_idx),
+        "duplex" => build_text_clause("di.duplex", filter, binds, bind_idx),
+        "if_phys_address" | "mac" => {
+            build_text_clause("di.if_phys_address", filter, binds, bind_idx)
+        }
+        "if_index" => build_int_clause("di.if_index", filter, binds, bind_idx),
+        "if_type" => build_int_clause("di.if_type", filter, binds, bind_idx),
+        "if_admin_status" | "admin_status" => {
+            build_int_clause("di.if_admin_status", filter, binds, bind_idx)
+        }
+        "if_oper_status" | "oper_status" | "status" => {
+            build_int_clause("di.if_oper_status", filter, binds, bind_idx)
+        }
+        "if_speed" | "speed" | "speed_bps" => build_int_clause(
+            "COALESCE(di.speed_bps, di.if_speed)",
             filter,
             binds,
             bind_idx,
         ),
-        "if_oper_status" | "status" => build_int_clause(
-            "NULLIF(iface->>'oper_status', '')::int",
-            filter,
-            binds,
-            bind_idx,
-        ),
-        "if_speed" | "speed" => build_int_clause(
-            "NULLIF(iface->>'speed', '')::bigint",
-            filter,
-            binds,
-            bind_idx,
-        ),
+        "mtu" => build_int_clause("di.mtu", filter, binds, bind_idx),
         "ip_addresses" | "ip_address" => build_ip_addresses_clause(filter, binds, bind_idx),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field '{other}'"
@@ -373,47 +431,29 @@ fn build_ip_addresses_clause(
     binds: &mut Vec<BindParam>,
     bind_idx: &mut usize,
 ) -> Result<Option<String>> {
+    let values: Vec<String> = match &filter.value {
+        FilterValue::Scalar(value) => vec![value.to_string()],
+        FilterValue::List(list) => list.clone(),
+    };
+
+    if values.is_empty() {
+        return Ok(None);
+    }
+    if values.len() > MAX_IP_ADDRESS_FILTER_VALUES {
+        return Err(ServiceError::InvalidRequest(format!(
+            "ip_addresses filter supports at most {MAX_IP_ADDRESS_FILTER_VALUES} values"
+        )));
+    }
+
     match filter.op {
-        FilterOp::Eq => {
-            let value = filter.value.as_scalar()?.to_string();
-            let clause = format!(
-                "(iface->>'ip' = ${bind_idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(iface->'ip_addresses', '[]'::jsonb)) AS addr WHERE addr = ${bind_idx}))"
-            );
-            binds.push(BindParam::Text(value));
+        FilterOp::Eq | FilterOp::In => {
+            let clause = format!("coalesce(di.ip_addresses, ARRAY[]::text[]) @> ${bind_idx}");
+            binds.push(BindParam::TextArray(values));
             *bind_idx += 1;
             Ok(Some(clause))
         }
-        FilterOp::NotEq => {
-            let value = filter.value.as_scalar()?.to_string();
-            let clause = format!(
-                "(iface->>'ip' != ${bind_idx} AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(iface->'ip_addresses', '[]'::jsonb)) AS addr WHERE addr = ${bind_idx}))"
-            );
-            binds.push(BindParam::Text(value));
-            *bind_idx += 1;
-            Ok(Some(clause))
-        }
-        FilterOp::In | FilterOp::NotIn => {
-            let values: Vec<String> = match &filter.value {
-                FilterValue::Scalar(value) => vec![value.to_string()],
-                FilterValue::List(list) => list.clone(),
-            };
-            if values.is_empty() {
-                return Ok(None);
-            }
-            if values.len() > MAX_IP_ADDRESS_FILTER_VALUES {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "ip_addresses filter supports at most {MAX_IP_ADDRESS_FILTER_VALUES} values"
-                )));
-            }
-            let clause = match filter.op {
-                FilterOp::In => format!(
-                    "(iface->>'ip' = ANY(${bind_idx}) OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(iface->'ip_addresses', '[]'::jsonb)) AS addr WHERE addr = ANY(${bind_idx})))"
-                ),
-                FilterOp::NotIn => format!(
-                    "(NOT (iface->>'ip' = ANY(${bind_idx})) AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(iface->'ip_addresses', '[]'::jsonb)) AS addr WHERE addr = ANY(${bind_idx})))"
-                ),
-                _ => unreachable!("validated above"),
-            };
+        FilterOp::NotEq | FilterOp::NotIn => {
+            let clause = format!("NOT (coalesce(di.ip_addresses, ARRAY[]::text[]) @> ${bind_idx})");
             binds.push(BindParam::TextArray(values));
             *bind_idx += 1;
             Ok(Some(clause))
@@ -436,9 +476,15 @@ fn build_order_clause(order: &[OrderClause]) -> Option<String> {
             "timestamp" => "timestamp",
             "device_ip" => "device_ip",
             "device_id" => "device_id",
+            "interface_uid" => "interface_uid",
             "if_name" => "if_name",
             "if_descr" => "if_descr",
             "if_index" => "if_index",
+            "if_type" => "if_type",
+            "if_type_name" => "if_type_name",
+            "interface_kind" => "interface_kind",
+            "speed_bps" | "if_speed" | "speed" => "speed_bps",
+            "mtu" => "mtu",
             _ => continue,
         };
 
@@ -533,6 +579,13 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<CountStatsSpec>> {
 fn parse_i64(raw: &str) -> Result<i64> {
     raw.parse::<i64>()
         .map_err(|_| ServiceError::InvalidRequest(format!("expected integer value for '{raw}'")))
+}
+
+fn parse_bool(input: &str) -> Option<bool> {
+    if input.is_empty() {
+        return None;
+    }
+    input.parse::<bool>().ok()
 }
 
 #[cfg(test)]

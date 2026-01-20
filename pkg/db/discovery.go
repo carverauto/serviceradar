@@ -6,18 +6,18 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// PublishDiscoveredInterface stores a single discovered interface in device inventory.
+// PublishDiscoveredInterface stores a single discovered interface observation.
 func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.DiscoveredInterface) error {
 	if iface == nil {
 		return nil
 	}
 
-	return db.cnpgUpsertNetworkInterfaces(ctx, []*models.DiscoveredInterface{iface})
+	return db.cnpgInsertDiscoveredInterfaces(ctx, []*models.DiscoveredInterface{iface})
 }
 
-// PublishBatchDiscoveredInterfaces stores multiple discovered interfaces in device inventory.
+// PublishBatchDiscoveredInterfaces stores multiple discovered interface observations.
 func (db *DB) PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error {
-	return db.cnpgUpsertNetworkInterfaces(ctx, interfaces)
+	return db.cnpgInsertDiscoveredInterfaces(ctx, interfaces)
 }
 
 // PublishTopologyDiscoveryEvent stores a single topology discovery event.

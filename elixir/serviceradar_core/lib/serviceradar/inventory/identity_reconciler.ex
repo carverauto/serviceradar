@@ -338,23 +338,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     query_opts = if actor, do: [actor: actor], else: []
     canonical_id = resolve_identifier_conflicts(device_id, ids, actor)
 
-    if device_id != nil and device_id != "" and canonical_id != nil and canonical_id != "" and
-         device_id != canonical_id and not service_device_id?(device_id) do
-      _ =
-        merge_devices(device_id, canonical_id,
-          actor: actor,
-          reason: "identifier_conflict",
-          details: %{
-            source: "identifier_registration",
-            identifiers: %{
-              armis_id: ids.armis_id,
-              integration_id: ids.integration_id,
-              netbox_id: ids.netbox_id,
-              mac: ids.mac
-            }
-          }
-        )
-    end
+    maybe_merge_on_register(device_id, canonical_id, ids, actor)
 
     identifiers_to_register =
       []
@@ -370,14 +354,44 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         |> Ash.create(query_opts)
       end)
 
-    errors = Enum.filter(results, &match?({:error, _}, &1))
+    results
+    |> Enum.filter(&match?({:error, _}, &1))
+    |> handle_identifier_errors()
+  end
 
-    if Enum.empty?(errors) do
+  defp handle_identifier_errors([]), do: :ok
+  defp handle_identifier_errors(errors), do: {:error, {:identifier_registration_failed, errors}}
+
+  defp maybe_merge_on_register(device_id, canonical_id, ids, actor) do
+    if should_merge_on_register?(device_id, canonical_id) do
+      _ =
+        merge_devices(device_id, canonical_id,
+          actor: actor,
+          reason: "identifier_conflict",
+          details: %{
+            source: "identifier_registration",
+            identifiers: %{
+              armis_id: ids.armis_id,
+              integration_id: ids.integration_id,
+              netbox_id: ids.netbox_id,
+              mac: ids.mac
+            }
+          }
+        )
+
       :ok
     else
-      {:error, {:identifier_registration_failed, errors}}
+      :ok
     end
   end
+
+  defp should_merge_on_register?(device_id, canonical_id) do
+    present_id?(device_id) and present_id?(canonical_id) and device_id != canonical_id and
+      not service_device_id?(device_id)
+  end
+
+  defp present_id?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_id?(_), do: false
 
   @doc """
   Reconcile duplicate devices by shared strong identifiers.
@@ -427,18 +441,12 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
   defp lookup_identifier_matches(ids, actor) do
     Enum.reduce(@identifier_priority, %{}, fn id_type, acc ->
-      case get_identifier_value(ids, id_type) do
-        nil ->
-          acc
-
-        id_value ->
-          case lookup_device_identifier(id_type, id_value, ids.partition, actor) do
-            {:ok, device_id} when is_binary(device_id) and device_id != "" ->
-              Map.put(acc, id_type, %{value: id_value, device_id: device_id})
-
-            _ ->
-              acc
-          end
+      with id_value when not is_nil(id_value) <- get_identifier_value(ids, id_type),
+           {:ok, device_id} when is_binary(device_id) and device_id != "" <-
+             lookup_device_identifier(id_type, id_value, ids.partition, actor) do
+        Map.put(acc, id_type, %{value: id_value, device_id: device_id})
+      else
+        _ -> acc
       end
     end)
   end
@@ -446,15 +454,13 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp select_canonical_device_id(preferred_device_id, matches, actor) do
     device_ids = matches |> Map.values() |> Enum.map(& &1.device_id) |> Enum.uniq()
 
-    cond do
-      serviceradar_uuid?(preferred_device_id) and preferred_device_id in device_ids ->
-        preferred_device_id
-
-      true ->
-        case highest_priority_match(matches) do
-          nil -> most_recent_device_id(device_ids, actor)
-          device_id -> device_id
-        end
+    if serviceradar_uuid?(preferred_device_id) and preferred_device_id in device_ids do
+      preferred_device_id
+    else
+      case highest_priority_match(matches) do
+        nil -> most_recent_device_id(device_ids, actor)
+        device_id -> device_id
+      end
     end
   end
 
@@ -526,37 +532,35 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
   defp build_identifier_index(actor) do
     query =
-      DeviceIdentifier
-      |> Ash.Query.filter(identifier_type in ^@identifier_priority)
-      |> Ash.Query.select([:device_id, :identifier_type, :identifier_value, :partition])
+    DeviceIdentifier
+    |> Ash.Query.filter(identifier_type in ^@identifier_priority)
+    |> Ash.Query.select([:device_id, :identifier_type, :identifier_value, :partition])
 
     Ash.stream!(query, actor: actor, batch_size: 2000)
-    |> Enum.reduce({%{}, 0}, fn record, {acc, count} ->
-      device_id = normalize_identifier_value(record.device_id)
-      identifier_value = normalize_identifier_value(record.identifier_value)
+    |> Enum.reduce({%{}, 0}, &accumulate_identifier_index/2)
+  end
 
-      cond do
-        device_id == nil ->
-          {acc, count + 1}
+  defp accumulate_identifier_index(record, {acc, count}) do
+    device_id = normalize_identifier_value(record.device_id)
+    identifier_value = normalize_identifier_value(record.identifier_value)
 
-        identifier_value == nil ->
-          {acc, count + 1}
+    if skip_identifier_record?(device_id, identifier_value) do
+      {acc, count + 1}
+    else
+      partition = normalize_identifier_value(record.partition) || "default"
+      key = {partition, record.identifier_type, identifier_value}
 
-        service_device_id?(device_id) ->
-          {acc, count + 1}
+      updated =
+        Map.update(acc, key, MapSet.new([device_id]), fn set ->
+          MapSet.put(set, device_id)
+        end)
 
-        true ->
-          partition = normalize_identifier_value(record.partition) || "default"
-          key = {partition, record.identifier_type, identifier_value}
+      {updated, count + 1}
+    end
+  end
 
-          updated =
-            Map.update(acc, key, MapSet.new([device_id]), fn set ->
-              MapSet.put(set, device_id)
-            end)
-
-          {updated, count + 1}
-      end
-    end)
+  defp skip_identifier_record?(device_id, identifier_value) do
+    is_nil(device_id) or is_nil(identifier_value) or service_device_id?(device_id)
   end
 
   defp normalize_identifier_value(value) when is_binary(value) do
@@ -571,20 +575,26 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp normalize_identifier_value(_), do: nil
 
   defp build_duplicate_components(duplicate_entries) do
-    parents =
-      Enum.reduce(duplicate_entries, %{}, fn {_key, device_ids}, acc ->
-        ids = device_ids |> MapSet.to_list() |> Enum.uniq()
-        acc = Enum.reduce(ids, acc, &Map.put_new(&2, &1, &1))
+    duplicate_entries
+    |> build_duplicate_parents()
+    |> build_duplicate_groups()
+  end
 
-        case ids do
-          [first | rest] ->
-            Enum.reduce(rest, acc, fn id, parents -> union_devices(parents, first, id) end)
+  defp build_duplicate_parents(duplicate_entries) do
+    Enum.reduce(duplicate_entries, %{}, fn {_key, device_ids}, acc ->
+      ids = device_ids |> MapSet.to_list() |> Enum.uniq()
+      acc = Enum.reduce(ids, acc, &Map.put_new(&2, &1, &1))
+      union_device_group(ids, acc)
+    end)
+  end
 
-          _ ->
-            acc
-        end
-      end)
+  defp union_device_group([first | rest], acc) do
+    Enum.reduce(rest, acc, fn id, parents -> union_devices(parents, first, id) end)
+  end
 
+  defp union_device_group(_ids, acc), do: acc
+
+  defp build_duplicate_groups(parents) do
     parents
     |> Map.keys()
     |> Enum.reduce(%{}, fn device_id, acc ->
@@ -617,42 +627,63 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
   defp merge_components(components, actor, max_merges) do
     Enum.reduce_while(components, {0, 0}, fn device_ids, {merged, errors} ->
-      canonical_id = choose_canonical_device_id(device_ids, actor)
-
-      {merged_count, error_count} =
-        device_ids
-        |> Enum.reject(&(&1 == canonical_id))
-        |> Enum.reduce_while({0, 0}, fn from_id, {local_merged, local_errors} ->
-          if max_merges && merged + local_merged >= max_merges do
-            {:halt, {local_merged, local_errors}}
-          else
-            case merge_devices(from_id, canonical_id,
-                   actor: actor,
-                   reason: "identifier_backfill",
-                   details: %{source: "scheduled_reconciliation"}
-                 ) do
-              :ok ->
-                {:cont, {local_merged + 1, local_errors}}
-
-              {:error, reason} ->
-                Logger.warning(
-                  "Failed to merge device #{from_id} into #{canonical_id}: #{inspect(reason)}"
-                )
-
-                {:cont, {local_merged, local_errors + 1}}
-            end
-          end
-        end)
+      {merged_count, error_count, halted?} =
+        merge_component_devices(device_ids, actor, max_merges, merged)
 
       total_merged = merged + merged_count
       total_errors = errors + error_count
 
-      if max_merges && total_merged >= max_merges do
+      if halted? or (max_merges && total_merged >= max_merges) do
         {:halt, {total_merged, total_errors}}
       else
         {:cont, {total_merged, total_errors}}
       end
     end)
+  end
+
+  defp merge_component_devices(device_ids, actor, max_merges, merged_so_far) do
+    canonical_id = choose_canonical_device_id(device_ids, actor)
+
+    {local_merged, local_errors} =
+      device_ids
+      |> Enum.reject(&(&1 == canonical_id))
+      |> Enum.reduce_while({0, 0}, fn from_id, acc ->
+        merge_component_step(from_id, canonical_id, actor, max_merges, merged_so_far, acc)
+      end)
+
+    halted? = max_merges && merged_so_far + local_merged >= max_merges
+    {local_merged, local_errors, halted?}
+  end
+
+  defp merge_component_step(from_id, canonical_id, actor, max_merges, merged_so_far, acc) do
+    {local_merged, local_errors} = acc
+
+    if max_merges && merged_so_far + local_merged >= max_merges do
+      {:halt, {local_merged, local_errors}}
+    else
+      case merge_component_device(from_id, canonical_id, actor) do
+        :ok -> {:cont, {local_merged + 1, local_errors}}
+        {:error, _reason} -> {:cont, {local_merged, local_errors + 1}}
+      end
+    end
+  end
+
+  defp merge_component_device(from_id, canonical_id, actor) do
+    case merge_devices(from_id, canonical_id,
+           actor: actor,
+           reason: "identifier_backfill",
+           details: %{source: "scheduled_reconciliation"}
+         ) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to merge device #{from_id} into #{canonical_id}: #{inspect(reason)}"
+        )
+
+        {:error, reason}
+    end
   end
 
   defp choose_canonical_device_id(device_ids, actor) do

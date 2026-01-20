@@ -21,13 +21,16 @@ Target data with the `in:` selector. Each logical entity routes to one or more O
 | `in:flows` | Flow-level telemetry aligned to OCSF network activity class 4001 | `ocsf_network_activity` |
 | `in:connections` | Connection state and summaries with endpoint metadata | `connections`, `ocsf_network_activity` |
 | `in:services` | Observed network/application services and their availability | `services` materialized view |
-| `in:interfaces` | Discovered interfaces with OCSF endpoint metadata | `ocsf_devices.network_interfaces` |
+| `in:interfaces` | Discovered interfaces (timeseries) | `discovered_interfaces` |
 | `in:logs` | Application and system logs normalized to OCSF logging classes | `logs`, `ocsf_system_activity` |
 | `in:gateways` | Gateway/agent operational telemetry | `gateways` |
 | `in:cpu_metrics` / `in:disk_metrics` / `in:memory_metrics` / `in:process_metrics` / `in:snmp_metrics` | Time-series metrics aligned with OCSF telemetry categories | `cpu_metrics`, `disk_metrics`, `memory_metrics`, `process_metrics`, `timeseries_metrics` |
 | `in:otel_traces` | OpenTelemetry spans & summaries | `otel_trace_summaries_final`, `otel_spans_enriched` |
 
 `in:` accepts comma-separated targets (e.g. `in:devices,services`). SRQL resolves friendly field names to the correct OCSF column names via the Diesel query builders in `rust/srql/src/query`; for example `device.os.name` maps to `device_os_name` and `boundary` is normalized to `partition`.
+
+> Note: `in:interfaces` is backed by the `discovered_interfaces` time-series table and uses a
+> ServiceRadar-native schema (not OCSF-aligned).
 
 The consolidated CNPG schema migration also provisions current-state streams for users, vulnerabilities, and other OCSF classes. As those entities are surfaced through SRQL aliases they inherit the same key:value syntax described below—no query changes are required beyond swapping the `in:` target.
 
@@ -291,19 +294,30 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 
 ### interfaces
 
+Interface observations are stored as time-series data (3-day retention). Use `latest:true`
+to return the most recent record per interface.
+
 | Field | Aliases | Description |
 |-------|---------|-------------|
 | `device_id` | | Device identifier |
+| `interface_uid` | | Stable interface identifier (per device) |
 | `device_ip` | `ip` | Device IP address |
 | `gateway_id` | | Associated gateway ID |
 | `agent_id` | | Associated agent ID |
 | `if_name` | | Interface name |
 | `if_descr` | `description` | Interface description |
 | `if_alias` | | Interface alias |
+| `if_index` | | Interface index (ifIndex) |
+| `if_type` | | Interface type identifier (ifType) |
+| `if_type_name` | | Interface type (human-readable) |
+| `interface_kind` | | Interface classification (physical, virtual, loopback, tunnel, etc.) |
 | `if_phys_address` | `mac` | Physical (MAC) address |
 | `if_admin_status` | | Administrative status |
 | `if_oper_status` | `status` | Operational status |
-| `if_speed` | `speed` | Interface speed |
+| `if_speed` | `speed` | Interface speed (legacy) |
+| `speed_bps` | | Interface speed (bits per second) |
+| `mtu` | | Interface MTU |
+| `duplex` | | Interface duplex |
 | `ip_addresses` | `ip_address` | IP addresses assigned to interface |
 
 ## Error Handling

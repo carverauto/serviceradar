@@ -738,10 +738,8 @@ mod tests {
         let (sql, _) = interfaces::to_sql_and_params(&plan).expect("should build interfaces SQL");
         let lower = sql.to_lowercase();
         assert!(
-            lower.contains("network_interfaces")
-                && lower.contains("jsonb_array_elements")
-                && lower.contains("iface->>'ip'"),
-            "expected interface extraction from network_interfaces, got: {sql}"
+            lower.contains("discovered_interfaces") && lower.contains("ip_addresses"),
+            "expected interface query against discovered_interfaces, got: {sql}"
         );
         assert!(lower.contains("order by timestamp asc"));
     }

@@ -44,6 +44,7 @@ var (
 	// Validation errors for discovered interfaces
 
 	ErrDeviceIPRequired      = errors.New("device IP is required")
+	ErrDeviceIDRequired      = errors.New("device ID is required")
 	ErrAgentIDRequired       = errors.New("agent ID is required")
 	ErrLocalDeviceIPRequired = errors.New("local device IP is required")
 	ErrProtocolTypeRequired  = errors.New("protocol type is required")

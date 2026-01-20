@@ -260,6 +260,7 @@ if config_env() == :prod do
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
+      monitoring: String.to_integer(System.get_env("OBAN_QUEUE_MONITORING") || "5"),
       service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),
       notifications: String.to_integer(System.get_env("OBAN_QUEUE_NOTIFICATIONS") || "5"),
       onboarding: String.to_integer(System.get_env("OBAN_QUEUE_ONBOARDING") || "3"),
