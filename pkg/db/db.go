@@ -20,14 +20,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/carverauto/serviceradar/pkg/deviceupdate"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -38,8 +35,6 @@ var (
 	ErrCNPGUnavailable        = errors.New("cnpg connection pool not configured")
 	ErrUnknownExecutorType    = errors.New("unknown executor type")
 )
-
-const defaultPartitionValue = "default"
 
 // PgxExecutor is an interface satisfied by both *pgxpool.Pool and pgx.Tx
 type PgxExecutor interface {
@@ -54,12 +49,6 @@ type DB struct {
 	pgPool   *pgxpool.Pool
 	executor PgxExecutor
 	logger   logger.Logger
-
-	// deviceUpdatesMu serializes CNPG device-related batch writes to prevent deadlocks.
-	// This mutex protects cnpgInsertDeviceUpdates, UpsertDeviceIdentifiers, and
-	// StoreNetworkSightings operations from circular lock dependencies.
-	// Using a pointer so transaction-scoped DB copies share the same mutex.
-	deviceUpdatesMu *sync.Mutex
 }
 
 // New creates a new CNPG-backed database connection.
@@ -78,10 +67,9 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 	}
 
 	db := &DB{
-		pgPool:          cnpgPool,
-		executor:        cnpgPool, // Default to pool
-		logger:          log,
-		deviceUpdatesMu: &sync.Mutex{},
+		pgPool:   cnpgPool,
+		executor: cnpgPool, // Default to pool
+		logger:   log,
 	}
 
 	return db, nil
@@ -158,10 +146,9 @@ func (db *DB) WithTx(ctx context.Context, fn func(tx Service) error) error {
 
 	// Create a shallow copy of DB using the transaction executor
 	txDB := &DB{
-		pgPool:          db.pgPool, // Keep pool reference for access to stateless methods if needed
-		executor:        tx,
-		logger:          db.logger,
-		deviceUpdatesMu: db.deviceUpdatesMu, // Share mutex with parent for deadlock prevention
+		pgPool:   db.pgPool, // Keep pool reference for access to stateless methods if needed
+		executor: tx,
+		logger:   db.logger,
 	}
 
 	if err := fn(txDB); err != nil {
@@ -174,188 +161,4 @@ func (db *DB) WithTx(ctx context.Context, fn func(tx Service) error) error {
 	}
 
 	return nil
-}
-
-// LockOCSFDevices locks the specified IPs in the ocsf_devices table for update.
-func (db *DB) LockOCSFDevices(ctx context.Context, ips []string) error {
-	if len(ips) == 0 {
-		return nil
-	}
-	if !db.cnpgConfigured() {
-		return ErrCNPGUnavailable
-	}
-
-	// SELECT ... FOR UPDATE SKIP LOCKED is typical for queue processing,
-	// but here we want to wait for the lock because we intend to update these specific rows.
-	// We use NO KEY UPDATE to avoid blocking foreign key checks if we're not modifying PKs
-	// (though we might modify PK if we delete? No, we update rows).
-	const query = `
-SELECT 1 FROM ocsf_devices
-WHERE ip = ANY($1)
-FOR UPDATE`
-
-	_, err := db.conn().Exec(ctx, query, ips)
-	if err != nil {
-		return fmt.Errorf("failed to lock OCSF devices: %w", err)
-	}
-
-	return nil
-}
-
-// QueryCNPGRows executes a query against the CNPG pool and returns a Rows implementation.
-func (db *DB) QueryCNPGRows(ctx context.Context, query string, args ...interface{}) (Rows, error) {
-	if !db.cnpgConfigured() {
-		return nil, ErrCNPGUnavailable
-	}
-
-	rows, err := db.conn().Query(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-
-	return &cnpgRows{rows: rows}, nil
-}
-
-// QueryRegistryRows proxies registry reads to the CNPG pool.
-func (db *DB) QueryRegistryRows(ctx context.Context, query string, args ...interface{}) (Rows, error) {
-	return db.QueryCNPGRows(ctx, query, args...)
-}
-
-// ExecCNPG executes a statement against the CNPG pool.
-func (db *DB) ExecCNPG(ctx context.Context, query string, args ...interface{}) error {
-	if !db.cnpgConfigured() {
-		return ErrCNPGUnavailable
-	}
-
-	if _, err := db.conn().Exec(ctx, query, args...); err != nil {
-		return fmt.Errorf("cnpg exec: %w", err)
-	}
-
-	return nil
-}
-
-// ExecuteQuery executes a raw SQL query against the CNPG database.
-func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interface{}) ([]map[string]interface{}, error) {
-	if !db.cnpgConfigured() {
-		return nil, ErrCNPGUnavailable
-	}
-
-	rows, err := db.conn().Query(ctx, query, params...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
-	}
-	defer rows.Close()
-
-	fieldDescriptions := rows.FieldDescriptions()
-	var results []map[string]interface{}
-
-	for rows.Next() {
-		values, err := rows.Values()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read row values: %w", err)
-		}
-
-		row := make(map[string]interface{}, len(fieldDescriptions))
-		for idx, fd := range fieldDescriptions {
-			row[fd.Name] = normalizeCNPGValue(values[idx])
-		}
-
-		results = append(results, row)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	return results, nil
-}
-
-func normalizeCNPGValue(value interface{}) interface{} {
-	switch v := value.(type) {
-	case []byte:
-		return string(v)
-	case time.Time:
-		return v.UTC()
-	default:
-		return v
-	}
-}
-
-// GetAllMountPoints retrieves all unique mount points for a gateway.
-// PublishDeviceUpdate publishes a single device update to the device_updates stream.
-func (db *DB) PublishDeviceUpdate(ctx context.Context, update *models.DeviceUpdate) error {
-	return db.PublishBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
-}
-
-// PublishBatchDeviceUpdates publishes device updates directly to the device_updates stream.
-func (db *DB) PublishBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
-	if len(updates) == 0 {
-		return nil
-	}
-
-	for _, update := range updates {
-		deviceupdate.SanitizeMetadata(update)
-		normalizeDeviceUpdate(update)
-	}
-
-	return db.cnpgInsertDeviceUpdates(ctx, updates)
-}
-
-func normalizeDeviceUpdate(update *models.DeviceUpdate) {
-	if update == nil {
-		return
-	}
-
-	// Ensure required fields
-	if update.DeviceID == "" {
-		// Check if this is a service component (gateway/agent/checker)
-		if update.ServiceType != nil && update.ServiceID != "" {
-			// Generate service-aware device ID: serviceradar:type:id
-			update.DeviceID = models.GenerateServiceDeviceID(*update.ServiceType, update.ServiceID)
-			update.Partition = models.ServiceDevicePartition
-		} else {
-			// Generate network device ID: partition:ip
-			if update.Partition == "" {
-				update.Partition = defaultPartitionValue
-			}
-			update.DeviceID = models.GenerateNetworkDeviceID(update.Partition, update.IP)
-		}
-	}
-
-	if update.Metadata == nil {
-		update.Metadata = make(map[string]string)
-	}
-}
-
-type cnpgRows struct {
-	rows pgx.Rows
-}
-
-func (r *cnpgRows) Next() bool {
-	if r == nil || r.rows == nil {
-		return false
-	}
-	return r.rows.Next()
-}
-
-func (r *cnpgRows) Scan(dest ...interface{}) error {
-	if r == nil || r.rows == nil {
-		return ErrCNPGRowsNotInitialized
-	}
-	return r.rows.Scan(dest...)
-}
-
-func (r *cnpgRows) Close() error {
-	if r == nil || r.rows == nil {
-		return nil
-	}
-	r.rows.Close()
-	return nil
-}
-
-func (r *cnpgRows) Err() error {
-	if r == nil || r.rows == nil {
-		return nil
-	}
-	return r.rows.Err()
 }

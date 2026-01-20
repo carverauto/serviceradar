@@ -671,9 +671,9 @@ mod tests {
             "expected CIDR inet containment, got: {sql}"
         );
 
-        assert!(params.iter().any(|param| {
-            matches!(param, BindParam::Text(value) if value == "10.0.0.0/8")
-        }));
+        assert!(params
+            .iter()
+            .any(|param| { matches!(param, BindParam::Text(value) if value == "10.0.0.0/8") }));
     }
 
     #[test]
@@ -689,12 +689,12 @@ mod tests {
             "expected IP range inet comparison, got: {sql}"
         );
 
-        assert!(params.iter().any(|param| {
-            matches!(param, BindParam::Text(value) if value == "10.0.0.10")
-        }));
-        assert!(params.iter().any(|param| {
-            matches!(param, BindParam::Text(value) if value == "10.0.0.50")
-        }));
+        assert!(params
+            .iter()
+            .any(|param| { matches!(param, BindParam::Text(value) if value == "10.0.0.10") }));
+        assert!(params
+            .iter()
+            .any(|param| { matches!(param, BindParam::Text(value) if value == "10.0.0.50") }));
     }
 
     #[test]
@@ -738,10 +738,10 @@ mod tests {
         let (sql, _) = interfaces::to_sql_and_params(&plan).expect("should build interfaces SQL");
         let lower = sql.to_lowercase();
         assert!(
-            lower.contains("coalesce(") && lower.contains("ip_addresses"),
-            "expected coalesce ip_addresses containment, got: {sql}"
+            lower.contains("discovered_interfaces") && lower.contains("ip_addresses"),
+            "expected interface query against discovered_interfaces, got: {sql}"
         );
-        assert!(lower.contains("order by \"discovered_interfaces\".\"timestamp\" asc"));
+        assert!(lower.contains("order by timestamp asc"));
     }
 
     #[test]

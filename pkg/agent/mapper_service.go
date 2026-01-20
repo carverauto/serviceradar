@@ -275,6 +275,7 @@ func (p *MapperResultPublisher) PublishInterface(_ context.Context, iface *mappe
 		"ip_addresses":    iface.IPAddresses,
 		"if_admin_status": iface.IfAdminStatus,
 		"if_oper_status":  iface.IfOperStatus,
+		"if_type":         iface.IfType,
 		"metadata":        iface.Metadata,
 		"timestamp":       time.Now().UTC().Format(time.RFC3339Nano),
 	}

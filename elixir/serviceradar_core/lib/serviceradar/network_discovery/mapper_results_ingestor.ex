@@ -8,7 +8,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, Interface}
+  alias ServiceRadar.Inventory.{Device, IdentityReconciler, Interface}
   alias ServiceRadar.NetworkDiscovery.{MapperJob, TopologyGraph, TopologyLink}
   alias ServiceRadar.Repo
 
@@ -28,6 +28,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         case insert_bulk(resolved_records, Interface, actor, "interfaces") do
           :ok ->
             TopologyGraph.upsert_interfaces(resolved_records)
+            register_interface_identifiers(resolved_records, actor)
             :ok
 
           {:error, reason} ->
@@ -152,6 +153,46 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       %{}
   end
 
+  defp register_interface_identifiers([], _actor), do: :ok
+
+  defp register_interface_identifiers(records, actor) do
+    records
+    |> Enum.group_by(& &1.device_id)
+    |> Enum.each(fn {device_id, iface_records} ->
+      iface_records
+      |> interface_macs()
+      |> Enum.each(&register_interface_mac(device_id, &1, actor))
+    end)
+  end
+
+  defp interface_macs(iface_records) do
+    iface_records
+    |> Enum.map(&IdentityReconciler.normalize_mac(&1.if_phys_address))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp register_interface_mac(device_id, mac, actor) do
+    ids = %{
+      armis_id: nil,
+      integration_id: nil,
+      netbox_id: nil,
+      mac: mac,
+      ip: "",
+      partition: "default"
+    }
+
+    case IdentityReconciler.register_identifiers(device_id, ids, actor: actor) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to register interface MAC identifier for device #{device_id}: #{inspect(reason)}"
+        )
+    end
+  end
+
   # Resolve device IDs for topology records (local_device_id and neighbor_device_id)
   defp resolve_topology_device_ids([]), do: []
 
@@ -203,26 +244,47 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp normalize_interface(update) when is_map(update) do
+    metadata = get_map(update, ["metadata", :metadata])
+
+    if_type =
+      get_integer(update, ["if_type", :if_type]) ||
+        get_integer(metadata, ["if_type", :if_type])
+
+    if_name = get_string(update, ["if_name", :if_name])
+    if_descr = get_string(update, ["if_descr", :if_descr])
+    if_index = get_integer(update, ["if_index", :if_index])
+    {if_type_name, interface_kind} = classify_if_type(if_type, if_name)
+    interface_uid = build_interface_uid(if_index, if_name, if_descr)
+    speed_bps = get_integer(update, ["speed_bps", :speed_bps])
+    if_speed = get_integer(update, ["if_speed", :if_speed])
+
     record = %{
       timestamp: parse_timestamp(get_value(update, ["timestamp", :timestamp])),
       device_id: get_string(update, ["device_id", :device_id]),
+      interface_uid: interface_uid,
       agent_id: get_string(update, ["agent_id", :agent_id]),
       gateway_id: get_string(update, ["gateway_id", :gateway_id]),
       device_ip: get_string(update, ["device_ip", :device_ip]),
-      if_index: get_integer(update, ["if_index", :if_index]),
-      if_name: get_string(update, ["if_name", :if_name]),
-      if_descr: get_string(update, ["if_descr", :if_descr]),
+      if_index: if_index,
+      if_name: if_name,
+      if_descr: if_descr,
       if_alias: get_string(update, ["if_alias", :if_alias]),
-      if_speed: get_integer(update, ["if_speed", :if_speed]),
+      if_speed: if_speed,
+      speed_bps: speed_bps || if_speed,
       if_phys_address: get_string(update, ["if_phys_address", :if_phys_address]),
       ip_addresses: get_list(update, ["ip_addresses", :ip_addresses]),
       if_admin_status: get_integer(update, ["if_admin_status", :if_admin_status]),
       if_oper_status: get_integer(update, ["if_oper_status", :if_oper_status]),
-      metadata: get_map(update, ["metadata", :metadata]),
+      if_type: if_type,
+      if_type_name: if_type_name,
+      interface_kind: interface_kind,
+      mtu: get_integer(update, ["mtu", :mtu]) || get_integer(metadata, ["mtu", :mtu]),
+      duplex: get_string(update, ["duplex", :duplex]) || get_string(metadata, ["duplex", :duplex]),
+      metadata: metadata,
       created_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
     }
 
-    if record.device_id && record.if_index do
+    if record.device_id && record.interface_uid do
       record
     else
       nil
@@ -254,6 +316,78 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp normalize_topology(_update), do: nil
+
+  defp build_interface_uid(nil, if_name, if_descr) do
+    cond do
+      is_binary(if_name) and String.trim(if_name) != "" -> "ifname:#{String.trim(if_name)}"
+      is_binary(if_descr) and String.trim(if_descr) != "" -> "ifdescr:#{String.trim(if_descr)}"
+      true -> nil
+    end
+  end
+
+  defp build_interface_uid(if_index, _if_name, _if_descr) when is_integer(if_index) do
+    "ifindex:#{if_index}"
+  end
+
+  defp classify_if_type(nil, if_name) do
+    case classify_if_name(if_name) do
+      nil -> {nil, nil}
+      kind -> {nil, kind}
+    end
+  end
+
+  defp classify_if_type(if_type, if_name) when is_integer(if_type) do
+    case interface_type_map(if_type) do
+      {name, kind} -> {name, kind}
+      nil -> {nil, classify_if_name(if_name)}
+    end
+  end
+
+  @interface_type_map %{
+    1 => {"other", "unknown"},
+    6 => {"ethernetCsmacd", "physical"},
+    24 => {"softwareLoopback", "loopback"},
+    53 => {"propVirtual", "virtual"},
+    62 => {"fastEthernet", "physical"},
+    69 => {"fastEthernetFx", "physical"},
+    71 => {"ieee80211", "wireless"},
+    117 => {"gigabitEthernet", "physical"},
+    131 => {"tunnel", "tunnel"},
+    135 => {"l2vlan", "virtual"},
+    136 => {"l3ipvlan", "virtual"},
+    161 => {"ieee8023adLag", "aggregate"},
+    166 => {"mplsTunnel", "tunnel"},
+    209 => {"bridge", "bridge"}
+  }
+
+  defp interface_type_map(if_type) do
+    Map.get(@interface_type_map, if_type)
+  end
+
+  defp classify_if_name(nil), do: nil
+
+  @interface_name_prefixes [
+    {"lo", "loopback"},
+    {"br", "bridge"},
+    {"vlan", "virtual"},
+    {"tun", "tunnel"},
+    {"wg", "tunnel"},
+    {"docker", "virtual"},
+    {"veth", "virtual"}
+  ]
+
+  defp classify_if_name(if_name) when is_binary(if_name) do
+    name = String.downcase(String.trim(if_name))
+    interface_kind_for_name(name)
+  end
+
+  defp interface_kind_for_name(""), do: nil
+
+  defp interface_kind_for_name(name) do
+    Enum.find_value(@interface_name_prefixes, fn {prefix, kind} ->
+      if String.starts_with?(name, prefix), do: kind
+    end)
+  end
 
   defp insert_bulk([], _resource, _actor, _label), do: :ok
 

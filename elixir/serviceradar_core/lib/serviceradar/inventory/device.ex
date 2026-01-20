@@ -208,6 +208,10 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    destroy :destroy do
+      description "Delete device records (used during merges)"
+    end
+
     # Identity reconciliation actions
 
     action :resolve_identity do
@@ -258,6 +262,12 @@ defmodule ServiceRadar.Inventory.Device do
 
     # Update devices: operators/admins (schema isolation via search_path)
     policy action_type(:update) do
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
+    end
+
+    # Destroy devices: operators/admins (schema isolation via search_path)
+    policy action_type(:destroy) do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
     end

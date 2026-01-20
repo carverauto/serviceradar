@@ -3,18 +3,8 @@ defmodule ServiceRadar.Inventory.Interface do
   Network interface resource for discovered interfaces.
 
   Maps to the `discovered_interfaces` TimescaleDB hypertable which stores
-  interface discovery events. Each record represents an interface state
-  at a specific point in time.
-
-  ## OCSF Alignment
-
-  Interface fields align with OCSF Network Interface object attributes:
-  - `if_name` -> name
-  - `if_index` -> uid (interface index)
-  - `if_phys_address` -> mac
-  - `ip_addresses` -> ip addresses array
-  - `if_admin_status` -> admin state
-  - `if_oper_status` -> operational state
+  interface observations. Each record represents an interface state at a
+  specific point in time. Retention policy keeps recent observations (3 days).
 
   ## Admin/Oper Status Values
 
@@ -39,7 +29,7 @@ defmodule ServiceRadar.Inventory.Interface do
 
     # Composite primary key: use delimiter-based encoding
     primary_key do
-      keys [:timestamp, :device_id, :if_index]
+      keys [:timestamp, :device_id, :interface_uid]
       delimiter "~"
     end
 
@@ -53,6 +43,7 @@ defmodule ServiceRadar.Inventory.Interface do
   code_interface do
     define :list_by_device, action: :by_device, args: [:device_id]
     define :get_by_device_and_index, action: :by_device_and_index, args: [:device_id, :if_index]
+    define :get_by_device_and_uid, action: :by_device_and_uid, args: [:device_id, :interface_uid]
     define :list_by_gateway, action: :by_gateway, args: [:gateway_id]
   end
 
@@ -63,6 +54,7 @@ defmodule ServiceRadar.Inventory.Interface do
       accept [
         :timestamp,
         :device_id,
+        :interface_uid,
         :agent_id,
         :gateway_id,
         :device_ip,
@@ -71,13 +63,28 @@ defmodule ServiceRadar.Inventory.Interface do
         :if_descr,
         :if_alias,
         :if_speed,
+        :speed_bps,
         :if_phys_address,
         :ip_addresses,
         :if_admin_status,
         :if_oper_status,
+        :if_type,
+        :if_type_name,
+        :interface_kind,
+        :mtu,
+        :duplex,
         :metadata,
         :created_at
       ]
+    end
+
+    update :reassign_device do
+      description "Reassign interface records to a new device (used during merges)"
+      accept [:device_id]
+    end
+
+    destroy :destroy do
+      description "Delete interface records (used during device merges)"
     end
 
     read :by_device do
@@ -92,6 +99,14 @@ defmodule ServiceRadar.Inventory.Interface do
       argument :if_index, :integer, allow_nil?: false
       get? true
       filter expr(device_id == ^arg(:device_id) and if_index == ^arg(:if_index))
+    end
+
+    read :by_device_and_uid do
+      description "Get a specific interface by device and interface UID"
+      argument :device_id, :string, allow_nil?: false
+      argument :interface_uid, :string, allow_nil?: false
+      get? true
+      filter expr(device_id == ^arg(:device_id) and interface_uid == ^arg(:interface_uid))
     end
 
     read :by_gateway do
@@ -129,7 +144,7 @@ defmodule ServiceRadar.Inventory.Interface do
   end
 
   attributes do
-    # Composite primary key: timestamp + device_id + if_index
+    # Composite primary key: timestamp + device_id + interface_uid
     attribute :timestamp, :utc_datetime do
       allow_nil? false
       primary_key? true
@@ -144,9 +159,15 @@ defmodule ServiceRadar.Inventory.Interface do
       description "Device unique identifier"
     end
 
-    attribute :if_index, :integer do
+    attribute :interface_uid, :string do
       allow_nil? false
       primary_key? true
+      public? true
+      description "Interface unique identifier (ifindex or name-based)"
+    end
+
+    attribute :if_index, :integer do
+      allow_nil? true
       public? true
       description "Interface index (SNMP ifIndex)"
     end
@@ -183,6 +204,11 @@ defmodule ServiceRadar.Inventory.Interface do
 
     attribute :if_speed, :integer do
       public? true
+      description "Interface speed in bits per second (legacy)"
+    end
+
+    attribute :speed_bps, :integer do
+      public? true
       description "Interface speed in bits per second"
     end
 
@@ -205,6 +231,31 @@ defmodule ServiceRadar.Inventory.Interface do
     attribute :if_oper_status, :integer do
       public? true
       description "Operational status (1=up, 2=down, 3=testing)"
+    end
+
+    attribute :if_type, :integer do
+      public? true
+      description "Interface type identifier (ifType)"
+    end
+
+    attribute :if_type_name, :string do
+      public? true
+      description "Interface type name (human-readable)"
+    end
+
+    attribute :interface_kind, :string do
+      public? true
+      description "Interface classification (physical, virtual, loopback, tunnel, etc.)"
+    end
+
+    attribute :mtu, :integer do
+      public? true
+      description "Interface MTU"
+    end
+
+    attribute :duplex, :string do
+      public? true
+      description "Interface duplex mode"
     end
 
     attribute :metadata, :map do

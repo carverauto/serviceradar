@@ -106,6 +106,8 @@ spec:
           value: "true"
         - name: SERVICERADAR_CORE_OBAN_ENABLED
           value: "true"
+        - name: SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED
+          value: {{ default true $coreVals.ashObanSchedulerEnabled | quote }}
         - name: SERVICERADAR_CORE_REPO_ENABLED
           value: "true"
         - name: SERVICERADAR_CORE_REGISTRIES_ENABLED

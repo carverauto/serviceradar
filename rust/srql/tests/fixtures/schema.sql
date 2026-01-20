@@ -134,18 +134,25 @@ CREATE TABLE discovered_interfaces (
     gateway_id       TEXT,
     device_ip       TEXT,
     device_id       TEXT,
+    interface_uid   TEXT        NOT NULL,
     if_index        INT,
     if_name         TEXT,
     if_descr        TEXT,
     if_alias        TEXT,
     if_speed        BIGINT,
+    speed_bps       BIGINT,
+    mtu             INT,
+    duplex          TEXT,
+    if_type         INT,
+    if_type_name    TEXT,
+    interface_kind  TEXT,
     if_phys_address TEXT,
     ip_addresses    TEXT[],
     if_admin_status INT,
     if_oper_status  INT,
     metadata        JSONB,
     created_at      TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (timestamp, device_id, if_index)
+    PRIMARY KEY (timestamp, device_id, interface_uid)
 );
 
 DROP TABLE IF EXISTS otel_traces;

@@ -117,6 +117,9 @@ defmodule ServiceRadar.Application do
         # Log promotion and stateful alert rule defaults
         rule_seeder_child(),
 
+        # Job schedule defaults
+        job_schedule_seeder_child(),
+
         # Mapper config migration from legacy KV storage
         mapper_config_migrator_child(),
 
@@ -291,6 +294,14 @@ defmodule ServiceRadar.Application do
   defp rule_seeder_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.Observability.RuleSeeder
+    else
+      nil
+    end
+  end
+
+  defp job_schedule_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Jobs.JobScheduleSeeder
     else
       nil
     end

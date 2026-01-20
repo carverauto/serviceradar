@@ -221,7 +221,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
     # Extract settings from the config map
     raw_settings = Map.merge(check.config || %{}, check.metadata || %{})
-    settings = stringify_keys(raw_settings)
+    settings =
+      raw_settings
+      |> stringify_keys()
+      |> maybe_put_device_uid(check.device_uid)
 
     %{
       check_id: to_string(check.id),
@@ -263,6 +266,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp stringify_value(v) when is_map(v), do: stringify_keys(v)
   defp stringify_value(v) when is_list(v), do: Enum.map(v, &stringify_value/1)
   defp stringify_value(v), do: v
+
+  defp maybe_put_device_uid(settings, device_uid)
+       when is_map(settings) and is_binary(device_uid) and device_uid != "" do
+    Map.put(settings, "device_uid", device_uid)
+  end
+
+  defp maybe_put_device_uid(settings, _device_uid), do: settings
 
   # Compute SHA256 hash of the config for versioning
   defp compute_version_hash(check_configs, sync_payload, sysmon_config, dusk_config) do

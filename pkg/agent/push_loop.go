@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +30,7 @@ import (
 	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
@@ -52,6 +52,28 @@ var (
 	errSweepHostsNotArray = errors.New("hosts field is not an array")
 )
 
+type icmpCheckConfig struct {
+	ID       string
+	Name     string
+	Target   string
+	DeviceID string
+	Interval time.Duration
+	Timeout  time.Duration
+	Enabled  bool
+}
+
+type icmpCheckResult struct {
+	CheckID        string  `json:"check_id"`
+	CheckName      string  `json:"check_name"`
+	Target         string  `json:"target"`
+	DeviceID       string  `json:"device_id,omitempty"`
+	Available      bool    `json:"available"`
+	ResponseTimeNs int64   `json:"response_time_ns"`
+	PacketLoss     float64 `json:"packet_loss"`
+	Timestamp      int64   `json:"timestamp"`
+	Error          string  `json:"error,omitempty"`
+}
+
 // PushLoop manages the periodic pushing of agent status to the gateway.
 type PushLoop struct {
 	server             *Server
@@ -69,6 +91,9 @@ type PushLoop struct {
 	enrollMu           sync.Mutex
 	enrollInFlight     bool
 	sweepResultsSeq    string
+	icmpChecks         map[string]*icmpCheckConfig
+	icmpLastRun        map[string]time.Time
+	icmpMu             sync.RWMutex
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -145,14 +170,6 @@ const (
 	maxEnrollRetryDelay       = 30 * time.Second
 )
 
-// Check type constants for goconst compliance
-const (
-	icmpCheckType = "icmp"
-	tcpCheckType  = "tcp"
-	httpCheckType = "http"
-	grpcCheckType = "grpc"
-)
-
 // NewPushLoop creates a new push loop.
 func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval time.Duration, log logger.Logger) *PushLoop {
 	if interval <= 0 {
@@ -167,6 +184,8 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		done:               make(chan struct{}),
 		stopCh:             make(chan struct{}),
 		configPollInterval: defaultConfigPollInterval,
+		icmpChecks:         make(map[string]*icmpCheckConfig),
+		icmpLastRun:        make(map[string]time.Time),
 	}
 }
 
@@ -283,6 +302,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		p.pushSysmonStatus(ctx, sysmonStatus)
 	}
 
+	sentICMPResults := p.pushICMPResults(ctx)
 	sentSweepResults := p.pushSweepResults(ctx)
 	sentMapperResults := p.pushMapperResults(ctx)
 	sentMapperInterfaces := p.pushMapperInterfaces(ctx)
@@ -290,6 +310,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 
 	if len(statuses) == 0 &&
 		sysmonStatus == nil &&
+		!sentICMPResults &&
 		!sentSweepResults &&
 		!sentMapperResults &&
 		!sentMapperInterfaces &&
@@ -433,6 +454,162 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 	return true
 }
 
+func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
+	results := p.collectDueICMPResults(ctx)
+	if len(results) == 0 {
+		return false
+	}
+
+	payload := map[string]interface{}{
+		"results": results,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to marshal ICMP results payload")
+		return false
+	}
+
+	chunk := &proto.ResultsChunk{
+		Data:        data,
+		IsFinal:     true,
+		ChunkIndex:  0,
+		TotalChunks: 1,
+		Timestamp:   time.Now().UnixNano(),
+	}
+
+	statusChunks := p.buildResultsStatusChunks([]*proto.ResultsChunk{chunk}, "icmp_checks", "icmp")
+	if len(statusChunks) == 0 {
+		return false
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {
+		p.logger.Error().Err(err).Msg("Failed to stream ICMP results to gateway")
+		return false
+	}
+
+	p.logger.Info().Int("result_count", len(results)).Msg("Streamed ICMP results to gateway")
+	return true
+}
+
+func (p *PushLoop) collectDueICMPResults(ctx context.Context) []icmpCheckResult {
+	now := time.Now()
+
+	p.icmpMu.RLock()
+	checks := make([]*icmpCheckConfig, 0, len(p.icmpChecks))
+	for _, check := range p.icmpChecks {
+		checks = append(checks, check)
+	}
+	lastRun := make(map[string]time.Time, len(p.icmpLastRun))
+	for id, t := range p.icmpLastRun {
+		lastRun[id] = t
+	}
+	p.icmpMu.RUnlock()
+
+	if len(checks) == 0 {
+		return nil
+	}
+
+	results := make([]icmpCheckResult, 0, len(checks))
+
+	for _, check := range checks {
+		if check == nil || !check.Enabled || check.Target == "" {
+			continue
+		}
+
+		interval := check.Interval
+		if interval <= 0 {
+			interval = p.getInterval()
+		}
+
+		if last, ok := lastRun[check.ID]; ok && now.Sub(last) < interval {
+			continue
+		}
+
+		result := p.runICMPCheck(ctx, check)
+		results = append(results, result)
+
+		p.icmpMu.Lock()
+		p.icmpLastRun[check.ID] = now
+		p.icmpMu.Unlock()
+	}
+
+	return results
+}
+
+func (p *PushLoop) runICMPCheck(ctx context.Context, check *icmpCheckConfig) icmpCheckResult {
+	timeout := check.Timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	scanner, err := scan.NewICMPSweeper(timeout, defaultICMPSweeperRateLimit, p.logger)
+	if err != nil {
+		return icmpCheckResult{
+			CheckID:   check.ID,
+			CheckName: check.Name,
+			Target:    check.Target,
+			DeviceID:  check.DeviceID,
+			Available: false,
+			Timestamp: time.Now().UnixNano(),
+			Error:     err.Error(),
+		}
+	}
+	defer func() {
+		if stopErr := scanner.Stop(); stopErr != nil {
+			p.logger.Error().Err(stopErr).Msg("Failed to stop ICMP scanner")
+		}
+	}()
+
+	resultChan, err := scanner.Scan(checkCtx, []models.Target{{Host: check.Target, Mode: models.ModeICMP}})
+	if err != nil {
+		return icmpCheckResult{
+			CheckID:   check.ID,
+			CheckName: check.Name,
+			Target:    check.Target,
+			DeviceID:  check.DeviceID,
+			Available: false,
+			Timestamp: time.Now().UnixNano(),
+			Error:     err.Error(),
+		}
+	}
+
+	var result models.Result
+	select {
+	case r, ok := <-resultChan:
+		if ok {
+			result = r
+		}
+	case <-checkCtx.Done():
+		return icmpCheckResult{
+			CheckID:   check.ID,
+			CheckName: check.Name,
+			Target:    check.Target,
+			DeviceID:  check.DeviceID,
+			Available: false,
+			Timestamp: time.Now().UnixNano(),
+			Error:     checkCtx.Err().Error(),
+		}
+	}
+
+	return icmpCheckResult{
+		CheckID:        check.ID,
+		CheckName:      check.Name,
+		Target:         check.Target,
+		DeviceID:       check.DeviceID,
+		Available:      result.Available,
+		ResponseTimeNs: result.RespTime.Nanoseconds(),
+		PacketLoss:     result.PacketLoss,
+		Timestamp:      time.Now().UnixNano(),
+	}
+}
+
 func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsChunk, error) {
 	if response == nil {
 		return nil, nil
@@ -572,14 +749,6 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	// Collect from sweep services (SweepStatusProvider)
 	p.server.mu.RLock()
 	services := append([]Service(nil), p.server.services...)
-	checkerConfs := make(map[string]*CheckerConfig, len(p.server.checkerConfs))
-	for key, conf := range p.server.checkerConfs {
-		if conf == nil {
-			continue
-		}
-		c := *conf // snapshot by value to avoid races on shared pointers
-		checkerConfs[key] = &c
-	}
 	sysmonSvc := p.server.sysmonService
 	p.server.mu.RUnlock()
 
@@ -605,12 +774,12 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 		}
 	}
 
-	// Collect from configured checkers
-	for name, conf := range checkerConfs {
-		status := p.getCheckerStatus(ctx, name, conf)
-		if status != nil {
-			statuses = append(statuses, status)
-		}
+	if status, err := p.server.GetSNMPStatus(ctx); err == nil && status != nil {
+		statuses = append(statuses, p.convertToGatewayStatus(status, status.ServiceName, status.ServiceType))
+	}
+
+	if status, err := p.server.GetDuskStatus(ctx); err == nil && status != nil {
+		statuses = append(statuses, p.convertToGatewayStatus(status, status.ServiceName, status.ServiceType))
 	}
 
 	return statuses, sysmonStatus
@@ -628,29 +797,6 @@ func (p *PushLoop) findSweepService() *SweepService {
 	}
 
 	return nil
-}
-
-// getCheckerStatus gets the status of a configured checker.
-func (p *PushLoop) getCheckerStatus(ctx context.Context, name string, conf *CheckerConfig) *proto.GatewayServiceStatus {
-	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	p.server.mu.RUnlock()
-
-	// Create a status request to get the checker status
-	req := &proto.StatusRequest{
-		ServiceName: name,
-		ServiceType: conf.Type,
-		AgentId:     agentID,
-	}
-
-	// Use the server's GetStatus method to get the checker status
-	resp, err := p.server.GetStatus(ctx, req)
-	if err != nil {
-		p.logger.Debug().Err(err).Str("checker", name).Msg("Failed to get checker status")
-		return nil
-	}
-
-	return p.convertToGatewayStatus(resp, name, conf.Type)
 }
 
 // convertToGatewayStatus converts a StatusResponse to a GatewayServiceStatus.
@@ -1078,8 +1224,6 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		}
 	}
 
-	// Apply the new checks
-	p.applyChecks(configResp.Checks)
 	p.applySweepConfig(configResp.ConfigJson)
 	p.applyMapperConfig(configResp.ConfigJson)
 
@@ -1093,11 +1237,13 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		p.applyDuskConfig(configResp.DuskConfig)
 	}
 
+	// Apply check configs (icmp checks supported)
+	p.applyCheckConfigs(configResp.Checks)
+
 	// Update version
 	p.setConfigVersion(configResp.ConfigVersion)
 	p.logger.Info().
 		Str("version", p.getConfigVersion()).
-		Int("checks", len(configResp.Checks)).
 		Msg("Applied new config from gateway")
 }
 
@@ -1203,7 +1349,6 @@ func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
 		return false
 	}
 
-
 	p.logger.Info().
 		Int("update_count", len(updates)).
 		Msg("Streamed mapper results to gateway")
@@ -1297,75 +1442,8 @@ func (p *PushLoop) pushMapperDerivedResults(
 	return true
 }
 
-// applyChecks converts proto checks to checker configs and updates the server.
-func (p *PushLoop) applyChecks(checks []*proto.AgentCheckConfig) {
-	if len(checks) == 0 {
-		p.logger.Debug().Msg("No checks to apply")
-		return
-	}
-
-	p.server.mu.Lock()
-	defer p.server.mu.Unlock()
-
-	// Track which checks we've seen (for removing stale checks later)
-	seenChecks := make(map[string]bool)
-
-	for _, check := range checks {
-		// Guard against nil entries in the checks slice
-		if check == nil {
-			continue
-		}
-
-		if !check.Enabled {
-			continue
-		}
-
-		// Require a stable map key for server.checkerConfs.
-		if check.Name == "" {
-			continue
-		}
-
-		seenChecks[check.Name] = true
-
-		// Convert proto check to CheckerConfig
-		checkerConf := protoCheckToCheckerConfig(check)
-		if checkerConf == nil {
-			continue
-		}
-
-		// Check if this config already exists and is unchanged
-		if existing, exists := p.server.checkerConfs[check.Name]; exists && existing != nil {
-			if existing.Type == checkerConf.Type &&
-				existing.Address == checkerConf.Address &&
-				existing.Timeout == checkerConf.Timeout {
-				// Config unchanged, skip
-				continue
-			}
-		}
-
-		// Add or update the checker config
-		p.server.checkerConfs[check.Name] = checkerConf
-
-		p.logger.Info().
-			Str("name", check.Name).
-			Str("type", check.CheckType).
-			Str("target", check.Target).
-			Int32("port", check.Port).
-			Msg("Added/updated check from gateway config")
-	}
-
-	// Remove checks that are no longer in the gateway config.
-	// Gateway config is the source of truth for all checker configurations.
-	for name := range p.server.checkerConfs {
-		if !seenChecks[name] {
-			delete(p.server.checkerConfs, name)
-			p.logger.Info().Str("name", name).Msg("Removed stale check")
-		}
-	}
-}
-
 func (p *PushLoop) applySweepConfig(configJSON []byte) {
-	sweepSvc := p.server.findSweepService()
+	sweepSvc := p.findSweepService()
 	if sweepSvc == nil {
 		return
 	}
@@ -1504,6 +1582,83 @@ func (p *PushLoop) applyDuskConfig(protoConfig *proto.DuskConfig) {
 		Msg("Applied dusk config from gateway")
 }
 
+func (p *PushLoop) applyCheckConfigs(checks []*proto.AgentCheckConfig) {
+	parsed := make(map[string]*icmpCheckConfig)
+
+	for _, check := range checks {
+		cfg := parseICMPCheckConfig(check)
+		if cfg == nil {
+			continue
+		}
+		parsed[cfg.ID] = cfg
+	}
+
+	p.icmpMu.Lock()
+	p.icmpChecks = parsed
+	for id := range p.icmpLastRun {
+		if _, ok := parsed[id]; !ok {
+			delete(p.icmpLastRun, id)
+		}
+	}
+	p.icmpMu.Unlock()
+
+	if len(parsed) > 0 {
+		p.logger.Info().Int("icmp_checks", len(parsed)).Msg("Applied ICMP check config from gateway")
+	} else if len(checks) > 0 {
+		p.logger.Debug().Msg("Gateway checks did not include any ICMP checks")
+	}
+}
+
+func parseICMPCheckConfig(check *proto.AgentCheckConfig) *icmpCheckConfig {
+	if check == nil {
+		return nil
+	}
+
+	checkType := strings.ToLower(strings.TrimSpace(check.CheckType))
+	if checkType != "icmp" && checkType != "ping" {
+		return nil
+	}
+
+	if !check.Enabled {
+		return nil
+	}
+
+	target := strings.TrimSpace(check.Target)
+	if target == "" {
+		return nil
+	}
+
+	checkID := strings.TrimSpace(check.CheckId)
+	if checkID == "" {
+		return nil
+	}
+
+	interval := time.Duration(check.IntervalSec) * time.Second
+	timeout := time.Duration(check.TimeoutSec) * time.Second
+
+	deviceID := ""
+	if check.Settings != nil {
+		if value, ok := check.Settings["device_id"]; ok {
+			deviceID = strings.TrimSpace(value)
+		}
+		if deviceID == "" {
+			if value, ok := check.Settings["device_uid"]; ok {
+				deviceID = strings.TrimSpace(value)
+			}
+		}
+	}
+
+	return &icmpCheckConfig{
+		ID:       checkID,
+		Name:     strings.TrimSpace(check.Name),
+		Target:   target,
+		DeviceID: deviceID,
+		Interval: interval,
+		Timeout:  timeout,
+		Enabled:  check.Enabled,
+	}
+}
+
 // protoToDuskConfig converts a proto DuskConfig to a DuskConfig.
 func protoToDuskConfig(p *proto.DuskConfig) *DuskConfig {
 	if p == nil {
@@ -1530,208 +1685,14 @@ func protoToDuskConfig(p *proto.DuskConfig) *DuskConfig {
 	return cfg
 }
 
-// Default timeout for checks when not specified or invalid
-const (
-	defaultCheckTimeout = 10 * time.Second
-	maxCheckTimeout     = 24 * time.Hour
-)
-
-// protoCheckToCheckerConfig converts a proto AgentCheckConfig to a CheckerConfig.
-func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
-	if check == nil {
-		return nil
-	}
-
-	target := normalizeCheckTarget(check.Target)
-	port := normalizeCheckPort(check.Port)
-	wantHTTPS := check.CheckType == "https"
-	checkerType := mapCheckType(check.CheckType)
-	if (checkerType == tcpCheckType || checkerType == grpcCheckType) && port == 0 {
-		// Allow "host:port" or URL targets that already include a port.
-		hasEmbeddedPort := false
-		if host, p, err := net.SplitHostPort(target); err == nil && host != "" && p != "" {
-			hasEmbeddedPort = true
-		} else if parsed, err := url.Parse(target); err == nil && parsed.Host != "" && parsed.Port() != "" {
-			hasEmbeddedPort = true
-		} else {
-			// Handles "host:port/path" inputs without an explicit scheme.
-			hostPort := target
-			if i := strings.IndexAny(hostPort, "/?"); i >= 0 {
-				hostPort = hostPort[:i]
-			}
-
-			// net.SplitHostPort requires bracketed IPv6; be explicit to avoid silently dropping checks.
-			if host, p, err := net.SplitHostPort(hostPort); err == nil && host != "" && p != "" {
-				hasEmbeddedPort = true
-			}
-		}
-		if !hasEmbeddedPort {
-			return nil
-		}
-	}
-	address := buildCheckAddress(target, port, checkerType, check.Path, wantHTTPS)
-	timeout := clampCheckTimeout(check.TimeoutSec)
-
-	return &CheckerConfig{
-		Name:    check.Name,
-		Type:    checkerType,
-		Address: address,
-		Timeout: Duration(timeout),
-		// Additional fields from settings if needed
-	}
-}
-
-func normalizeCheckTarget(target string) string {
-	if target == "" {
-		return "localhost"
-	}
-	return target
-}
-
-func normalizeCheckPort(port int32) int32 {
-	if port < 0 || port > 65535 {
-		return 0
-	}
-	return port
-}
-
-func buildCheckAddress(target string, port int32, checkerType, path string, wantHTTPS bool) string {
-	address := applyHTTPPath(target, checkerType, path, wantHTTPS)
-	if port > 0 {
-		return applyPort(address, target, port, checkerType, wantHTTPS)
-	}
-	return address
-}
-
-func applyHTTPPath(target, checkerType, path string, wantHTTPS bool) string {
-	if checkerType != httpCheckType || path == "" {
-		return target
-	}
-
-	parsed, err := url.Parse(target)
-	if err != nil || parsed.Scheme == "" {
-		scheme := "http://"
-		if wantHTTPS {
-			scheme = "https://"
-		}
-		if parsedURL, err := url.Parse(scheme + target); err == nil {
-			parsed = parsedURL
-		} else if err != nil {
-			return target
-		}
-	}
-	// Only override if target didn't already include a path.
-	if parsed.Path == "" || parsed.Path == "/" {
-		parsed.Path = path
-	}
-	return parsed.String()
-}
-
-func applyPort(address, target string, port int32, checkerType string, wantHTTPS bool) string {
-	// If target is already host:port (or [ipv6]:port), don't append a second port.
-	if host, _, err := net.SplitHostPort(target); err == nil && host != "" {
-		return target
-	}
-
-	if updated, ok := applyPortToURL(address, port); ok {
-		return updated
-	}
-
-	if isPathLikeTarget(target) {
-		return applyPortToPathLike(target, port, checkerType, wantHTTPS)
-	}
-
-	return joinHostPort(target, port)
-}
-
-func applyPortToURL(address string, port int32) (string, bool) {
-	parsed, err := url.Parse(address)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", false
-	}
-	if parsed.Port() == "" {
-		parsed.Host = net.JoinHostPort(parsed.Hostname(), fmt.Sprintf("%d", port))
-	}
-	return parsed.String(), true
-}
-
-func isPathLikeTarget(target string) bool {
-	parsed, err := url.Parse(target)
-	return err == nil && parsed.Scheme == "" && parsed.Host == "" && parsed.Path != ""
-}
-
-func applyPortToPathLike(target string, port int32, checkerType string, wantHTTPS bool) string {
-	// Path-like target (e.g., "example.com/path"): for HTTP checks, normalize into a URL and apply port.
-	if checkerType != httpCheckType {
-		return target
-	}
-	scheme := "http://"
-	if wantHTTPS {
-		scheme = "https://"
-	}
-	parsedURL, err := url.Parse(scheme + target)
-	if err != nil || parsedURL.Host == "" {
-		return target
-	}
-	if parsedURL.Port() == "" {
-		parsedURL.Host = net.JoinHostPort(parsedURL.Hostname(), fmt.Sprintf("%d", port))
-	}
-	return parsedURL.String()
-}
-
-func joinHostPort(target string, port int32) string {
-	// Plain host/IP target without port.
-	// If target is a bracketed IPv6 literal (e.g. "[::1]"), strip brackets before JoinHostPort.
-	host := target
-	if len(host) >= 2 && host[0] == '[' && host[len(host)-1] == ']' {
-		host = host[1 : len(host)-1]
-	}
-	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
-}
-
-func clampCheckTimeout(timeoutSec int32) time.Duration {
-	// Validate and default timeout to prevent issues with zero/negative values and duration overflow.
-	sec := int64(timeoutSec)
-	if sec <= 0 {
-		return defaultCheckTimeout
-	}
-	timeout := time.Duration(sec) * time.Second
-	if timeout > maxCheckTimeout {
-		return maxCheckTimeout
-	}
-	return timeout
-}
-
-// mapCheckType maps proto check types to internal checker types.
-func mapCheckType(protoType string) string {
-	switch protoType {
-	case icmpCheckType, "ping":
-		return icmpCheckType
-	case tcpCheckType:
-		return tcpCheckType
-	case httpCheckType, "https":
-		return httpCheckType
-	case grpcCheckType:
-		return grpcCheckType
-	case "process":
-		return "process"
-	case sweepType:
-		return sweepType
-	default:
-		return protoType
-	}
-}
-
 // getAgentCapabilities returns the list of capabilities this agent supports.
 func getAgentCapabilities() []string {
 	return []string{
-		icmpCheckType,
-		tcpCheckType,
-		httpCheckType,
-		grpcCheckType,
+		"icmp",
 		sweepType,
 		"snmp",
-		"process",
+		"dusk",
+		"mapper",
 		"sync",
 		"sysmon",
 	}

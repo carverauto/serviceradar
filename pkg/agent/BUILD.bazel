@@ -3,20 +3,17 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "agent",
     srcs = [
-        "checker.go",
         "errors.go",
-        "external_checker.go",
         "icmp_checker.go",
         "interfaces.go",
         "ipv4_sorter.go",
+        "json_helpers.go",
         "kv.go",
         "mapper_config_gateway.go",
         "mapper_service.go",
         "mock_agent.go",
         "push_loop.go",
-        "registry.go",
         "server.go",
-        "snmp_checker.go",
         "snmp_service.go",
         "sweep_config_gateway.go",
         "sweep_results_limits.go",
@@ -29,7 +26,6 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/agentgateway",
-        "//pkg/checker",
         "//pkg/checker/snmp",
         "//pkg/config",
         "//pkg/config/kv",
@@ -52,16 +48,14 @@ go_library(
 go_test(
     name = "agent_test",
     srcs = [
-        "checker_test.go",
         "server_test.go",
-        "sweep_integration_test.go",
+        "sweep_test_helpers_test.go",
         "sweep_performance_test.go",
         "sweep_service_sequencing_test.go",
         "sysmon_service_test.go",
     ],
     embed = [":agent"],
     deps = [
-        "//pkg/checker",
         "//pkg/config",
         "//pkg/config/kv",
         "//pkg/grpc",
@@ -71,8 +65,6 @@ go_test(
         "//proto",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
-        "@org_golang_google_grpc//codes",
-        "@org_golang_google_grpc//status",
         "@org_uber_go_mock//gomock",
     ],
 )
