@@ -21,19 +21,10 @@ import (
 )
 
 var (
-	errInvalidPort          = errors.New("invalid port")
-	errDetailsRequiredPorts = errors.New("details field is required for port checks")
-	errDetailsRequiredGRPC  = errors.New("details field is required for gRPC checks")
-	errDetailsRequiredSNMP  = errors.New("details field is required for SNMP checks")
-	errInvalidDetailsFormat = errors.New("invalid details format: expected 'host:port'")
-	errSNMPServiceUnhealthy = errors.New("SNMP service reported unhealthy")
-	errInvalidDuration      = errors.New("invalid duration")
-	errSweepConfigNil       = errors.New("sweep config is nil")
-	errNoSweepService       = errors.New("no sweep service available for ICMP check")
-	errICMPCheck            = errors.New("ICMP check failed")
-
-	// Configuration errors.
-	errInvalidJSONResponse = errors.New("invalid JSON response from checker")
+	errInvalidDuration = errors.New("invalid duration")
+	errSweepConfigNil  = errors.New("sweep config is nil")
+	errNoSweepService  = errors.New("no sweep service available for ICMP check")
+	errICMPCheck       = errors.New("ICMP check failed")
 
 	// KV.
 	errDataServiceUnavailable = errors.New("data service unavailable")

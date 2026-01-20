@@ -155,12 +155,6 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		ServiceType: "dusk-checker",
 		Scope:       ConfigScopeGlobal,
 		KVKey:       "config/dusk-checker.json",
-	"snmp-checker": {
-		Name:        "snmp-checker",
-		DisplayName: "SNMP Checker",
-		ServiceType: "snmp-checker",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/snmp-checker.json",
 		Format:      ConfigFormatJSON,
 	},
 	"sysmon-osx-checker": {

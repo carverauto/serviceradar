@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -32,9 +31,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/carverauto/serviceradar/pkg/checker"
 	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sysmon"
@@ -44,15 +41,10 @@ import (
 var (
 	// ErrAgentIDRequired indicates agent_id is required in configuration
 	ErrAgentIDRequired = errors.New("agent_id is required in configuration")
-	// ErrInvalidJSONResponse indicates invalid JSON response from checker
-	ErrInvalidJSONResponse = errors.New("invalid JSON response from checker")
 )
 
 const (
-	defaultTimeout     = 30 * time.Second
 	defaultPartition   = "default"
-	jsonSuffix         = ".json"
-	grpcType           = "grpc"
 	sweepType          = "sweep"
 	defaultErrChansize = 10
 )
@@ -105,16 +97,12 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 // initializeServer creates a new Server struct with default values.
 func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *Server {
 	return &Server{
-		checkers:     make(map[string]checker.Checker),
-		checkerConfs: make(map[string]*CheckerConfig),
-		configDir:    configDir,
-		services:     make([]Service, 0),
-		registry:     initRegistry(log),
-		errChan:      make(chan error, defaultErrChansize),
-		done:         make(chan struct{}),
-		config:       cfg,
-		connections:  make(map[string]*CheckerConnection),
-		logger:       log,
+		configDir: configDir,
+		services:  make([]Service, 0),
+		errChan:   make(chan error, defaultErrChansize),
+		done:      make(chan struct{}),
+		config:    cfg,
+		logger:    log,
 	}
 }
 
@@ -194,10 +182,6 @@ func (s *Server) loadSweepService(
 }
 
 func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Config) error {
-	if err := s.loadCheckerConfigs(ctx, cfgLoader); err != nil {
-		return fmt.Errorf("failed to load checker configs: %w", err)
-	}
-
 	// Define paths for sweep config
 	fileSweepConfigPath := filepath.Join(s.configDir, sweepType, "sweep.json")
 
@@ -323,10 +307,6 @@ func (s *Server) GetDuskStatus(ctx context.Context) (*proto.StatusResponse, erro
 func (s *Server) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting agent service...")
 
-	if err := s.initializeCheckers(ctx); err != nil {
-		return fmt.Errorf("failed to initialize checkers: %w", err)
-	}
-
 	s.logger.Info().Int("services", len(s.services)).Msg("Found services to start")
 
 	for i, svc := range s.services {
@@ -379,12 +359,6 @@ func (s *Server) Stop(_ context.Context) error {
 	for _, svc := range s.services {
 		if err := svc.Stop(context.Background()); err != nil {
 			s.logger.Error().Err(err).Str("service", svc.Name()).Msg("Failed to stop service")
-		}
-	}
-
-	for name, conn := range s.connections {
-		if err := conn.client.Close(); err != nil {
-			s.logger.Error().Err(err).Str("checker", name).Msg("Error closing connection to checker")
 		}
 	}
 
@@ -447,140 +421,6 @@ func (e *ServiceError) Error() string {
 	return fmt.Sprintf("service %s error: %v", e.ServiceName, e.Err)
 }
 
-func (s *Server) initializeCheckers(ctx context.Context) error {
-	files, err := os.ReadDir(s.configDir)
-	if err != nil {
-		return fmt.Errorf("failed to read config directory: %w", err)
-	}
-
-	s.connections = make(map[string]*CheckerConnection)
-
-	cfgLoader := config.NewConfig(s.logger)
-
-	for _, file := range files {
-		if filepath.Ext(file.Name()) != jsonSuffix {
-			continue
-		}
-
-		filePath := filepath.Join(s.configDir, file.Name())
-
-		conf, err := s.loadCheckerConfig(ctx, cfgLoader, filePath)
-		if err != nil {
-			s.logger.Warn().Err(err).Str("file", file.Name()).Msg("Failed to load checker config")
-
-			continue
-		}
-
-		// Validate required fields
-		if conf.Name == "" {
-			s.logger.Warn().Str("file", file.Name()).Msg("Skipping checker config with empty name")
-			continue
-		}
-
-		if conf.Type == "" {
-			s.logger.Warn().Str("file", file.Name()).Str("name", conf.Name).Msg("Skipping checker config with empty type")
-			continue
-		}
-
-		if conf.Type == grpcType {
-			conn, err := s.connectToChecker(ctx, conf)
-			if err != nil {
-				s.logger.Warn().Err(err).Str("checker", conf.Name).Msg("Failed to connect to checker")
-				continue
-			}
-
-			s.connections[conf.Name] = conn
-		}
-
-		s.checkerConfs[conf.Name] = conf
-
-		s.logger.Info().Str("name", conf.Name).Str("type", conf.Type).Msg("Loaded checker config")
-	}
-
-	return nil
-}
-
-// EnsureConnected ensures the connection is healthy and returns the gRPC client.
-func (c *CheckerConnection) EnsureConnected(ctx context.Context) (*grpc.Client, error) {
-	c.mu.RLock()
-
-	if c.healthy && c.client != nil {
-		c.mu.RUnlock()
-		return c.client, nil
-	}
-
-	c.mu.RUnlock()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Double-check after locking
-	if c.healthy && c.client != nil {
-		return c.client, nil
-	}
-
-	// Close existing connection if it exists
-	if c.client != nil {
-		_ = c.client.Close()
-	}
-
-	clientCfg := grpc.ClientConfig{
-		Address:    c.address,
-		MaxRetries: 3,
-		Logger:     c.logger,
-	}
-
-	// Add security provider as needed
-	client, err := grpc.NewClient(ctx, clientCfg)
-	if err != nil {
-		c.healthy = false
-
-		return nil, fmt.Errorf("failed to reconnect to %s: %w", c.serviceName, err)
-	}
-
-	c.client = client
-	c.healthy = true
-
-	return client, nil
-}
-
-func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerConfig) (*CheckerConnection, error) {
-	clientCfg := grpc.ClientConfig{
-		Address:    checkerConfig.Address,
-		MaxRetries: 3,
-		Logger:     s.logger,
-	}
-
-	securityConfig := checkerConfig.Security
-	if securityConfig == nil {
-		securityConfig = s.config.Security
-	}
-
-	if securityConfig != nil {
-		provider, err := grpc.NewSecurityProvider(ctx, securityConfig, s.logger)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create security provider: %w", err)
-		}
-
-		clientCfg.SecurityProvider = provider
-	}
-
-	s.logger.Info().Str("service", checkerConfig.Name).Str("address", checkerConfig.Address).Msg("Connecting to checker service")
-
-	client, err := grpc.NewClient(ctx, clientCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to checker %s: %w", checkerConfig.Name, err)
-	}
-
-	return &CheckerConnection{
-		client:      client,
-		serviceName: checkerConfig.Name,
-		serviceType: checkerConfig.Type,
-		address:     checkerConfig.Address,
-		logger:      s.logger,
-	}, nil
-}
-
 // GetStatus handles status requests for various service types.
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	// Ensure AgentId and GatewayId are set
@@ -596,14 +436,18 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	var response *proto.StatusResponse
 
 	switch {
-	case isRperfCheckerRequest(req):
-		response, _ = s.handleRperfChecker(ctx, req)
 	case isICMPRequest(req):
 		response, _ = s.handleICMPCheck(ctx, req)
 	case isSweepRequest(req):
 		response, _ = s.getSweepStatus(ctx)
+	case req.ServiceType == SNMPServiceType:
+		response, _ = s.GetSNMPStatus(ctx)
+	case req.ServiceType == DuskServiceType:
+		response, _ = s.GetDuskStatus(ctx)
 	default:
-		response, _ = s.handleDefaultChecker(ctx, req)
+		return nil, status.Errorf(
+			codes.Unimplemented, "GetStatus not supported for service type '%s'", req.ServiceType,
+		)
 	}
 
 	// Include AgentID in the response
@@ -632,93 +476,10 @@ func (s *Server) GetResults(ctx context.Context, req *proto.ResultsRequest) (*pr
 		return s.handleSweepGetResults(ctx, req)
 	}
 
-	// Handle grpc services by forwarding the call
-	if req.ServiceType == grpcType {
-		return s.handleGrpcGetResults(ctx, req)
-	}
-
 	// For non-grpc services, return "not supported"
 	s.logger.Info().Str("serviceType", req.ServiceType).Msg("GetResults not supported for service type")
 
 	return nil, status.Errorf(codes.Unimplemented, "GetResults not supported for service type '%s'", req.ServiceType)
-}
-
-// handleGrpcGetResults forwards GetResults calls to grpc services.
-// This works similarly to handleDefaultChecker but for GetResults calls.
-func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
-	// Convert ResultsRequest to StatusRequest to reuse existing getChecker logic
-	statusReq := &proto.StatusRequest{
-		ServiceName: req.ServiceName,
-		ServiceType: req.ServiceType,
-		AgentId:     req.AgentId,
-		GatewayId:   req.GatewayId,
-		Details:     req.Details,
-	}
-
-	// Use the same getChecker lookup logic as GetStatus
-	statusReq.AgentId = s.config.AgentID
-
-	getChecker, err := s.getChecker(ctx, statusReq)
-	if err != nil {
-		s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Failed to get getChecker for service")
-
-		return &proto.ResultsResponse{
-			Available:   false,
-			Data:        []byte(fmt.Sprintf(`{"error": "Failed to get getChecker: %v"}`, err)),
-			ServiceName: req.ServiceName,
-			ServiceType: req.ServiceType,
-			AgentId:     s.config.AgentID,
-			GatewayId:   req.GatewayId,
-			Timestamp:   time.Now().Unix(),
-		}, nil
-	}
-
-	// For grpc checkers, we need to call GetResults on the underlying service
-	// First check if the getChecker is a grpc getChecker that supports GetResults
-	if externalChecker, ok := getChecker.(*ExternalChecker); ok {
-		// Forward GetResults to the external grpc service
-		s.logger.Info().Str("serviceName", req.ServiceName).Str("details", req.Details).Msg("Forwarding GetResults call to service")
-
-		err := externalChecker.ensureConnected(ctx)
-		if err != nil {
-			s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Failed to connect to grpc service")
-
-			return &proto.ResultsResponse{
-				Available:   false,
-				Data:        []byte(fmt.Sprintf(`{"error": "Failed to connect to service: %v"}`, err)),
-				ServiceName: req.ServiceName,
-				ServiceType: req.ServiceType,
-				AgentId:     s.config.AgentID,
-				GatewayId:   req.GatewayId,
-				Timestamp:   time.Now().Unix(),
-			}, nil
-		}
-
-		grpcClient := proto.NewAgentServiceClient(externalChecker.grpcClient.GetConnection())
-
-		// Forward the GetResults call
-		response, err := grpcClient.GetResults(ctx, req)
-		if err != nil {
-			s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("GetResults call to service failed")
-
-			return &proto.ResultsResponse{
-				Available:   false,
-				Data:        []byte(fmt.Sprintf(`{"error": "GetResults call failed: %v"}`, err)),
-				ServiceName: req.ServiceName,
-				ServiceType: req.ServiceType,
-				AgentId:     s.config.AgentID,
-				GatewayId:   req.GatewayId,
-				Timestamp:   time.Now().Unix(),
-			}, nil
-		}
-
-		return response, nil
-	}
-
-	// If it's not a grpc getChecker, return not supported
-	s.logger.Info().Str("checkerType", fmt.Sprintf("%T", getChecker)).Msg("GetResults not supported for getChecker type")
-
-	return nil, status.Errorf(codes.Unimplemented, "GetResults not supported by getChecker type %T", getChecker)
 }
 
 // StreamResults implements the AgentService StreamResults method for large datasets.
@@ -734,85 +495,10 @@ func (s *Server) StreamResults(req *proto.ResultsRequest, stream proto.AgentServ
 		return s.handleSweepStreamResults(req, stream)
 	}
 
-	// Handle grpc services by forwarding the call
-	if req.ServiceType == grpcType {
-		return s.handleGrpcStreamResults(req, stream)
-	}
-
 	// For non-grpc services, return "not supported"
 	s.logger.Info().Str("serviceType", req.ServiceType).Msg("StreamResults not supported for service type")
 
 	return status.Errorf(codes.Unimplemented, "StreamResults not supported for service type '%s'", req.ServiceType)
-}
-
-// handleGrpcStreamResults forwards StreamResults calls to grpc services.
-func (s *Server) handleGrpcStreamResults(req *proto.ResultsRequest, stream proto.AgentService_StreamResultsServer) error {
-	ctx := stream.Context()
-
-	// Convert ResultsRequest to StatusRequest to reuse existing getChecker logic
-	statusReq := &proto.StatusRequest{
-		ServiceName: req.ServiceName,
-		ServiceType: req.ServiceType,
-		AgentId:     req.AgentId,
-		GatewayId:   req.GatewayId,
-		Details:     req.Details,
-	}
-
-	statusReq.AgentId = s.config.AgentID
-
-	getChecker, err := s.getChecker(ctx, statusReq)
-	if err != nil {
-		s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Failed to get checker for StreamResults")
-		return status.Errorf(codes.Internal, "Failed to get checker: %v", err)
-	}
-
-	externalChecker, ok := getChecker.(*ExternalChecker)
-	if !ok {
-		s.logger.Info().
-			Str("checkerType", fmt.Sprintf("%T", getChecker)).
-			Msg("StreamResults not supported for checker type")
-		return status.Errorf(
-			codes.Unimplemented, "StreamResults not supported by checker type %T", getChecker,
-		)
-	}
-
-	// Ensure connection to the external service
-	if connectErr := externalChecker.ensureConnected(ctx); connectErr != nil {
-		s.logger.Error().Err(connectErr).Str("serviceName", req.ServiceName).Msg("Failed to connect to grpc service for StreamResults")
-		return status.Errorf(codes.Unavailable, "Failed to connect to service: %v", connectErr)
-	}
-
-	grpcClient := proto.NewAgentServiceClient(externalChecker.grpcClient.GetConnection())
-
-	// Forward the StreamResults call
-	upstreamStream, err := grpcClient.StreamResults(ctx, req)
-	if err != nil {
-		s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("StreamResults call to service failed")
-		return status.Errorf(codes.Internal, "StreamResults call failed: %v", err)
-	}
-
-	// Forward all chunks from upstream to downstream
-	for {
-		chunk, err := upstreamStream.Recv()
-
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Error receiving chunk from upstream")
-			return status.Errorf(codes.Internal, "Error receiving chunk: %v", err)
-		}
-
-		if err := stream.Send(chunk); err != nil {
-			s.logger.Error().Err(err).Str("serviceName", req.ServiceName).Msg("Error sending chunk downstream")
-			return status.Errorf(codes.Internal, "Error sending chunk: %v", err)
-		}
-	}
-
-	s.logger.Info().Str("serviceName", req.ServiceName).Msg("StreamResults forwarding completed")
-
-	return nil
 }
 
 // findSweepService finds the first sweep service from the server's services
@@ -1107,47 +793,12 @@ func (s *Server) handleSweepGetResults(ctx context.Context, req *proto.ResultsRe
 	}, nil
 }
 
-func isRperfCheckerRequest(req *proto.StatusRequest) bool {
-	return req.ServiceName == "rperf-checker" && req.ServiceType == grpcType
-}
-
 func isICMPRequest(req *proto.StatusRequest) bool {
 	return req.ServiceType == "icmp" && req.Details != ""
 }
 
 func isSweepRequest(req *proto.StatusRequest) bool {
 	return req.ServiceType == sweepType
-}
-
-var (
-	errNotExternalChecker = errors.New("checker is not an ExternalChecker")
-)
-
-func (s *Server) handleRperfChecker(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
-	c, err := s.getChecker(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get rperf checker: %w", err)
-	}
-
-	extChecker, ok := c.(*ExternalChecker)
-	if !ok {
-		return nil, errNotExternalChecker
-	}
-
-	if err := extChecker.ensureConnected(ctx); err != nil {
-		s.logger.Error().Err(err).Msg("Failed to ensure connection for rperf-checker")
-
-		return nil, fmt.Errorf("failed to ensure rperf-checker connection: %w", err)
-	}
-
-	agentClient := proto.NewAgentServiceClient(extChecker.grpcClient.GetConnection())
-
-	return agentClient.GetStatus(ctx, &proto.StatusRequest{
-		ServiceName: "",
-		ServiceType: grpcType,
-		Details:     "",
-		AgentId:     s.config.AgentID,
-	})
 }
 
 func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
@@ -1184,35 +835,6 @@ func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) 
 	return nil, errNoSweepService
 }
 
-func (s *Server) handleDefaultChecker(
-	ctx context.Context, req *proto.StatusRequest,
-) (*proto.StatusResponse, error) {
-	req.AgentId = s.config.AgentID
-
-	c, err := s.getChecker(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	available, message := c.Check(ctx, req)
-
-	s.logger.Debug().Str("type", req.GetServiceType()).Str("name", req.GetServiceName()).Str("details", req.GetDetails()).Msg("Checker request")
-
-	if !json.Valid(message) {
-		s.logger.Error().Str("serviceName", req.ServiceName).RawJSON("message", message).Msg("Invalid JSON from checker")
-		return nil, errInvalidJSONResponse
-	}
-
-	return &proto.StatusResponse{
-		Available:   available,
-		Message:     message, // json.RawMessage is []byte
-		ServiceName: req.ServiceName,
-		ServiceType: req.ServiceType,
-		AgentId:     req.AgentId,
-		GatewayId:   req.GatewayId,
-	}, nil
-}
-
 func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	for _, svc := range s.services {
 		if provider, ok := svc.(SweepStatusProvider); ok {
@@ -1229,169 +851,6 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 		ServiceType: sweepType,
 		AgentId:     s.config.AgentID,
 	}, nil
-}
-
-func (s *Server) loadCheckerConfig(ctx context.Context, cfgLoader *config.Config, filePath string) (*CheckerConfig, error) {
-	var conf CheckerConfig
-
-	// Load from file (either directly or as fallback)
-	var err error
-	if err = cfgLoader.LoadAndValidate(ctx, filePath, &conf); err != nil {
-		return nil, fmt.Errorf("failed to load checker config %s: %w", filePath, err)
-	}
-
-	s.logger.Info().Str("filePath", filePath).Msg("Loaded checker config from file")
-
-	return s.applyCheckerDefaults(&conf), nil
-}
-
-// applyCheckerDefaults sets default values for a CheckerConfig.
-func (*Server) applyCheckerDefaults(conf *CheckerConfig) *CheckerConfig {
-	if conf.Timeout == 0 {
-		conf.Timeout = Duration(defaultTimeout)
-	}
-
-	if conf.Type == grpcType && conf.Address == "" {
-		conf.Address = conf.ListenAddr
-	}
-
-	return conf
-}
-
-func (s *Server) loadCheckerConfigs(ctx context.Context, cfgLoader *config.Config) error {
-	files, err := os.ReadDir(s.configDir)
-	if err != nil {
-		return fmt.Errorf("failed to read config directory: %w", err)
-	}
-
-	for _, file := range files {
-		if filepath.Ext(file.Name()) != jsonSuffix {
-			continue
-		}
-
-		filePath := filepath.Join(s.configDir, file.Name())
-
-		conf, err := s.loadCheckerConfig(ctx, cfgLoader, filePath)
-		if err != nil {
-			s.logger.Warn().Err(err).Str("file", file.Name()).Msg("Failed to load checker config")
-
-			continue
-		}
-
-		// Validate required fields
-		if conf.Name == "" {
-			s.logger.Warn().Str("file", file.Name()).Msg("Skipping checker config with empty name")
-			continue
-		}
-
-		if conf.Type == "" {
-			s.logger.Warn().Str("file", file.Name()).Str("name", conf.Name).Msg("Skipping checker config with empty type")
-			continue
-		}
-
-		s.checkerConfs[conf.Name] = conf
-
-		s.logger.Info().Str("name", conf.Name).Str("type", conf.Type).Msg("Loaded checker config")
-	}
-
-	return nil
-}
-
-func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (checker.Checker, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	key := fmt.Sprintf("%s:%s:%s", req.GetServiceType(), req.GetServiceName(), req.GetDetails())
-
-	if check, exists := s.checkers[key]; exists {
-		return check, nil
-	}
-
-	var check checker.Checker
-
-	var err error
-
-	if req.ServiceType == "icmp" {
-		s.logger.Info().Str("host", req.Details).Msg("ICMP checker requested")
-
-		host := req.Details
-		if host == "" {
-			host = "127.0.0.1"
-		}
-
-		// Construct device ID for the TARGET being pinged (partition:target_ip)
-		var deviceID string
-
-		if s.config.Partition != "" {
-			deviceID = fmt.Sprintf("%s:%s", s.config.Partition, s.config.HostIP)
-			s.logger.Info().
-				Str("deviceID", deviceID).
-				Str("partition", s.config.Partition).
-				Str("targetIP", host).
-				Msg("Creating ICMP checker with target device ID")
-		} else {
-			s.logger.Info().Str("partition", s.config.Partition).Msg("Creating ICMP checker without device ID - missing partition")
-		}
-
-		check, err = NewICMPCheckerWithDeviceID(host, deviceID, s.logger)
-	} else {
-		// Use registry for other service types
-		checkSecurity := s.config.Security
-
-		// Datasvc health checks should reuse the dedicated KV security block so the
-		// agent dials the SPIFFE-enabled service with the correct trust settings.
-		if req.ServiceName == "kv" && s.config.KVSecurity != nil {
-			checkSecurity = s.config.KVSecurity
-		}
-
-		// Look up checker configuration for this service
-		details := req.Details
-		if conf, exists := s.checkerConfs[req.ServiceName]; exists {
-			if conf.Security != nil {
-				s.logger.Info().
-					Str("service", req.ServiceName).
-					Str("service_type", req.ServiceType).
-					Str("security_mode", string(conf.Security.Mode)).
-					Msg("Using checker-specific security configuration")
-
-				checkSecurity = conf.Security
-			}
-			// Use the checker config's Address if the request doesn't provide details
-			if details == "" && conf.Address != "" {
-				details = conf.Address
-				s.logger.Info().
-					Str("service", req.ServiceName).
-					Str("address", conf.Address).
-					Msg("Using checker config address as details")
-			}
-		}
-
-		check, err = s.registry.Get(ctx, req.ServiceType, req.ServiceName, details, checkSecurity)
-	}
-
-	if err != nil {
-		s.logger.Error().Err(err).Str("key", key).Msg("Failed to create checker")
-		return nil, fmt.Errorf("failed to create checker: %w", err)
-	}
-
-	s.checkers[key] = check
-
-	s.logger.Info().Str("key", key).Msg("Cached new checker")
-
-	return check, nil
-}
-
-// ListServices returns a list of all configured service names.
-func (s *Server) ListServices() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	services := make([]string, 0, len(s.checkerConfs))
-	for name := range s.checkerConfs {
-		services = append(services, name)
-	}
-
-	return services
 }
 
 // Close gracefully shuts down the server and releases resources.

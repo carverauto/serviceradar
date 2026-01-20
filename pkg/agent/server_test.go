@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -30,7 +29,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/carverauto/serviceradar/pkg/checker"
 	cconfig "github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -78,16 +76,12 @@ func TestNewServerBasic(t *testing.T) {
 	testLogger := createTestLogger()
 
 	s := &Server{
-		configDir:    tmpDir,
-		config:       config,
-		services:     make([]Service, 0),
-		checkers:     make(map[string]checker.Checker),
-		checkerConfs: make(map[string]*CheckerConfig),
-		registry:     initRegistry(testLogger),
-		errChan:      make(chan error, defaultErrChansize),
-		done:         make(chan struct{}),
-		connections:  make(map[string]*CheckerConnection),
-		logger:       testLogger,
+		configDir: tmpDir,
+		config:    config,
+		services:  make([]Service, 0),
+		errChan:   make(chan error, defaultErrChansize),
+		done:      make(chan struct{}),
+		logger:    testLogger,
 	}
 
 	s.createSweepService = func(_ context.Context, _ *SweepConfig) (Service, error) {
@@ -407,16 +401,12 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 
 	testLogger := createTestLogger()
 	s := &Server{
-		configDir:    tmpDir,
-		config:       config,
-		services:     make([]Service, 0),
-		checkers:     make(map[string]checker.Checker),
-		checkerConfs: make(map[string]*CheckerConfig),
-		registry:     initRegistry(testLogger),
-		errChan:      make(chan error, defaultErrChansize),
-		done:         make(chan struct{}),
-		connections:  make(map[string]*CheckerConnection),
-		logger:       testLogger,
+		configDir: tmpDir,
+		config:    config,
+		services:  make([]Service, 0),
+		errChan:   make(chan error, defaultErrChansize),
+		done:      make(chan struct{}),
+		logger:    testLogger,
 	}
 
 	s.createSweepService = func(_ context.Context, sweepConfig *SweepConfig) (Service, error) {
@@ -470,18 +460,15 @@ func TestServerGetStatus(t *testing.T) {
 			},
 		},
 		{
-			name: "port check request",
+			name: "unsupported check request",
 			req: &proto.StatusRequest{
 				ServiceType: "port",
 				ServiceName: "test-port",
 				Details:     "localhost:8080",
 			},
-			wantErr: false,
-			checkStatus: func(t *testing.T, resp *proto.StatusResponse) {
+			wantErr: true,
+			checkStatus: func(t *testing.T, _ *proto.StatusResponse) {
 				t.Helper()
-				assert.NotNil(t, resp)
-				assert.Equal(t, "port", resp.ServiceType)
-				assert.Equal(t, "test-port", resp.ServiceName)
 			},
 		},
 	}
@@ -490,7 +477,7 @@ func TestServerGetStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resp, err := server.GetStatus(context.Background(), tt.req)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				return
 			}
 
@@ -521,69 +508,6 @@ func TestServerLifecycle(t *testing.T) {
 
 	err = server.Close(ctx)
 	require.NoError(t, err)
-}
-
-func TestServerListServices(t *testing.T) {
-	t.Parallel()
-
-	tmpDir, cleanup := setupTempDir(t)
-	defer cleanup()
-
-	checkerConfig := CheckerConfig{
-		Name:    "test-checker",
-		Type:    "port",
-		Address: "localhost",
-		Port:    8080,
-	}
-	data, err := json.Marshal(checkerConfig)
-	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(tmpDir, "test-checker.json"), data, 0600)
-	require.NoError(t, err)
-
-	server, err := NewServer(context.Background(), tmpDir, setupServerConfig(), createTestLogger())
-	require.NoError(t, err)
-
-	services := server.ListServices()
-	assert.NotEmpty(t, services)
-	assert.Contains(t, services, "test-checker")
-}
-
-func TestGetCheckerCaching(t *testing.T) {
-	t.Parallel()
-
-	testLogger := createTestLogger()
-	s := &Server{
-		checkers: make(map[string]checker.Checker),
-		registry: initRegistry(testLogger),
-		config: &ServerConfig{
-			Security: &models.SecurityConfig{},
-		},
-		logger: testLogger,
-		mu:     sync.RWMutex{},
-	}
-
-	ctx := context.Background()
-
-	req1 := &proto.StatusRequest{
-		ServiceName: "SSH",
-		ServiceType: "port",
-		Details:     "127.0.0.1:22",
-	}
-	req2 := &proto.StatusRequest{
-		ServiceName: "SSH",
-		ServiceType: "port",
-		Details:     "192.168.1.1:22",
-	}
-
-	checker1a, err := s.getChecker(ctx, req1)
-	require.NoError(t, err)
-	checker1b, err := s.getChecker(ctx, req1)
-	require.NoError(t, err)
-	assert.Equal(t, checker1a, checker1b, "repeated call with the same request should yield the same checker instance")
-
-	checker2, err := s.getChecker(ctx, req2)
-	require.NoError(t, err)
-	assert.NotEqual(t, checker1a, checker2, "requests with different details should yield different checker instances")
 }
 
 // TestServerGetResults tests the GetResults method for various scenarios
@@ -685,8 +609,7 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	}, createTestLogger())
 	require.NoError(t, err)
 
-	// Test that both GetStatus and GetResults handle grpc services consistently
-	// We use a mock checker to avoid actual network calls
+	// Test that GetResults returns Unimplemented for unsupported service types
 
 	// For non-grpc services, GetResults should return "not supported"
 	icmpResultsReq := &proto.ResultsRequest{
