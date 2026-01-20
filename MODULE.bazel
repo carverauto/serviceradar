@@ -803,17 +803,17 @@ http_file(
 
 http_file(
     name = "debian_libpq_dev_amd64_deb",
-    sha256 = "770a208820cb4061c7296d80b56d1c4ae39f8007ab8c578a13fc1f5eb36ae780",
+    sha256 = "9d3009c8e8fa42f8dbfa4d2fb6a780f32a08c28586e2207a03b315568635a7db",
     urls = [
-        "https://ftp.debian.org/debian/pool/main/p/postgresql-15/libpq-dev_15.14-0+deb12u1_amd64.deb",
+        "https://ftp.debian.org/debian/pool/main/p/postgresql-15/libpq-dev_15.15-0+deb12u1_amd64.deb",
     ],
 )
 
 http_file(
     name = "debian_gcc_15_base_amd64_deb",
-    sha256 = "56026946facc012ce81cfe6542c4c907537f9d40c637927be3033153889bf771",
+    sha256 = "401f60c37644cfa4ba9a9c715b2e9475bfb31d3cdce5cb089e767e2fe2bf0f85",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-15/gcc-15-base_15.2.0-11_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/g/gcc-15/gcc-15-base_15.2.0-12_amd64.deb",
     ],
 )
 
@@ -827,9 +827,9 @@ http_file(
 
 http_file(
     name = "debian_libc6_amd64_deb",
-    sha256 = "6cff801097cd0eb2126b60e533f37afdc78456efacdf2bfae62877f00c795d0b",
+    sha256 = "c32f85d97f98cc68351e80d7456ddc89e465b4b36ff8320d27eea4a840e31fbb",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.41-12_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.42-10_amd64.deb",
     ],
 )
 
