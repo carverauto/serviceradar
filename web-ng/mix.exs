@@ -98,6 +98,9 @@ defmodule ServiceRadarWebNG.MixProject do
   #
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
+    bundle_output = Path.expand("priv/react/server.js", __DIR__)
+    bundle_cd = Path.expand("assets/component", __DIR__)
+
     [
       setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
@@ -115,7 +118,7 @@ defmodule ServiceRadarWebNG.MixProject do
         "cmd --cd assets/component bun install --frozen-lockfile",
         "tailwind serviceradar_web_ng --minify",
         "esbuild serviceradar_web_ng --minify",
-        "phx.react.bun.bundle --component-base=assets/component --output=priv/react/server.js",
+        "phx.react.bun.bundle --component-base=assets/component/src --output=#{bundle_output} --cd=#{bundle_cd}",
         "phx.digest"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],

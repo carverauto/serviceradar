@@ -8,6 +8,7 @@ def _mix_release_impl(ctx):
     elixir = toolchain.elixirinfo
     cargo = rust_toolchain.cargo
     rustc = rust_toolchain.rustc
+    bun = ctx.file.bun
 
     erlang_home = otp.erlang_home
     otp_tar = getattr(otp, "release_dir_tar", None)
@@ -43,6 +44,8 @@ def _mix_release_impl(ctx):
     direct_inputs = toolchain_inputs + ctx.files.srcs + ctx.files.data + ctx.files.extra_dir_srcs
     if hex_cache:
         direct_inputs.append(hex_cache)
+    if bun:
+        direct_inputs.append(bun)
 
     inputs = depset(
         direct = direct_inputs,
@@ -100,6 +103,11 @@ export ELIXIR_ERL_OPTIONS="+fnu"
 export CARGO="$EXECROOT/{cargo_path}"
 export RUSTC="$EXECROOT/{rustc_path}"
 export PATH="$(dirname "$CARGO"):$(dirname "$RUSTC"):/opt/homebrew/bin:$ELIXIR_HOME/bin:$ERLANG_HOME/bin:$PATH"
+BUN_BIN="{bun_path}"
+if [ -n "$BUN_BIN" ] && [ -f "$EXECROOT/$BUN_BIN" ]; then
+  chmod +x "$EXECROOT/$BUN_BIN" || true
+  export PATH="$(dirname "$EXECROOT/$BUN_BIN"):$PATH"
+fi
 RUST_LIB_ROOT="$(cd "$(dirname "$RUSTC")/.." && pwd)"
 export LD_LIBRARY_PATH="$RUST_LIB_ROOT/lib:$RUST_LIB_ROOT/lib/rustlib/x86_64-unknown-linux-gnu/lib:${{LD_LIBRARY_PATH:-}}"
 echo "PATH=$PATH"
@@ -250,27 +258,24 @@ if [ "{run_assets}" = "true" ]; then
   [ -f "$PRESERVED_STATIC/robots.txt" ] && cp "$PRESERVED_STATIC/robots.txt" priv/static/
   [ -d "$PRESERVED_STATIC/images" ] && cp -r "$PRESERVED_STATIC/images" priv/static/
 
-  # Install npm dependencies for React components (ensure bun is available)
+  # Install npm dependencies for React components
   if ! command -v bun >/dev/null 2>&1; then
-    export BUN_INSTALL="$HOME/.bun"
-    mkdir -p "$BUN_INSTALL"
-    if command -v curl >/dev/null 2>&1; then
-      curl -fsSL https://bun.sh/install | bash
-      export PATH="$BUN_INSTALL/bin:$PATH"
+    echo "bun is required for assets but was not found on PATH" >&2
+    exit 1
+  fi
+  if [ -f assets/package.json ]; then
+    if [ -f assets/bun.lockb ] || [ -f assets/bun.lock ]; then
+      (cd assets && bun install --frozen-lockfile)
     else
-      echo "bun install skipped: curl not available" >&2
+      (cd assets && bun install)
     fi
   fi
-
-  if command -v bun >/dev/null 2>&1; then
-    if [ -f assets/package.json ]; then
-      (cd assets && bun install --frozen-lockfile 2>/dev/null || bun install)
+  if [ -f assets/component/package.json ]; then
+    if [ -f assets/component/bun.lockb ] || [ -f assets/component/bun.lock ]; then
+      (cd assets/component && bun install --frozen-lockfile)
+    else
+      (cd assets/component && bun install)
     fi
-    if [ -f assets/component/package.json ]; then
-      (cd assets/component && bun install --frozen-lockfile 2>/dev/null || bun install)
-    fi
-  else
-    echo "bun not available; assets dependencies may be missing" >&2
   fi
 
   TAILWIND_INPUT=assets/css/app.css \
@@ -279,9 +284,9 @@ if [ "{run_assets}" = "true" ]; then
   mix esbuild serviceradar_web_ng --minify
 
   # Bundle React components for Phoenix React Server (if component directory exists)
-  if [ -d assets/component ] && [ -f assets/component/package.json ]; then
+  if [ -d assets/component/src ] && [ -f assets/component/package.json ]; then
     mkdir -p priv/react
-    mix phx.react.bun.bundle --component-base=assets/component --output=priv/react/server.js 2>/dev/null || echo "React bundle skipped (phoenix_react_server not available)"
+    mix phx.react.bun.bundle --component-base=assets/component/src --output="$WORKDIR/priv/react/server.js" --cd="$WORKDIR/assets/component"
   fi
 
   mix phx.digest priv/static -o "$DIGEST_ROOT"
@@ -307,6 +312,7 @@ tar -czf "$EXECROOT/{tar_out}" -C "$RELEASE_DIR" .
             extra_copy = "".join(extra_copy_cmds),
             run_assets = run_assets,
             hex_cache_tar = hex_cache.path if hex_cache else "",
+            bun_path = bun.path if bun else "",
         ),
         use_default_shell_env = False,
     )
@@ -328,6 +334,7 @@ mix_release = rule(
         "extra_dirs": attr.string_list(doc = "Workspace-relative directories to copy into the build workspace"),
         "extra_dir_srcs": attr.label_list(allow_files = True, doc = "File inputs that back extra_dirs"),
         "hex_cache": attr.label(allow_single_file = True, doc = "Tarball containing offline Hex/Mix cache"),
+        "bun": attr.label(allow_single_file = True, doc = "Optional bun binary for SSR asset builds"),
     },
     toolchains = [
         "@rules_elixir//:toolchain_type",
