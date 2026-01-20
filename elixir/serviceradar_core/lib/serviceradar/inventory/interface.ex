@@ -78,6 +78,11 @@ defmodule ServiceRadar.Inventory.Interface do
       ]
     end
 
+    update :reassign_device do
+      description "Reassign interface records to a new device (used during merges)"
+      accept [:device_id]
+    end
+
     destroy :destroy do
       description "Delete interface records (used during device merges)"
     end

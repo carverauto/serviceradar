@@ -724,7 +724,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
              :ok <- reassign_alerts(from_device_id, to_device_id, actor),
              :ok <- reassign_agents(from_device_id, to_device_id, actor),
              :ok <- reassign_alias_states(from_device_id, to_device_id, actor),
-             :ok <- delete_interfaces(from_device_id, actor),
+             :ok <- reassign_interfaces(from_device_id, to_device_id, actor),
              {:ok, _merge} <-
                MergeAudit.record(%{
                  from_device_id: from_device_id,
@@ -765,7 +765,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     bulk_reassign(DeviceAliasState, :reassign_device, {:==, [:device_id], from_id}, %{device_id: to_id}, actor)
   end
 
-  defp delete_interfaces(from_id, actor) do
+  defp reassign_interfaces(from_id, to_id, actor) do
     query =
       Interface
       |> Ash.Query.filter(device_id == ^from_id)
@@ -776,14 +776,67 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         :ok
 
       {:ok, records} ->
-        case Ash.bulk_destroy(records, :destroy, %{}, actor: actor) do
-          {:ok, _} -> :ok
-          :ok -> :ok
-          {:error, _} = error -> error
+        interface_uids = records |> Enum.map(& &1.interface_uid) |> Enum.uniq()
+        timestamps = records |> Enum.map(& &1.timestamp) |> Enum.uniq()
+
+        with {:ok, existing_keys} <-
+               fetch_existing_interface_keys(to_id, interface_uids, timestamps, actor) do
+          {to_update, to_delete} =
+            Enum.split_with(records, fn record ->
+              not MapSet.member?(existing_keys, {record.timestamp, record.interface_uid})
+            end)
+
+          with :ok <- bulk_update_interfaces(to_update, to_id, actor),
+               :ok <- bulk_delete_interfaces(to_delete, actor) do
+            :ok
+          end
         end
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp fetch_existing_interface_keys(_to_id, [], _timestamps, _actor), do: {:ok, MapSet.new()}
+  defp fetch_existing_interface_keys(_to_id, _uids, [], _actor), do: {:ok, MapSet.new()}
+
+  defp fetch_existing_interface_keys(to_id, interface_uids, timestamps, actor) do
+    existing_query =
+      Interface
+      |> Ash.Query.filter(
+        device_id == ^to_id and interface_uid in ^interface_uids and timestamp in ^timestamps
+      )
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+
+    case Ash.read(existing_query, actor: actor) do
+      {:ok, existing} ->
+        existing
+        |> Enum.map(&{&1.timestamp, &1.interface_uid})
+        |> MapSet.new()
+        |> then(&{:ok, &1})
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp bulk_update_interfaces([], _to_id, _actor), do: :ok
+
+  defp bulk_update_interfaces(records, to_id, actor) do
+    case Ash.bulk_update(records, :reassign_device, %{device_id: to_id}, actor: actor) do
+      {:ok, _} -> :ok
+      :ok -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp bulk_delete_interfaces([], _actor), do: :ok
+
+  defp bulk_delete_interfaces(records, actor) do
+    case Ash.bulk_destroy(records, :destroy, %{}, actor: actor) do
+      {:ok, _} -> :ok
+      :ok -> :ok
+      {:error, _} = error -> error
     end
   end
 

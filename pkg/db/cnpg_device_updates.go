@@ -61,7 +61,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 
 		arbitrarySource := string(update.Source)
 		if arbitrarySource == "" {
-			arbitrarySource = "unknown"
+			arbitrarySource = unknownValue
 		}
 
 		// Insert into device_updates log (hypertable for history)

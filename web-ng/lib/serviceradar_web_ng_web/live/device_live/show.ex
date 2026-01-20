@@ -136,6 +136,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     # Load network interfaces via SRQL
     {network_interfaces, interfaces_error} = load_interfaces(srql_module, uid, scope)
+
     has_ifaces =
       is_binary(interfaces_error) or
         (is_list(network_interfaces) and network_interfaces != [])
@@ -155,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:has_ifaces, has_ifaces)
      |> assign(:active_tab, active_tab)
      |> assign(
-        :panels,
+       :panels,
        srql_response
        |> Engine.build_panels()
        |> drop_low_value_categories()

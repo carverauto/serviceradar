@@ -169,7 +169,7 @@ func buildInterfaceUID(iface *models.DiscoveredInterface) string {
 		return fmt.Sprintf("ifdescr:%s", descr)
 	}
 
-	return "unknown"
+	return unknownValue
 }
 
 func safeInterfaceIP(iface *models.DiscoveredInterface) string {

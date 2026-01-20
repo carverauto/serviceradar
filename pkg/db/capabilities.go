@@ -30,7 +30,7 @@ func (db *DB) InsertDeviceCapabilityEvent(ctx context.Context, event *models.Dev
 		event.LastChecked = time.Now().UTC()
 	}
 	if event.State == "" {
-		event.State = "unknown"
+		event.State = unknownValue
 	}
 
 	metadataJSON := "{}"

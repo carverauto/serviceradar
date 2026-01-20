@@ -39,7 +39,10 @@ var (
 	ErrUnknownExecutorType    = errors.New("unknown executor type")
 )
 
-const defaultPartitionValue = "default"
+const (
+	defaultPartitionValue = "default"
+	unknownValue          = "unknown"
+)
 
 // PgxExecutor is an interface satisfied by both *pgxpool.Pool and pgx.Tx
 type PgxExecutor interface {
