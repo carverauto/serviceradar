@@ -36,11 +36,6 @@ var (
 	ErrUnknownExecutorType    = errors.New("unknown executor type")
 )
 
-const (
-	defaultPartitionValue = "default"
-	unknownValue          = "unknown"
-)
-
 // PgxExecutor is an interface satisfied by both *pgxpool.Pool and pgx.Tx
 type PgxExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
