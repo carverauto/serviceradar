@@ -23,12 +23,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
 	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
@@ -50,6 +52,28 @@ var (
 	errSweepHostsNotArray = errors.New("hosts field is not an array")
 )
 
+type icmpCheckConfig struct {
+	ID       string
+	Name     string
+	Target   string
+	DeviceID string
+	Interval time.Duration
+	Timeout  time.Duration
+	Enabled  bool
+}
+
+type icmpCheckResult struct {
+	CheckID        string  `json:"check_id"`
+	CheckName      string  `json:"check_name"`
+	Target         string  `json:"target"`
+	DeviceID       string  `json:"device_id,omitempty"`
+	Available      bool    `json:"available"`
+	ResponseTimeNs int64   `json:"response_time_ns"`
+	PacketLoss     float64 `json:"packet_loss"`
+	Timestamp      int64   `json:"timestamp"`
+	Error          string  `json:"error,omitempty"`
+}
+
 // PushLoop manages the periodic pushing of agent status to the gateway.
 type PushLoop struct {
 	server             *Server
@@ -67,6 +91,9 @@ type PushLoop struct {
 	enrollMu           sync.Mutex
 	enrollInFlight     bool
 	sweepResultsSeq    string
+	icmpChecks         map[string]*icmpCheckConfig
+	icmpLastRun        map[string]time.Time
+	icmpMu             sync.RWMutex
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -157,6 +184,8 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		done:               make(chan struct{}),
 		stopCh:             make(chan struct{}),
 		configPollInterval: defaultConfigPollInterval,
+		icmpChecks:         make(map[string]*icmpCheckConfig),
+		icmpLastRun:        make(map[string]time.Time),
 	}
 }
 
@@ -273,6 +302,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		p.pushSysmonStatus(ctx, sysmonStatus)
 	}
 
+	sentICMPResults := p.pushICMPResults(ctx)
 	sentSweepResults := p.pushSweepResults(ctx)
 	sentMapperResults := p.pushMapperResults(ctx)
 	sentMapperInterfaces := p.pushMapperInterfaces(ctx)
@@ -280,6 +310,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 
 	if len(statuses) == 0 &&
 		sysmonStatus == nil &&
+		!sentICMPResults &&
 		!sentSweepResults &&
 		!sentMapperResults &&
 		!sentMapperInterfaces &&
@@ -421,6 +452,162 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 		Msg("Streamed sweep results to gateway")
 
 	return true
+}
+
+func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
+	results := p.collectDueICMPResults(ctx)
+	if len(results) == 0 {
+		return false
+	}
+
+	payload := map[string]interface{}{
+		"results": results,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to marshal ICMP results payload")
+		return false
+	}
+
+	chunk := &proto.ResultsChunk{
+		Data:        data,
+		IsFinal:     true,
+		ChunkIndex:  0,
+		TotalChunks: 1,
+		Timestamp:   time.Now().UnixNano(),
+	}
+
+	statusChunks := p.buildResultsStatusChunks([]*proto.ResultsChunk{chunk}, "icmp_checks", "icmp")
+	if len(statusChunks) == 0 {
+		return false
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {
+		p.logger.Error().Err(err).Msg("Failed to stream ICMP results to gateway")
+		return false
+	}
+
+	p.logger.Info().Int("result_count", len(results)).Msg("Streamed ICMP results to gateway")
+	return true
+}
+
+func (p *PushLoop) collectDueICMPResults(ctx context.Context) []icmpCheckResult {
+	now := time.Now()
+
+	p.icmpMu.RLock()
+	checks := make([]*icmpCheckConfig, 0, len(p.icmpChecks))
+	for _, check := range p.icmpChecks {
+		checks = append(checks, check)
+	}
+	lastRun := make(map[string]time.Time, len(p.icmpLastRun))
+	for id, t := range p.icmpLastRun {
+		lastRun[id] = t
+	}
+	p.icmpMu.RUnlock()
+
+	if len(checks) == 0 {
+		return nil
+	}
+
+	results := make([]icmpCheckResult, 0, len(checks))
+
+	for _, check := range checks {
+		if check == nil || !check.Enabled || check.Target == "" {
+			continue
+		}
+
+		interval := check.Interval
+		if interval <= 0 {
+			interval = p.getInterval()
+		}
+
+		if last, ok := lastRun[check.ID]; ok && now.Sub(last) < interval {
+			continue
+		}
+
+		result := p.runICMPCheck(ctx, check)
+		results = append(results, result)
+
+		p.icmpMu.Lock()
+		p.icmpLastRun[check.ID] = now
+		p.icmpMu.Unlock()
+	}
+
+	return results
+}
+
+func (p *PushLoop) runICMPCheck(ctx context.Context, check *icmpCheckConfig) icmpCheckResult {
+	timeout := check.Timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	scanner, err := scan.NewICMPSweeper(timeout, defaultICMPSweeperRateLimit, p.logger)
+	if err != nil {
+		return icmpCheckResult{
+			CheckID:   check.ID,
+			CheckName: check.Name,
+			Target:    check.Target,
+			DeviceID:  check.DeviceID,
+			Available: false,
+			Timestamp: time.Now().UnixNano(),
+			Error:     err.Error(),
+		}
+	}
+	defer func() {
+		if stopErr := scanner.Stop(); stopErr != nil {
+			p.logger.Error().Err(stopErr).Msg("Failed to stop ICMP scanner")
+		}
+	}()
+
+	resultChan, err := scanner.Scan(checkCtx, []models.Target{{Host: check.Target, Mode: models.ModeICMP}})
+	if err != nil {
+		return icmpCheckResult{
+			CheckID:   check.ID,
+			CheckName: check.Name,
+			Target:    check.Target,
+			DeviceID:  check.DeviceID,
+			Available: false,
+			Timestamp: time.Now().UnixNano(),
+			Error:     err.Error(),
+		}
+	}
+
+	var result models.Result
+	select {
+	case r, ok := <-resultChan:
+		if ok {
+			result = r
+		}
+	case <-checkCtx.Done():
+		return icmpCheckResult{
+			CheckID:   check.ID,
+			CheckName: check.Name,
+			Target:    check.Target,
+			DeviceID:  check.DeviceID,
+			Available: false,
+			Timestamp: time.Now().UnixNano(),
+			Error:     checkCtx.Err().Error(),
+		}
+	}
+
+	return icmpCheckResult{
+		CheckID:        check.ID,
+		CheckName:      check.Name,
+		Target:         check.Target,
+		DeviceID:       check.DeviceID,
+		Available:      result.Available,
+		ResponseTimeNs: result.RespTime.Nanoseconds(),
+		PacketLoss:     result.PacketLoss,
+		Timestamp:      time.Now().UnixNano(),
+	}
 }
 
 func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsChunk, error) {
@@ -1050,6 +1237,9 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		p.applyDuskConfig(configResp.DuskConfig)
 	}
 
+	// Apply check configs (icmp checks supported)
+	p.applyCheckConfigs(configResp.Checks)
+
 	// Update version
 	p.setConfigVersion(configResp.ConfigVersion)
 	p.logger.Info().
@@ -1253,7 +1443,7 @@ func (p *PushLoop) pushMapperDerivedResults(
 }
 
 func (p *PushLoop) applySweepConfig(configJSON []byte) {
-	sweepSvc := p.server.findSweepService()
+	sweepSvc := p.findSweepService()
 	if sweepSvc == nil {
 		return
 	}
@@ -1392,6 +1582,83 @@ func (p *PushLoop) applyDuskConfig(protoConfig *proto.DuskConfig) {
 		Msg("Applied dusk config from gateway")
 }
 
+func (p *PushLoop) applyCheckConfigs(checks []*proto.AgentCheckConfig) {
+	parsed := make(map[string]*icmpCheckConfig)
+
+	for _, check := range checks {
+		cfg := parseICMPCheckConfig(check)
+		if cfg == nil {
+			continue
+		}
+		parsed[cfg.ID] = cfg
+	}
+
+	p.icmpMu.Lock()
+	p.icmpChecks = parsed
+	for id := range p.icmpLastRun {
+		if _, ok := parsed[id]; !ok {
+			delete(p.icmpLastRun, id)
+		}
+	}
+	p.icmpMu.Unlock()
+
+	if len(parsed) > 0 {
+		p.logger.Info().Int("icmp_checks", len(parsed)).Msg("Applied ICMP check config from gateway")
+	} else if len(checks) > 0 {
+		p.logger.Debug().Msg("Gateway checks did not include any ICMP checks")
+	}
+}
+
+func parseICMPCheckConfig(check *proto.AgentCheckConfig) *icmpCheckConfig {
+	if check == nil {
+		return nil
+	}
+
+	checkType := strings.ToLower(strings.TrimSpace(check.CheckType))
+	if checkType != "icmp" && checkType != "ping" {
+		return nil
+	}
+
+	if !check.Enabled {
+		return nil
+	}
+
+	target := strings.TrimSpace(check.Target)
+	if target == "" {
+		return nil
+	}
+
+	checkID := strings.TrimSpace(check.CheckId)
+	if checkID == "" {
+		return nil
+	}
+
+	interval := time.Duration(check.IntervalSec) * time.Second
+	timeout := time.Duration(check.TimeoutSec) * time.Second
+
+	deviceID := ""
+	if check.Settings != nil {
+		if value, ok := check.Settings["device_id"]; ok {
+			deviceID = strings.TrimSpace(value)
+		}
+		if deviceID == "" {
+			if value, ok := check.Settings["device_uid"]; ok {
+				deviceID = strings.TrimSpace(value)
+			}
+		}
+	}
+
+	return &icmpCheckConfig{
+		ID:       checkID,
+		Name:     strings.TrimSpace(check.Name),
+		Target:   target,
+		DeviceID: deviceID,
+		Interval: interval,
+		Timeout:  timeout,
+		Enabled:  check.Enabled,
+	}
+}
+
 // protoToDuskConfig converts a proto DuskConfig to a DuskConfig.
 func protoToDuskConfig(p *proto.DuskConfig) *DuskConfig {
 	if p == nil {
@@ -1421,6 +1688,7 @@ func protoToDuskConfig(p *proto.DuskConfig) *DuskConfig {
 // getAgentCapabilities returns the list of capabilities this agent supports.
 func getAgentCapabilities() []string {
 	return []string{
+		"icmp",
 		sweepType,
 		"snmp",
 		"dusk",

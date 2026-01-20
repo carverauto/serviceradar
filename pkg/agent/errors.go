@@ -23,8 +23,6 @@ import (
 var (
 	errInvalidDuration = errors.New("invalid duration")
 	errSweepConfigNil  = errors.New("sweep config is nil")
-	errNoSweepService  = errors.New("no sweep service available for ICMP check")
-	errICMPCheck       = errors.New("ICMP check failed")
 
 	// KV.
 	errDataServiceUnavailable = errors.New("data service unavailable")
