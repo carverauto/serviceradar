@@ -65,6 +65,7 @@ defmodule ServiceRadarCore.MixProject do
 
       # NATS JetStream for event publishing
       {:jetstream, "~> 0.0.9"},
+      {:connection, path: "../connection", override: true},
 
       # Broadway for high-throughput event processing
       {:broadway, "~> 1.1"},
