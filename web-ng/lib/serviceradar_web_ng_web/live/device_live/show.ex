@@ -155,7 +155,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     favorited_interfaces = load_interface_settings(scope, uid)
 
     # Load interface metrics for favorited interfaces
-    interface_metrics = load_interface_metrics(srql_module, uid, favorited_interfaces, network_interfaces, scope)
+    interface_metrics =
+      load_interface_metrics(srql_module, uid, favorited_interfaces, network_interfaces, scope)
 
     {ip_aliases, ip_alias_error} =
       load_ip_aliases(scope, uid, socket.assigns.show_stale_aliases)
@@ -322,7 +323,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_event("toggle_select_all_interfaces", _params, socket) do
     interfaces = socket.assigns.network_interfaces
     selected = socket.assigns.selected_interfaces
-    all_uids = interfaces |> Enum.map(&Map.get(&1, "interface_uid")) |> Enum.filter(& &1) |> MapSet.new()
+
+    all_uids =
+      interfaces |> Enum.map(&Map.get(&1, "interface_uid")) |> Enum.filter(& &1) |> MapSet.new()
 
     updated =
       if MapSet.size(selected) == MapSet.size(all_uids) and MapSet.equal?(selected, all_uids) do
@@ -359,12 +362,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       case action do
         "favorite" ->
           # Add all selected to favorites and persist
-          {count, new_favorites} = bulk_update_favorites(scope, device_uid, selected, true, socket.assigns.favorited_interfaces)
+          {count, new_favorites} =
+            bulk_update_favorites(
+              scope,
+              device_uid,
+              selected,
+              true,
+              socket.assigns.favorited_interfaces
+            )
+
           {assign(socket, :favorited_interfaces, new_favorites), count, "added to favorites"}
 
         "unfavorite" ->
           # Remove all selected from favorites and persist
-          {count, new_favorites} = bulk_update_favorites(scope, device_uid, selected, false, socket.assigns.favorited_interfaces)
+          {count, new_favorites} =
+            bulk_update_favorites(
+              scope,
+              device_uid,
+              selected,
+              false,
+              socket.assigns.favorited_interfaces
+            )
+
           {assign(socket, :favorited_interfaces, new_favorites), count, "removed from favorites"}
 
         "enable_metrics" ->
@@ -498,7 +517,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       }
     else
       # Query SNMP metrics for the favorited interfaces
-      if_filter = favorited_if_indices |> Enum.map(&to_string/1) |> Enum.join(",")
+      if_filter = Enum.map_join(favorited_if_indices, ",", &to_string/1)
 
       query =
         "in:snmp_metrics uid:\"#{escape_value(device_uid)}\" if_index:[#{if_filter}] " <>
@@ -522,7 +541,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             panels: [],
             error: nil,
             favorited_count: MapSet.size(favorited_uids),
-            message: "No metrics data available yet. Ensure SNMP polling is configured for this device."
+            message:
+              "No metrics data available yet. Ensure SNMP polling is configured for this device."
           }
 
         {:ok, _} ->
@@ -1422,8 +1442,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp interfaces_tab_content(assigns) do
     selected_count = MapSet.size(assigns.selected_interfaces)
-    all_uids = assigns.interfaces |> Enum.map(&Map.get(&1, "interface_uid")) |> Enum.filter(& &1) |> MapSet.new()
-    all_selected = MapSet.size(all_uids) > 0 and MapSet.equal?(all_uids, assigns.selected_interfaces)
+
+    all_uids =
+      assigns.interfaces
+      |> Enum.map(&Map.get(&1, "interface_uid"))
+      |> Enum.filter(& &1)
+      |> MapSet.new()
+
+    all_selected =
+      MapSet.size(all_uids) > 0 and MapSet.equal?(all_uids, assigns.selected_interfaces)
 
     assigns =
       assigns
@@ -1432,7 +1459,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     ~H"""
     <%!-- Interface Metrics Visualization for Favorited Interfaces --%>
-    <.interface_metrics_section :if={@interface_metrics} metrics={@interface_metrics} device_uid={@device_uid} />
+    <.interface_metrics_section
+      :if={@interface_metrics}
+      metrics={@interface_metrics}
+      device_uid={@device_uid}
+    />
 
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200">
@@ -1459,8 +1490,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               phx-click="open_interfaces_bulk_edit"
               class="btn btn-xs btn-primary"
             >
-              <.icon name="hero-pencil-square" class="size-3" />
-              Bulk Edit
+              <.icon name="hero-pencil-square" class="size-3" /> Bulk Edit
             </button>
           </div>
         </div>
@@ -1499,8 +1529,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <tbody>
               <%= for iface <- @interfaces do %>
                 <% iface_uid = Map.get(iface, "interface_uid") %>
-                <% is_selected = is_binary(iface_uid) and MapSet.member?(@selected_interfaces, iface_uid) %>
-                <% is_favorited = is_binary(iface_uid) and MapSet.member?(@favorited_interfaces, iface_uid) %>
+                <% is_selected =
+                  is_binary(iface_uid) and MapSet.member?(@selected_interfaces, iface_uid) %>
+                <% is_favorited =
+                  is_binary(iface_uid) and MapSet.member?(@favorited_interfaces, iface_uid) %>
                 <tr class={["hover:bg-base-200/50", is_selected && "bg-primary/5"]}>
                   <td class="w-8">
                     <input
@@ -1523,7 +1555,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     >
                       <.icon
                         name={if is_favorited, do: "hero-star-solid", else: "hero-star"}
-                        class={["size-4", if(is_favorited, do: "text-warning", else: "text-base-content/30 hover:text-warning/70")]}
+                        class={[
+                          "size-4",
+                          if(is_favorited,
+                            do: "text-warning",
+                            else: "text-base-content/30 hover:text-warning/70"
+                          )
+                        ]}
                       />
                     </button>
                   </td>
@@ -1618,7 +1656,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       </div>
 
       <%!-- Message state (no data available) --%>
-      <div :if={@metrics.has_favorited && @metrics.panels == [] && !@metrics.error} class="p-6 text-center">
+      <div
+        :if={@metrics.has_favorited && @metrics.panels == [] && !@metrics.error}
+        class="p-6 text-center"
+      >
         <.icon name="hero-chart-bar" class="size-10 text-base-content/20 mx-auto" />
         <p class="text-sm text-base-content/70 mt-2">
           {Map.get(@metrics, :message, "No metrics data available for favorited interfaces.")}
@@ -1668,7 +1709,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           Apply action to {@selected_count} selected interface(s).
         </p>
 
-        <.form for={@form} id="interfaces-bulk-form" phx-submit="apply_interfaces_bulk_edit" class="space-y-4">
+        <.form
+          for={@form}
+          id="interfaces-bulk-form"
+          phx-submit="apply_interfaces_bulk_edit"
+          class="space-y-4"
+        >
           <div class="form-control">
             <label class="label">
               <span class="label-text font-medium">Action</span>
@@ -1778,7 +1824,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               placeholder="Enter tags separated by commas (e.g., wan, critical, primary)"
             />
             <label class="label">
-              <span class="label-text-alt text-base-content/60">Tags will be added to existing tags</span>
+              <span class="label-text-alt text-base-content/60">
+                Tags will be added to existing tags
+              </span>
             </label>
           </div>
 
@@ -1900,8 +1948,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {oper_status_text(@status)}
     </span>
     <span :if={@status == nil} class="badge badge-xs badge-ghost gap-1" title="Operational Status">
-      <.icon name="hero-question-mark-circle" class="size-3" />
-      Unknown
+      <.icon name="hero-question-mark-circle" class="size-3" /> Unknown
     </span>
     """
   end

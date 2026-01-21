@@ -134,81 +134,13 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   end
 
   defp evaluate_threshold(setting) do
-    # Check cooldown to avoid duplicate alerts
     cooldown_key = {__MODULE__, :last_alert, setting.device_id, setting.interface_uid}
-    violation_start_key = {__MODULE__, :violation_start, setting.device_id, setting.interface_uid}
-
-    last_alert_time =
-      case :persistent_term.get(cooldown_key, nil) do
-        nil -> 0
-        time -> time
-      end
-
     now = System.monotonic_time(:millisecond)
 
-    if now - last_alert_time < @alert_cooldown_ms do
-      Logger.debug("Skipping threshold check due to cooldown",
-        device_id: setting.device_id,
-        interface_uid: setting.interface_uid
-      )
+    if in_cooldown?(cooldown_key, now) do
+      log_cooldown_skip(setting)
     else
-      case get_latest_metric_value(setting) do
-        {:ok, metric_value} when not is_nil(metric_value) ->
-          if threshold_violated?(metric_value, setting.threshold_comparison, setting.threshold_value) do
-            # Track when violation started for duration-based alerting
-            violation_start =
-              case :persistent_term.get(violation_start_key, nil) do
-                nil ->
-                  :persistent_term.put(violation_start_key, now)
-                  now
-
-                start_time ->
-                  start_time
-              end
-
-            # Check if violation duration has been exceeded
-            duration_ms = (setting.threshold_duration_seconds || 0) * 1000
-            violation_duration = now - violation_start
-
-            if violation_duration >= duration_ms do
-              generate_threshold_alert(setting, metric_value, violation_duration)
-              # Update cooldown and reset violation tracking
-              :persistent_term.put(cooldown_key, now)
-              :persistent_term.erase(violation_start_key)
-            else
-              Logger.debug("Threshold violated but duration not met",
-                device_id: setting.device_id,
-                interface_uid: setting.interface_uid,
-                violation_duration_ms: violation_duration,
-                required_duration_ms: duration_ms
-              )
-            end
-          else
-            # Threshold not violated - reset violation tracking
-            :persistent_term.erase(violation_start_key)
-
-            Logger.debug("Threshold not violated",
-              device_id: setting.device_id,
-              interface_uid: setting.interface_uid,
-              metric_value: metric_value,
-              threshold: setting.threshold_value,
-              comparison: setting.threshold_comparison
-            )
-          end
-
-        {:ok, nil} ->
-          Logger.debug("No metric data available for interface",
-            device_id: setting.device_id,
-            interface_uid: setting.interface_uid
-          )
-
-        {:error, reason} ->
-          Logger.warning("Failed to get metric value for interface",
-            device_id: setting.device_id,
-            interface_uid: setting.interface_uid,
-            reason: inspect(reason)
-          )
-      end
+      evaluate_threshold_value(setting, cooldown_key, now)
     end
   rescue
     error ->
@@ -217,6 +149,90 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         interface_uid: setting.interface_uid,
         error: inspect(error)
       )
+  end
+
+  defp in_cooldown?(cooldown_key, now) do
+    last_alert_time = :persistent_term.get(cooldown_key, 0)
+    now - last_alert_time < @alert_cooldown_ms
+  end
+
+  defp log_cooldown_skip(setting) do
+    Logger.debug("Skipping threshold check due to cooldown",
+      device_id: setting.device_id,
+      interface_uid: setting.interface_uid
+    )
+  end
+
+  defp evaluate_threshold_value(setting, cooldown_key, now) do
+    case get_latest_metric_value(setting) do
+      {:ok, metric_value} when not is_nil(metric_value) ->
+        check_threshold(setting, metric_value, cooldown_key, now)
+
+      {:ok, nil} ->
+        Logger.debug("No metric data available for interface",
+          device_id: setting.device_id,
+          interface_uid: setting.interface_uid
+        )
+
+      {:error, reason} ->
+        Logger.warning("Failed to get metric value for interface",
+          device_id: setting.device_id,
+          interface_uid: setting.interface_uid,
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp check_threshold(setting, metric_value, cooldown_key, now) do
+    violation_start_key = {__MODULE__, :violation_start, setting.device_id, setting.interface_uid}
+
+    if threshold_violated?(metric_value, setting.threshold_comparison, setting.threshold_value) do
+      handle_violation(setting, metric_value, cooldown_key, violation_start_key, now)
+    else
+      clear_violation_tracking(setting, violation_start_key, metric_value)
+    end
+  end
+
+  defp handle_violation(setting, metric_value, cooldown_key, violation_start_key, now) do
+    violation_start = get_or_start_violation(violation_start_key, now)
+    duration_ms = (setting.threshold_duration_seconds || 0) * 1000
+    violation_duration = now - violation_start
+
+    if violation_duration >= duration_ms do
+      generate_threshold_alert(setting, metric_value, violation_duration)
+      :persistent_term.put(cooldown_key, now)
+      :persistent_term.erase(violation_start_key)
+    else
+      Logger.debug("Threshold violated but duration not met",
+        device_id: setting.device_id,
+        interface_uid: setting.interface_uid,
+        violation_duration_ms: violation_duration,
+        required_duration_ms: duration_ms
+      )
+    end
+  end
+
+  defp get_or_start_violation(violation_start_key, now) do
+    case :persistent_term.get(violation_start_key, nil) do
+      nil ->
+        :persistent_term.put(violation_start_key, now)
+        now
+
+      start_time ->
+        start_time
+    end
+  end
+
+  defp clear_violation_tracking(setting, violation_start_key, metric_value) do
+    :persistent_term.erase(violation_start_key)
+
+    Logger.debug("Threshold not violated",
+      device_id: setting.device_id,
+      interface_uid: setting.interface_uid,
+      metric_value: metric_value,
+      threshold: setting.threshold_value,
+      comparison: setting.threshold_comparison
+    )
   end
 
   defp get_latest_metric_value(setting) do

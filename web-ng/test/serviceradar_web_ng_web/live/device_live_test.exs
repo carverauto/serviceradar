@@ -202,7 +202,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       {:ok, conn: conn, device_uid: device_uid}
     end
 
-    test "shows bulk edit button when interfaces are selected", %{conn: conn, device_uid: device_uid} do
+    test "shows bulk edit button when interfaces are selected", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
 
       view

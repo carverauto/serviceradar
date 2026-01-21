@@ -61,12 +61,20 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     current_settings = socket.assigns.settings
     current_enabled = get_in(current_settings, [:metrics_enabled]) || false
 
-    case upsert_interface_setting(scope, device_uid, interface_uid, %{metrics_enabled: not current_enabled}) do
+    case upsert_interface_setting(scope, device_uid, interface_uid, %{
+           metrics_enabled: not current_enabled
+         }) do
       {:ok, updated_settings} ->
         {:noreply,
          socket
          |> assign(:settings, updated_settings)
-         |> put_flash(:info, if(not current_enabled, do: "Metrics collection enabled", else: "Metrics collection disabled"))}
+         |> put_flash(
+           :info,
+           if(current_enabled,
+             do: "Metrics collection disabled",
+             else: "Metrics collection enabled"
+           )
+         )}
 
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Failed to update metrics collection setting")}
@@ -80,12 +88,17 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     current_settings = socket.assigns.settings
     current_favorited = get_in(current_settings, [:favorited]) || false
 
-    case upsert_interface_setting(scope, device_uid, interface_uid, %{favorited: not current_favorited}) do
+    case upsert_interface_setting(scope, device_uid, interface_uid, %{
+           favorited: not current_favorited
+         }) do
       {:ok, updated_settings} ->
         {:noreply,
          socket
          |> assign(:settings, updated_settings)
-         |> put_flash(:info, if(not current_favorited, do: "Added to favorites", else: "Removed from favorites"))}
+         |> put_flash(
+           :info,
+           if(current_favorited, do: "Removed from favorites", else: "Added to favorites")
+         )}
 
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Failed to update favorite status")}
@@ -99,12 +112,20 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     current_settings = socket.assigns.settings
     current_enabled = get_in(current_settings, [:threshold_enabled]) || false
 
-    case upsert_interface_setting(scope, device_uid, interface_uid, %{threshold_enabled: not current_enabled}) do
+    case upsert_interface_setting(scope, device_uid, interface_uid, %{
+           threshold_enabled: not current_enabled
+         }) do
       {:ok, updated_settings} ->
         {:noreply,
          socket
          |> assign(:settings, updated_settings)
-         |> put_flash(:info, if(not current_enabled, do: "Threshold alerting enabled", else: "Threshold alerting disabled"))}
+         |> put_flash(
+           :info,
+           if(current_enabled,
+             do: "Threshold alerting disabled",
+             else: "Threshold alerting enabled"
+           )
+         )}
 
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Failed to update threshold setting")}
@@ -198,7 +219,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   phx-click="toggle_favorite"
                   title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
                 >
-                  <.icon name={if is_favorited, do: "hero-star-solid", else: "hero-star"} class="size-5" />
+                  <.icon
+                    name={if is_favorited, do: "hero-star-solid", else: "hero-star"}
+                    class="size-5"
+                  />
                 </button>
                 <.interface_status_badge
                   oper_status={Map.get(@interface, "if_oper_status")}
@@ -215,8 +239,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <div class="card bg-base-100 border border-base-200 shadow-sm">
             <div class="card-body">
               <h2 class="card-title text-lg">
-                <.icon name="hero-information-circle" class="size-5 text-primary" />
-                Basic Information
+                <.icon name="hero-information-circle" class="size-5 text-primary" /> Basic Information
               </h2>
               <div class="divide-y divide-base-200">
                 <.property_row label="Interface ID" value={format_interface_id(@interface)} />
@@ -236,11 +259,14 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <div class="card bg-base-100 border border-base-200 shadow-sm">
             <div class="card-body">
               <h2 class="card-title text-lg">
-                <.icon name="hero-globe-alt" class="size-5 text-primary" />
-                Network Information
+                <.icon name="hero-globe-alt" class="size-5 text-primary" /> Network Information
               </h2>
               <div class="divide-y divide-base-200">
-                <.property_row label="MAC Address" value={Map.get(@interface, "if_phys_address")} monospace />
+                <.property_row
+                  label="MAC Address"
+                  value={Map.get(@interface, "if_phys_address")}
+                  monospace
+                />
                 <.property_row label="IP Addresses" value={format_ip_list(@interface)} monospace />
                 <.property_row label="Speed" value={format_speed(@interface)} />
                 <.property_row label="Duplex" value={Map.get(@interface, "duplex")} />
@@ -253,8 +279,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <div class="card bg-base-100 border border-base-200 shadow-sm">
             <div class="card-body">
               <h2 class="card-title text-lg">
-                <.icon name="hero-server" class="size-5 text-primary" />
-                SNMP Information
+                <.icon name="hero-server" class="size-5 text-primary" /> SNMP Information
               </h2>
               <div class="divide-y divide-base-200">
                 <.property_row label="ifIndex" value={Map.get(@interface, "if_index")} />
@@ -268,8 +293,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <div class="card bg-base-100 border border-base-200 shadow-sm">
             <div class="card-body">
               <h2 class="card-title text-lg">
-                <.icon name="hero-chart-bar" class="size-5 text-primary" />
-                Metrics Collection
+                <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics Collection
               </h2>
               <div class="divide-y divide-base-200">
                 <% metrics_enabled = settings_value(@settings, :metrics_enabled) %>
@@ -308,8 +332,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         <div class="card bg-base-100 border border-base-200 shadow-sm">
           <div class="card-body">
             <h2 class="card-title text-lg">
-              <.icon name="hero-bell-alert" class="size-5 text-primary" />
-              Threshold Alerting
+              <.icon name="hero-bell-alert" class="size-5 text-primary" /> Threshold Alerting
             </h2>
 
             <% threshold_enabled = settings_value(@settings, :threshold_enabled) %>
@@ -336,7 +359,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
               </div>
 
               <div :if={threshold_enabled} class="py-4 space-y-4">
-                <.form for={@threshold_form} phx-change="update_threshold" phx-submit="save_threshold" class="space-y-4">
+                <.form
+                  for={@threshold_form}
+                  phx-change="update_threshold"
+                  phx-submit="save_threshold"
+                  class="space-y-4"
+                >
                   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div class="form-control">
                       <label class="label">
@@ -344,9 +372,15 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       </label>
                       <select name="threshold[metric]" class="select select-bordered select-sm w-full">
                         <option value="" disabled selected={!threshold_metric}>Select metric</option>
-                        <option value="utilization" selected={threshold_metric == :utilization}>Utilization %</option>
-                        <option value="bandwidth_in" selected={threshold_metric == :bandwidth_in}>Bandwidth In</option>
-                        <option value="bandwidth_out" selected={threshold_metric == :bandwidth_out}>Bandwidth Out</option>
+                        <option value="utilization" selected={threshold_metric == :utilization}>
+                          Utilization %
+                        </option>
+                        <option value="bandwidth_in" selected={threshold_metric == :bandwidth_in}>
+                          Bandwidth In
+                        </option>
+                        <option value="bandwidth_out" selected={threshold_metric == :bandwidth_out}>
+                          Bandwidth Out
+                        </option>
                         <option value="errors" selected={threshold_metric == :errors}>Errors</option>
                       </select>
                     </div>
@@ -355,13 +389,28 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       <label class="label">
                         <span class="label-text text-xs">Condition</span>
                       </label>
-                      <select name="threshold[comparison]" class="select select-bordered select-sm w-full">
-                        <option value="" disabled selected={!threshold_comparison}>Select condition</option>
-                        <option value="gt" selected={threshold_comparison == :gt}>Greater than (&gt;)</option>
-                        <option value="gte" selected={threshold_comparison == :gte}>Greater or equal (&ge;)</option>
-                        <option value="lt" selected={threshold_comparison == :lt}>Less than (&lt;)</option>
-                        <option value="lte" selected={threshold_comparison == :lte}>Less or equal (&le;)</option>
-                        <option value="eq" selected={threshold_comparison == :eq}>Equal to (=)</option>
+                      <select
+                        name="threshold[comparison]"
+                        class="select select-bordered select-sm w-full"
+                      >
+                        <option value="" disabled selected={!threshold_comparison}>
+                          Select condition
+                        </option>
+                        <option value="gt" selected={threshold_comparison == :gt}>
+                          Greater than (&gt;)
+                        </option>
+                        <option value="gte" selected={threshold_comparison == :gte}>
+                          Greater or equal (&ge;)
+                        </option>
+                        <option value="lt" selected={threshold_comparison == :lt}>
+                          Less than (&lt;)
+                        </option>
+                        <option value="lte" selected={threshold_comparison == :lte}>
+                          Less or equal (&le;)
+                        </option>
+                        <option value="eq" selected={threshold_comparison == :eq}>
+                          Equal to (=)
+                        </option>
                       </select>
                     </div>
 
@@ -393,7 +442,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                         class="input input-bordered input-sm w-full"
                       />
                       <label class="label">
-                        <span class="label-text-alt text-xs text-base-content/50">How long threshold must be exceeded before alerting (0 = immediate)</span>
+                        <span class="label-text-alt text-xs text-base-content/50">
+                          How long threshold must be exceeded before alerting (0 = immediate)
+                        </span>
                       </label>
                     </div>
 
@@ -401,29 +452,43 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       <label class="label">
                         <span class="label-text text-xs">Alert Severity</span>
                       </label>
-                      <select name="threshold[severity]" class="select select-bordered select-sm w-full">
+                      <select
+                        name="threshold[severity]"
+                        class="select select-bordered select-sm w-full"
+                      >
                         <option value="info" selected={threshold_severity == :info}>Info</option>
-                        <option value="warning" selected={threshold_severity == :warning}>Warning</option>
-                        <option value="critical" selected={threshold_severity == :critical}>Critical</option>
-                        <option value="emergency" selected={threshold_severity == :emergency}>Emergency</option>
+                        <option value="warning" selected={threshold_severity == :warning}>
+                          Warning
+                        </option>
+                        <option value="critical" selected={threshold_severity == :critical}>
+                          Critical
+                        </option>
+                        <option value="emergency" selected={threshold_severity == :emergency}>
+                          Emergency
+                        </option>
                       </select>
                     </div>
                   </div>
 
                   <div class="flex justify-end">
                     <button type="submit" class="btn btn-primary btn-sm">
-                      <.icon name="hero-check" class="size-4" />
-                      Save Threshold
+                      <.icon name="hero-check" class="size-4" /> Save Threshold
                     </button>
                   </div>
                 </.form>
 
-                <div :if={threshold_metric && threshold_comparison && threshold_value} class="alert alert-info alert-sm">
+                <div
+                  :if={threshold_metric && threshold_comparison && threshold_value}
+                  class="alert alert-info alert-sm"
+                >
                   <.icon name="hero-information-circle" class="size-4" />
                   <span class="text-sm">
-                    Alert (<strong>{threshold_severity}</strong>) when <strong>{threshold_metric_label(threshold_metric)}</strong>
+                    Alert (<strong>{threshold_severity}</strong>) when
+                    <strong>{threshold_metric_label(threshold_metric)}</strong>
                     is <strong>{threshold_comparison_label(threshold_comparison)}</strong>
-                    <strong>{threshold_value}{if threshold_metric == :utilization, do: "%", else: ""}</strong>
+                    <strong>
+                      {threshold_value}{if threshold_metric == :utilization, do: "%", else: ""}
+                    </strong>
                     {if threshold_duration > 0, do: " for #{threshold_duration} seconds", else: ""}
                   </span>
                 </div>
@@ -470,7 +535,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       <span class={[
         "text-sm text-right",
         @monospace && "font-mono",
-        is_nil(@value) || @value == "" && "text-base-content/40"
+        is_nil(@value) || (@value == "" && "text-base-content/40")
       ]}>
         {format_value(@value)}
       </span>
@@ -491,10 +556,13 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         <.icon name={oper_status_icon(@oper_status)} class="size-3" />
         {oper_status_text(@oper_status)}
       </span>
-      <span :if={@admin_status} class={[
-        "badge badge-sm badge-outline gap-1",
-        admin_status_class(@admin_status)
-      ]}>
+      <span
+        :if={@admin_status}
+        class={[
+          "badge badge-sm badge-outline gap-1",
+          admin_status_class(@admin_status)
+        ]}
+      >
         <.icon name={admin_status_icon(@admin_status)} class="size-3" />
         {admin_status_text(@admin_status)}
       </span>
@@ -674,23 +742,27 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp parse_threshold_value(""), do: nil
   defp parse_threshold_value(nil), do: nil
+
   defp parse_threshold_value(value) when is_binary(value) do
     case Integer.parse(value) do
       {int, _} -> int
       :error -> nil
     end
   end
+
   defp parse_threshold_value(value) when is_integer(value), do: value
   defp parse_threshold_value(_), do: nil
 
   defp parse_threshold_duration(""), do: 0
   defp parse_threshold_duration(nil), do: 0
+
   defp parse_threshold_duration(value) when is_binary(value) do
     case Integer.parse(value) do
       {int, _} -> max(0, int)
       :error -> 0
     end
   end
+
   defp parse_threshold_duration(value) when is_integer(value), do: max(0, value)
   defp parse_threshold_duration(_), do: 0
 

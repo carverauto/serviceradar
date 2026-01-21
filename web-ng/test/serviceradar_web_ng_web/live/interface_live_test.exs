@@ -42,20 +42,32 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
       {:ok, conn: conn, device_uid: device_uid, interface_uid: interface_uid}
     end
 
-    test "renders interface details", %{conn: conn, device_uid: device_uid, interface_uid: interface_uid} do
+    test "renders interface details", %{
+      conn: conn,
+      device_uid: device_uid,
+      interface_uid: interface_uid
+    } do
       {:ok, _lv, html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
 
       assert html =~ "eth0"
       assert html =~ "Test Ethernet Interface"
     end
 
-    test "shows status badges", %{conn: conn, device_uid: device_uid, interface_uid: interface_uid} do
+    test "shows status badges", %{
+      conn: conn,
+      device_uid: device_uid,
+      interface_uid: interface_uid
+    } do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
 
       assert has_element?(view, ".badge", "Operational")
     end
 
-    test "can toggle favorite", %{conn: conn, device_uid: device_uid, interface_uid: interface_uid} do
+    test "can toggle favorite", %{
+      conn: conn,
+      device_uid: device_uid,
+      interface_uid: interface_uid
+    } do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
 
       # Click favorite button
@@ -68,7 +80,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
                render(view) =~ "hero-star-solid"
     end
 
-    test "can toggle metrics collection", %{conn: conn, device_uid: device_uid, interface_uid: interface_uid} do
+    test "can toggle metrics collection", %{
+      conn: conn,
+      device_uid: device_uid,
+      interface_uid: interface_uid
+    } do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
 
       # Find and click metrics toggle
@@ -116,13 +132,21 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
       {:ok, conn: conn, device_uid: device_uid, interface_uid: interface_uid}
     end
 
-    test "shows threshold configuration section", %{conn: conn, device_uid: device_uid, interface_uid: interface_uid} do
+    test "shows threshold configuration section", %{
+      conn: conn,
+      device_uid: device_uid,
+      interface_uid: interface_uid
+    } do
       {:ok, _lv, html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
 
       assert html =~ "Threshold Alerting"
     end
 
-    test "can enable threshold alerting", %{conn: conn, device_uid: device_uid, interface_uid: interface_uid} do
+    test "can enable threshold alerting", %{
+      conn: conn,
+      device_uid: device_uid,
+      interface_uid: interface_uid
+    } do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
 
       # Toggle threshold on
