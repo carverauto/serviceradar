@@ -1591,8 +1591,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           </div>
           <div>
             <div class="text-base-content/60 text-xs">Avg Drop Rate</div>
-            <div class={"font-semibold font-mono #{if @aggregate_metrics.avg_drop_rate > 1.0, do: "text-warning", else: ""}"}>
-              {Float.round(@aggregate_metrics.avg_drop_rate, 2)}%
+            <div class={"font-semibold font-mono #{if to_float(@aggregate_metrics.avg_drop_rate) > 1.0, do: "text-warning", else: ""}"}>
+              {Float.round(to_float(@aggregate_metrics.avg_drop_rate), 2)}%
             </div>
           </div>
           <div>
@@ -1903,8 +1903,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       </div>
       <div class="bg-base-200/50 rounded p-2">
         <div class="text-base-content/60">RX Drop Rate</div>
-        <div class={"font-semibold font-mono #{if @rx_drop_rate_percent > 1.0, do: "text-warning", else: ""}"}>
-          {Float.round(@rx_drop_rate_percent || 0.0, 2)}%
+        <div class={"font-semibold font-mono #{if to_float(@rx_drop_rate_percent) > 1.0, do: "text-warning", else: ""}"}>
+          {Float.round(to_float(@rx_drop_rate_percent), 2)}%
         </div>
       </div>
       <div class="bg-base-200/50 rounded p-2">
@@ -1940,6 +1940,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp format_number(n), do: to_string(n)
+
+  # Convert any number to float for Float.round/2 compatibility
+  defp to_float(nil), do: 0.0
+  defp to_float(n) when is_float(n), do: n
+  defp to_float(n) when is_integer(n), do: n * 1.0
+  defp to_float(n) when is_number(n), do: n * 1.0
 
   # Execution Status Badge
   attr :status, :atom, required: true
