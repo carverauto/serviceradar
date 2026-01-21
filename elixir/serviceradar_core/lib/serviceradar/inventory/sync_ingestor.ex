@@ -21,6 +21,22 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
+  @vendor_tokens [
+    {"ubiquiti", "Ubiquiti"},
+    {"unifi", "Ubiquiti"},
+    {"cisco", "Cisco"},
+    {"juniper", "Juniper"},
+    {"arista", "Arista"},
+    {"mikrotik", "MikroTik"},
+    {"fortinet", "Fortinet"},
+    {"palo alto", "Palo Alto Networks"},
+    {"checkpoint", "Check Point"},
+    {"hpe", "HPE"},
+    {"hewlett-packard", "HPE"},
+    {"hp", "HP"},
+    {"dell", "Dell"},
+    {"netgear", "Netgear"}
+  ]
 
   @spec ingest_updates([map()], keyword()) :: :ok | {:error, term()}
   def ingest_updates(updates, opts \\ []) do
@@ -329,6 +345,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     resolved_updates
     |> Enum.reduce(%{}, fn {update, device_id}, acc ->
       source = if update.source in [nil, ""], do: "unknown", else: update.source
+      vendor_name = infer_vendor_name(update)
+      model = infer_model(update, vendor_name)
 
       record = %{
         uid: device_id,
@@ -336,6 +354,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         mac: update.mac,
         hostname: update.hostname,
         name: update.hostname || update.ip,
+        vendor_name: vendor_name,
+        model: model,
         is_available: update.is_available || false,
         metadata: update.metadata || %{},
         tags: update.tags || %{},
@@ -361,6 +381,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
             hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
             name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
+            vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),
+            model: fragment("COALESCE(EXCLUDED.model, ?)", d.model),
             is_available: fragment("COALESCE(EXCLUDED.is_available, ?)", d.is_available),
             metadata: fragment("COALESCE(EXCLUDED.metadata, ?)", d.metadata),
             discovery_sources:
@@ -523,6 +545,91 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       value when is_map(value) -> value
       _ -> %{}
     end
+  end
+
+  defp infer_vendor_name(update) do
+    metadata = update.metadata || %{}
+
+    explicit =
+      get_string(metadata, [
+        "vendor_name",
+        "vendor",
+        "manufacturer",
+        "make",
+        "vendorName"
+      ])
+
+    cond do
+      explicit not in [nil, ""] ->
+        explicit
+
+      vendor_from_source(update.source, metadata) != nil ->
+        vendor_from_source(update.source, metadata)
+
+      (sys_descr = sys_descr_from_metadata(metadata)) not in [nil, ""] ->
+        vendor_from_sys_descr(sys_descr)
+
+      true ->
+        nil
+    end
+  end
+
+  defp infer_model(update, vendor_name) do
+    metadata = update.metadata || %{}
+    explicit = get_string(metadata, ["model", "device_model", "model_name"])
+
+    cond do
+      explicit not in [nil, ""] ->
+        explicit
+
+      vendor_name == "Ubiquiti" ->
+        parse_ubiquiti_model(sys_descr_from_metadata(metadata))
+
+      true ->
+        nil
+    end
+  end
+
+  defp vendor_from_source(source, metadata) do
+    source = source || get_string(metadata, ["source", :source])
+    src = String.downcase(to_string(source || ""))
+
+    cond do
+      src == "" -> nil
+      String.contains?(src, "unifi") -> "Ubiquiti"
+      String.contains?(src, "ubiquiti") -> "Ubiquiti"
+      true -> nil
+    end
+  end
+
+  defp vendor_from_sys_descr(nil), do: nil
+
+  defp vendor_from_sys_descr(sys_descr) when is_binary(sys_descr) do
+    sys_descr = String.downcase(sys_descr)
+
+    Enum.find_value(@vendor_tokens, fn {token, vendor} ->
+      if String.contains?(sys_descr, token), do: vendor, else: nil
+    end)
+  end
+
+  defp parse_ubiquiti_model(nil), do: nil
+
+  defp parse_ubiquiti_model(sys_descr) when is_binary(sys_descr) do
+    parts = String.split(sys_descr)
+
+    case Enum.find_index(parts, fn part ->
+           String.downcase(part) == "unifi"
+         end) do
+      nil ->
+        nil
+
+      idx ->
+        Enum.at(parts, idx + 1)
+    end
+  end
+
+  defp sys_descr_from_metadata(metadata) do
+    get_string(metadata, ["sys_descr", "sysDescr", "sys_description", "sysDescr"])
   end
 
   defp enrich_alias_metadata(update) do
