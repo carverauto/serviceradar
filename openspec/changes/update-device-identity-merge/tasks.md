@@ -10,6 +10,7 @@
 - [x] 2.5 Emit IP alias metadata from mapper discovery before publishing device updates.
 - [x] 2.6 Persist IP alias sightings using DeviceAliasState (AliasEvents) during sync ingestion.
 - [x] 2.7 Resolve IP-only updates via confirmed alias states in DeviceLookup and IdentityReconciler.
+- [x] 2.8 Merge alias-conflict devices during sync ingestion when strong-ID updates hit confirmed alias IPs.
 
 ## 3. Merge Reassignment
 - [x] 3.1 Reassign `discovered_interfaces` records to the canonical device during merges (drop duplicates when keys collide).
@@ -22,3 +23,4 @@
 ## 5. Tests
 - [x] 5.1 Add unit tests for multi-identifier resolution and merge outcomes.
 - [x] 5.2 Add integration test for reconciliation job and interface reassignment.
+- [x] 5.3 Add integration test for alias-conflict merge during sync ingestion.

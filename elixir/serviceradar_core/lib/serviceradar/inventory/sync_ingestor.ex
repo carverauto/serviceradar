@@ -126,6 +126,13 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         bulk_upsert_identifiers(identifier_records)
       end
 
+    merge_result =
+      if device_result == :ok do
+        process_alias_conflicts(resolved_updates, actor)
+      else
+        :ok
+      end
+
     alias_result =
       if device_result == :ok do
         process_alias_updates(resolved_updates, actor)
@@ -133,11 +140,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         :ok
       end
 
-    case {device_result, identifier_result, alias_result} do
-      {:ok, :ok, :ok} -> :ok
-      {{:error, _} = error, _, _} -> error
-      {_, {:error, _} = error, _} -> error
-      {_, _, {:error, _} = error} -> error
+    case {device_result, identifier_result, merge_result, alias_result} do
+      {:ok, :ok, :ok, :ok} -> :ok
+      {{:error, _} = error, _, _, _} -> error
+      {_, {:error, _} = error, _, _} -> error
+      {_, _, {:error, _} = error, _} -> error
+      {_, _, _, {:error, _} = error} -> error
       _ -> :ok
     end
   end
@@ -584,6 +592,49 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         Logger.warning("Alias state processing failed: #{inspect(other)}")
         {:error, other}
     end
+  end
+
+  defp process_alias_conflicts(resolved_updates, actor) do
+    resolved_updates
+    |> Enum.map(fn {update, device_id} ->
+      {device_id, IdentityReconciler.extract_strong_identifiers(update)}
+    end)
+    |> Enum.filter(fn {_device_id, ids} ->
+      IdentityReconciler.has_strong_identifier?(ids) and ids.ip != ""
+    end)
+    |> Enum.each(fn {device_id, ids} ->
+      case IdentityReconciler.lookup_alias_device_id(ids.ip, ids.partition, actor) do
+        {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" ->
+          if alias_device_id != device_id and
+               not IdentityReconciler.service_device_id?(alias_device_id) and
+               IdentityReconciler.serviceradar_uuid?(device_id) do
+            case IdentityReconciler.merge_devices(alias_device_id, device_id,
+                   actor: actor,
+                   reason: "ip_alias_conflict",
+                   details: %{
+                     source: "sync_ingestor",
+                     alias_ip: ids.ip,
+                     update_device_id: device_id
+                   }
+                 ) do
+              :ok ->
+                Logger.info(
+                  "SyncIngestor: merged alias device #{alias_device_id} into #{device_id} (ip=#{ids.ip})"
+                )
+
+              {:error, reason} ->
+                Logger.warning(
+                  "SyncIngestor: failed to merge alias device #{alias_device_id} into #{device_id} (ip=#{ids.ip}): #{inspect(reason)}"
+                )
+            end
+          end
+
+        _ ->
+          :ok
+      end
+    end)
+
+    :ok
   end
 
   defp get_bool(map, keys) do

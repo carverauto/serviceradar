@@ -267,7 +267,12 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       {:ok, nil}
   end
 
-  defp lookup_alias_device_id(ip, partition, actor) do
+  @doc """
+  Lookup a confirmed/updated alias device ID for the given IP.
+  """
+  @spec lookup_alias_device_id(String.t(), String.t() | nil, term()) ::
+          {:ok, String.t() | nil} | {:error, term()}
+  def lookup_alias_device_id(ip, partition, actor) do
     query_opts = if actor, do: [actor: actor], else: []
 
     query =
@@ -805,23 +810,23 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp reassign_device_identifiers(from_id, to_id, actor) do
-    bulk_reassign(DeviceIdentifier, :reassign_device, {:==, [:device_id], from_id}, %{device_id: to_id}, actor)
+    bulk_reassign(DeviceIdentifier, :reassign_device, :device_id, from_id, %{device_id: to_id}, actor)
   end
 
   defp reassign_service_checks(from_id, to_id, actor) do
-    bulk_reassign(ServiceCheck, :reassign_device, {:==, [:device_uid], from_id}, %{device_uid: to_id}, actor)
+    bulk_reassign(ServiceCheck, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
   end
 
   defp reassign_alerts(from_id, to_id, actor) do
-    bulk_reassign(Alert, :reassign_device, {:==, [:device_uid], from_id}, %{device_uid: to_id}, actor)
+    bulk_reassign(Alert, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
   end
 
   defp reassign_agents(from_id, to_id, actor) do
-    bulk_reassign(Agent, :reassign_device, {:==, [:device_uid], from_id}, %{device_uid: to_id}, actor)
+    bulk_reassign(Agent, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
   end
 
   defp reassign_alias_states(from_id, to_id, actor) do
-    bulk_reassign(DeviceAliasState, :reassign_device, {:==, [:device_id], from_id}, %{device_id: to_id}, actor)
+    bulk_reassign(DeviceAliasState, :reassign_device, :device_id, from_id, %{device_id: to_id}, actor)
   end
 
   defp reassign_interfaces(from_id, to_id, actor) do
@@ -882,42 +887,54 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp bulk_update_interfaces([], _to_id, _actor), do: :ok
 
   defp bulk_update_interfaces(records, to_id, actor) do
-    case Ash.bulk_update(records, :reassign_device, %{device_id: to_id}, actor: actor) do
-      {:ok, _} -> :ok
-      :ok -> :ok
-      {:error, _} = error -> error
-    end
+    Ash.bulk_update(records, :reassign_device, %{device_id: to_id}, actor: actor)
+    |> normalize_bulk_result()
   end
 
   defp bulk_delete_interfaces([], _actor), do: :ok
 
   defp bulk_delete_interfaces(records, actor) do
-    case Ash.bulk_destroy(records, :destroy, %{}, actor: actor) do
-      {:ok, _} -> :ok
-      :ok -> :ok
-      {:error, _} = error -> error
+    Ash.bulk_destroy(records, :destroy, %{}, actor: actor)
+    |> normalize_bulk_result()
+  end
+
+  defp bulk_reassign(resource, action, filter_field, filter_value, attrs, actor) do
+    base_query = resource |> Ash.Query.for_read(:read, %{}, actor: actor)
+
+    query =
+      case filter_field do
+        :device_id -> Ash.Query.filter(base_query, device_id == ^filter_value)
+        :device_uid -> Ash.Query.filter(base_query, device_uid == ^filter_value)
+        _ -> {:error, {:unsupported_filter_field, filter_field}}
+      end
+
+    case query do
+      {:error, _} = error ->
+        error
+
+      _ ->
+        case Ash.read(query, actor: actor) do
+          {:ok, []} ->
+            :ok
+
+          {:ok, records} ->
+            Ash.bulk_update(records, action, attrs, actor: actor)
+            |> normalize_bulk_result()
+
+          {:error, _} = error ->
+            error
+        end
     end
   end
 
-  defp bulk_reassign(resource, action, _filter_expr, attrs, actor) do
-    query =
-      resource
-      |> Ash.Query.filter(_filter_expr)
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, []} ->
-        :ok
-
-      {:ok, records} ->
-        case Ash.bulk_update(records, action, attrs, actor: actor) do
-          {:ok, _} -> :ok
-          :ok -> :ok
-          {:error, _} = error -> error
-        end
-
-      {:error, _} = error ->
-        error
+  defp normalize_bulk_result(result) do
+    case result do
+      {:ok, _} -> :ok
+      :ok -> :ok
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{} = bulk_result -> {:error, bulk_result}
+      {:error, _} = error -> error
+      other -> {:error, other}
     end
   end
 
