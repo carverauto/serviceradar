@@ -7,6 +7,9 @@
 - [x] 2.2 Update lookup logic to resolve multiple identifiers in a single update and detect conflicting device IDs.
 - [x] 2.3 Implement deterministic canonical device selection and merge flow (Ash action, atomic).
 - [x] 2.4 Record merge_audit entries with reason and details when merges occur.
+- [ ] 2.5 Emit IP alias metadata from mapper discovery before publishing device updates.
+- [ ] 2.6 Persist IP alias sightings using DeviceAliasState (AliasEvents) during sync ingestion.
+- [ ] 2.7 Resolve IP-only updates via confirmed alias states in DeviceLookup and IdentityReconciler.
 
 ## 3. Merge Reassignment
 - [x] 3.1 Reassign `discovered_interfaces` records to the canonical device during merges (drop duplicates when keys collide).

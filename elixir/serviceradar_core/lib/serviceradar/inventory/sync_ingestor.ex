@@ -12,6 +12,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.AliasEvents
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
   alias ServiceRadar.Repo
 
@@ -77,7 +79,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp ingest_batch(updates, _actor) do
     # Step 1: Normalize all updates
-    normalized_updates = Enum.map(updates, &normalize_update/1)
+    normalized_updates =
+      updates
+      |> Enum.map(&normalize_update/1)
+      |> Enum.map(&enrich_alias_metadata/1)
 
     # Step 2: Extract all identifiers for bulk lookup
     all_identifiers = extract_all_identifiers(normalized_updates)
@@ -121,10 +126,18 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         bulk_upsert_identifiers(identifier_records)
       end
 
-    case {device_result, identifier_result} do
-      {:ok, :ok} -> :ok
-      {{:error, _} = error, _} -> error
-      {_, {:error, _} = error} -> error
+    alias_result =
+      if device_result == :ok do
+        process_alias_updates(resolved_updates, actor)
+      else
+        :ok
+      end
+
+    case {device_result, identifier_result, alias_result} do
+      {:ok, :ok, :ok} -> :ok
+      {{:error, _} = error, _, _} -> error
+      {_, {:error, _} = error, _} -> error
+      {_, _, {:error, _} = error} -> error
       _ -> :ok
     end
   end
@@ -208,19 +221,49 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     if Enum.empty?(ips) do
       %{}
     else
-      query =
-        from(d in Device,
-          where: d.ip in ^ips,
-          select: {d.ip, d.uid}
-        )
+      alias_map = lookup_alias_device_ids_by_ip(ips)
+      remaining_ips = ips -- Map.keys(alias_map)
 
-      Repo.all(query)
-      |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
-      |> Map.new()
+      direct_map =
+        if remaining_ips == [] do
+          %{}
+        else
+          query =
+            from(d in Device,
+              where: d.ip in ^remaining_ips,
+              select: {d.ip, d.uid}
+            )
+
+          Repo.all(query)
+          |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
+          |> Map.new()
+        end
+
+      Map.merge(direct_map, alias_map)
     end
   rescue
     e ->
       Logger.warning("Bulk IP lookup failed: #{inspect(e)}")
+      %{}
+  end
+
+  defp lookup_alias_device_ids_by_ip([]), do: %{}
+
+  defp lookup_alias_device_ids_by_ip(ips) do
+    query =
+      from(a in DeviceAliasState,
+        where:
+          a.alias_type == "ip" and a.alias_value in ^ips and
+            a.state in ["confirmed", "updated"],
+        select: {a.alias_value, a.device_id}
+      )
+
+    Repo.all(query)
+    |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
+    |> Map.new()
+  rescue
+    e ->
+      Logger.warning("Bulk IP alias lookup failed: #{inspect(e)}")
       %{}
   end
 
@@ -460,6 +503,86 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     case get_value(map, keys) do
       value when is_map(value) -> value
       _ -> %{}
+    end
+  end
+
+  defp enrich_alias_metadata(update) do
+    metadata = update.metadata || %{}
+    alias_ips = alias_ips_from_metadata(metadata)
+
+    if alias_ips == [] do
+      update
+    else
+      timestamp = update.timestamp || DateTime.utc_now()
+      timestamp = DateTime.truncate(timestamp, :second)
+      ts_string = DateTime.to_iso8601(timestamp)
+
+      alias_ips =
+        alias_ips
+        |> maybe_add_alias_ip(update.ip)
+        |> Enum.uniq()
+
+      metadata =
+        metadata
+        |> Map.put("_alias_last_seen_at", ts_string)
+        |> maybe_put("_alias_last_seen_ip", update.ip)
+        |> add_alias_ip_keys(alias_ips, ts_string)
+
+      %{update | metadata: metadata, timestamp: timestamp}
+    end
+  end
+
+  defp alias_ips_from_metadata(metadata) do
+    metadata
+    |> Map.keys()
+    |> Enum.flat_map(fn key ->
+      cond do
+        String.starts_with?(key, "ip_alias:") ->
+          [String.trim(String.replace_prefix(key, "ip_alias:", ""))]
+
+        String.starts_with?(key, "alt_ip:") ->
+          [String.trim(String.replace_prefix(key, "alt_ip:", ""))]
+
+        true ->
+          []
+      end
+    end)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp maybe_add_alias_ip(ips, nil), do: ips
+  defp maybe_add_alias_ip(ips, ""), do: ips
+  defp maybe_add_alias_ip(ips, ip), do: ips ++ [ip]
+
+  defp add_alias_ip_keys(metadata, ips, ts_string) do
+    Enum.reduce(ips, metadata, fn ip, acc ->
+      Map.put(acc, "ip_alias:#{ip}", ts_string)
+    end)
+  end
+
+  defp maybe_put(metadata, _key, nil), do: metadata
+  defp maybe_put(metadata, _key, ""), do: metadata
+  defp maybe_put(metadata, key, value), do: Map.put(metadata, key, value)
+
+  defp process_alias_updates(resolved_updates, actor) do
+    confirm_threshold =
+      Application.get_env(:serviceradar_core, :identity_alias_confirm_threshold, 3)
+
+    updates =
+      Enum.map(resolved_updates, fn {update, device_id} ->
+        Map.put(update, :device_id, device_id)
+      end)
+
+    case AliasEvents.process_and_persist(updates,
+           actor: actor,
+           confirm_threshold: confirm_threshold
+         ) do
+      {:ok, _events} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Alias state processing failed: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 

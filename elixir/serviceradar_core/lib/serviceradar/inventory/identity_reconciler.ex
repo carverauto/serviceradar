@@ -79,6 +79,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     # Step 1: Lookup by strong identifiers (merge conflicts if multiple IDs found)
     with {:ok, device_id} when is_binary(device_id) and device_id != "" <-
            lookup_by_strong_identifiers(ids, actor, update.device_id) do
+      _ = maybe_merge_ip_alias_device(device_id, ids, actor)
       {:ok, device_id}
     else
       _ -> resolve_fallback_device_id(update, ids, actor)
@@ -229,7 +230,13 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     if has_strong_identifier?(ids) or ids.ip == "" do
       {:ok, nil}
     else
-      do_lookup_by_ip(ids.ip, actor)
+      case lookup_alias_device_id(ids.ip, ids.partition, actor) do
+        {:ok, device_id} when is_binary(device_id) and device_id != "" ->
+          {:ok, device_id}
+
+        _ ->
+          do_lookup_by_ip(ids.ip, actor)
+      end
     end
   end
 
@@ -258,6 +265,58 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     e ->
       Logger.warning("Failed to lookup device by IP: #{inspect(e)}")
       {:ok, nil}
+  end
+
+  defp lookup_alias_device_id(ip, partition, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    query =
+      DeviceAliasState
+      |> Ash.Query.filter(
+        alias_type == :ip and alias_value == ^ip and state in [:confirmed, :updated]
+      )
+      |> maybe_filter_alias_partition(partition)
+
+    case Ash.read(query, query_opts) do
+      {:ok, [%DeviceAliasState{device_id: device_id} | _]} -> {:ok, device_id}
+      {:ok, []} -> {:ok, nil}
+      {:error, _} = error -> error
+    end
+  rescue
+    e ->
+      Logger.warning("Failed to lookup device by alias IP: #{inspect(e)}")
+      {:ok, nil}
+  end
+
+  defp maybe_merge_ip_alias_device(device_id, ids, actor) do
+    if present_id?(ids.ip) do
+      case lookup_alias_device_id(ids.ip, ids.partition, actor) do
+        {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" ->
+          if alias_device_id != device_id and not service_device_id?(alias_device_id) do
+            _ =
+              merge_devices(alias_device_id, device_id,
+                actor: actor,
+                reason: "ip_alias_conflict",
+                details: %{
+                  source: "identity_reconciler",
+                  alias_ip: ids.ip
+                }
+              )
+          end
+
+        _ ->
+          :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp maybe_filter_alias_partition(query, nil), do: query
+  defp maybe_filter_alias_partition(query, ""), do: query
+
+  defp maybe_filter_alias_partition(query, partition) do
+    Ash.Query.filter(query, partition == ^partition)
   end
 
   @doc """
