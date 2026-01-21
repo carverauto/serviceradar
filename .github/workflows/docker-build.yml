@@ -112,6 +112,12 @@ jobs:
           if login_ghcr "${gh_user}" "${gh_token}"; then
             export GHCR_USERNAME="${gh_user}"
             export GHCR_TOKEN="${gh_token}"
+            export GHCR_DOCKER_AUTH=""
+            {
+              echo "GHCR_USERNAME=${gh_user}"
+              echo "GHCR_TOKEN=${gh_token}"
+              echo "GHCR_DOCKER_AUTH="
+            } >> "${GITHUB_ENV}"
           else
             echo "GITHUB_TOKEN login failed; falling back to GHCR_TOKEN." >&2
             if ! login_ghcr "${GHCR_USERNAME:-}" "${GHCR_TOKEN:-}"; then
@@ -120,6 +126,10 @@ jobs:
             fi
             export GHCR_USERNAME="${GHCR_USERNAME}"
             export GHCR_TOKEN="${GHCR_TOKEN}"
+            {
+              echo "GHCR_USERNAME=${GHCR_USERNAME}"
+              echo "GHCR_TOKEN=${GHCR_TOKEN}"
+            } >> "${GITHUB_ENV}"
           fi
 
           bazel run \
