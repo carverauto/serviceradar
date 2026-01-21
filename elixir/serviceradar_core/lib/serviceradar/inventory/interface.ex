@@ -71,6 +71,9 @@ defmodule ServiceRadar.Inventory.Interface do
         :if_type,
         :if_type_name,
         :interface_kind,
+        :classifications,
+        :classification_meta,
+        :classification_source,
         :mtu,
         :duplex,
         :metadata,
@@ -246,6 +249,24 @@ defmodule ServiceRadar.Inventory.Interface do
     attribute :interface_kind, :string do
       public? true
       description "Interface classification (physical, virtual, loopback, tunnel, etc.)"
+    end
+
+    attribute :classifications, {:array, :string} do
+      default []
+      public? true
+      description "Interface classification tags (management, wan, vpn, etc.)"
+    end
+
+    attribute :classification_meta, :map do
+      default %{}
+      public? true
+      description "Classification metadata (matched rules, etc.)"
+    end
+
+    attribute :classification_source, :string do
+      default "rules"
+      public? true
+      description "Classification source (rules, manual, etc.)"
     end
 
     attribute :mtu, :integer do

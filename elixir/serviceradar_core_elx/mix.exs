@@ -36,7 +36,7 @@ defmodule ServiceRadarCoreElx.MixProject do
 
       # Minimal gRPC footprint for sync/checker coordination
       {:grpc, "~> 0.9"},
-      {:protobuf, "~> 0.16.0", override: true}
+      {:protobuf, path: "../protobuf", override: true}
     ]
   end
 

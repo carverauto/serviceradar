@@ -219,6 +219,20 @@ rm -rf /tmp/elixir/serviceradar_srql
 ln -s "$WORKDIR/elixir/serviceradar_srql" /tmp/elixir/serviceradar_srql
 rm -rf /tmp/serviceradar_core
 ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/serviceradar_core
+if [ -d "$WORKDIR/elixir/protobuf" ]; then
+  rm -rf /tmp/elixir/protobuf
+  mkdir -p /tmp/elixir
+  ln -s "$WORKDIR/elixir/protobuf" /tmp/elixir/protobuf
+  rm -rf /tmp/protobuf
+  ln -s "$WORKDIR/elixir/protobuf" /tmp/protobuf
+fi
+if [ -d "$WORKDIR/elixir/elixir_uuid" ]; then
+  rm -rf /tmp/elixir/elixir_uuid
+  mkdir -p /tmp/elixir
+  ln -s "$WORKDIR/elixir/elixir_uuid" /tmp/elixir/elixir_uuid
+  rm -rf /tmp/elixir_uuid
+  ln -s "$WORKDIR/elixir/elixir_uuid" /tmp/elixir_uuid
+fi
 
 cd "$WORKDIR"
 chmod -R u+w .
