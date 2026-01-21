@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries, as: TimeseriesPlugin
   alias ServiceRadarWebNGWeb.SRQL.Viz
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
@@ -60,6 +61,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:network_interfaces, [])
      |> assign(:interfaces_error, nil)
      |> assign(:has_ifaces, false)
+     |> assign(:ip_aliases, [])
+     |> assign(:ip_alias_error, nil)
+     |> assign(:show_stale_aliases, false)
      # Tab state for device details
      |> assign(:active_tab, "details")}
   end
@@ -137,6 +141,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     # Load network interfaces via SRQL
     {network_interfaces, interfaces_error} = load_interfaces(srql_module, uid, scope)
 
+    {ip_aliases, ip_alias_error} =
+      load_ip_aliases(scope, uid, socket.assigns.show_stale_aliases)
+
     has_ifaces =
       is_binary(interfaces_error) or
         (is_list(network_interfaces) and network_interfaces != [])
@@ -154,6 +161,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:network_interfaces, network_interfaces)
      |> assign(:interfaces_error, interfaces_error)
      |> assign(:has_ifaces, has_ifaces)
+     |> assign(:ip_aliases, ip_aliases)
+     |> assign(:ip_alias_error, ip_alias_error)
      |> assign(:active_tab, active_tab)
      |> assign(
        :panels,
@@ -229,6 +238,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_event("toggle_aliases", _params, socket) do
+    show_stale = not socket.assigns.show_stale_aliases
+    scope = socket.assigns.current_scope
+    device_uid = socket.assigns.device_uid
+
+    {ip_aliases, ip_alias_error} = load_ip_aliases(scope, device_uid, show_stale)
+
+    {:noreply,
+     socket
+     |> assign(:show_stale_aliases, show_stale)
+     |> assign(:ip_aliases, ip_aliases)
+     |> assign(:ip_alias_error, ip_alias_error)}
+  end
+
   def handle_event("validate_device", %{"device" => params}, socket) do
     {:noreply, assign(socket, :device_form, to_form(params, as: :device))}
   end
@@ -287,6 +310,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:error, reason} ->
         {[], "SRQL error: #{format_error(reason)}"}
     end
+  end
+
+  defp load_ip_aliases(_scope, nil, _show_stale), do: {[], nil}
+  defp load_ip_aliases(nil, _device_uid, _show_stale), do: {[], "Scope unavailable"}
+
+  defp load_ip_aliases(scope, device_uid, show_stale) do
+    require Ash.Query
+
+    query =
+      DeviceAliasState
+      |> Ash.Query.for_read(:read, %{}, scope: scope)
+      |> Ash.Query.filter(device_id == ^device_uid and alias_type == :ip)
+      |> maybe_filter_alias_states(show_stale)
+      |> Ash.Query.sort(alias_value: :asc)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, aliases} -> {aliases, nil}
+      {:error, reason} -> {[], format_error(reason)}
+    end
+  end
+
+  defp maybe_filter_alias_states(query, true), do: query
+
+  defp maybe_filter_alias_states(query, false) do
+    Ash.Query.filter(query, state in [:detected, :confirmed, :updated])
   end
 
   @impl true
@@ -596,6 +644,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               />
 
               <.sweep_status_section :if={is_map(@sweep_results)} sweep_results={@sweep_results} />
+
+              <.ip_aliases_section
+                :if={is_list(@ip_aliases)}
+                aliases={@ip_aliases}
+                show_stale={@show_stale_aliases}
+                error={@ip_alias_error}
+              />
 
               <%= for section <- @metric_sections_to_render do %>
                 <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
@@ -2153,6 +2208,81 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
+  # ---------------------------------------------------------------------------
+  # IP Alias Section
+  # ---------------------------------------------------------------------------
+
+  attr :aliases, :list, required: true
+  attr :show_stale, :boolean, default: false
+  attr :error, :string, default: nil
+
+  def ip_aliases_section(assigns) do
+    assigns =
+      assigns
+      |> assign(:alias_count, length(assigns.aliases))
+      |> assign(:toggle_label, if(assigns.show_stale, do: "Hide stale", else: "Show stale"))
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-arrow-path-rounded-square" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">IP Aliases</span>
+          <span class="text-xs text-base-content/50">({@alias_count})</span>
+        </div>
+        <button
+          type="button"
+          phx-click="toggle_aliases"
+          class="btn btn-ghost btn-xs"
+          aria-pressed={@show_stale}
+        >
+          {@toggle_label}
+        </button>
+      </div>
+
+      <div class="p-4">
+        <div :if={is_binary(@error)} class="text-sm text-error">
+          {@error}
+        </div>
+
+        <div :if={!is_binary(@error) and @aliases == []} class="text-sm text-base-content/60">
+          No IP aliases recorded yet.
+        </div>
+
+        <div :if={!is_binary(@error) and @aliases != []} class="overflow-x-auto">
+          <table class="table table-xs">
+            <thead>
+              <tr class="text-xs text-base-content/60">
+                <th>IP Address</th>
+                <th>State</th>
+                <th>Sightings</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for alias_state <- @aliases do %>
+                <tr class="hover:bg-base-200/40">
+                  <td class="font-mono text-xs">{alias_state.alias_value}</td>
+                  <td>
+                    <span class={[
+                      "badge badge-sm",
+                      alias_state_class(alias_state.state)
+                    ]}>
+                      {alias_state_label(alias_state.state)}
+                    </span>
+                  </td>
+                  <td class="text-xs tabular-nums">{alias_state.sighting_count || 0}</td>
+                  <td class="font-mono text-xs">{format_alias_time(alias_state.last_seen_at)}</td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   defp status_label(:available), do: "Available"
   defp status_label(:unavailable), do: "Unavailable"
   defp status_label(:timeout), do: "Timeout"
@@ -2174,6 +2304,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_ports_compact([]), do: "—"
   defp format_ports_compact(ports) when length(ports) <= 3, do: Enum.join(ports, ", ")
   defp format_ports_compact(ports), do: "#{length(ports)} ports"
+
+  defp alias_state_label(nil), do: "Unknown"
+
+  defp alias_state_label(state) do
+    state
+    |> to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
+  end
+
+  @alias_state_classes %{
+    "confirmed" => "badge-success",
+    "detected" => "badge-info",
+    "updated" => "badge-warning",
+    "stale" => "badge-neutral",
+    "replaced" => "badge-ghost",
+    "archived" => "badge-ghost"
+  }
+
+  defp alias_state_class(state) do
+    state
+    |> normalize_alias_state()
+    |> then(&Map.get(@alias_state_classes, &1, "badge-outline"))
+  end
+
+  defp normalize_alias_state(nil), do: ""
+  defp normalize_alias_state(state) when is_atom(state), do: Atom.to_string(state)
+  defp normalize_alias_state(state) when is_binary(state), do: state
+  defp normalize_alias_state(_), do: ""
+
+  defp format_alias_time(nil), do: "—"
+
+  defp format_alias_time(%DateTime{} = dt) do
+    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+  end
+
+  defp format_alias_time(%NaiveDateTime{} = dt) do
+    dt
+    |> DateTime.from_naive!("Etc/UTC")
+    |> format_alias_time()
+  end
+
+  defp format_alias_time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _} -> format_alias_time(dt)
+      _ -> value
+    end
+  end
+
+  defp format_alias_time(_), do: "—"
 
   defp get_device_ip(results) do
     case List.first(Enum.filter(results, &is_map/1)) do
