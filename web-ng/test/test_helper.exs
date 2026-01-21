@@ -5,7 +5,7 @@ ExUnit.start()
 # Use ServiceRadar.Repo from serviceradar_core directly for SQL adapter operations
 repo = ServiceRadar.Repo
 
-unless System.get_env("CI") in ["1", "true", "TRUE"] do
+if System.get_env("CI") not in ["1", "true", "TRUE"] do
   case Ecto.Adapters.SQL.query(repo, "SELECT 1", []) do
     {:ok, _} ->
       :ok
