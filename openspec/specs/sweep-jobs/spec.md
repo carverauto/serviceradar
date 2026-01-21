@@ -5,7 +5,7 @@ TBD - created by archiving change add-network-sweeper-ui. Update Purpose after a
 ## Requirements
 ### Requirement: Sweep Group Management
 
-The system SHALL provide Ash resources and UI for creating sweep groups that combine scheduling, targeting, and scan configuration.
+The system SHALL provide Ash resources and UI for creating sweep groups that combine scheduling, targeting, and scan configuration. Sweep group creation and updates MUST succeed even if the background scheduler is unavailable, and the user MUST be informed that scheduling is deferred until the scheduler is healthy.
 
 #### Scenario: Create sweep group with custom schedule
 - **GIVEN** an admin in Settings > Networks
@@ -15,10 +15,20 @@ The system SHALL provide Ash resources and UI for creating sweep groups that com
 - **THEN** the sweep group SHALL be saved with its unique schedule
 - **AND** be available for targeting device selections
 
+#### Scenario: Create sweep group when scheduler is unavailable
+- **GIVEN** an admin in Settings > Networks
+- **AND** the Oban scheduler is not running in the core process
+- **WHEN** they create or update a sweep group
+- **THEN** the sweep group SHALL be saved successfully
+- **AND** the UI SHALL display a warning that scheduling is deferred
+- **AND** the sweep group SHALL be scheduled once the scheduler is available
+
 #### Scenario: Sweep group with tag-based targeting
 - **GIVEN** a sweep group configuration form
-- **WHEN** the user configures targeting with SRQL `tags:critical tags.env:prod`
-- **THEN** the SRQL query SHALL be saved as part of the sweep group
+- **WHEN** the user configures targeting with:
+  - tags has_any ["critical", "prod"]
+  - tags.env = "prod"
+- **THEN** the filter SHALL be saved as part of the sweep group
 - **AND** the query SHALL be evaluated at sweep execution time
 
 #### Scenario: Multiple sweep groups with different schedules
@@ -37,11 +47,9 @@ The system SHALL provide Ash resources and UI for creating sweep groups that com
 - **THEN** both scan types SHALL be executed as part of the group sweep
 - **AND** results SHALL be aggregated per device
 
----
-
 ### Requirement: Device Targeting DSL
 
-The system SHALL provide SRQL-based device targeting for sweep groups based on device attributes.
+The system SHALL provide SRQL-based device targeting for sweep groups using device attributes.
 
 #### Scenario: Target by tag key
 - **GIVEN** a sweep group targeting configuration
@@ -64,10 +72,10 @@ The system SHALL provide SRQL-based device targeting for sweep groups based on d
 - **THEN** the sweep SHALL always include those targets
 - **AND** merge them with SRQL query results
 
-#### Scenario: Combined targeting clauses
-- **GIVEN** a sweep group with multiple targeting clauses
+#### Scenario: Combined targeting criteria
+- **GIVEN** a sweep group with multiple targeting criteria
 - **WHEN** the SRQL query is `tags:critical tags.env:prod ip:10.0.0.0/8 partition:datacenter-1`
-- **THEN** the clauses SHALL be combined with implicit AND logic
+- **THEN** the criteria SHALL be combined with implicit AND logic
 - **AND** only devices matching the configured query SHALL be targeted
 
 ---
@@ -105,10 +113,10 @@ The system SHALL provide Ash resources for defining sweep jobs that target speci
 - **GIVEN** an admin in Settings > Networks
 - **WHEN** they create a sweep job with an SRQL device query
 - **THEN** they SHALL be able to filter by:
-  - Tag keys and optional tag values
-  - Static targets (IPs/CIDRs/ranges)
+  - Tags (keys or key/value pairs)
+  - IPs/CIDRs/ranges
   - Partition
-- **AND** the query SHALL be saved and re-evaluated on each sweep
+- **AND** the SRQL query SHALL be saved and re-evaluated on each sweep
 
 #### Scenario: Assign sweep job to partition
 - **GIVEN** a sweep job configuration
@@ -121,8 +129,6 @@ The system SHALL provide Ash resources for defining sweep jobs that target speci
 - **WHEN** the user selects a specific agent
 - **THEN** only that agent SHALL execute the job
 - **AND** the agent SHALL receive the config via its next poll
-
----
 
 ### Requirement: Sweep Job Compiled Config Output
 
@@ -195,36 +201,20 @@ The system SHALL provide an admin interface for managing sweep jobs in Settings 
 
 ### Requirement: Sweep Job Execution Tracking
 
-The system SHALL track sweep job execution status and history.
-
-#### Scenario: Agent reports sweep start
-- **GIVEN** an agent beginning a sweep job execution
-- **WHEN** the sweep starts
-- **THEN** the agent SHALL report start event to gateway
-- **AND** core SHALL update job status to "in_progress"
-- **AND** the start time SHALL be recorded
+The system SHALL track sweep job execution status and history with accurate host totals and availability counts derived from sweep results.
 
 #### Scenario: Agent reports sweep completion
 - **GIVEN** an agent completing a sweep job
 - **WHEN** the sweep finishes
-- **THEN** the agent SHALL report completion event with:
-  - Total hosts scanned
-  - Hosts available
-  - Execution duration
-  - Any errors encountered
-- **AND** core SHALL update job status to "completed"
-- **AND** the completion time SHALL be recorded
+- **THEN** core SHALL record total hosts scanned, hosts available, and hosts failed for the execution
+- **AND** the completion time and duration SHALL be recorded
+- **AND** the values SHALL reflect cumulative results for the execution (not per-batch deltas)
 
-#### Scenario: Track sweep job history
-- **GIVEN** sweep job executions over time
-- **WHEN** an admin views job history
-- **THEN** they SHALL see past executions with:
-  - Execution time
-  - Duration
-  - Results summary
-  - Error details if any
-
----
+#### Scenario: Active scan progress updates
+- **GIVEN** an in-progress sweep execution
+- **WHEN** progress batches are ingested
+- **THEN** core SHALL update the execution with cumulative progress metrics
+- **AND** the Active Scans UI SHALL display the current totals and completion percentage
 
 ### Requirement: Device Bulk Edit for Tagging
 
@@ -253,3 +243,4 @@ The system SHALL display sweep status details in the device detail view.
 - **WHEN** viewing the device details
 - **THEN** the sweep status SHALL be displayed
 - **AND** include last sweep time, availability status, and open ports
+

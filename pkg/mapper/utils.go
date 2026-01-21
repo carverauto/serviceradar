@@ -378,9 +378,9 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-// addAlternateIP stores an alternate IP in the given metadata map under the
-// "alternate_ips" key as a JSON array. The updated map is returned for
-// convenience.
+// addAlternateIP stores an alternate IP in the given metadata map under both
+// the legacy alt_ip:<ip> key and the alias-friendly ip_alias:<ip> key. The
+// updated map is returned for convenience.
 func addAlternateIP(metadata map[string]string, ip string) map[string]string {
 	if ip == "" {
 		return metadata
@@ -390,10 +390,16 @@ func addAlternateIP(metadata map[string]string, ip string) map[string]string {
 		metadata = make(map[string]string)
 	}
 
-	// Use exact-match metadata key for alt IPs
-	key := "alt_ip:" + ip
-	if _, exists := metadata[key]; !exists {
-		metadata[key] = "1"
+	// Use exact-match metadata key for alt IPs (legacy)
+	altKey := "alt_ip:" + ip
+	if _, exists := metadata[altKey]; !exists {
+		metadata[altKey] = "1"
+	}
+
+	// Alias-friendly key consumed by core aliasing logic
+	aliasKey := "ip_alias:" + ip
+	if _, exists := metadata[aliasKey]; !exists {
+		metadata[aliasKey] = ""
 	}
 
 	return metadata

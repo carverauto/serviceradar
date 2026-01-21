@@ -1091,8 +1091,6 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 	// Look for an existing device to merge with
 	for i, existingDevice := range job.Results.Devices {
 		if e.isDeviceMatch(existingDevice, newDevice) {
-			e.updateExistingDevice(job, i, newDevice)
-
 			if existingDevice.IP != newDevice.IP {
 				existingDevice.Metadata = addAlternateIP(existingDevice.Metadata, newDevice.IP)
 
@@ -1106,6 +1104,7 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 					Msg("Device updated with alternate IP")
 			}
 
+			e.updateExistingDevice(job, i, newDevice)
 			return
 		}
 	}
