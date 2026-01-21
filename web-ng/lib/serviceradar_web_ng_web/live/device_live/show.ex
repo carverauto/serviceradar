@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.SysmonProfiles.SysmonProfile
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
+  alias ServiceRadar.Inventory.InterfaceSettings
 
   @default_limit 50
   @max_limit 200
@@ -67,6 +68,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:selected_interfaces, MapSet.new())
      |> assign(:favorited_interfaces, MapSet.new())
      |> assign(:show_interfaces_bulk_edit, false)
+     |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
+     # Interface metrics for favorited interfaces
+     |> assign(:interface_metrics, nil)
      |> assign(:ip_aliases, [])
      |> assign(:ip_alias_error, nil)
      |> assign(:show_stale_aliases, false)
@@ -147,6 +151,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     # Load network interfaces via SRQL
     {network_interfaces, interfaces_error} = load_interfaces(srql_module, uid, scope)
 
+    # Load interface settings (favorites, metrics enabled)
+    favorited_interfaces = load_interface_settings(scope, uid)
+
+    # Load interface metrics for favorited interfaces
+    interface_metrics = load_interface_metrics(srql_module, uid, favorited_interfaces, network_interfaces, scope)
+
     {ip_aliases, ip_alias_error} =
       load_ip_aliases(scope, uid, socket.assigns.show_stale_aliases)
 
@@ -167,6 +177,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:network_interfaces, network_interfaces)
      |> assign(:interfaces_error, interfaces_error)
      |> assign(:has_ifaces, has_ifaces)
+     |> assign(:favorited_interfaces, favorited_interfaces)
+     |> assign(:interface_metrics, interface_metrics)
      |> assign(:ip_aliases, ip_aliases)
      |> assign(:ip_alias_error, ip_alias_error)
      |> assign(:active_tab, active_tab)
@@ -331,21 +343,85 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("close_interfaces_bulk_edit", _params, socket) do
-    {:noreply, assign(socket, :show_interfaces_bulk_edit, false)}
+    {:noreply,
+     socket
+     |> assign(:show_interfaces_bulk_edit, false)
+     |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))}
+  end
+
+  def handle_event("apply_interfaces_bulk_edit", %{"bulk" => params}, socket) do
+    selected = socket.assigns.selected_interfaces
+    device_uid = socket.assigns.device_uid
+    scope = socket.assigns.current_scope
+    action = Map.get(params, "action", "favorite")
+
+    {socket, success_count, action_label} =
+      case action do
+        "favorite" ->
+          # Add all selected to favorites and persist
+          {count, new_favorites} = bulk_update_favorites(scope, device_uid, selected, true, socket.assigns.favorited_interfaces)
+          {assign(socket, :favorited_interfaces, new_favorites), count, "added to favorites"}
+
+        "unfavorite" ->
+          # Remove all selected from favorites and persist
+          {count, new_favorites} = bulk_update_favorites(scope, device_uid, selected, false, socket.assigns.favorited_interfaces)
+          {assign(socket, :favorited_interfaces, new_favorites), count, "removed from favorites"}
+
+        "enable_metrics" ->
+          # Enable metrics collection for all selected interfaces
+          count = bulk_update_metrics(scope, device_uid, selected, true)
+          {socket, count, "enabled for metrics collection"}
+
+        "disable_metrics" ->
+          # Disable metrics collection for all selected interfaces
+          count = bulk_update_metrics(scope, device_uid, selected, false)
+          {socket, count, "disabled for metrics collection"}
+
+        "add_tags" ->
+          # Add tags to all selected interfaces
+          tags_string = Map.get(params, "tags", "")
+          tags = parse_tags(tags_string)
+
+          if tags == [] do
+            {socket, 0, "tagged (no tags provided)"}
+          else
+            count = bulk_update_tags(scope, device_uid, selected, tags)
+            {socket, count, "tagged with: #{Enum.join(tags, ", ")}"}
+          end
+
+        _ ->
+          {socket, 0, "updated"}
+      end
+
+    {:noreply,
+     socket
+     |> assign(:show_interfaces_bulk_edit, false)
+     |> assign(:selected_interfaces, MapSet.new())
+     |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
+     |> put_flash(:info, "#{success_count} interface(s) #{action_label}")}
   end
 
   def handle_event("toggle_interface_favorite", %{"uid" => uid}, socket) do
     favorited = socket.assigns.favorited_interfaces
+    device_uid = socket.assigns.device_uid
+    scope = socket.assigns.current_scope
+    new_favorite_state = not MapSet.member?(favorited, uid)
 
-    updated =
-      if MapSet.member?(favorited, uid) do
-        MapSet.delete(favorited, uid)
-      else
-        MapSet.put(favorited, uid)
-      end
+    # Persist to backend
+    case upsert_interface_setting(scope, device_uid, uid, %{favorited: new_favorite_state}) do
+      {:ok, _setting} ->
+        updated =
+          if new_favorite_state do
+            MapSet.put(favorited, uid)
+          else
+            MapSet.delete(favorited, uid)
+          end
 
-    # TODO: Persist favorite state to backend when Ash resource is available
-    {:noreply, assign(socket, :favorited_interfaces, updated)}
+        {:noreply, assign(socket, :favorited_interfaces, updated)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to update favorite status")}
+    end
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
@@ -375,6 +451,186 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         {[], "SRQL error: #{format_error(reason)}"}
     end
   end
+
+  defp load_interface_settings(_scope, nil), do: MapSet.new()
+
+  defp load_interface_settings(scope, device_uid) do
+    case InterfaceSettings.list_by_device(device_uid, scope: scope) do
+      {:ok, settings} ->
+        settings
+        |> Enum.filter(& &1.favorited)
+        |> Enum.map(& &1.interface_uid)
+        |> MapSet.new()
+
+      {:error, _reason} ->
+        MapSet.new()
+    end
+  end
+
+  defp load_interface_metrics(_srql_module, _device_uid, favorited, _interfaces, _scope)
+       when map_size(favorited) == 0 do
+    %{
+      has_favorited: false,
+      panels: [],
+      error: nil,
+      favorited_count: 0
+    }
+  end
+
+  defp load_interface_metrics(srql_module, device_uid, favorited_uids, interfaces, scope) do
+    # Get the if_index values for favorited interfaces
+    favorited_if_indices =
+      interfaces
+      |> Enum.filter(fn iface ->
+        uid = Map.get(iface, "interface_uid")
+        is_binary(uid) and MapSet.member?(favorited_uids, uid)
+      end)
+      |> Enum.map(fn iface -> Map.get(iface, "if_index") end)
+      |> Enum.filter(&is_integer/1)
+
+    if favorited_if_indices == [] do
+      %{
+        has_favorited: true,
+        panels: [],
+        error: nil,
+        favorited_count: MapSet.size(favorited_uids),
+        message: "No interface metrics available. Favorited interfaces may not have SNMP indices."
+      }
+    else
+      # Query SNMP metrics for the favorited interfaces
+      if_filter = favorited_if_indices |> Enum.map(&to_string/1) |> Enum.join(",")
+
+      query =
+        "in:snmp_metrics uid:\"#{escape_value(device_uid)}\" if_index:[#{if_filter}] " <>
+          "time:last_24h bucket:5m agg:avg series:if_index limit:200"
+
+      case srql_module.query(query, %{scope: scope}) do
+        {:ok, %{"results" => results} = resp} when is_list(results) and results != [] ->
+          srql_response = %{"results" => results, "viz" => Map.get(resp, "viz")}
+          panels = Engine.build_panels(srql_response)
+
+          %{
+            has_favorited: true,
+            panels: Enum.reject(panels, &(&1.plugin == TablePlugin)),
+            error: nil,
+            favorited_count: MapSet.size(favorited_uids)
+          }
+
+        {:ok, %{"results" => []}} ->
+          %{
+            has_favorited: true,
+            panels: [],
+            error: nil,
+            favorited_count: MapSet.size(favorited_uids),
+            message: "No metrics data available yet. Ensure SNMP polling is configured for this device."
+          }
+
+        {:ok, _} ->
+          %{
+            has_favorited: true,
+            panels: [],
+            error: nil,
+            favorited_count: MapSet.size(favorited_uids),
+            message: "No metrics data available."
+          }
+
+        {:error, reason} ->
+          %{
+            has_favorited: true,
+            panels: [],
+            error: "Failed to load metrics: #{format_error(reason)}",
+            favorited_count: MapSet.size(favorited_uids)
+          }
+      end
+    end
+  end
+
+  defp upsert_interface_setting(_scope, nil, _interface_uid, _attrs), do: {:error, :no_device}
+  defp upsert_interface_setting(_scope, _device_uid, nil, _attrs), do: {:error, :no_interface}
+
+  defp upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
+    InterfaceSettings.upsert(device_uid, interface_uid, attrs, scope: scope)
+  end
+
+  defp bulk_update_favorites(scope, device_uid, selected_uids, favorited, current_favorites) do
+    # Persist each selected interface's favorite status
+    results =
+      selected_uids
+      |> MapSet.to_list()
+      |> Enum.map(fn uid ->
+        case upsert_interface_setting(scope, device_uid, uid, %{favorited: favorited}) do
+          {:ok, _} -> {:ok, uid}
+          {:error, _} -> {:error, uid}
+        end
+      end)
+
+    success_count = Enum.count(results, fn {status, _} -> status == :ok end)
+
+    # Update the MapSet based on success
+    successful_uids =
+      results
+      |> Enum.filter(fn {status, _} -> status == :ok end)
+      |> Enum.map(fn {_, uid} -> uid end)
+      |> MapSet.new()
+
+    new_favorites =
+      if favorited do
+        MapSet.union(current_favorites, successful_uids)
+      else
+        MapSet.difference(current_favorites, successful_uids)
+      end
+
+    {success_count, new_favorites}
+  end
+
+  defp bulk_update_metrics(scope, device_uid, selected_uids, metrics_enabled) do
+    # Persist each selected interface's metrics_enabled status
+    results =
+      selected_uids
+      |> MapSet.to_list()
+      |> Enum.map(fn uid ->
+        case upsert_interface_setting(scope, device_uid, uid, %{metrics_enabled: metrics_enabled}) do
+          {:ok, _} -> :ok
+          {:error, _} -> :error
+        end
+      end)
+
+    Enum.count(results, &(&1 == :ok))
+  end
+
+  defp bulk_update_tags(scope, device_uid, selected_uids, tags) do
+    # Add tags to each selected interface (preserving existing tags)
+    results =
+      selected_uids
+      |> MapSet.to_list()
+      |> Enum.map(fn uid ->
+        # First get existing settings to merge tags
+        existing_tags =
+          case InterfaceSettings.get_by_interface(device_uid, uid, actor: scope) do
+            {:ok, settings} -> settings.tags || []
+            _ -> []
+          end
+
+        merged_tags = Enum.uniq(existing_tags ++ tags)
+
+        case upsert_interface_setting(scope, device_uid, uid, %{tags: merged_tags}) do
+          {:ok, _} -> :ok
+          {:error, _} -> :error
+        end
+      end)
+
+    Enum.count(results, &(&1 == :ok))
+  end
+
+  defp parse_tags(tags_string) when is_binary(tags_string) do
+    tags_string
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp parse_tags(_), do: []
 
   defp load_ip_aliases(_scope, nil, _show_stale), do: {[], nil}
   defp load_ip_aliases(nil, _device_uid, _show_stale), do: {[], "Scope unavailable"}
@@ -765,6 +1021,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               selected_interfaces={@selected_interfaces}
               favorited_interfaces={@favorited_interfaces}
               device_uid={@device_uid}
+              interface_metrics={@interface_metrics}
             />
           </div>
           
@@ -781,6 +1038,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           </div>
         </div>
       </div>
+
+      <%!-- Interfaces Bulk Edit Modal --%>
+      <.interfaces_bulk_edit_modal
+        :if={@show_interfaces_bulk_edit}
+        form={@interfaces_bulk_edit_form}
+        selected_count={MapSet.size(@selected_interfaces)}
+      />
     </Layouts.app>
     """
   end
@@ -1154,6 +1418,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :selected_interfaces, :any, required: true
   attr :favorited_interfaces, :any, required: true
   attr :device_uid, :string, required: true
+  attr :interface_metrics, :map, default: nil
 
   defp interfaces_tab_content(assigns) do
     selected_count = MapSet.size(assigns.selected_interfaces)
@@ -1166,6 +1431,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:all_selected, all_selected)
 
     ~H"""
+    <%!-- Interface Metrics Visualization for Favorited Interfaces --%>
+    <.interface_metrics_section :if={@interface_metrics} metrics={@interface_metrics} device_uid={@device_uid} />
+
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200">
         <div class="flex items-center justify-between">
@@ -1307,6 +1575,227 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         </div>
       </div>
     </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Interface Metrics Section
+  # ---------------------------------------------------------------------------
+
+  attr :metrics, :map, required: true
+  attr :device_uid, :string, required: true
+
+  defp interface_metrics_section(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm mb-4">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-chart-bar" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Favorited Interface Metrics</span>
+          <span :if={@metrics.favorited_count > 0} class="text-xs text-base-content/50">
+            ({@metrics.favorited_count} favorited)
+          </span>
+        </div>
+      </div>
+
+      <%!-- No favorited interfaces --%>
+      <div :if={!@metrics.has_favorited} class="p-6 text-center">
+        <.icon name="hero-star" class="size-10 text-base-content/20 mx-auto" />
+        <p class="text-sm text-base-content/70 mt-2">
+          No favorited interfaces yet.
+        </p>
+        <p class="text-xs text-base-content/50 mt-1">
+          Star interfaces in the table below to see their metrics here.
+        </p>
+      </div>
+
+      <%!-- Error state --%>
+      <div :if={@metrics.error} class="p-4">
+        <div class="alert alert-error alert-sm">
+          <.icon name="hero-exclamation-triangle" class="size-4" />
+          <span class="text-sm">{@metrics.error}</span>
+        </div>
+      </div>
+
+      <%!-- Message state (no data available) --%>
+      <div :if={@metrics.has_favorited && @metrics.panels == [] && !@metrics.error} class="p-6 text-center">
+        <.icon name="hero-chart-bar" class="size-10 text-base-content/20 mx-auto" />
+        <p class="text-sm text-base-content/70 mt-2">
+          {Map.get(@metrics, :message, "No metrics data available for favorited interfaces.")}
+        </p>
+        <p class="text-xs text-base-content/50 mt-1">
+          Metrics will appear once SNMP polling collects data for these interfaces.
+        </p>
+      </div>
+
+      <%!-- Metrics panels --%>
+      <div :if={@metrics.panels != []} class="p-4">
+        <%= for panel <- @metrics.panels do %>
+          <.live_component
+            module={panel.plugin}
+            id={"interface-metrics-#{@device_uid}-#{panel.id}"}
+            title="Interface Metrics"
+            panel_assigns={Map.put(panel.assigns, :compact, true)}
+          />
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Interfaces Bulk Edit Modal
+  # ---------------------------------------------------------------------------
+
+  attr :form, :any, required: true
+  attr :selected_count, :integer, required: true
+
+  defp interfaces_bulk_edit_modal(assigns) do
+    ~H"""
+    <dialog id="interfaces_bulk_edit_modal" class="modal modal-open">
+      <div class="modal-box max-w-md">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_interfaces_bulk_edit"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">Bulk Edit Interfaces</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          Apply action to {@selected_count} selected interface(s).
+        </p>
+
+        <.form for={@form} id="interfaces-bulk-form" phx-submit="apply_interfaces_bulk_edit" class="space-y-4">
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Action</span>
+            </label>
+            <div class="space-y-2">
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
+                <input
+                  type="radio"
+                  name="bulk[action]"
+                  value="favorite"
+                  class="radio radio-primary radio-sm"
+                  checked
+                />
+                <div>
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-star-solid" class="size-4 text-warning" />
+                    <span class="font-medium">Add to Favorites</span>
+                  </div>
+                  <p class="text-xs text-base-content/60 mt-1">
+                    Mark selected interfaces as favorites for quick access
+                  </p>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
+                <input
+                  type="radio"
+                  name="bulk[action]"
+                  value="unfavorite"
+                  class="radio radio-primary radio-sm"
+                />
+                <div>
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-star" class="size-4 text-base-content/50" />
+                    <span class="font-medium">Remove from Favorites</span>
+                  </div>
+                  <p class="text-xs text-base-content/60 mt-1">
+                    Remove selected interfaces from favorites
+                  </p>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
+                <input
+                  type="radio"
+                  name="bulk[action]"
+                  value="enable_metrics"
+                  class="radio radio-primary radio-sm"
+                />
+                <div>
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-chart-bar-solid" class="size-4 text-success" />
+                    <span class="font-medium">Enable Metrics Collection</span>
+                  </div>
+                  <p class="text-xs text-base-content/60 mt-1">
+                    Start collecting metrics for selected interfaces
+                  </p>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
+                <input
+                  type="radio"
+                  name="bulk[action]"
+                  value="disable_metrics"
+                  class="radio radio-primary radio-sm"
+                />
+                <div>
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-chart-bar" class="size-4 text-base-content/50" />
+                    <span class="font-medium">Disable Metrics Collection</span>
+                  </div>
+                  <p class="text-xs text-base-content/60 mt-1">
+                    Stop collecting metrics for selected interfaces
+                  </p>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
+                <input
+                  type="radio"
+                  name="bulk[action]"
+                  value="add_tags"
+                  class="radio radio-primary radio-sm"
+                />
+                <div class="flex-1">
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-tag-solid" class="size-4 text-info" />
+                    <span class="font-medium">Add Tags</span>
+                  </div>
+                  <p class="text-xs text-base-content/60 mt-1">
+                    Add tags to selected interfaces (comma-separated)
+                  </p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div id="tags-input-container" class="form-control hidden" phx-hook="BulkEditTagsToggle">
+            <label class="label">
+              <span class="label-text font-medium">Tags</span>
+            </label>
+            <input
+              type="text"
+              name="bulk[tags]"
+              class="input input-bordered"
+              placeholder="Enter tags separated by commas (e.g., wan, critical, primary)"
+            />
+            <label class="label">
+              <span class="label-text-alt text-base-content/60">Tags will be added to existing tags</span>
+            </label>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-4">
+            <button type="button" phx-click="close_interfaces_bulk_edit" class="btn btn-ghost">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              Apply
+            </button>
+          </div>
+        </.form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_interfaces_bulk_edit">close</button>
+      </form>
+    </dialog>
     """
   end
 

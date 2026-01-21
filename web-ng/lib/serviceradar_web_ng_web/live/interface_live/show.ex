@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
+  alias ServiceRadar.Inventory.InterfaceSettings
 
   @impl true
   def mount(_params, _session, socket) do
@@ -13,6 +14,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:page_title, "Interface Details")
      |> assign(:interface, nil)
      |> assign(:device, nil)
+     |> assign(:settings, nil)
+     |> assign(:threshold_form, to_form(%{}, as: :threshold))
      |> assign(:loading, true)
      |> assign(:error, nil)}
   end
@@ -28,6 +31,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     # Load device data for breadcrumb
     {device, _device_error} = load_device(srql_module, device_uid, scope)
 
+    # Load interface settings (favorites, metrics enabled)
+    settings = load_interface_settings(scope, device_uid, interface_uid)
+
     page_title =
       if interface do
         interface_name(interface)
@@ -41,9 +47,97 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:interface_uid, interface_uid)
      |> assign(:interface, interface)
      |> assign(:device, device)
+     |> assign(:settings, settings)
      |> assign(:loading, false)
      |> assign(:error, error)
      |> assign(:page_title, page_title)}
+  end
+
+  @impl true
+  def handle_event("toggle_metrics", _params, socket) do
+    device_uid = socket.assigns.device_uid
+    interface_uid = socket.assigns.interface_uid
+    scope = socket.assigns.current_scope
+    current_settings = socket.assigns.settings
+    current_enabled = get_in(current_settings, [:metrics_enabled]) || false
+
+    case upsert_interface_setting(scope, device_uid, interface_uid, %{metrics_enabled: not current_enabled}) do
+      {:ok, updated_settings} ->
+        {:noreply,
+         socket
+         |> assign(:settings, updated_settings)
+         |> put_flash(:info, if(not current_enabled, do: "Metrics collection enabled", else: "Metrics collection disabled"))}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to update metrics collection setting")}
+    end
+  end
+
+  def handle_event("toggle_favorite", _params, socket) do
+    device_uid = socket.assigns.device_uid
+    interface_uid = socket.assigns.interface_uid
+    scope = socket.assigns.current_scope
+    current_settings = socket.assigns.settings
+    current_favorited = get_in(current_settings, [:favorited]) || false
+
+    case upsert_interface_setting(scope, device_uid, interface_uid, %{favorited: not current_favorited}) do
+      {:ok, updated_settings} ->
+        {:noreply,
+         socket
+         |> assign(:settings, updated_settings)
+         |> put_flash(:info, if(not current_favorited, do: "Added to favorites", else: "Removed from favorites"))}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to update favorite status")}
+    end
+  end
+
+  def handle_event("toggle_threshold", _params, socket) do
+    device_uid = socket.assigns.device_uid
+    interface_uid = socket.assigns.interface_uid
+    scope = socket.assigns.current_scope
+    current_settings = socket.assigns.settings
+    current_enabled = get_in(current_settings, [:threshold_enabled]) || false
+
+    case upsert_interface_setting(scope, device_uid, interface_uid, %{threshold_enabled: not current_enabled}) do
+      {:ok, updated_settings} ->
+        {:noreply,
+         socket
+         |> assign(:settings, updated_settings)
+         |> put_flash(:info, if(not current_enabled, do: "Threshold alerting enabled", else: "Threshold alerting disabled"))}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to update threshold setting")}
+    end
+  end
+
+  def handle_event("update_threshold", %{"threshold" => params}, socket) do
+    # Just update the form state, don't persist yet
+    {:noreply, assign(socket, :threshold_form, to_form(params, as: :threshold))}
+  end
+
+  def handle_event("save_threshold", %{"threshold" => params}, socket) do
+    device_uid = socket.assigns.device_uid
+    interface_uid = socket.assigns.interface_uid
+    scope = socket.assigns.current_scope
+
+    # Parse and validate the threshold values
+    attrs = %{
+      threshold_metric: parse_threshold_metric(params["metric"]),
+      threshold_comparison: parse_threshold_comparison(params["comparison"]),
+      threshold_value: parse_threshold_value(params["value"])
+    }
+
+    case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
+      {:ok, updated_settings} ->
+        {:noreply,
+         socket
+         |> assign(:settings, updated_settings)
+         |> put_flash(:info, "Threshold configuration saved")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to save threshold configuration")}
+    end
   end
 
   @impl true
@@ -91,7 +185,19 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   {interface_description(@interface)}
                 </p>
               </div>
-              <div class="flex gap-2">
+              <div class="flex gap-2 items-center">
+                <% is_favorited = settings_value(@settings, :favorited) %>
+                <button
+                  type="button"
+                  class={[
+                    "btn btn-ghost btn-sm",
+                    if(is_favorited, do: "text-warning", else: "text-base-content/30")
+                  ]}
+                  phx-click="toggle_favorite"
+                  title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
+                >
+                  <.icon name={if is_favorited, do: "hero-star-solid", else: "hero-star"} class="size-5" />
+                </button>
                 <.interface_status_badge
                   oper_status={Map.get(@interface, "if_oper_status")}
                   admin_status={Map.get(@interface, "if_admin_status")}
@@ -164,22 +270,134 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 Metrics Collection
               </h2>
               <div class="divide-y divide-base-200">
-                <% metrics_enabled = Map.get(@interface, "metrics_enabled", false) %>
+                <% metrics_enabled = settings_value(@settings, :metrics_enabled) %>
                 <div class="py-3 flex items-center justify-between">
-                  <span class="text-sm text-base-content/70">Collection Status</span>
-                  <span class={[
-                    "badge badge-sm",
-                    if(metrics_enabled, do: "badge-success", else: "badge-ghost")
-                  ]}>
-                    {if metrics_enabled, do: "Enabled", else: "Disabled"}
-                  </span>
+                  <div>
+                    <span class="text-sm font-medium">Enable Metrics Collection</span>
+                    <p class="text-xs text-base-content/50 mt-0.5">
+                      Collect bandwidth and utilization metrics for this interface
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    class="toggle toggle-primary"
+                    checked={metrics_enabled}
+                    phx-click="toggle_metrics"
+                  />
                 </div>
-                <div class="py-3">
+                <div :if={metrics_enabled} class="py-3">
+                  <div class="flex items-center gap-2 text-success">
+                    <.icon name="hero-check-circle" class="size-4" />
+                    <span class="text-sm">Metrics collection is active</span>
+                  </div>
+                </div>
+                <div :if={!metrics_enabled} class="py-3">
                   <p class="text-sm text-base-content/50">
-                    Metrics collection can be enabled via the interfaces bulk edit feature.
-                    When enabled, interface utilization metrics will be collected and displayed.
+                    Enable metrics collection to start tracking bandwidth utilization
+                    and other performance metrics for this interface.
                   </p>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <%!-- Threshold Configuration (full width) --%>
+        <div class="card bg-base-100 border border-base-200 shadow-sm">
+          <div class="card-body">
+            <h2 class="card-title text-lg">
+              <.icon name="hero-bell-alert" class="size-5 text-primary" />
+              Threshold Alerting
+            </h2>
+
+            <% threshold_enabled = settings_value(@settings, :threshold_enabled) %>
+            <% threshold_metric = settings_value(@settings, :threshold_metric) %>
+            <% threshold_comparison = settings_value(@settings, :threshold_comparison) %>
+            <% threshold_value = settings_value(@settings, :threshold_value) %>
+
+            <div class="divide-y divide-base-200">
+              <div class="py-3 flex items-center justify-between">
+                <div>
+                  <span class="text-sm font-medium">Enable Threshold Alerts</span>
+                  <p class="text-xs text-base-content/50 mt-0.5">
+                    Generate alerts when interface metrics exceed configured thresholds
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-warning"
+                  checked={threshold_enabled}
+                  phx-click="toggle_threshold"
+                />
+              </div>
+
+              <div :if={threshold_enabled} class="py-4 space-y-4">
+                <.form for={@threshold_form} phx-change="update_threshold" phx-submit="save_threshold" class="space-y-4">
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="form-control">
+                      <label class="label">
+                        <span class="label-text text-xs">Metric</span>
+                      </label>
+                      <select name="threshold[metric]" class="select select-bordered select-sm w-full">
+                        <option value="" disabled selected={!threshold_metric}>Select metric</option>
+                        <option value="utilization" selected={threshold_metric == :utilization}>Utilization %</option>
+                        <option value="bandwidth_in" selected={threshold_metric == :bandwidth_in}>Bandwidth In</option>
+                        <option value="bandwidth_out" selected={threshold_metric == :bandwidth_out}>Bandwidth Out</option>
+                        <option value="errors" selected={threshold_metric == :errors}>Errors</option>
+                      </select>
+                    </div>
+
+                    <div class="form-control">
+                      <label class="label">
+                        <span class="label-text text-xs">Condition</span>
+                      </label>
+                      <select name="threshold[comparison]" class="select select-bordered select-sm w-full">
+                        <option value="" disabled selected={!threshold_comparison}>Select condition</option>
+                        <option value="gt" selected={threshold_comparison == :gt}>Greater than (&gt;)</option>
+                        <option value="gte" selected={threshold_comparison == :gte}>Greater or equal (&ge;)</option>
+                        <option value="lt" selected={threshold_comparison == :lt}>Less than (&lt;)</option>
+                        <option value="lte" selected={threshold_comparison == :lte}>Less or equal (&le;)</option>
+                        <option value="eq" selected={threshold_comparison == :eq}>Equal to (=)</option>
+                      </select>
+                    </div>
+
+                    <div class="form-control">
+                      <label class="label">
+                        <span class="label-text text-xs">Value</span>
+                      </label>
+                      <input
+                        type="number"
+                        name="threshold[value]"
+                        value={threshold_value}
+                        placeholder="e.g., 80"
+                        class="input input-bordered input-sm w-full"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="flex justify-end">
+                    <button type="submit" class="btn btn-primary btn-sm">
+                      <.icon name="hero-check" class="size-4" />
+                      Save Threshold
+                    </button>
+                  </div>
+                </.form>
+
+                <div :if={threshold_metric && threshold_comparison && threshold_value} class="alert alert-info alert-sm">
+                  <.icon name="hero-information-circle" class="size-4" />
+                  <span class="text-sm">
+                    Alert when <strong>{threshold_metric_label(threshold_metric)}</strong>
+                    is <strong>{threshold_comparison_label(threshold_comparison)}</strong>
+                    <strong>{threshold_value}{if threshold_metric == :utilization, do: "%", else: ""}</strong>
+                  </span>
+                </div>
+              </div>
+
+              <div :if={!threshold_enabled} class="py-3">
+                <p class="text-sm text-base-content/50">
+                  Enable threshold alerting to receive notifications when this interface's
+                  metrics exceed configured limits.
+                </p>
               </div>
             </div>
           </div>
@@ -376,4 +594,70 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp admin_status_text(2), do: "Disabled"
   defp admin_status_text(3), do: "Testing"
   defp admin_status_text(_), do: "Unknown"
+
+  # Interface settings helpers
+  defp load_interface_settings(_scope, nil, _interface_uid), do: nil
+  defp load_interface_settings(_scope, _device_uid, nil), do: nil
+
+  defp load_interface_settings(scope, device_uid, interface_uid) do
+    case InterfaceSettings.get_by_interface(device_uid, interface_uid, scope: scope) do
+      {:ok, settings} -> settings
+      {:error, _} -> nil
+    end
+  end
+
+  defp upsert_interface_setting(_scope, nil, _interface_uid, _attrs), do: {:error, :no_device}
+  defp upsert_interface_setting(_scope, _device_uid, nil, _attrs), do: {:error, :no_interface}
+
+  defp upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
+    InterfaceSettings.upsert(device_uid, interface_uid, attrs, scope: scope)
+  end
+
+  defp settings_value(nil, _key), do: false
+  defp settings_value(settings, key) when is_struct(settings), do: Map.get(settings, key, false)
+  defp settings_value(settings, key) when is_map(settings), do: Map.get(settings, key, false)
+  defp settings_value(_, _), do: false
+
+  # Threshold parsing helpers
+  defp parse_threshold_metric(""), do: nil
+  defp parse_threshold_metric(nil), do: nil
+  defp parse_threshold_metric("utilization"), do: :utilization
+  defp parse_threshold_metric("bandwidth_in"), do: :bandwidth_in
+  defp parse_threshold_metric("bandwidth_out"), do: :bandwidth_out
+  defp parse_threshold_metric("errors"), do: :errors
+  defp parse_threshold_metric(_), do: nil
+
+  defp parse_threshold_comparison(""), do: nil
+  defp parse_threshold_comparison(nil), do: nil
+  defp parse_threshold_comparison("gt"), do: :gt
+  defp parse_threshold_comparison("gte"), do: :gte
+  defp parse_threshold_comparison("lt"), do: :lt
+  defp parse_threshold_comparison("lte"), do: :lte
+  defp parse_threshold_comparison("eq"), do: :eq
+  defp parse_threshold_comparison(_), do: nil
+
+  defp parse_threshold_value(""), do: nil
+  defp parse_threshold_value(nil), do: nil
+  defp parse_threshold_value(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      :error -> nil
+    end
+  end
+  defp parse_threshold_value(value) when is_integer(value), do: value
+  defp parse_threshold_value(_), do: nil
+
+  # Threshold label helpers
+  defp threshold_metric_label(:utilization), do: "Utilization"
+  defp threshold_metric_label(:bandwidth_in), do: "Bandwidth In"
+  defp threshold_metric_label(:bandwidth_out), do: "Bandwidth Out"
+  defp threshold_metric_label(:errors), do: "Errors"
+  defp threshold_metric_label(_), do: "Unknown"
+
+  defp threshold_comparison_label(:gt), do: "greater than"
+  defp threshold_comparison_label(:gte), do: "greater than or equal to"
+  defp threshold_comparison_label(:lt), do: "less than"
+  defp threshold_comparison_label(:lte), do: "less than or equal to"
+  defp threshold_comparison_label(:eq), do: "equal to"
+  defp threshold_comparison_label(_), do: ""
 end
