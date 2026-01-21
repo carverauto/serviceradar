@@ -22,6 +22,6 @@ These inconsistencies break inventory correctness and produce duplicate devices.
 - **Scheduled reconciliation**: keep the AshOban reconciliation job running on a fixed cadence with run logging to clean up legacy duplicates.
 
 ## Impact
-- **Affected specs**: `device-identity-reconciliation`, `sweeper`
+- **Affected specs**: `device-identity-reconciliation`
 - **Affected systems**: IdentityReconciler (Elixir), DeviceLookup, SyncIngestor, mapper device publishing, device identifier upserts, device merge auditing, job scheduling
 - **Data operations**: reassign identifiers and associated records (including `discovered_interfaces`) to canonical device IDs

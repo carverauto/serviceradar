@@ -77,7 +77,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     result
   end
 
-  defp ingest_batch(updates, _actor) do
+  defp ingest_batch(updates, actor) do
     # Step 1: Normalize all updates
     normalized_updates =
       updates
@@ -580,9 +580,9 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       {:ok, _events} ->
         :ok
 
-      {:error, reason} ->
-        Logger.warning("Alias state processing failed: #{inspect(reason)}")
-        {:error, reason}
+      other ->
+        Logger.warning("Alias state processing failed: #{inspect(other)}")
+        {:error, other}
     end
   end
 

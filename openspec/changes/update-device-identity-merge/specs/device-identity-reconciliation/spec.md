@@ -29,6 +29,12 @@ The system SHALL resolve IP-only device updates using confirmed IP aliases befor
 - **THEN** DIRE SHALL resolve the update to the canonical device ID
 - **AND** SHALL NOT create a new device record for the alias IP
 
+#### Scenario: Strong-ID update conflicts with confirmed IP alias
+- **GIVEN** a device update with a strong identifier resolves to device ID X
+- **AND** the update IP is a confirmed alias for device ID Y (Y != X)
+- **WHEN** DIRE processes the update
+- **THEN** DIRE SHALL merge the alias device into the strong-ID canonical device
+
 ### Requirement: IP Alias Sightings and Promotion
 The system SHALL track IP alias sightings for weak identifiers and only promote aliases once they meet a configurable confirmation threshold.
 
