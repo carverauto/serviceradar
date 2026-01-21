@@ -191,6 +191,7 @@ defmodule ServiceRadar.Application do
     oban_enabled =
       Application.get_env(:serviceradar_core, :oban_enabled, true) &&
         Application.get_env(:serviceradar_core, Oban)
+
     scheduler_enabled = Application.get_env(:serviceradar_core, :start_ash_oban_scheduler, false)
 
     if oban_enabled && scheduler_enabled do
@@ -379,8 +380,7 @@ defmodule ServiceRadar.Application do
   defp health_check_runner_supervisor_child do
     if health_check_runner_enabled?() do
       {DynamicSupervisor,
-       name: ServiceRadar.Infrastructure.HealthCheckRunnerSupervisor,
-       strategy: :one_for_one}
+       name: ServiceRadar.Infrastructure.HealthCheckRunnerSupervisor, strategy: :one_for_one}
     else
       nil
     end
