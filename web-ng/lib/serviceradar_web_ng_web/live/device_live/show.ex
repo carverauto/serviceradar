@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
+  require Ash.Query
 
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin

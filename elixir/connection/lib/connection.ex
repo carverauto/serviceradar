@@ -677,10 +677,12 @@ defmodule Connection do
   defp enter_stop(mod, mod_state, name, reason, {_, reason2}) do
     s = %{mod: mod, backoff: nil, mod_state: mod_state}
     mod_state = format_status(:terminate, [Process.get(), s])
-    format = '** Generic server ~p terminating \n' ++
-      '** Last message in was ~p~n' ++ ## No last message
-      '** When Server state == ~p~n' ++
-      '** Reason for termination == ~n** ~p~n'
+    format =
+      ~c"** Generic server ~p terminating \n" ++
+        ~c"** Last message in was ~p~n" ++
+        ## No last message
+        ~c"** When Server state == ~p~n" ++
+        ~c"** Reason for termination == ~n** ~p~n"
     args = [report_name(name), nil, mod_state, report_reason(reason2)]
     :error_logger.format(format, args)
     exit(reason)
