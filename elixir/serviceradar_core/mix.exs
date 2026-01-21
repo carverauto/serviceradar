@@ -72,7 +72,7 @@ defmodule ServiceRadarCore.MixProject do
 
       # gRPC client for serviceradar-sync communication
       {:grpc, "~> 0.9"},
-      {:protobuf, "~> 0.13"},
+      {:protobuf, "~> 0.16.0", override: true},
 
       # Telemetry
       {:telemetry, "~> 1.0"},

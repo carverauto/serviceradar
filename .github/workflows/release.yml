@@ -49,6 +49,11 @@ on:
         required: false
         type: boolean
         default: true
+      allow_local_fallback:
+        description: "Allow local Bazel fallback if remote execution fails."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -64,6 +69,7 @@ jobs:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       GHCR_REGISTRY: ghcr.io
+      ALLOW_LOCAL_FALLBACK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.allow_local_fallback || 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -184,9 +190,6 @@ jobs:
           cat "$notes_file"
           echo "--------------------------------"
 
-      - name: Build Kong vendor artifacts
-        run: ./scripts/build-kong-vendor.sh
-
       - name: Authenticate Docker for GHCR
         env:
           GHCR_DOCKER_AUTH: ${{ secrets.GHCR_DOCKER_AUTH }}
@@ -196,6 +199,41 @@ jobs:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
+          login_ghcr() {
+            local user="${1:-}"
+            local token="${2:-}"
+            if [[ -z "${user}" || -z "${token}" ]]; then
+              return 1
+            fi
+            echo "${token}" | docker login ghcr.io -u "${user}" --password-stdin
+          }
+
+          # Prefer GHCR_USERNAME/GHCR_TOKEN when provided; fall back to GITHUB_TOKEN.
+          if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
+            if ! login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"; then
+              echo "GHCR_TOKEN login failed; falling back to GITHUB_TOKEN." >&2
+              login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
+              export GHCR_USERNAME="${GITHUB_ACTOR:-github-actions}"
+              export GHCR_TOKEN="${GITHUB_TOKEN:-}"
+            else
+              export GHCR_USERNAME="${GHCR_USERNAME}"
+              export GHCR_TOKEN="${GHCR_TOKEN}"
+            fi
+          else
+            login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
+            export GHCR_USERNAME="${GITHUB_ACTOR:-github-actions}"
+            export GHCR_TOKEN="${GITHUB_TOKEN:-}"
+          fi
+
+          export GHCR_DOCKER_AUTH=""
+          unset GHCR_DOCKER_AUTH || true
+          {
+            echo "GHCR_USERNAME=${GHCR_USERNAME}"
+            echo "GHCR_TOKEN=${GHCR_TOKEN}"
+            echo "GHCR_DOCKER_AUTH="
+          } >> "${GITHUB_ENV}"
+
+          # Then run the Bazel auth setup for BuildBuddy.
           bazel run --config=remote //:buildbuddy_setup_docker_auth
 
       - name: Publish container images
@@ -214,16 +252,21 @@ jobs:
           fi
 
           if ! bazel run --config=remote --stamp //docker/images:push_all "${extra_args[@]}"; then
-            echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
-            bazel run \
-              --remote_executor= \
-              --remote_cache= \
-              --noremote_accept_cached \
-              --noremote_upload_local_results \
-              --jobs=8 \
-              --stamp \
-              //docker/images:push_all \
-              "${extra_args[@]}"
+            if [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
+              echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
+              bazel run \
+                --remote_executor= \
+                --remote_cache= \
+                --noremote_accept_cached \
+                --noremote_upload_local_results \
+                --jobs=8 \
+                --stamp \
+                //docker/images:push_all \
+                "${extra_args[@]}"
+            else
+              echo "Remote bazel run failed; local fallback disabled." >&2
+              exit 1
+            fi
           fi
 
       - name: Install Helm
@@ -238,9 +281,30 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           set -euo pipefail
+          login_ghcr() {
+            local user="${1:-}"
+            local token="${2:-}"
+            if [[ -z "${user}" || -z "${token}" ]]; then
+              return 1
+            fi
+            echo "${token}" | helm registry login ghcr.io -u "${user}" --password-stdin
+          }
 
-          # Login to GHCR for Helm OCI
-          echo "${GHCR_TOKEN}" | helm registry login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
+          # Login to GHCR for Helm OCI (fallback to GITHUB_TOKEN if needed).
+          if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
+            if ! login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"; then
+              echo "GHCR_TOKEN Helm login failed; falling back to GITHUB_TOKEN." >&2
+              if ! login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"; then
+                echo "GITHUB_TOKEN Helm login failed; unable to authenticate to GHCR." >&2
+                exit 1
+              fi
+            fi
+          else
+            if ! login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"; then
+              echo "GITHUB_TOKEN Helm login failed; unable to authenticate to GHCR." >&2
+              exit 1
+            fi
+          fi
 
           # Package and push chart
           helm package helm/serviceradar
@@ -282,9 +346,10 @@ jobs:
           if [[ "$PRERELEASE" == "true" ]]; then
             args+=("--prerelease")
           fi
-          if [[ "$DRAFT" == "true" ]]; then
-            args+=("--draft")
-          fi
+          # Always create/update the release as a draft so assets can be uploaded
+          # even when immutable releases are enforced. We'll publish afterward
+          # if the workflow input did not request a draft.
+          args+=("--draft")
           if [[ "$OVERWRITE_ASSETS" != "true" ]]; then
             args+=("--overwrite_assets=${OVERWRITE_ASSETS}")
           fi
@@ -309,9 +374,47 @@ jobs:
           }
 
           if ! run_remote; then
-            echo "Remote packaging failed; retrying locally without remote executor/cache" >&2
-            run_local
+            if [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
+              echo "Remote packaging failed; retrying locally without remote executor/cache" >&2
+              run_local
+            else
+              echo "Remote packaging failed; local fallback disabled." >&2
+              exit 1
+            fi
           fi
+
+      - name: Finalize GitHub release
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          DRAFT: ${{ steps.release.outputs.draft }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "${DRAFT}" == "true" ]]; then
+            echo "Release left as draft per workflow input."
+            exit 0
+          fi
+
+          api_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          release_json=$(curl -sSf -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GITHUB_TOKEN}" "$api_url" || true)
+          release_id=$(echo "$release_json" | jq -r '.id // empty')
+          if [[ -z "${release_id}" ]]; then
+            releases_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100"
+            release_id=$(curl -sSf -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GITHUB_TOKEN}" "$releases_url" \
+              | jq -r --arg tag "${RELEASE_TAG}" '.[] | select(.tag_name == $tag) | .id' \
+              | head -n1)
+          fi
+          if [[ -z "${release_id}" ]]; then
+            echo "Unable to resolve release id for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+
+          curl -sSf -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -d '{"draft": false}' >/dev/null
+          echo "Published release ${RELEASE_TAG}"
 
       - name: Verify uploaded release assets via API
         env:

@@ -14,6 +14,9 @@ spec:
     targetRevision: "1.0.76"
     helm:
       releaseName: serviceradar
+      # IMPORTANT: values-demo.yaml contains environment-specific overrides
+      # including the CNPG cluster name. Never change clusterName without
+      # migrating data first!
       valueFiles:
         - values-demo.yaml
       parameters:
@@ -28,8 +31,16 @@ spec:
       kind: PersistentVolumeClaim
       jsonPointers:
         - /status
+    # Ignore CNPG cluster spec changes to prevent accidental data loss
+    - group: postgresql.cnpg.io
+      kind: Cluster
+      jsonPointers:
+        - /spec/instances
+        - /spec/storage/size
   syncPolicy:
     automated:
+      # CAUTION: prune=true will delete resources removed from git.
+      # CNPG clusters are protected via ignoreDifferences above.
       prune: true
       selfHeal: true
       allowEmpty: false
@@ -37,6 +48,8 @@ spec:
       - CreateNamespace=true
       - SkipDryRunOnMissingResource=true
       - RespectIgnoreDifferences=true
+      # Prevent deletion of CNPG clusters during sync
+      - PrunePropagationPolicy=foreground
     retry:
       limit: 5
       backoff:

@@ -17,7 +17,13 @@ config :serviceradar_core,
     ServiceRadar.Observability,
     ServiceRadar.Edge,
     ServiceRadar.Integrations,
-    ServiceRadar.Jobs
+    ServiceRadar.Jobs,
+    ServiceRadar.AgentConfig,
+    ServiceRadar.SweepJobs,
+    ServiceRadar.SysmonProfiles,
+    ServiceRadar.SNMPProfiles,
+    ServiceRadar.NetworkDiscovery,
+    ServiceRadar.DuskProfiles
   ]
 
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
