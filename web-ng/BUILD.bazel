@@ -42,8 +42,6 @@ sh_test(
         "//:Cargo.toml",
         "//:Cargo.lock",
         "//:.tool-versions",
-        "//elixir/elixir_uuid:srcs",
-        "//elixir/protobuf:srcs",
         "//proto:kv_proto_src",
         "//rust/kvutil:srcs",
         "//rust/srql:srcs",
@@ -69,8 +67,6 @@ mix_release(
     src_dir = "web-ng",
     extra_dirs = [
         "elixir/connection",
-        "elixir/elixir_uuid",
-        "elixir/protobuf",
         "elixir/serviceradar_core",
         "elixir/serviceradar_srql",
         "proto",
@@ -80,8 +76,6 @@ mix_release(
     ],
     extra_dir_srcs = [
         "//elixir/connection:srcs",
-        "//elixir/elixir_uuid:srcs",
-        "//elixir/protobuf:srcs",
         "//elixir/serviceradar_core:srcs",
         "//elixir/serviceradar_srql:srcs",
         "//proto:kv_proto_src",

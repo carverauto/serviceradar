@@ -63,6 +63,99 @@ def _mix_release_impl(ctx):
         )
 
     run_assets = "true" if ctx.attr.run_assets else "false"
+    patch_script = """python3 - <<'PY'
+from pathlib import Path
+
+def patch_file(path, replacements):
+    if not path.exists():
+        return
+    text = path.read_text()
+    original = text
+    for old, new in replacements:
+        text = text.replace(old, new)
+    if text != original:
+        path.write_text(text)
+
+# Patch elixir_uuid to avoid deprecated Bitwise warning.
+patch_file(
+    Path("deps/elixir_uuid/lib/uuid.ex"),
+    [
+        ("  use Bitwise, only_operators: true\\n", ""),
+        ("  import Bitwise\\n", ""),
+    ],
+)
+
+# Patch protobuf to avoid struct-update typing warnings under Elixir 1.19.
+patch_file(
+    Path("deps/protobuf/lib/protobuf/dsl.ex"),
+    [
+        (
+            "  defp cal_packed(props, _syntax), do: %FieldProps{props | packed?: false}\\n",
+            "  defp cal_packed(%FieldProps{} = props, _syntax), do: %FieldProps{props | packed?: false}\\n",
+        ),
+        (
+            "    Enum.reduce(opts, props, fn\\n"
+            "      {:optional, optional?}, acc ->\\n"
+            "        %FieldProps{acc | optional?: optional?}\\n\\n"
+            "      {:proto3_optional, proto3_optional?}, acc ->\\n"
+            "        %FieldProps{acc | proto3_optional?: proto3_optional?}\\n\\n"
+            "      {:required, required?}, acc ->\\n"
+            "        %FieldProps{acc | required?: required?}\\n\\n"
+            "      {:enum, enum?}, acc ->\\n"
+            "        %FieldProps{acc | enum?: enum?}\\n\\n"
+            "      {:map, map?}, acc ->\\n"
+            "        %FieldProps{acc | map?: map?}\\n\\n"
+            "      {:repeated, repeated?}, acc ->\\n"
+            "        %FieldProps{acc | repeated?: repeated?}\\n\\n"
+            "      {:embedded, embedded}, acc ->\\n"
+            "        %FieldProps{acc | embedded?: embedded}\\n\\n"
+            "      {:deprecated, deprecated?}, acc ->\\n"
+            "        %FieldProps{acc | deprecated?: deprecated?}\\n\\n"
+            "      {:packed, packed?}, acc ->\\n"
+            "        %FieldProps{acc | packed?: packed?}\\n\\n"
+            "      {:type, type}, acc ->\\n"
+            "        %FieldProps{acc | type: type}\\n\\n"
+            "      {:default, default}, acc ->\\n"
+            "        %FieldProps{acc | default: default}\\n\\n"
+            "      {:oneof, oneof}, acc ->\\n"
+            "        %FieldProps{acc | oneof: oneof}\\n\\n"
+            "      {:json_name, json_name}, acc ->\\n"
+            "        %FieldProps{acc | json_name: json_name}\\n"
+            "    end)\\n",
+            "    Enum.reduce(opts, props, fn\\n"
+            "      {:optional, optional?}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | optional?: optional?}\\n\\n"
+            "      {:proto3_optional, proto3_optional?}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | proto3_optional?: proto3_optional?}\\n\\n"
+            "      {:required, required?}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | required?: required?}\\n\\n"
+            "      {:enum, enum?}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | enum?: enum?}\\n\\n"
+            "      {:map, map?}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | map?: map?}\\n\\n"
+            "      {:repeated, repeated?}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | repeated?: repeated?}\\n\\n"
+            "      {:embedded, embedded}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | embedded?: embedded}\\n\\n"
+            "      {:deprecated, deprecated?}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | deprecated?: deprecated?}\\n\\n"
+            "      {:packed, packed?}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | packed?: packed?}\\n\\n"
+            "      {:type, type}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | type: type}\\n\\n"
+            "      {:default, default}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | default: default}\\n\\n"
+            "      {:oneof, oneof}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | oneof: oneof}\\n\\n"
+            "      {:json_name, json_name}, %FieldProps{} = acc ->\\n"
+            "        %FieldProps{acc | json_name: json_name}\\n"
+            "    end)\\n",
+        ),
+    ],
+)
+PY
+"""
+    patch_script = patch_script.replace("{", "{{").replace("}", "}}")
 
     ctx.actions.run_shell(
         mnemonic = "MixRelease",
@@ -219,20 +312,6 @@ rm -rf /tmp/elixir/serviceradar_srql
 ln -s "$WORKDIR/elixir/serviceradar_srql" /tmp/elixir/serviceradar_srql
 rm -rf /tmp/serviceradar_core
 ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/serviceradar_core
-if [ -d "$WORKDIR/elixir/protobuf" ]; then
-  rm -rf /tmp/elixir/protobuf
-  mkdir -p /tmp/elixir
-  ln -s "$WORKDIR/elixir/protobuf" /tmp/elixir/protobuf
-  rm -rf /tmp/protobuf
-  ln -s "$WORKDIR/elixir/protobuf" /tmp/protobuf
-fi
-if [ -d "$WORKDIR/elixir/elixir_uuid" ]; then
-  rm -rf /tmp/elixir/elixir_uuid
-  mkdir -p /tmp/elixir
-  ln -s "$WORKDIR/elixir/elixir_uuid" /tmp/elixir/elixir_uuid
-  rm -rf /tmp/elixir_uuid
-  ln -s "$WORKDIR/elixir/elixir_uuid" /tmp/elixir_uuid
-fi
 
 cd "$WORKDIR"
 chmod -R u+w .
@@ -250,6 +329,7 @@ if [ -z "${{MIX_REBAR3:-}}" ]; then
   mix local.rebar --force
 fi
 mix deps.get --only prod
+{patch_script}
 mix deps.compile
 if [ "{run_assets}" = "true" ]; then
   # Preserve existing static assets (favicon, images, robots.txt) before clearing priv/static
@@ -325,6 +405,7 @@ tar -czf "$EXECROOT/{tar_out}" -C "$RELEASE_DIR" .
             otp_tar = otp_tar.path if otp_tar else "",
             extra_copy = "".join(extra_copy_cmds),
             run_assets = run_assets,
+            patch_script = patch_script,
             hex_cache_tar = hex_cache.path if hex_cache else "",
             bun_path = bun.path if bun else "",
         ),

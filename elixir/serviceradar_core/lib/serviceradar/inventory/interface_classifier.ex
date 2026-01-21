@@ -98,16 +98,24 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
   end
 
   defp rule_matches?(rule, record, device_ctx) do
-    (rule.enabled != false) and
-      has_constraints?(rule) and
-      matches_vendor?(rule.vendor_pattern, device_ctx) and
-      matches_pattern?(rule.model_pattern, device_ctx.model) and
-      matches_pattern?(rule.sys_descr_pattern, device_ctx.sys_descr) and
-      matches_pattern?(rule.if_name_pattern, record.if_name) and
-      matches_pattern?(rule.if_descr_pattern, record.if_descr) and
-      matches_pattern?(rule.if_alias_pattern, record.if_alias) and
-      matches_if_type?(rule.if_type_ids, record.if_type) and
+    rule
+    |> rule_match_checks(record, device_ctx)
+    |> Enum.all?()
+  end
+
+  defp rule_match_checks(rule, record, device_ctx) do
+    [
+      rule.enabled != false,
+      has_constraints?(rule),
+      matches_vendor?(rule.vendor_pattern, device_ctx),
+      matches_pattern?(rule.model_pattern, device_ctx.model),
+      matches_pattern?(rule.sys_descr_pattern, device_ctx.sys_descr),
+      matches_pattern?(rule.if_name_pattern, record.if_name),
+      matches_pattern?(rule.if_descr_pattern, record.if_descr),
+      matches_pattern?(rule.if_alias_pattern, record.if_alias),
+      matches_if_type?(rule.if_type_ids, record.if_type),
       matches_ip_constraints?(rule, record)
+    ]
   end
 
   defp has_constraints?(rule) do
@@ -256,34 +264,48 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
 
   defp merge_rule_classifications(record, rules) do
     {classifications, matched_rule_ids, matched_rule_names} =
-      Enum.reduce(rules, {MapSet.new(existing_classifications(record)), [], []}, fn rule,
-                                                                                   {acc, ids, names} ->
-        {acc, ids, names} =
-          if rule.id do
-            {acc, [rule.id | ids], [rule.name | names]}
-          else
-            {acc, ids, [rule.name | names]}
-          end
+      Enum.reduce(rules, initial_rule_state(record), &merge_rule/2)
 
-        Enum.reduce(rule.classifications || [], {acc, ids, names}, fn classification,
-                                                                     {acc_inner, ids_inner,
-                                                                      names_inner} ->
-          classification = normalize_classification(classification)
+    meta = build_rule_meta(matched_rule_ids, matched_rule_names)
+    {finalize_classifications(classifications), meta}
+  end
 
-          if classification == "" do
-            {acc_inner, ids_inner, names_inner}
-          else
-            {maybe_add_classification(acc_inner, classification), ids_inner, names_inner}
-          end
-        end)
-      end)
+  defp initial_rule_state(record) do
+    {MapSet.new(existing_classifications(record)), [], []}
+  end
 
-    meta = %{
+  defp merge_rule(rule, {acc, ids, names}) do
+    {acc, ids, names} = track_rule(rule, acc, ids, names)
+    Enum.reduce(rule.classifications || [], {acc, ids, names}, &merge_rule_classification/2)
+  end
+
+  defp track_rule(rule, acc, ids, names) do
+    names = [rule.name | names]
+    ids = if rule.id, do: [rule.id | ids], else: ids
+    {acc, ids, names}
+  end
+
+  defp merge_rule_classification(classification, {acc, ids, names}) do
+    classification = normalize_classification(classification)
+
+    if classification == "" do
+      {acc, ids, names}
+    else
+      {maybe_add_classification(acc, classification), ids, names}
+    end
+  end
+
+  defp build_rule_meta(matched_rule_ids, matched_rule_names) do
+    %{
       matched_rule_ids: Enum.reverse(matched_rule_ids),
       matched_rule_names: Enum.reverse(Enum.uniq(matched_rule_names))
     }
+  end
 
-    {classifications |> MapSet.to_list() |> Enum.sort(), meta}
+  defp finalize_classifications(classifications) do
+    classifications
+    |> MapSet.to_list()
+    |> Enum.sort()
   end
 
   defp existing_classifications(record) do

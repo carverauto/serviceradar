@@ -73,7 +73,7 @@ defmodule ServiceRadarCore.MixProject do
 
       # gRPC client for serviceradar-sync communication
       {:grpc, "~> 0.9"},
-      {:protobuf, path: "../protobuf", override: true},
+      {:protobuf, "~> 0.16.0", override: true},
 
       # Telemetry
       {:telemetry, "~> 1.0"},
@@ -81,7 +81,7 @@ defmodule ServiceRadarCore.MixProject do
 
       # Utilities
       {:jason, "~> 1.4"},
-      {:elixir_uuid, path: "../elixir_uuid", override: true},
+      {:elixir_uuid, "~> 1.2"},
       {:file_system, "~> 1.0"},
 
       # Policy SAT solver for Ash policies
