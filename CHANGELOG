@@ -1,10 +1,10 @@
-# ServiceRadar v1.0.81
+# ServiceRadar v1.0.82
 
 Release workflow fixes and packaging reliability improvements.
 
 ## Whats New
 
-**1.0.81**
+**1.0.82**
 - Release workflow now prefers explicit GHCR credentials when provided, avoiding stale docker auth overrides.
 - Bun tooling updated for lockfile compatibility and deterministic SSR bundling.
 - Mix release bundling uses a clean React component base to avoid importing node_modules during SSR builds.
