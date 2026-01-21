@@ -26,6 +26,7 @@ mix_release(
     src_dir = "elixir/serviceradar_core_elx",
     run_assets = False,
     extra_dirs = [
+        "elixir/connection",
         "elixir/serviceradar_core",
         "elixir/serviceradar_srql",
         "proto",
@@ -33,6 +34,7 @@ mix_release(
         "rust/srql",
     ],
     extra_dir_srcs = [
+        "//elixir/connection:srcs",
         "//elixir/serviceradar_core:srcs",
         "//elixir/serviceradar_srql:srcs",
         "//proto:kv_proto_src",
