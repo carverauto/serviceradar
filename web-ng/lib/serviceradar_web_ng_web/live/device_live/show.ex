@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.SysmonProfiles.SysmonProfile
+  alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
+  alias ServiceRadar.Inventory.InterfaceSettings
 
   @default_limit 50
   @max_limit 200
@@ -62,6 +64,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:network_interfaces, [])
      |> assign(:interfaces_error, nil)
      |> assign(:has_ifaces, false)
+     # Interface selection state
+     |> assign(:selected_interfaces, MapSet.new())
+     |> assign(:favorited_interfaces, MapSet.new())
+     |> assign(:show_interfaces_bulk_edit, false)
+     |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
+     # Interface metrics for favorited interfaces
+     |> assign(:interface_metrics, nil)
      |> assign(:ip_aliases, [])
      |> assign(:ip_alias_error, nil)
      |> assign(:show_stale_aliases, false)
@@ -142,6 +151,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     # Load network interfaces via SRQL
     {network_interfaces, interfaces_error} = load_interfaces(srql_module, uid, scope)
 
+    # Load interface settings (favorites, metrics enabled)
+    favorited_interfaces = load_interface_settings(scope, uid)
+
+    # Load interface metrics for favorited interfaces
+    interface_metrics =
+      load_interface_metrics(srql_module, uid, favorited_interfaces, network_interfaces, scope)
+
     {ip_aliases, ip_alias_error} =
       load_ip_aliases(scope, uid, socket.assigns.show_stale_aliases)
 
@@ -162,6 +178,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:network_interfaces, network_interfaces)
      |> assign(:interfaces_error, interfaces_error)
      |> assign(:has_ifaces, has_ifaces)
+     |> assign(:favorited_interfaces, favorited_interfaces)
+     |> assign(:interface_metrics, interface_metrics)
      |> assign(:ip_aliases, ip_aliases)
      |> assign(:ip_alias_error, ip_alias_error)
      |> assign(:active_tab, active_tab)
@@ -285,6 +303,146 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, assign(socket, :active_tab, tab)}
   end
 
+  # ---------------------------------------------------------------------------
+  # Interface Selection Events
+  # ---------------------------------------------------------------------------
+
+  def handle_event("toggle_interface_select", %{"uid" => uid}, socket) do
+    selected = socket.assigns.selected_interfaces
+
+    updated =
+      if MapSet.member?(selected, uid) do
+        MapSet.delete(selected, uid)
+      else
+        MapSet.put(selected, uid)
+      end
+
+    {:noreply, assign(socket, :selected_interfaces, updated)}
+  end
+
+  def handle_event("toggle_select_all_interfaces", _params, socket) do
+    interfaces = socket.assigns.network_interfaces
+    selected = socket.assigns.selected_interfaces
+
+    all_uids =
+      interfaces |> Enum.map(&Map.get(&1, "interface_uid")) |> Enum.filter(& &1) |> MapSet.new()
+
+    updated =
+      if MapSet.size(selected) == MapSet.size(all_uids) and MapSet.equal?(selected, all_uids) do
+        MapSet.new()
+      else
+        all_uids
+      end
+
+    {:noreply, assign(socket, :selected_interfaces, updated)}
+  end
+
+  def handle_event("clear_interface_selection", _params, socket) do
+    {:noreply, assign(socket, :selected_interfaces, MapSet.new())}
+  end
+
+  def handle_event("open_interfaces_bulk_edit", _params, socket) do
+    {:noreply, assign(socket, :show_interfaces_bulk_edit, true)}
+  end
+
+  def handle_event("close_interfaces_bulk_edit", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_interfaces_bulk_edit, false)
+     |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))}
+  end
+
+  def handle_event("apply_interfaces_bulk_edit", %{"bulk" => params}, socket) do
+    selected = socket.assigns.selected_interfaces
+    device_uid = socket.assigns.device_uid
+    scope = socket.assigns.current_scope
+    action = Map.get(params, "action", "favorite")
+
+    {socket, success_count, action_label} =
+      case action do
+        "favorite" ->
+          # Add all selected to favorites and persist
+          {count, new_favorites} =
+            bulk_update_favorites(
+              scope,
+              device_uid,
+              selected,
+              true,
+              socket.assigns.favorited_interfaces
+            )
+
+          {assign(socket, :favorited_interfaces, new_favorites), count, "added to favorites"}
+
+        "unfavorite" ->
+          # Remove all selected from favorites and persist
+          {count, new_favorites} =
+            bulk_update_favorites(
+              scope,
+              device_uid,
+              selected,
+              false,
+              socket.assigns.favorited_interfaces
+            )
+
+          {assign(socket, :favorited_interfaces, new_favorites), count, "removed from favorites"}
+
+        "enable_metrics" ->
+          # Enable metrics collection for all selected interfaces
+          count = bulk_update_metrics(scope, device_uid, selected, true)
+          {socket, count, "enabled for metrics collection"}
+
+        "disable_metrics" ->
+          # Disable metrics collection for all selected interfaces
+          count = bulk_update_metrics(scope, device_uid, selected, false)
+          {socket, count, "disabled for metrics collection"}
+
+        "add_tags" ->
+          # Add tags to all selected interfaces
+          tags_string = Map.get(params, "tags", "")
+          tags = parse_tags(tags_string)
+
+          if tags == [] do
+            {socket, 0, "tagged (no tags provided)"}
+          else
+            count = bulk_update_tags(scope, device_uid, selected, tags)
+            {socket, count, "tagged with: #{Enum.join(tags, ", ")}"}
+          end
+
+        _ ->
+          {socket, 0, "updated"}
+      end
+
+    {:noreply,
+     socket
+     |> assign(:show_interfaces_bulk_edit, false)
+     |> assign(:selected_interfaces, MapSet.new())
+     |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
+     |> put_flash(:info, "#{success_count} interface(s) #{action_label}")}
+  end
+
+  def handle_event("toggle_interface_favorite", %{"uid" => uid}, socket) do
+    favorited = socket.assigns.favorited_interfaces
+    device_uid = socket.assigns.device_uid
+    scope = socket.assigns.current_scope
+    new_favorite_state = not MapSet.member?(favorited, uid)
+
+    # Persist to backend
+    case upsert_interface_setting(scope, device_uid, uid, %{favorited: new_favorite_state}) do
+      {:ok, _setting} ->
+        updated =
+          if new_favorite_state do
+            MapSet.put(favorited, uid)
+          else
+            MapSet.delete(favorited, uid)
+          end
+
+        {:noreply, assign(socket, :favorited_interfaces, updated)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to update favorite status")}
+    end
+  end
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   defp format_tags_for_edit(nil), do: ""
@@ -312,6 +470,187 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         {[], "SRQL error: #{format_error(reason)}"}
     end
   end
+
+  defp load_interface_settings(_scope, nil), do: MapSet.new()
+
+  defp load_interface_settings(scope, device_uid) do
+    case InterfaceSettings.list_by_device(device_uid, scope: scope) do
+      {:ok, settings} ->
+        settings
+        |> Enum.filter(& &1.favorited)
+        |> Enum.map(& &1.interface_uid)
+        |> MapSet.new()
+
+      {:error, _reason} ->
+        MapSet.new()
+    end
+  end
+
+  defp load_interface_metrics(_srql_module, _device_uid, favorited, _interfaces, _scope)
+       when map_size(favorited) == 0 do
+    %{
+      has_favorited: false,
+      panels: [],
+      error: nil,
+      favorited_count: 0
+    }
+  end
+
+  defp load_interface_metrics(srql_module, device_uid, favorited_uids, interfaces, scope) do
+    # Get the if_index values for favorited interfaces
+    favorited_if_indices =
+      interfaces
+      |> Enum.filter(fn iface ->
+        uid = Map.get(iface, "interface_uid")
+        is_binary(uid) and MapSet.member?(favorited_uids, uid)
+      end)
+      |> Enum.map(fn iface -> Map.get(iface, "if_index") end)
+      |> Enum.filter(&is_integer/1)
+
+    if favorited_if_indices == [] do
+      %{
+        has_favorited: true,
+        panels: [],
+        error: nil,
+        favorited_count: MapSet.size(favorited_uids),
+        message: "No interface metrics available. Favorited interfaces may not have SNMP indices."
+      }
+    else
+      # Query SNMP metrics for the favorited interfaces
+      if_filter = Enum.map_join(favorited_if_indices, ",", &to_string/1)
+
+      query =
+        "in:snmp_metrics uid:\"#{escape_value(device_uid)}\" if_index:[#{if_filter}] " <>
+          "time:last_24h bucket:5m agg:avg series:if_index limit:200"
+
+      case srql_module.query(query, %{scope: scope}) do
+        {:ok, %{"results" => results} = resp} when is_list(results) and results != [] ->
+          srql_response = %{"results" => results, "viz" => Map.get(resp, "viz")}
+          panels = Engine.build_panels(srql_response)
+
+          %{
+            has_favorited: true,
+            panels: Enum.reject(panels, &(&1.plugin == TablePlugin)),
+            error: nil,
+            favorited_count: MapSet.size(favorited_uids)
+          }
+
+        {:ok, %{"results" => []}} ->
+          %{
+            has_favorited: true,
+            panels: [],
+            error: nil,
+            favorited_count: MapSet.size(favorited_uids),
+            message:
+              "No metrics data available yet. Ensure SNMP polling is configured for this device."
+          }
+
+        {:ok, _} ->
+          %{
+            has_favorited: true,
+            panels: [],
+            error: nil,
+            favorited_count: MapSet.size(favorited_uids),
+            message: "No metrics data available."
+          }
+
+        {:error, reason} ->
+          %{
+            has_favorited: true,
+            panels: [],
+            error: "Failed to load metrics: #{format_error(reason)}",
+            favorited_count: MapSet.size(favorited_uids)
+          }
+      end
+    end
+  end
+
+  defp upsert_interface_setting(_scope, nil, _interface_uid, _attrs), do: {:error, :no_device}
+  defp upsert_interface_setting(_scope, _device_uid, nil, _attrs), do: {:error, :no_interface}
+
+  defp upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
+    InterfaceSettings.upsert(device_uid, interface_uid, attrs, scope: scope)
+  end
+
+  defp bulk_update_favorites(scope, device_uid, selected_uids, favorited, current_favorites) do
+    # Persist each selected interface's favorite status
+    results =
+      selected_uids
+      |> MapSet.to_list()
+      |> Enum.map(fn uid ->
+        case upsert_interface_setting(scope, device_uid, uid, %{favorited: favorited}) do
+          {:ok, _} -> {:ok, uid}
+          {:error, _} -> {:error, uid}
+        end
+      end)
+
+    success_count = Enum.count(results, fn {status, _} -> status == :ok end)
+
+    # Update the MapSet based on success
+    successful_uids =
+      results
+      |> Enum.filter(fn {status, _} -> status == :ok end)
+      |> Enum.map(fn {_, uid} -> uid end)
+      |> MapSet.new()
+
+    new_favorites =
+      if favorited do
+        MapSet.union(current_favorites, successful_uids)
+      else
+        MapSet.difference(current_favorites, successful_uids)
+      end
+
+    {success_count, new_favorites}
+  end
+
+  defp bulk_update_metrics(scope, device_uid, selected_uids, metrics_enabled) do
+    # Persist each selected interface's metrics_enabled status
+    results =
+      selected_uids
+      |> MapSet.to_list()
+      |> Enum.map(fn uid ->
+        case upsert_interface_setting(scope, device_uid, uid, %{metrics_enabled: metrics_enabled}) do
+          {:ok, _} -> :ok
+          {:error, _} -> :error
+        end
+      end)
+
+    Enum.count(results, &(&1 == :ok))
+  end
+
+  defp bulk_update_tags(scope, device_uid, selected_uids, tags) do
+    # Add tags to each selected interface (preserving existing tags)
+    results =
+      selected_uids
+      |> MapSet.to_list()
+      |> Enum.map(fn uid ->
+        # First get existing settings to merge tags
+        existing_tags =
+          case InterfaceSettings.get_by_interface(device_uid, uid, actor: scope) do
+            {:ok, settings} -> settings.tags || []
+            _ -> []
+          end
+
+        merged_tags = Enum.uniq(existing_tags ++ tags)
+
+        case upsert_interface_setting(scope, device_uid, uid, %{tags: merged_tags}) do
+          {:ok, _} -> :ok
+          {:error, _} -> :error
+        end
+      end)
+
+    Enum.count(results, &(&1 == :ok))
+  end
+
+  defp parse_tags(tags_string) when is_binary(tags_string) do
+    tags_string
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp parse_tags(_), do: []
 
   defp load_ip_aliases(_scope, nil, _show_stale), do: {[], nil}
   defp load_ip_aliases(nil, _device_uid, _show_stale), do: {[], "Scope unavailable"}
@@ -699,6 +1038,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <.interfaces_tab_content
               interfaces={@network_interfaces}
               error={@interfaces_error}
+              selected_interfaces={@selected_interfaces}
+              favorited_interfaces={@favorited_interfaces}
+              device_uid={@device_uid}
+              interface_metrics={@interface_metrics}
             />
           </div>
           
@@ -715,6 +1058,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           </div>
         </div>
       </div>
+
+      <%!-- Interfaces Bulk Edit Modal --%>
+      <.interfaces_bulk_edit_modal
+        :if={@show_interfaces_bulk_edit}
+        form={@interfaces_bulk_edit_form}
+        selected_count={MapSet.size(@selected_interfaces)}
+      />
     </Layouts.app>
     """
   end
@@ -1085,15 +1435,64 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   attr :interfaces, :list, required: true
   attr :error, :string, default: nil
+  attr :selected_interfaces, :any, required: true
+  attr :favorited_interfaces, :any, required: true
+  attr :device_uid, :string, required: true
+  attr :interface_metrics, :map, default: nil
 
   defp interfaces_tab_content(assigns) do
+    selected_count = MapSet.size(assigns.selected_interfaces)
+
+    all_uids =
+      assigns.interfaces
+      |> Enum.map(&Map.get(&1, "interface_uid"))
+      |> Enum.filter(& &1)
+      |> MapSet.new()
+
+    all_selected =
+      MapSet.size(all_uids) > 0 and MapSet.equal?(all_uids, assigns.selected_interfaces)
+
+    assigns =
+      assigns
+      |> assign(:selected_count, selected_count)
+      |> assign(:all_selected, all_selected)
+
     ~H"""
+    <%!-- Interface Metrics Visualization for Favorited Interfaces --%>
+    <.interface_metrics_section
+      :if={@interface_metrics}
+      metrics={@interface_metrics}
+      device_uid={@device_uid}
+    />
+
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200">
-        <div class="flex items-center gap-2">
-          <.icon name="hero-signal" class="size-4 text-primary" />
-          <span class="text-sm font-semibold">Network Interfaces</span>
-          <span class="text-xs text-base-content/50">({length(@interfaces)} interfaces)</span>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <.icon name="hero-signal" class="size-4 text-primary" />
+            <span class="text-sm font-semibold">Network Interfaces</span>
+            <span class="text-xs text-base-content/50">({length(@interfaces)} interfaces)</span>
+          </div>
+          <%!-- Bulk action toolbar --%>
+          <div :if={@selected_count > 0} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/70">
+              {@selected_count} selected
+            </span>
+            <button
+              type="button"
+              phx-click="clear_interface_selection"
+              class="btn btn-xs btn-ghost"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              phx-click="open_interfaces_bulk_edit"
+              class="btn btn-xs btn-primary"
+            >
+              <.icon name="hero-pencil-square" class="size-3" /> Bulk Edit
+            </button>
+          </div>
         </div>
       </div>
       <div class="p-4">
@@ -1104,7 +1503,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <table class="table table-xs w-full">
             <thead class="sticky top-0 bg-base-100">
               <tr>
+                <th class="w-8">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-xs checkbox-primary"
+                    checked={@all_selected}
+                    phx-click="toggle_select_all_interfaces"
+                  />
+                </th>
+                <th class="w-8 text-center" title="Favorite">
+                  <.icon name="hero-star" class="size-3 text-base-content/50" />
+                </th>
+                <th class="w-8 text-center" title="Metrics Collection">
+                  <.icon name="hero-chart-bar" class="size-3 text-base-content/50" />
+                </th>
                 <th class="text-xs">Interface</th>
+                <th class="text-xs">ID</th>
                 <th class="text-xs">IP Addresses</th>
                 <th class="text-xs">MAC</th>
                 <th class="text-xs">Type</th>
@@ -1114,20 +1528,84 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             </thead>
             <tbody>
               <%= for iface <- @interfaces do %>
-                <tr class="hover:bg-base-200/50">
+                <% iface_uid = Map.get(iface, "interface_uid") %>
+                <% is_selected =
+                  is_binary(iface_uid) and MapSet.member?(@selected_interfaces, iface_uid) %>
+                <% is_favorited =
+                  is_binary(iface_uid) and MapSet.member?(@favorited_interfaces, iface_uid) %>
+                <tr class={["hover:bg-base-200/50", is_selected && "bg-primary/5"]}>
+                  <td class="w-8">
+                    <input
+                      :if={iface_uid}
+                      type="checkbox"
+                      class="checkbox checkbox-xs checkbox-primary"
+                      checked={is_selected}
+                      phx-click="toggle_interface_select"
+                      phx-value-uid={iface_uid}
+                    />
+                  </td>
+                  <td class="w-8 text-center">
+                    <button
+                      :if={iface_uid}
+                      type="button"
+                      phx-click="toggle_interface_favorite"
+                      phx-value-uid={iface_uid}
+                      class="btn btn-ghost btn-xs p-0"
+                      title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
+                    >
+                      <.icon
+                        name={if is_favorited, do: "hero-star-solid", else: "hero-star"}
+                        class={[
+                          "size-4",
+                          if(is_favorited,
+                            do: "text-warning",
+                            else: "text-base-content/30 hover:text-warning/70"
+                          )
+                        ]}
+                      />
+                    </button>
+                  </td>
+                  <td class="w-8 text-center">
+                    <% metrics_enabled = Map.get(iface, "metrics_enabled", false) %>
+                    <.icon
+                      :if={metrics_enabled}
+                      name="hero-chart-bar-solid"
+                      class="size-4 text-success cursor-pointer hover:text-success/80"
+                      title="Metrics collection enabled - Click to view details"
+                    />
+                    <.icon
+                      :if={!metrics_enabled}
+                      name="hero-chart-bar"
+                      class="size-4 text-base-content/20"
+                      title="Metrics collection disabled"
+                    />
+                  </td>
                   <td class="text-xs">
-                    <div class="font-mono" title={Map.get(iface, "interface_uid") || ""}>
+                    <.link
+                      :if={iface_uid}
+                      navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
+                      class="font-mono link link-hover link-primary"
+                      title={iface_uid}
+                    >
+                      {interface_label(iface)}
+                    </.link>
+                    <div :if={!iface_uid} class="font-mono" title="">
                       {interface_label(iface)}
                     </div>
                     <div :if={interface_secondary(iface)} class="text-[11px] text-base-content/60">
                       {interface_secondary(iface)}
                     </div>
                   </td>
+                  <td class="text-xs font-mono text-base-content/60">
+                    {format_interface_id(iface)}
+                  </td>
                   <td class="text-xs font-mono">{format_ip_addresses(iface)}</td>
                   <td class="text-xs font-mono">{Map.get(iface, "if_phys_address") || "—"}</td>
                   <td class="text-xs">{format_interface_type(iface)}</td>
                   <td class="text-xs font-mono">{format_bps(interface_speed(iface))}</td>
-                  <td class="text-xs">{format_interface_status(iface)}</td>
+                  <td class="text-xs">
+                    <.interface_status_badges iface={iface} />
+                  </td>
                 </tr>
               <% end %>
             </tbody>
@@ -1135,6 +1613,237 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         </div>
       </div>
     </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Interface Metrics Section
+  # ---------------------------------------------------------------------------
+
+  attr :metrics, :map, required: true
+  attr :device_uid, :string, required: true
+
+  defp interface_metrics_section(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm mb-4">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-chart-bar" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Favorited Interface Metrics</span>
+          <span :if={@metrics.favorited_count > 0} class="text-xs text-base-content/50">
+            ({@metrics.favorited_count} favorited)
+          </span>
+        </div>
+      </div>
+
+      <%!-- No favorited interfaces --%>
+      <div :if={!@metrics.has_favorited} class="p-6 text-center">
+        <.icon name="hero-star" class="size-10 text-base-content/20 mx-auto" />
+        <p class="text-sm text-base-content/70 mt-2">
+          No favorited interfaces yet.
+        </p>
+        <p class="text-xs text-base-content/50 mt-1">
+          Star interfaces in the table below to see their metrics here.
+        </p>
+      </div>
+
+      <%!-- Error state --%>
+      <div :if={@metrics.error} class="p-4">
+        <div class="alert alert-error alert-sm">
+          <.icon name="hero-exclamation-triangle" class="size-4" />
+          <span class="text-sm">{@metrics.error}</span>
+        </div>
+      </div>
+
+      <%!-- Message state (no data available) --%>
+      <div
+        :if={@metrics.has_favorited && @metrics.panels == [] && !@metrics.error}
+        class="p-6 text-center"
+      >
+        <.icon name="hero-chart-bar" class="size-10 text-base-content/20 mx-auto" />
+        <p class="text-sm text-base-content/70 mt-2">
+          {Map.get(@metrics, :message, "No metrics data available for favorited interfaces.")}
+        </p>
+        <p class="text-xs text-base-content/50 mt-1">
+          Metrics will appear once SNMP polling collects data for these interfaces.
+        </p>
+      </div>
+
+      <%!-- Metrics panels --%>
+      <div :if={@metrics.panels != []} class="p-4">
+        <%= for panel <- @metrics.panels do %>
+          <.live_component
+            module={panel.plugin}
+            id={"interface-metrics-#{@device_uid}-#{panel.id}"}
+            title="Interface Metrics"
+            panel_assigns={Map.put(panel.assigns, :compact, true)}
+          />
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Interfaces Bulk Edit Modal
+  # ---------------------------------------------------------------------------
+
+  attr :form, :any, required: true
+  attr :selected_count, :integer, required: true
+
+  defp interfaces_bulk_edit_modal(assigns) do
+    ~H"""
+    <dialog id="interfaces_bulk_edit_modal" class="modal modal-open">
+      <div class="modal-box max-w-md">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_interfaces_bulk_edit"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">Bulk Edit Interfaces</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          Apply action to {@selected_count} selected interface(s).
+        </p>
+
+        <.form
+          for={@form}
+          id="interfaces-bulk-form"
+          phx-submit="apply_interfaces_bulk_edit"
+          class="space-y-4"
+        >
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Action</span>
+            </label>
+            <div class="space-y-2">
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
+                <input
+                  type="radio"
+                  name="bulk[action]"
+                  value="favorite"
+                  class="radio radio-primary radio-sm"
+                  checked
+                />
+                <div>
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-star-solid" class="size-4 text-warning" />
+                    <span class="font-medium">Add to Favorites</span>
+                  </div>
+                  <p class="text-xs text-base-content/60 mt-1">
+                    Mark selected interfaces as favorites for quick access
+                  </p>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
+                <input
+                  type="radio"
+                  name="bulk[action]"
+                  value="unfavorite"
+                  class="radio radio-primary radio-sm"
+                />
+                <div>
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-star" class="size-4 text-base-content/50" />
+                    <span class="font-medium">Remove from Favorites</span>
+                  </div>
+                  <p class="text-xs text-base-content/60 mt-1">
+                    Remove selected interfaces from favorites
+                  </p>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
+                <input
+                  type="radio"
+                  name="bulk[action]"
+                  value="enable_metrics"
+                  class="radio radio-primary radio-sm"
+                />
+                <div>
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-chart-bar-solid" class="size-4 text-success" />
+                    <span class="font-medium">Enable Metrics Collection</span>
+                  </div>
+                  <p class="text-xs text-base-content/60 mt-1">
+                    Start collecting metrics for selected interfaces
+                  </p>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
+                <input
+                  type="radio"
+                  name="bulk[action]"
+                  value="disable_metrics"
+                  class="radio radio-primary radio-sm"
+                />
+                <div>
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-chart-bar" class="size-4 text-base-content/50" />
+                    <span class="font-medium">Disable Metrics Collection</span>
+                  </div>
+                  <p class="text-xs text-base-content/60 mt-1">
+                    Stop collecting metrics for selected interfaces
+                  </p>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
+                <input
+                  type="radio"
+                  name="bulk[action]"
+                  value="add_tags"
+                  class="radio radio-primary radio-sm"
+                />
+                <div class="flex-1">
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-tag-solid" class="size-4 text-info" />
+                    <span class="font-medium">Add Tags</span>
+                  </div>
+                  <p class="text-xs text-base-content/60 mt-1">
+                    Add tags to selected interfaces (comma-separated)
+                  </p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div id="tags-input-container" class="form-control hidden" phx-hook="BulkEditTagsToggle">
+            <label class="label">
+              <span class="label-text font-medium">Tags</span>
+            </label>
+            <input
+              type="text"
+              name="bulk[tags]"
+              class="input input-bordered"
+              placeholder="Enter tags separated by commas (e.g., wan, critical, primary)"
+            />
+            <label class="label">
+              <span class="label-text-alt text-base-content/60">
+                Tags will be added to existing tags
+              </span>
+            </label>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-4">
+            <button type="button" phx-click="close_interfaces_bulk_edit" class="btn btn-ghost">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              Apply
+            </button>
+          </div>
+        </.form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_interfaces_bulk_edit">close</button>
+      </form>
+    </dialog>
     """
   end
 
@@ -1178,30 +1887,122 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp format_interface_type(iface) do
-    default_display(Map.get(iface, "if_type_name") || Map.get(iface, "interface_kind"))
+    type = Map.get(iface, "if_type_name") || Map.get(iface, "interface_kind")
+    InterfaceTypes.humanize(type)
   end
 
   defp interface_speed(iface) do
     Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
   end
 
-  defp format_interface_status(iface) do
-    oper = interface_status_label(Map.get(iface, "if_oper_status"))
-    admin = interface_status_label(Map.get(iface, "if_admin_status"))
-    duplex = Map.get(iface, "duplex")
-
-    [oper && "oper #{oper}", admin && "admin #{admin}", duplex]
-    |> Enum.filter(&present?/1)
-    |> case do
-      [] -> "—"
-      parts -> Enum.join(parts, " / ")
+  defp format_interface_id(iface) do
+    # Try if_index first (SNMP interface index), then interface_uid
+    case Map.get(iface, "if_index") do
+      nil -> truncate_interface_id(Map.get(iface, "interface_uid"))
+      idx when is_integer(idx) -> Integer.to_string(idx)
+      idx when is_binary(idx) -> idx
+      _ -> "—"
     end
   end
 
-  defp interface_status_label(1), do: "up"
-  defp interface_status_label(2), do: "down"
-  defp interface_status_label(3), do: "testing"
-  defp interface_status_label(_), do: nil
+  defp truncate_interface_id(nil), do: "—"
+  defp truncate_interface_id(uid) when byte_size(uid) > 8, do: String.slice(uid, 0, 8) <> "…"
+  defp truncate_interface_id(uid), do: uid
+
+  # ---------------------------------------------------------------------------
+  # Interface Status Badges Component
+  # ---------------------------------------------------------------------------
+
+  attr :iface, :map, required: true
+
+  defp interface_status_badges(assigns) do
+    oper_status = Map.get(assigns.iface, "if_oper_status")
+    admin_status = Map.get(assigns.iface, "if_admin_status")
+
+    assigns =
+      assigns
+      |> assign(:oper_status, oper_status)
+      |> assign(:admin_status, admin_status)
+
+    ~H"""
+    <div class="flex flex-wrap gap-1">
+      <.oper_status_badge status={@oper_status} />
+      <.admin_status_badge status={@admin_status} />
+    </div>
+    """
+  end
+
+  attr :status, :any, required: true
+
+  defp oper_status_badge(assigns) do
+    ~H"""
+    <span
+      :if={@status != nil}
+      class={[
+        "badge badge-xs gap-1",
+        oper_status_class(@status)
+      ]}
+      title="Operational Status"
+    >
+      <.icon name={oper_status_icon(@status)} class="size-3" />
+      {oper_status_text(@status)}
+    </span>
+    <span :if={@status == nil} class="badge badge-xs badge-ghost gap-1" title="Operational Status">
+      <.icon name="hero-question-mark-circle" class="size-3" /> Unknown
+    </span>
+    """
+  end
+
+  attr :status, :any, required: true
+
+  defp admin_status_badge(assigns) do
+    ~H"""
+    <span
+      :if={@status != nil}
+      class={[
+        "badge badge-xs badge-outline gap-1",
+        admin_status_class(@status)
+      ]}
+      title="Admin Status"
+    >
+      <.icon name={admin_status_icon(@status)} class="size-3" />
+      {admin_status_text(@status)}
+    </span>
+    """
+  end
+
+  # Operational status styling (1=up, 2=down, 3=testing)
+  defp oper_status_class(1), do: "badge-success"
+  defp oper_status_class(2), do: "badge-error"
+  defp oper_status_class(3), do: "badge-warning"
+  defp oper_status_class(_), do: "badge-ghost"
+
+  # Use distinct icons for color-blind accessibility
+  defp oper_status_icon(1), do: "hero-arrow-up-circle"
+  defp oper_status_icon(2), do: "hero-arrow-down-circle"
+  defp oper_status_icon(3), do: "hero-beaker"
+  defp oper_status_icon(_), do: "hero-question-mark-circle"
+
+  defp oper_status_text(1), do: "Up"
+  defp oper_status_text(2), do: "Down"
+  defp oper_status_text(3), do: "Testing"
+  defp oper_status_text(_), do: "Unknown"
+
+  # Admin status styling
+  defp admin_status_class(1), do: "border-success text-success"
+  defp admin_status_class(2), do: "border-warning text-warning"
+  defp admin_status_class(3), do: "border-info text-info"
+  defp admin_status_class(_), do: "border-base-content/30 text-base-content/50"
+
+  defp admin_status_icon(1), do: "hero-check-circle"
+  defp admin_status_icon(2), do: "hero-pause-circle"
+  defp admin_status_icon(3), do: "hero-beaker"
+  defp admin_status_icon(_), do: "hero-question-mark-circle"
+
+  defp admin_status_text(1), do: "Enabled"
+  defp admin_status_text(2), do: "Disabled"
+  defp admin_status_text(3), do: "Testing"
+  defp admin_status_text(_), do: "Unknown"
 
   defp format_bps(nil), do: "—"
 

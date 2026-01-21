@@ -121,13 +121,17 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_filter_field: "uid",
       filter_fields: [
         "uid",
+        "device_id",
         "if_name",
         "if_index",
         "mac",
         "ip_addresses",
         "admin_status",
-        "oper_status"
+        "oper_status",
+        "favorited",
+        "metrics_enabled"
       ],
+      boolean_fields: ["favorited", "metrics_enabled"],
       downsample: false
     },
     %{
@@ -336,6 +340,25 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "pid",
         "status"
       ]
+    },
+    %{
+      id: "interface_settings",
+      label: "Interface Settings",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "updated_at",
+      default_sort_dir: "desc",
+      default_filter_field: "device_id",
+      filter_fields: [
+        "device_id",
+        "interface_uid",
+        "favorited",
+        "metrics_enabled",
+        "threshold_enabled",
+        "tags"
+      ],
+      boolean_fields: ["favorited", "metrics_enabled", "threshold_enabled"],
+      downsample: false
     }
   ]
 
