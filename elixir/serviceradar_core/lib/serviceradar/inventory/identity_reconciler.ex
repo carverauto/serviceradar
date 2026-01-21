@@ -294,24 +294,20 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp maybe_merge_ip_alias_device(device_id, ids, actor) do
-    if present_id?(ids.ip) do
-      case lookup_alias_device_id(ids.ip, ids.partition, actor) do
-        {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" ->
-          if alias_device_id != device_id and not service_device_id?(alias_device_id) do
-            _ =
-              merge_devices(alias_device_id, device_id,
-                actor: actor,
-                reason: "ip_alias_conflict",
-                details: %{
-                  source: "identity_reconciler",
-                  alias_ip: ids.ip
-                }
-              )
-          end
-
-        _ ->
-          :ok
-      end
+    with true <- present_id?(ids.ip),
+         {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" <-
+           lookup_alias_device_id(ids.ip, ids.partition, actor),
+         true <- alias_device_id != device_id,
+         false <- service_device_id?(alias_device_id) do
+      _ =
+        merge_devices(alias_device_id, device_id,
+          actor: actor,
+          reason: "ip_alias_conflict",
+          details: %{
+            source: "identity_reconciler",
+            alias_ip: ids.ip
+          }
+        )
     end
 
     :ok

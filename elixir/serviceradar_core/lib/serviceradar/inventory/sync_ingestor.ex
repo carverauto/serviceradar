@@ -78,74 +78,75 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp ingest_batch(updates, actor) do
-    # Step 1: Normalize all updates
-    normalized_updates =
-      updates
-      |> Enum.map(&normalize_update/1)
-      |> Enum.map(&enrich_alias_metadata/1)
+    normalized_updates = normalize_updates(updates)
 
-    # Step 2: Extract all identifiers for bulk lookup
+    {resolved_updates, device_records, identifier_records} =
+      resolve_updates(normalized_updates, actor)
+
+    device_result = upsert_devices(device_records)
+    identifier_result = upsert_identifiers(identifier_records)
+
+    _ = maybe_process_alias_conflicts(device_result, resolved_updates, actor)
+    alias_result = maybe_process_alias_updates(device_result, resolved_updates, actor)
+
+    finalize_ingest_results(device_result, identifier_result, alias_result)
+  end
+
+  defp normalize_updates(updates) do
+    updates
+    |> Enum.map(&normalize_update/1)
+    |> Enum.map(&enrich_alias_metadata/1)
+  end
+
+  defp resolve_updates(normalized_updates, _actor) do
     all_identifiers = extract_all_identifiers(normalized_updates)
-
-    # Step 3: Bulk lookup existing device identifiers
-    # DB connection's search_path determines the schema
     existing_mappings = bulk_lookup_identifiers(all_identifiers)
+    ip_to_device = bulk_lookup_by_ip(ip_only_updates(normalized_updates))
 
-    # Step 4: Bulk lookup existing devices by IP for IP-only devices
-    ip_only_updates = Enum.filter(normalized_updates, fn u ->
-      ids = IdentityReconciler.extract_strong_identifiers(u)
-      not IdentityReconciler.has_strong_identifier?(ids) and ids.ip != ""
-    end)
-    ip_to_device = bulk_lookup_by_ip(ip_only_updates)
-
-    # Step 5: Resolve device IDs (using cached lookups)
     resolved_updates =
       Enum.map(normalized_updates, fn update ->
         device_id = resolve_device_id_cached(update, existing_mappings, ip_to_device)
         {update, device_id}
       end)
 
-    # Step 6: Build device upsert records
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
     device_records = build_device_upsert_records(resolved_updates, timestamp)
-
-    # Step 7: Bulk upsert devices
-    device_result =
-      if Enum.empty?(device_records) do
-        :ok
-      else
-        bulk_upsert_devices(device_records)
-      end
-
-    # Step 8: Bulk upsert device identifiers
     identifier_records = build_identifier_records(resolved_updates)
-    identifier_result =
-      if Enum.empty?(identifier_records) do
-        :ok
-      else
-        bulk_upsert_identifiers(identifier_records)
-      end
 
-    merge_result =
-      if device_result == :ok do
-        process_alias_conflicts(resolved_updates, actor)
-      else
-        :ok
-      end
+    {resolved_updates, device_records, identifier_records}
+  end
 
-    alias_result =
-      if device_result == :ok do
-        process_alias_updates(resolved_updates, actor)
-      else
-        :ok
-      end
+  defp ip_only_updates(normalized_updates) do
+    Enum.filter(normalized_updates, fn update ->
+      ids = IdentityReconciler.extract_strong_identifiers(update)
+      not IdentityReconciler.has_strong_identifier?(ids) and ids.ip != ""
+    end)
+  end
 
-    case {device_result, identifier_result, merge_result, alias_result} do
-      {:ok, :ok, :ok, :ok} -> :ok
-      {{:error, _} = error, _, _, _} -> error
-      {_, {:error, _} = error, _, _} -> error
-      {_, _, {:error, _} = error, _} -> error
-      {_, _, _, {:error, _} = error} -> error
+  defp upsert_devices([]), do: :ok
+  defp upsert_devices(records), do: bulk_upsert_devices(records)
+
+  defp upsert_identifiers([]), do: :ok
+  defp upsert_identifiers(records), do: bulk_upsert_identifiers(records)
+
+  defp maybe_process_alias_conflicts(:ok, resolved_updates, actor) do
+    process_alias_conflicts(resolved_updates, actor)
+  end
+
+  defp maybe_process_alias_conflicts(_result, _resolved_updates, _actor), do: :ok
+
+  defp maybe_process_alias_updates(:ok, resolved_updates, actor) do
+    process_alias_updates(resolved_updates, actor)
+  end
+
+  defp maybe_process_alias_updates(_result, _resolved_updates, _actor), do: :ok
+
+  defp finalize_ingest_results(device_result, identifier_result, alias_result) do
+    case {device_result, identifier_result, alias_result} do
+      {:ok, :ok, :ok} -> :ok
+      {{:error, _} = error, _, _} -> error
+      {_, {:error, _} = error, _} -> error
+      {_, _, {:error, _} = error} -> error
       _ -> :ok
     end
   end
@@ -221,38 +222,48 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp bulk_lookup_by_ip([]), do: %{}
 
   defp bulk_lookup_by_ip(updates) do
-    ips = updates
-          |> Enum.map(fn u -> u.ip end)
-          |> Enum.filter(&(&1 != nil and &1 != ""))
-          |> Enum.uniq()
+    ips = extract_ips(updates)
 
-    if Enum.empty?(ips) do
-      %{}
-    else
-      alias_map = lookup_alias_device_ids_by_ip(ips)
-      remaining_ips = ips -- Map.keys(alias_map)
+    case ips do
+      [] ->
+        %{}
 
-      direct_map =
-        if remaining_ips == [] do
-          %{}
-        else
-          query =
-            from(d in Device,
-              where: d.ip in ^remaining_ips,
-              select: {d.ip, d.uid}
-            )
-
-          Repo.all(query)
-          |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
-          |> Map.new()
-        end
-
-      Map.merge(direct_map, alias_map)
+      _ ->
+        alias_map = lookup_alias_device_ids_by_ip(ips)
+        direct_map = lookup_devices_by_ip(ips, alias_map)
+        Map.merge(direct_map, alias_map)
     end
   rescue
     e ->
       Logger.warning("Bulk IP lookup failed: #{inspect(e)}")
       %{}
+  end
+
+  defp extract_ips(updates) do
+    updates
+    |> Enum.map(& &1.ip)
+    |> Enum.filter(&(&1 not in [nil, ""]))
+    |> Enum.uniq()
+  end
+
+  defp lookup_devices_by_ip(ips, alias_map) do
+    remaining_ips = ips -- Map.keys(alias_map)
+
+    case remaining_ips do
+      [] ->
+        %{}
+
+      _ ->
+        query =
+          from(d in Device,
+            where: d.ip in ^remaining_ips,
+            select: {d.ip, d.uid}
+          )
+
+        Repo.all(query)
+        |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
+        |> Map.new()
+    end
   end
 
   defp lookup_alias_device_ids_by_ip([]), do: %{}
@@ -595,6 +606,21 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp process_alias_conflicts(resolved_updates, actor) do
+    merged_ips =
+      resolved_updates
+      |> alias_conflict_candidates()
+      |> Enum.reduce(MapSet.new(), fn {device_id, ids}, acc ->
+        handle_alias_conflict(device_id, ids, actor, acc)
+      end)
+
+    if MapSet.size(merged_ips) > 0 do
+      Logger.debug("SyncIngestor: merged alias conflicts for #{MapSet.size(merged_ips)} IPs")
+    end
+
+    :ok
+  end
+
+  defp alias_conflict_candidates(resolved_updates) do
     resolved_updates
     |> Enum.map(fn {update, device_id} ->
       {device_id, IdentityReconciler.extract_strong_identifiers(update)}
@@ -602,40 +628,81 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     |> Enum.filter(fn {_device_id, ids} ->
       IdentityReconciler.has_strong_identifier?(ids) and ids.ip != ""
     end)
-    |> Enum.each(fn {device_id, ids} ->
-      case IdentityReconciler.lookup_alias_device_id(ids.ip, ids.partition, actor) do
-        {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" ->
-          if alias_device_id != device_id and
-               not IdentityReconciler.service_device_id?(alias_device_id) and
-               IdentityReconciler.serviceradar_uuid?(device_id) do
-            case IdentityReconciler.merge_devices(alias_device_id, device_id,
-                   actor: actor,
-                   reason: "ip_alias_conflict",
-                   details: %{
-                     source: "sync_ingestor",
-                     alias_ip: ids.ip,
-                     update_device_id: device_id
-                   }
-                 ) do
-              :ok ->
-                Logger.info(
-                  "SyncIngestor: merged alias device #{alias_device_id} into #{device_id} (ip=#{ids.ip})"
-                )
-
-              {:error, reason} ->
-                Logger.warning(
-                  "SyncIngestor: failed to merge alias device #{alias_device_id} into #{device_id} (ip=#{ids.ip}): #{inspect(reason)}"
-                )
-            end
-          end
-
-        _ ->
-          :ok
-      end
-    end)
-
-    :ok
   end
+
+  defp handle_alias_conflict(device_id, ids, actor, merged_ips) do
+    if MapSet.member?(merged_ips, ids.ip) do
+      merged_ips
+    else
+      do_handle_alias_conflict(device_id, ids, actor, merged_ips)
+    end
+  end
+
+  defp do_handle_alias_conflict(device_id, ids, actor, merged_ips) do
+    case IdentityReconciler.lookup_alias_device_id(ids.ip, ids.partition, actor) do
+      {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" ->
+        merge_alias_device(alias_device_id, device_id, ids, actor, merged_ips)
+
+      _ ->
+        merged_ips
+    end
+  end
+
+  defp merge_alias_device(alias_device_id, device_id, ids, actor, merged_ips) do
+    cond do
+      alias_device_id == device_id ->
+        MapSet.put(merged_ips, ids.ip)
+
+      IdentityReconciler.service_device_id?(alias_device_id) ->
+        MapSet.put(merged_ips, ids.ip)
+
+      not IdentityReconciler.serviceradar_uuid?(device_id) ->
+        MapSet.put(merged_ips, ids.ip)
+
+      true ->
+        attempt_alias_merge(alias_device_id, device_id, ids, actor, merged_ips)
+    end
+  end
+
+  defp attempt_alias_merge(alias_device_id, device_id, ids, actor, merged_ips) do
+    case IdentityReconciler.merge_devices(alias_device_id, device_id,
+           actor: actor,
+           reason: "ip_alias_conflict",
+           details: %{
+             source: "sync_ingestor",
+             alias_ip: ids.ip,
+             update_device_id: device_id
+           }
+         ) do
+      :ok ->
+        Logger.info(
+          "SyncIngestor: merged alias device #{alias_device_id} into #{device_id} (ip=#{ids.ip})"
+        )
+
+        MapSet.put(merged_ips, ids.ip)
+
+      {:error, reason} ->
+        if alias_not_found?(reason) do
+          Logger.info(
+            "SyncIngestor: alias device #{alias_device_id} already merged for ip=#{ids.ip}"
+          )
+
+          MapSet.put(merged_ips, ids.ip)
+        else
+          Logger.warning(
+            "SyncIngestor: failed to merge alias device #{alias_device_id} into #{device_id} (ip=#{ids.ip}): #{inspect(reason)}"
+          )
+
+          merged_ips
+        end
+    end
+  end
+
+  defp alias_not_found?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1))
+  end
+
+  defp alias_not_found?(_), do: false
 
   defp get_bool(map, keys) do
     case get_value(map, keys) do

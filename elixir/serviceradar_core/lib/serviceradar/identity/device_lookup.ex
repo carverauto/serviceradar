@@ -29,8 +29,8 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       ], ip_hint: "192.168.1.100")
   """
 
-  alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier}
 
   require Ash.Query
@@ -389,35 +389,14 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     partition = Keyword.get(opts, :partition)
     query_opts = if actor, do: [actor: actor], else: []
 
-    query =
-      DeviceAliasState
-      |> Ash.Query.filter(
-        alias_type == :ip and alias_value in ^ips and state in [:confirmed, :updated]
-      )
-      |> maybe_filter_alias_partition(partition)
-
-    case Ash.read(query, query_opts) do
+    case read_alias_states(ips, partition, query_opts) do
       {:ok, []} ->
         %{}
 
       {:ok, aliases} ->
-        device_ids = Enum.map(aliases, & &1.device_id) |> Enum.uniq()
-
-        devices =
-          Device
-          |> Ash.Query.filter(uid in ^device_ids)
-          |> Ash.read(query_opts)
-          |> case do
-            {:ok, records} -> Map.new(records, &{&1.uid, &1})
-            _ -> %{}
-          end
-
-        Enum.reduce(aliases, %{}, fn alias_state, acc ->
-          case Map.get(devices, alias_state.device_id) do
-            nil -> acc
-            device -> Map.put(acc, alias_state.alias_value, build_record_from_device(device))
-          end
-        end)
+        aliases
+        |> load_alias_devices(query_opts)
+        |> build_alias_map(aliases)
 
       {:error, _} ->
         %{}
@@ -426,6 +405,40 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     e ->
       Logger.warning("Alias lookup failed: #{inspect(e)}")
       %{}
+  end
+
+  defp read_alias_states(ips, partition, query_opts) do
+    DeviceAliasState
+    |> Ash.Query.filter(alias_type == :ip and alias_value in ^ips and state in [:confirmed, :updated])
+    |> maybe_filter_alias_partition(partition)
+    |> Ash.read(query_opts)
+  end
+
+  defp load_alias_devices(aliases, query_opts) do
+    device_ids = Enum.map(aliases, & &1.device_id) |> Enum.uniq()
+
+    case device_ids do
+      [] ->
+        %{}
+
+      _ ->
+        Device
+        |> Ash.Query.filter(uid in ^device_ids)
+        |> Ash.read(query_opts)
+        |> case do
+          {:ok, records} -> Map.new(records, &{&1.uid, &1})
+          _ -> %{}
+        end
+    end
+  end
+
+  defp build_alias_map(devices, aliases) do
+    Enum.reduce(aliases, %{}, fn alias_state, acc ->
+      case Map.get(devices, alias_state.device_id) do
+        nil -> acc
+        device -> Map.put(acc, alias_state.alias_value, build_record_from_device(device))
+      end
+    end)
   end
 
   defp lookup_alias_device_by_ip(ip, actor, opts) do
