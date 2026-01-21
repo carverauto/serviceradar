@@ -395,11 +395,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp insert_bulk([], _resource, _actor, _label), do: :ok
 
   defp insert_bulk(records, resource, actor, label) do
-    case Ash.bulk_create(records, resource, :create,
-           actor: actor,
-           return_errors?: true,
-           stop_on_error?: false
-         ) do
+    # Use upsert with skip_unknown_inputs to handle duplicates gracefully.
+    # TimescaleDB hypertables have chunk-prefixed constraint names (e.g., "1_3_discovered_interfaces_pkey")
+    # that Ash can't match, so we use upsert?: true with upsert_fields: [] to skip duplicates.
+    opts =
+      if resource == Interface do
+        [
+          actor: actor,
+          return_errors?: true,
+          stop_on_error?: false,
+          upsert?: true,
+          upsert_identity: :unique_interface,
+          upsert_fields: []
+        ]
+      else
+        [
+          actor: actor,
+          return_errors?: true,
+          stop_on_error?: false
+        ]
+      end
+
+    case Ash.bulk_create(records, resource, :create, opts) do
       %Ash.BulkResult{status: :success} ->
         :ok
 

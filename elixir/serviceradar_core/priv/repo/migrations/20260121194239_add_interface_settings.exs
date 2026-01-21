@@ -8,29 +8,9 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
   use Ecto.Migration
 
   def up do
-    create table(:dusk_profiles, primary_key: false) do
-      add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
-      add :name, :text, null: false
-      add :description, :text
-      add :node_address, :text, null: false
-      add :timeout, :text, null: false, default: "5m"
-      add :is_default, :boolean, null: false, default: false
-      add :enabled, :boolean, null: false, default: true
-      add :target_query, :text
-      add :priority, :bigint, null: false, default: 0
+    # NOTE: dusk_profiles table is created in 20260119200000_create_dusk_profiles.exs
 
-      add :inserted_at, :utc_datetime_usec,
-        null: false,
-        default: fragment("(now() AT TIME ZONE 'utc')")
-
-      add :updated_at, :utc_datetime_usec,
-        null: false,
-        default: fragment("(now() AT TIME ZONE 'utc')")
-    end
-
-    create unique_index(:dusk_profiles, [:name], name: "dusk_profiles_unique_name_index")
-
-    create table(:mapper_unifi_controllers, primary_key: false) do
+    create_if_not_exists table(:mapper_unifi_controllers, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :name, :text
       add :base_url, :text, null: false
@@ -55,13 +35,25 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
       add :encrypted_api_key, :binary
     end
 
-    create index(:mapper_unifi_controllers, [:mapper_job_id],
+    create_if_not_exists index(:mapper_unifi_controllers, [:mapper_job_id],
              name: "mapper_unifi_controllers_job_idx"
            )
 
-    drop constraint("discovered_interfaces", "discovered_interfaces_pkey")
+    # Drop the primary key constraint if it exists (safe to re-run)
+    execute """
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'discovered_interfaces_pkey'
+        AND conrelid = 'discovered_interfaces'::regclass
+      ) THEN
+        ALTER TABLE discovered_interfaces DROP CONSTRAINT discovered_interfaces_pkey;
+      END IF;
+    END $$;
+    """
 
-    create table(:mapper_snmp_credentials, primary_key: false) do
+    create_if_not_exists table(:mapper_snmp_credentials, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :name, :text
       add :version, :text, null: false, default: "v2c"
@@ -83,62 +75,94 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
       add :encrypted_privacy_password, :binary
     end
 
-    create index(:mapper_snmp_credentials, [:mapper_job_id],
+    create_if_not_exists index(:mapper_snmp_credentials, [:mapper_job_id],
              name: "mapper_snmp_credentials_job_idx"
            )
 
-    create table(:mapper_jobs, primary_key: false) do
+    create_if_not_exists table(:mapper_jobs, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
     end
 
-    alter table(:mapper_snmp_credentials) do
-      modify :mapper_job_id,
-             references(:mapper_jobs,
-               column: :id,
-               name: "mapper_snmp_credentials_mapper_job_id_fkey",
-               type: :uuid,
-               prefix: "public"
-             )
-    end
+    # Add FK constraint if it doesn't exist
+    execute """
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'mapper_snmp_credentials_mapper_job_id_fkey'
+      ) THEN
+        ALTER TABLE mapper_snmp_credentials
+        ADD CONSTRAINT mapper_snmp_credentials_mapper_job_id_fkey
+        FOREIGN KEY (mapper_job_id) REFERENCES mapper_jobs(id);
+      END IF;
+    END $$;
+    """
 
-    create unique_index(:mapper_snmp_credentials, [:mapper_job_id],
+    create_if_not_exists unique_index(:mapper_snmp_credentials, [:mapper_job_id],
              name: "mapper_snmp_credentials_unique_job_credential_index"
            )
 
-    alter table(:mapper_jobs) do
-      add :name, :text, null: false
-      add :description, :text
-      add :enabled, :boolean, null: false, default: true
-      add :interval, :text, null: false, default: "2h"
-      add :partition, :text, null: false, default: "default"
-      add :agent_id, :text
-      add :discovery_mode, :text, null: false, default: "snmp_api"
-      add :discovery_type, :text, null: false, default: "full"
-      add :concurrency, :bigint, null: false, default: 10
-      add :timeout, :text, null: false, default: "45s"
-      add :retries, :bigint, null: false, default: 2
-      add :options, :map, null: false, default: %{}
-      add :last_run_at, :utc_datetime
+    # Add columns to mapper_jobs if they don't exist
+    execute """
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'name') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN name text NOT NULL;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'description') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN description text;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'enabled') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN enabled boolean NOT NULL DEFAULT true;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'interval') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN interval text NOT NULL DEFAULT '2h';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'partition') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN partition text NOT NULL DEFAULT 'default';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'agent_id') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN agent_id text;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'discovery_mode') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN discovery_mode text NOT NULL DEFAULT 'snmp_api';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'discovery_type') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN discovery_type text NOT NULL DEFAULT 'full';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'concurrency') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN concurrency bigint NOT NULL DEFAULT 10;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'timeout') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN timeout text NOT NULL DEFAULT '45s';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'retries') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN retries bigint NOT NULL DEFAULT 2;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'options') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN options jsonb NOT NULL DEFAULT '{}'::jsonb;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'last_run_at') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN last_run_at timestamp without time zone;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'inserted_at') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN inserted_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc');
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mapper_jobs' AND column_name = 'updated_at') THEN
+        ALTER TABLE mapper_jobs ADD COLUMN updated_at timestamp(6) without time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc');
+      END IF;
+    END $$;
+    """
 
-      add :inserted_at, :utc_datetime_usec,
-        null: false,
-        default: fragment("(now() AT TIME ZONE 'utc')")
-
-      add :updated_at, :utc_datetime_usec,
-        null: false,
-        default: fragment("(now() AT TIME ZONE 'utc')")
-    end
-
-    create index(:mapper_jobs, [:agent_id],
+    create_if_not_exists index(:mapper_jobs, [:agent_id],
              name: "mapper_jobs_agent_idx",
              where: "agent_id IS NOT NULL"
            )
 
-    create index(:mapper_jobs, [:partition], name: "mapper_jobs_partition_idx")
+    create_if_not_exists index(:mapper_jobs, [:partition], name: "mapper_jobs_partition_idx")
 
-    create unique_index(:mapper_jobs, [:name], name: "mapper_jobs_unique_name_index")
+    create_if_not_exists unique_index(:mapper_jobs, [:name], name: "mapper_jobs_unique_name_index")
 
-    create table(:interface_settings, primary_key: false) do
+    create_if_not_exists table(:interface_settings, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :device_id, :text, null: false
       add :interface_uid, :text, null: false
@@ -159,20 +183,29 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create unique_index(:interface_settings, [:device_id, :interface_uid],
+    create_if_not_exists unique_index(:interface_settings, [:device_id, :interface_uid],
              name: "interface_settings_unique_interface_index"
            )
 
-    create index(:sweep_host_results, [:execution_id, :ip],
+    create_if_not_exists index(:sweep_host_results, [:execution_id, :ip],
              name: "sweep_host_results_execution_ip_uidx",
              unique: true
            )
 
-    alter table(:sweep_host_results) do
-      modify :device_id, :text
-    end
+    # Modify sweep_host_results.device_id to text if needed
+    execute """
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'sweep_host_results' AND column_name = 'device_id' AND data_type = 'uuid'
+      ) THEN
+        ALTER TABLE sweep_host_results ALTER COLUMN device_id TYPE text;
+      END IF;
+    END $$;
+    """
 
-    create table(:mapper_topology_links, primary_key: false) do
+    create_if_not_exists table(:mapper_topology_links, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :timestamp, :utc_datetime, null: false
       add :agent_id, :text
@@ -193,7 +226,7 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
       add :created_at, :utc_datetime
     end
 
-    create table(:mapper_job_seeds, primary_key: false) do
+    create_if_not_exists table(:mapper_job_seeds, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :seed, :text, null: false
 
@@ -214,13 +247,13 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create index(:mapper_job_seeds, [:mapper_job_id], name: "mapper_job_seeds_job_idx")
+    create_if_not_exists index(:mapper_job_seeds, [:mapper_job_id], name: "mapper_job_seeds_job_idx")
 
-    create unique_index(:mapper_job_seeds, [:mapper_job_id, :seed],
+    create_if_not_exists unique_index(:mapper_job_seeds, [:mapper_job_id, :seed],
              name: "mapper_job_seeds_unique_seed_per_job_index"
            )
 
-    create table(:interface_classification_rules, primary_key: false) do
+    create_if_not_exists table(:interface_classification_rules, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :name, :text, null: false
       add :enabled, :boolean, default: true
@@ -246,31 +279,72 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create unique_index(:interface_classification_rules, [:name],
+    create_if_not_exists unique_index(:interface_classification_rules, [:name],
              name: "interface_classification_rules_unique_name_index"
            )
 
-    alter table(:discovered_interfaces) do
-      modify :if_index, :bigint, null: true
-      add :interface_uid, :text, null: false
-      add :speed_bps, :bigint
-      add :if_type, :bigint
-      add :if_type_name, :text
-      add :interface_kind, :text
-      add :classifications, {:array, :text}, default: []
-      add :classification_meta, :map, default: %{}
-      add :classification_source, :text, default: "rules"
-      add :mtu, :bigint
-      add :duplex, :text
-    end
+    # Add columns to discovered_interfaces if they don't exist
+    execute """
+    DO $$
+    BEGIN
+      -- Make if_index nullable if it isn't already
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'discovered_interfaces' AND column_name = 'if_index' AND is_nullable = 'NO'
+      ) THEN
+        ALTER TABLE discovered_interfaces ALTER COLUMN if_index DROP NOT NULL;
+      END IF;
 
-    create unique_index(:mapper_unifi_controllers, [:mapper_job_id, :base_url],
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'discovered_interfaces' AND column_name = 'interface_uid') THEN
+        ALTER TABLE discovered_interfaces ADD COLUMN interface_uid text NOT NULL;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'discovered_interfaces' AND column_name = 'speed_bps') THEN
+        ALTER TABLE discovered_interfaces ADD COLUMN speed_bps bigint;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'discovered_interfaces' AND column_name = 'if_type') THEN
+        ALTER TABLE discovered_interfaces ADD COLUMN if_type bigint;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'discovered_interfaces' AND column_name = 'if_type_name') THEN
+        ALTER TABLE discovered_interfaces ADD COLUMN if_type_name text;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'discovered_interfaces' AND column_name = 'interface_kind') THEN
+        ALTER TABLE discovered_interfaces ADD COLUMN interface_kind text;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'discovered_interfaces' AND column_name = 'classifications') THEN
+        ALTER TABLE discovered_interfaces ADD COLUMN classifications text[] DEFAULT '{}';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'discovered_interfaces' AND column_name = 'classification_meta') THEN
+        ALTER TABLE discovered_interfaces ADD COLUMN classification_meta jsonb DEFAULT '{}'::jsonb;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'discovered_interfaces' AND column_name = 'classification_source') THEN
+        ALTER TABLE discovered_interfaces ADD COLUMN classification_source text DEFAULT 'rules';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'discovered_interfaces' AND column_name = 'mtu') THEN
+        ALTER TABLE discovered_interfaces ADD COLUMN mtu bigint;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'discovered_interfaces' AND column_name = 'duplex') THEN
+        ALTER TABLE discovered_interfaces ADD COLUMN duplex text;
+      END IF;
+    END $$;
+    """
+
+    create_if_not_exists unique_index(:mapper_unifi_controllers, [:mapper_job_id, :base_url],
              name: "mapper_unifi_controllers_unique_base_url_per_job_index"
            )
 
-    execute(
-      "ALTER TABLE \"discovered_interfaces\" ADD PRIMARY KEY (timestamp, device_id, interface_uid)"
-    )
+    # Add primary key to discovered_interfaces if it doesn't exist
+    execute """
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'discovered_interfaces_pkey'
+        AND conrelid = 'discovered_interfaces'::regclass
+      ) THEN
+        ALTER TABLE discovered_interfaces ADD PRIMARY KEY (timestamp, device_id, interface_uid);
+      END IF;
+    END $$;
+    """
   end
 
   def down do
@@ -380,8 +454,6 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceSettings do
 
     drop table(:mapper_unifi_controllers)
 
-    drop_if_exists unique_index(:dusk_profiles, [:name], name: "dusk_profiles_unique_name_index")
-
-    drop table(:dusk_profiles)
+    # NOTE: dusk_profiles table is managed in 20260119200000_create_dusk_profiles.exs
   end
 end

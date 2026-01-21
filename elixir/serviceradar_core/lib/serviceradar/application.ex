@@ -120,9 +120,6 @@ defmodule ServiceRadar.Application do
         # Job schedule defaults
         job_schedule_seeder_child(),
 
-        # Mapper config migration from legacy KV storage
-        mapper_config_migrator_child(),
-
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
@@ -302,14 +299,6 @@ defmodule ServiceRadar.Application do
   defp job_schedule_seeder_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.Jobs.JobScheduleSeeder
-    else
-      nil
-    end
-  end
-
-  defp mapper_config_migrator_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
-      ServiceRadar.NetworkDiscovery.MapperConfigMigratorWorker
     else
       nil
     end
