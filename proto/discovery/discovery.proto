@@ -131,6 +131,17 @@ message DiscoveredDevice {
   map<string, string> metadata = 9; // Additional metadata
 }
 
+// InterfaceMetric represents an available SNMP metric for an interface
+message InterfaceMetric {
+  string name = 1;                // Human-readable metric name (e.g., "ifInOctets")
+  string oid = 2;                 // SNMP OID in dotted notation
+  string data_type = 3;           // Data type: "counter" or "gauge"
+  bool supports_64bit = 4;        // Whether 64-bit (HC) counter is available
+  string oid_64bit = 5;           // 64-bit OID if supports_64bit is true
+  string category = 6;            // Category for visualization: "traffic", "errors", "packets", "environmental", "status"
+  string unit = 7;                // Unit of measurement: "bytes", "packets", "errors", "celsius", "rpm", "percent", "watts"
+}
+
 // DiscoveredInterface represents a discovered network interface
 message DiscoveredInterface {
   string device_ip = 1;           // IP address of the parent device
@@ -146,6 +157,7 @@ message DiscoveredInterface {
   int32 if_oper_status = 11;      // Operational status (1=up, 2=down)
   int32 if_type = 12;             // Interface type
   map<string, string> metadata = 13; // Additional metadata
+  repeated InterfaceMetric available_metrics = 14; // Available SNMP metrics for this interface
 }
 
 // TopologyLink represents a discovered link between two devices

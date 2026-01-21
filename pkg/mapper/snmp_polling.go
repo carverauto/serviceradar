@@ -92,8 +92,51 @@ const (
 	// oidCdpCacheDevicePort = ".1.3.6.1.4.1.9.9.23.1.2.1.1.7"
 	// oidCdpCacheAddress    = ".1.3.6.1.4.1.9.9.23.1.2.1.1.4"
 
+	// Interface metrics OIDs (32-bit counters from IF-MIB)
+	oidIfInOctets    = ".1.3.6.1.2.1.2.2.1.10"
+	oidIfOutOctets   = ".1.3.6.1.2.1.2.2.1.16"
+	oidIfInErrors    = ".1.3.6.1.2.1.2.2.1.14"
+	oidIfOutErrors   = ".1.3.6.1.2.1.2.2.1.20"
+	oidIfInDiscards  = ".1.3.6.1.2.1.2.2.1.13"
+	oidIfOutDiscards = ".1.3.6.1.2.1.2.2.1.19"
+	oidIfInUcastPkts = ".1.3.6.1.2.1.2.2.1.11"
+	oidIfOutUcastPkts = ".1.3.6.1.2.1.2.2.1.17"
+
+	// Interface metrics OIDs (64-bit counters from IF-MIB extensions)
+	oidIfHCInOctets    = ".1.3.6.1.2.1.31.1.1.1.6"
+	oidIfHCOutOctets   = ".1.3.6.1.2.1.31.1.1.1.10"
+	oidIfHCInUcastPkts = ".1.3.6.1.2.1.31.1.1.1.7"
+	oidIfHCOutUcastPkts = ".1.3.6.1.2.1.31.1.1.1.11"
+
 	defaultMaxIPRange = 256 // Maximum IPs to process from a CIDR range
 )
+
+// interfaceMetricDef defines an interface metric to probe
+type interfaceMetricDef struct {
+	Name     string
+	OID32    string
+	OID64    string // Empty if no 64-bit variant exists
+	DataType string // "counter" or "gauge"
+	Category string // "traffic", "errors", "packets", "environmental", "status"
+	Unit     string // "bytes", "packets", "errors", "celsius", "rpm", "percent", "watts"
+}
+
+// getStandardInterfaceMetrics returns the standard IF-MIB metrics to probe
+func getStandardInterfaceMetrics() []interfaceMetricDef {
+	return []interfaceMetricDef{
+		// Traffic metrics (bytes)
+		{Name: "ifInOctets", OID32: oidIfInOctets, OID64: oidIfHCInOctets, DataType: "counter", Category: "traffic", Unit: "bytes"},
+		{Name: "ifOutOctets", OID32: oidIfOutOctets, OID64: oidIfHCOutOctets, DataType: "counter", Category: "traffic", Unit: "bytes"},
+		// Error metrics
+		{Name: "ifInErrors", OID32: oidIfInErrors, OID64: "", DataType: "counter", Category: "errors", Unit: "errors"},
+		{Name: "ifOutErrors", OID32: oidIfOutErrors, OID64: "", DataType: "counter", Category: "errors", Unit: "errors"},
+		{Name: "ifInDiscards", OID32: oidIfInDiscards, OID64: "", DataType: "counter", Category: "errors", Unit: "packets"},
+		{Name: "ifOutDiscards", OID32: oidIfOutDiscards, OID64: "", DataType: "counter", Category: "errors", Unit: "packets"},
+		// Packet metrics
+		{Name: "ifInUcastPkts", OID32: oidIfInUcastPkts, OID64: oidIfHCInUcastPkts, DataType: "counter", Category: "packets", Unit: "packets"},
+		{Name: "ifOutUcastPkts", OID32: oidIfOutUcastPkts, OID64: oidIfHCOutUcastPkts, DataType: "counter", Category: "packets", Unit: "packets"},
+	}
+}
 
 // handleInterfaceDiscoverySNMP queries and publishes interface information
 func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
@@ -407,7 +450,86 @@ func (e *DiscoveryEngine) queryInterfaces(
 		Int("speed_count", speedCount).Int("zero_speed_count", zeroSpeedCount).
 		Int("max_speed_count", maxSpeedCount).Msg("Interface discovery summary")
 
+	// Probe available metrics for each interface
+	e.probeInterfaceMetrics(client, interfaces)
+
 	return interfaces, nil
+}
+
+// probeInterfaceMetrics probes each interface for available SNMP metrics
+func (e *DiscoveryEngine) probeInterfaceMetrics(client *gosnmp.GoSNMP, interfaces []*DiscoveredInterface) {
+	if len(interfaces) == 0 {
+		return
+	}
+
+	// Limit probing to first 1000 interfaces to prevent very long discovery times
+	maxProbe := 1000
+	if len(interfaces) > maxProbe {
+		e.logger.Warn().Int("total_interfaces", len(interfaces)).Int("probing", maxProbe).
+			Msg("Limiting metric probing to first 1000 interfaces")
+		interfaces = interfaces[:maxProbe]
+	}
+
+	for _, iface := range interfaces {
+		iface.AvailableMetrics = e.probeMetricsForInterface(client, iface.IfIndex)
+	}
+}
+
+// probeMetricsForInterface probes available metrics for a single interface
+func (e *DiscoveryEngine) probeMetricsForInterface(client *gosnmp.GoSNMP, ifIndex int32) []InterfaceMetric {
+	var metrics []InterfaceMetric
+
+	for _, metricDef := range getStandardInterfaceMetrics() {
+		metric := e.probeMetric(client, metricDef, ifIndex)
+		if metric != nil {
+			metrics = append(metrics, *metric)
+		}
+	}
+
+	return metrics
+}
+
+// probeMetric probes a single metric OID for availability
+func (e *DiscoveryEngine) probeMetric(client *gosnmp.GoSNMP, def interfaceMetricDef, ifIndex int32) *InterfaceMetric {
+	// Build the full OID with ifIndex suffix
+	oid32 := fmt.Sprintf("%s.%d", def.OID32, ifIndex)
+
+	// Try the 32-bit OID first
+	result, err := client.Get([]string{oid32})
+	if err != nil || len(result.Variables) == 0 {
+		return nil
+	}
+
+	// Check if we got a valid response (not NoSuchObject or NoSuchInstance)
+	pdu := result.Variables[0]
+	if pdu.Type == gosnmp.NoSuchObject || pdu.Type == gosnmp.NoSuchInstance || pdu.Type == gosnmp.Null {
+		return nil
+	}
+
+	metric := &InterfaceMetric{
+		Name:          def.Name,
+		OID:           def.OID32,
+		DataType:      def.DataType,
+		Supports64Bit: false,
+		OID64Bit:      "",
+		Category:      def.Category,
+		Unit:          def.Unit,
+	}
+
+	// If there's a 64-bit variant, probe it
+	if def.OID64 != "" {
+		oid64 := fmt.Sprintf("%s.%d", def.OID64, ifIndex)
+		result64, err := client.Get([]string{oid64})
+		if err == nil && len(result64.Variables) > 0 {
+			pdu64 := result64.Variables[0]
+			if pdu64.Type != gosnmp.NoSuchObject && pdu64.Type != gosnmp.NoSuchInstance && pdu64.Type != gosnmp.Null {
+				metric.Supports64Bit = true
+				metric.OID64Bit = def.OID64
+			}
+		}
+	}
+
+	return metric
 }
 
 const (
