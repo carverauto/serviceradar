@@ -165,21 +165,33 @@ type DiscoveredDevice struct {
 	LastSeen    time.Time
 }
 
+// InterfaceMetric represents an available SNMP metric for an interface.
+type InterfaceMetric struct {
+	Name          string `json:"name"`           // Human-readable metric name (e.g., "ifInOctets")
+	OID           string `json:"oid"`            // SNMP OID in dotted notation
+	DataType      string `json:"data_type"`      // Data type: "counter" or "gauge"
+	Supports64Bit bool   `json:"supports_64bit"` // Whether 64-bit (HC) counter is available
+	OID64Bit      string `json:"oid_64bit"`      // 64-bit OID if supports_64bit is true
+	Category      string `json:"category"`       // Category for visualization: "traffic", "errors", "packets", "environmental", "status"
+	Unit          string `json:"unit"`           // Unit of measurement: "bytes", "packets", "errors", "celsius", "rpm", "percent", "watts"
+}
+
 // DiscoveredInterface represents a discovered network interface.
 type DiscoveredInterface struct {
-	DeviceIP      string
-	DeviceID      string
-	IfIndex       int32
-	IfName        string
-	IfDescr       string
-	IfAlias       string
-	IfSpeed       uint64
-	IfPhysAddress string
-	IPAddresses   []string
-	IfAdminStatus int32
-	IfOperStatus  int32
-	IfType        int32
-	Metadata      map[string]string
+	DeviceIP         string
+	DeviceID         string
+	IfIndex          int32
+	IfName           string
+	IfDescr          string
+	IfAlias          string
+	IfSpeed          uint64
+	IfPhysAddress    string
+	IPAddresses      []string
+	IfAdminStatus    int32
+	IfOperStatus     int32
+	IfType           int32
+	Metadata         map[string]string
+	AvailableMetrics []InterfaceMetric // Available SNMP metrics for this interface
 }
 
 // TopologyLink represents a discovered link between two devices

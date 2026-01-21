@@ -282,6 +282,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       mtu: get_integer(update, ["mtu", :mtu]) || get_integer(metadata, ["mtu", :mtu]),
       duplex: get_string(update, ["duplex", :duplex]) || get_string(metadata, ["duplex", :duplex]),
       metadata: metadata,
+      available_metrics: get_metrics_list(update, ["available_metrics", :available_metrics]),
       created_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
     }
 
@@ -502,6 +503,42 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     case get_value(update, keys) do
       value when is_map(value) -> value
       _ -> %{}
+    end
+  end
+
+  # Get available_metrics list, ensuring it's nil if empty/invalid
+  defp get_metrics_list(update, keys) do
+    case get_value(update, keys) do
+      [_ | _] = value ->
+        # Normalize each metric to ensure consistent key format
+        Enum.map(value, &normalize_metric/1)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_metric(metric) when is_map(metric) do
+    %{
+      "name" => get_string(metric, ["name", :name, "Name"]),
+      "oid" => get_string(metric, ["oid", :oid, "OID"]),
+      "data_type" => get_string(metric, ["data_type", :data_type, "DataType"]),
+      "supports_64bit" => get_boolean(metric, ["supports_64bit", :supports_64bit, "Supports64Bit"]),
+      "oid_64bit" => get_string(metric, ["oid_64bit", :oid_64bit, "OID64Bit"]),
+      "category" => get_string(metric, ["category", :category, "Category"]),
+      "unit" => get_string(metric, ["unit", :unit, "Unit"])
+    }
+  end
+
+  defp normalize_metric(_), do: nil
+
+  defp get_boolean(update, keys) do
+    case get_value(update, keys) do
+      true -> true
+      false -> false
+      "true" -> true
+      "false" -> false
+      _ -> false
     end
   end
 

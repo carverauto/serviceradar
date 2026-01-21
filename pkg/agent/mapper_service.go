@@ -264,20 +264,21 @@ func (p *MapperResultPublisher) PublishInterface(_ context.Context, iface *mappe
 	}
 
 	update := map[string]interface{}{
-		"device_id":       iface.DeviceID,
-		"device_ip":       iface.DeviceIP,
-		"if_index":        iface.IfIndex,
-		"if_name":         iface.IfName,
-		"if_descr":        iface.IfDescr,
-		"if_alias":        iface.IfAlias,
-		"if_speed":        iface.IfSpeed,
-		"if_phys_address": iface.IfPhysAddress,
-		"ip_addresses":    iface.IPAddresses,
-		"if_admin_status": iface.IfAdminStatus,
-		"if_oper_status":  iface.IfOperStatus,
-		"if_type":         iface.IfType,
-		"metadata":        iface.Metadata,
-		"timestamp":       time.Now().UTC().Format(time.RFC3339Nano),
+		"device_id":         iface.DeviceID,
+		"device_ip":         iface.DeviceIP,
+		"if_index":          iface.IfIndex,
+		"if_name":           iface.IfName,
+		"if_descr":          iface.IfDescr,
+		"if_alias":          iface.IfAlias,
+		"if_speed":          iface.IfSpeed,
+		"if_phys_address":   iface.IfPhysAddress,
+		"ip_addresses":      iface.IPAddresses,
+		"if_admin_status":   iface.IfAdminStatus,
+		"if_oper_status":    iface.IfOperStatus,
+		"if_type":           iface.IfType,
+		"metadata":          iface.Metadata,
+		"available_metrics": iface.AvailableMetrics,
+		"timestamp":         time.Now().UTC().Format(time.RFC3339Nano),
 	}
 
 	p.mu.Lock()

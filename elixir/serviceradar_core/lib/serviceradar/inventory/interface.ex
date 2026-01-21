@@ -77,6 +77,7 @@ defmodule ServiceRadar.Inventory.Interface do
         :mtu,
         :duplex,
         :metadata,
+        :available_metrics,
         :created_at
       ]
     end
@@ -283,6 +284,12 @@ defmodule ServiceRadar.Inventory.Interface do
       default %{}
       public? true
       description "Additional metadata"
+    end
+
+    attribute :available_metrics, {:array, :map} do
+      default nil
+      public? true
+      description "Available SNMP metrics for this interface (discovered during SNMP walk)"
     end
 
     attribute :created_at, :utc_datetime do
