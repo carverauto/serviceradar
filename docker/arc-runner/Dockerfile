@@ -11,12 +11,24 @@ RUN set -eux; \
       flex \
       bison \
       gperf \
+      m4 \
       perl \
       pkg-config \
       protobuf-compiler \
       libssl-dev \
+      libncurses-dev \
+      libreadline-dev \
+      libffi-dev \
+      libwxgtk3.2-dev \
+      libgl1-mesa-dev \
+      libglu1-mesa-dev \
+      libpng-dev \
+      libexpat1-dev \
+      zlib1g-dev \
       curl \
       jq \
+      rsync \
+      tar \
       rpm; \
     rm -rf /var/lib/apt/lists/*
 

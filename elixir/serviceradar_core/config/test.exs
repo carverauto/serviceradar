@@ -213,7 +213,8 @@ config :serviceradar_core,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
-    ServiceRadar.NetworkDiscovery
+    ServiceRadar.NetworkDiscovery,
+    ServiceRadar.DuskProfiles
   ]
 
 # Reduce log noise in tests

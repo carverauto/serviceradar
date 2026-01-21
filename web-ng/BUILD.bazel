@@ -81,6 +81,7 @@ mix_release(
         "//rust/kvutil:srcs",
         "//elixir/datasvc:srcs",
     ],
+    bun = "@bun_linux_amd64//:bun",
     hex_cache = select({
         "//build:use_hex_cache": "//build:hex_cache",
         "//conditions:default": None,

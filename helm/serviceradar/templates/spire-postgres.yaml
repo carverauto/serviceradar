@@ -69,6 +69,8 @@ kind: Secret
 metadata:
   name: {{ $pg.secretName }}
   namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
 type: Opaque
 stringData:
   username: {{ $spireUser }}
@@ -79,6 +81,8 @@ kind: Secret
 metadata:
   name: cnpg-superuser
   namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
 type: Opaque
 stringData:
   password: {{ $superPass | quote }}
@@ -101,6 +105,10 @@ kind: Cluster
 metadata:
   name: {{ default "cnpg" $pg.clusterName }}
   namespace: {{ $ns }}
+  annotations:
+    # CRITICAL: Prevent Helm/ArgoCD from deleting this cluster during upgrades.
+    # Changing clusterName without this would cause data loss!
+    "helm.sh/resource-policy": "keep"
 spec:
   imageName: {{ $imageName }}
   instances: {{ default 3 $pg.instances }}

@@ -7,4 +7,4 @@
  */
 
 // JDM Editor - GoRules decision model editor for Zen rules
-export { default as JdmEditor } from './jdm-editor.jsx';
+export { default as JdmEditor } from './src/JdmEditor.jsx';

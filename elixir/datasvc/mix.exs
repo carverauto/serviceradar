@@ -22,7 +22,7 @@ defmodule Datasvc.MixProject do
   defp deps do
     [
       {:grpc, "~> 0.9"},
-      {:protobuf, "~> 0.13"}
+      {:protobuf, "~> 0.16.0", override: true}
     ]
   end
 

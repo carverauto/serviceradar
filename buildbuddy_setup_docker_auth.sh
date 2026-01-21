@@ -20,10 +20,10 @@ fi
 
 declare -A auths
 
-if [[ -n "${GHCR_DOCKER_AUTH:-}" ]]; then
-  auths["${registry}"]="${GHCR_DOCKER_AUTH}"
-elif [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
+if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
   auths["${registry}"]=$(printf '%s:%s' "${GHCR_USERNAME}" "${GHCR_TOKEN}" | base64 | tr -d '\n')
+elif [[ -n "${GHCR_DOCKER_AUTH:-}" ]]; then
+  auths["${registry}"]="${GHCR_DOCKER_AUTH}"
 fi
 
 if [[ -n "${DOCKERHUB_USERNAME:-}" && -n "${DOCKERHUB_TOKEN:-}" ]]; then
