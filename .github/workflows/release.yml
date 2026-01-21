@@ -208,35 +208,30 @@ jobs:
             echo "${token}" | docker login ghcr.io -u "${user}" --password-stdin
           }
 
-          # Prefer GITHUB_TOKEN for GHCR pushes; fall back to GHCR_TOKEN only if needed.
-          gh_user="${GITHUB_ACTOR:-github-actions}"
-          gh_token="${GITHUB_TOKEN:-}"
-          if login_ghcr "${gh_user}" "${gh_token}"; then
-            export GHCR_USERNAME="${gh_user}"
-            export GHCR_TOKEN="${gh_token}"
-            export GHCR_DOCKER_AUTH=""
-            unset GHCR_DOCKER_AUTH || true
-            {
-              echo "GHCR_USERNAME=${gh_user}"
-              echo "GHCR_TOKEN=${gh_token}"
-              echo "GHCR_DOCKER_AUTH="
-            } >> "${GITHUB_ENV}"
-          else
-            echo "GITHUB_TOKEN login failed; falling back to GHCR_TOKEN." >&2
-            if ! login_ghcr "${GHCR_USERNAME:-}" "${GHCR_TOKEN:-}"; then
-              echo "GHCR_TOKEN login failed; unable to authenticate to GHCR." >&2
-              exit 1
+          # Prefer GHCR_USERNAME/GHCR_TOKEN when provided; fall back to GITHUB_TOKEN.
+          if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
+            if ! login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"; then
+              echo "GHCR_TOKEN login failed; falling back to GITHUB_TOKEN." >&2
+              login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
+              export GHCR_USERNAME="${GITHUB_ACTOR:-github-actions}"
+              export GHCR_TOKEN="${GITHUB_TOKEN:-}"
+            else
+              export GHCR_USERNAME="${GHCR_USERNAME}"
+              export GHCR_TOKEN="${GHCR_TOKEN}"
             fi
-            export GHCR_USERNAME="${GHCR_USERNAME}"
-            export GHCR_TOKEN="${GHCR_TOKEN}"
-            export GHCR_DOCKER_AUTH=""
-            unset GHCR_DOCKER_AUTH || true
-            {
-              echo "GHCR_USERNAME=${GHCR_USERNAME}"
-              echo "GHCR_TOKEN=${GHCR_TOKEN}"
-              echo "GHCR_DOCKER_AUTH="
-            } >> "${GITHUB_ENV}"
+          else
+            login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"
+            export GHCR_USERNAME="${GITHUB_ACTOR:-github-actions}"
+            export GHCR_TOKEN="${GITHUB_TOKEN:-}"
           fi
+
+          export GHCR_DOCKER_AUTH=""
+          unset GHCR_DOCKER_AUTH || true
+          {
+            echo "GHCR_USERNAME=${GHCR_USERNAME}"
+            echo "GHCR_TOKEN=${GHCR_TOKEN}"
+            echo "GHCR_DOCKER_AUTH="
+          } >> "${GITHUB_ENV}"
 
           # Then run the Bazel auth setup for BuildBuddy.
           bazel run --config=remote //:buildbuddy_setup_docker_auth
@@ -296,12 +291,17 @@ jobs:
           }
 
           # Login to GHCR for Helm OCI (fallback to GITHUB_TOKEN if needed).
-          gh_user="${GITHUB_ACTOR:-github-actions}"
-          gh_token="${GITHUB_TOKEN:-}"
-          if ! login_ghcr "${gh_user}" "${gh_token}"; then
-            echo "GITHUB_TOKEN Helm login failed; falling back to GHCR_TOKEN." >&2
-            if ! login_ghcr "${GHCR_USERNAME:-}" "${GHCR_TOKEN:-}"; then
-              echo "GHCR_TOKEN Helm login failed; unable to authenticate to GHCR." >&2
+          if [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]]; then
+            if ! login_ghcr "${GHCR_USERNAME}" "${GHCR_TOKEN}"; then
+              echo "GHCR_TOKEN Helm login failed; falling back to GITHUB_TOKEN." >&2
+              if ! login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"; then
+                echo "GITHUB_TOKEN Helm login failed; unable to authenticate to GHCR." >&2
+                exit 1
+              fi
+            fi
+          else
+            if ! login_ghcr "${GITHUB_ACTOR:-github-actions}" "${GITHUB_TOKEN:-}"; then
+              echo "GITHUB_TOKEN Helm login failed; unable to authenticate to GHCR." >&2
               exit 1
             fi
           fi
