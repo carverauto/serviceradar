@@ -125,7 +125,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     attrs = %{
       threshold_metric: parse_threshold_metric(params["metric"]),
       threshold_comparison: parse_threshold_comparison(params["comparison"]),
-      threshold_value: parse_threshold_value(params["value"])
+      threshold_value: parse_threshold_value(params["value"]),
+      threshold_duration_seconds: parse_threshold_duration(params["duration"]),
+      threshold_severity: parse_threshold_severity(params["severity"])
     }
 
     case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
@@ -314,6 +316,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             <% threshold_metric = settings_value(@settings, :threshold_metric) %>
             <% threshold_comparison = settings_value(@settings, :threshold_comparison) %>
             <% threshold_value = settings_value(@settings, :threshold_value) %>
+            <% threshold_duration = settings_value(@settings, :threshold_duration_seconds) || 0 %>
+            <% threshold_severity = settings_value(@settings, :threshold_severity) || :warning %>
 
             <div class="divide-y divide-base-200">
               <div class="py-3 flex items-center justify-between">
@@ -375,6 +379,37 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     </div>
                   </div>
 
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-control">
+                      <label class="label">
+                        <span class="label-text text-xs">Duration (seconds)</span>
+                      </label>
+                      <input
+                        type="number"
+                        name="threshold[duration]"
+                        value={threshold_duration}
+                        placeholder="0"
+                        min="0"
+                        class="input input-bordered input-sm w-full"
+                      />
+                      <label class="label">
+                        <span class="label-text-alt text-xs text-base-content/50">How long threshold must be exceeded before alerting (0 = immediate)</span>
+                      </label>
+                    </div>
+
+                    <div class="form-control">
+                      <label class="label">
+                        <span class="label-text text-xs">Alert Severity</span>
+                      </label>
+                      <select name="threshold[severity]" class="select select-bordered select-sm w-full">
+                        <option value="info" selected={threshold_severity == :info}>Info</option>
+                        <option value="warning" selected={threshold_severity == :warning}>Warning</option>
+                        <option value="critical" selected={threshold_severity == :critical}>Critical</option>
+                        <option value="emergency" selected={threshold_severity == :emergency}>Emergency</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div class="flex justify-end">
                     <button type="submit" class="btn btn-primary btn-sm">
                       <.icon name="hero-check" class="size-4" />
@@ -386,9 +421,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 <div :if={threshold_metric && threshold_comparison && threshold_value} class="alert alert-info alert-sm">
                   <.icon name="hero-information-circle" class="size-4" />
                   <span class="text-sm">
-                    Alert when <strong>{threshold_metric_label(threshold_metric)}</strong>
+                    Alert (<strong>{threshold_severity}</strong>) when <strong>{threshold_metric_label(threshold_metric)}</strong>
                     is <strong>{threshold_comparison_label(threshold_comparison)}</strong>
                     <strong>{threshold_value}{if threshold_metric == :utilization, do: "%", else: ""}</strong>
+                    {if threshold_duration > 0, do: " for #{threshold_duration} seconds", else: ""}
                   </span>
                 </div>
               </div>
@@ -646,6 +682,23 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   end
   defp parse_threshold_value(value) when is_integer(value), do: value
   defp parse_threshold_value(_), do: nil
+
+  defp parse_threshold_duration(""), do: 0
+  defp parse_threshold_duration(nil), do: 0
+  defp parse_threshold_duration(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> max(0, int)
+      :error -> 0
+    end
+  end
+  defp parse_threshold_duration(value) when is_integer(value), do: max(0, value)
+  defp parse_threshold_duration(_), do: 0
+
+  defp parse_threshold_severity("info"), do: :info
+  defp parse_threshold_severity("warning"), do: :warning
+  defp parse_threshold_severity("critical"), do: :critical
+  defp parse_threshold_severity("emergency"), do: :emergency
+  defp parse_threshold_severity(_), do: :warning
 
   # Threshold label helpers
   defp threshold_metric_label(:utilization), do: "Utilization"

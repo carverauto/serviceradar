@@ -59,6 +59,8 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :threshold_value,
         :threshold_comparison,
         :threshold_metric,
+        :threshold_duration_seconds,
+        :threshold_severity,
         :tags
       ]
     end
@@ -72,6 +74,8 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :threshold_value,
         :threshold_comparison,
         :threshold_metric,
+        :threshold_duration_seconds,
+        :threshold_severity,
         :tags
       ]
     end
@@ -92,11 +96,14 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :threshold_value,
         :threshold_comparison,
         :threshold_metric,
+        :threshold_duration_seconds,
+        :threshold_severity,
         :tags
       ]
 
       change set_attribute(:device_id, arg(:device_id))
       change set_attribute(:interface_uid, arg(:interface_uid))
+      change ServiceRadar.Inventory.Changes.ScheduleThresholdEvaluator
     end
 
     update :toggle_favorite do
@@ -252,6 +259,17 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     attribute :threshold_metric, :atom do
       description "Metric to apply threshold to: bandwidth_in, bandwidth_out, utilization, errors"
       constraints [one_of: [:bandwidth_in, :bandwidth_out, :utilization, :errors]]
+    end
+
+    attribute :threshold_duration_seconds, :integer do
+      default 0
+      description "How long the threshold must be exceeded before alerting (0 = immediate)"
+    end
+
+    attribute :threshold_severity, :atom do
+      default :warning
+      description "Severity of alerts generated when threshold is exceeded"
+      constraints [one_of: [:info, :warning, :critical, :emergency]]
     end
 
     attribute :tags, {:array, :string} do

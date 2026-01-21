@@ -46,22 +46,22 @@
 - [x] 5.1 Add threshold configuration UI on interface details page
 - [x] 5.2 Support threshold on utilization metrics (bandwidth, errors, etc.)
 - [x] 5.3 Implement threshold persistence in backend
-- [ ] 5.4 Generate events when threshold conditions are met
-- [ ] 5.5 Integrate alert editor component from settings page
-- [ ] 5.6 Support alert creation on interface threshold events
-- [ ] 5.7 Configure alert parameters (threshold exceeded for X duration)
+- [x] 5.4 Generate events when threshold conditions are met
+- [x] 5.5 Integrate alert editor component from settings page
+- [x] 5.6 Support alert creation on interface threshold events
+- [x] 5.7 Configure alert parameters (threshold exceeded for X duration)
 
 ## 6. Backend Ash Resources
 
 - [x] 6.1 Create InterfaceSettings resource with favorited/metrics_enabled attributes
 - [x] 6.2 Add JSON API endpoints for interface settings
-- [ ] 6.3 Create InterfaceThreshold Ash resource
+- [x] 6.3 Create InterfaceThreshold Ash resource (merged into InterfaceSettings)
 - [x] 6.4 Create migration for InterfaceSettings table
-- [ ] 6.5 Add SRQL support for querying favorited interfaces
+- [x] 6.5 Add SRQL support for querying favorited interfaces
 
 ## 7. Testing
 
 - [x] 7.1 Add LiveView tests for interface details page
 - [x] 7.2 Add tests for bulk edit functionality
 - [x] 7.3 Add tests for interface type mapping
-- [ ] 7.4 Add tests for threshold event generation
+- [x] 7.4 Add tests for threshold event generation
