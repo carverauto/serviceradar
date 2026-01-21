@@ -396,9 +396,15 @@ jobs:
           fi
 
           api_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
-          release_json=$(curl -sSf -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GITHUB_TOKEN}" "$api_url")
-          release_id=$(echo "$release_json" | jq -r '.id')
-          if [[ -z "${release_id}" || "${release_id}" == "null" ]]; then
+          release_json=$(curl -sSf -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GITHUB_TOKEN}" "$api_url" || true)
+          release_id=$(echo "$release_json" | jq -r '.id // empty')
+          if [[ -z "${release_id}" ]]; then
+            releases_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100"
+            release_id=$(curl -sSf -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GITHUB_TOKEN}" "$releases_url" \
+              | jq -r --arg tag "${RELEASE_TAG}" '.[] | select(.tag_name == $tag) | .id' \
+              | head -n1)
+          fi
+          if [[ -z "${release_id}" ]]; then
             echo "Unable to resolve release id for ${RELEASE_TAG}" >&2
             exit 1
           fi
