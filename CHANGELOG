@@ -1,3 +1,17 @@
+# ServiceRadar v1.0.80
+
+Release workflow fixes and packaging reliability improvements.
+
+## Whats New
+
+**1.0.80**
+- Release workflow now prefers explicit GHCR credentials when provided, avoiding stale docker auth overrides.
+- Bun tooling updated for lockfile compatibility and deterministic SSR bundling.
+- Mix release bundling uses a clean React component base to avoid importing node_modules during SSR builds.
+- CNPG rootfs export now uses the OCI layout helper to avoid crane layout parsing failures.
+- ARC runner build image refreshed with missing build dependencies.
+- Ash domain config warnings cleaned up in core-elx/test configs.
+
 # ServiceRadar v1.0.79
 
 Dusk blockchain monitoring is now embedded directly in the agent.
