@@ -244,7 +244,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.reverse()
   end
 
-  defp normalize_interface(update) when is_map(update) do
+  @doc false
+  def normalize_interface(update) when is_map(update) do
     metadata = get_map(update, ["metadata", :metadata])
 
     if_type =
@@ -293,7 +294,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp normalize_interface(_update), do: nil
+  def normalize_interface(_update), do: nil
 
   defp normalize_topology(update) when is_map(update) do
     %{
