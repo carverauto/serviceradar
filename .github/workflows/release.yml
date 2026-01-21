@@ -215,6 +215,7 @@ jobs:
             export GHCR_USERNAME="${gh_user}"
             export GHCR_TOKEN="${gh_token}"
             export GHCR_DOCKER_AUTH=""
+            unset GHCR_DOCKER_AUTH || true
             {
               echo "GHCR_USERNAME=${gh_user}"
               echo "GHCR_TOKEN=${gh_token}"
@@ -228,9 +229,12 @@ jobs:
             fi
             export GHCR_USERNAME="${GHCR_USERNAME}"
             export GHCR_TOKEN="${GHCR_TOKEN}"
+            export GHCR_DOCKER_AUTH=""
+            unset GHCR_DOCKER_AUTH || true
             {
               echo "GHCR_USERNAME=${GHCR_USERNAME}"
               echo "GHCR_TOKEN=${GHCR_TOKEN}"
+              echo "GHCR_DOCKER_AUTH="
             } >> "${GITHUB_ENV}"
           fi
 
