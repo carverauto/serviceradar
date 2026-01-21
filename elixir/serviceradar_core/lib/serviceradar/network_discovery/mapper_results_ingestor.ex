@@ -8,7 +8,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, IdentityReconciler, Interface}
+  alias ServiceRadar.Inventory.{Device, IdentityReconciler, Interface, InterfaceClassifier}
   alias ServiceRadar.NetworkDiscovery.{MapperJob, TopologyGraph, TopologyLink}
   alias ServiceRadar.Repo
 
@@ -18,17 +18,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     with {:ok, updates} <- decode_payload(message),
          records <- build_interface_records(updates),
-         resolved_records <- resolve_device_ids(records) do
+         resolved_records <- resolve_device_ids(records),
+         classified_records <- InterfaceClassifier.classify_interfaces(resolved_records, actor) do
       record_job_runs(updates)
 
-      if resolved_records == [] do
+      if classified_records == [] do
         Logger.debug("No interfaces to ingest after device ID resolution")
         :ok
       else
-        case insert_bulk(resolved_records, Interface, actor, "interfaces") do
+        case insert_bulk(classified_records, Interface, actor, "interfaces") do
           :ok ->
-            TopologyGraph.upsert_interfaces(resolved_records)
-            register_interface_identifiers(resolved_records, actor)
+            TopologyGraph.upsert_interfaces(classified_records)
+            register_interface_identifiers(classified_records, actor)
             :ok
 
           {:error, reason} ->

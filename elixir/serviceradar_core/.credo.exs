@@ -23,7 +23,8 @@
           ~r"/_build/",
           ~r"/deps/",
           ~r"/node_modules/",
-          ~r"/priv/repo/"
+          ~r"/priv/repo/",
+          ~r"/elixir/protobuf/"
         ]
       },
       plugins: [],
