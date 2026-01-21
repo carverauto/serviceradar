@@ -29,6 +29,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       ], ip_hint: "192.168.1.100")
   """
 
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier}
 
@@ -113,10 +114,18 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     if Enum.empty?(unique_ips) do
       %{}
     else
-      {cache_hits, cache_misses} = fetch_cache_hits(unique_ips, use_cache)
+      alias_results = lookup_aliases_by_ip(unique_ips, opts)
+      remaining_ips = unique_ips -- Map.keys(alias_results)
+
+      {cache_hits, cache_misses} = fetch_cache_hits(remaining_ips, use_cache)
       db_results = lookup_devices_by_ips(cache_misses, actor)
+
+      cache_db_results(alias_results, use_cache)
       cache_db_results(db_results, use_cache)
-      Map.merge(cache_hits, db_results)
+
+      cache_hits
+      |> Map.merge(alias_results, fn _key, _cached, alias_record -> alias_record end)
+      |> Map.merge(db_results, fn _key, existing, _db_record -> existing end)
     end
   end
 
@@ -279,14 +288,20 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   end
 
   defp lookup_by_key(%{kind: :ip, value: ip}, actor) do
-    query_opts = if actor, do: [actor: actor], else: []
+    case lookup_alias_device_by_ip(ip, actor, []) do
+      {:ok, %Device{} = device} ->
+        {:ok, device}
 
-    Device
-    |> Ash.Query.for_read(:by_ip, %{ip: ip})
-    |> Ash.read(query_opts)
-    |> case do
-      {:ok, devices} -> {:ok, select_canonical_device(devices)}
-      error -> error
+      _ ->
+        query_opts = if actor, do: [actor: actor], else: []
+
+        Device
+        |> Ash.Query.for_read(:by_ip, %{ip: ip})
+        |> Ash.read(query_opts)
+        |> case do
+          {:ok, devices} -> {:ok, select_canonical_device(devices)}
+          error -> error
+        end
     end
   end
 
@@ -365,6 +380,97 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       {:error, _} ->
         %{}
     end
+  end
+
+  defp lookup_aliases_by_ip([], _opts), do: %{}
+
+  defp lookup_aliases_by_ip(ips, opts) do
+    actor = Keyword.get(opts, :actor)
+    partition = Keyword.get(opts, :partition)
+    query_opts = if actor, do: [actor: actor], else: []
+
+    case read_alias_states(ips, partition, query_opts) do
+      {:ok, []} ->
+        %{}
+
+      {:ok, aliases} ->
+        aliases
+        |> load_alias_devices(query_opts)
+        |> build_alias_map(aliases)
+
+      {:error, _} ->
+        %{}
+    end
+  rescue
+    e ->
+      Logger.warning("Alias lookup failed: #{inspect(e)}")
+      %{}
+  end
+
+  defp read_alias_states(ips, partition, query_opts) do
+    DeviceAliasState
+    |> Ash.Query.filter(alias_type == :ip and alias_value in ^ips and state in [:confirmed, :updated])
+    |> maybe_filter_alias_partition(partition)
+    |> Ash.read(query_opts)
+  end
+
+  defp load_alias_devices(aliases, query_opts) do
+    device_ids = Enum.map(aliases, & &1.device_id) |> Enum.uniq()
+
+    case device_ids do
+      [] ->
+        %{}
+
+      _ ->
+        Device
+        |> Ash.Query.filter(uid in ^device_ids)
+        |> Ash.read(query_opts)
+        |> case do
+          {:ok, records} -> Map.new(records, &{&1.uid, &1})
+          _ -> %{}
+        end
+    end
+  end
+
+  defp build_alias_map(devices, aliases) do
+    Enum.reduce(aliases, %{}, fn alias_state, acc ->
+      case Map.get(devices, alias_state.device_id) do
+        nil -> acc
+        device -> Map.put(acc, alias_state.alias_value, build_record_from_device(device))
+      end
+    end)
+  end
+
+  defp lookup_alias_device_by_ip(ip, actor, opts) do
+    partition = Keyword.get(opts, :partition)
+    query_opts = if actor, do: [actor: actor], else: []
+
+    query =
+      DeviceAliasState
+      |> Ash.Query.filter(
+        alias_type == :ip and alias_value == ^ip and state in [:confirmed, :updated]
+      )
+      |> maybe_filter_alias_partition(partition)
+
+    case Ash.read(query, query_opts) do
+      {:ok, [%DeviceAliasState{device_id: device_id} | _]} ->
+        Device
+        |> Ash.Query.for_read(:by_uid, %{uid: device_id})
+        |> Ash.read_one(query_opts)
+
+      {:ok, []} ->
+        {:ok, nil}
+
+      error ->
+        error
+    end
+  end
+
+  defp maybe_filter_alias_partition(query, nil), do: query
+  defp maybe_filter_alias_partition(query, ""), do: query
+
+  defp maybe_filter_alias_partition(query, partition) do
+    Ash.Query.filter(query, partition == ^partition)
   end
 
   defp select_canonical_device([]), do: nil

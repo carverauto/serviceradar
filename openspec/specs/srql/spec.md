@@ -114,36 +114,40 @@ All rollup_stats queries SHALL respect the `time:` filter to constrain which CAG
 - **THEN** SRQL applies a default time window (e.g., last_24h).
 
 ### Requirement: SweepCompiler uses SRQL for target extraction
-The SweepCompiler SHALL use SRQL queries to extract target IP addresses from device criteria, ensuring consistency between preview counts and compiled target lists.
+The SweepCompiler SHALL use SRQL queries stored on sweep groups to extract target IP addresses, ensuring consistency between preview counts and compiled target lists.
 
-#### Scenario: SRQL query used for target extraction
+#### Scenario: SRQL target_query used for target extraction
 - **GIVEN** a SweepGroup with `target_query = "in:devices discovery_sources:armis"`
 - **WHEN** the SweepCompiler compiles the group
-- **THEN** it executes the SRQL query and returns matching device IPs as targets.
+- **THEN** it executes the SRQL query and returns matching IPs as targets.
 
-#### Scenario: Multiple criteria combined with AND
+#### Scenario: Multiple SRQL clauses combined with AND
 - **GIVEN** a SweepGroup with `target_query = "in:devices discovery_sources:armis partition:datacenter-1"`
 - **WHEN** the SweepCompiler compiles the group
 - **THEN** it executes the SRQL query with space-separated clauses (implicit AND).
 
+---
+
 ### Requirement: SRQL operators are exposed in the targeting rules UI
-The sweep targeting rules UI SHALL expose SRQL operators for device filters including list membership, numeric comparisons, IP CIDR/range matching, and tag matching.
+The sweep targeting UI SHALL expose SRQL operators and a query builder that map to SRQL device filters including list membership, numeric comparisons, IP CIDR/range matching, and tag matching.
 
 #### Scenario: IP CIDR operator
-- **GIVEN** a rule with field `ip` and operator `in_cidr`
-- **WHEN** the builder generates SRQL
-- **THEN** it emits `ip:<cidr>` with proper SRQL escaping.
+- **GIVEN** a user building a sweep target query for field `ip`
+- **WHEN** they select the CIDR operator and enter a CIDR
+- **THEN** the UI emits `ip:<cidr>` with proper SRQL escaping.
 
 #### Scenario: Discovery sources operator
-- **GIVEN** a rule with field `discovery_sources` and operator `contains`
-- **WHEN** the builder generates SRQL with value `armis`
-- **THEN** it emits `discovery_sources:armis`.
+- **GIVEN** a user building a sweep target query for `discovery_sources`
+- **WHEN** they enter value `armis`
+- **THEN** the UI emits `discovery_sources:armis` in the SRQL query.
+
+---
 
 ### Requirement: Preview counts use SRQL queries
-The sweep targeting rules UI SHALL show accurate device preview counts by executing SRQL queries against the device inventory.
+The sweep targeting UI SHALL show accurate device preview counts by executing the stored SRQL query against the device inventory.
 
 #### Scenario: Preview count matches compiled targets
-- **GIVEN** a target query `in:devices discovery_sources:armis`
+- **GIVEN** a sweep target query `in:devices discovery_sources:armis`
 - **WHEN** the UI shows a preview count of 47 devices
 - **THEN** the compiled target list from SweepCompiler contains exactly 47 IPs.
 
@@ -161,3 +165,4 @@ The system SHALL periodically refresh sweep configs when the SRQL result set cha
 - **AND** a device's partition is updated from `datacenter-2` to `datacenter-1`
 - **WHEN** the `SweepConfigRefreshWorker` runs
 - **THEN** the device is now included in the compiled target list.
+

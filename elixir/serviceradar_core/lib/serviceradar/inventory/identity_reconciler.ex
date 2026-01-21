@@ -79,6 +79,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     # Step 1: Lookup by strong identifiers (merge conflicts if multiple IDs found)
     with {:ok, device_id} when is_binary(device_id) and device_id != "" <-
            lookup_by_strong_identifiers(ids, actor, update.device_id) do
+      _ = maybe_merge_ip_alias_device(device_id, ids, actor)
       {:ok, device_id}
     else
       _ -> resolve_fallback_device_id(update, ids, actor)
@@ -229,7 +230,13 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     if has_strong_identifier?(ids) or ids.ip == "" do
       {:ok, nil}
     else
-      do_lookup_by_ip(ids.ip, actor)
+      case lookup_alias_device_id(ids.ip, ids.partition, actor) do
+        {:ok, device_id} when is_binary(device_id) and device_id != "" ->
+          {:ok, device_id}
+
+        _ ->
+          do_lookup_by_ip(ids.ip, actor)
+      end
     end
   end
 
@@ -258,6 +265,59 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     e ->
       Logger.warning("Failed to lookup device by IP: #{inspect(e)}")
       {:ok, nil}
+  end
+
+  @doc """
+  Lookup a confirmed/updated alias device ID for the given IP.
+  """
+  @spec lookup_alias_device_id(String.t(), String.t() | nil, term()) ::
+          {:ok, String.t() | nil} | {:error, term()}
+  def lookup_alias_device_id(ip, partition, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    query =
+      DeviceAliasState
+      |> Ash.Query.filter(
+        alias_type == :ip and alias_value == ^ip and state in [:confirmed, :updated]
+      )
+      |> maybe_filter_alias_partition(partition)
+
+    case Ash.read(query, query_opts) do
+      {:ok, [%DeviceAliasState{device_id: device_id} | _]} -> {:ok, device_id}
+      {:ok, []} -> {:ok, nil}
+      {:error, _} = error -> error
+    end
+  rescue
+    e ->
+      Logger.warning("Failed to lookup device by alias IP: #{inspect(e)}")
+      {:ok, nil}
+  end
+
+  defp maybe_merge_ip_alias_device(device_id, ids, actor) do
+    with true <- present_id?(ids.ip),
+         {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" <-
+           lookup_alias_device_id(ids.ip, ids.partition, actor),
+         true <- alias_device_id != device_id,
+         false <- service_device_id?(alias_device_id) do
+      _ =
+        merge_devices(alias_device_id, device_id,
+          actor: actor,
+          reason: "ip_alias_conflict",
+          details: %{
+            source: "identity_reconciler",
+            alias_ip: ids.ip
+          }
+        )
+    end
+
+    :ok
+  end
+
+  defp maybe_filter_alias_partition(query, nil), do: query
+  defp maybe_filter_alias_partition(query, ""), do: query
+
+  defp maybe_filter_alias_partition(query, partition) do
+    Ash.Query.filter(query, partition == ^partition)
   end
 
   @doc """
@@ -746,23 +806,23 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp reassign_device_identifiers(from_id, to_id, actor) do
-    bulk_reassign(DeviceIdentifier, :reassign_device, {:==, [:device_id], from_id}, %{device_id: to_id}, actor)
+    bulk_reassign(DeviceIdentifier, :reassign_device, :device_id, from_id, %{device_id: to_id}, actor)
   end
 
   defp reassign_service_checks(from_id, to_id, actor) do
-    bulk_reassign(ServiceCheck, :reassign_device, {:==, [:device_uid], from_id}, %{device_uid: to_id}, actor)
+    bulk_reassign(ServiceCheck, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
   end
 
   defp reassign_alerts(from_id, to_id, actor) do
-    bulk_reassign(Alert, :reassign_device, {:==, [:device_uid], from_id}, %{device_uid: to_id}, actor)
+    bulk_reassign(Alert, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
   end
 
   defp reassign_agents(from_id, to_id, actor) do
-    bulk_reassign(Agent, :reassign_device, {:==, [:device_uid], from_id}, %{device_uid: to_id}, actor)
+    bulk_reassign(Agent, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
   end
 
   defp reassign_alias_states(from_id, to_id, actor) do
-    bulk_reassign(DeviceAliasState, :reassign_device, {:==, [:device_id], from_id}, %{device_id: to_id}, actor)
+    bulk_reassign(DeviceAliasState, :reassign_device, :device_id, from_id, %{device_id: to_id}, actor)
   end
 
   defp reassign_interfaces(from_id, to_id, actor) do
@@ -823,42 +883,54 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp bulk_update_interfaces([], _to_id, _actor), do: :ok
 
   defp bulk_update_interfaces(records, to_id, actor) do
-    case Ash.bulk_update(records, :reassign_device, %{device_id: to_id}, actor: actor) do
-      {:ok, _} -> :ok
-      :ok -> :ok
-      {:error, _} = error -> error
-    end
+    Ash.bulk_update(records, :reassign_device, %{device_id: to_id}, actor: actor)
+    |> normalize_bulk_result()
   end
 
   defp bulk_delete_interfaces([], _actor), do: :ok
 
   defp bulk_delete_interfaces(records, actor) do
-    case Ash.bulk_destroy(records, :destroy, %{}, actor: actor) do
-      {:ok, _} -> :ok
-      :ok -> :ok
-      {:error, _} = error -> error
+    Ash.bulk_destroy(records, :destroy, %{}, actor: actor)
+    |> normalize_bulk_result()
+  end
+
+  defp bulk_reassign(resource, action, filter_field, filter_value, attrs, actor) do
+    base_query = resource |> Ash.Query.for_read(:read, %{}, actor: actor)
+
+    query =
+      case filter_field do
+        :device_id -> Ash.Query.filter(base_query, device_id == ^filter_value)
+        :device_uid -> Ash.Query.filter(base_query, device_uid == ^filter_value)
+        _ -> {:error, {:unsupported_filter_field, filter_field}}
+      end
+
+    case query do
+      {:error, _} = error ->
+        error
+
+      _ ->
+        case Ash.read(query, actor: actor) do
+          {:ok, []} ->
+            :ok
+
+          {:ok, records} ->
+            Ash.bulk_update(records, action, attrs, actor: actor)
+            |> normalize_bulk_result()
+
+          {:error, _} = error ->
+            error
+        end
     end
   end
 
-  defp bulk_reassign(resource, action, _filter_expr, attrs, actor) do
-    query =
-      resource
-      |> Ash.Query.filter(_filter_expr)
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, []} ->
-        :ok
-
-      {:ok, records} ->
-        case Ash.bulk_update(records, action, attrs, actor: actor) do
-          {:ok, _} -> :ok
-          :ok -> :ok
-          {:error, _} = error -> error
-        end
-
-      {:error, _} = error ->
-        error
+  defp normalize_bulk_result(result) do
+    case result do
+      {:ok, _} -> :ok
+      :ok -> :ok
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{} = bulk_result -> {:error, bulk_result}
+      {:error, _} = error -> error
+      other -> {:error, other}
     end
   end
 

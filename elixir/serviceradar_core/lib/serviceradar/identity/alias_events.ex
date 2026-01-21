@@ -382,12 +382,21 @@ defmodule ServiceRadar.Identity.AliasEvents do
   defp alias_values(nil), do: []
 
   defp alias_values(record) do
-    [
-      {:ip, record.current_ip},
-      {:service_id, record.current_service_id},
-      {:collector_ip, record.collector_ip}
-    ]
-    |> Enum.reject(fn {_type, value} -> is_nil(value) or value == "" end)
+    base =
+      [
+        {:ip, record.current_ip},
+        {:service_id, record.current_service_id},
+        {:collector_ip, record.collector_ip}
+      ]
+      |> Enum.reject(fn {_type, value} -> is_nil(value) or value == "" end)
+
+    ip_aliases =
+      record.ips
+      |> Map.keys()
+      |> Enum.map(&{:ip, &1})
+
+    (base ++ ip_aliases)
+    |> Enum.uniq()
   end
 
   defp process_alias(update, alias_type, alias_value, actor, confirm_threshold) do
