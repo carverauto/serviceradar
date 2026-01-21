@@ -1298,3 +1298,201 @@ func TestHandleIPAdEntIfIndex(t *testing.T) {
 		})
 	}
 }
+
+func TestGetStandardInterfaceMetrics(t *testing.T) {
+	metrics := getStandardInterfaceMetrics()
+
+	// Should have exactly 8 standard metrics
+	assert.Len(t, metrics, 8)
+
+	// Create a map for easier lookup
+	metricMap := make(map[string]interfaceMetricDef)
+	for _, m := range metrics {
+		metricMap[m.Name] = m
+	}
+
+	// Test traffic metrics
+	t.Run("traffic metrics", func(t *testing.T) {
+		inOctets := metricMap["ifInOctets"]
+		assert.Equal(t, oidIfInOctets, inOctets.OID32)
+		assert.Equal(t, oidIfHCInOctets, inOctets.OID64)
+		assert.Equal(t, "counter", inOctets.DataType)
+		assert.Equal(t, "traffic", inOctets.Category)
+		assert.Equal(t, "bytes", inOctets.Unit)
+
+		outOctets := metricMap["ifOutOctets"]
+		assert.Equal(t, oidIfOutOctets, outOctets.OID32)
+		assert.Equal(t, oidIfHCOutOctets, outOctets.OID64)
+		assert.Equal(t, "counter", outOctets.DataType)
+		assert.Equal(t, "traffic", outOctets.Category)
+		assert.Equal(t, "bytes", outOctets.Unit)
+	})
+
+	// Test error metrics
+	t.Run("error metrics", func(t *testing.T) {
+		inErrors := metricMap["ifInErrors"]
+		assert.Equal(t, oidIfInErrors, inErrors.OID32)
+		assert.Empty(t, inErrors.OID64) // No 64-bit variant
+		assert.Equal(t, "counter", inErrors.DataType)
+		assert.Equal(t, "errors", inErrors.Category)
+		assert.Equal(t, "errors", inErrors.Unit)
+
+		outErrors := metricMap["ifOutErrors"]
+		assert.Equal(t, oidIfOutErrors, outErrors.OID32)
+		assert.Empty(t, outErrors.OID64) // No 64-bit variant
+		assert.Equal(t, "counter", outErrors.DataType)
+		assert.Equal(t, "errors", outErrors.Category)
+		assert.Equal(t, "errors", outErrors.Unit)
+
+		inDiscards := metricMap["ifInDiscards"]
+		assert.Equal(t, oidIfInDiscards, inDiscards.OID32)
+		assert.Empty(t, inDiscards.OID64) // No 64-bit variant
+		assert.Equal(t, "counter", inDiscards.DataType)
+		assert.Equal(t, "errors", inDiscards.Category)
+		assert.Equal(t, "packets", inDiscards.Unit)
+
+		outDiscards := metricMap["ifOutDiscards"]
+		assert.Equal(t, oidIfOutDiscards, outDiscards.OID32)
+		assert.Empty(t, outDiscards.OID64) // No 64-bit variant
+		assert.Equal(t, "counter", outDiscards.DataType)
+		assert.Equal(t, "errors", outDiscards.Category)
+		assert.Equal(t, "packets", outDiscards.Unit)
+	})
+
+	// Test packet metrics
+	t.Run("packet metrics", func(t *testing.T) {
+		inPkts := metricMap["ifInUcastPkts"]
+		assert.Equal(t, oidIfInUcastPkts, inPkts.OID32)
+		assert.Equal(t, oidIfHCInUcastPkts, inPkts.OID64)
+		assert.Equal(t, "counter", inPkts.DataType)
+		assert.Equal(t, "packets", inPkts.Category)
+		assert.Equal(t, "packets", inPkts.Unit)
+
+		outPkts := metricMap["ifOutUcastPkts"]
+		assert.Equal(t, oidIfOutUcastPkts, outPkts.OID32)
+		assert.Equal(t, oidIfHCOutUcastPkts, outPkts.OID64)
+		assert.Equal(t, "counter", outPkts.DataType)
+		assert.Equal(t, "packets", outPkts.Category)
+		assert.Equal(t, "packets", outPkts.Unit)
+	})
+}
+
+func TestInterfaceMetricStruct(t *testing.T) {
+	metric := InterfaceMetric{
+		Name:          "ifInOctets",
+		OID:           ".1.3.6.1.2.1.2.2.1.10",
+		DataType:      "counter",
+		Supports64Bit: true,
+		OID64Bit:      ".1.3.6.1.2.1.31.1.1.1.6",
+		Category:      "traffic",
+		Unit:          "bytes",
+	}
+
+	assert.Equal(t, "ifInOctets", metric.Name)
+	assert.Equal(t, ".1.3.6.1.2.1.2.2.1.10", metric.OID)
+	assert.Equal(t, "counter", metric.DataType)
+	assert.True(t, metric.Supports64Bit)
+	assert.Equal(t, ".1.3.6.1.2.1.31.1.1.1.6", metric.OID64Bit)
+	assert.Equal(t, "traffic", metric.Category)
+	assert.Equal(t, "bytes", metric.Unit)
+}
+
+func TestInterfaceMetricCategories(t *testing.T) {
+	// Test that all metrics have valid categories
+	validCategories := map[string]bool{
+		"traffic":       true,
+		"errors":        true,
+		"packets":       true,
+		"environmental": true,
+		"status":        true,
+	}
+
+	metrics := getStandardInterfaceMetrics()
+	for _, m := range metrics {
+		assert.True(t, validCategories[m.Category],
+			"Metric %s has invalid category: %s", m.Name, m.Category)
+	}
+}
+
+func TestInterfaceMetricUnits(t *testing.T) {
+	// Test that all metrics have valid units
+	validUnits := map[string]bool{
+		"bytes":   true,
+		"packets": true,
+		"errors":  true,
+		"celsius": true,
+		"rpm":     true,
+		"percent": true,
+		"watts":   true,
+	}
+
+	metrics := getStandardInterfaceMetrics()
+	for _, m := range metrics {
+		assert.True(t, validUnits[m.Unit],
+			"Metric %s has invalid unit: %s", m.Name, m.Unit)
+	}
+}
+
+func TestMetric64BitVariants(t *testing.T) {
+	metrics := getStandardInterfaceMetrics()
+
+	// Count metrics with 64-bit support
+	with64Bit := 0
+	without64Bit := 0
+
+	for _, m := range metrics {
+		if m.OID64 != "" {
+			with64Bit++
+		} else {
+			without64Bit++
+		}
+	}
+
+	// Traffic metrics (ifInOctets, ifOutOctets) and packet metrics
+	// (ifInUcastPkts, ifOutUcastPkts) should have 64-bit variants
+	assert.Equal(t, 4, with64Bit, "Expected 4 metrics with 64-bit support")
+
+	// Error metrics (ifInErrors, ifOutErrors, ifInDiscards, ifOutDiscards)
+	// should not have 64-bit variants
+	assert.Equal(t, 4, without64Bit, "Expected 4 metrics without 64-bit support")
+}
+
+func TestDiscoveredInterfaceAvailableMetrics(t *testing.T) {
+	iface := &DiscoveredInterface{
+		DeviceIP:    "192.168.1.1",
+		IfIndex:     1,
+		IfName:      "eth0",
+		IfOperStatus: 1,
+	}
+
+	// Initially nil
+	assert.Nil(t, iface.AvailableMetrics)
+
+	// Add metrics
+	iface.AvailableMetrics = []InterfaceMetric{
+		{
+			Name:          "ifInOctets",
+			OID:           oidIfInOctets,
+			DataType:      "counter",
+			Supports64Bit: true,
+			OID64Bit:      oidIfHCInOctets,
+			Category:      "traffic",
+			Unit:          "bytes",
+		},
+		{
+			Name:          "ifOutOctets",
+			OID:           oidIfOutOctets,
+			DataType:      "counter",
+			Supports64Bit: true,
+			OID64Bit:      oidIfHCOutOctets,
+			Category:      "traffic",
+			Unit:          "bytes",
+		},
+	}
+
+	assert.Len(t, iface.AvailableMetrics, 2)
+	assert.Equal(t, "ifInOctets", iface.AvailableMetrics[0].Name)
+	assert.Equal(t, "ifOutOctets", iface.AvailableMetrics[1].Name)
+	assert.True(t, iface.AvailableMetrics[0].Supports64Bit)
+	assert.True(t, iface.AvailableMetrics[1].Supports64Bit)
+}

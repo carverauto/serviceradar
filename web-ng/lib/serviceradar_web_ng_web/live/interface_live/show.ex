@@ -297,6 +297,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
               </h2>
               <div class="divide-y divide-base-200">
                 <% metrics_enabled = settings_value(@settings, :metrics_enabled) %>
+                <% available_metrics = Map.get(@interface, "available_metrics") %>
                 <div class="py-3 flex items-center justify-between">
                   <div>
                     <span class="text-sm font-medium">Enable Metrics Collection</span>
@@ -322,6 +323,27 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     Enable metrics collection to start tracking bandwidth utilization
                     and other performance metrics for this interface.
                   </p>
+                </div>
+                <%!-- Available Metrics Section --%>
+                <div :if={available_metrics && length(available_metrics) > 0} class="py-3">
+                  <h3 class="text-sm font-medium mb-2">Available Metrics</h3>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <.available_metric_card
+                      :for={metric <- available_metrics}
+                      metric={metric}
+                    />
+                  </div>
+                </div>
+                <div :if={!available_metrics || available_metrics == []} class="py-3">
+                  <div class="flex items-start gap-2 text-base-content/50">
+                    <.icon name="hero-question-mark-circle" class="size-4 mt-0.5" />
+                    <div>
+                      <span class="text-sm">Available metrics unknown</span>
+                      <p class="text-xs mt-0.5">
+                        Metric discovery not yet performed. Run a discovery scan to detect available metrics.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -538,6 +560,31 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         is_nil(@value) || (@value == "" && "text-base-content/40")
       ]}>
         {format_value(@value)}
+      </span>
+    </div>
+    """
+  end
+
+  attr :metric, :map, required: true
+
+  defp available_metric_card(assigns) do
+    ~H"""
+    <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50 border border-base-300">
+      <div class="flex items-center gap-2">
+        <.icon name={metric_category_icon(@metric)} class="size-4 text-primary" />
+        <div>
+          <span class="text-sm font-medium">{metric_display_name(@metric)}</span>
+          <span
+            :if={metric_supports_64bit?(@metric)}
+            class="ml-1 badge badge-xs badge-success"
+            title="64-bit counter available"
+          >
+            64-bit
+          </span>
+        </div>
+      </div>
+      <span class="text-xs text-base-content/50 badge badge-ghost badge-sm">
+        {metric_category_label(@metric)}
       </span>
     </div>
     """
@@ -785,4 +832,59 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp threshold_comparison_label(:lte), do: "less than or equal to"
   defp threshold_comparison_label(:eq), do: "equal to"
   defp threshold_comparison_label(_), do: ""
+
+  # Available metrics helpers
+  defp metric_display_name(metric) when is_map(metric) do
+    name = Map.get(metric, "name") || Map.get(metric, :name) || "Unknown"
+    # Convert OID names to human-readable format
+    case name do
+      "ifInOctets" -> "Inbound Traffic"
+      "ifOutOctets" -> "Outbound Traffic"
+      "ifInErrors" -> "Inbound Errors"
+      "ifOutErrors" -> "Outbound Errors"
+      "ifInDiscards" -> "Inbound Discards"
+      "ifOutDiscards" -> "Outbound Discards"
+      "ifInUcastPkts" -> "Inbound Packets"
+      "ifOutUcastPkts" -> "Outbound Packets"
+      _ -> name
+    end
+  end
+
+  defp metric_display_name(_), do: "Unknown"
+
+  defp metric_supports_64bit?(metric) when is_map(metric) do
+    Map.get(metric, "supports_64bit") || Map.get(metric, :supports_64bit) || false
+  end
+
+  defp metric_supports_64bit?(_), do: false
+
+  defp metric_category_icon(metric) when is_map(metric) do
+    category = Map.get(metric, "category") || Map.get(metric, :category) || "unknown"
+
+    case category do
+      "traffic" -> "hero-arrow-trending-up"
+      "errors" -> "hero-exclamation-triangle"
+      "packets" -> "hero-cube"
+      "environmental" -> "hero-cpu-chip"
+      "status" -> "hero-signal"
+      _ -> "hero-chart-bar"
+    end
+  end
+
+  defp metric_category_icon(_), do: "hero-chart-bar"
+
+  defp metric_category_label(metric) when is_map(metric) do
+    category = Map.get(metric, "category") || Map.get(metric, :category) || "unknown"
+
+    case category do
+      "traffic" -> "Traffic"
+      "errors" -> "Errors"
+      "packets" -> "Packets"
+      "environmental" -> "Environmental"
+      "status" -> "Status"
+      _ -> "Metric"
+    end
+  end
+
+  defp metric_category_label(_), do: "Metric"
 end
