@@ -401,11 +401,24 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     # that Ash can't match, so we use upsert?: true with upsert_fields: [] to skip duplicates.
     {records, opts} =
       if resource == Interface do
-        deduped = Enum.uniq_by(records, &interface_identity_key/1)
+        filtered =
+          records
+          |> Enum.reject(fn record ->
+            key = interface_identity_key(record)
+            elem(key, 0) == nil or elem(key, 1) == nil or elem(key, 2) == nil
+          end)
 
-        if length(deduped) != length(records) do
+        deduped = Enum.uniq_by(filtered, &interface_identity_key/1)
+
+        if length(filtered) != length(records) do
           Logger.debug(
-            "Mapper interfaces batch contained duplicates, deduped #{length(records) - length(deduped)} record(s)"
+            "Mapper interfaces batch dropped #{length(records) - length(filtered)} record(s) missing identity fields"
+          )
+        end
+
+        if length(deduped) != length(filtered) do
+          Logger.debug(
+            "Mapper interfaces batch contained duplicates, deduped #{length(filtered) - length(deduped)} record(s)"
           )
         end
 
@@ -441,8 +454,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp interface_identity_key(record) do
-    {record.timestamp, record.device_id, record.interface_uid}
+  defp interface_identity_key(record) when is_map(record) do
+    {
+      get_record_value(record, :timestamp, "timestamp"),
+      get_record_value(record, :device_id, "device_id"),
+      get_record_value(record, :interface_uid, "interface_uid")
+    }
+  end
+
+  defp interface_identity_key(_record), do: {nil, nil, nil}
+
+  defp get_record_value(record, atom_key, string_key) when is_map(record) do
+    Map.get(record, atom_key) || Map.get(record, string_key)
   end
 
   defp record_job_runs(updates) do

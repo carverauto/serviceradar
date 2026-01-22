@@ -54,30 +54,39 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   end
 
   @impl true
-  def handle_event("toggle_metrics", _params, socket) do
+  def handle_event("toggle_metric", %{"metric" => metric_name}, socket) do
     device_uid = socket.assigns.device_uid
     interface_uid = socket.assigns.interface_uid
     scope = socket.assigns.current_scope
     current_settings = socket.assigns.settings
-    current_enabled = settings_value(current_settings, :metrics_enabled)
+    selected_metrics = settings_list_value(current_settings, :metrics_selected)
 
-    case upsert_interface_setting(scope, device_uid, interface_uid, %{
-           metrics_enabled: not current_enabled
-         }) do
-      {:ok, updated_settings} ->
-        {:noreply,
-         socket
-         |> assign(:settings, updated_settings)
-         |> put_flash(
-           :info,
-           if(current_enabled,
-             do: "Metrics collection disabled",
-             else: "Metrics collection enabled"
-           )
-         )}
+    if metric_name == "Unknown" do
+      {:noreply, socket}
+    else
+      updated_metrics =
+        if metric_name in selected_metrics do
+          List.delete(selected_metrics, metric_name)
+        else
+          Enum.uniq([metric_name | selected_metrics])
+        end
 
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to update metrics collection setting")}
+      updated_metrics = Enum.sort(updated_metrics)
+
+      attrs =
+        if updated_metrics == [] do
+          %{metrics_selected: updated_metrics, metrics_enabled: false}
+        else
+          %{metrics_selected: updated_metrics, metrics_enabled: true}
+        end
+
+      case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
+        {:ok, updated_settings} ->
+          {:noreply, assign(socket, :settings, updated_settings)}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to update metric selection")}
+      end
     end
   end
 
@@ -166,391 +175,386 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="container mx-auto px-4 py-6 max-w-6xl">
-      <%!-- Breadcrumb --%>
-      <nav class="text-sm breadcrumbs mb-4">
-        <ul>
-          <li><.link navigate={~p"/devices"}>Devices</.link></li>
-          <li :if={@device}>
-            <.link navigate={~p"/devices/#{@device_uid}"}>
-              {device_name(@device)}
-            </.link>
-          </li>
-          <li :if={!@device}>
-            <.link navigate={~p"/devices/#{@device_uid}"}>Device</.link>
-          </li>
-          <li class="text-base-content/70">
-            {if @interface, do: interface_name(@interface), else: "Interface"}
-          </li>
-        </ul>
-      </nav>
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <div class="container mx-auto px-4 py-6 max-w-6xl">
+        <%!-- Breadcrumb --%>
+        <nav class="text-sm breadcrumbs mb-4">
+          <ul>
+            <li><.link navigate={~p"/devices"}>Devices</.link></li>
+            <li :if={@device}>
+              <.link navigate={~p"/devices/#{@device_uid}"}>
+                {device_name(@device)}
+              </.link>
+            </li>
+            <li :if={!@device}>
+              <.link navigate={~p"/devices/#{@device_uid}"}>Device</.link>
+            </li>
+            <li class="text-base-content/70">
+              {if @interface, do: interface_name(@interface), else: "Interface"}
+            </li>
+          </ul>
+        </nav>
 
-      <%!-- Loading State --%>
-      <div :if={@loading} class="flex items-center justify-center py-12">
-        <span class="loading loading-spinner loading-lg text-primary"></span>
-      </div>
-
-      <%!-- Error State --%>
-      <div :if={@error && !@loading} class="alert alert-error mb-4">
-        <.icon name="hero-exclamation-triangle" class="size-5" />
-        <span>{@error}</span>
-      </div>
-
-      <%!-- Interface Details --%>
-      <div :if={@interface && !@loading} class="space-y-6">
-        <%!-- Header Card --%>
-        <div class="card bg-base-100 border border-base-200 shadow-sm">
-          <div class="card-body">
-            <div class="flex items-start justify-between">
-              <div>
-                <h1 class="text-2xl font-bold">{interface_name(@interface)}</h1>
-                <p :if={interface_description(@interface)} class="text-base-content/70 mt-1">
-                  {interface_description(@interface)}
-                </p>
-              </div>
-              <div class="flex gap-2 items-center">
-                <% is_favorited = settings_value(@settings, :favorited) %>
-                <button
-                  type="button"
-                  class={[
-                    "btn btn-ghost btn-sm",
-                    if(is_favorited, do: "text-warning", else: "text-base-content/30")
-                  ]}
-                  phx-click="toggle_favorite"
-                  title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
-                >
-                  <.icon
-                    name={if is_favorited, do: "hero-star-solid", else: "hero-star"}
-                    class="size-5"
-                  />
-                </button>
-                <.interface_status_badge
-                  oper_status={Map.get(@interface, "if_oper_status")}
-                  admin_status={Map.get(@interface, "if_admin_status")}
-                />
-              </div>
-            </div>
-          </div>
+        <%!-- Loading State --%>
+        <div :if={@loading} class="flex items-center justify-center py-12">
+          <span class="loading loading-spinner loading-lg text-primary"></span>
         </div>
 
-        <%!-- Properties Grid --%>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <%!-- Basic Information --%>
+        <%!-- Error State --%>
+        <div :if={@error && !@loading} class="alert alert-error mb-4">
+          <.icon name="hero-exclamation-triangle" class="size-5" />
+          <span>{@error}</span>
+        </div>
+
+        <%!-- Interface Details --%>
+        <div :if={@interface && !@loading} class="space-y-6">
+          <%!-- Header Card --%>
           <div class="card bg-base-100 border border-base-200 shadow-sm">
             <div class="card-body">
-              <h2 class="card-title text-lg">
-                <.icon name="hero-information-circle" class="size-5 text-primary" /> Basic Information
-              </h2>
-              <div class="divide-y divide-base-200">
-                <.property_row label="Interface ID" value={format_interface_id(@interface)} />
-                <.property_row label="Name" value={Map.get(@interface, "if_name")} />
-                <.property_row label="Description" value={Map.get(@interface, "if_descr")} />
-                <.property_row label="Alias" value={Map.get(@interface, "if_alias")} />
-                <.property_row
-                  label="Type"
-                  value={InterfaceTypes.humanize(Map.get(@interface, "if_type_name"))}
-                />
-                <.property_row label="Interface UID" value={@interface_uid} monospace />
+              <div class="flex items-start justify-between">
+                <div>
+                  <h1 class="text-2xl font-bold">{interface_name(@interface)}</h1>
+                  <p :if={interface_description(@interface)} class="text-base-content/70 mt-1">
+                    {interface_description(@interface)}
+                  </p>
+                </div>
+                <div class="flex gap-2 items-center">
+                  <% is_favorited = settings_value(@settings, :favorited) %>
+                  <button
+                    type="button"
+                    class={[
+                      "btn btn-ghost btn-sm",
+                      if(is_favorited, do: "text-warning", else: "text-base-content/30")
+                    ]}
+                    phx-click="toggle_favorite"
+                    title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
+                  >
+                    <.icon
+                      name={if is_favorited, do: "hero-star-solid", else: "hero-star"}
+                      class="size-5"
+                    />
+                  </button>
+                  <.interface_status_badge
+                    oper_status={Map.get(@interface, "if_oper_status")}
+                    admin_status={Map.get(@interface, "if_admin_status")}
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          <%!-- Network Information --%>
-          <div class="card bg-base-100 border border-base-200 shadow-sm">
-            <div class="card-body">
-              <h2 class="card-title text-lg">
-                <.icon name="hero-globe-alt" class="size-5 text-primary" /> Network Information
-              </h2>
-              <div class="divide-y divide-base-200">
-                <.property_row
-                  label="MAC Address"
-                  value={Map.get(@interface, "if_phys_address")}
-                  monospace
-                />
-                <.property_row label="IP Addresses" value={format_ip_list(@interface)} monospace />
-                <.property_row label="Speed" value={format_speed(@interface)} />
-                <.property_row label="Duplex" value={Map.get(@interface, "duplex")} />
-                <.property_row label="MTU" value={Map.get(@interface, "if_mtu")} />
+          <%!-- Properties Grid --%>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <%!-- Basic Information --%>
+            <div class="card bg-base-100 border border-base-200 shadow-sm">
+              <div class="card-body">
+                <h2 class="card-title text-lg">
+                  <.icon name="hero-information-circle" class="size-5 text-primary" />
+                  Basic Information
+                </h2>
+                <div class="divide-y divide-base-200">
+                  <.property_row label="Interface ID" value={format_interface_id(@interface)} />
+                  <.property_row label="Name" value={Map.get(@interface, "if_name")} />
+                  <.property_row label="Description" value={Map.get(@interface, "if_descr")} />
+                  <.property_row label="Alias" value={Map.get(@interface, "if_alias")} />
+                  <.property_row
+                    label="Type"
+                    value={InterfaceTypes.humanize(Map.get(@interface, "if_type_name"))}
+                  />
+                  <.property_row label="Interface UID" value={@interface_uid} monospace />
+                </div>
+              </div>
+            </div>
+
+            <%!-- Network Information --%>
+            <div class="card bg-base-100 border border-base-200 shadow-sm">
+              <div class="card-body">
+                <h2 class="card-title text-lg">
+                  <.icon name="hero-globe-alt" class="size-5 text-primary" /> Network Information
+                </h2>
+                <div class="divide-y divide-base-200">
+                  <.property_row
+                    label="MAC Address"
+                    value={Map.get(@interface, "if_phys_address")}
+                    monospace
+                  />
+                  <.property_row label="IP Addresses" value={format_ip_list(@interface)} monospace />
+                  <.property_row label="Speed" value={format_speed(@interface)} />
+                  <.property_row label="Duplex" value={Map.get(@interface, "duplex")} />
+                  <.property_row label="MTU" value={Map.get(@interface, "if_mtu")} />
+                </div>
+              </div>
+            </div>
+
+            <%!-- SNMP Information --%>
+            <div class="card bg-base-100 border border-base-200 shadow-sm">
+              <div class="card-body">
+                <h2 class="card-title text-lg">
+                  <.icon name="hero-server" class="size-5 text-primary" /> SNMP Information
+                </h2>
+                <div class="divide-y divide-base-200">
+                  <.property_row label="ifIndex" value={Map.get(@interface, "if_index")} />
+                  <.property_row label="ifType (numeric)" value={Map.get(@interface, "if_type")} />
+                  <.property_row label="ifType (name)" value={Map.get(@interface, "if_type_name")} />
+                </div>
+              </div>
+            </div>
+
+            <%!-- Metrics Collection --%>
+            <div class="card bg-base-100 border border-base-200 shadow-sm">
+              <div class="card-body">
+                <h2 class="card-title text-lg">
+                  <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics Collection
+                </h2>
+                <div class="divide-y divide-base-200">
+                  <% selected_metrics = settings_list_value(@settings, :metrics_selected) %>
+                  <% metrics_enabled = selected_metrics != [] %>
+                  <% available_metrics = Map.get(@interface, "available_metrics") %>
+                  <div class="py-3">
+                    <div class="flex items-start justify-between gap-4">
+                      <div>
+                        <span class="text-sm font-medium">Metrics Collection</span>
+                        <p class="text-xs text-base-content/50 mt-0.5">
+                          Click a metric below to enable or disable its collection.
+                        </p>
+                      </div>
+                      <span class={[
+                        "badge badge-sm",
+                        metrics_enabled && "badge-success",
+                        !metrics_enabled && "badge-ghost"
+                      ]}>
+                        {if metrics_enabled, do: "Enabled", else: "Disabled"}
+                      </span>
+                    </div>
+                    <p :if={selected_metrics == []} class="text-xs text-warning mt-2">
+                      Select at least one metric to enable collection.
+                    </p>
+                  </div>
+                  <%!-- Available Metrics Section --%>
+                  <div :if={available_metrics && length(available_metrics) > 0} class="py-3 space-y-3">
+                    <% normalized_metrics = Enum.filter(available_metrics, &is_map/1) %>
+                    <h3 class="text-sm font-medium">Available Metrics</h3>
+                    <div :if={normalized_metrics != []} class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <.available_metric_card
+                        :for={metric <- normalized_metrics}
+                        metric={metric}
+                        enabled={metric_selected?(metric, selected_metrics)}
+                      />
+                    </div>
+                  </div>
+                  <div :if={!available_metrics || available_metrics == []} class="py-3">
+                    <div class="flex items-start gap-2 text-base-content/50">
+                      <.icon name="hero-question-mark-circle" class="size-4 mt-0.5" />
+                      <div>
+                        <span class="text-sm">Available metrics unknown</span>
+                        <p class="text-xs mt-0.5">
+                          Metric discovery not yet performed. Run a discovery scan to detect available metrics.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          <%!-- SNMP Information --%>
+          <%!-- Threshold Configuration (full width) --%>
           <div class="card bg-base-100 border border-base-200 shadow-sm">
             <div class="card-body">
               <h2 class="card-title text-lg">
-                <.icon name="hero-server" class="size-5 text-primary" /> SNMP Information
+                <.icon name="hero-bell-alert" class="size-5 text-primary" /> Threshold Alerting
               </h2>
-              <div class="divide-y divide-base-200">
-                <.property_row label="ifIndex" value={Map.get(@interface, "if_index")} />
-                <.property_row label="ifType (numeric)" value={Map.get(@interface, "if_type")} />
-                <.property_row label="ifType (name)" value={Map.get(@interface, "if_type_name")} />
-              </div>
-            </div>
-          </div>
 
-          <%!-- Metrics Collection --%>
-          <div class="card bg-base-100 border border-base-200 shadow-sm">
-            <div class="card-body">
-              <h2 class="card-title text-lg">
-                <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics Collection
-              </h2>
+              <% threshold_enabled = settings_value(@settings, :threshold_enabled) %>
+              <% threshold_metric = settings_value(@settings, :threshold_metric) %>
+              <% threshold_comparison = settings_value(@settings, :threshold_comparison) %>
+              <% threshold_value = settings_value(@settings, :threshold_value) %>
+              <% threshold_duration = settings_value(@settings, :threshold_duration_seconds) || 0 %>
+              <% threshold_severity = settings_value(@settings, :threshold_severity) || :warning %>
+
               <div class="divide-y divide-base-200">
-                <% metrics_enabled = settings_value(@settings, :metrics_enabled) %>
-                <% available_metrics = Map.get(@interface, "available_metrics") %>
                 <div class="py-3 flex items-center justify-between">
                   <div>
-                    <span class="text-sm font-medium">Enable Metrics Collection</span>
+                    <span class="text-sm font-medium">Enable Threshold Alerts</span>
                     <p class="text-xs text-base-content/50 mt-0.5">
-                      Collect bandwidth and utilization metrics for this interface
+                      Generate alerts when interface metrics exceed configured thresholds
                     </p>
                   </div>
                   <input
                     type="checkbox"
-                    class="toggle toggle-primary"
-                    checked={metrics_enabled}
-                    phx-click="toggle_metrics"
+                    class="toggle toggle-warning"
+                    checked={threshold_enabled}
+                    phx-click="toggle_threshold"
                   />
                 </div>
-                <div :if={metrics_enabled} class="py-3">
-                  <div class="flex items-center gap-2 text-success">
-                    <.icon name="hero-check-circle" class="size-4" />
-                    <span class="text-sm">Metrics collection is active</span>
+
+                <div :if={threshold_enabled} class="py-4 space-y-4">
+                  <.form
+                    for={@threshold_form}
+                    phx-change="update_threshold"
+                    phx-submit="save_threshold"
+                    class="space-y-4"
+                  >
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div class="form-control">
+                        <label class="label">
+                          <span class="label-text text-xs">Metric</span>
+                        </label>
+                        <select
+                          name="threshold[metric]"
+                          class="select select-bordered select-sm w-full"
+                        >
+                          <option value="" disabled selected={!threshold_metric}>
+                            Select metric
+                          </option>
+                          <option value="utilization" selected={threshold_metric == :utilization}>
+                            Utilization %
+                          </option>
+                          <option value="bandwidth_in" selected={threshold_metric == :bandwidth_in}>
+                            Bandwidth In
+                          </option>
+                          <option value="bandwidth_out" selected={threshold_metric == :bandwidth_out}>
+                            Bandwidth Out
+                          </option>
+                          <option value="errors" selected={threshold_metric == :errors}>
+                            Errors
+                          </option>
+                        </select>
+                      </div>
+
+                      <div class="form-control">
+                        <label class="label">
+                          <span class="label-text text-xs">Condition</span>
+                        </label>
+                        <select
+                          name="threshold[comparison]"
+                          class="select select-bordered select-sm w-full"
+                        >
+                          <option value="" disabled selected={!threshold_comparison}>
+                            Select condition
+                          </option>
+                          <option value="gt" selected={threshold_comparison == :gt}>
+                            Greater than (&gt;)
+                          </option>
+                          <option value="gte" selected={threshold_comparison == :gte}>
+                            Greater or equal (&ge;)
+                          </option>
+                          <option value="lt" selected={threshold_comparison == :lt}>
+                            Less than (&lt;)
+                          </option>
+                          <option value="lte" selected={threshold_comparison == :lte}>
+                            Less or equal (&le;)
+                          </option>
+                          <option value="eq" selected={threshold_comparison == :eq}>
+                            Equal to (=)
+                          </option>
+                        </select>
+                      </div>
+
+                      <div class="form-control">
+                        <label class="label">
+                          <span class="label-text text-xs">Value</span>
+                        </label>
+                        <input
+                          type="number"
+                          name="threshold[value]"
+                          value={threshold_value}
+                          placeholder="e.g., 80"
+                          class="input input-bordered input-sm w-full"
+                        />
+                      </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div class="form-control">
+                        <label class="label">
+                          <span class="label-text text-xs">Duration (seconds)</span>
+                        </label>
+                        <input
+                          type="number"
+                          name="threshold[duration]"
+                          value={threshold_duration}
+                          placeholder="0"
+                          min="0"
+                          class="input input-bordered input-sm w-full"
+                        />
+                        <label class="label">
+                          <span class="label-text-alt text-xs text-base-content/50">
+                            How long threshold must be exceeded before alerting (0 = immediate)
+                          </span>
+                        </label>
+                      </div>
+
+                      <div class="form-control">
+                        <label class="label">
+                          <span class="label-text text-xs">Alert Severity</span>
+                        </label>
+                        <select
+                          name="threshold[severity]"
+                          class="select select-bordered select-sm w-full"
+                        >
+                          <option value="info" selected={threshold_severity == :info}>Info</option>
+                          <option value="warning" selected={threshold_severity == :warning}>
+                            Warning
+                          </option>
+                          <option value="critical" selected={threshold_severity == :critical}>
+                            Critical
+                          </option>
+                          <option value="emergency" selected={threshold_severity == :emergency}>
+                            Emergency
+                          </option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div class="flex justify-end">
+                      <button type="submit" class="btn btn-primary btn-sm">
+                        <.icon name="hero-check" class="size-4" /> Save Threshold
+                      </button>
+                    </div>
+                  </.form>
+
+                  <div
+                    :if={threshold_metric && threshold_comparison && threshold_value}
+                    class="alert alert-info alert-sm"
+                  >
+                    <.icon name="hero-information-circle" class="size-4" />
+                    <span class="text-sm">
+                      Alert (<strong>{threshold_severity}</strong>) when
+                      <strong>{threshold_metric_label(threshold_metric)}</strong>
+                      is <strong>{threshold_comparison_label(threshold_comparison)}</strong>
+                      <strong>
+                        {threshold_value}{if threshold_metric == :utilization, do: "%", else: ""}
+                      </strong>
+                      {if threshold_duration > 0, do: " for #{threshold_duration} seconds", else: ""}
+                    </span>
                   </div>
                 </div>
-                <div :if={!metrics_enabled} class="py-3">
+
+                <div :if={!threshold_enabled} class="py-3">
                   <p class="text-sm text-base-content/50">
-                    Enable metrics collection to start tracking bandwidth utilization
-                    and other performance metrics for this interface.
+                    Enable threshold alerting to receive notifications when this interface's
+                    metrics exceed configured limits.
                   </p>
-                </div>
-                <%!-- Available Metrics Section --%>
-                <div :if={available_metrics && length(available_metrics) > 0} class="py-3 space-y-3">
-                  <% metric_options = available_metric_options(available_metrics) %>
-                  <% normalized_metrics = Enum.filter(available_metrics, &is_map/1) %>
-                  <h3 class="text-sm font-medium">Available Metrics</h3>
-                  <.input
-                    :if={metric_options != []}
-                    type="select"
-                    id="available-metrics-select"
-                    name="available_metric"
-                    label="Select metric"
-                    options={metric_options}
-                    prompt="Select metric"
-                    class="select select-bordered select-sm w-full"
-                  />
-                  <div :if={normalized_metrics != []} class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <.available_metric_card
-                      :for={metric <- normalized_metrics}
-                      metric={metric}
-                    />
-                  </div>
-                </div>
-                <div :if={!available_metrics || available_metrics == []} class="py-3">
-                  <div class="flex items-start gap-2 text-base-content/50">
-                    <.icon name="hero-question-mark-circle" class="size-4 mt-0.5" />
-                    <div>
-                      <span class="text-sm">Available metrics unknown</span>
-                      <p class="text-xs mt-0.5">
-                        Metric discovery not yet performed. Run a discovery scan to detect available metrics.
-                      </p>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <%!-- Threshold Configuration (full width) --%>
-        <div class="card bg-base-100 border border-base-200 shadow-sm">
-          <div class="card-body">
-            <h2 class="card-title text-lg">
-              <.icon name="hero-bell-alert" class="size-5 text-primary" /> Threshold Alerting
-            </h2>
-
-            <% threshold_enabled = settings_value(@settings, :threshold_enabled) %>
-            <% threshold_metric = settings_value(@settings, :threshold_metric) %>
-            <% threshold_comparison = settings_value(@settings, :threshold_comparison) %>
-            <% threshold_value = settings_value(@settings, :threshold_value) %>
-            <% threshold_duration = settings_value(@settings, :threshold_duration_seconds) || 0 %>
-            <% threshold_severity = settings_value(@settings, :threshold_severity) || :warning %>
-
-            <div class="divide-y divide-base-200">
-              <div class="py-3 flex items-center justify-between">
-                <div>
-                  <span class="text-sm font-medium">Enable Threshold Alerts</span>
-                  <p class="text-xs text-base-content/50 mt-0.5">
-                    Generate alerts when interface metrics exceed configured thresholds
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  class="toggle toggle-warning"
-                  checked={threshold_enabled}
-                  phx-click="toggle_threshold"
-                />
-              </div>
-
-              <div :if={threshold_enabled} class="py-4 space-y-4">
-                <.form
-                  for={@threshold_form}
-                  phx-change="update_threshold"
-                  phx-submit="save_threshold"
-                  class="space-y-4"
-                >
-                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="form-control">
-                      <label class="label">
-                        <span class="label-text text-xs">Metric</span>
-                      </label>
-                      <select name="threshold[metric]" class="select select-bordered select-sm w-full">
-                        <option value="" disabled selected={!threshold_metric}>Select metric</option>
-                        <option value="utilization" selected={threshold_metric == :utilization}>
-                          Utilization %
-                        </option>
-                        <option value="bandwidth_in" selected={threshold_metric == :bandwidth_in}>
-                          Bandwidth In
-                        </option>
-                        <option value="bandwidth_out" selected={threshold_metric == :bandwidth_out}>
-                          Bandwidth Out
-                        </option>
-                        <option value="errors" selected={threshold_metric == :errors}>Errors</option>
-                      </select>
-                    </div>
-
-                    <div class="form-control">
-                      <label class="label">
-                        <span class="label-text text-xs">Condition</span>
-                      </label>
-                      <select
-                        name="threshold[comparison]"
-                        class="select select-bordered select-sm w-full"
-                      >
-                        <option value="" disabled selected={!threshold_comparison}>
-                          Select condition
-                        </option>
-                        <option value="gt" selected={threshold_comparison == :gt}>
-                          Greater than (&gt;)
-                        </option>
-                        <option value="gte" selected={threshold_comparison == :gte}>
-                          Greater or equal (&ge;)
-                        </option>
-                        <option value="lt" selected={threshold_comparison == :lt}>
-                          Less than (&lt;)
-                        </option>
-                        <option value="lte" selected={threshold_comparison == :lte}>
-                          Less or equal (&le;)
-                        </option>
-                        <option value="eq" selected={threshold_comparison == :eq}>
-                          Equal to (=)
-                        </option>
-                      </select>
-                    </div>
-
-                    <div class="form-control">
-                      <label class="label">
-                        <span class="label-text text-xs">Value</span>
-                      </label>
-                      <input
-                        type="number"
-                        name="threshold[value]"
-                        value={threshold_value}
-                        placeholder="e.g., 80"
-                        class="input input-bordered input-sm w-full"
-                      />
-                    </div>
-                  </div>
-
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="form-control">
-                      <label class="label">
-                        <span class="label-text text-xs">Duration (seconds)</span>
-                      </label>
-                      <input
-                        type="number"
-                        name="threshold[duration]"
-                        value={threshold_duration}
-                        placeholder="0"
-                        min="0"
-                        class="input input-bordered input-sm w-full"
-                      />
-                      <label class="label">
-                        <span class="label-text-alt text-xs text-base-content/50">
-                          How long threshold must be exceeded before alerting (0 = immediate)
-                        </span>
-                      </label>
-                    </div>
-
-                    <div class="form-control">
-                      <label class="label">
-                        <span class="label-text text-xs">Alert Severity</span>
-                      </label>
-                      <select
-                        name="threshold[severity]"
-                        class="select select-bordered select-sm w-full"
-                      >
-                        <option value="info" selected={threshold_severity == :info}>Info</option>
-                        <option value="warning" selected={threshold_severity == :warning}>
-                          Warning
-                        </option>
-                        <option value="critical" selected={threshold_severity == :critical}>
-                          Critical
-                        </option>
-                        <option value="emergency" selected={threshold_severity == :emergency}>
-                          Emergency
-                        </option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div class="flex justify-end">
-                    <button type="submit" class="btn btn-primary btn-sm">
-                      <.icon name="hero-check" class="size-4" /> Save Threshold
-                    </button>
-                  </div>
-                </.form>
-
-                <div
-                  :if={threshold_metric && threshold_comparison && threshold_value}
-                  class="alert alert-info alert-sm"
-                >
-                  <.icon name="hero-information-circle" class="size-4" />
-                  <span class="text-sm">
-                    Alert (<strong>{threshold_severity}</strong>) when
-                    <strong>{threshold_metric_label(threshold_metric)}</strong>
-                    is <strong>{threshold_comparison_label(threshold_comparison)}</strong>
-                    <strong>
-                      {threshold_value}{if threshold_metric == :utilization, do: "%", else: ""}
-                    </strong>
-                    {if threshold_duration > 0, do: " for #{threshold_duration} seconds", else: ""}
-                  </span>
-                </div>
-              </div>
-
-              <div :if={!threshold_enabled} class="py-3">
-                <p class="text-sm text-base-content/50">
-                  Enable threshold alerting to receive notifications when this interface's
-                  metrics exceed configured limits.
-                </p>
-              </div>
-            </div>
-          </div>
+        <%!-- Not Found State --%>
+        <div :if={!@interface && !@loading && !@error} class="text-center py-12">
+          <.icon name="hero-question-mark-circle" class="size-16 text-base-content/30 mx-auto" />
+          <h3 class="text-lg font-semibold mt-4">Interface Not Found</h3>
+          <p class="text-base-content/70 mt-2">
+            The requested interface could not be found.
+          </p>
+          <.link navigate={~p"/devices/#{@device_uid}"} class="btn btn-primary mt-4">
+            Back to Device
+          </.link>
         </div>
       </div>
-
-      <%!-- Not Found State --%>
-      <div :if={!@interface && !@loading && !@error} class="text-center py-12">
-        <.icon name="hero-question-mark-circle" class="size-16 text-base-content/30 mx-auto" />
-        <h3 class="text-lg font-semibold mt-4">Interface Not Found</h3>
-        <p class="text-base-content/70 mt-2">
-          The requested interface could not be found.
-        </p>
-        <.link navigate={~p"/devices/#{@device_uid}"} class="btn btn-primary mt-4">
-          Back to Device
-        </.link>
-      </div>
-    </div>
+    </Layouts.app>
     """
   end
 
@@ -578,10 +582,21 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   end
 
   attr :metric, :map, required: true
+  attr :enabled, :boolean, default: false
 
   defp available_metric_card(assigns) do
     ~H"""
-    <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50 border border-base-300">
+    <button
+      type="button"
+      phx-click="toggle_metric"
+      phx-value-metric={metric_raw_name(@metric)}
+      class={[
+        "flex items-center justify-between p-2 rounded-lg border transition",
+        @enabled && "border-success bg-success/10",
+        !@enabled && "bg-base-200/50 border-base-300 hover:border-primary/50"
+      ]}
+      title={if @enabled, do: "Disable metric collection", else: "Enable metric collection"}
+    >
       <div class="flex items-center gap-2">
         <.icon name={metric_category_icon(@metric)} class="size-4 text-primary" />
         <div>
@@ -598,7 +613,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       <span class="text-xs text-base-content/50 badge badge-ghost badge-sm">
         {metric_category_label(@metric)}
       </span>
-    </div>
+    </button>
     """
   end
 
@@ -781,6 +796,19 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp settings_value(settings, key) when is_map(settings), do: Map.get(settings, key, false)
   defp settings_value(_, _), do: false
 
+  defp settings_list_value(nil, _key), do: []
+
+  defp settings_list_value(settings, key) when is_struct(settings),
+    do: normalize_list(Map.get(settings, key))
+
+  defp settings_list_value(settings, key) when is_map(settings),
+    do: normalize_list(Map.get(settings, key))
+
+  defp settings_list_value(_, _), do: []
+
+  defp normalize_list(value) when is_list(value), do: value
+  defp normalize_list(_), do: []
+
   # Threshold parsing helpers
   defp parse_threshold_metric(""), do: nil
   defp parse_threshold_metric(nil), do: nil
@@ -870,19 +898,6 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp metric_raw_name(_), do: "Unknown"
 
-  defp available_metric_options(metrics) when is_list(metrics) do
-    metrics
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(fn metric ->
-      raw = metric_raw_name(metric)
-      friendly = metric_display_name(metric)
-      label = if friendly != raw, do: "#{raw} - #{friendly}", else: raw
-      {label, raw}
-    end)
-  end
-
-  defp available_metric_options(_), do: []
-
   defp metric_supports_64bit?(metric) when is_map(metric) do
     Map.get(metric, "supports_64bit") || Map.get(metric, :supports_64bit) || false
   end
@@ -918,4 +933,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   end
 
   defp metric_category_label(_), do: "Metric"
+
+  defp metric_selected?(metric, selected_metrics) when is_map(metric) do
+    metric_name = metric_raw_name(metric)
+    metric_name != "Unknown" and metric_name in selected_metrics
+  end
+
+  defp metric_selected?(_metric, _selected_metrics), do: false
 end
