@@ -13,10 +13,12 @@ Interface metrics can be selected per interface, but threshold alerting is curre
 ## Decisions
 - Store per-metric thresholds as a JSONB map keyed by metric name (e.g., `"ifInOctets" => %{...}`) in interface settings.
 - Threshold evaluation reads selected metrics and per-metric settings and emits events/alerts with metric metadata.
-- UI uses explicit enable/disable toggles within each card; threshold controls are gated by enabled state.
+- UI displays a concise per-metric summary on the card (icons/labels for event + alert status).
+- Clicking a metric card opens a modal to configure event creation and alert promotion settings for that metric.
+- Modal forms should reuse existing event/alert rule builder controls where possible to stay consistent.
 
 ## Risks / Trade-offs
-- UI complexity: more controls per card; mitigate with collapsible/inline controls.
+- UI complexity: more modal state + reuse of rule builder controls; mitigate with shared components and concise summaries.
 - Migration risk: existing single threshold fields need a forward path (keep existing until removed or migrate to per-metric entry).
 
 ## Migration Plan
