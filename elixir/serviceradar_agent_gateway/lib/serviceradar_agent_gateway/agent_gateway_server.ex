@@ -202,7 +202,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           heartbeat_interval_sec: config.heartbeat_interval_sec,
           config_poll_interval_sec: config.config_poll_interval_sec,
           checks: proto_checks,
-          config_json: config_json
+          config_json: config_json,
+          sysmon_config: Map.get(config, :sysmon_config),
+          snmp_config: Map.get(config, :snmp_config),
+          dusk_config: Map.get(config, :dusk_config)
         }
 
       {:ok, {:error, reason}} ->

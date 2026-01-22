@@ -33,10 +33,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.DuskCompiler
+  alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Integrations.SyncConfigGenerator
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Monitoring.ServiceCheck
 
   # Default intervals
@@ -90,6 +92,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         sweep_config = load_sweep_config(agent_id)
         mapper_config = load_mapper_config(agent_id)
         sysmon_config = load_sysmon_config(agent_id)
+        snmp_config = load_snmp_config(agent_id)
         dusk_config = load_dusk_config(agent_id)
 
         config =
@@ -99,6 +102,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
             sweep_config,
             mapper_config,
             sysmon_config,
+            snmp_config,
             dusk_config
           )
 
@@ -199,7 +203,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Build the full config structure from database checks
-  defp build_config(checks, sync_payload, sweep_config, mapper_config, sysmon_config, dusk_config) do
+  defp build_config(
+         checks,
+         sync_payload,
+         sweep_config,
+         mapper_config,
+         sysmon_config,
+         snmp_config,
+         dusk_config
+       ) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
 
     # Merge sweep config into the payload
@@ -209,7 +221,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Map.put("mapper", mapper_config)
 
     # Compute version hash from checks, sync payload, sweep config, sysmon config, and dusk config
-    config_version = compute_version_hash(check_configs, full_payload, sysmon_config, dusk_config)
+    config_version =
+      compute_version_hash(check_configs, full_payload, sysmon_config, snmp_config, dusk_config)
     config_json = Jason.encode!(full_payload)
 
     %{
@@ -220,6 +233,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       checks: check_configs,
       config_json: config_json,
       sysmon_config: build_sysmon_proto_config(sysmon_config),
+      snmp_config: build_snmp_proto_config(snmp_config),
       dusk_config: build_dusk_proto_config(dusk_config)
     }
   end
@@ -286,7 +300,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp maybe_put_device_uid(settings, _device_uid), do: settings
 
   # Compute SHA256 hash of the config for versioning
-  defp compute_version_hash(check_configs, sync_payload, sysmon_config, dusk_config) do
+  defp compute_version_hash(check_configs, sync_payload, sysmon_config, snmp_config, dusk_config) do
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
 
@@ -296,6 +310,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         checks: sorted_checks,
         sync: sync_payload,
         sysmon: sysmon_config,
+        snmp: snmp_config,
         dusk: dusk_config
       })
 
@@ -435,6 +450,27 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
+  # Load SNMP configuration from the AgentConfig system
+  # This uses the ConfigServer which compiles snmp configs from SNMPProfile resources
+  defp load_snmp_config(agent_id) do
+    partition = get_agent_partition(agent_id)
+    actor = SystemActor.system(:snmp_config_loader)
+    device_uid = resolve_agent_device_uid(agent_id, actor)
+
+    case ConfigServer.get_config(:snmp, partition, agent_id, actor: actor, device_uid: device_uid) do
+      {:ok, entry} ->
+        entry.config
+
+      {:error, :no_config_found} ->
+        Logger.debug("No SNMP config found for agent #{agent_id}, using default (disabled)")
+        SNMPCompiler.disabled_config()
+
+      {:error, reason} ->
+        Logger.warning("Failed to load SNMP config for agent #{agent_id}: #{inspect(reason)}")
+        SNMPCompiler.disabled_config()
+    end
+  end
+
   # Build the proto-compatible SysmonConfig struct
   defp build_sysmon_proto_config(nil), do: nil
 
@@ -455,6 +491,135 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       config_source: Map.get(config, "config_source", "default")
     }
   end
+
+  # Build the proto-compatible SNMPConfig struct
+  defp build_snmp_proto_config(nil), do: nil
+
+  defp build_snmp_proto_config(config) when is_map(config) do
+    targets =
+      config
+      |> Map.get("targets", [])
+      |> List.wrap()
+      |> Enum.map(&build_snmp_target_config/1)
+
+    %Monitoring.SNMPConfig{
+      enabled: Map.get(config, "enabled", false),
+      profile_id: Map.get(config, "profile_id", "") || "",
+      profile_name: Map.get(config, "profile_name", "") || "",
+      targets: targets
+    }
+  end
+
+  defp build_snmp_target_config(target) when is_map(target) do
+    v3_auth = build_snmp_v3_auth(Map.get(target, "v3_auth"))
+
+    %Monitoring.SNMPTargetConfig{
+      id: Map.get(target, "id", "") || "",
+      name: Map.get(target, "name", "") || "",
+      host: Map.get(target, "host", "") || "",
+      port: Map.get(target, "port", 161) || 161,
+      version: snmp_version(Map.get(target, "version")),
+      community: if(v3_auth, do: "", else: Map.get(target, "community", "") || ""),
+      v3_auth: v3_auth,
+      poll_interval_seconds: Map.get(target, "poll_interval_seconds", 60) || 60,
+      timeout_seconds: Map.get(target, "timeout_seconds", 5) || 5,
+      retries: Map.get(target, "retries", 3) || 3,
+      oids:
+        target
+        |> Map.get("oids", [])
+        |> List.wrap()
+        |> Enum.map(&build_snmp_oid_config/1)
+    }
+  end
+
+  defp build_snmp_target_config(_), do: %Monitoring.SNMPTargetConfig{}
+
+  defp build_snmp_v3_auth(nil), do: nil
+
+  defp build_snmp_v3_auth(auth) when is_map(auth) do
+    %Monitoring.SNMPv3Auth{
+      username: Map.get(auth, "username", "") || "",
+      security_level: snmp_security_level(Map.get(auth, "security_level")),
+      auth_protocol: snmp_auth_protocol(Map.get(auth, "auth_protocol")),
+      auth_password: Map.get(auth, "auth_password", "") || "",
+      priv_protocol: snmp_priv_protocol(Map.get(auth, "priv_protocol")),
+      priv_password: Map.get(auth, "priv_password", "") || ""
+    }
+  end
+
+  defp build_snmp_v3_auth(_), do: nil
+
+  defp build_snmp_oid_config(oid) when is_map(oid) do
+    %Monitoring.SNMPOIDConfig{
+      oid: Map.get(oid, "oid", "") || "",
+      name: Map.get(oid, "name", "") || "",
+      data_type: snmp_data_type(Map.get(oid, "data_type")),
+      scale: Map.get(oid, "scale", 1.0) || 1.0,
+      delta: Map.get(oid, "delta", false) || false
+    }
+  end
+
+  defp build_snmp_oid_config(_), do: %Monitoring.SNMPOIDConfig{}
+
+  defp snmp_version("v1"), do: :SNMP_VERSION_V1
+  defp snmp_version("v2c"), do: :SNMP_VERSION_V2C
+  defp snmp_version("v3"), do: :SNMP_VERSION_V3
+  defp snmp_version(:v1), do: :SNMP_VERSION_V1
+  defp snmp_version(:v2c), do: :SNMP_VERSION_V2C
+  defp snmp_version(:v3), do: :SNMP_VERSION_V3
+  defp snmp_version(_), do: :SNMP_VERSION_UNSPECIFIED
+
+  defp snmp_security_level("noAuthNoPriv"), do: :SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV
+  defp snmp_security_level("authNoPriv"), do: :SNMP_SECURITY_LEVEL_AUTH_NO_PRIV
+  defp snmp_security_level("authPriv"), do: :SNMP_SECURITY_LEVEL_AUTH_PRIV
+  defp snmp_security_level(:no_auth_no_priv), do: :SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV
+  defp snmp_security_level(:auth_no_priv), do: :SNMP_SECURITY_LEVEL_AUTH_NO_PRIV
+  defp snmp_security_level(:auth_priv), do: :SNMP_SECURITY_LEVEL_AUTH_PRIV
+  defp snmp_security_level(_), do: :SNMP_SECURITY_LEVEL_UNSPECIFIED
+
+  defp snmp_auth_protocol("MD5"), do: :SNMP_AUTH_PROTOCOL_MD5
+  defp snmp_auth_protocol("SHA"), do: :SNMP_AUTH_PROTOCOL_SHA
+  defp snmp_auth_protocol("SHA-224"), do: :SNMP_AUTH_PROTOCOL_SHA224
+  defp snmp_auth_protocol("SHA-256"), do: :SNMP_AUTH_PROTOCOL_SHA256
+  defp snmp_auth_protocol("SHA-384"), do: :SNMP_AUTH_PROTOCOL_SHA384
+  defp snmp_auth_protocol("SHA-512"), do: :SNMP_AUTH_PROTOCOL_SHA512
+  defp snmp_auth_protocol(:md5), do: :SNMP_AUTH_PROTOCOL_MD5
+  defp snmp_auth_protocol(:sha), do: :SNMP_AUTH_PROTOCOL_SHA
+  defp snmp_auth_protocol(:sha224), do: :SNMP_AUTH_PROTOCOL_SHA224
+  defp snmp_auth_protocol(:sha256), do: :SNMP_AUTH_PROTOCOL_SHA256
+  defp snmp_auth_protocol(:sha384), do: :SNMP_AUTH_PROTOCOL_SHA384
+  defp snmp_auth_protocol(:sha512), do: :SNMP_AUTH_PROTOCOL_SHA512
+  defp snmp_auth_protocol(_), do: :SNMP_AUTH_PROTOCOL_UNSPECIFIED
+
+  defp snmp_priv_protocol("DES"), do: :SNMP_PRIV_PROTOCOL_DES
+  defp snmp_priv_protocol("AES"), do: :SNMP_PRIV_PROTOCOL_AES
+  defp snmp_priv_protocol("AES-192"), do: :SNMP_PRIV_PROTOCOL_AES192
+  defp snmp_priv_protocol("AES-256"), do: :SNMP_PRIV_PROTOCOL_AES256
+  defp snmp_priv_protocol("AES-192-C"), do: :SNMP_PRIV_PROTOCOL_AES192C
+  defp snmp_priv_protocol("AES-256-C"), do: :SNMP_PRIV_PROTOCOL_AES256C
+  defp snmp_priv_protocol(:des), do: :SNMP_PRIV_PROTOCOL_DES
+  defp snmp_priv_protocol(:aes), do: :SNMP_PRIV_PROTOCOL_AES
+  defp snmp_priv_protocol(:aes192), do: :SNMP_PRIV_PROTOCOL_AES192
+  defp snmp_priv_protocol(:aes256), do: :SNMP_PRIV_PROTOCOL_AES256
+  defp snmp_priv_protocol(:aes192c), do: :SNMP_PRIV_PROTOCOL_AES192C
+  defp snmp_priv_protocol(:aes256c), do: :SNMP_PRIV_PROTOCOL_AES256C
+  defp snmp_priv_protocol(_), do: :SNMP_PRIV_PROTOCOL_UNSPECIFIED
+
+  defp snmp_data_type("counter"), do: :SNMP_DATA_TYPE_COUNTER
+  defp snmp_data_type("gauge"), do: :SNMP_DATA_TYPE_GAUGE
+  defp snmp_data_type("boolean"), do: :SNMP_DATA_TYPE_BOOLEAN
+  defp snmp_data_type("bytes"), do: :SNMP_DATA_TYPE_BYTES
+  defp snmp_data_type("string"), do: :SNMP_DATA_TYPE_STRING
+  defp snmp_data_type("float"), do: :SNMP_DATA_TYPE_FLOAT
+  defp snmp_data_type("timeticks"), do: :SNMP_DATA_TYPE_TIMETICKS
+  defp snmp_data_type(:counter), do: :SNMP_DATA_TYPE_COUNTER
+  defp snmp_data_type(:gauge), do: :SNMP_DATA_TYPE_GAUGE
+  defp snmp_data_type(:boolean), do: :SNMP_DATA_TYPE_BOOLEAN
+  defp snmp_data_type(:bytes), do: :SNMP_DATA_TYPE_BYTES
+  defp snmp_data_type(:string), do: :SNMP_DATA_TYPE_STRING
+  defp snmp_data_type(:float), do: :SNMP_DATA_TYPE_FLOAT
+  defp snmp_data_type(:timeticks), do: :SNMP_DATA_TYPE_TIMETICKS
+  defp snmp_data_type(_), do: :SNMP_DATA_TYPE_UNSPECIFIED
 
   # Load dusk configuration from the AgentConfig system
   # This uses the ConfigServer which compiles dusk configs from DuskProfile resources
@@ -493,5 +658,17 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       profile_name: Map.get(config, "profile_name") || "",
       config_source: Map.get(config, "config_source", "default")
     }
+  end
+
+  defp resolve_agent_device_uid(nil, _actor), do: nil
+  defp resolve_agent_device_uid("", _actor), do: nil
+
+  defp resolve_agent_device_uid(agent_id, actor) do
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, agent} -> agent.device_uid
+      {:error, reason} ->
+        Logger.debug("SNMP config device lookup failed for agent #{agent_id}: #{inspect(reason)}")
+        nil
+    end
   end
 end

@@ -329,6 +329,20 @@ func (s *SNMPAgentService) GetStatus(ctx context.Context) (*proto.StatusResponse
 	}, nil
 }
 
+// GetTargetStatuses returns the raw SNMP target status map, including target config.
+func (s *SNMPAgentService) GetTargetStatuses(ctx context.Context) (map[string]snmp.TargetStatus, error) {
+	s.mu.RLock()
+	started := s.started
+	svc := s.service
+	s.mu.RUnlock()
+
+	if !started || svc == nil {
+		return nil, nil
+	}
+
+	return svc.GetStatus(ctx)
+}
+
 // loadConfig loads the SNMP configuration from local file or defaults.
 //
 //nolint:unparam // error return reserved for future remote config fetching

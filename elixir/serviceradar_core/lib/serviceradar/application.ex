@@ -120,6 +120,9 @@ defmodule ServiceRadar.Application do
         # Job schedule defaults
         job_schedule_seeder_child(),
 
+        # Default SNMP profile seed
+        snmp_profile_seeder_child(),
+
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
@@ -300,6 +303,14 @@ defmodule ServiceRadar.Application do
   defp job_schedule_seeder_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.Jobs.JobScheduleSeeder
+    else
+      nil
+    end
+  end
+
+  defp snmp_profile_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.SNMPProfiles.SNMPProfileSeeder
     else
       nil
     end

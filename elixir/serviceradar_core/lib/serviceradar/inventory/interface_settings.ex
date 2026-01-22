@@ -111,6 +111,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
       change set_attribute(:interface_uid, arg(:interface_uid))
       change ServiceRadar.Inventory.Changes.ScheduleThresholdEvaluator
       change ServiceRadar.Inventory.Changes.SyncMetricEventRules
+      change ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig
     end
 
     update :toggle_favorite do

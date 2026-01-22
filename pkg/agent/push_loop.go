@@ -23,11 +23,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
+	snmpchecker "github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
@@ -74,6 +76,20 @@ type icmpCheckResult struct {
 	Error          string  `json:"error,omitempty"`
 }
 
+type snmpMetricResult struct {
+	Target       string      `json:"target"`
+	Host         string      `json:"host"`
+	Metric       string      `json:"metric"`
+	OID          string      `json:"oid"`
+	Value        interface{} `json:"value"`
+	Timestamp    time.Time   `json:"timestamp"`
+	DataType     string      `json:"data_type,omitempty"`
+	Scale        float64     `json:"scale,omitempty"`
+	Delta        bool        `json:"delta,omitempty"`
+	IfIndex      *int        `json:"if_index,omitempty"`
+	InterfaceUID string      `json:"interface_uid,omitempty"`
+}
+
 // PushLoop manages the periodic pushing of agent status to the gateway.
 type PushLoop struct {
 	server             *Server
@@ -94,6 +110,8 @@ type PushLoop struct {
 	icmpChecks         map[string]*icmpCheckConfig
 	icmpLastRun        map[string]time.Time
 	icmpMu             sync.RWMutex
+	snmpLastSent       map[string]time.Time
+	snmpMu             sync.RWMutex
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -186,6 +204,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		configPollInterval: defaultConfigPollInterval,
 		icmpChecks:         make(map[string]*icmpCheckConfig),
 		icmpLastRun:        make(map[string]time.Time),
+		snmpLastSent:       make(map[string]time.Time),
 	}
 }
 
@@ -331,6 +350,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentMapperResults := p.pushMapperResults(ctx)
 	sentMapperInterfaces := p.pushMapperInterfaces(ctx)
 	sentMapperTopology := p.pushMapperTopology(ctx)
+	sentSNMPMetrics := p.pushSNMPMetrics(ctx)
 
 	if len(statuses) == 0 &&
 		sysmonStatus == nil &&
@@ -338,7 +358,8 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		!sentSweepResults &&
 		!sentMapperResults &&
 		!sentMapperInterfaces &&
-		!sentMapperTopology {
+		!sentMapperTopology &&
+		!sentSNMPMetrics {
 		p.logger.Debug().Msg("No statuses to push")
 	}
 }
@@ -408,6 +429,206 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	} else {
 		p.logger.Warn().Msg("Gateway did not acknowledge sysmon metrics stream")
 	}
+}
+
+func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	snmpSvc := p.server.snmpService
+	p.server.mu.RUnlock()
+
+	if snmpSvc == nil || !snmpSvc.IsEnabled() {
+		return false
+	}
+
+	statuses, err := snmpSvc.GetTargetStatuses(ctx)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to get SNMP target status")
+		return false
+	}
+	if len(statuses) == 0 {
+		return false
+	}
+
+	results := p.buildSNMPMetricsResults(statuses)
+	if len(results) == 0 {
+		return false
+	}
+
+	payload := map[string]interface{}{
+		"results": results,
+	}
+
+	messageBytes, err := json.Marshal(payload)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to marshal SNMP metrics payload")
+		return false
+	}
+
+	status := &proto.GatewayServiceStatus{
+		ServiceName:  "snmp",
+		Available:    true,
+		Message:      messageBytes,
+		ServiceType:  "snmp",
+		ResponseTime: 0,
+		AgentId:      agentID,
+		GatewayId:    "",
+		Partition:    partition,
+		Source:       "snmp-metrics",
+		KvStoreId:    kvStoreID,
+	}
+
+	chunk := &proto.GatewayStatusChunk{
+		Services:    []*proto.GatewayServiceStatus{status},
+		GatewayId:   "",
+		AgentId:     agentID,
+		Timestamp:   time.Now().UnixNano(),
+		Partition:   partition,
+		SourceIp:    p.getSourceIP(),
+		IsFinal:     true,
+		ChunkIndex:  0,
+		TotalChunks: 1,
+		KvStoreId:   kvStoreID,
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to stream SNMP metrics to gateway")
+		return false
+	}
+
+	if resp.Received {
+		p.logger.Info().Msg("Successfully streamed SNMP metrics to gateway")
+		return true
+	}
+
+	p.logger.Warn().Msg("Gateway did not acknowledge SNMP metrics stream")
+	return false
+}
+
+func (p *PushLoop) buildSNMPMetricsResults(
+	statuses map[string]snmpchecker.TargetStatus,
+) []snmpMetricResult {
+	results := make([]snmpMetricResult, 0)
+
+	for targetName, status := range statuses {
+		oidConfigs := make(map[string]snmpchecker.OIDConfig)
+		if status.Target != nil {
+			for _, oid := range status.Target.OIDs {
+				oidConfigs[oid.Name] = oid
+			}
+		}
+
+		for oidName, oidStatus := range status.OIDStatus {
+			if oidStatus.LastUpdate.IsZero() || oidStatus.LastValue == nil {
+				continue
+			}
+
+			cacheKey := targetName + "|" + oidName
+			if !p.shouldSendSNMPMetric(cacheKey, oidStatus.LastUpdate) {
+				continue
+			}
+
+			oidConfig, ok := oidConfigs[oidName]
+			oidValue := ""
+			dataType := ""
+			scale := 1.0
+			delta := false
+			if ok {
+				oidValue = oidConfig.OID
+				dataType = string(oidConfig.DataType)
+				scale = oidConfig.Scale
+				delta = oidConfig.Delta
+			}
+
+			metricName, interfaceUID := parseSNMPMetricName(oidName)
+			ifIndex := parseIfIndexFromOID(oidValue)
+
+			result := snmpMetricResult{
+				Target:       targetName,
+				Host:         status.HostIP,
+				Metric:       metricName,
+				OID:          oidValue,
+				Value:        oidStatus.LastValue,
+				Timestamp:    oidStatus.LastUpdate,
+				DataType:     dataType,
+				Scale:        scale,
+				Delta:        delta,
+				InterfaceUID: interfaceUID,
+			}
+
+			if ifIndex != nil {
+				result.IfIndex = ifIndex
+			}
+
+			results = append(results, result)
+			p.markSNMPMetricSent(cacheKey, oidStatus.LastUpdate)
+		}
+	}
+
+	return results
+}
+
+func (p *PushLoop) shouldSendSNMPMetric(key string, ts time.Time) bool {
+	p.snmpMu.RLock()
+	last, ok := p.snmpLastSent[key]
+	p.snmpMu.RUnlock()
+
+	if !ok {
+		return true
+	}
+
+	return ts.After(last)
+}
+
+func (p *PushLoop) markSNMPMetricSent(key string, ts time.Time) {
+	p.snmpMu.Lock()
+	if last, ok := p.snmpLastSent[key]; !ok || ts.After(last) {
+		p.snmpLastSent[key] = ts
+	}
+	p.snmpMu.Unlock()
+}
+
+func parseSNMPMetricName(raw string) (string, string) {
+	if raw == "" {
+		return "", ""
+	}
+
+	parts := strings.SplitN(raw, "::", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+
+	return raw, ""
+}
+
+func parseIfIndexFromOID(oid string) *int {
+	oid = strings.TrimSpace(oid)
+	if oid == "" {
+		return nil
+	}
+
+	parts := strings.Split(oid, ".")
+	if len(parts) == 0 {
+		return nil
+	}
+
+	last := parts[len(parts)-1]
+	if last == "" {
+		return nil
+	}
+
+	value, err := strconv.Atoi(last)
+	if err != nil || value <= 0 {
+		return nil
+	}
+
+	return &value
 }
 
 func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
@@ -1256,6 +1477,11 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		p.applySysmonConfig(configResp.SysmonConfig)
 	}
 
+	// Apply SNMP config if present
+	if configResp.SnmpConfig != nil {
+		p.applySNMPConfig(configResp.SnmpConfig)
+	}
+
 	// Apply dusk config if present
 	if configResp.DuskConfig != nil {
 		p.applyDuskConfig(configResp.DuskConfig)
@@ -1569,6 +1795,25 @@ func protoToSysmonConfig(proto *proto.SysmonConfig) sysmon.Config {
 
 	// Apply defaults for any unset values
 	return cfg.MergeWithDefaults()
+}
+
+// applySNMPConfig applies SNMP configuration from the gateway to the embedded SNMP service.
+func (p *PushLoop) applySNMPConfig(protoConfig *proto.SNMPConfig) {
+	p.server.mu.RLock()
+	snmpSvc := p.server.snmpService
+	p.server.mu.RUnlock()
+
+	if snmpSvc == nil {
+		p.logger.Debug().Msg("SNMP service not initialized, skipping config apply")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := snmpSvc.ApplyProtoConfig(ctx, protoConfig); err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to apply SNMP config")
+	}
 }
 
 // applyDuskConfig applies dusk configuration from the gateway to the embedded dusk service.

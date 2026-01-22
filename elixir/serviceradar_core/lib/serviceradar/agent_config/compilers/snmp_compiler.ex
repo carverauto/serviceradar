@@ -142,12 +142,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     targets = load_profile_targets(profile.id, actor)
 
     compiled_targets =
-      Enum.map(targets, fn target ->
-        compile_target(target, actor)
-      end)
+      targets
+      |> Enum.map(&compile_target(&1, actor))
+      |> Enum.reject(&is_nil/1)
 
     %{
-      "enabled" => profile.enabled,
+      "enabled" => profile.enabled and compiled_targets != [],
       "profile_id" => profile.id,
       "profile_name" => profile.name,
       "targets" => compiled_targets
@@ -169,28 +169,36 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         }
       end)
 
-    base_target = %{
-      "id" => target.id,
-      "name" => target.name,
-      "host" => target.host,
-      "port" => target.port,
-      "version" => format_version(target.version),
-      "poll_interval_seconds" => target.snmp_profile.poll_interval,
-      "timeout_seconds" => target.snmp_profile.timeout,
-      "retries" => target.snmp_profile.retries,
-      "oids" => compiled_oids
-    }
+    if compiled_oids == [] do
+      Logger.debug(
+        "SNMPCompiler: skipping target #{target.name} (no OIDs configured)"
+      )
 
-    # Add authentication based on version
-    case target.version do
-      :v1 ->
-        Map.put(base_target, "community", decrypt_credential(target.community_encrypted))
+      nil
+    else
+      base_target = %{
+        "id" => target.id,
+        "name" => target.name,
+        "host" => target.host,
+        "port" => target.port,
+        "version" => format_version(target.version),
+        "poll_interval_seconds" => target.snmp_profile.poll_interval,
+        "timeout_seconds" => target.snmp_profile.timeout,
+        "retries" => target.snmp_profile.retries,
+        "oids" => compiled_oids
+      }
 
-      :v2c ->
-        Map.put(base_target, "community", decrypt_credential(target.community_encrypted))
+      # Add authentication based on version
+      case target.version do
+        :v1 ->
+          Map.put(base_target, "community", decrypt_credential(target.community_encrypted))
 
-      :v3 ->
-        Map.put(base_target, "v3_auth", compile_v3_auth(target))
+        :v2c ->
+          Map.put(base_target, "community", decrypt_credential(target.community_encrypted))
+
+        :v3 ->
+          Map.put(base_target, "v3_auth", compile_v3_auth(target))
+      end
     end
   end
 

@@ -185,13 +185,25 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         "gateway_id" | "agent_id" | "metric_name" | "metric_type" | "device_id"
         | "target_device_ip" | "partition" => collect_text_params(params, filter),
         "if_index" => {
-            let value = filter
-                .value
-                .as_scalar()?
-                .parse::<i32>()
-                .map_err(|_| ServiceError::InvalidRequest("invalid if_index value".into()))?;
-            params.push(BindParam::Int(i64::from(value)));
-            Ok(())
+            match filter.op {
+                FilterOp::In | FilterOp::NotIn => {
+                    let values = parse_i32_list(filter.value.as_list()?)?;
+                    if values.is_empty() {
+                        return Ok(());
+                    }
+                    params.push(BindParam::IntArray(values.into_iter().map(i64::from).collect()));
+                    Ok(())
+                }
+                _ => {
+                    let value = filter
+                        .value
+                        .as_scalar()?
+                        .parse::<i32>()
+                        .map_err(|_| ServiceError::InvalidRequest("invalid if_index value".into()))?;
+                    params.push(BindParam::Int(i64::from(value)));
+                    Ok(())
+                }
+            }
         }
         "value" => {
             let value = parse_f64(filter.value.as_scalar()?)?;
@@ -208,23 +220,38 @@ fn apply_if_index_filter<'a>(
     query: TimeseriesQuery<'a>,
     filter: &Filter,
 ) -> Result<TimeseriesQuery<'a>> {
-    let value = filter
-        .value
-        .as_scalar()?
-        .parse::<i32>()
-        .map_err(|_| ServiceError::InvalidRequest("invalid if_index value".into()))?;
-
-    let query = match filter.op {
-        FilterOp::Eq => query.filter(col_if_index.eq(value)),
-        FilterOp::NotEq => query.filter(col_if_index.ne(value)),
-        _ => {
-            return Err(ServiceError::InvalidRequest(
-                "if_index filter only supports equality comparisons".into(),
-            ))
+    match filter.op {
+        FilterOp::In | FilterOp::NotIn => {
+            let values = parse_i32_list(filter.value.as_list()?)?;
+            if values.is_empty() {
+                return Ok(query);
+            }
+            let query = match filter.op {
+                FilterOp::In => query.filter(col_if_index.eq_any(values)),
+                FilterOp::NotIn => query.filter(diesel::dsl::not(col_if_index.eq_any(values))),
+                _ => query,
+            };
+            Ok(query)
         }
-    };
+        FilterOp::Eq | FilterOp::NotEq => {
+            let value = filter
+                .value
+                .as_scalar()?
+                .parse::<i32>()
+                .map_err(|_| ServiceError::InvalidRequest("invalid if_index value".into()))?;
 
-    Ok(query)
+            let query = match filter.op {
+                FilterOp::Eq => query.filter(col_if_index.eq(value)),
+                FilterOp::NotEq => query.filter(col_if_index.ne(value)),
+                _ => query,
+            };
+
+            Ok(query)
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "if_index filter only supports equality comparisons".into(),
+        )),
+    }
 }
 
 fn apply_value_filter<'a>(
@@ -252,6 +279,17 @@ fn apply_value_filter<'a>(
 fn parse_f64(raw: &str) -> Result<f64> {
     raw.parse::<f64>()
         .map_err(|_| ServiceError::InvalidRequest("invalid numeric value".into()))
+}
+
+fn parse_i32_list(values: &[String]) -> Result<Vec<i32>> {
+    values
+        .iter()
+        .map(|value| {
+            value
+                .parse::<i32>()
+                .map_err(|_| ServiceError::InvalidRequest("invalid if_index value".into()))
+        })
+        .collect()
 }
 
 fn apply_ordering<'a>(
