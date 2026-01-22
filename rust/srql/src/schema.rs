@@ -200,6 +200,7 @@ diesel::table! {
         if_admin_status -> Nullable<Int4>,
         if_oper_status -> Nullable<Int4>,
         metadata -> Nullable<Jsonb>,
+        available_metrics -> Nullable<Jsonb>,
         created_at -> Timestamptz,
     }
 }

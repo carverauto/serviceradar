@@ -281,7 +281,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       if_type_name: if_type_name,
       interface_kind: interface_kind,
       mtu: get_integer(update, ["mtu", :mtu]) || get_integer(metadata, ["mtu", :mtu]),
-      duplex: get_string(update, ["duplex", :duplex]) || get_string(metadata, ["duplex", :duplex]),
+      duplex:
+        get_string(update, ["duplex", :duplex]) || get_string(metadata, ["duplex", :duplex]),
       metadata: metadata,
       available_metrics: get_metrics_list(update, ["available_metrics", :available_metrics]),
       created_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
@@ -398,22 +399,32 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     # Use upsert with skip_unknown_inputs to handle duplicates gracefully.
     # TimescaleDB hypertables have chunk-prefixed constraint names (e.g., "1_3_discovered_interfaces_pkey")
     # that Ash can't match, so we use upsert?: true with upsert_fields: [] to skip duplicates.
-    opts =
+    {records, opts} =
       if resource == Interface do
-        [
-          actor: actor,
-          return_errors?: true,
-          stop_on_error?: false,
-          upsert?: true,
-          upsert_identity: :unique_interface,
-          upsert_fields: []
-        ]
+        deduped = Enum.uniq_by(records, &interface_identity_key/1)
+
+        if length(deduped) != length(records) do
+          Logger.debug(
+            "Mapper interfaces batch contained duplicates, deduped #{length(records) - length(deduped)} record(s)"
+          )
+        end
+
+        {deduped,
+         [
+           actor: actor,
+           return_errors?: true,
+           stop_on_error?: false,
+           upsert?: true,
+           upsert_identity: :unique_interface,
+           upsert_fields: []
+         ]}
       else
-        [
-          actor: actor,
-          return_errors?: true,
-          stop_on_error?: false
-        ]
+        {records,
+         [
+           actor: actor,
+           return_errors?: true,
+           stop_on_error?: false
+         ]}
       end
 
     case Ash.bulk_create(records, resource, :create, opts) do
@@ -428,6 +439,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         Logger.warning("Mapper #{label} ingestion failed: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  defp interface_identity_key(record) do
+    {record.timestamp, record.device_id, record.interface_uid}
   end
 
   defp record_job_runs(updates) do
@@ -541,7 +556,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       "name" => get_string(metric, ["name", :name, "Name"]),
       "oid" => get_string(metric, ["oid", :oid, "OID"]),
       "data_type" => get_string(metric, ["data_type", :data_type, "DataType"]),
-      "supports_64bit" => get_boolean(metric, ["supports_64bit", :supports_64bit, "Supports64Bit"]),
+      "supports_64bit" =>
+        get_boolean(metric, ["supports_64bit", :supports_64bit, "Supports64Bit"]),
       "oid_64bit" => get_string(metric, ["oid_64bit", :oid_64bit, "OID64Bit"]),
       "category" => get_string(metric, ["category", :category, "Category"]),
       "unit" => get_string(metric, ["unit", :unit, "Unit"])

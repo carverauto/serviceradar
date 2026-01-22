@@ -151,6 +151,7 @@ CREATE TABLE discovered_interfaces (
     if_admin_status INT,
     if_oper_status  INT,
     metadata        JSONB,
+    available_metrics JSONB,
     created_at      TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (timestamp, device_id, interface_uid)
 );

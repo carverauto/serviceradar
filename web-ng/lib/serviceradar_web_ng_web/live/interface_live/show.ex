@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     interface_uid = socket.assigns.interface_uid
     scope = socket.assigns.current_scope
     current_settings = socket.assigns.settings
-    current_enabled = get_in(current_settings, [:metrics_enabled]) || false
+    current_enabled = settings_value(current_settings, :metrics_enabled)
 
     case upsert_interface_setting(scope, device_uid, interface_uid, %{
            metrics_enabled: not current_enabled
@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     interface_uid = socket.assigns.interface_uid
     scope = socket.assigns.current_scope
     current_settings = socket.assigns.settings
-    current_favorited = get_in(current_settings, [:favorited]) || false
+    current_favorited = settings_value(current_settings, :favorited)
 
     case upsert_interface_setting(scope, device_uid, interface_uid, %{
            favorited: not current_favorited
@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     interface_uid = socket.assigns.interface_uid
     scope = socket.assigns.current_scope
     current_settings = socket.assigns.settings
-    current_enabled = get_in(current_settings, [:threshold_enabled]) || false
+    current_enabled = settings_value(current_settings, :threshold_enabled)
 
     case upsert_interface_setting(scope, device_uid, interface_uid, %{
            threshold_enabled: not current_enabled
@@ -325,11 +325,23 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   </p>
                 </div>
                 <%!-- Available Metrics Section --%>
-                <div :if={available_metrics && length(available_metrics) > 0} class="py-3">
-                  <h3 class="text-sm font-medium mb-2">Available Metrics</h3>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div :if={available_metrics && length(available_metrics) > 0} class="py-3 space-y-3">
+                  <% metric_options = available_metric_options(available_metrics) %>
+                  <% normalized_metrics = Enum.filter(available_metrics, &is_map/1) %>
+                  <h3 class="text-sm font-medium">Available Metrics</h3>
+                  <.input
+                    :if={metric_options != []}
+                    type="select"
+                    id="available-metrics-select"
+                    name="available_metric"
+                    label="Select metric"
+                    options={metric_options}
+                    prompt="Select metric"
+                    class="select select-bordered select-sm w-full"
+                  />
+                  <div :if={normalized_metrics != []} class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <.available_metric_card
-                      :for={metric <- available_metrics}
+                      :for={metric <- normalized_metrics}
                       metric={metric}
                     />
                   </div>
@@ -851,6 +863,25 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   end
 
   defp metric_display_name(_), do: "Unknown"
+
+  defp metric_raw_name(metric) when is_map(metric) do
+    Map.get(metric, "name") || Map.get(metric, :name) || "Unknown"
+  end
+
+  defp metric_raw_name(_), do: "Unknown"
+
+  defp available_metric_options(metrics) when is_list(metrics) do
+    metrics
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn metric ->
+      raw = metric_raw_name(metric)
+      friendly = metric_display_name(metric)
+      label = if friendly != raw, do: "#{raw} - #{friendly}", else: raw
+      {label, raw}
+    end)
+  end
+
+  defp available_metric_options(_), do: []
 
   defp metric_supports_64bit?(metric) when is_map(metric) do
     Map.get(metric, "supports_64bit") || Map.get(metric, :supports_64bit) || false
