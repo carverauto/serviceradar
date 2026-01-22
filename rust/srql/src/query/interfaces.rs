@@ -112,6 +112,8 @@ struct InterfaceRow {
     if_oper_status: Option<i32>,
     #[diesel(sql_type = Nullable<Jsonb>)]
     metadata: Option<serde_json::Value>,
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    available_metrics: Option<serde_json::Value>,
     #[diesel(sql_type = Timestamptz)]
     created_at: DateTime<Utc>,
 }
@@ -144,6 +146,7 @@ impl InterfaceRow {
             "if_admin_status": self.if_admin_status,
             "if_oper_status": self.if_oper_status,
             "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "available_metrics": self.available_metrics,
             "created_at": self.created_at,
         })
     }
@@ -187,7 +190,7 @@ fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
         "SELECT di.timestamp, di.agent_id, di.gateway_id, di.device_ip, di.device_id, di.interface_uid, \
         di.if_index, di.if_name, di.if_descr, di.if_alias, di.if_type, di.if_type_name, di.interface_kind, \
         di.if_speed, di.speed_bps, di.mtu, di.duplex, di.if_phys_address, di.ip_addresses, \
-        di.if_admin_status, di.if_oper_status, di.metadata, di.created_at FROM discovered_interfaces di",
+        di.if_admin_status, di.if_oper_status, di.metadata, di.available_metrics, di.created_at FROM discovered_interfaces di",
     );
 
     if !clauses.is_empty() {
