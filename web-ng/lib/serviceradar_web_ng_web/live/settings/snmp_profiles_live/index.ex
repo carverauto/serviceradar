@@ -162,6 +162,17 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   end
 
   def handle_event("save_profile", %{"form" => params}, socket) do
+    params =
+      if socket.assigns.show_form == :edit_profile do
+        sensitive_fields = ["community", "auth_password", "priv_password"]
+
+        Map.reject(params, fn {key, value} ->
+          key in sensitive_fields and value == ""
+        end)
+      else
+        params
+      end
+
     ash_form = socket.assigns.ash_form |> Form.validate(params)
     scope = socket.assigns.current_scope
 
@@ -1312,11 +1323,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   defp profile_form(assigns) do
     is_default = assigns.selected_profile && assigns.selected_profile.is_default
     config = Catalog.entity("interfaces")
+    version = get_form_value(assigns.form, :version, "v2c")
 
     assigns =
       assigns
       |> assign(:is_default, is_default)
       |> assign(:config, config)
+      |> assign(:version, version)
 
     ~H"""
     <.ui_panel>
@@ -1398,7 +1411,142 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             />
           </div>
         </div>
-        
+
+        <!-- SNMP Credentials Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            SNMP Credentials
+          </h3>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="label"><span class="label-text">SNMP Version</span></label>
+              <.input
+                type="select"
+                field={@form[:version]}
+                class="select select-bordered w-full"
+                options={[
+                  {"SNMPv1", "v1"},
+                  {"SNMPv2c", "v2c"},
+                  {"SNMPv3", "v3"}
+                ]}
+              />
+            </div>
+          </div>
+
+          <%= if @version in ["v1", "v2c"] do %>
+            <div>
+              <label class="label"><span class="label-text">Community String</span></label>
+              <.input
+                type="password"
+                name="form[community]"
+                value=""
+                class="input input-bordered w-full"
+                placeholder={
+                  if @show_form == :edit_profile, do: "Leave blank to keep existing", else: "e.g., public"
+                }
+                autocomplete="off"
+              />
+              <label class="label">
+                <span class="label-text-alt text-base-content/50">
+                  Credentials are encrypted at rest.
+                </span>
+              </label>
+            </div>
+          <% else %>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Username</span></label>
+                <.input
+                  type="text"
+                  field={@form[:username]}
+                  class="input input-bordered w-full"
+                  placeholder="e.g., snmpuser"
+                />
+              </div>
+              <div>
+                <label class="label"><span class="label-text">Security Level</span></label>
+                <.input
+                  type="select"
+                  field={@form[:security_level]}
+                  class="select select-bordered w-full"
+                  options={[
+                    {"No Auth, No Privacy", "no_auth_no_priv"},
+                    {"Auth, No Privacy", "auth_no_priv"},
+                    {"Auth + Privacy", "auth_priv"}
+                  ]}
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Auth Protocol</span></label>
+                <.input
+                  type="select"
+                  field={@form[:auth_protocol]}
+                  class="select select-bordered w-full"
+                  options={[
+                    {"MD5", "md5"},
+                    {"SHA", "sha"},
+                    {"SHA-224", "sha224"},
+                    {"SHA-256", "sha256"},
+                    {"SHA-384", "sha384"},
+                    {"SHA-512", "sha512"}
+                  ]}
+                />
+              </div>
+              <div>
+                <label class="label"><span class="label-text">Auth Password</span></label>
+                <.input
+                  type="password"
+                  name="form[auth_password]"
+                  value=""
+                  class="input input-bordered w-full"
+                  placeholder={
+                    if @show_form == :edit_profile, do: "Leave blank to keep existing", else: "Auth password"
+                  }
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Privacy Protocol</span></label>
+                <.input
+                  type="select"
+                  field={@form[:priv_protocol]}
+                  class="select select-bordered w-full"
+                  options={[
+                    {"DES", "des"},
+                    {"AES", "aes"},
+                    {"AES-192", "aes192"},
+                    {"AES-256", "aes256"}
+                  ]}
+                />
+              </div>
+              <div>
+                <label class="label"><span class="label-text">Privacy Password</span></label>
+                <.input
+                  type="password"
+                  name="form[priv_password]"
+                  value=""
+                  class="input input-bordered w-full"
+                  placeholder={
+                    if @show_form == :edit_profile, do: "Leave blank to keep existing", else: "Privacy password"
+                  }
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+
+            <p class="text-xs text-base-content/50">
+              Leave password fields blank to keep existing values. Credentials are encrypted at rest.
+            </p>
+          <% end %>
+        </div>
+
     <!-- Interface Targeting Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">

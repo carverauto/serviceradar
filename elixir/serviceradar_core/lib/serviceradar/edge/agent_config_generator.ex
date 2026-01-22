@@ -374,12 +374,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # Load mapper discovery configuration from the AgentConfig system
   defp load_mapper_config(agent_id) do
     partition = get_agent_partition(agent_id)
+    actor = SystemActor.system(:mapper_config_loader)
+    device_uid = resolve_agent_device_uid(agent_id, actor)
 
     Logger.debug(
       "AgentConfigGenerator: loading mapper config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}"
     )
 
-    case ConfigServer.get_config(:mapper, partition, agent_id) do
+    case ConfigServer.get_config(:mapper, partition, agent_id, actor: actor, device_uid: device_uid) do
       {:ok, entry} ->
         entry.config
 

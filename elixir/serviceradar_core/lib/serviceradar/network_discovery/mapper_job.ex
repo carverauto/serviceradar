@@ -2,8 +2,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
   @moduledoc """
   Mapper-based discovery job configuration.
 
-  Each job defines scheduling, seed targets, and credentials for mapper
-  discovery runs executed by agents.
+  Each job defines scheduling and seed targets for mapper discovery runs
+  executed by agents.
   """
 
   use Ash.Resource,
@@ -206,10 +206,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
 
   relationships do
     has_many :seeds, ServiceRadar.NetworkDiscovery.MapperSeed do
-      destination_attribute :mapper_job_id
-    end
-
-    has_one :snmp_credential, ServiceRadar.NetworkDiscovery.MapperSNMPCredential do
       destination_attribute :mapper_job_id
     end
 

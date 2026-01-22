@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.SRQL.Viz
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.SysmonProfiles.SysmonProfile
@@ -60,6 +61,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      # Edit mode
      |> assign(:editing, false)
      |> assign(:device_form, to_form(%{}, as: :device))
+     |> assign(:device_snmp_credential, nil)
+     |> assign(:snmp_credential_form, to_form(%{}, as: :snmp))
      # Network interfaces for dedicated tab
      |> assign(:network_interfaces, [])
      |> assign(:interfaces_error, nil)
@@ -157,6 +160,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     interface_metrics =
       load_interface_metrics(srql_module, uid, favorited_interfaces, network_interfaces, scope)
 
+    device_snmp_credential = load_device_snmp_credential(scope, uid)
+
     {ip_aliases, ip_alias_error} =
       load_ip_aliases(scope, uid, socket.assigns.show_stale_aliases)
 
@@ -203,6 +208,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:availability, availability)
      |> assign(:healthcheck_summary, healthcheck_summary)
      |> assign(:sweep_results, sweep_results)
+     |> assign(:device_snmp_credential, device_snmp_credential)
      |> assign(:srql, srql)}
   end
 
@@ -235,7 +241,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:noreply,
        socket
        |> assign(:editing, false)
-       |> assign(:device_form, to_form(%{}, as: :device))}
+       |> assign(:device_form, to_form(%{}, as: :device))
+       |> assign(:snmp_credential_form, to_form(%{}, as: :snmp))}
     else
       # Start editing - populate form with current device data
       device_row = List.first(Enum.filter(socket.assigns.results, &is_map/1))
@@ -259,7 +266,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:noreply,
        socket
        |> assign(:editing, true)
-       |> assign(:device_form, to_form(form_data, as: :device))}
+       |> assign(:device_form, to_form(form_data, as: :device))
+       |> assign(
+         :snmp_credential_form,
+         to_form(snmp_credential_form_data(socket.assigns.device_snmp_credential), as: :snmp)
+       )}
     end
   end
 
@@ -302,6 +313,66 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         {:noreply,
          socket
          |> put_flash(:error, "Failed to update device: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("snmp_form_change", %{"snmp" => params}, socket) do
+    current = socket.assigns.snmp_credential_form.source || %{}
+    updated = Map.merge(current, params)
+
+    {:noreply, assign(socket, :snmp_credential_form, to_form(updated, as: :snmp))}
+  end
+
+  def handle_event("save_snmp_credentials", %{"snmp" => params}, socket) do
+    scope = socket.assigns.current_scope
+    device_uid = socket.assigns.device_uid
+    editing = not is_nil(socket.assigns.device_snmp_credential)
+    normalized = normalize_snmp_credential_params(params, editing)
+
+    cond do
+      editing or snmp_params_present?(normalized) ->
+        case DeviceSNMPCredential.upsert_for_device(device_uid, normalized, scope: scope) do
+          {:ok, credential} ->
+            {:noreply,
+             socket
+             |> assign(:device_snmp_credential, credential)
+             |> assign(
+               :snmp_credential_form,
+               to_form(snmp_credential_form_data(credential), as: :snmp)
+             )
+             |> put_flash(:info, "SNMP credentials saved")}
+
+          {:error, %Ash.Error.Invalid{} = error} ->
+            {:noreply, put_flash(socket, :error, format_ash_error(error))}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to save SNMP credentials: #{inspect(reason)}")}
+        end
+
+      true ->
+        {:noreply, put_flash(socket, :info, "Provide SNMP credentials to create an override")}
+    end
+  end
+
+  def handle_event("clear_snmp_credentials", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    case socket.assigns.device_snmp_credential do
+      nil ->
+        {:noreply, socket}
+
+      credential ->
+        case Ash.destroy(credential, scope: scope) do
+          :ok ->
+            {:noreply,
+             socket
+             |> assign(:device_snmp_credential, nil)
+             |> assign(:snmp_credential_form, to_form(%{}, as: :snmp))
+             |> put_flash(:info, "SNMP credential override cleared")}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to clear SNMP credentials: #{inspect(reason)}")}
+        end
     end
   end
 
@@ -464,6 +535,82 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp format_tags_for_edit(_), do: ""
+
+  defp load_device_snmp_credential(_scope, nil), do: nil
+
+  defp load_device_snmp_credential(scope, device_uid) do
+    case DeviceSNMPCredential.get_by_device(device_uid, scope: scope) do
+      {:ok, credential} -> credential
+      {:error, _} -> nil
+    end
+  end
+
+  defp snmp_credential_form_data(nil) do
+    %{
+      "version" => "v2c",
+      "username" => "",
+      "security_level" => "no_auth_no_priv",
+      "auth_protocol" => "",
+      "priv_protocol" => ""
+    }
+  end
+
+  defp snmp_credential_form_data(%DeviceSNMPCredential{} = credential) do
+    %{
+      "version" => to_string(credential.version || :v2c),
+      "username" => credential.username || "",
+      "security_level" => to_string(credential.security_level || :no_auth_no_priv),
+      "auth_protocol" => to_string(credential.auth_protocol || ""),
+      "priv_protocol" => to_string(credential.priv_protocol || "")
+    }
+  end
+
+  defp normalize_snmp_credential_params(params, editing) do
+    params =
+      if editing do
+        drop_blank(params, ["community", "auth_password", "priv_password"])
+      else
+        params
+      end
+
+    params =
+      case Map.get(params, "version") do
+        nil -> Map.put(params, "version", "v2c")
+        "" -> Map.put(params, "version", "v2c")
+        _ -> params
+      end
+
+    case Map.get(params, "version") do
+      "v1" ->
+        Map.drop(params, ["username", "security_level", "auth_protocol", "auth_password", "priv_protocol", "priv_password"])
+
+      "v2c" ->
+        Map.drop(params, ["username", "security_level", "auth_protocol", "auth_password", "priv_protocol", "priv_password"])
+
+      "v3" ->
+        Map.drop(params, ["community"])
+
+      _ ->
+        params
+    end
+  end
+
+  defp snmp_params_present?(params) do
+    Enum.any?(["community", "username", "auth_password", "priv_password"], fn key ->
+      value = Map.get(params, key)
+      is_binary(value) and String.trim(value) != ""
+    end)
+  end
+
+  defp drop_blank(params, keys) do
+    Enum.reduce(keys, params, fn key, acc ->
+      case Map.get(acc, key) do
+        nil -> acc
+        "" -> Map.delete(acc, key)
+        _ -> acc
+      end
+    end)
+  end
 
   defp load_interfaces(srql_module, device_uid, scope) do
     query = default_interfaces_query(device_uid)
@@ -946,6 +1093,173 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 >{@device_form[:tags].value}</textarea>
               </div>
             </.form>
+
+            <div class="border-t border-base-200 px-4 py-4">
+              <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-lock-closed" class="size-4 text-base-content/60" />
+                  <span class="text-sm font-semibold">SNMP Credentials Override</span>
+                  <span
+                    :if={@device_snmp_credential}
+                    class="inline-flex items-center rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success"
+                  >
+                    Override active
+                  </span>
+                </div>
+                <.ui_button
+                  :if={@device_snmp_credential}
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  phx-click="clear_snmp_credentials"
+                >
+                  Clear Override
+                </.ui_button>
+              </div>
+
+              <.form
+                for={@snmp_credential_form}
+                id="device-snmp-credential-form"
+                phx-change="snmp_form_change"
+                phx-submit="save_snmp_credentials"
+                class="space-y-4"
+              >
+                <% snmp_version =
+                  Phoenix.HTML.Form.input_value(@snmp_credential_form, :version) || "v2c" %>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label class="label"><span class="label-text text-xs font-medium">SNMP Version</span></label>
+                    <.input
+                      type="select"
+                      field={@snmp_credential_form[:version]}
+                      class="select select-bordered select-sm w-full"
+                      options={[
+                        {"SNMPv1", "v1"},
+                        {"SNMPv2c", "v2c"},
+                        {"SNMPv3", "v3"}
+                      ]}
+                    />
+                  </div>
+                </div>
+
+                <%= if snmp_version in ["v1", "v2c"] do %>
+                  <div>
+                    <label class="label"><span class="label-text text-xs font-medium">Community</span></label>
+                    <.input
+                      type="password"
+                      name="snmp[community]"
+                      value=""
+                      class="input input-bordered input-sm w-full"
+                      placeholder={
+                        if @device_snmp_credential, do: "Leave blank to keep existing", else: "e.g., public"
+                      }
+                      autocomplete="off"
+                    />
+                    <label class="label py-0">
+                      <span class="label-text-alt text-xs text-base-content/50">
+                        Credentials are encrypted at rest.
+                      </span>
+                    </label>
+                  </div>
+                <% else %>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="label"><span class="label-text text-xs font-medium">Username</span></label>
+                      <.input
+                        type="text"
+                        field={@snmp_credential_form[:username]}
+                        class="input input-bordered input-sm w-full"
+                      />
+                    </div>
+                    <div>
+                      <label class="label"><span class="label-text text-xs font-medium">Security Level</span></label>
+                      <.input
+                        type="select"
+                        field={@snmp_credential_form[:security_level]}
+                        class="select select-bordered select-sm w-full"
+                        options={[
+                          {"No Auth, No Privacy", "no_auth_no_priv"},
+                          {"Auth, No Privacy", "auth_no_priv"},
+                          {"Auth + Privacy", "auth_priv"}
+                        ]}
+                      />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="label"><span class="label-text text-xs font-medium">Auth Protocol</span></label>
+                      <.input
+                        type="select"
+                        field={@snmp_credential_form[:auth_protocol]}
+                        class="select select-bordered select-sm w-full"
+                        options={[
+                          {"MD5", "md5"},
+                          {"SHA", "sha"},
+                          {"SHA-224", "sha224"},
+                          {"SHA-256", "sha256"},
+                          {"SHA-384", "sha384"},
+                          {"SHA-512", "sha512"}
+                        ]}
+                      />
+                    </div>
+                    <div>
+                      <label class="label"><span class="label-text text-xs font-medium">Auth Password</span></label>
+                      <.input
+                        type="password"
+                        name="snmp[auth_password]"
+                        value=""
+                        class="input input-bordered input-sm w-full"
+                        placeholder={
+                          if @device_snmp_credential, do: "Leave blank to keep existing", else: "Auth password"
+                        }
+                        autocomplete="off"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="label"><span class="label-text text-xs font-medium">Privacy Protocol</span></label>
+                      <.input
+                        type="select"
+                        field={@snmp_credential_form[:priv_protocol]}
+                        class="select select-bordered select-sm w-full"
+                        options={[
+                          {"DES", "des"},
+                          {"AES", "aes"},
+                          {"AES-192", "aes192"},
+                          {"AES-256", "aes256"}
+                        ]}
+                      />
+                    </div>
+                    <div>
+                      <label class="label"><span class="label-text text-xs font-medium">Privacy Password</span></label>
+                      <.input
+                        type="password"
+                        name="snmp[priv_password]"
+                        value=""
+                        class="input input-bordered input-sm w-full"
+                        placeholder={
+                          if @device_snmp_credential, do: "Leave blank to keep existing", else: "Privacy password"
+                        }
+                        autocomplete="off"
+                      />
+                    </div>
+                  </div>
+                <% end %>
+
+                <div class="flex items-center gap-2">
+                  <.ui_button type="submit" variant="outline" size="xs">
+                    Save SNMP Credentials
+                  </.ui_button>
+                  <span class="text-xs text-base-content/50">
+                    Overrides take precedence over profile credentials.
+                  </span>
+                </div>
+              </.form>
+            </div>
           </div>
           
     <!-- Tabs Navigation (show if sysmon or interfaces present) -->

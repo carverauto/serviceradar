@@ -11,8 +11,8 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Inventory.{Device, Interface, InterfaceSettings}
-  alias ServiceRadar.NetworkDiscovery.MapperSNMPCredential
   alias ServiceRadar.SNMPProfiles.{SNMPOIDConfig, SNMPProfile, SNMPTarget}
+  alias ServiceRadar.SNMPProfiles.CredentialResolver
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -151,7 +151,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   end
 
   defp create_target(settings, interface, profile, host, opts) do
-    case load_snmp_credential(interface, opts) do
+    case resolve_snmp_credential(settings, opts) do
       {:ok, nil} ->
         {:error, :missing_snmp_credentials}
 
@@ -167,7 +167,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
         SNMPTarget
         |> Ash.Changeset.for_create(:create, attrs, opts)
-        |> Ash.Changeset.add_argument(:snmp_profile_id, profile.id)
+        |> Ash.Changeset.set_argument(:snmp_profile_id, profile.id)
         |> Ash.create()
 
       {:error, reason} ->
@@ -183,7 +183,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
         interface_target_name(settings, interface, target.host)
       end
 
-    case load_snmp_credential(interface, opts) do
+    case resolve_snmp_credential(settings, opts) do
       {:ok, nil} ->
         if is_nil(target_name) do
           {:ok, target}
@@ -210,17 +210,19 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
     end
   end
 
-  defp load_snmp_credential(interface, opts) do
-    mapper_job_id =
-      interface.metadata
-      |> fetch_meta_value(["mapper_job_id", :mapper_job_id])
+  defp resolve_snmp_credential(settings, opts) do
+    actor = Keyword.get(opts, :actor)
 
-    if is_binary(mapper_job_id) and mapper_job_id != "" do
-      MapperSNMPCredential
-      |> Ash.Query.for_read(:by_job, %{mapper_job_id: mapper_job_id})
-      |> Ash.read_one(opts)
-    else
-      {:ok, nil}
+    case CredentialResolver.resolve_for_device(settings.device_id, actor) do
+      {:ok, %{credential: nil}} ->
+        Logger.debug("SNMP interface config sync: no credentials for #{settings.device_id}")
+        {:ok, nil}
+
+      {:ok, %{credential: credential}} ->
+        {:ok, credential}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -228,23 +230,34 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
   defp credential_attrs(credential) do
     %{}
-    |> maybe_put(:community, credential.community)
-    |> maybe_put(:username, credential.username)
+    |> maybe_put(:community, Map.get(credential, :community))
+    |> maybe_put(:username, Map.get(credential, :username))
     |> maybe_put(:security_level, security_level(credential))
-    |> maybe_put(:auth_protocol, normalize_auth_protocol(credential.auth_protocol))
-    |> maybe_put(:auth_password, credential.auth_password)
-    |> maybe_put(:priv_protocol, normalize_priv_protocol(credential.privacy_protocol))
-    |> maybe_put(:priv_password, credential.privacy_password)
+    |> maybe_put(:auth_protocol, normalize_auth_protocol(Map.get(credential, :auth_protocol)))
+    |> maybe_put(:auth_password, Map.get(credential, :auth_password))
+    |> maybe_put(:priv_protocol, normalize_priv_protocol(Map.get(credential, :priv_protocol)))
+    |> maybe_put(:priv_password, Map.get(credential, :priv_password))
   end
 
   defp security_level(credential) do
-    has_auth = present?(credential.auth_password) or present?(credential.auth_protocol)
-    has_priv = present?(credential.privacy_password) or present?(credential.privacy_protocol)
+    case Map.get(credential, :security_level) do
+      nil ->
+        has_auth =
+          present?(Map.get(credential, :auth_password)) or
+            present?(Map.get(credential, :auth_protocol))
 
-    cond do
-      has_auth and has_priv -> :auth_priv
-      has_auth -> :auth_no_priv
-      true -> :no_auth_no_priv
+        has_priv =
+          present?(Map.get(credential, :priv_password)) or
+            present?(Map.get(credential, :priv_protocol))
+
+        cond do
+          has_auth and has_priv -> :auth_priv
+          has_auth -> :auth_no_priv
+          true -> :no_auth_no_priv
+        end
+
+      level ->
+        level
     end
   end
 
@@ -356,6 +369,10 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
   defp normalize_metrics(_), do: %{}
 
+  defp normalize_metric_name(metric) when is_atom(metric), do: Atom.to_string(metric)
+  defp normalize_metric_name(metric) when is_binary(metric), do: metric
+  defp normalize_metric_name(metric), do: to_string(metric)
+
   defp build_oid_config(metric_name, metrics, interface) do
     metric = Map.get(metrics, metric_name)
 
@@ -459,7 +476,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
       {:ok, nil} ->
         SNMPOIDConfig
         |> Ash.Changeset.for_create(:create, attrs, opts)
-        |> Ash.Changeset.add_argument(:snmp_target_id, target_id)
+        |> Ash.Changeset.set_argument(:snmp_target_id, target_id)
         |> Ash.create()
 
       {:ok, oid} ->
@@ -474,12 +491,6 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
   defp oid_for_interface?(oid, interface_uid) do
     String.ends_with?(oid.name || "", "::#{interface_uid}")
-  end
-
-  defp fetch_meta_value(nil, _keys), do: nil
-
-  defp fetch_meta_value(map, keys) when is_map(map) do
-    Enum.find_value(keys, fn key -> Map.get(map, key) end)
   end
 
   defp maybe_put(map, _key, nil), do: map

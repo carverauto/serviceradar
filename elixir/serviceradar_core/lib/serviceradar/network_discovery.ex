@@ -15,7 +15,6 @@ defmodule ServiceRadar.NetworkDiscovery do
   resources do
     resource ServiceRadar.NetworkDiscovery.MapperJob
     resource ServiceRadar.NetworkDiscovery.MapperSeed
-    resource ServiceRadar.NetworkDiscovery.MapperSNMPCredential
     resource ServiceRadar.NetworkDiscovery.MapperUnifiController
     resource ServiceRadar.NetworkDiscovery.TopologyLink
   end

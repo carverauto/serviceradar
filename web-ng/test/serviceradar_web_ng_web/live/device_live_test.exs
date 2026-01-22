@@ -44,6 +44,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert has_element?(view, "[data-testid='sysmon-profile-label']", "Unassigned")
   end
 
+  test "renders SNMP credential override form in edit mode", %{conn: conn} do
+    uid = "test-device-snmp-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "test-host-snmp",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+
+    view
+    |> element("[phx-click='toggle_edit']")
+    |> render_click()
+
+    html = render(view)
+    assert html =~ "SNMP Credentials Override"
+    assert html =~ "Save SNMP Credentials"
+  end
+
   describe "device show page interfaces tab" do
     setup %{conn: conn} do
       device_uid = "test-device-interfaces-#{System.unique_integer([:positive])}"

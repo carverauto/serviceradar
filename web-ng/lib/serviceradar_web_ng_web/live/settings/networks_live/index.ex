@@ -24,7 +24,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   alias ServiceRadar.NetworkDiscovery.{
     MapperJob,
     MapperSeed,
-    MapperSNMPCredential,
     MapperUnifiController
   }
 
@@ -69,8 +68,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:mapper_job, nil)
       |> assign(:mapper_form, nil)
       |> assign(:mapper_seeds_text, "")
-      |> assign(:mapper_snmp_form, nil)
-      |> assign(:mapper_snmp_present, %{})
       |> assign(:mapper_unifi_form, nil)
       |> assign(:mapper_unifi_present, false)
 
@@ -146,7 +143,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:mapper_job, nil)
     |> assign(:mapper_form, nil)
     |> assign(:mapper_seeds_text, "")
-    |> assign(:mapper_snmp_form, nil)
     |> assign(:mapper_unifi_form, nil)
   end
 
@@ -173,8 +169,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:mapper_job, nil)
     |> assign(:mapper_form, to_form(defaults, as: :mapper_job))
     |> assign(:mapper_seeds_text, "")
-    |> assign(:mapper_snmp_form, to_form(%{"version" => "v2c"}, as: :snmp))
-    |> assign(:mapper_snmp_present, %{})
     |> assign(:mapper_unifi_form, to_form(%{}, as: :unifi))
     |> assign(:mapper_unifi_present, false)
   end
@@ -189,7 +183,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> push_navigate(to: ~p"/settings/networks/discovery")
 
       job ->
-        {snmp_form, snmp_present} = mapper_snmp_form(job.snmp_credential)
         {unifi_form, unifi_present} = mapper_unifi_form(job.unifi_controllers)
 
         socket
@@ -200,8 +193,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:mapper_job, job)
         |> assign(:mapper_form, to_form(mapper_job_to_form(job), as: :mapper_job))
         |> assign(:mapper_seeds_text, seeds_to_text(job.seeds || []))
-        |> assign(:mapper_snmp_form, snmp_form)
-        |> assign(:mapper_snmp_present, snmp_present)
         |> assign(:mapper_unifi_form, unifi_form)
         |> assign(:mapper_unifi_present, unifi_present)
     end
@@ -360,14 +351,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     scope = socket.assigns.current_scope
     job_params = normalize_mapper_job_params(Map.get(params, "mapper_job", %{}))
     seeds = parse_seeds_text(Map.get(params, "seeds", ""))
-    snmp_params = normalize_snmp_params(Map.get(params, "snmp", %{}))
     unifi_params = normalize_unifi_params(Map.get(params, "unifi", %{}))
 
     case save_mapper_job(
            socket.assigns.mapper_job,
            job_params,
            seeds,
-           snmp_params,
            unifi_params,
            scope
          ) do
@@ -388,7 +377,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   def handle_event("mapper_form_change", params, socket) do
     # Update the form with changed values to trigger conditional rendering
     job_params = Map.get(params, "mapper_job", %{})
-    snmp_params = Map.get(params, "snmp", %{})
     seeds_text = Map.get(params, "seeds", socket.assigns.mapper_seeds_text)
 
     # Merge changed params into existing form
@@ -396,21 +384,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     updated_form_data = Map.merge(current_form_data, job_params)
     updated_form = to_form(updated_form_data, as: :mapper_job)
 
-    # Update SNMP form
-    current_snmp_data =
-      if socket.assigns.mapper_snmp_form do
-        socket.assigns.mapper_snmp_form.source
-      else
-        %{"version" => "v2c"}
-      end
-
-    updated_snmp_data = Map.merge(current_snmp_data, snmp_params)
-    updated_snmp_form = to_form(updated_snmp_data, as: :snmp)
-
     {:noreply,
      socket
      |> assign(:mapper_form, updated_form)
-     |> assign(:mapper_snmp_form, updated_snmp_form)
      |> assign(:mapper_seeds_text, seeds_text)}
   end
 
@@ -839,8 +815,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             show_form={@show_mapper_form}
             form={@mapper_form}
             seeds_text={@mapper_seeds_text}
-            snmp_form={@mapper_snmp_form}
-            snmp_present={@mapper_snmp_present}
             unifi_form={@mapper_unifi_form}
             unifi_present={@mapper_unifi_present}
           />
@@ -937,8 +911,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :show_form, :any, default: nil
   attr :form, :any, default: nil
   attr :seeds_text, :string, default: ""
-  attr :snmp_form, :any, default: nil
-  attr :snmp_present, :map, default: %{}
   attr :unifi_form, :any, default: nil
   attr :unifi_present, :boolean, default: false
 
@@ -971,8 +943,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         <.mapper_job_form
           form={@form}
           seeds_text={@seeds_text}
-          snmp_form={@snmp_form}
-          snmp_present={@snmp_present}
           unifi_form={@unifi_form}
           unifi_present={@unifi_present}
         />
@@ -1049,23 +1019,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   attr :form, :any, required: true
   attr :seeds_text, :string, default: ""
-  attr :snmp_form, :any, required: true
-  attr :snmp_present, :map, default: %{}
   attr :unifi_form, :any, required: true
   attr :unifi_present, :boolean, default: false
 
   defp mapper_job_form(assigns) do
     # Get current values for conditional rendering
     discovery_mode = Phoenix.HTML.Form.input_value(assigns.form, :discovery_mode) || "snmp_api"
-    snmp_version = Phoenix.HTML.Form.input_value(assigns.snmp_form, :version) || "v2c"
 
     assigns =
       assigns
       |> assign(:discovery_mode, discovery_mode)
-      |> assign(:snmp_version, snmp_version)
-      |> assign(:show_snmp, discovery_mode in ["snmp", "snmp_api"])
       |> assign(:show_api, discovery_mode in ["api", "snmp_api"])
-      |> assign(:show_snmp_v3, snmp_version == "v3")
 
     ~H"""
     <.form
@@ -1117,65 +1081,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           label="Seeds (one per line or comma-separated)"
           placeholder="10.0.0.0/24\n10.0.1.10\nhost.example.com"
         />
-      </div>
-
-      <div :if={@show_snmp} class="rounded-xl border border-base-200 p-4 space-y-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <h3 class="text-sm font-semibold">SNMP Credentials</h3>
-            <p class="text-xs text-base-content/60">Stored secrets are masked unless replaced.</p>
-          </div>
-          <span class="text-xs text-base-content/60">
-            <%= if map_secret_present?(@snmp_present) do %>
-              Secrets stored
-            <% else %>
-              No secrets saved
-            <% end %>
-          </span>
-        </div>
-        <div class="grid gap-4 md:grid-cols-2">
-          <.input
-            field={@snmp_form[:version]}
-            type="select"
-            label="SNMP Version"
-            options={[{"v2c", "v2c"}, {"v3", "v3"}]}
-          />
-          <.input field={@snmp_form[:name]} type="text" label="Credential Name" />
-          <.input
-            field={@snmp_form[:community]}
-            type="password"
-            label="Community String"
-            placeholder={secret_placeholder(@snmp_present, "community")}
-          />
-          <%!-- SNMPv3 fields only shown when v3 is selected --%>
-          <div :if={@show_snmp_v3} class="col-span-2 grid gap-4 md:grid-cols-2">
-            <.input field={@snmp_form[:username]} type="text" label="Username" />
-            <.input
-              field={@snmp_form[:auth_protocol]}
-              type="select"
-              label="Auth Protocol"
-              options={[{"None", ""}, {"MD5", "MD5"}, {"SHA", "SHA"}]}
-            />
-            <.input
-              field={@snmp_form[:auth_password]}
-              type="password"
-              label="Auth Password"
-              placeholder={secret_placeholder(@snmp_present, "auth_password")}
-            />
-            <.input
-              field={@snmp_form[:privacy_protocol]}
-              type="select"
-              label="Privacy Protocol"
-              options={[{"None", ""}, {"DES", "DES"}, {"AES", "AES"}]}
-            />
-            <.input
-              field={@snmp_form[:privacy_password]}
-              type="password"
-              label="Privacy Password"
-              placeholder={secret_placeholder(@snmp_present, "privacy_password")}
-            />
-          </div>
-        </div>
       </div>
 
       <div :if={@show_api} class="rounded-xl border border-base-200 p-4 space-y-4">
@@ -2605,9 +2510,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> Ash.Query.for_read(:read)
       |> Ash.Query.load([
         :seeds,
-        :snmp_credential,
         :unifi_controllers,
-        snmp_credential: [:secrets_present],
         unifi_controllers: [:api_key_present]
       ])
 
@@ -2624,9 +2527,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                job,
                [
                  :seeds,
-                 :snmp_credential,
                  :unifi_controllers,
-                 snmp_credential: [:secrets_present],
                  unifi_controllers: [:api_key_present]
                ],
                scope: scope
@@ -2733,29 +2634,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     }
   end
 
-  defp mapper_snmp_form(nil), do: {to_form(%{"version" => "v2c"}, as: :snmp), %{}}
-  defp mapper_snmp_form(%Ash.NotLoaded{}), do: {to_form(%{"version" => "v2c"}, as: :snmp), %{}}
-
-  defp mapper_snmp_form(credential) do
-    form = %{
-      "name" => credential.name || "",
-      "version" => to_string(credential.version),
-      "username" => credential.username || "",
-      "auth_protocol" => credential.auth_protocol || "",
-      "privacy_protocol" => credential.privacy_protocol || ""
-    }
-
-    # Check for secrets by directly inspecting the struct
-    # AshCloak stores encrypted ciphertext as binary values
-    secrets_present = %{
-      "community" => has_secret_value?(credential, :community),
-      "auth_password" => has_secret_value?(credential, :auth_password),
-      "privacy_password" => has_secret_value?(credential, :privacy_password)
-    }
-
-    {to_form(form, as: :snmp), secrets_present}
-  end
-
   defp has_secret_value?(struct, field) do
     case Map.get(struct, field) do
       nil -> false
@@ -2800,11 +2678,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> normalize_integer("retries")
   end
 
-  defp normalize_snmp_params(params) do
-    params
-    |> drop_blank(~w(community auth_password privacy_password))
-  end
-
   defp normalize_unifi_params(params) do
     params
     |> normalize_boolean("insecure_skip_verify")
@@ -2847,20 +2720,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end)
   end
 
-  defp snmp_params_present?(params) do
-    Enum.any?(
-      ~w(community username auth_protocol auth_password privacy_protocol privacy_password name),
-      fn key ->
-        value = Map.get(params, key)
-        is_binary(value) and String.trim(value) != ""
-      end
-    )
-  end
-
-  defp save_mapper_job(job, job_params, seeds, snmp_params, unifi_params, scope) do
+  defp save_mapper_job(job, job_params, seeds, unifi_params, scope) do
     with {:ok, job} <- upsert_mapper_job(job, job_params, scope),
          :ok <- replace_mapper_seeds(job, seeds, scope),
-         :ok <- upsert_snmp_credential(job, snmp_params, scope),
          :ok <- upsert_unifi_controller(job, unifi_params, scope) do
       {:ok, job}
     end
@@ -2898,42 +2760,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
-  end
-
-  defp upsert_snmp_credential(_job, params, _scope) when map_size(params) == 0, do: :ok
-
-  defp upsert_snmp_credential(job, params, scope) do
-    if snmp_params_present?(params) do
-      # Load the snmp_credential relationship if not already loaded
-      existing =
-        case Ash.load(job, [:snmp_credential], scope: scope) do
-          {:ok, loaded} -> loaded.snmp_credential
-          {:error, _} -> nil
-        end
-
-      result =
-        case existing do
-          nil ->
-            create_params = Map.put(params, "mapper_job_id", job.id)
-
-            MapperSNMPCredential
-            |> Ash.Changeset.for_create(:create, create_params)
-            |> Ash.create(scope: scope)
-
-          credential ->
-            # Don't include mapper_job_id in update - it's not accepted
-            credential
-            |> Ash.Changeset.for_update(:update, params)
-            |> Ash.update(scope: scope)
-        end
-
-      case result do
-        {:ok, _} -> :ok
-        {:error, reason} -> {:error, reason}
-      end
-    else
-      :ok
-    end
   end
 
   defp upsert_unifi_controller(_job, params, _scope) when map_size(params) == 0, do: :ok
@@ -2982,20 +2808,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     case result do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp map_secret_present?(present) when is_map(present) do
-    Enum.any?(present, fn {_key, value} -> value == true end)
-  end
-
-  defp map_secret_present?(_), do: false
-
-  defp secret_placeholder(present, key) do
-    if Map.get(present, key) do
-      "stored"
-    else
-      "optional"
     end
   end
 

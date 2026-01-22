@@ -57,6 +57,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
+  alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.SrqlTargetResolver
   alias ServiceRadar.Vault
 
@@ -176,41 +177,53 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
       nil
     else
-      base_target = %{
-        "id" => target.id,
-        "name" => target.name,
-        "host" => target.host,
-        "port" => target.port,
-        "version" => format_version(target.version),
-        "poll_interval_seconds" => target.snmp_profile.poll_interval,
-        "timeout_seconds" => target.snmp_profile.timeout,
-        "retries" => target.snmp_profile.retries,
-        "oids" => compiled_oids
-      }
+      credential = resolve_target_credentials(target, actor)
 
-      # Add authentication based on version
-      case target.version do
-        :v1 ->
-          Map.put(base_target, "community", decrypt_credential(target.community_encrypted))
+      if valid_credentials?(credential) do
+        version = Map.get(credential, :version, target.version)
 
-        :v2c ->
-          Map.put(base_target, "community", decrypt_credential(target.community_encrypted))
+        base_target = %{
+          "id" => target.id,
+          "name" => target.name,
+          "host" => target.host,
+          "port" => target.port,
+          "version" => format_version(version),
+          "poll_interval_seconds" => target.snmp_profile.poll_interval,
+          "timeout_seconds" => target.snmp_profile.timeout,
+          "retries" => target.snmp_profile.retries,
+          "oids" => compiled_oids
+        }
 
-        :v3 ->
-          Map.put(base_target, "v3_auth", compile_v3_auth(target))
+        # Add authentication based on version
+        case version do
+          :v1 ->
+            Map.put(base_target, "community", Map.get(credential, :community))
+
+          :v2c ->
+            Map.put(base_target, "community", Map.get(credential, :community))
+
+          :v3 ->
+            Map.put(base_target, "v3_auth", compile_v3_auth(credential))
+        end
+      else
+        Logger.warning(
+          "SNMPCompiler: skipping target #{target.name} (missing credentials)"
+        )
+
+        nil
       end
     end
   end
 
   # Compile SNMPv3 authentication parameters
-  defp compile_v3_auth(target) do
+  defp compile_v3_auth(credential) do
     %{
-      "username" => target.username,
-      "security_level" => format_security_level(target.security_level),
-      "auth_protocol" => format_auth_protocol(target.auth_protocol),
-      "auth_password" => decrypt_credential(target.auth_password_encrypted),
-      "priv_protocol" => format_priv_protocol(target.priv_protocol),
-      "priv_password" => decrypt_credential(target.priv_password_encrypted)
+      "username" => Map.get(credential, :username),
+      "security_level" => format_security_level(Map.get(credential, :security_level)),
+      "auth_protocol" => format_auth_protocol(Map.get(credential, :auth_protocol)),
+      "auth_password" => Map.get(credential, :auth_password),
+      "priv_protocol" => format_priv_protocol(Map.get(credential, :priv_protocol)),
+      "priv_password" => Map.get(credential, :priv_password)
     }
   end
 
@@ -223,6 +236,47 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       {:error, _} -> nil
     end
   end
+
+  defp resolve_target_credentials(target, actor) do
+    case CredentialResolver.resolve_for_host(target.host, actor) do
+      {:ok, %{credential: credential}} when is_map(credential) ->
+        credential
+
+      _ ->
+        credential_from_target(target)
+    end
+  end
+
+  defp credential_from_target(target) do
+    %{
+      version: target.version,
+      community: decrypt_credential(target.community_encrypted),
+      username: target.username,
+      security_level: target.security_level,
+      auth_protocol: target.auth_protocol,
+      auth_password: decrypt_credential(target.auth_password_encrypted),
+      priv_protocol: target.priv_protocol,
+      priv_password: decrypt_credential(target.priv_password_encrypted)
+    }
+  end
+
+  defp valid_credentials?(nil), do: false
+
+  defp valid_credentials?(credential) when is_map(credential) do
+    case Map.get(credential, :version, :v2c) do
+      :v3 ->
+        present?(Map.get(credential, :username)) or
+          present?(Map.get(credential, :auth_password)) or
+          present?(Map.get(credential, :priv_password))
+
+      _ ->
+        present?(Map.get(credential, :community))
+    end
+  end
+
+  defp present?(nil), do: false
+  defp present?(""), do: false
+  defp present?(_), do: true
 
   # Format version atom to string
   defp format_version(:v1), do: "v1"
