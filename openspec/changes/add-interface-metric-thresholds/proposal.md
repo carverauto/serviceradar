@@ -5,9 +5,11 @@ Interface threshold alerting is currently a single configuration per interface. 
 
 ## What Changes
 - Store per-metric threshold configuration for interfaces (keyed by metric name).
-- Update threshold evaluation to check each enabled metric threshold and emit events/alerts accordingly.
-- Update the interface metrics UI so each metric card supports enable/disable and per-metric threshold controls without accidental toggling.
+- Introduce a unified event-creation rule resource with source types (log + metric) and migrate log promotion rules to it.
+- Update threshold evaluation to create OCSF events from metric rules and promote those events into alerts.
+- Auto-create stateful alert rules for per-metric alert settings and surface them in the alerts admin UI.
+- Update the interface metrics UI so each metric card opens a modal to configure event + alert settings without accidental toggling.
 
 ## Impact
 - Affected specs: `device-inventory`, `observability-signals`, `build-web-ui`.
-- Affected code: core-elx inventory settings + threshold worker, metrics ingestion/alert pipeline, and web-ng interface details UI.
+- Affected code: core-elx inventory settings + threshold worker, observability event/alert rules, metrics ingestion/alert pipeline, and web-ng interface details + rules UI.
