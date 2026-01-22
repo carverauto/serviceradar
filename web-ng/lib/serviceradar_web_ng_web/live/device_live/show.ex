@@ -82,8 +82,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_params(%{"uid" => uid} = params, uri, socket) do
     limit = parse_limit(Map.get(params, "limit"), @default_limit, @max_limit)
 
-    default_query =
-      "in:devices uid:\"#{escape_value(uid)}\" limit:#{limit}"
+    default_query = default_device_query(uid, limit)
 
     query =
       params
@@ -118,7 +117,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     page_path = uri |> to_string() |> URI.parse() |> Map.get(:path)
 
-    srql =
+    base_srql =
       socket.assigns.srql
       |> Map.merge(%{
         entity: "devices",
@@ -169,6 +168,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       if socket.assigns.active_tab == "interfaces" and not has_ifaces,
         do: "details",
         else: socket.assigns.active_tab
+
+    srql =
+      if active_tab == "interfaces" do
+        srql_for_tab("interfaces", uid, limit, base_srql)
+      else
+        base_srql
+      end
 
     {:noreply,
      socket
@@ -300,7 +306,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
-    {:noreply, assign(socket, :active_tab, tab)}
+    srql = srql_for_tab(tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
+
+    {:noreply,
+     socket
+     |> assign(:active_tab, tab)
+     |> assign(:srql, srql)}
   end
 
   # ---------------------------------------------------------------------------
@@ -455,9 +466,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_tags_for_edit(_), do: ""
 
   defp load_interfaces(srql_module, device_uid, scope) do
-    query =
-      "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
-        "sort:if_name:asc limit:#{@interfaces_limit}"
+    query = default_interfaces_query(device_uid)
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -956,7 +965,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               phx-value-tab="interfaces"
               class={["tab", @active_tab == "interfaces" && "tab-active"]}
             >
-              <.icon name="hero-signal" class="size-4 mr-1.5" /> Interfaces
+              <.icon name="hero-arrows-right-left" class="size-4 mr-1.5" /> Interfaces
             </button>
             <button
               :if={@sysmon_presence}
@@ -2885,6 +2894,41 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
+
+  defp default_device_query(device_uid, limit) do
+    "in:devices uid:\"#{escape_value(device_uid)}\" limit:#{limit}"
+  end
+
+  defp default_interfaces_query(device_uid) do
+    "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
+      "sort:if_name:asc limit:#{@interfaces_limit}"
+  end
+
+  defp srql_for_tab("interfaces", device_uid, _limit, srql)
+       when is_binary(device_uid) and device_uid != "" do
+    query = default_interfaces_query(device_uid)
+
+    srql
+    |> Map.put(:entity, "interfaces")
+    |> Map.put(:query, query)
+    |> Map.put(:draft, query)
+    |> Map.put(:error, nil)
+    |> Map.put(:loading, false)
+  end
+
+  defp srql_for_tab(_tab, device_uid, limit, srql)
+       when is_binary(device_uid) and device_uid != "" do
+    query = default_device_query(device_uid, limit)
+
+    srql
+    |> Map.put(:entity, "devices")
+    |> Map.put(:query, query)
+    |> Map.put(:draft, query)
+    |> Map.put(:error, nil)
+    |> Map.put(:loading, false)
+  end
+
+  defp srql_for_tab(_tab, _device_uid, _limit, srql), do: srql
 
   # ---------------------------------------------------------------------------
   # Sweep Status Section

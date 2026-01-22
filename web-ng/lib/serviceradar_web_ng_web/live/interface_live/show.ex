@@ -9,12 +9,29 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   @impl true
   def mount(_params, _session, socket) do
+    srql = %{
+      enabled: true,
+      entity: "interfaces",
+      page_path: nil,
+      query: nil,
+      draft: nil,
+      error: nil,
+      viz: nil,
+      loading: false,
+      builder_available: false,
+      builder_open: false,
+      builder_supported: false,
+      builder_sync: false,
+      builder: %{}
+    }
+
     {:ok,
      socket
      |> assign(:page_title, "Interface Details")
      |> assign(:interface, nil)
      |> assign(:device, nil)
      |> assign(:settings, nil)
+     |> assign(:srql, srql)
      |> assign(:metric_form, to_form(%{}, as: :metric))
      |> assign(:metric_modal_open, false)
      |> assign(:metric_modal_metric, nil)
@@ -23,7 +40,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   end
 
   @impl true
-  def handle_params(%{"device_uid" => device_uid, "interface_uid" => interface_uid}, _uri, socket) do
+  def handle_params(
+        %{"device_uid" => device_uid, "interface_uid" => interface_uid} = params,
+        uri,
+        socket
+      ) do
     scope = socket.assigns.current_scope
     srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
 
@@ -43,6 +64,34 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         "Interface Details"
       end
 
+    default_query =
+      "in:interfaces device_id:\"#{escape_value(device_uid)}\" " <>
+        "interface_uid:\"#{escape_value(interface_uid)}\" latest:true limit:1"
+
+    query =
+      params
+      |> Map.get("q", default_query)
+      |> to_string()
+      |> String.trim()
+      |> case do
+        "" -> default_query
+        other -> other
+      end
+
+    page_path =
+      uri
+      |> to_string()
+      |> URI.parse()
+      |> Map.get(:path)
+
+    srql =
+      socket.assigns.srql
+      |> Map.put(:query, query)
+      |> Map.put(:draft, query)
+      |> Map.put(:error, nil)
+      |> Map.put(:loading, false)
+      |> Map.put(:page_path, page_path)
+
     {:noreply,
      socket
      |> assign(:device_uid, device_uid)
@@ -50,9 +99,35 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:interface, interface)
      |> assign(:device, device)
      |> assign(:settings, settings)
+     |> assign(:srql, srql)
      |> assign(:loading, false)
      |> assign(:error, error)
      |> assign(:page_title, page_title)}
+  end
+
+  @impl true
+  def handle_event("srql_change", %{"q" => q}, socket) do
+    {:noreply, assign(socket, :srql, Map.put(socket.assigns.srql, :draft, to_string(q)))}
+  end
+
+  def handle_event("srql_submit", %{"q" => q}, socket) do
+    page_path =
+      socket.assigns.srql[:page_path] ||
+        "/devices/#{socket.assigns.device_uid}/interfaces/#{socket.assigns.interface_uid}"
+
+    query =
+      q
+      |> to_string()
+      |> String.trim()
+      |> case do
+        "" -> to_string(socket.assigns.srql[:query] || "")
+        other -> other
+      end
+
+    {:noreply,
+     push_patch(socket,
+       to: page_path <> "?" <> URI.encode_query(%{"q" => query})
+     )}
   end
 
   @impl true
@@ -185,7 +260,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="container mx-auto px-4 py-6 max-w-6xl">
         <%!-- Breadcrumb --%>
         <nav class="text-sm breadcrumbs mb-4">
@@ -270,7 +345,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   <.property_row
                     label="Type"
                     value={InterfaceTypes.humanize(Map.get(@interface, "if_type_name"))}
+                    value_title={Map.get(@interface, "if_type_name")}
                   />
+                  <.property_row label="ifIndex" value={Map.get(@interface, "if_index")} />
                   <.property_row label="Interface UID" value={@interface_uid} monospace />
                 </div>
               </div>
@@ -296,22 +373,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
               </div>
             </div>
 
-            <%!-- SNMP Information --%>
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
-              <div class="card-body">
-                <h2 class="card-title text-lg">
-                  <.icon name="hero-server" class="size-5 text-primary" /> SNMP Information
-                </h2>
-                <div class="divide-y divide-base-200">
-                  <.property_row label="ifIndex" value={Map.get(@interface, "if_index")} />
-                  <.property_row label="ifType (numeric)" value={Map.get(@interface, "if_type")} />
-                  <.property_row label="ifType (name)" value={Map.get(@interface, "if_type_name")} />
-                </div>
-              </div>
-            </div>
-
             <%!-- Metrics Collection --%>
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
+            <div class="card bg-base-100 border border-base-200 shadow-sm lg:col-span-2">
               <div class="card-body">
                 <h2 class="card-title text-lg">
                   <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics Collection
@@ -404,6 +467,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   attr :label, :string, required: true
   attr :value, :any, required: true
   attr :monospace, :boolean, default: false
+  attr :value_title, :string, default: nil
 
   defp property_row(assigns) do
     ~H"""
@@ -413,7 +477,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         "text-sm text-right",
         @monospace && "font-mono",
         is_nil(@value) || (@value == "" && "text-base-content/40")
-      ]}>
+      ]} title={@value_title}>
         {format_value(@value)}
       </span>
     </div>
