@@ -82,7 +82,11 @@ defmodule ServiceRadar.Events.OnboardingWriter do
   defp build_observables(event, package) do
     [
       OCSF.build_observable(to_string(event.package_id), "Onboarding Package ID", 99),
-      OCSF.build_observable(package.label || to_string(event.package_id), "Onboarding Package", 99)
+      OCSF.build_observable(
+        package.label || to_string(event.package_id),
+        "Onboarding Package",
+        99
+      )
     ]
   end
 

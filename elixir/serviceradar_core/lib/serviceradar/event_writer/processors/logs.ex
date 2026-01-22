@@ -15,7 +15,15 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias Opentelemetry.Proto.Collector.Logs.V1.ExportLogsServiceRequest
-  alias Opentelemetry.Proto.Common.V1.{AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList}
+
+  alias Opentelemetry.Proto.Common.V1.{
+    AnyValue,
+    ArrayValue,
+    InstrumentationScope,
+    KeyValue,
+    KeyValueList
+  }
+
   alias Opentelemetry.Proto.Logs.V1.{LogRecord, ResourceLogs, ScopeLogs}
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Observability.LogPromotion
@@ -93,16 +101,24 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
       span_id: FieldParser.get_field(json, "span_id", "spanId"),
       trace_flags: parse_trace_flags(json),
-      severity_text: FieldParser.get_field(json, "severity_text", "severityText") || json["level"],
+      severity_text:
+        FieldParser.get_field(json, "severity_text", "severityText") || json["level"],
       severity_number:
         json
         |> FieldParser.get_field("severity_number", "severityNumber")
         |> FieldParser.safe_bigint(),
       body: extract_body(json),
       event_name: FieldParser.get_field(json, "event_name", "eventName"),
-      service_name: service_field(json, resource_attributes, "service_name", "serviceName", "service.name"),
+      service_name:
+        service_field(json, resource_attributes, "service_name", "serviceName", "service.name"),
       service_version:
-        service_field(json, resource_attributes, "service_version", "serviceVersion", "service.version"),
+        service_field(
+          json,
+          resource_attributes,
+          "service_version",
+          "serviceVersion",
+          "service.version"
+        ),
       service_instance:
         service_field(
           json,
@@ -162,7 +178,9 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp parse_trace_flags(json) when is_map(json) do
     case json["trace_flags"] || json["traceFlags"] || json["flags"] do
-      value when is_integer(value) -> value
+      value when is_integer(value) ->
+        value
+
       value when is_binary(value) ->
         case Integer.parse(value) do
           {int, _} -> int
@@ -208,7 +226,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     {scope_name, scope_version}
   end
 
-  defp merge_scope_fields(scope, scope_name, scope_version) when is_binary(scope) and scope != "" do
+  defp merge_scope_fields(scope, scope_name, scope_version)
+       when is_binary(scope) and scope != "" do
     {scope_name || scope, scope_version}
   end
 
@@ -306,7 +325,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          _resource_attributes,
          _metadata
        ),
-    do: []
+       do: []
 
   defp parse_scope(%InstrumentationScope{name: name, version: version}), do: {name, version}
   defp parse_scope(_), do: {nil, nil}
@@ -404,8 +423,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp any_value_to_body(%AnyValue{} = value) do
     case any_value_to_term(value) do
-      nil -> nil
-      body when is_binary(body) -> body
+      nil ->
+        nil
+
+      body when is_binary(body) ->
+        body
+
       body ->
         case Jason.encode(body) do
           {:ok, encoded} -> encoded
@@ -420,6 +443,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   defp any_value_to_term(%AnyValue{value: {:bool_value, value}}), do: value
   defp any_value_to_term(%AnyValue{value: {:int_value, value}}), do: value
   defp any_value_to_term(%AnyValue{value: {:double_value, value}}), do: value
+
   defp any_value_to_term(%AnyValue{value: {:bytes_value, value}}) when is_binary(value),
     do: Base.encode64(value)
 
@@ -436,5 +460,4 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   defp bytes_to_hex(<<>>), do: nil
   defp bytes_to_hex(nil), do: nil
   defp bytes_to_hex(bytes) when is_binary(bytes), do: Base.encode16(bytes, case: :lower)
-
 end

@@ -88,7 +88,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
     elapsed = System.monotonic_time(:millisecond) - start_time
     rate = if elapsed > 0, do: Float.round(total_count / (elapsed / 1000), 1), else: 0
-    Logger.info("SyncIngestor: Completed #{total_count} updates in #{elapsed}ms (#{rate} devices/sec)")
+
+    Logger.info(
+      "SyncIngestor: Completed #{total_count} updates in #{elapsed}ms (#{rate} devices/sec)"
+    )
 
     result
   end
@@ -192,18 +195,20 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp bulk_lookup_identifiers(identifiers) do
     # Build OR conditions for all identifiers
-    conditions = Enum.map(identifiers, fn {type, value, partition} ->
-      dynamic(
-        [di],
-        di.identifier_type == ^to_string(type) and
-        di.identifier_value == ^value and
-        di.partition == ^partition
-      )
-    end)
+    conditions =
+      Enum.map(identifiers, fn {type, value, partition} ->
+        dynamic(
+          [di],
+          di.identifier_type == ^to_string(type) and
+            di.identifier_value == ^value and
+            di.partition == ^partition
+        )
+      end)
 
-    combined_condition = Enum.reduce(conditions, fn cond, acc ->
-      dynamic([di], ^acc or ^cond)
-    end)
+    combined_condition =
+      Enum.reduce(conditions, fn cond, acc ->
+        dynamic([di], ^acc or ^cond)
+      end)
 
     query =
       from(di in DeviceIdentifier,
@@ -337,6 +342,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp lookup_cached(_type, nil, _partition, _mappings), do: nil
+
   defp lookup_cached(type, value, partition, mappings) do
     Map.get(mappings, {type, value, partition})
   end
@@ -402,6 +408,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       on_conflict: update_query,
       conflict_target: [:uid]
     )
+
     :ok
   rescue
     e ->
@@ -426,15 +433,19 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp maybe_add_identifier_record(acc, _device_id, _type, nil, _partition), do: acc
+
   defp maybe_add_identifier_record(acc, device_id, type, value, partition) do
-    [%{
-      device_id: device_id,
-      identifier_type: type,
-      identifier_value: value,
-      partition: partition,
-      confidence: :strong,
-      source: "sync_ingestor"
-    } | acc]
+    [
+      %{
+        device_id: device_id,
+        identifier_type: type,
+        identifier_value: value,
+        partition: partition,
+        confidence: :strong,
+        source: "sync_ingestor"
+      }
+      | acc
+    ]
   end
 
   # Bulk upsert identifiers

@@ -61,7 +61,12 @@ defmodule ServiceRadar.EventWriter.Supervisor do
           pid: pid,
           children:
             Enum.map(children, fn {id, child_pid, type, _modules} ->
-              %{id: id, pid: child_pid, type: type, alive: is_pid(child_pid) and Process.alive?(child_pid)}
+              %{
+                id: id,
+                pid: child_pid,
+                type: type,
+                alive: is_pid(child_pid) and Process.alive?(child_pid)
+              }
             end)
         }
     end

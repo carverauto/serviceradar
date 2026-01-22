@@ -60,14 +60,16 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
   Broadcast that an execution has started.
   """
   def broadcast_started(execution) do
-    event = {:sweep_execution_started, %{
-      execution_id: execution.id,
-      sweep_group_id: execution.sweep_group_id,
-      agent_id: execution.agent_id,
-      started_at: execution.started_at,
-      hosts_total: Map.get(execution, :hosts_total),
-      config_version: execution.config_version
-    }}
+    event =
+      {:sweep_execution_started,
+       %{
+         execution_id: execution.id,
+         sweep_group_id: execution.sweep_group_id,
+         agent_id: execution.agent_id,
+         started_at: execution.started_at,
+         hosts_total: Map.get(execution, :hosts_total),
+         config_version: execution.config_version
+       }}
 
     broadcast_to_all(event)
     broadcast_to_execution(execution.id, event)
@@ -91,10 +93,12 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
     - `:devices_updated` - Existing devices updated so far
   """
   def broadcast_progress(execution_id, progress) when is_map(progress) do
-    event = {:sweep_execution_progress, Map.merge(progress, %{
-      execution_id: execution_id,
-      updated_at: DateTime.utc_now()
-    })}
+    event =
+      {:sweep_execution_progress,
+       Map.merge(progress, %{
+         execution_id: execution_id,
+         updated_at: DateTime.utc_now()
+       })}
 
     broadcast_to_all(event)
     broadcast_to_execution(execution_id, event)
@@ -104,19 +108,21 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
   Broadcast that an execution has completed successfully.
   """
   def broadcast_completed(execution, stats) do
-    event = {:sweep_execution_completed, %{
-      execution_id: execution.id,
-      sweep_group_id: execution.sweep_group_id,
-      status: :completed,
-      started_at: execution.started_at,
-      completed_at: execution.completed_at,
-      duration_ms: execution.duration_ms,
-      hosts_total: stats[:hosts_total] || execution.hosts_total,
-      hosts_available: stats[:hosts_available] || execution.hosts_available,
-      hosts_failed: stats[:hosts_failed] || execution.hosts_failed,
-      devices_created: stats[:devices_created] || 0,
-      devices_updated: stats[:devices_updated] || 0
-    }}
+    event =
+      {:sweep_execution_completed,
+       %{
+         execution_id: execution.id,
+         sweep_group_id: execution.sweep_group_id,
+         status: :completed,
+         started_at: execution.started_at,
+         completed_at: execution.completed_at,
+         duration_ms: execution.duration_ms,
+         hosts_total: stats[:hosts_total] || execution.hosts_total,
+         hosts_available: stats[:hosts_available] || execution.hosts_available,
+         hosts_failed: stats[:hosts_failed] || execution.hosts_failed,
+         devices_created: stats[:devices_created] || 0,
+         devices_updated: stats[:devices_updated] || 0
+       }}
 
     broadcast_to_all(event)
     broadcast_to_execution(execution.id, event)
@@ -126,13 +132,15 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
   Broadcast that an execution has failed.
   """
   def broadcast_failed(execution, error_message) do
-    event = {:sweep_execution_failed, %{
-      execution_id: execution.id,
-      sweep_group_id: execution.sweep_group_id,
-      status: :failed,
-      error_message: error_message,
-      failed_at: DateTime.utc_now()
-    }}
+    event =
+      {:sweep_execution_failed,
+       %{
+         execution_id: execution.id,
+         sweep_group_id: execution.sweep_group_id,
+         status: :failed,
+         error_message: error_message,
+         failed_at: DateTime.utc_now()
+       }}
 
     broadcast_to_all(event)
     broadcast_to_execution(execution.id, event)

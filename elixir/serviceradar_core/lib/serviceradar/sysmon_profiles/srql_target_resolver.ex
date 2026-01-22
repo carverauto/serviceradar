@@ -93,9 +93,7 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
   defp find_matching_profile([profile | rest], device_uid, actor) do
     case matches_device?(profile, device_uid, actor) do
       {:ok, true} ->
-        Logger.debug(
-          "SrqlTargetResolver: profile #{profile.id} matches device #{device_uid}"
-        )
+        Logger.debug("SrqlTargetResolver: profile #{profile.id} matches device #{device_uid}")
 
         {:ok, profile}
 
@@ -200,7 +198,10 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
   rescue
     e ->
       # Log the error but continue - unknown fields are skipped gracefully
-      Logger.debug("SrqlTargetResolver: skipping filter #{field} #{op} #{inspect(value)}: #{Exception.message(e)}")
+      Logger.debug(
+        "SrqlTargetResolver: skipping filter #{field} #{op} #{inspect(value)}: #{Exception.message(e)}"
+      )
+
       query
   end
 

@@ -5,7 +5,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result
-  alias ServiceRadar.Observability.{LogPromotion, LogPromotionRule}
+  alias ServiceRadar.Observability.{EventRule, LogPromotion}
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -22,11 +22,13 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     actor = %{id: "system", role: :admin}
 
     {:ok, _rule} =
-      LogPromotionRule
+      EventRule
       |> Ash.Changeset.for_create(
         :create,
         %{
           name: "syslog-errors",
+          source_type: :log,
+          source: %{},
           match: %{"subject_prefix" => "logs.syslog", "severity_text" => "ERROR"},
           event: %{"log_name" => "syslog.promoted"}
         },

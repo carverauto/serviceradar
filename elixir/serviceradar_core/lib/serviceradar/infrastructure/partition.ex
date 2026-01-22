@@ -236,7 +236,6 @@ defmodule ServiceRadar.Infrastructure.Partition do
       public? true
       description "When partition was last updated"
     end
-
   end
 
   relationships do
@@ -275,9 +274,7 @@ defmodule ServiceRadar.Infrastructure.Partition do
 
     calculate :status_color,
               :string,
-              expr(
-                if(enabled == true, do: "green", else: "gray")
-              )
+              expr(if(enabled == true, do: "green", else: "gray"))
   end
 
   identities do

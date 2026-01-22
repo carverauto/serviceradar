@@ -8,11 +8,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.{Alert, AlertGenerator, OcsfEvent, WebhookNotifier}
+
   alias ServiceRadar.Observability.{
     StatefulAlertRule,
     StatefulAlertRuleHistory,
     StatefulAlertRuleState
   }
+
   alias ServiceRadar.ProcessRegistry
 
   require Logger
@@ -254,7 +256,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       advance_bucket(snapshot.bucket_counts, snapshot.current_bucket_start, bucket_start, rule)
 
     bucket_counts = Map.update(bucket_counts, bucket_start, 1, &(&1 + 1))
-    bucket_counts = prune_buckets(bucket_counts, current_bucket_start, rule.window_seconds, rule.bucket_seconds)
+
+    bucket_counts =
+      prune_buckets(bucket_counts, current_bucket_start, rule.window_seconds, rule.bucket_seconds)
+
     window_count = window_count(bucket_counts)
 
     snapshot =
@@ -293,7 +298,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         maybe_renotify(snapshot, rule, now)
 
       cooldown_until && DateTime.compare(now, cooldown_until) == :lt ->
-        record_history(rule, snapshot, :cooldown, now, nil, %{"window_count" => snapshot.window_count})
+        record_history(rule, snapshot, :cooldown, now, nil, %{
+          "window_count" => snapshot.window_count
+        })
+
         snapshot
 
       true ->
@@ -326,7 +334,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     renotify_seconds = rule.renotify_seconds || 0
     last_notification = snapshot.last_notification_at || snapshot.last_fired_at
 
-    if renotify_seconds > 0 and last_notification &&
+    if (renotify_seconds > 0 and last_notification) &&
          DateTime.diff(now, last_notification, :second) >= renotify_seconds do
       case send_renotify(snapshot.alert_id, rule, snapshot, now) do
         :ok ->
@@ -377,7 +385,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     |> Ash.Changeset.for_create(:upsert, params, state.ash_opts)
     |> Ash.create()
     |> case do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Failed to persist rule snapshot: #{inspect(reason)}")
         :error
@@ -580,7 +590,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     |> Ash.Changeset.for_create(:record, params, actor: actor)
     |> Ash.create()
     |> case do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Failed to record rule history: #{inspect(reason)}")
         :error
@@ -615,7 +627,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     [
       match_subject_prefix(subject, match),
       match_service_name_value(fetch_attr(log, :service_name), match),
-      match_severity_values(fetch_attr(log, :severity_number), fetch_attr(log, :severity_text), match),
+      match_severity_values(
+        fetch_attr(log, :severity_number),
+        fetch_attr(log, :severity_text),
+        match
+      ),
       match_body_value(fetch_attr(log, :body), match),
       match_map(attributes, match["attribute_equals"]),
       match_map(resource_attributes, match["resource_attribute_equals"])
@@ -685,11 +701,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp match_body_value(body, match) do
     case match["body_contains"] do
-      nil -> true
+      nil ->
+        true
+
       needle when is_binary(needle) ->
         body = body || ""
         String.contains?(String.downcase(body), String.downcase(needle))
-      _ -> false
+
+      _ ->
+        false
     end
   end
 
@@ -806,7 +826,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp record_field_value(record, "severity_number"),
     do: fetch_attr(record, :severity_number) || fetch_attr(record, :severity_id)
 
-  defp record_field_value(record, "body"), do: fetch_attr(record, :body) || fetch_attr(record, :message)
+  defp record_field_value(record, "body"),
+    do: fetch_attr(record, :body) || fetch_attr(record, :message)
+
   defp record_field_value(record, "log_name"), do: fetch_attr(record, :log_name)
   defp record_field_value(record, "log_provider"), do: fetch_attr(record, :log_provider)
   defp record_field_value(_record, _key), do: nil
@@ -959,7 +981,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp event_log_resource_attributes(event) do
     unmapped = event_unmapped(event)
-    Map.get(unmapped, "log_resource_attributes") || Map.get(unmapped, :log_resource_attributes) || %{}
+
+    Map.get(unmapped, "log_resource_attributes") || Map.get(unmapped, :log_resource_attributes) ||
+      %{}
   end
 
   defp event_unmapped(event) do

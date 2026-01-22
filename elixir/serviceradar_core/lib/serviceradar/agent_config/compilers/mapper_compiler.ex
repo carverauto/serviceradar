@@ -12,6 +12,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+
   alias ServiceRadar.NetworkDiscovery.{
     MapperJob,
     MapperSeed,
@@ -87,6 +88,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     seeds = job.seeds || []
 
     options = job.options || %{}
+
     options =
       options
       |> Map.put_new("mapper_job_id", to_string(job.id))

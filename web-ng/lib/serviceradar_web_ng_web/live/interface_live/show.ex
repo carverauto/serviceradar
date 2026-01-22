@@ -15,7 +15,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:interface, nil)
      |> assign(:device, nil)
      |> assign(:settings, nil)
-     |> assign(:threshold_form, to_form(%{}, as: :threshold))
+     |> assign(:metric_form, to_form(%{}, as: :metric))
+     |> assign(:metric_modal_open, false)
+     |> assign(:metric_modal_metric, nil)
      |> assign(:loading, true)
      |> assign(:error, nil)}
   end
@@ -114,61 +116,69 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     end
   end
 
-  def handle_event("toggle_threshold", _params, socket) do
-    device_uid = socket.assigns.device_uid
-    interface_uid = socket.assigns.interface_uid
-    scope = socket.assigns.current_scope
-    current_settings = socket.assigns.settings
-    current_enabled = settings_value(current_settings, :threshold_enabled)
+  def handle_event("open_metric_modal", %{"metric" => metric_name}, socket) do
+    if metric_name == "Unknown" do
+      {:noreply, socket}
+    else
+      config = metric_threshold_config(socket.assigns.settings, metric_name)
+      form = to_form(metric_form_values(metric_name, config), as: :metric)
 
-    case upsert_interface_setting(scope, device_uid, interface_uid, %{
-           threshold_enabled: not current_enabled
-         }) do
-      {:ok, updated_settings} ->
-        {:noreply,
-         socket
-         |> assign(:settings, updated_settings)
-         |> put_flash(
-           :info,
-           if(current_enabled,
-             do: "Threshold alerting disabled",
-             else: "Threshold alerting enabled"
-           )
-         )}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to update threshold setting")}
+      {:noreply,
+       socket
+       |> assign(:metric_form, form)
+       |> assign(:metric_modal_metric, metric_name)
+       |> assign(:metric_modal_open, true)}
     end
   end
 
-  def handle_event("update_threshold", %{"threshold" => params}, socket) do
-    # Just update the form state, don't persist yet
-    {:noreply, assign(socket, :threshold_form, to_form(params, as: :threshold))}
+  def handle_event("close_metric_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:metric_modal_open, false)
+     |> assign(:metric_modal_metric, nil)}
   end
 
-  def handle_event("save_threshold", %{"threshold" => params}, socket) do
+  def handle_event("save_metric_settings", %{"metric" => params}, socket) do
     device_uid = socket.assigns.device_uid
     interface_uid = socket.assigns.interface_uid
     scope = socket.assigns.current_scope
+    metric_name = params["name"] || params["metric"]
 
-    # Parse and validate the threshold values
-    attrs = %{
-      threshold_metric: parse_threshold_metric(params["metric"]),
-      threshold_comparison: parse_threshold_comparison(params["comparison"]),
-      threshold_value: parse_threshold_value(params["value"]),
-      threshold_duration_seconds: parse_threshold_duration(params["duration"]),
-      threshold_severity: parse_threshold_severity(params["severity"])
-    }
+    if is_nil(metric_name) or metric_name == "" do
+      {:noreply, put_flash(socket, :error, "Metric name is required")}
+    else
+      current_settings = socket.assigns.settings
+      thresholds = settings_map_value(current_settings, :metric_thresholds)
+      selected_metrics = settings_list_value(current_settings, :metrics_selected)
+      updated_config = build_metric_config(params)
 
-    case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
-      {:ok, updated_settings} ->
-        {:noreply,
-         socket
-         |> assign(:settings, updated_settings)
-         |> put_flash(:info, "Threshold configuration saved")}
+      updated_thresholds = Map.put(thresholds, metric_name, updated_config)
 
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to save threshold configuration")}
+      selected_metrics =
+        if config_enabled?(updated_config) and metric_name not in selected_metrics do
+          Enum.sort([metric_name | selected_metrics])
+        else
+          selected_metrics
+        end
+
+      attrs = %{
+        metric_thresholds: updated_thresholds,
+        metrics_selected: selected_metrics,
+        metrics_enabled: selected_metrics != []
+      }
+
+      case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
+        {:ok, updated_settings} ->
+          {:noreply,
+           socket
+           |> assign(:settings, updated_settings)
+           |> assign(:metric_modal_open, false)
+           |> assign(:metric_modal_metric, nil)
+           |> put_flash(:info, "Metric settings saved")}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to save metric settings")}
+      end
     end
   end
 
@@ -315,7 +325,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       <div>
                         <span class="text-sm font-medium">Metrics Collection</span>
                         <p class="text-xs text-base-content/50 mt-0.5">
-                          Click a metric below to enable or disable its collection.
+                          Enable collection per metric and configure event/alert settings.
                         </p>
                       </div>
                       <span class={[
@@ -339,6 +349,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                         :for={metric <- normalized_metrics}
                         metric={metric}
                         enabled={metric_selected?(metric, selected_metrics)}
+                        event_enabled={
+                          metric_event_enabled?(metric_threshold_config(@settings, metric))
+                        }
+                        alert_enabled={
+                          metric_alert_enabled?(metric_threshold_config(@settings, metric))
+                        }
                       />
                     </div>
                   </div>
@@ -358,188 +374,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
           </div>
 
-          <%!-- Threshold Configuration (full width) --%>
-          <div class="card bg-base-100 border border-base-200 shadow-sm">
-            <div class="card-body">
-              <h2 class="card-title text-lg">
-                <.icon name="hero-bell-alert" class="size-5 text-primary" /> Threshold Alerting
-              </h2>
-
-              <% threshold_enabled = settings_value(@settings, :threshold_enabled) %>
-              <% threshold_metric = settings_value(@settings, :threshold_metric) %>
-              <% threshold_comparison = settings_value(@settings, :threshold_comparison) %>
-              <% threshold_value = settings_value(@settings, :threshold_value) %>
-              <% threshold_duration = settings_value(@settings, :threshold_duration_seconds) || 0 %>
-              <% threshold_severity = settings_value(@settings, :threshold_severity) || :warning %>
-
-              <div class="divide-y divide-base-200">
-                <div class="py-3 flex items-center justify-between">
-                  <div>
-                    <span class="text-sm font-medium">Enable Threshold Alerts</span>
-                    <p class="text-xs text-base-content/50 mt-0.5">
-                      Generate alerts when interface metrics exceed configured thresholds
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    class="toggle toggle-warning"
-                    checked={threshold_enabled}
-                    phx-click="toggle_threshold"
-                  />
-                </div>
-
-                <div :if={threshold_enabled} class="py-4 space-y-4">
-                  <.form
-                    for={@threshold_form}
-                    phx-change="update_threshold"
-                    phx-submit="save_threshold"
-                    class="space-y-4"
-                  >
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text text-xs">Metric</span>
-                        </label>
-                        <select
-                          name="threshold[metric]"
-                          class="select select-bordered select-sm w-full"
-                        >
-                          <option value="" disabled selected={!threshold_metric}>
-                            Select metric
-                          </option>
-                          <option value="utilization" selected={threshold_metric == :utilization}>
-                            Utilization %
-                          </option>
-                          <option value="bandwidth_in" selected={threshold_metric == :bandwidth_in}>
-                            Bandwidth In
-                          </option>
-                          <option value="bandwidth_out" selected={threshold_metric == :bandwidth_out}>
-                            Bandwidth Out
-                          </option>
-                          <option value="errors" selected={threshold_metric == :errors}>
-                            Errors
-                          </option>
-                        </select>
-                      </div>
-
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text text-xs">Condition</span>
-                        </label>
-                        <select
-                          name="threshold[comparison]"
-                          class="select select-bordered select-sm w-full"
-                        >
-                          <option value="" disabled selected={!threshold_comparison}>
-                            Select condition
-                          </option>
-                          <option value="gt" selected={threshold_comparison == :gt}>
-                            Greater than (&gt;)
-                          </option>
-                          <option value="gte" selected={threshold_comparison == :gte}>
-                            Greater or equal (&ge;)
-                          </option>
-                          <option value="lt" selected={threshold_comparison == :lt}>
-                            Less than (&lt;)
-                          </option>
-                          <option value="lte" selected={threshold_comparison == :lte}>
-                            Less or equal (&le;)
-                          </option>
-                          <option value="eq" selected={threshold_comparison == :eq}>
-                            Equal to (=)
-                          </option>
-                        </select>
-                      </div>
-
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text text-xs">Value</span>
-                        </label>
-                        <input
-                          type="number"
-                          name="threshold[value]"
-                          value={threshold_value}
-                          placeholder="e.g., 80"
-                          class="input input-bordered input-sm w-full"
-                        />
-                      </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text text-xs">Duration (seconds)</span>
-                        </label>
-                        <input
-                          type="number"
-                          name="threshold[duration]"
-                          value={threshold_duration}
-                          placeholder="0"
-                          min="0"
-                          class="input input-bordered input-sm w-full"
-                        />
-                        <label class="label">
-                          <span class="label-text-alt text-xs text-base-content/50">
-                            How long threshold must be exceeded before alerting (0 = immediate)
-                          </span>
-                        </label>
-                      </div>
-
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text text-xs">Alert Severity</span>
-                        </label>
-                        <select
-                          name="threshold[severity]"
-                          class="select select-bordered select-sm w-full"
-                        >
-                          <option value="info" selected={threshold_severity == :info}>Info</option>
-                          <option value="warning" selected={threshold_severity == :warning}>
-                            Warning
-                          </option>
-                          <option value="critical" selected={threshold_severity == :critical}>
-                            Critical
-                          </option>
-                          <option value="emergency" selected={threshold_severity == :emergency}>
-                            Emergency
-                          </option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div class="flex justify-end">
-                      <button type="submit" class="btn btn-primary btn-sm">
-                        <.icon name="hero-check" class="size-4" /> Save Threshold
-                      </button>
-                    </div>
-                  </.form>
-
-                  <div
-                    :if={threshold_metric && threshold_comparison && threshold_value}
-                    class="alert alert-info alert-sm"
-                  >
-                    <.icon name="hero-information-circle" class="size-4" />
-                    <span class="text-sm">
-                      Alert (<strong>{threshold_severity}</strong>) when
-                      <strong>{threshold_metric_label(threshold_metric)}</strong>
-                      is <strong>{threshold_comparison_label(threshold_comparison)}</strong>
-                      <strong>
-                        {threshold_value}{if threshold_metric == :utilization, do: "%", else: ""}
-                      </strong>
-                      {if threshold_duration > 0, do: " for #{threshold_duration} seconds", else: ""}
-                    </span>
-                  </div>
-                </div>
-
-                <div :if={!threshold_enabled} class="py-3">
-                  <p class="text-sm text-base-content/50">
-                    Enable threshold alerting to receive notifications when this interface's
-                    metrics exceed configured limits.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+          <.metric_settings_modal
+            :if={@metric_modal_open}
+            form={@metric_form}
+            metric_name={@metric_modal_metric}
+          />
         </div>
 
         <%!-- Not Found State --%>
@@ -583,37 +422,346 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   attr :metric, :map, required: true
   attr :enabled, :boolean, default: false
+  attr :event_enabled, :boolean, default: false
+  attr :alert_enabled, :boolean, default: false
 
   defp available_metric_card(assigns) do
     ~H"""
-    <button
-      type="button"
-      phx-click="toggle_metric"
-      phx-value-metric={metric_raw_name(@metric)}
-      class={[
-        "flex items-center justify-between p-2 rounded-lg border transition",
-        @enabled && "border-success bg-success/10",
-        !@enabled && "bg-base-200/50 border-base-300 hover:border-primary/50"
-      ]}
-      title={if @enabled, do: "Disable metric collection", else: "Enable metric collection"}
-    >
-      <div class="flex items-center gap-2">
-        <.icon name={metric_category_icon(@metric)} class="size-4 text-primary" />
-        <div>
-          <span class="text-sm font-medium">{metric_display_name(@metric)}</span>
-          <span
-            :if={metric_supports_64bit?(@metric)}
-            class="ml-1 badge badge-xs badge-success"
-            title="64-bit counter available"
-          >
-            64-bit
+    <div class={[
+      "p-3 rounded-lg border transition",
+      @enabled && "border-success bg-success/5",
+      !@enabled && "bg-base-200/50 border-base-300 hover:border-primary/50"
+    ]}>
+      <div class="flex items-start justify-between gap-3">
+        <div
+          class="flex items-center gap-2 flex-1 cursor-pointer"
+          role="button"
+          tabindex="0"
+          phx-click="open_metric_modal"
+          phx-value-metric={metric_raw_name(@metric)}
+        >
+          <.icon name={metric_category_icon(@metric)} class="size-4 text-primary" />
+          <div>
+            <span class="text-sm font-medium">{metric_display_name(@metric)}</span>
+            <span
+              :if={metric_supports_64bit?(@metric)}
+              class="ml-1 badge badge-xs badge-success"
+              title="64-bit counter available"
+            >
+              64-bit
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          class={[
+            "btn btn-xs",
+            @enabled && "btn-success",
+            !@enabled && "btn-ghost"
+          ]}
+          phx-click="toggle_metric"
+          phx-value-metric={metric_raw_name(@metric)}
+        >
+          {if @enabled, do: "Collecting", else: "Enable"}
+        </button>
+      </div>
+      <div
+        class="mt-2 flex items-center justify-between cursor-pointer"
+        role="button"
+        tabindex="0"
+        phx-click="open_metric_modal"
+        phx-value-metric={metric_raw_name(@metric)}
+      >
+        <div class="flex items-center gap-2 text-xs">
+          <span class={[
+            "badge badge-xs gap-1",
+            @event_enabled && "badge-info",
+            !@event_enabled && "badge-ghost"
+          ]}>
+            <.icon name="hero-bolt" class="size-3" /> Event
+          </span>
+          <span class={[
+            "badge badge-xs gap-1",
+            @alert_enabled && "badge-success",
+            !@alert_enabled && "badge-ghost"
+          ]}>
+            <.icon name="hero-bell-alert" class="size-3" /> Alert
           </span>
         </div>
+        <span class="text-xs text-base-content/50">
+          {metric_category_label(@metric)}
+        </span>
       </div>
-      <span class="text-xs text-base-content/50 badge badge-ghost badge-sm">
-        {metric_category_label(@metric)}
-      </span>
-    </button>
+    </div>
+    """
+  end
+
+  attr :form, :any, required: true
+  attr :metric_name, :string, required: true
+
+  defp metric_settings_modal(assigns) do
+    ~H"""
+    <dialog class="modal modal-open">
+      <div class="modal-box max-w-3xl">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_metric_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">Configure {@metric_name} metric</h3>
+        <p class="text-sm text-base-content/60 mt-1">
+          Tune event creation and alert promotion for this metric.
+        </p>
+
+        <.form
+          for={@form}
+          id="metric-settings-form"
+          phx-submit="save_metric_settings"
+          class="space-y-6 mt-4"
+        >
+          <input type="hidden" name="metric[name]" value={@metric_name} />
+
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-sm font-semibold">Event Threshold</span>
+                <p class="text-xs text-base-content/50">
+                  Create an event when this metric crosses the threshold.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                name="metric[enabled]"
+                value="true"
+                class="toggle toggle-info"
+                checked={@form[:enabled].value}
+              />
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Comparison</span>
+                </label>
+                <select name="metric[comparison]" class="select select-bordered select-sm w-full">
+                  <option value="">Select condition</option>
+                  <option value="gt" selected={@form[:comparison].value == "gt"}>
+                    Greater than (&gt;)
+                  </option>
+                  <option value="gte" selected={@form[:comparison].value == "gte"}>
+                    Greater or equal (&ge;)
+                  </option>
+                  <option value="lt" selected={@form[:comparison].value == "lt"}>
+                    Less than (&lt;)
+                  </option>
+                  <option value="lte" selected={@form[:comparison].value == "lte"}>
+                    Less or equal (&le;)
+                  </option>
+                  <option value="eq" selected={@form[:comparison].value == "eq"}>
+                    Equal to (=)
+                  </option>
+                </select>
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Value</span>
+                </label>
+                <input
+                  type="number"
+                  name="metric[value]"
+                  value={@form[:value].value}
+                  placeholder="e.g., 80"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Duration (seconds)</span>
+                </label>
+                <input
+                  type="number"
+                  name="metric[duration_seconds]"
+                  value={@form[:duration_seconds].value}
+                  placeholder="0"
+                  min="0"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Event Severity</span>
+                </label>
+                <select name="metric[event_severity]" class="select select-bordered select-sm w-full">
+                  <option value="info" selected={@form[:event_severity].value == "info"}>
+                    Info
+                  </option>
+                  <option value="warning" selected={@form[:event_severity].value == "warning"}>
+                    Warning
+                  </option>
+                  <option value="critical" selected={@form[:event_severity].value == "critical"}>
+                    Critical
+                  </option>
+                  <option value="emergency" selected={@form[:event_severity].value == "emergency"}>
+                    Emergency
+                  </option>
+                </select>
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Event Message</span>
+                </label>
+                <input
+                  type="text"
+                  name="metric[event_message]"
+                  value={@form[:event_message].value}
+                  placeholder="Optional message override"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="divider text-xs text-base-content/50">Alert Promotion</div>
+
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-sm font-semibold">Enable Alerts</span>
+                <p class="text-xs text-base-content/50">
+                  Promote metric events into alerts when thresholds are met.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                name="metric[alert_enabled]"
+                value="true"
+                class="toggle toggle-success"
+                checked={@form[:alert_enabled].value}
+              />
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Event Count</span>
+                </label>
+                <input
+                  type="number"
+                  name="metric[alert_threshold]"
+                  value={@form[:alert_threshold].value}
+                  min="1"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Window (seconds)</span>
+                </label>
+                <input
+                  type="number"
+                  name="metric[alert_window_seconds]"
+                  value={@form[:alert_window_seconds].value}
+                  min="60"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Cooldown (seconds)</span>
+                </label>
+                <input
+                  type="number"
+                  name="metric[alert_cooldown_seconds]"
+                  value={@form[:alert_cooldown_seconds].value}
+                  min="60"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Renotify (seconds)</span>
+                </label>
+                <input
+                  type="number"
+                  name="metric[alert_renotify_seconds]"
+                  value={@form[:alert_renotify_seconds].value}
+                  min="300"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Alert Severity</span>
+                </label>
+                <select name="metric[alert_severity]" class="select select-bordered select-sm w-full">
+                  <option value="info" selected={@form[:alert_severity].value == "info"}>
+                    Info
+                  </option>
+                  <option value="warning" selected={@form[:alert_severity].value == "warning"}>
+                    Warning
+                  </option>
+                  <option value="critical" selected={@form[:alert_severity].value == "critical"}>
+                    Critical
+                  </option>
+                  <option value="emergency" selected={@form[:alert_severity].value == "emergency"}>
+                    Emergency
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Alert Title</span>
+                </label>
+                <input
+                  type="text"
+                  name="metric[alert_title]"
+                  value={@form[:alert_title].value}
+                  placeholder="Optional title override"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Alert Description</span>
+                </label>
+                <input
+                  type="text"
+                  name="metric[alert_description]"
+                  value={@form[:alert_description].value}
+                  placeholder="Optional description override"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-action">
+            <button type="button" class="btn btn-ghost" phx-click="close_metric_modal">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              <.icon name="hero-check" class="size-4" /> Save Settings
+            </button>
+          </div>
+        </.form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_metric_modal">close</button>
+      </form>
+    </dialog>
     """
   end
 
@@ -809,70 +957,159 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp normalize_list(value) when is_list(value), do: value
   defp normalize_list(_), do: []
 
-  # Threshold parsing helpers
-  defp parse_threshold_metric(""), do: nil
-  defp parse_threshold_metric(nil), do: nil
-  defp parse_threshold_metric("utilization"), do: :utilization
-  defp parse_threshold_metric("bandwidth_in"), do: :bandwidth_in
-  defp parse_threshold_metric("bandwidth_out"), do: :bandwidth_out
-  defp parse_threshold_metric("errors"), do: :errors
-  defp parse_threshold_metric(_), do: nil
+  defp settings_map_value(nil, _key), do: %{}
 
-  defp parse_threshold_comparison(""), do: nil
-  defp parse_threshold_comparison(nil), do: nil
-  defp parse_threshold_comparison("gt"), do: :gt
-  defp parse_threshold_comparison("gte"), do: :gte
-  defp parse_threshold_comparison("lt"), do: :lt
-  defp parse_threshold_comparison("lte"), do: :lte
-  defp parse_threshold_comparison("eq"), do: :eq
-  defp parse_threshold_comparison(_), do: nil
+  defp settings_map_value(settings, key) when is_struct(settings),
+    do: normalize_map(Map.get(settings, key))
 
-  defp parse_threshold_value(""), do: nil
-  defp parse_threshold_value(nil), do: nil
+  defp settings_map_value(settings, key) when is_map(settings),
+    do: normalize_map(Map.get(settings, key))
 
-  defp parse_threshold_value(value) when is_binary(value) do
+  defp settings_map_value(_, _), do: %{}
+
+  defp normalize_map(value) when is_map(value), do: value
+  defp normalize_map(_), do: %{}
+
+  # Metric settings helpers
+  defp metric_threshold_config(settings, metric) do
+    metric_name =
+      case metric do
+        %{} -> metric_raw_name(metric)
+        name -> name
+      end
+
+    thresholds = settings_map_value(settings, :metric_thresholds)
+    Map.get(thresholds, metric_name) || Map.get(thresholds, to_string(metric_name)) || %{}
+  end
+
+  defp metric_event_enabled?(config) do
+    config_enabled?(config)
+  end
+
+  defp metric_alert_enabled?(config) do
+    alert = config_value(config, :alert)
+    config_enabled?(config) and config_bool(alert, :enabled, false)
+  end
+
+  defp metric_form_values(metric_name, config) do
+    alert = config_value(config, :alert, %{})
+    event = config_value(config, :event, %{})
+
+    %{
+      "name" => metric_name,
+      "enabled" => config_bool(config, :enabled, true),
+      "comparison" => config_value(config, :comparison, ""),
+      "value" => config_value(config, :value, ""),
+      "duration_seconds" => config_value(config, :duration_seconds, 0),
+      "event_severity" => config_value(event, :severity, "warning"),
+      "event_message" => config_value(event, :message, ""),
+      "alert_enabled" => config_bool(alert, :enabled, false),
+      "alert_threshold" => config_value(alert, :threshold, 1),
+      "alert_window_seconds" => config_value(alert, :window_seconds, 300),
+      "alert_cooldown_seconds" => config_value(alert, :cooldown_seconds, 300),
+      "alert_renotify_seconds" => config_value(alert, :renotify_seconds, 21_600),
+      "alert_severity" => config_value(alert, :severity, "warning"),
+      "alert_title" => config_value(alert, :title, ""),
+      "alert_description" => config_value(alert, :description, "")
+    }
+  end
+
+  defp build_metric_config(params) do
+    event = %{}
+    event = maybe_put(event, "severity", blank_to_nil(params["event_severity"]))
+    event = maybe_put(event, "message", blank_to_nil(params["event_message"]))
+
+    alert = %{
+      "enabled" => param_bool(params["alert_enabled"], false),
+      "threshold" => parse_int(params["alert_threshold"]) || 1,
+      "window_seconds" => parse_int(params["alert_window_seconds"]) || 300,
+      "cooldown_seconds" => parse_int(params["alert_cooldown_seconds"]) || 300,
+      "renotify_seconds" => parse_int(params["alert_renotify_seconds"]) || 21_600,
+      "severity" => blank_to_nil(params["alert_severity"]),
+      "title" => blank_to_nil(params["alert_title"]),
+      "description" => blank_to_nil(params["alert_description"])
+    }
+
+    %{
+      "enabled" => param_bool(params["enabled"], true),
+      "comparison" => blank_to_nil(params["comparison"]),
+      "value" => parse_number(params["value"]),
+      "duration_seconds" => parse_int(params["duration_seconds"]) || 0,
+      "severity" => blank_to_nil(params["event_severity"]),
+      "event" => compact_map(event),
+      "alert" => compact_map(alert)
+    }
+  end
+
+  defp config_enabled?(config) do
+    enabled = config_bool(config, :enabled, true)
+    comparison = config_value(config, :comparison)
+    value = config_value(config, :value)
+
+    enabled and comparison not in ["", nil] and not is_nil(value)
+  end
+
+  defp config_value(config, key, default \\ nil) when is_map(config) do
+    Map.get(config, key) || Map.get(config, Atom.to_string(key)) || default
+  end
+
+  defp config_value(_, _key, default), do: default
+
+  defp config_bool(config, key, default) when is_map(config) do
+    case config_value(config, key) do
+      nil -> default
+      value when is_boolean(value) -> value
+      value when is_binary(value) -> String.downcase(value) in ["true", "1", "yes", "on"]
+      value -> !!value
+    end
+  end
+
+  defp config_bool(_config, _key, default), do: default
+
+  defp param_bool(nil, default), do: default
+  defp param_bool("true", _default), do: true
+  defp param_bool("on", _default), do: true
+  defp param_bool(true, _default), do: true
+  defp param_bool(false, _default), do: false
+  defp param_bool(_value, default), do: default
+
+  defp parse_int(nil), do: nil
+  defp parse_int(""), do: nil
+
+  defp parse_int(value) when is_binary(value) do
     case Integer.parse(value) do
       {int, _} -> int
       :error -> nil
     end
   end
 
-  defp parse_threshold_value(value) when is_integer(value), do: value
-  defp parse_threshold_value(_), do: nil
+  defp parse_int(value) when is_integer(value), do: value
+  defp parse_int(_), do: nil
 
-  defp parse_threshold_duration(""), do: 0
-  defp parse_threshold_duration(nil), do: 0
+  defp parse_number(nil), do: nil
+  defp parse_number(""), do: nil
 
-  defp parse_threshold_duration(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, _} -> max(0, int)
-      :error -> 0
+  defp parse_number(value) when is_binary(value) do
+    case Float.parse(value) do
+      {float, _} -> float
+      :error -> nil
     end
   end
 
-  defp parse_threshold_duration(value) when is_integer(value), do: max(0, value)
-  defp parse_threshold_duration(_), do: 0
+  defp parse_number(value) when is_number(value), do: value
+  defp parse_number(_), do: nil
 
-  defp parse_threshold_severity("info"), do: :info
-  defp parse_threshold_severity("warning"), do: :warning
-  defp parse_threshold_severity("critical"), do: :critical
-  defp parse_threshold_severity("emergency"), do: :emergency
-  defp parse_threshold_severity(_), do: :warning
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
+
+  defp compact_map(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
 
   # Threshold label helpers
-  defp threshold_metric_label(:utilization), do: "Utilization"
-  defp threshold_metric_label(:bandwidth_in), do: "Bandwidth In"
-  defp threshold_metric_label(:bandwidth_out), do: "Bandwidth Out"
-  defp threshold_metric_label(:errors), do: "Errors"
-  defp threshold_metric_label(_), do: "Unknown"
-
-  defp threshold_comparison_label(:gt), do: "greater than"
-  defp threshold_comparison_label(:gte), do: "greater than or equal to"
-  defp threshold_comparison_label(:lt), do: "less than"
-  defp threshold_comparison_label(:lte), do: "less than or equal to"
-  defp threshold_comparison_label(:eq), do: "equal to"
-  defp threshold_comparison_label(_), do: ""
-
   # Available metrics helpers
   defp metric_display_name(metric) when is_map(metric) do
     name = Map.get(metric, "name") || Map.get(metric, :name) || "Unknown"

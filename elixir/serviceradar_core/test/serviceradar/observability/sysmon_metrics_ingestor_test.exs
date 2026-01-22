@@ -47,7 +47,15 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestorTest do
 
     metrics = SysmonMetricsIngestor.build_metrics(sample, context)
 
-    assert [%{core_id: 0, usage_percent: 10.5, frequency_hz: 1_000_000.0, label: "CPU0", cluster: "ECPU"}] =
+    assert [
+             %{
+               core_id: 0,
+               usage_percent: 10.5,
+               frequency_hz: 1_000_000.0,
+               label: "CPU0",
+               cluster: "ECPU"
+             }
+           ] =
              metrics.cpu
 
     assert [%{cluster: "ECPU", frequency_hz: 2_000_000.0}] = metrics.cpu_clusters
@@ -55,7 +63,15 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestorTest do
     assert [%{total_bytes: 100, used_bytes: 80, available_bytes: 20, usage_percent: 80.0}] =
              metrics.memory
 
-    assert [%{mount_point: "/", total_bytes: 100, used_bytes: 50, available_bytes: 50, usage_percent: 50.0}] =
+    assert [
+             %{
+               mount_point: "/",
+               total_bytes: 100,
+               used_bytes: 50,
+               available_bytes: 50,
+               usage_percent: 50.0
+             }
+           ] =
              metrics.disks
 
     assert [%{pid: 123, name: "nginx", cpu_usage: 1.1, memory_usage: 2_048, status: "Running"}] =

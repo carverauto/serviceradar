@@ -4,12 +4,15 @@ defmodule ServiceRadar.Observability.LogPromotion do
   """
 
   require Logger
+  require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.AlertGenerator
-  alias ServiceRadar.Observability.{LogPromotionRule, StatefulAlertEngine}
+  alias ServiceRadar.Observability.{EventRule, StatefulAlertEngine}
   alias UUID
+
+  import Ash.Expr
 
   @severity_text_map %{
     "fatal" => OCSF.severity_fatal(),
@@ -50,8 +53,9 @@ defmodule ServiceRadar.Observability.LogPromotion do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:log_promotion)
 
-    LogPromotionRule
+    EventRule
     |> Ash.Query.for_read(:active, %{})
+    |> Ash.Query.filter(expr(source_type == :log))
     |> Ash.read(actor: actor)
     |> unwrap_page()
   rescue
@@ -93,14 +97,16 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   defp match_rules(log, rules) do
     case Enum.find(rules, &rule_matches?(log, &1)) do
-      nil -> []
+      nil ->
+        []
+
       rule ->
         event = build_event(log, rule)
         [%{event: event, alert: alert_config(event, rule)}]
     end
   end
 
-  defp rule_matches?(log, %LogPromotionRule{match: match}) when is_map(match) do
+  defp rule_matches?(log, %EventRule{match: match}) when is_map(match) do
     if match["always"] == true do
       true
     else
@@ -170,11 +176,15 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   defp match_body(log, match) do
     case match["body_contains"] do
-      nil -> true
+      nil ->
+        true
+
       needle when is_binary(needle) ->
         body = Map.get(log, :body) || ""
         String.contains?(String.downcase(body), String.downcase(needle))
-      _ -> false
+
+      _ ->
+        false
     end
   end
 
@@ -215,7 +225,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     get_nested_value(Map.get(log, :attributes, %{}), "serviceradar.ingest.subject")
   end
 
-  defp build_event(log, %LogPromotionRule{} = rule) do
+  defp build_event(log, %EventRule{} = rule) do
     event_overrides = rule.event || %{}
     log_time = event_log_time(log)
     subject = ingest_subject(log)
@@ -266,7 +276,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     maybe_emit_alert_metrics(created, attempted)
   end
 
-  defp alert_config(event, %LogPromotionRule{} = rule) do
+  defp alert_config(event, %EventRule{} = rule) do
     case rule.event do
       %{"alert" => false} -> nil
       %{"alert" => true} -> %{}
@@ -279,7 +289,9 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   defp maybe_evaluate_stateful_rules(events) do
     case StatefulAlertEngine.evaluate_events(events) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}")
         :ok
@@ -424,5 +436,4 @@ defmodule ServiceRadar.Observability.LogPromotion do
       %{}
     )
   end
-
 end

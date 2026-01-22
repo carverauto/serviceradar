@@ -166,7 +166,8 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
     # Try to load pre-compiled config from database using the :for_agent read action
     case Ash.read(
            ConfigInstance,
-           action: :for_agent, args: %{
+           action: :for_agent,
+           args: %{
              config_type: config_type,
              partition: partition,
              agent_id: agent_id

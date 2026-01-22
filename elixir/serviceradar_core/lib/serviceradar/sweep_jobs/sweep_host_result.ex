@@ -70,7 +70,6 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
         :error_message,
         :device_id
       ]
-
     end
 
     create :bulk_create do
@@ -87,7 +86,6 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
         :error_message,
         :device_id
       ]
-
     end
 
     read :by_execution do
@@ -107,7 +105,9 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
     read :failed_by_execution do
       argument :execution_id, :uuid, allow_nil?: false
 
-      filter expr(execution_id == ^arg(:execution_id) and status in [:unavailable, :timeout, :error])
+      filter expr(
+               execution_id == ^arg(:execution_id) and status in [:unavailable, :timeout, :error]
+             )
     end
 
     read :by_ip do

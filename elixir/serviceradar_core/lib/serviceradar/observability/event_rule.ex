@@ -1,6 +1,10 @@
-defmodule ServiceRadar.Observability.ZenRuleTemplate do
+defmodule ServiceRadar.Observability.EventRule do
   @moduledoc """
-  Templates for Zen rule builder presets.
+  Unified rules for creating OCSF events from multiple sources.
+
+  Log-based rules mirror legacy log promotion rules. Metric-based rules
+  are created from interface metric configurations and generate events
+  directly without a log promotion step.
   """
 
   use Ash.Resource,
@@ -9,12 +13,13 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table "zen_rule_templates"
+    table "event_rules"
     repo ServiceRadar.Repo
   end
 
   code_interface do
     define :list, action: :read
+    define :list_active, action: :active
     define :create, action: :create
     define :update, action: :update
     define :destroy, action: :destroy
@@ -23,36 +28,17 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
   actions do
     defaults [:read, :destroy]
 
-    create :create do
-      accept [
-        :name,
-        :description,
-        :enabled,
-        :order,
-        :stream_name,
-        :subject,
-        :template,
-        :builder_config,
-        :agent_id
-      ]
+    read :active do
+      filter expr(enabled == true)
+      prepare build(sort: [priority: :asc, inserted_at: :asc])
+    end
 
-      validate ServiceRadar.Observability.Validations.ZenRuleTemplate
+    create :create do
+      accept [:name, :enabled, :priority, :source_type, :source, :match, :event]
     end
 
     update :update do
-      accept [
-        :name,
-        :description,
-        :enabled,
-        :order,
-        :stream_name,
-        :subject,
-        :template,
-        :builder_config,
-        :agent_id
-      ]
-
-      validate ServiceRadar.Observability.Validations.ZenRuleTemplate
+      accept [:name, :enabled, :priority, :source_type, :source, :match, :event]
     end
   end
 
@@ -74,9 +60,6 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
     end
   end
 
-  changes do
-  end
-
   attributes do
     uuid_primary_key :id
 
@@ -85,45 +68,35 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
       public? true
     end
 
-    attribute :description, :string do
-      public? true
-    end
-
     attribute :enabled, :boolean do
       default true
       public? true
     end
 
-    attribute :order, :integer do
+    attribute :priority, :integer do
       default 100
       public? true
     end
 
-    attribute :stream_name, :string do
+    attribute :source_type, :atom do
       allow_nil? false
-      default "events"
+      default :log
       public? true
+      constraints one_of: [:log, :metric]
     end
 
-    attribute :subject, :string do
-      allow_nil? false
-      public? true
-    end
-
-    attribute :template, :atom do
-      allow_nil? false
-      public? true
-      constraints one_of: [:passthrough, :strip_full_message, :cef_severity, :snmp_severity]
-    end
-
-    attribute :builder_config, :map do
+    attribute :source, :map do
       default %{}
       public? true
     end
 
-    attribute :agent_id, :string do
-      allow_nil? false
-      default "default-agent"
+    attribute :match, :map do
+      default %{}
+      public? true
+    end
+
+    attribute :event, :map do
+      default %{}
       public? true
     end
 
@@ -132,6 +105,6 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
   end
 
   identities do
-    identity :unique_name, [:subject, :name]
+    identity :unique_name, [:name]
   end
 end

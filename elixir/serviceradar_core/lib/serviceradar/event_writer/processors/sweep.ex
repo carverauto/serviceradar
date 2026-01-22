@@ -195,7 +195,9 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       from(d in {"ocsf_devices", Device},
         where: d.uid in ^available_uids
       )
-      |> Repo.update_all(set: [is_available: true, last_seen_time: timestamp, modified_time: timestamp])
+      |> Repo.update_all(
+        set: [is_available: true, last_seen_time: timestamp, modified_time: timestamp]
+      )
     end
   end
 
@@ -234,7 +236,9 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   # Private functions
   # DB connection's search_path determines the schema
   defp parse_sweep_result(json, nats_metadata) do
-    time = FieldParser.parse_timestamp(FieldParser.get_field(json, "last_sweep_time", "lastSweepTime"))
+    time =
+      FieldParser.parse_timestamp(FieldParser.get_field(json, "last_sweep_time", "lastSweepTime"))
+
     activity_id = OCSF.activity_network_scan()
     icmp_available = FieldParser.get_field(json, "icmp_available", "icmpAvailable") || false
     response_time_ns = FieldParser.get_field(json, "icmp_response_time_ns", "icmpResponseTimeNs")
@@ -245,11 +249,12 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     severity_id = determine_severity(json)
 
     # Build source endpoint (the scanned host)
-    src_endpoint = OCSF.build_network_endpoint(
-      ip: FieldParser.get_field(json, "host_ip", "hostIp") || json["ip"],
-      hostname: json["hostname"],
-      mac: json["mac"]
-    )
+    src_endpoint =
+      OCSF.build_network_endpoint(
+        ip: FieldParser.get_field(json, "host_ip", "hostIp") || json["ip"],
+        hostname: json["hostname"],
+        mac: json["mac"]
+      )
 
     # Build observables from scan results
     observables = build_scan_observables(json)
@@ -281,10 +286,11 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       status_detail: nil,
 
       # OCSF Metadata
-      metadata: OCSF.build_metadata(
-        product_name: "NetworkSweeper",
-        correlation_uid: nats_metadata[:subject]
-      ),
+      metadata:
+        OCSF.build_metadata(
+          product_name: "NetworkSweeper",
+          correlation_uid: nats_metadata[:subject]
+        ),
 
       # Observables
       observables: observables,
@@ -313,15 +319,14 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       duration: FieldParser.get_field(json, "icmp_response_time_ns", "icmpResponseTimeNs"),
 
       # Device (the gateway that performed the sweep)
-      device: OCSF.build_device(
-        name: FieldParser.get_field(json, "gateway_id", "gatewayId")
-      ),
+      device: OCSF.build_device(name: FieldParser.get_field(json, "gateway_id", "gatewayId")),
 
       # Actor (the agent)
-      actor: OCSF.build_actor(
-        app_name: "ServiceRadar Agent",
-        app_ver: "1.0.0"
-      ),
+      actor:
+        OCSF.build_actor(
+          app_name: "ServiceRadar Agent",
+          app_ver: "1.0.0"
+        ),
 
       # Scan-specific fields
       scan_type: "network_discovery",
@@ -388,29 +393,37 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   end
 
   defp parse_port_results(json) do
-    scanned = FieldParser.encode_jsonb(FieldParser.get_field(json, "tcp_ports_scanned", "tcpPortsScanned"))
+    scanned =
+      FieldParser.encode_jsonb(
+        FieldParser.get_field(json, "tcp_ports_scanned", "tcpPortsScanned")
+      )
+
     open = FieldParser.encode_jsonb(FieldParser.get_field(json, "tcp_ports_open", "tcpPortsOpen"))
 
-    scanned_list = case scanned do
-      list when is_list(list) -> Enum.map(list, &to_integer/1) |> Enum.reject(&is_nil/1)
-      _ -> []
-    end
+    scanned_list =
+      case scanned do
+        list when is_list(list) -> Enum.map(list, &to_integer/1) |> Enum.reject(&is_nil/1)
+        _ -> []
+      end
 
-    open_list = case open do
-      list when is_list(list) -> Enum.map(list, &to_integer/1) |> Enum.reject(&is_nil/1)
-      _ -> []
-    end
+    open_list =
+      case open do
+        list when is_list(list) -> Enum.map(list, &to_integer/1) |> Enum.reject(&is_nil/1)
+        _ -> []
+      end
 
     {scanned_list, open_list}
   end
 
   defp to_integer(val) when is_integer(val), do: val
+
   defp to_integer(val) when is_binary(val) do
     case Integer.parse(val) do
       {int, _} -> int
       :error -> nil
     end
   end
+
   defp to_integer(_), do: nil
 
   defp extract_unmapped(json) do

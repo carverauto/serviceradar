@@ -27,17 +27,24 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
 
     assert {:ok, _device} =
              Device
-             |> Ash.Changeset.for_create(:create, %{uid: uid, ip: "216.17.46.98", hostname: "tonka01"})
+             |> Ash.Changeset.for_create(:create, %{
+               uid: uid,
+               ip: "216.17.46.98",
+               hostname: "tonka01"
+             })
              |> Ash.create(actor: actor)
 
     assert {:ok, alias_state} =
-             DeviceAliasState.create_detected(%{
-               device_id: uid,
-               partition: "default",
-               alias_type: :ip,
-               alias_value: "192.168.10.1",
-               metadata: %{}
-             }, actor: actor)
+             DeviceAliasState.create_detected(
+               %{
+                 device_id: uid,
+                 partition: "default",
+                 alias_type: :ip,
+                 alias_value: "192.168.10.1",
+                 metadata: %{}
+               },
+               actor: actor
+             )
 
     assert {:ok, _confirmed} =
              DeviceAliasState.record_sighting(

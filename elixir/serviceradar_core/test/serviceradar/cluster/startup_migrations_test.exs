@@ -40,22 +40,19 @@ defmodule ServiceRadar.Cluster.StartupMigrationsTest do
       Agent.update(tracker, fn state ->
         Map.update!(state, :run, fn value -> value + 1 end)
       end)
+
       :ok
     end
 
     assert :ok =
-             StartupMigrations.run!(
-               migrations: migrations_fun
-             )
+             StartupMigrations.run!(migrations: migrations_fun)
 
     assert %{run: 1} = Agent.get(tracker, & &1)
   end
 
   test "run! fails fast when a migration hook raises" do
     assert_raise RuntimeError, "boom", fn ->
-      StartupMigrations.run!(
-        migrations: fn -> raise "boom" end
-      )
+      StartupMigrations.run!(migrations: fn -> raise "boom" end)
     end
   end
 end

@@ -259,12 +259,14 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp present_id?(value) when is_binary(value), do: value != ""
   defp present_id?(_value), do: false
+
   defp deterministic_execution_id(sweep_group_id, last_sweep_time)
        when is_binary(sweep_group_id) and sweep_group_id != "" and
               is_binary(last_sweep_time) and last_sweep_time != "" do
     hash = :crypto.hash(:md5, "#{sweep_group_id}:#{last_sweep_time}")
 
-    <<a::binary-size(8), b::binary-size(4), c::binary-size(4), d::binary-size(4), e::binary-size(12)>> =
+    <<a::binary-size(8), b::binary-size(4), c::binary-size(4), d::binary-size(4),
+      e::binary-size(12)>> =
       Base.encode16(hash, case: :lower)
 
     Enum.join([a, b, c, d, e], "-")

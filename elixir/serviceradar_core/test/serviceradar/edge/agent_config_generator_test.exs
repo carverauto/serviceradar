@@ -42,19 +42,25 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert config.config_timestamp > 0
     end
 
-    test "generates config with checks", %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
+    test "generates config with checks", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
       # Create a service check for this agent (enabled by default)
       {:ok, _check} =
         ServiceCheck
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Test HTTP Check #{unique_id}",
-          check_type: :http,
-          target: "https://example.com",
-          port: 443,
-          interval_seconds: 60,
-          timeout_seconds: 10,
-          agent_uid: agent_uid
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Test HTTP Check #{unique_id}",
+            check_type: :http,
+            target: "https://example.com",
+            port: 443,
+            interval_seconds: 60,
+            timeout_seconds: 10,
+            agent_uid: agent_uid
+          }, actor: actor)
         |> Ash.create()
 
       {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
@@ -74,25 +80,29 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       # Create enabled check (enabled by default)
       {:ok, _enabled} =
         ServiceCheck
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Enabled Check #{unique_id}",
-          check_type: :tcp,
-          target: "10.0.0.1",
-          port: 22,
-          agent_uid: agent_uid
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Enabled Check #{unique_id}",
+            check_type: :tcp,
+            target: "10.0.0.1",
+            port: 22,
+            agent_uid: agent_uid
+          }, actor: actor)
         |> Ash.create()
 
       # Create check then disable it
       {:ok, disabled_check} =
         ServiceCheck
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Disabled Check #{unique_id}",
-          check_type: :tcp,
-          target: "10.0.0.2",
-          port: 22,
-          agent_uid: agent_uid
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Disabled Check #{unique_id}",
+            check_type: :tcp,
+            target: "10.0.0.2",
+            port: 22,
+            agent_uid: agent_uid
+          }, actor: actor)
         |> Ash.create()
 
       # Disable the check
@@ -199,19 +209,25 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert config1.config_version == config2.config_version
     end
 
-    test "different checks produce different version hash", %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
+    test "different checks produce different version hash", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
       # Get initial config
       {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
 
       # Add a check (enabled by default)
       {:ok, _check} =
         ServiceCheck
-        |> Ash.Changeset.for_create(:create, %{
-          name: "New Check #{unique_id}",
-          check_type: :ping,
-          target: "10.0.0.100",
-          agent_uid: agent_uid
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "New Check #{unique_id}",
+            check_type: :ping,
+            target: "10.0.0.100",
+            agent_uid: agent_uid
+          }, actor: actor)
         |> Ash.create()
 
       # Get config again
@@ -290,13 +306,15 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       # Create sweep group in default partition
       {:ok, _group} =
         SweepGroup
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Default Sweep Group #{unique_id}",
-          partition: "default",
-          interval: "15m",
-          static_targets: ["10.0.0.1"],
-          enabled: true
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Default Sweep Group #{unique_id}",
+            partition: "default",
+            interval: "15m",
+            static_targets: ["10.0.0.1"],
+            enabled: true
+          }, actor: actor)
         |> Ash.create()
 
       ConfigServer.invalidate(:sweep)
@@ -321,36 +339,41 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       partition = "test-partition-#{unique_id}"
 
       # Register agent with specific partition
-      {:ok, _pid} = AgentRegistry.register_agent(agent_uid, %{
-        partition_id: partition,
-        grpc_host: "127.0.0.1",
-        grpc_port: 50_051,
-        capabilities: [:sweep],
-        status: :connected
-      })
+      {:ok, _pid} =
+        AgentRegistry.register_agent(agent_uid, %{
+          partition_id: partition,
+          grpc_host: "127.0.0.1",
+          grpc_port: 50_051,
+          capabilities: [:sweep],
+          status: :connected
+        })
 
       # Create sweep group in agent's partition
       {:ok, _partition_group} =
         SweepGroup
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Partition Sweep Group #{unique_id}",
-          partition: partition,
-          interval: "15m",
-          static_targets: ["192.168.1.0/24"],
-          enabled: true
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Partition Sweep Group #{unique_id}",
+            partition: partition,
+            interval: "15m",
+            static_targets: ["192.168.1.0/24"],
+            enabled: true
+          }, actor: actor)
         |> Ash.create()
 
       # Create sweep group in default partition (should NOT be included)
       {:ok, _default_group} =
         SweepGroup
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Default Partition Group #{unique_id}",
-          partition: "default",
-          interval: "15m",
-          static_targets: ["10.0.0.1"],
-          enabled: true
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Default Partition Group #{unique_id}",
+            partition: "default",
+            interval: "15m",
+            static_targets: ["10.0.0.1"],
+            enabled: true
+          }, actor: actor)
         |> Ash.create()
 
       ConfigServer.invalidate(:sweep)
@@ -379,24 +402,28 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       # Create device that matches criteria
       {:ok, device} =
         ServiceRadar.Inventory.Device
-        |> Ash.Changeset.for_create(:create, %{
-          uid: "sweep-target-device-#{unique_id}",
-          ip: "10.100.50.25",
-          hostname: "target-server",
-          tags: %{"env" => "prod", "tier" => "1"}
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "sweep-target-device-#{unique_id}",
+            ip: "10.100.50.25",
+            hostname: "target-server",
+            tags: %{"env" => "prod", "tier" => "1"}
+          }, actor: actor)
         |> Ash.create()
 
       # Create sweep group with SRQL targeting
       {:ok, _group} =
         SweepGroup
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Criteria Sweep Group #{unique_id}",
-          partition: "default",
-          interval: "15m",
-          target_query: "in:devices ip:10.100.0.0/16 tags.env:prod",
-          enabled: true
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Criteria Sweep Group #{unique_id}",
+            partition: "default",
+            interval: "15m",
+            target_query: "in:devices ip:10.100.0.0/16 tags.env:prod",
+            enabled: true
+          }, actor: actor)
         |> Ash.create()
 
       ConfigServer.invalidate(:sweep)
@@ -405,9 +432,10 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       payload = Jason.decode!(config.config_json)
 
       if payload["sweep"]["groups"] do
-        group = Enum.find(payload["sweep"]["groups"], fn g ->
-          g["name"] == "Criteria Sweep Group #{unique_id}"
-        end)
+        group =
+          Enum.find(payload["sweep"]["groups"], fn g ->
+            g["name"] == "Criteria Sweep Group #{unique_id}"
+          end)
 
         if group do
           # Device IP should be in targets
@@ -424,14 +452,16 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, group} =
         SweepGroup
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Version Test Sweep #{unique_id}",
-          partition: "default",
-          interval: "15m",
-          target_query: "in:devices ip:10.0.0.0/8",
-          static_targets: ["192.168.1.1"],
-          enabled: true
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Version Test Sweep #{unique_id}",
+            partition: "default",
+            interval: "15m",
+            target_query: "in:devices ip:10.0.0.0/8",
+            static_targets: ["192.168.1.1"],
+            enabled: true
+          }, actor: actor)
         |> Ash.create()
 
       ConfigServer.invalidate(:sweep)
@@ -465,27 +495,31 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       # Create agent-specific sweep group
       {:ok, _group} =
         SweepGroup
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Agent Specific Sweep #{unique_id}",
-          partition: "default",
-          agent_id: agent_uid,
-          interval: "15m",
-          static_targets: ["10.0.99.1"],
-          enabled: true
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Agent Specific Sweep #{unique_id}",
+            partition: "default",
+            agent_id: agent_uid,
+            interval: "15m",
+            static_targets: ["10.0.99.1"],
+            enabled: true
+          }, actor: actor)
         |> Ash.create()
 
       # Create partition-wide sweep group
       {:ok, _partition_group} =
         SweepGroup
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Partition Wide Sweep #{unique_id}",
-          partition: "default",
-          agent_id: nil,
-          interval: "15m",
-          static_targets: ["10.0.1.1"],
-          enabled: true
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Partition Wide Sweep #{unique_id}",
+            partition: "default",
+            agent_id: nil,
+            interval: "15m",
+            static_targets: ["10.0.1.1"],
+            enabled: true
+          }, actor: actor)
         |> Ash.create()
 
       ConfigServer.invalidate(:sweep)

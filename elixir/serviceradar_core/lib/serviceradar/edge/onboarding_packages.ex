@@ -450,7 +450,12 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   """
   @spec generate_component_certificate(String.t(), atom(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def generate_component_certificate(_component_id, _component_type, _partition_id \\ "default", _opts \\ []) do
+  def generate_component_certificate(
+        _component_id,
+        _component_type,
+        _partition_id \\ "default",
+        _opts \\ []
+      ) do
     # In single-deployment mode, certificate generation is handled by
     # external infrastructure (SPIFFE/SPIRE, cert-manager)
     {:error, :ca_not_available}
@@ -481,19 +486,20 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     component_type = attrs[:component_type] || :gateway
 
     # Generate component certificate
-    with {:ok, cert_data} <- generate_component_certificate(
-           component_id,
-           component_type,
-           partition_id,
-           validity_days: cert_validity
-         ) do
-
+    with {:ok, cert_data} <-
+           generate_component_certificate(
+             component_id,
+             component_type,
+             partition_id,
+             validity_days: cert_validity
+           ) do
       # Build the bundle (cert + key + CA chain in a single PEM)
       bundle_pem = build_certificate_bundle(cert_data)
       bundle_ciphertext = Crypto.encrypt(bundle_pem)
 
       # Add the SPIFFE ID to the package
-      attrs_with_cert = attrs
+      attrs_with_cert =
+        attrs
         |> Map.put(:component_id, component_id)
         |> Map.put(:downstream_spiffe_id, cert_data.spiffe_id)
 
@@ -502,17 +508,23 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
         {:ok, result} ->
           # Update with the certificate bundle using system actor
           actor = SystemActor.system(:onboarding_packages)
-          updated = result.package
-            |> Ash.Changeset.for_update(:update_tokens, %{
-              bundle_ciphertext: bundle_ciphertext,
-              downstream_spiffe_id: cert_data.spiffe_id
-            }, actor: actor)
+
+          updated =
+            result.package
+            |> Ash.Changeset.for_update(
+              :update_tokens,
+              %{
+                bundle_ciphertext: bundle_ciphertext,
+                downstream_spiffe_id: cert_data.spiffe_id
+              }, actor: actor)
             |> Ash.update!()
 
-          {:ok, Map.put(result, :package, updated)
-                |> Map.put(:certificate_data, cert_data)}
+          {:ok,
+           Map.put(result, :package, updated)
+           |> Map.put(:certificate_data, cert_data)}
 
-        error -> error
+        error ->
+          error
       end
     end
   end

@@ -117,17 +117,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
             {:ok, device_uid}
 
           {:error, reason} ->
-            Logger.warning(
-              "Failed to upsert device for agent #{agent_id}: #{inspect(reason)}"
-            )
+            Logger.warning("Failed to upsert device for agent #{agent_id}: #{inspect(reason)}")
 
             {:error, reason}
         end
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to resolve device ID for agent #{agent_id}: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to resolve device ID for agent #{agent_id}: #{inspect(reason)}")
 
         {:error, reason}
     end

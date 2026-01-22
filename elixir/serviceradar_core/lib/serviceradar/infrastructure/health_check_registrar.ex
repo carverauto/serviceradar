@@ -102,11 +102,13 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
   def init(opts) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
-    health_interval = Keyword.get(opts, :health_interval) ||
-                      Keyword.get(config, :health_interval, @default_health_interval)
+    health_interval =
+      Keyword.get(opts, :health_interval) ||
+        Keyword.get(config, :health_interval, @default_health_interval)
 
-    results_interval = Keyword.get(opts, :results_interval) ||
-                       Keyword.get(config, :results_interval, @default_results_interval)
+    results_interval =
+      Keyword.get(opts, :results_interval) ||
+        Keyword.get(config, :results_interval, @default_results_interval)
 
     state = %__MODULE__{
       health_interval: health_interval,
@@ -141,10 +143,11 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
       health_interval: state.health_interval,
       results_interval: state.results_interval,
       registered_agents: Map.keys(state.registered_services),
-      total_services: state.registered_services
-                      |> Map.values()
-                      |> List.flatten()
-                      |> length()
+      total_services:
+        state.registered_services
+        |> Map.values()
+        |> List.flatten()
+        |> length()
     }
 
     {:reply, {:ok, status}, state}

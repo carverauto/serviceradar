@@ -34,7 +34,9 @@ defmodule ServiceRadar.StatusHandler do
     )
 
     case process(status) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Status update processing failed: #{inspect(reason)}")
     end

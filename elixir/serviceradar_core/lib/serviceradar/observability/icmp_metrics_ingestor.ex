@@ -185,15 +185,20 @@ defmodule ServiceRadar.Observability.IcmpMetricsIngestor do
 
   defp fetch_float(map, keys) do
     case fetch_value(map, keys) do
-      value when is_float(value) -> value
-      value when is_integer(value) -> value / 1
+      value when is_float(value) ->
+        value
+
+      value when is_integer(value) ->
+        value / 1
+
       value when is_binary(value) ->
         case Float.parse(value) do
           {parsed, _} -> parsed
           :error -> nil
         end
 
-      _ -> nil
+      _ ->
+        nil
     end
   end
 

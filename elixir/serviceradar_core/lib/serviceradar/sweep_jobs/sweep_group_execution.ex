@@ -242,6 +242,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       allow_nil? true
       public? true
       default %{}
+
       description """
       Scanner performance metrics from the agent.
       Contains: packets_sent, packets_recv, packets_dropped, ring_blocks_processed,
@@ -268,12 +269,14 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
   end
 
   calculations do
-    calculate :success_rate, :float, expr(
-      if hosts_total > 0 do
-        hosts_available * 100.0 / hosts_total
-      else
-        0.0
-      end
-    )
+    calculate :success_rate,
+              :float,
+              expr(
+                if hosts_total > 0 do
+                  hosts_available * 100.0 / hosts_total
+                else
+                  0.0
+                end
+              )
   end
 end

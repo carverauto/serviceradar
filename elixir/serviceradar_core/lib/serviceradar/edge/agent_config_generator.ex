@@ -91,7 +91,17 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         mapper_config = load_mapper_config(agent_id)
         sysmon_config = load_sysmon_config(agent_id)
         dusk_config = load_dusk_config(agent_id)
-        config = build_config(checks, sync_payload, sweep_config, mapper_config, sysmon_config, dusk_config)
+
+        config =
+          build_config(
+            checks,
+            sync_payload,
+            sweep_config,
+            mapper_config,
+            sysmon_config,
+            dusk_config
+          )
+
         {:ok, config}
 
       {:error, reason} ->
@@ -221,6 +231,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
     # Extract settings from the config map
     raw_settings = Map.merge(check.config || %{}, check.metadata || %{})
+
     settings =
       raw_settings
       |> stringify_keys()
@@ -280,12 +291,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
 
     # Serialize deterministically for hashing (works for any Erlang term).
-    bin = :erlang.term_to_binary(%{
-      checks: sorted_checks,
-      sync: sync_payload,
-      sysmon: sysmon_config,
-      dusk: dusk_config
-    })
+    bin =
+      :erlang.term_to_binary(%{
+        checks: sorted_checks,
+        sync: sync_payload,
+        sysmon: sysmon_config,
+        dusk: dusk_config
+      })
 
     # Compute SHA256 hash
     hash = :crypto.hash(:sha256, bin)
@@ -378,7 +390,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     case AgentRegistry.lookup(agent_id) do
       [{_pid, metadata}] ->
         partition = metadata[:partition_id] || "default"
-        Logger.debug("AgentConfigGenerator: resolved partition=#{partition} for agent #{agent_id}")
+
+        Logger.debug(
+          "AgentConfigGenerator: resolved partition=#{partition} for agent #{agent_id}"
+        )
+
         partition
 
       [] ->
@@ -413,9 +429,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         SysmonCompiler.default_config()
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to load sysmon config for agent #{agent_id}: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to load sysmon config for agent #{agent_id}: #{inspect(reason)}")
 
         SysmonCompiler.default_config()
     end
@@ -461,9 +475,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         DuskCompiler.default_config()
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to load dusk config for agent #{agent_id}: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to load dusk config for agent #{agent_id}: #{inspect(reason)}")
 
         DuskCompiler.default_config()
     end

@@ -49,5 +49,4 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
         :ok
     end
   end
-
 end

@@ -114,16 +114,18 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
     protocol_name = OCSF.protocol_name(protocol_num)
 
     # Build source endpoint
-    src_endpoint = OCSF.build_network_endpoint(
-      ip: FieldParser.get_field(json, "src_addr", "srcAddr") || json["sourceAddress"],
-      port: FieldParser.get_field(json, "src_port", "srcPort") || json["sourcePort"]
-    )
+    src_endpoint =
+      OCSF.build_network_endpoint(
+        ip: FieldParser.get_field(json, "src_addr", "srcAddr") || json["sourceAddress"],
+        port: FieldParser.get_field(json, "src_port", "srcPort") || json["sourcePort"]
+      )
 
     # Build destination endpoint
-    dst_endpoint = OCSF.build_network_endpoint(
-      ip: FieldParser.get_field(json, "dst_addr", "dstAddr") || json["destinationAddress"],
-      port: FieldParser.get_field(json, "dst_port", "dstPort") || json["destinationPort"]
-    )
+    dst_endpoint =
+      OCSF.build_network_endpoint(
+        ip: FieldParser.get_field(json, "dst_addr", "dstAddr") || json["destinationAddress"],
+        port: FieldParser.get_field(json, "dst_port", "dstPort") || json["destinationPort"]
+      )
 
     # Build traffic statistics
     traffic = build_traffic_stats(json)
@@ -162,10 +164,11 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       status_detail: nil,
 
       # OCSF Metadata
-      metadata: OCSF.build_metadata(
-        product_name: "NetFlowCollector",
-        correlation_uid: nats_metadata[:subject]
-      ),
+      metadata:
+        OCSF.build_metadata(
+          product_name: "NetFlowCollector",
+          correlation_uid: nats_metadata[:subject]
+        ),
 
       # Observables
       observables: observables,
@@ -196,16 +199,18 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       duration: nil,
 
       # Device (the flow exporter/router)
-      device: OCSF.build_device(
-        uid: FieldParser.get_field(json, "device_id", "deviceId"),
-        name: FieldParser.get_field(json, "device_id", "deviceId")
-      ),
+      device:
+        OCSF.build_device(
+          uid: FieldParser.get_field(json, "device_id", "deviceId"),
+          name: FieldParser.get_field(json, "device_id", "deviceId")
+        ),
 
       # Actor (the gateway/collector)
-      actor: OCSF.build_actor(
-        app_name: "ServiceRadar NetFlow Collector",
-        app_ver: "1.0.0"
-      ),
+      actor:
+        OCSF.build_actor(
+          app_name: "ServiceRadar NetFlow Collector",
+          app_ver: "1.0.0"
+        ),
 
       # Scan-specific fields (not applicable for NetFlow)
       scan_type: nil,
@@ -275,12 +280,15 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1_000_000_000 do
     "#{Float.round(bytes / 1_000_000_000, 2)} GB"
   end
+
   defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1_000_000 do
     "#{Float.round(bytes / 1_000_000, 2)} MB"
   end
+
   defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1_000 do
     "#{Float.round(bytes / 1_000, 2)} KB"
   end
+
   defp format_bytes(bytes) when is_integer(bytes), do: "#{bytes} B"
   defp format_bytes(_), do: "0 B"
 

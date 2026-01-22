@@ -137,9 +137,7 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   calculations do
     calculate :error_rate,
               :float,
-              expr(
-                if(span_count == 0, do: 0.0, else: error_count * 100.0 / span_count)
-              )
+              expr(if(span_count == 0, do: 0.0, else: error_count * 100.0 / span_count))
 
     calculate :has_errors, :boolean, expr(error_count > 0)
   end

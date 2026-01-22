@@ -33,6 +33,18 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     repo ServiceRadar.Repo
   end
 
+  state_machine do
+    initial_states [:idle]
+    default_initial_state :idle
+    state_attribute :sync_status
+
+    transitions do
+      transition :sync_start, from: [:idle, :success, :failed], to: :running
+      transition :sync_success, from: :running, to: :success
+      transition :sync_failed, from: :running, to: :failed
+    end
+  end
+
   cloak do
     vault(ServiceRadar.Vault)
     # Encrypt the entire credentials map as JSON
@@ -44,18 +56,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_enabled, action: :enabled
     define :list_by_type, action: :by_type, args: [:source_type]
-  end
-
-  state_machine do
-    initial_states [:idle]
-    default_initial_state :idle
-    state_attribute :sync_status
-
-    transitions do
-      transition :sync_start, from: [:idle, :success, :failed], to: :running
-      transition :sync_success, from: :running, to: :success
-      transition :sync_failed, from: :running, to: :failed
-    end
   end
 
   actions do
@@ -514,8 +514,12 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     |> Ash.Query.limit(1)
     |> Ash.read(actor: actor)
     |> case do
-      {:ok, %Ash.Page.Keyset{results: results}} when results != [] -> changeset
-      {:ok, results} when is_list(results) and results != [] -> changeset
+      {:ok, %Ash.Page.Keyset{results: results}} when results != [] ->
+        changeset
+
+      {:ok, results} when is_list(results) and results != [] ->
+        changeset
+
       _ ->
         Ash.Changeset.add_error(changeset,
           field: :agent_id,

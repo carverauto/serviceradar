@@ -9,12 +9,7 @@ defmodule ServiceRadar.NetworkDiscovery do
   use Ash.Domain, extensions: [AshAdmin.Domain]
 
   admin do
-    show? true
-  end
-
-  authorization do
-    require_actor? false
-    authorize :by_default
+    show?(true)
   end
 
   resources do
@@ -23,5 +18,10 @@ defmodule ServiceRadar.NetworkDiscovery do
     resource ServiceRadar.NetworkDiscovery.MapperSNMPCredential
     resource ServiceRadar.NetworkDiscovery.MapperUnifiController
     resource ServiceRadar.NetworkDiscovery.TopologyLink
+  end
+
+  authorization do
+    require_actor? false
+    authorize :by_default
   end
 end

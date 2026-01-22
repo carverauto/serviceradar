@@ -292,5 +292,4 @@ defmodule ServiceRadar.ClusterHealth do
     all_nodes = [Node.self() | Node.list()]
     Logger.debug("Cluster has #{length(all_nodes)} nodes - ProcessRegistry syncs automatically")
   end
-
 end

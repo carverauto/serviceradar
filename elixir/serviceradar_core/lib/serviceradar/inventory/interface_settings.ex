@@ -55,6 +55,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :favorited,
         :metrics_enabled,
         :metrics_selected,
+        :metric_thresholds,
         :metrics_interval_seconds,
         :threshold_enabled,
         :threshold_value,
@@ -71,6 +72,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :favorited,
         :metrics_enabled,
         :metrics_selected,
+        :metric_thresholds,
         :metrics_interval_seconds,
         :threshold_enabled,
         :threshold_value,
@@ -94,6 +96,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :favorited,
         :metrics_enabled,
         :metrics_selected,
+        :metric_thresholds,
         :metrics_interval_seconds,
         :threshold_enabled,
         :threshold_value,
@@ -107,6 +110,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
       change set_attribute(:device_id, arg(:device_id))
       change set_attribute(:interface_uid, arg(:interface_uid))
       change ServiceRadar.Inventory.Changes.ScheduleThresholdEvaluator
+      change ServiceRadar.Inventory.Changes.SyncMetricEventRules
     end
 
     update :toggle_favorite do
@@ -245,6 +249,11 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     attribute :metrics_selected, {:array, :string} do
       default []
       description "Selected interface metrics to collect"
+    end
+
+    attribute :metric_thresholds, :map do
+      default %{}
+      description "Per-metric threshold settings keyed by metric name"
     end
 
     attribute :metrics_interval_seconds, :integer do

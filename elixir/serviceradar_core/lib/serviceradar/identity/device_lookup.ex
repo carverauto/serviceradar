@@ -246,9 +246,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         {:halt, %{found: true, record: record, matched_key: key, resolved_via: "db"}}
 
       {:error, reason} ->
-        Logger.debug(
-          "Identity lookup failed for #{key.kind}:#{key.value}: #{inspect(reason)}"
-        )
+        Logger.debug("Identity lookup failed for #{key.kind}:#{key.value}: #{inspect(reason)}")
 
         {:cont, %{found: false, record: nil, matched_key: nil, resolved_via: "error"}}
     end
@@ -409,7 +407,9 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp read_alias_states(ips, partition, query_opts) do
     DeviceAliasState
-    |> Ash.Query.filter(alias_type == :ip and alias_value in ^ips and state in [:confirmed, :updated])
+    |> Ash.Query.filter(
+      alias_type == :ip and alias_value in ^ips and state in [:confirmed, :updated]
+    )
     |> maybe_filter_alias_partition(partition)
     |> Ash.read(query_opts)
   end

@@ -78,7 +78,9 @@ defmodule ServiceRadar.Jobs.JobScheduleSeeder do
     changeset = Ash.Changeset.for_create(JobSchedule, :create, attrs, opts)
 
     case Ash.create(changeset) do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Failed to seed job schedule #{attrs.job_key}: #{inspect(reason)}")
     end

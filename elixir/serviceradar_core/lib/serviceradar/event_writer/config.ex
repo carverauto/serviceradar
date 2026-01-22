@@ -160,6 +160,7 @@ defmodule ServiceRadar.EventWriter.Config do
 
     # Check for NATS URL environment variable
     {host, port} = parse_nats_url()
+
     creds_file =
       System.get_env("EVENT_WRITER_NATS_CREDS_FILE") ||
         resolve_value(Keyword.get(nats_config, :creds_file))

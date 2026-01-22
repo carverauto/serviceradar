@@ -26,18 +26,20 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   test "fires and resolves alerts based on bucketed counts", %{actor: actor} do
     {:ok, rule} =
       StatefulAlertRule
-      |> Ash.Changeset.for_create(:create, %{
-        name: "sync-failures",
-        enabled: true,
-        signal: :event,
-        match: %{"always" => true},
-        group_by: ["serviceradar.sync.integration_source_id"],
-        threshold: 2,
-        window_seconds: 120,
-        bucket_seconds: 60,
-        cooldown_seconds: 60,
-        renotify_seconds: 3600
-      }, actor: actor)
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "sync-failures",
+          enabled: true,
+          signal: :event,
+          match: %{"always" => true},
+          group_by: ["serviceradar.sync.integration_source_id"],
+          threshold: 2,
+          window_seconds: 120,
+          bucket_seconds: 60,
+          cooldown_seconds: 60,
+          renotify_seconds: 3600
+        }, actor: actor)
       |> Ash.create()
 
     base_time = DateTime.utc_now()

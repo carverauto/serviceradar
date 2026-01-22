@@ -3,7 +3,7 @@ defmodule Opentelemetry.Proto.Common.V1.AnyValue do
 
   use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
-  oneof :value, 0
+  oneof(:value, 0)
 
   field :string_value, 1, type: :string, json_name: "stringValue", oneof: 0
   field :bool_value, 2, type: :bool, json_name: "boolValue", oneof: 0

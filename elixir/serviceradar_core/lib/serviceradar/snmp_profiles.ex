@@ -28,12 +28,7 @@ defmodule ServiceRadar.SNMPProfiles do
   use Ash.Domain, extensions: [AshAdmin.Domain]
 
   admin do
-    show? true
-  end
-
-  authorization do
-    require_actor? false
-    authorize :by_default
+    show?(true)
   end
 
   resources do
@@ -41,5 +36,10 @@ defmodule ServiceRadar.SNMPProfiles do
     resource ServiceRadar.SNMPProfiles.SNMPTarget
     resource ServiceRadar.SNMPProfiles.SNMPOIDConfig
     resource ServiceRadar.SNMPProfiles.SNMPOIDTemplate
+  end
+
+  authorization do
+    require_actor? false
+    authorize :by_default
   end
 end
