@@ -44,7 +44,9 @@ defmodule ServiceRadar.StatusHandler do
     {:noreply, state}
   end
 
-  defp process(%{source: "results"} = status) do
+  defp process(%{source: source} = status)
+       when source in ["results", :results, "sysmon-metrics", :sysmon_metrics, "snmp-metrics",
+                       :snmp_metrics] do
     case Process.whereis(ResultsRouter) do
       pid when is_pid(pid) ->
         GenServer.cast(pid, {:results_update, status})

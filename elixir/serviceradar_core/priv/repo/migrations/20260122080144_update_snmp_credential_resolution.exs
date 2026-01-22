@@ -15,8 +15,7 @@ defmodule ServiceRadar.Repo.Migrations.UpdateSnmpCredentialResolution do
           references(:ocsf_devices,
             column: :uid,
             name: "device_snmp_credentials_device_id_fkey",
-            type: :text,
-            prefix: "public"
+            type: :text
           ), null: false
 
       add :version, :text, null: false, default: "v2c"

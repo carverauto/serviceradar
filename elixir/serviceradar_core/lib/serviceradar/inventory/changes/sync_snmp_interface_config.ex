@@ -161,13 +161,13 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
             name: interface_target_name(settings, interface, host),
             host: host,
             port: 161,
-            version: credential.version
+            version: credential.version,
+            snmp_profile_id: profile.id
           }
           |> Map.merge(credential_attrs(credential))
 
         SNMPTarget
         |> Ash.Changeset.for_create(:create, attrs, opts)
-        |> Ash.Changeset.set_argument(:snmp_profile_id, profile.id)
         |> Ash.create()
 
       {:error, reason} ->
@@ -474,9 +474,10 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
     case Ash.read_one(query, opts) do
       {:ok, nil} ->
+        create_attrs = Map.put(attrs, :snmp_target_id, target_id)
+
         SNMPOIDConfig
-        |> Ash.Changeset.for_create(:create, attrs, opts)
-        |> Ash.Changeset.set_argument(:snmp_target_id, target_id)
+        |> Ash.Changeset.for_create(:create, create_attrs, opts)
         |> Ash.create()
 
       {:ok, oid} ->

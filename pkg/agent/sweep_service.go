@@ -121,7 +121,7 @@ func (s *SweepService) UpdateConfig(config *models.Config) error {
 
 // GetStatus returns the current status of the sweep service (lightweight version without hosts).
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
-	s.logger.Info().Msg("Fetching sweep status")
+	s.logger.Debug().Msg("Fetching sweep status")
 
 	summary, err := s.sweeper.GetStatus(ctx)
 	if err != nil {
@@ -259,7 +259,7 @@ func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Resu
 
 // GetSweepResults returns sweep results with sequence tracking for change detection.
 func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string) (*proto.ResultsResponse, error) {
-	s.logger.Info().Str("lastSequence", lastSequence).Msg("GetSweepResults called")
+	s.logger.Debug().Str("lastSequence", lastSequence).Msg("GetSweepResults called")
 
 	summary, err := s.sweeper.GetStatus(ctx)
 	if err != nil {

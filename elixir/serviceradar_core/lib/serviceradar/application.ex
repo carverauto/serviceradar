@@ -49,9 +49,13 @@ defmodule ServiceRadar.Application do
   This ensures edge components remain stateless and can be deployed in untrusted networks.
   """
   use Application
+  require Logger
 
   @impl true
   def start(_type, _args) do
+    ensure_started(:telemetry)
+    ensure_started(:ash_state_machine)
+
     children =
       [
         # Encryption vault for AshCloak (must start before repo for encrypted field access)
@@ -140,6 +144,21 @@ defmodule ServiceRadar.Application do
 
     opts = [strategy: :one_for_one, name: ServiceRadar.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp ensure_started(app) do
+    case Application.ensure_all_started(app) do
+      {:ok, _} ->
+        :ok
+
+      {:error, {^app, reason}} ->
+        Logger.error("Failed to start #{app}: #{inspect(reason)}")
+        :error
+
+      {:error, reason} ->
+        Logger.error("Failed to start #{app}: #{inspect(reason)}")
+        :error
+    end
   end
 
   defp vault_child do

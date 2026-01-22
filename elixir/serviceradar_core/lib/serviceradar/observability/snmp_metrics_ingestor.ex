@@ -29,22 +29,29 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) or is_list(payload) do
     actor = SystemActor.system(:snmp_metrics_ingestor)
+    created_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     rows =
       payload
       |> normalize_results()
-      |> Enum.map(&build_metric_row(&1, status, actor))
+      |> Enum.map(&build_metric_row(&1, status, actor, created_at))
       |> Enum.reject(&is_nil/1)
 
     if rows == [] do
       :ok
     else
-      case Ash.bulk_create(TimeseriesMetric, rows, :create,
+      case Ash.bulk_create(rows, TimeseriesMetric, :create,
              actor: actor,
-             return_records?: false
+             domain: ServiceRadar.Observability,
+             return_records?: false,
+             return_errors?: true
            ) do
+        %Ash.BulkResult{status: :success} -> :ok
+        %Ash.BulkResult{status: :error, errors: errors} = result ->
+          {:error, errors || result}
         {:ok, _} -> :ok
         {:error, error} -> {:error, error}
+        other -> {:error, other}
       end
     end
   rescue
@@ -59,7 +66,7 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
   defp normalize_results(results) when is_list(results), do: results
   defp normalize_results(_), do: []
 
-  defp build_metric_row(result, status, actor) when is_map(result) do
+  defp build_metric_row(result, status, actor, created_at) when is_map(result) do
     host =
       fetch_string(result, [
         "target",
@@ -114,12 +121,13 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
         is_delta: delta,
         target_device_ip: host,
         if_index: if_index,
-        metadata: build_metadata(oid, data_type, interface_uid)
+        metadata: build_metadata(oid, data_type, interface_uid),
+        created_at: created_at
       }
     end
   end
 
-  defp build_metric_row(_result, _status, _actor), do: nil
+  defp build_metric_row(_result, _status, _actor, _created_at), do: nil
 
   defp resolve_device_id(nil, _status, _actor), do: nil
   defp resolve_device_id("", _status, _actor), do: nil

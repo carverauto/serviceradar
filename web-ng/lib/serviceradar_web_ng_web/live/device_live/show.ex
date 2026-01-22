@@ -673,16 +673,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       }
     else
       # Query SNMP metrics for the favorited interfaces
-      if_filter = Enum.map_join(favorited_if_indices, ",", &to_string/1)
+      {results, errors} =
+        Enum.reduce(favorited_if_indices, {[], []}, fn if_index, {acc, errs} ->
+          query =
+            "in:snmp_metrics uid:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
+              "time:last_24h bucket:5m agg:avg series:if_index limit:200"
 
-      query =
-        "in:snmp_metrics uid:\"#{escape_value(device_uid)}\" if_index:[#{if_filter}] " <>
-          "time:last_24h bucket:5m agg:avg series:if_index limit:200"
+          case srql_module.query(query, %{scope: scope}) do
+            {:ok, %{"results" => new_results}} when is_list(new_results) ->
+              {acc ++ new_results, errs}
 
-      case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => results} = resp} when is_list(results) and results != [] ->
-          srql_response = %{"results" => results, "viz" => Map.get(resp, "viz")}
-          panels = Engine.build_panels(srql_response)
+            {:error, reason} ->
+              {acc, [format_error(reason) | errs]}
+
+            _ ->
+              {acc, errs}
+          end
+        end)
+
+      cond do
+        results != [] ->
+          panels = Engine.build_panels(%{"results" => results})
 
           %{
             has_favorited: true,
@@ -691,7 +702,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             favorited_count: MapSet.size(favorited_uids)
           }
 
-        {:ok, %{"results" => []}} ->
+        errors != [] ->
+          %{
+            has_favorited: true,
+            panels: [],
+            error: "Failed to load metrics: #{Enum.join(Enum.uniq(errors), "; ")}",
+            favorited_count: MapSet.size(favorited_uids)
+          }
+
+        true ->
           %{
             has_favorited: true,
             panels: [],
@@ -699,23 +718,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             favorited_count: MapSet.size(favorited_uids),
             message:
               "No metrics data available yet. Ensure SNMP polling is configured for this device."
-          }
-
-        {:ok, _} ->
-          %{
-            has_favorited: true,
-            panels: [],
-            error: nil,
-            favorited_count: MapSet.size(favorited_uids),
-            message: "No metrics data available."
-          }
-
-        {:error, reason} ->
-          %{
-            has_favorited: true,
-            panels: [],
-            error: "Failed to load metrics: #{format_error(reason)}",
-            favorited_count: MapSet.size(favorited_uids)
           }
       end
     end

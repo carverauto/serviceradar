@@ -110,6 +110,8 @@ type PushLoop struct {
 	icmpChecks         map[string]*icmpCheckConfig
 	icmpLastRun        map[string]time.Time
 	icmpMu             sync.RWMutex
+	sysmonLastSent     time.Time
+	sysmonMu           sync.RWMutex
 	snmpLastSent       map[string]time.Time
 	snmpMu             sync.RWMutex
 
@@ -594,6 +596,47 @@ func (p *PushLoop) markSNMPMetricSent(key string, ts time.Time) {
 	p.snmpMu.Unlock()
 }
 
+func (p *PushLoop) shouldSendSysmon(sample *sysmon.MetricSample) bool {
+	ts, ok := parseSysmonSampleTimestamp(sample)
+	if !ok {
+		return true
+	}
+
+	p.sysmonMu.RLock()
+	last := p.sysmonLastSent
+	p.sysmonMu.RUnlock()
+
+	return ts.After(last)
+}
+
+func (p *PushLoop) markSysmonSent(sample *sysmon.MetricSample) {
+	ts, ok := parseSysmonSampleTimestamp(sample)
+	if !ok {
+		return
+	}
+
+	p.sysmonMu.Lock()
+	if ts.After(p.sysmonLastSent) {
+		p.sysmonLastSent = ts
+	}
+	p.sysmonMu.Unlock()
+}
+
+func parseSysmonSampleTimestamp(sample *sysmon.MetricSample) (time.Time, bool) {
+	if sample == nil || sample.Timestamp == "" {
+		return time.Time{}, false
+	}
+
+	if ts, err := time.Parse(time.RFC3339Nano, sample.Timestamp); err == nil {
+		return ts, true
+	}
+	if ts, err := time.Parse(time.RFC3339, sample.Timestamp); err == nil {
+		return ts, true
+	}
+
+	return time.Time{}, false
+}
+
 func parseSNMPMetricName(raw string) (string, string) {
 	if raw == "" {
 		return "", ""
@@ -1011,11 +1054,15 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 
 	// Collect from embedded sysmon service - separate from regular statuses
 	if sysmonSvc != nil && sysmonSvc.IsEnabled() {
-		status, err := sysmonSvc.GetStatus(ctx)
-		if err != nil {
-			p.logger.Warn().Err(err).Msg("Failed to get sysmon status")
-		} else if status != nil {
-			sysmonStatus = p.convertToSysmonGatewayStatus(status)
+		sample := sysmonSvc.GetLatestSample()
+		if sample == nil || p.shouldSendSysmon(sample) {
+			status, err := sysmonSvc.GetStatus(ctx)
+			if err != nil {
+				p.logger.Warn().Err(err).Msg("Failed to get sysmon status")
+			} else if status != nil {
+				sysmonStatus = p.convertToSysmonGatewayStatus(status)
+				p.markSysmonSent(sysmonSvc.GetLatestSample())
+			}
 		}
 	}
 

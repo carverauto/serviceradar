@@ -78,6 +78,7 @@ type SNMPAgentService struct {
 	logger    logger.Logger
 	started   bool
 	configDir string
+	baseCtx   context.Context
 
 	// Config refresh
 	configHash   string        // Hash of current config for change detection
@@ -86,8 +87,8 @@ type SNMPAgentService struct {
 	configSource string        // Source of current config (local/cache/default)
 
 	// Test support
-	testConfig     *snmp.SNMPConfig    // Override config for testing
-	serviceFactory SNMPServiceFactory  // Factory for creating SNMP services
+	testConfig     *snmp.SNMPConfig   // Override config for testing
+	serviceFactory SNMPServiceFactory // Factory for creating SNMP services
 }
 
 // SNMPServiceFactory creates SNMP services for the agent.
@@ -153,6 +154,10 @@ func (s *SNMPAgentService) Start(ctx context.Context) error {
 	if s.started {
 		return nil
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.baseCtx = ctx
 
 	// Use test config if provided (for fast test execution)
 	var config *snmp.SNMPConfig
@@ -191,7 +196,7 @@ func (s *SNMPAgentService) Start(ctx context.Context) error {
 	s.service = service
 
 	// Start the SNMP service
-	if err := service.Start(ctx); err != nil {
+	if err := service.Start(s.baseCtx); err != nil {
 		return fmt.Errorf("failed to start SNMP service: %w", err)
 	}
 
@@ -299,8 +304,8 @@ func (s *SNMPAgentService) GetStatus(ctx context.Context) (*proto.StatusResponse
 
 	// Build the response payload
 	payload := struct {
-		Available    bool                       `json:"available"`
-		ResponseTime int64                      `json:"response_time"`
+		Available    bool                         `json:"available"`
+		ResponseTime int64                        `json:"response_time"`
 		Targets      map[string]snmp.TargetStatus `json:"targets"`
 	}{
 		Available:    available,
@@ -606,6 +611,11 @@ func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *pr
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	serviceCtx := s.baseCtx
+	if serviceCtx == nil {
+		serviceCtx = context.Background()
+	}
+
 	// Handle disabled state
 	if !config.Enabled {
 		if s.service != nil {
@@ -633,7 +643,7 @@ func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *pr
 		return fmt.Errorf("failed to create SNMP service: %w", err)
 	}
 
-	if err := service.Start(ctx); err != nil {
+	if err := service.Start(serviceCtx); err != nil {
 		return fmt.Errorf("failed to start SNMP service: %w", err)
 	}
 

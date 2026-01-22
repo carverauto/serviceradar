@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   import ServiceRadarWebNGWeb.QueryBuilderComponents
 
   alias AshPhoenix.Form
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SNMPProfiles.BuiltinTemplates
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
@@ -117,13 +118,21 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       profile ->
         scope = socket.assigns.current_scope
 
+        target_query =
+          case profile.target_query do
+            nil -> if profile.is_default, do: "in:interfaces", else: nil
+            "" -> if profile.is_default, do: "in:interfaces", else: ""
+            other -> other
+          end
+
         ash_form =
           Form.for_update(profile, :update, domain: ServiceRadar.SNMPProfiles, scope: scope)
+          |> maybe_set_target_query(target_query)
 
-        device_count = count_target_devices(scope, profile.target_query)
+        device_count = count_target_devices(scope, target_query)
 
         # Parse the existing target_query into builder state if possible
-        {builder, builder_sync} = parse_target_query_to_builder(profile.target_query)
+        {builder, builder_sync} = parse_target_query_to_builder(target_query)
 
         # Load targets for this profile
         targets = load_profile_targets(scope, profile.id)
@@ -1553,71 +1562,70 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             Interface Targeting
           </h3>
 
-          <%= if @is_default do %>
-            <div class="bg-info/10 border border-info/30 rounded-lg p-4">
+          <div class="space-y-4">
+            <div :if={@is_default} class="bg-info/10 border border-info/30 rounded-lg p-4">
               <div class="flex items-start gap-3">
                 <.icon name="hero-information-circle" class="size-5 text-info shrink-0 mt-0.5" />
                 <div>
                   <p class="text-sm font-medium">Default Profile</p>
                   <p class="text-xs text-base-content/70 mt-1">
-                    This is the default profile for your account. It will be applied to all interfaces
-                    that don't match any other profile's targeting query.
+                    This profile acts as the fallback for any interfaces that don't match other profiles.
+                    You can still set a targeting query here to scope the default and preview counts.
                   </p>
                 </div>
               </div>
             </div>
-          <% else %>
-            <div class="space-y-4">
-              <!-- Query Input with Builder Toggle -->
-              <div>
-                <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
-                <div class="flex items-center gap-2">
-                  <div class="flex-1">
-                    <.input
-                      type="text"
-                      field={@form[:target_query]}
-                      class="input input-bordered w-full font-mono text-sm"
-                      placeholder="e.g., in:interfaces type:ethernet device.hostname:%router%"
-                    />
-                  </div>
-                  <.ui_icon_button
-                    active={@builder_open}
-                    aria-label="Toggle query builder"
-                    title="Query builder"
-                    phx-click="builder_toggle"
-                  >
-                    <.icon name="hero-adjustments-horizontal" class="size-4" />
-                  </.ui_icon_button>
-                </div>
-                <label class="label">
-                  <span class="label-text-alt text-base-content/50">
-                    SRQL filters to match interfaces. Examples: <code class="bg-base-200 px-1 rounded">type:ethernet</code>,
-                    <code class="bg-base-200 px-1 rounded">device.hostname:%router%</code>
-                  </span>
-                </label>
-              </div>
-              
-    <!-- Visual Query Builder -->
-              <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
-                <div class="flex items-center justify-between mb-4">
-                  <div class="text-sm font-semibold">Query Builder</div>
-                  <div class="flex items-center gap-2">
-                    <.ui_badge :if={not @builder_sync} size="sm">Not applied</.ui_badge>
-                    <.ui_button
-                      :if={not @builder_sync}
-                      size="sm"
-                      variant="ghost"
-                      type="button"
-                      phx-click="builder_apply"
-                    >
-                      Apply to query
-                    </.ui_button>
-                  </div>
-                </div>
 
-                <form phx-change="builder_change" autocomplete="off">
-                  <div class="flex flex-col gap-4">
-                    <!-- Filters Section -->
+            <!-- Query Input with Builder Toggle -->
+            <div>
+              <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
+              <div class="flex items-center gap-2">
+                <div class="flex-1">
+                  <.input
+                    type="text"
+                    field={@form[:target_query]}
+                    class="input input-bordered w-full font-mono text-sm"
+                    placeholder="e.g., in:interfaces type:ethernet device.hostname:%router%"
+                  />
+                </div>
+                <.ui_icon_button
+                  active={@builder_open}
+                  aria-label="Toggle query builder"
+                  title="Query builder"
+                  phx-click="builder_toggle"
+                >
+                  <.icon name="hero-adjustments-horizontal" class="size-4" />
+                </.ui_icon_button>
+              </div>
+              <label class="label">
+                <span class="label-text-alt text-base-content/50">
+                  SRQL filters to match interfaces. Examples: <code class="bg-base-200 px-1 rounded">type:ethernet</code>,
+                  <code class="bg-base-200 px-1 rounded">device.hostname:%router%</code>
+                </span>
+              </label>
+            </div>
+            
+    <!-- Visual Query Builder -->
+            <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
+              <div class="flex items-center justify-between mb-4">
+                <div class="text-sm font-semibold">Query Builder</div>
+                <div class="flex items-center gap-2">
+                  <.ui_badge :if={not @builder_sync} size="sm">Not applied</.ui_badge>
+                  <.ui_button
+                    :if={not @builder_sync}
+                    size="sm"
+                    variant="ghost"
+                    type="button"
+                    phx-click="builder_apply"
+                  >
+                    Apply to query
+                  </.ui_button>
+                </div>
+              </div>
+
+              <form phx-change="builder_change" autocomplete="off">
+                <div class="flex flex-col gap-4">
+                  <!-- Filters Section -->
                     <div class="flex flex-col gap-3">
                       <div class="text-xs text-base-content/60 font-medium">
                         Match interfaces where:
@@ -1727,9 +1735,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                 </div>
               </div>
             </div>
-          <% end %>
         </div>
-        
+
     <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
           <.link navigate={~p"/settings/snmp"}>
@@ -2797,12 +2804,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   defp count_target_devices(_scope, ""), do: nil
 
   defp count_target_devices(scope, target_query) when is_binary(target_query) do
-    # Parse the SRQL query and count matching interfaces
+    # Parse the SRQL query and count matching targets based on entity type
+    entity = extract_srql_entity(target_query)
+
     case ServiceRadarSRQL.Native.parse_ast(target_query) do
       {:ok, ast_json} ->
         case Jason.decode(ast_json) do
           {:ok, ast} ->
-            count_interfaces_from_ast(scope, ast)
+            case entity do
+              "devices" -> count_devices_from_ast(scope, ast)
+              "interfaces" -> count_interfaces_from_ast(scope, ast)
+              _ -> count_devices_from_ast(scope, ast)
+            end
 
           {:error, _} ->
             nil
@@ -2810,6 +2823,39 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
       {:error, _} ->
         nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp extract_srql_entity(query) when is_binary(query) do
+    query = String.trim(query)
+
+    case Regex.run(~r/^in:(\S+)/, query) do
+      [_, entity] -> String.downcase(entity)
+      _ -> "interfaces"
+    end
+  end
+
+  defp extract_srql_entity(_), do: "interfaces"
+
+  defp count_devices_from_ast(scope, ast) do
+    filters = extract_srql_filters(ast)
+
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{})
+      |> apply_device_filters(filters)
+
+    case query do
+      {:error, :unsupported_filter} ->
+        nil
+
+      query ->
+        case Ash.count(query, scope: scope) do
+          {:ok, count} -> count
+          _ -> nil
+        end
     end
   rescue
     _ -> nil
@@ -2830,6 +2876,42 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   rescue
     _ -> nil
   end
+
+  defp apply_device_filters(query, filters) do
+    Enum.reduce_while(filters, query, fn filter, q ->
+      case apply_device_filter(q, filter) do
+        {:ok, updated} -> {:cont, updated}
+        {:error, :unsupported_filter} -> {:halt, {:error, :unsupported_filter}}
+      end
+    end)
+  end
+
+  defp apply_device_filter(query, %{field: field, op: op, value: value}) when is_binary(field) do
+    case map_device_field(field) do
+      nil -> {:error, :unsupported_filter}
+      mapped_field -> {:ok, apply_field_filter(query, mapped_field, op, value)}
+    end
+  rescue
+    _ -> {:error, :unsupported_filter}
+  end
+
+  defp apply_device_filter(_query, _), do: {:error, :unsupported_filter}
+
+  @device_srql_field_mapping %{
+    "uid" => :uid,
+    "device_id" => :uid,
+    "hostname" => :hostname,
+    "name" => :name,
+    "ip" => :ip,
+    "gateway_id" => :gateway_id,
+    "agent_id" => :agent_id,
+    "vendor_name" => :vendor_name,
+    "model" => :model,
+    "type" => :type,
+    "type_id" => :type_id
+  }
+
+  defp map_device_field(field), do: Map.get(@device_srql_field_mapping, field)
 
   defp extract_srql_filters(%{"filters" => filters}) when is_list(filters) do
     Enum.map(filters, fn filter ->
@@ -3072,6 +3154,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   defp normalize_filter_field(nil, config), do: config.default_filter_field
   defp normalize_filter_field("", config), do: config.default_filter_field
   defp normalize_filter_field(field, _config), do: field
+
+  defp maybe_set_target_query(form, nil), do: form
+  defp maybe_set_target_query(form, ""), do: form
+
+  defp maybe_set_target_query(form, target_query) do
+    Form.validate(form, %{"target_query" => target_query})
+  end
 
   defp normalize_filter_op(op) when op in ["contains", "not_contains", "equals", "not_equals"],
     do: op
