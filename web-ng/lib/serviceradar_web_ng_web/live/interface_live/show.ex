@@ -1049,7 +1049,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     enabled and comparison not in ["", nil] and not is_nil(value)
   end
 
-  defp config_value(config, key, default \\ nil) when is_map(config) do
+  defp config_value(config, key, default \\ nil)
+
+  defp config_value(config, key, default) when is_map(config) do
     Map.get(config, key) || Map.get(config, Atom.to_string(key)) || default
   end
 
@@ -1098,6 +1100,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp parse_number(value) when is_number(value), do: value
   defp parse_number(_), do: nil
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil

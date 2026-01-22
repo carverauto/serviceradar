@@ -728,8 +728,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         details =
           [device_id, interface_uid, metric]
           |> Enum.reject(&is_nil/1)
-          |> Enum.map(&to_string/1)
-          |> Enum.join(" • ")
+          |> Enum.map_join(" • ", &to_string/1)
 
         if details == "", do: "metric rule", else: details
 
