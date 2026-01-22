@@ -54,6 +54,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :interface_uid,
         :favorited,
         :metrics_enabled,
+        :metrics_selected,
         :metrics_interval_seconds,
         :threshold_enabled,
         :threshold_value,
@@ -69,6 +70,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
       accept [
         :favorited,
         :metrics_enabled,
+        :metrics_selected,
         :metrics_interval_seconds,
         :threshold_enabled,
         :threshold_value,
@@ -91,6 +93,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
       accept [
         :favorited,
         :metrics_enabled,
+        :metrics_selected,
         :metrics_interval_seconds,
         :threshold_enabled,
         :threshold_value,
@@ -109,6 +112,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     update :toggle_favorite do
       description "Toggle the favorite status of an interface"
       require_atomic? false
+
       change fn changeset, _context ->
         current = Ash.Changeset.get_attribute(changeset, :favorited)
         Ash.Changeset.force_change_attribute(changeset, :favorited, !current)
@@ -137,6 +141,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
       description "Add tags to an interface (preserving existing)"
       argument :tags, {:array, :string}, allow_nil?: false
       require_atomic? false
+
       change fn changeset, _context ->
         current_tags = Ash.Changeset.get_attribute(changeset, :tags) || []
         new_tags = changeset.arguments.tags || []
@@ -237,6 +242,11 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
       description "Whether metrics collection is enabled for this interface"
     end
 
+    attribute :metrics_selected, {:array, :string} do
+      default []
+      description "Selected interface metrics to collect"
+    end
+
     attribute :metrics_interval_seconds, :integer do
       default 60
       description "Interval for metrics collection in seconds"
@@ -253,12 +263,12 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
 
     attribute :threshold_comparison, :atom do
       description "Comparison operator: gt, lt, gte, lte, eq"
-      constraints [one_of: [:gt, :lt, :gte, :lte, :eq]]
+      constraints one_of: [:gt, :lt, :gte, :lte, :eq]
     end
 
     attribute :threshold_metric, :atom do
       description "Metric to apply threshold to: bandwidth_in, bandwidth_out, utilization, errors"
-      constraints [one_of: [:bandwidth_in, :bandwidth_out, :utilization, :errors]]
+      constraints one_of: [:bandwidth_in, :bandwidth_out, :utilization, :errors]
     end
 
     attribute :threshold_duration_seconds, :integer do
@@ -269,7 +279,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     attribute :threshold_severity, :atom do
       default :warning
       description "Severity of alerts generated when threshold is exceeded"
-      constraints [one_of: [:info, :warning, :critical, :emergency]]
+      constraints one_of: [:info, :warning, :critical, :emergency]
     end
 
     attribute :tags, {:array, :string} do

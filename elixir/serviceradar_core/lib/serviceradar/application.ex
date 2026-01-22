@@ -120,9 +120,6 @@ defmodule ServiceRadar.Application do
         # Job schedule defaults
         job_schedule_seeder_child(),
 
-        # Mapper config migration from legacy KV storage
-        mapper_config_migrator_child(),
-
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
@@ -194,6 +191,7 @@ defmodule ServiceRadar.Application do
     oban_enabled =
       Application.get_env(:serviceradar_core, :oban_enabled, true) &&
         Application.get_env(:serviceradar_core, Oban)
+
     scheduler_enabled = Application.get_env(:serviceradar_core, :start_ash_oban_scheduler, false)
 
     if oban_enabled && scheduler_enabled do
@@ -307,14 +305,6 @@ defmodule ServiceRadar.Application do
     end
   end
 
-  defp mapper_config_migrator_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
-      ServiceRadar.NetworkDiscovery.MapperConfigMigratorWorker
-    else
-      nil
-    end
-  end
-
   defp datasvc_enabled? do
     # Check env var first, then app config
     case System.get_env("DATASVC_ENABLED") do
@@ -390,8 +380,7 @@ defmodule ServiceRadar.Application do
   defp health_check_runner_supervisor_child do
     if health_check_runner_enabled?() do
       {DynamicSupervisor,
-       name: ServiceRadar.Infrastructure.HealthCheckRunnerSupervisor,
-       strategy: :one_for_one}
+       name: ServiceRadar.Infrastructure.HealthCheckRunnerSupervisor, strategy: :one_for_one}
     else
       nil
     end
