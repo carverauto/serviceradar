@@ -221,7 +221,7 @@ func convertDeviceTargets(targets []gatewayDeviceTarget, log logger.Logger) []mo
 		// Normalize to CIDR if it's a plain IP
 		if !strings.Contains(network, "/") {
 			if ip := net.ParseIP(network); ip != nil {
-				network = network + "/32"
+				network += "/32"
 			} else {
 				log.Warn().Str("network", t.Network).Msg("Skipping invalid device target network")
 				continue
