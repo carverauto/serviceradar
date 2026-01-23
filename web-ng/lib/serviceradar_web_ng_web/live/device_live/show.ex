@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @metrics_limit 200
   @disk_panel_limit 6
   @process_limit 25
+  @process_query_limit 200
   @interfaces_limit 200
   @availability_window "last_24h"
   @availability_bucket "30m"
@@ -2734,7 +2735,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       "time:last_15m"
     ]
     |> Kernel.++(filter_tokens)
-    |> Kernel.++(["sort:cpu_usage:desc", "limit:#{@process_limit}"])
+    |> Kernel.++(["sort:timestamp:desc", "limit:#{@process_query_limit}"])
     |> Enum.join(" ")
   end
 
