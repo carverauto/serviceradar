@@ -121,6 +121,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     read :stale do
       description "Jobs that have been running too long"
+
       filter expr(
                status == :running and
                  started_at < ago(^arg(:timeout_minutes), :minute)

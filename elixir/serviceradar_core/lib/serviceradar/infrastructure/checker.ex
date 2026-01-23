@@ -138,7 +138,9 @@ defmodule ServiceRadar.Infrastructure.Checker do
 
       change transition_state(:paused)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :paused}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :checker, new_state: :paused}
     end
 
     update :resume do
@@ -147,7 +149,9 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change transition_state(:active)
       change set_attribute(:enabled, true)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :active}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :checker, new_state: :active}
     end
 
     update :mark_failing do
@@ -158,7 +162,9 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change set_attribute(:failure_reason, arg(:reason))
       change set_attribute(:last_failure, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :failing}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :checker, new_state: :failing}
     end
 
     update :clear_failure do
@@ -169,7 +175,9 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change set_attribute(:failure_reason, nil)
       change set_attribute(:last_success, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :active}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :checker, new_state: :active}
     end
 
     update :record_success do
@@ -191,7 +199,10 @@ defmodule ServiceRadar.Infrastructure.Checker do
 
         changeset
         |> Ash.Changeset.change_attribute(:consecutive_failures, current + 1)
-        |> Ash.Changeset.change_attribute(:failure_reason, Ash.Changeset.get_argument(changeset, :reason))
+        |> Ash.Changeset.change_attribute(
+          :failure_reason,
+          Ash.Changeset.get_argument(changeset, :reason)
+        )
         |> Ash.Changeset.change_attribute(:last_failure, DateTime.utc_now())
         |> Ash.Changeset.change_attribute(:updated_at, DateTime.utc_now())
       end
@@ -203,7 +214,9 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change transition_state(:active)
       change set_attribute(:enabled, true)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :active}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :checker, new_state: :active}
     end
 
     update :disable do
@@ -212,7 +225,9 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change transition_state(:disabled)
       change set_attribute(:enabled, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :disabled}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :checker, new_state: :disabled}
     end
   end
 
@@ -356,7 +371,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
       public? true
       description "When checker was last updated"
     end
-
   end
 
   relationships do

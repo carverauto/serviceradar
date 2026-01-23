@@ -234,9 +234,7 @@ defmodule ServiceRadar.Inventory.Device do
         ids = input.arguments.identifiers
         actor = context[:actor]
 
-        IdentityReconciler.register_identifiers(device_id, ids,
-          actor: actor
-        )
+        IdentityReconciler.register_identifiers(device_id, ids, actor: actor)
       end
     end
   end
@@ -574,5 +572,4 @@ defmodule ServiceRadar.Inventory.Device do
     # MAC uniqueness is optional - skipping unique index
     # identity :unique_mac, [:mac], where: expr(not is_nil(mac))
   end
-
 end

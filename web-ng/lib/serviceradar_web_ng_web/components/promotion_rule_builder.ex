@@ -1,17 +1,17 @@
 defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
   @moduledoc """
-  LiveComponent for building LogPromotionRule records from log entry details.
+  LiveComponent for building log-based EventRule records from log entry details.
 
   This is a modal-based form that:
   - Pre-populates match conditions from the current log
   - Allows toggling which conditions to include in the rule
   - Provides rule preview/testing against recent logs
-  - Creates LogPromotionRule records via Ash
+  - Creates EventRule records via Ash
   """
 
   use ServiceRadarWebNGWeb, :live_component
 
-  alias ServiceRadar.Observability.LogPromotionRule
+  alias ServiceRadar.Observability.EventRule
 
   @severity_options [
     {"Fatal", "fatal"},
@@ -162,7 +162,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           {if @mode == :edit, do: "Edit Event Rule", else: "Create Event Rule"}
         </h3>
         <p class="py-2 text-sm text-base-content/70">
-          Configure match conditions to promote logs into events.
+          Configure match conditions to create events from logs.
           For advanced configuration, visit <.link
             navigate="/settings/rules?tab=events"
             class="link link-primary"
@@ -681,13 +681,15 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
       name: String.trim(params["name"]),
       enabled: true,
       priority: 100,
+      source_type: :log,
+      source: %{},
       match: match,
       event: event
     }
 
     scope = socket.assigns.current_scope
 
-    case Ash.create(LogPromotionRule, attrs, scope: scope) do
+    case Ash.create(EventRule, attrs, scope: scope) do
       {:ok, rule} ->
         send(self(), {:rule_created, rule})
         {:noreply, assign(socket, :saving, false)}
@@ -715,7 +717,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
     rule_id = socket.assigns.editing_rule_id
 
     # Fetch the existing rule first
-    case Ash.get(LogPromotionRule, rule_id, scope: scope) do
+    case Ash.get(EventRule, rule_id, scope: scope) do
       {:ok, rule} ->
         changeset = Ash.Changeset.for_update(rule, :update, attrs, scope: scope)
 

@@ -11,19 +11,20 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
 
   describe "parse_message/1" do
     test "parses valid JSON metric message" do
-      json_data = Jason.encode!(%{
-        "timestamp" => "2024-01-15T10:30:00Z",
-        "trace_id" => "abc123",
-        "span_id" => "def456",
-        "service_name" => "test-service",
-        "span_name" => "test-operation",
-        "span_kind" => "SERVER",
-        "duration_ms" => 150.5,
-        "http_method" => "GET",
-        "http_route" => "/api/test",
-        "http_status_code" => 200,
-        "is_slow" => false
-      })
+      json_data =
+        Jason.encode!(%{
+          "timestamp" => "2024-01-15T10:30:00Z",
+          "trace_id" => "abc123",
+          "span_id" => "def456",
+          "service_name" => "test-service",
+          "span_name" => "test-operation",
+          "span_kind" => "SERVER",
+          "duration_ms" => 150.5,
+          "http_method" => "GET",
+          "http_route" => "/api/test",
+          "http_status_code" => 200,
+          "is_slow" => false
+        })
 
       message = %{data: json_data, metadata: %{subject: "otel.metrics.test"}}
       result = OtelMetrics.parse_message(message)
@@ -43,15 +44,16 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
     end
 
     test "parses camelCase fields" do
-      json_data = Jason.encode!(%{
-        "traceId" => "trace-camel",
-        "spanId" => "span-camel",
-        "serviceName" => "camel-service",
-        "spanName" => "camel-operation",
-        "durationMs" => 200.0,
-        "httpMethod" => "POST",
-        "httpStatusCode" => 201
-      })
+      json_data =
+        Jason.encode!(%{
+          "traceId" => "trace-camel",
+          "spanId" => "span-camel",
+          "serviceName" => "camel-service",
+          "spanName" => "camel-operation",
+          "durationMs" => 200.0,
+          "httpMethod" => "POST",
+          "httpStatusCode" => 201
+        })
 
       message = %{data: json_data, metadata: %{}}
       result = OtelMetrics.parse_message(message)
@@ -78,10 +80,11 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
     end
 
     test "parses duration_seconds and converts to duration_ms" do
-      json_data = Jason.encode!(%{
-        "duration_seconds" => 1.5,
-        "service_name" => "test"
-      })
+      json_data =
+        Jason.encode!(%{
+          "duration_seconds" => 1.5,
+          "service_name" => "test"
+        })
 
       message = %{data: json_data, metadata: %{}}
       result = OtelMetrics.parse_message(message)
@@ -94,10 +97,11 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
       # Unix timestamp in milliseconds
       timestamp_ms = 1_705_315_800_000
 
-      json_data = Jason.encode!(%{
-        "timestamp" => timestamp_ms,
-        "service_name" => "test"
-      })
+      json_data =
+        Jason.encode!(%{
+          "timestamp" => timestamp_ms,
+          "service_name" => "test"
+        })
 
       message = %{data: json_data, metadata: %{}}
       result = OtelMetrics.parse_message(message)
@@ -113,12 +117,13 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
     end
 
     test "handles gRPC fields" do
-      json_data = Jason.encode!(%{
-        "service_name" => "grpc-service",
-        "grpc_service" => "MyService",
-        "grpc_method" => "GetData",
-        "grpc_status_code" => 0
-      })
+      json_data =
+        Jason.encode!(%{
+          "service_name" => "grpc-service",
+          "grpc_service" => "MyService",
+          "grpc_method" => "GetData",
+          "grpc_status_code" => 0
+        })
 
       message = %{data: json_data, metadata: %{}}
       result = OtelMetrics.parse_message(message)

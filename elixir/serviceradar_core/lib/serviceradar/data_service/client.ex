@@ -81,7 +81,11 @@ defmodule ServiceRadar.DataService.Client do
   @spec get_with_revision(String.t(), keyword()) ::
           {:ok, binary(), non_neg_integer()} | {:error, :not_found | term()}
   def get_with_revision(key, opts \\ []) do
-    GenServer.call(__MODULE__, {:get_with_revision, key, opts}, opts[:timeout] || @default_timeout)
+    GenServer.call(
+      __MODULE__,
+      {:get_with_revision, key, opts},
+      opts[:timeout] || @default_timeout
+    )
   end
 
   @doc """
@@ -118,7 +122,11 @@ defmodule ServiceRadar.DataService.Client do
       channel: nil,
       config: config,
       reconnecting: false,
-      backoff: ServiceRadar.Backoff.new(base_ms: config.reconnect_base_ms, max_ms: config.reconnect_max_ms),
+      backoff:
+        ServiceRadar.Backoff.new(
+          base_ms: config.reconnect_base_ms,
+          max_ms: config.reconnect_max_ms
+        ),
       connect_task: nil
     }
 
@@ -289,7 +297,8 @@ defmodule ServiceRadar.DataService.Client do
       sec_mode: config_value(opts, app_config, :sec_mode, "DATASVC_SEC_MODE"),
       ssl: config_value_bool(opts, app_config, :ssl, "DATASVC_SSL", false),
       cert_dir: config_value(opts, app_config, :cert_dir, "DATASVC_CERT_DIR"),
-      spiffe_cert_dir: config_value(opts, app_config, :spiffe_cert_dir, "DATASVC_SPIFFE_CERT_DIR"),
+      spiffe_cert_dir:
+        config_value(opts, app_config, :spiffe_cert_dir, "DATASVC_SPIFFE_CERT_DIR"),
       cert_name: config_value(opts, app_config, :cert_name, "DATASVC_CERT_NAME", "core"),
       connect_timeout_ms:
         config_value_int(
@@ -316,7 +325,13 @@ defmodule ServiceRadar.DataService.Client do
           @default_reconnect_max
         ),
       server_name:
-        config_value(opts, app_config, :server_name, "DATASVC_SERVER_NAME", "datasvc.serviceradar")
+        config_value(
+          opts,
+          app_config,
+          :server_name,
+          "DATASVC_SERVER_NAME",
+          "datasvc.serviceradar"
+        )
     }
   end
 
@@ -342,8 +357,12 @@ defmodule ServiceRadar.DataService.Client do
 
   defp get_env_int(key) do
     case System.get_env(key) do
-      nil -> nil
-      "" -> nil
+      nil ->
+        nil
+
+      "" ->
+        nil
+
       value ->
         case Integer.parse(value) do
           {int, ""} -> int
@@ -367,7 +386,7 @@ defmodule ServiceRadar.DataService.Client do
       {:ok, cred_opts} ->
         connect_opts =
           cred_opts
-          |> Keyword.put(:adapter_opts, [connect_timeout: config.connect_timeout_ms])
+          |> Keyword.put(:adapter_opts, connect_timeout: config.connect_timeout_ms)
 
         GRPC.Stub.connect(endpoint, connect_opts)
 

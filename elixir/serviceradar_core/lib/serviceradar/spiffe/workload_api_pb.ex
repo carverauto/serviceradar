@@ -39,9 +39,11 @@ defmodule ServiceRadar.SPIFFE.Workload.API.Service do
   @moduledoc false
   use GRPC.Service, name: "SpiffeWorkloadAPI"
 
-  rpc :FetchX509SVID,
-      ServiceRadar.SPIFFE.Workload.X509SVIDRequest,
-      stream(ServiceRadar.SPIFFE.Workload.X509SVIDResponse)
+  rpc(
+    :FetchX509SVID,
+    ServiceRadar.SPIFFE.Workload.X509SVIDRequest,
+    stream(ServiceRadar.SPIFFE.Workload.X509SVIDResponse)
+  )
 end
 
 defmodule ServiceRadar.SPIFFE.Workload.API.Stub do

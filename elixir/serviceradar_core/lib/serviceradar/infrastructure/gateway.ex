@@ -109,7 +109,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       transition :finish_draining, from: :draining, to: :offline
 
       # Deactivation
-      transition :deactivate, from: [:healthy, :degraded, :offline, :recovering, :maintenance, :draining], to: :inactive
+      transition :deactivate,
+        from: [:healthy, :degraded, :offline, :recovering, :maintenance, :draining],
+        to: :inactive
     end
   end
 
@@ -137,7 +139,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     read :by_status do
       argument :status, :atom,
         allow_nil?: false,
-        constraints: [one_of: [:inactive, :healthy, :degraded, :offline, :recovering, :maintenance, :draining]]
+        constraints: [
+          one_of: [:inactive, :healthy, :degraded, :offline, :recovering, :maintenance, :draining]
+        ]
 
       filter expr(status == ^arg(:status))
     end
@@ -216,15 +220,17 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     # State machine transition actions
     # Each action includes PublishStateChange to record health events
 
-  update :activate do
-    description "Activate an inactive gateway"
+    update :activate do
+      description "Activate an inactive gateway"
 
-    change transition_state(:activate)
-    change set_attribute(:is_healthy, true)
-    change set_attribute(:last_seen, &DateTime.utc_now/0)
-    change set_attribute(:updated_at, &DateTime.utc_now/0)
-    change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :healthy}
-  end
+      change transition_state(:activate)
+      change set_attribute(:is_healthy, true)
+      change set_attribute(:last_seen, &DateTime.utc_now/0)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :healthy}
+    end
 
     update :degrade do
       description "Mark gateway as degraded (having issues)"
@@ -233,7 +239,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :degraded}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :degraded}
     end
 
     update :heartbeat_timeout do
@@ -242,7 +250,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :degraded}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :degraded}
     end
 
     update :go_offline do
@@ -252,7 +262,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change transition_state(:offline)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :offline}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :offline}
     end
 
     update :lose_connection do
@@ -261,7 +273,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change transition_state(:offline)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :offline}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :offline}
     end
 
     update :recover do
@@ -269,7 +283,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
       change transition_state(:recovering)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :recovering}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :recovering}
     end
 
     update :restore_health do
@@ -279,7 +295,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change set_attribute(:is_healthy, true)
       change set_attribute(:last_seen, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :healthy}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :healthy}
     end
 
     update :start_maintenance do
@@ -287,7 +305,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
       change transition_state(:maintenance)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :maintenance}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :maintenance}
     end
 
     update :end_maintenance do
@@ -296,7 +316,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change transition_state(:healthy)
       change set_attribute(:is_healthy, true)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :healthy}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :healthy}
     end
 
     update :start_draining do
@@ -304,7 +326,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
       change transition_state(:draining)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :draining}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :draining}
     end
 
     update :finish_draining do
@@ -313,7 +337,9 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change transition_state(:offline)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :offline}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :offline}
     end
 
     update :deactivate do
@@ -322,9 +348,10 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change transition_state(:inactive)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :inactive}
-    end
 
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :gateway, new_state: :inactive}
+    end
   end
 
   policies do
@@ -381,7 +408,17 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       allow_nil? false
       default :inactive
       public? true
-      constraints one_of: [:inactive, :healthy, :degraded, :offline, :recovering, :maintenance, :draining]
+
+      constraints one_of: [
+                    :inactive,
+                    :healthy,
+                    :degraded,
+                    :offline,
+                    :recovering,
+                    :maintenance,
+                    :draining
+                  ]
+
       description "Current operational status (state machine managed)"
     end
 

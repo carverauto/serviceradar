@@ -47,12 +47,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     repo ServiceRadar.Repo
   end
 
-  cloak do
-    vault(ServiceRadar.Vault)
-    attributes([:leaf_key_pem_ciphertext, :server_key_pem_ciphertext])
-    decrypt_by_default([])
-  end
-
   state_machine do
     initial_states [:pending]
     default_initial_state :pending
@@ -64,6 +58,12 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       transition :disconnect, from: :connected, to: :disconnected
       transition :reprovision, from: [:provisioned, :connected, :disconnected], to: :pending
     end
+  end
+
+  cloak do
+    vault(ServiceRadar.Vault)
+    attributes([:leaf_key_pem_ciphertext, :server_key_pem_ciphertext])
+    decrypt_by_default([])
   end
 
   actions do
@@ -110,10 +110,22 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
         server_key_pem = Ash.Changeset.get_argument(changeset, :server_key_pem)
 
         changeset
-        |> Ash.Changeset.change_attribute(:leaf_cert_pem, Ash.Changeset.get_argument(changeset, :leaf_cert_pem))
-        |> Ash.Changeset.change_attribute(:server_cert_pem, Ash.Changeset.get_argument(changeset, :server_cert_pem))
-        |> Ash.Changeset.change_attribute(:ca_chain_pem, Ash.Changeset.get_argument(changeset, :ca_chain_pem))
-        |> Ash.Changeset.change_attribute(:config_checksum, Ash.Changeset.get_argument(changeset, :config_checksum))
+        |> Ash.Changeset.change_attribute(
+          :leaf_cert_pem,
+          Ash.Changeset.get_argument(changeset, :leaf_cert_pem)
+        )
+        |> Ash.Changeset.change_attribute(
+          :server_cert_pem,
+          Ash.Changeset.get_argument(changeset, :server_cert_pem)
+        )
+        |> Ash.Changeset.change_attribute(
+          :ca_chain_pem,
+          Ash.Changeset.get_argument(changeset, :ca_chain_pem)
+        )
+        |> Ash.Changeset.change_attribute(
+          :config_checksum,
+          Ash.Changeset.get_argument(changeset, :config_checksum)
+        )
         |> Ash.Changeset.change_attribute(:provisioned_at, DateTime.utc_now())
         |> AshCloak.encrypt_and_set(:leaf_key_pem_ciphertext, leaf_key_pem)
         |> AshCloak.encrypt_and_set(:server_key_pem_ciphertext, server_key_pem)
@@ -313,10 +325,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     end
   end
 
-  identities do
-    identity :unique_per_edge_site, [:edge_site_id]
-  end
-
   calculations do
     calculate :cert_expiring_soon?,
               :boolean,
@@ -324,6 +332,10 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
                 not is_nil(cert_expires_at) and
                   cert_expires_at < datetime_add(now(), 30, :day)
               )
+  end
+
+  identities do
+    identity :unique_per_edge_site, [:edge_site_id]
   end
 
   # Helper to compute certificate expiry from PEM
@@ -348,7 +360,9 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     cert = :public_key.pem_entry_decode(pem_entry)
 
     # Extract notAfter from certificate
-    {:Certificate, {:TBSCertificate, _, _, _, _, {:Validity, _not_before, not_after}, _, _, _, _, _}, _, _} = cert
+    {:Certificate,
+     {:TBSCertificate, _, _, _, _, {:Validity, _not_before, not_after}, _, _, _, _, _}, _, _} =
+      cert
 
     case not_after do
       {:utcTime, time_str} ->
@@ -378,7 +392,11 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       {:ok, datetime} =
         DateTime.new(
           Date.new!(full_year, String.to_integer(month), String.to_integer(day)),
-          Time.new!(String.to_integer(hour), String.to_integer(minute), String.to_integer(second)),
+          Time.new!(
+            String.to_integer(hour),
+            String.to_integer(minute),
+            String.to_integer(second)
+          ),
           "Etc/UTC"
         )
 
@@ -401,7 +419,11 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       {:ok, datetime} =
         DateTime.new(
           Date.new!(String.to_integer(year), String.to_integer(month), String.to_integer(day)),
-          Time.new!(String.to_integer(hour), String.to_integer(minute), String.to_integer(second)),
+          Time.new!(
+            String.to_integer(hour),
+            String.to_integer(minute),
+            String.to_integer(second)
+          ),
           "Etc/UTC"
         )
 

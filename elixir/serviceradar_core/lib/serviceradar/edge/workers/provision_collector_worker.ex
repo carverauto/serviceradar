@@ -58,7 +58,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"package_id" => package_id}, attempt: attempt, max_attempts: max}) do
-    Logger.info("Provisioning credentials for collector package #{package_id} (attempt #{attempt}/#{max})")
+    Logger.info(
+      "Provisioning credentials for collector package #{package_id} (attempt #{attempt}/#{max})"
+    )
 
     # In single-deployment mode, NATS config comes from environment
     with {:ok, package} <- get_package(package_id),
@@ -103,7 +105,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         error
 
       {:error, reason} = error ->
-        Logger.error("Error provisioning credentials for package #{package_id}: #{inspect(reason)}")
+        Logger.error(
+          "Error provisioning credentials for package #{package_id}: #{inspect(reason)}"
+        )
 
         if attempt >= max do
           mark_failed(package_id, inspect(reason))
@@ -219,16 +223,18 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     actor = SystemActor.system(:provision_collector)
 
     NatsCredential
-    |> Ash.Changeset.for_create(:create, %{
-      user_name: package.user_name,
-      credential_type: :collector,
-      collector_type: package.collector_type,
-      expires_at: user_creds.expires_at,
-      metadata: %{
-        site: package.site,
-        hostname: package.hostname
-      }
-    }, actor: actor)
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        user_name: package.user_name,
+        credential_type: :collector,
+        collector_type: package.collector_type,
+        expires_at: user_creds.expires_at,
+        metadata: %{
+          site: package.site,
+          hostname: package.hostname
+        }
+      }, actor: actor)
     |> Ash.Changeset.set_argument(:user_public_key, user_creds.user_public_key)
     |> Ash.Changeset.set_argument(:onboarding_package_id, nil)
     |> Ash.create()

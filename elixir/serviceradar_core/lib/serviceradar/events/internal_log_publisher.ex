@@ -19,7 +19,9 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
     case Jason.encode(payload) do
       {:ok, json} ->
         case Connection.publish(nats_subject, json) do
-          :ok -> :ok
+          :ok ->
+            :ok
+
           {:error, reason} ->
             Logger.warning("Failed to publish internal log",
               subject: nats_subject,

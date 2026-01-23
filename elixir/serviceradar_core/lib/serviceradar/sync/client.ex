@@ -104,7 +104,11 @@ defmodule ServiceRadar.Sync.Client do
   This is useful for large batches of service status updates that
   need to be chunked.
   """
-  @spec stream_status(GRPC.Channel.t(), Enumerable.t(Monitoring.GatewayStatusChunk.t()), keyword()) ::
+  @spec stream_status(
+          GRPC.Channel.t(),
+          Enumerable.t(Monitoring.GatewayStatusChunk.t()),
+          keyword()
+        ) ::
           {:ok, Monitoring.GatewayStatusResponse.t()} | {:error, term()}
   def stream_status(channel, chunks, opts \\ []) do
     timeout = opts[:timeout] || @default_timeout

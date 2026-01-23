@@ -41,6 +41,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
     custom_indexes do
       index [:partition], name: "sweep_groups_partition_idx"
+
       index [:agent_id],
         where: "agent_id IS NOT NULL",
         name: "sweep_groups_agent_idx"
@@ -164,6 +165,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
     read :by_agent do
       argument :agent_id, :string, allow_nil?: false
+
       filter expr(
                enabled == true and
                  (agent_id == ^arg(:agent_id) or is_nil(agent_id))
@@ -334,14 +336,16 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   end
 
   calculations do
-    calculate :next_run_at, :utc_datetime, expr(
-      if is_nil(last_run_at) do
-        now()
-      else
-        # Simplified - actual calculation would parse interval
-        last_run_at
-      end
-    )
+    calculate :next_run_at,
+              :utc_datetime,
+              expr(
+                if is_nil(last_run_at) do
+                  now()
+                else
+                  # Simplified - actual calculation would parse interval
+                  last_run_at
+                end
+              )
   end
 
   identities do

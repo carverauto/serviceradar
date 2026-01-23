@@ -36,6 +36,7 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.Interface
     resource ServiceRadar.Inventory.InterfaceSettings
     resource ServiceRadar.Inventory.InterfaceClassificationRule
+    resource ServiceRadar.Inventory.DeviceSNMPCredential
     resource ServiceRadar.Inventory.DeviceGroup
     resource ServiceRadar.Inventory.DeviceIdentifier
     resource ServiceRadar.Inventory.MergeAudit

@@ -30,11 +30,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       })
       |> Ash.create()
 
-    {:ok,
-     actor: actor,
-     unique_id: unique_id,
-     schedule_id: schedule.id,
-     schedule: schedule}
+    {:ok, actor: actor, unique_id: unique_id, schedule_id: schedule.id, schedule: schedule}
   end
 
   describe "PollJob lifecycle" do
@@ -309,7 +305,10 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       refute Enum.any?(jobs, &(&1.id == pending.id))
     end
 
-    test "by_schedule returns jobs for a schedule", %{schedule_id: schedule_id, pending_job: pending} do
+    test "by_schedule returns jobs for a schedule", %{
+      schedule_id: schedule_id,
+      pending_job: pending
+    } do
       jobs =
         PollJob
         |> Ash.Query.for_read(:by_schedule, %{schedule_id: schedule_id})

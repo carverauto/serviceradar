@@ -49,9 +49,13 @@ defmodule ServiceRadar.Application do
   This ensures edge components remain stateless and can be deployed in untrusted networks.
   """
   use Application
+  require Logger
 
   @impl true
   def start(_type, _args) do
+    ensure_started(:telemetry)
+    ensure_started(:ash_state_machine)
+
     children =
       [
         # Encryption vault for AshCloak (must start before repo for encrypted field access)
@@ -120,6 +124,9 @@ defmodule ServiceRadar.Application do
         # Job schedule defaults
         job_schedule_seeder_child(),
 
+        # Default SNMP profile seed
+        snmp_profile_seeder_child(),
+
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
@@ -137,6 +144,21 @@ defmodule ServiceRadar.Application do
 
     opts = [strategy: :one_for_one, name: ServiceRadar.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp ensure_started(app) do
+    case Application.ensure_all_started(app) do
+      {:ok, _} ->
+        :ok
+
+      {:error, {^app, reason}} ->
+        Logger.error("Failed to start #{app}: #{inspect(reason)}")
+        :error
+
+      {:error, reason} ->
+        Logger.error("Failed to start #{app}: #{inspect(reason)}")
+        :error
+    end
   end
 
   defp vault_child do
@@ -300,6 +322,14 @@ defmodule ServiceRadar.Application do
   defp job_schedule_seeder_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.Jobs.JobScheduleSeeder
+    else
+      nil
+    end
+  end
+
+  defp snmp_profile_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.SNMPProfiles.SNMPProfileSeeder
     else
       nil
     end

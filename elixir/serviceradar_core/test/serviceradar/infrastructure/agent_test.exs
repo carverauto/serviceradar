@@ -32,13 +32,15 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register, %{
-          uid: agent_uid,
-          name: "Test Agent",
-          host: "192.168.1.100",
-          port: 50_051,
-          capabilities: ["icmp", "tcp", "http"]
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            uid: agent_uid,
+            name: "Test Agent",
+            host: "192.168.1.100",
+            port: 50_051,
+            capabilities: ["icmp", "tcp", "http"]
+          }, actor: actor)
         |> Ash.create()
 
       assert agent.uid == agent_uid
@@ -57,13 +59,15 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register, %{
-          uid: agent_uid,
-          name: "SPIFFE Agent",
-          host: "10.0.0.50",
-          port: 50_051,
-          spiffe_identity: spiffe_id
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            uid: agent_uid,
+            name: "SPIFFE Agent",
+            host: "10.0.0.50",
+            port: 50_051,
+            spiffe_identity: spiffe_id
+          }, actor: actor)
         |> Ash.create()
 
       assert agent.spiffe_identity == spiffe_id
@@ -76,12 +80,14 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: agent_uid,
-          name: "Pre-connected Agent",
-          host: "192.168.1.101",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: agent_uid,
+            name: "Pre-connected Agent",
+            host: "192.168.1.101",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       assert agent.status == :connected
@@ -96,22 +102,26 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: agent_uid,
-          name: "Initial Agent",
-          host: "192.168.1.101",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: agent_uid,
+            name: "Initial Agent",
+            host: "192.168.1.101",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       {:ok, updated} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: agent_uid,
-          name: "Updated Agent",
-          host: "192.168.1.200",
-          port: 50_052
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: agent_uid,
+            name: "Updated Agent",
+            host: "192.168.1.200",
+            port: 50_052
+          }, actor: actor)
         |> Ash.create()
 
       assert updated.uid == agent.uid
@@ -130,12 +140,14 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register, %{
-          uid: agent_uid,
-          name: "State Machine Test Agent",
-          host: "192.168.1.102",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            uid: agent_uid,
+            name: "State Machine Test Agent",
+            host: "192.168.1.102",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       {:ok, agent: agent}
@@ -247,12 +259,14 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: agent_uid,
-          name: "Heartbeat Test Agent",
-          host: "192.168.1.103",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: agent_uid,
+            name: "Heartbeat Test Agent",
+            host: "192.168.1.103",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       original_last_seen = agent.last_seen_time
@@ -275,18 +289,22 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: agent_uid,
-          name: "Capability Update Agent",
-          host: "192.168.1.104",
-          port: 50_051,
-          capabilities: ["icmp"]
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: agent_uid,
+            name: "Capability Update Agent",
+            host: "192.168.1.104",
+            port: 50_051,
+            capabilities: ["icmp"]
+          }, actor: actor)
         |> Ash.create()
 
       {:ok, updated} =
         agent
-        |> Ash.Changeset.for_update(:heartbeat, %{capabilities: ["icmp", "tcp", "snmp"]}, actor: actor)
+        |> Ash.Changeset.for_update(:heartbeat, %{capabilities: ["icmp", "tcp", "snmp"]},
+          actor: actor
+        )
         |> Ash.update()
 
       assert "snmp" in updated.capabilities
@@ -299,32 +317,37 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # Create multiple agents in different states (without gateway FK constraint)
       {:ok, connected_agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-q-connected-#{unique_id}",
-          name: "Connected Query Agent",
-          host: "192.168.1.110",
-          port: 50_051,
-          capabilities: ["icmp", "tcp"]
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-q-connected-#{unique_id}",
+            name: "Connected Query Agent",
+            host: "192.168.1.110",
+            port: 50_051,
+            capabilities: ["icmp", "tcp"]
+          }, actor: actor)
         |> Ash.create()
 
       {:ok, connecting_agent} =
         Agent
-        |> Ash.Changeset.for_create(:register, %{
-          uid: "agent-q-connecting-#{unique_id}",
-          name: "Connecting Query Agent",
-          host: "192.168.1.111",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            uid: "agent-q-connecting-#{unique_id}",
+            name: "Connecting Query Agent",
+            host: "192.168.1.111",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
-      {:ok,
-        connected_agent: connected_agent,
-        connecting_agent: connecting_agent
-      }
+      {:ok, connected_agent: connected_agent, connecting_agent: connecting_agent}
     end
 
-    test "connected returns only connected and healthy agents", %{connected_agent: agent, connecting_agent: _connecting, actor: actor} do
+    test "connected returns only connected and healthy agents", %{
+      connected_agent: agent,
+      connecting_agent: _connecting,
+      actor: actor
+    } do
       agents =
         Agent
         |> Ash.Query.for_read(:connected, %{}, actor: actor)
@@ -335,7 +358,10 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert Enum.any?(agents, &(&1.uid == agent.uid))
     end
 
-    test "by_capability returns agents with specific capability", %{connected_agent: agent, actor: actor} do
+    test "by_capability returns agents with specific capability", %{
+      connected_agent: agent,
+      actor: actor
+    } do
       agents =
         Agent
         |> Ash.Query.for_read(:by_capability, %{capability: "tcp"}, actor: actor)
@@ -344,7 +370,11 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert Enum.any?(agents, &(&1.uid == agent.uid))
     end
 
-    test "by_status returns agents in specific status", %{connected_agent: connected, connecting_agent: connecting, actor: actor} do
+    test "by_status returns agents in specific status", %{
+      connected_agent: connected,
+      connecting_agent: connecting,
+      actor: actor
+    } do
       connected_agents =
         Agent
         |> Ash.Query.for_read(:by_status, %{status: :connected}, actor: actor)

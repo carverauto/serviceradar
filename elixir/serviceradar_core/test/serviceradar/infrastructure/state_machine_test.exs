@@ -271,10 +271,14 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     test "records failure increments consecutive failures", %{actor: actor} do
       {:ok, checker} = create_active_checker(actor)
 
-      {:ok, failed_once} = Ash.update(checker, :record_failure, %{reason: "timeout"}, actor: actor)
+      {:ok, failed_once} =
+        Ash.update(checker, :record_failure, %{reason: "timeout"}, actor: actor)
+
       assert failed_once.consecutive_failures == 1
 
-      {:ok, failed_twice} = Ash.update(failed_once, :record_failure, %{reason: "timeout"}, actor: actor)
+      {:ok, failed_twice} =
+        Ash.update(failed_once, :record_failure, %{reason: "timeout"}, actor: actor)
+
       assert failed_twice.consecutive_failures == 2
     end
 

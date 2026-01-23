@@ -56,7 +56,6 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
         :admin_only,
         :enabled
       ]
-
     end
 
     update :update do

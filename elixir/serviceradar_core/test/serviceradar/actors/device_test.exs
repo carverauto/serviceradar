@@ -28,11 +28,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
       DeviceRegistry.stop_all()
     end)
 
-    {:ok,
-      device_id: device_id,
-      partition_id: partition_id,
-      unique_id: unique_id
-    }
+    {:ok, device_id: device_id, partition_id: partition_id, unique_id: unique_id}
   end
 
   describe "DeviceRegistry.get_or_start/2" do
@@ -51,10 +47,11 @@ defmodule ServiceRadar.Actors.DeviceTest do
     end
 
     test "starts actor with partition_id", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(
-        ctx.device_id,
-        partition_id: ctx.partition_id
-      )
+      {:ok, pid} =
+        DeviceRegistry.get_or_start(
+          ctx.device_id,
+          partition_id: ctx.partition_id
+        )
 
       state = Device.get_state(pid)
       assert state.partition_id == ctx.partition_id
@@ -67,10 +64,11 @@ defmodule ServiceRadar.Actors.DeviceTest do
         mac: "00:11:22:33:44:55"
       }
 
-      {:ok, pid} = DeviceRegistry.get_or_start(
-        ctx.device_id,
-        identity: initial_identity
-      )
+      {:ok, pid} =
+        DeviceRegistry.get_or_start(
+          ctx.device_id,
+          identity: initial_identity
+        )
 
       identity = Device.get_identity(pid)
       assert identity.hostname == "test-server"
@@ -140,10 +138,11 @@ defmodule ServiceRadar.Actors.DeviceTest do
     end
 
     test "merges with existing identity", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(
-        ctx.device_id,
-        identity: %{hostname: "original", ip: "10.0.0.1"}
-      )
+      {:ok, pid} =
+        DeviceRegistry.get_or_start(
+          ctx.device_id,
+          identity: %{hostname: "original", ip: "10.0.0.1"}
+        )
 
       :ok = Device.update_identity(pid, %{hostname: "updated"})
 
@@ -294,9 +293,10 @@ defmodule ServiceRadar.Actors.DeviceTest do
       assert DeviceRegistry.lookup(ctx.device_id) == :not_found
 
       # Update identity (should start actor)
-      :ok = DeviceRegistry.update_identity(ctx.device_id, %{
-        hostname: "lazy-start-host"
-      })
+      :ok =
+        DeviceRegistry.update_identity(ctx.device_id, %{
+          hostname: "lazy-start-host"
+        })
 
       # Now it should exist
       {:ok, pid} = DeviceRegistry.lookup(ctx.device_id)
@@ -315,9 +315,10 @@ defmodule ServiceRadar.Actors.DeviceTest do
     test "DeviceRegistry.record_health_check/2 starts actor if needed", ctx do
       assert DeviceRegistry.lookup(ctx.device_id) == :not_found
 
-      :ok = DeviceRegistry.record_health_check(ctx.device_id, %{
-        available: true
-      })
+      :ok =
+        DeviceRegistry.record_health_check(ctx.device_id, %{
+          available: true
+        })
 
       {:ok, pid} = DeviceRegistry.lookup(ctx.device_id)
       health = Device.get_health(pid)

@@ -96,9 +96,10 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
     Process.send_after(self(), :reconcile, @reconcile_delay_ms)
 
     # DB connection's search_path determines the schema
-    {:ok, %__MODULE__{
-      ash_opts: [actor: SystemActor.system(:zen_rule_sync)]
-    }}
+    {:ok,
+     %__MODULE__{
+       ash_opts: [actor: SystemActor.system(:zen_rule_sync)]
+     }}
   end
 
   @impl true

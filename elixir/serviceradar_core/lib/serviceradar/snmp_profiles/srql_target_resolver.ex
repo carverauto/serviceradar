@@ -38,8 +38,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
-  # UUID regex for validation - prevents SRQL injection via crafted device UIDs
-  @uuid_regex ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+  # Device UID regex for validation - prevents SRQL injection via crafted device UIDs
+  @device_uid_regex ~r/^(?:sr:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
   @doc """
   Resolves the matching SNMP profile for a device using SRQL targeting.
@@ -62,7 +62,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
           {:ok, SNMPProfile.t() | nil} | {:error, term()}
   def resolve_for_device(device_uid, actor) when is_binary(device_uid) do
     # Validate device_uid is a proper UUID to prevent SRQL injection
-    if Regex.match?(@uuid_regex, device_uid) do
+    if Regex.match?(@device_uid_regex, device_uid) do
       # Load all targeting profiles ordered by priority
       case load_targeting_profiles(actor) do
         {:ok, []} ->
@@ -101,9 +101,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   defp find_matching_profile([profile | rest], device_uid, actor) do
     case matches_device?(profile, device_uid, actor) do
       {:ok, true} ->
-        Logger.debug(
-          "SNMPSrqlTargetResolver: profile #{profile.id} matches device #{device_uid}"
-        )
+        Logger.debug("SNMPSrqlTargetResolver: profile #{profile.id} matches device #{device_uid}")
 
         {:ok, profile}
 
@@ -133,7 +131,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
         match_via_interfaces(device_uid, actor)
       else
         # Device targeting - check if device matches directly
-        combined_query = String.trim(target_query) <> " uid:" <> device_uid
+        combined_query = String.trim(target_query) <> " uid:\"#{device_uid}\""
         execute_device_match(combined_query, actor)
       end
     end
@@ -163,7 +161,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
     # e.g., "in:interfaces type:ethernet" -> check if device with uid has any interfaces
     # For now, we do a simple device lookup and assume interface targeting works
     # A full implementation would join with interfaces table
-    device_query = "in:devices uid:#{device_uid}"
+    device_query = "in:devices uid:\"#{device_uid}\""
 
     case ServiceRadarSRQL.Native.parse_ast(device_query) do
       {:ok, ast_json} ->
@@ -232,7 +230,10 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   rescue
     e ->
       # Log the error but continue - unknown fields are skipped gracefully
-      Logger.debug("SNMPSrqlTargetResolver: skipping filter #{field} #{op} #{inspect(value)}: #{Exception.message(e)}")
+      Logger.debug(
+        "SNMPSrqlTargetResolver: skipping filter #{field} #{op} #{inspect(value)}: #{Exception.message(e)}"
+      )
+
       query
   end
 

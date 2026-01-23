@@ -153,6 +153,15 @@ patch_file(
         ),
     ],
 )
+patch_file(
+    Path("deps/protobuf/lib/protobuf/protoc/generator.ex"),
+    [
+        (
+            "  defp generate_module_definitions(ctx, %Google.Protobuf.FileDescriptorProto{} = desc) do\\n",
+            "  defp generate_module_definitions(%Context{} = ctx, %Google.Protobuf.FileDescriptorProto{} = desc) do\\n",
+        ),
+    ],
+)
 PY
 """
     patch_script = patch_script.replace("{", "{{").replace("}", "}}")

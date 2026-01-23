@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadar.Observability.{
-    LogPromotionRule,
+    EventRule,
     StatefulAlertRule,
     ZenRule
   }
@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
       |> assign(:page_title, "Events")
       |> assign(:active_tab, "logs")
       |> assign(:zen_rules, list_zen_rules(scope))
-      |> assign(:promotion_rules, list_promotion_rules(scope))
+      |> assign(:event_rules, list_event_rules(scope))
       |> assign(:stateful_rules, list_stateful_rules(scope))
       |> assign(:show_rule_builder, false)
       |> assign(:editing_rule, nil)
@@ -96,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
     scope = socket.assigns.current_scope
     id = to_string(id)
 
-    case Enum.find(socket.assigns.promotion_rules, &(to_string(&1.id) == id)) do
+    case Enum.find(socket.assigns.event_rules, &(to_string(&1.id) == id)) do
       nil ->
         {:noreply, socket}
 
@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
           :ok ->
             {:noreply,
              socket
-             |> assign(:promotion_rules, list_promotion_rules(scope))
+             |> assign(:event_rules, list_event_rules(scope))
              |> put_flash(:info, "Rule deleted")}
 
           {:error, _} ->
@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
     scope = socket.assigns.current_scope
     id = to_string(id)
 
-    case Enum.find(socket.assigns.promotion_rules, &(to_string(&1.id) == id)) do
+    case Enum.find(socket.assigns.event_rules, &(to_string(&1.id) == id)) do
       nil ->
         {:noreply, socket}
 
@@ -130,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
           {:ok, _} ->
             {:noreply,
              socket
-             |> assign(:promotion_rules, list_promotion_rules(scope))
+             |> assign(:event_rules, list_event_rules(scope))
              |> put_flash(:info, "Rule #{if rule.enabled, do: "disabled", else: "enabled"}")}
 
           {:error, _} ->
@@ -171,7 +171,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   def handle_event("edit_promotion_rule", %{"id" => id}, socket) do
     id = to_string(id)
 
-    case Enum.find(socket.assigns.promotion_rules, &(to_string(&1.id) == id)) do
+    case Enum.find(socket.assigns.event_rules, &(to_string(&1.id) == id)) do
       nil ->
         {:noreply, put_flash(socket, :error, "Rule not found")}
 
@@ -198,7 +198,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
      socket
      |> assign(:show_rule_builder, false)
      |> assign(:editing_rule, nil)
-     |> assign(:promotion_rules, list_promotion_rules(scope))
+     |> assign(:event_rules, list_event_rules(scope))
      |> put_flash(:info, "Rule \"#{rule.name}\" created successfully")}
   end
 
@@ -209,7 +209,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
      socket
      |> assign(:show_rule_builder, false)
      |> assign(:editing_rule, nil)
-     |> assign(:promotion_rules, list_promotion_rules(scope))
+     |> assign(:event_rules, list_event_rules(scope))
      |> put_flash(:info, "Rule \"#{rule.name}\" updated successfully")}
   end
 
@@ -272,7 +272,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
               <.ui_badge variant="warning" size="xs">2</.ui_badge>
               <div>
                 <div class="text-sm font-semibold">Events</div>
-                <div class="text-xs text-base-content/60">Promote log patterns into events.</div>
+                <div class="text-xs text-base-content/60">
+                  Create events from logs or metric thresholds.
+                </div>
               </div>
             </div>
             <.icon name="hero-arrow-right-mini" class="w-4 h-4 text-base-content/40" />
@@ -392,13 +394,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
           <.ui_panel>
             <:header>
               <div>
-                <div class="text-sm font-semibold">Event Promotion Rules</div>
+                <div class="text-sm font-semibold">Event Rules</div>
                 <p class="text-xs text-base-content/60">
-                  Promote log patterns into events for downstream alerting.
+                  Create events from logs or metrics for downstream alerting.
                 </p>
               </div>
               <button type="button" class="btn btn-primary btn-sm" phx-click="new_promotion_rule">
-                <.icon name="hero-plus" class="w-4 h-4" /> New Rule
+                <.icon name="hero-plus" class="w-4 h-4" /> New Log Rule
               </button>
             </:header>
 
@@ -407,6 +409,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Rule</th>
+                    <th>Source</th>
                     <th>Match Conditions</th>
                     <th>Priority</th>
                     <th>Status</th>
@@ -414,59 +417,84 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                   </tr>
                 </thead>
                 <tbody>
-                  <%= for rule <- @promotion_rules do %>
+                  <%= for rule <- @event_rules do %>
+                    <% source_type = normalize_source_type(rule.source_type) %>
+                    <% editable? = source_type == "log" %>
                     <tr class="hover">
                       <td class="font-mono text-sm">{rule.name}</td>
                       <td class="text-sm max-w-xs">
-                        <.match_conditions_summary match={rule.match} />
+                        <.event_rule_source rule={rule} />
+                      </td>
+                      <td class="text-sm max-w-xs">
+                        <%= if source_type == "log" do %>
+                          <.match_conditions_summary match={rule.match} />
+                        <% else %>
+                          <.metric_rule_summary source={rule.source} />
+                        <% end %>
                       </td>
                       <td class="text-sm">{rule.priority}</td>
                       <td>
-                        <label class="swap">
-                          <input
-                            type="checkbox"
-                            checked={rule.enabled}
-                            phx-click="toggle_promotion"
-                            phx-value-id={rule.id}
-                          />
-                          <span class="swap-on badge badge-success badge-sm">Enabled</span>
-                          <span class="swap-off badge badge-ghost badge-sm">Disabled</span>
-                        </label>
+                        <%= if editable? do %>
+                          <label class="swap">
+                            <input
+                              type="checkbox"
+                              checked={rule.enabled}
+                              phx-click="toggle_promotion"
+                              phx-value-id={rule.id}
+                            />
+                            <span class="swap-on badge badge-success badge-sm">Enabled</span>
+                            <span class="swap-off badge badge-ghost badge-sm">Disabled</span>
+                          </label>
+                        <% else %>
+                          <.ui_badge variant={if rule.enabled, do: "success", else: "ghost"} size="xs">
+                            {if rule.enabled, do: "Enabled", else: "Disabled"}
+                          </.ui_badge>
+                        <% end %>
                       </td>
                       <td class="text-right">
                         <div class="flex justify-end gap-1">
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-xs"
-                            phx-click="edit_promotion_rule"
-                            phx-value-id={rule.id}
-                          >
-                            <.icon name="hero-pencil-square" class="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-xs text-error"
-                            phx-click="delete_promotion"
-                            phx-value-id={rule.id}
-                            data-confirm="Are you sure you want to delete this rule?"
-                          >
-                            <.icon name="hero-trash" class="w-4 h-4" />
-                          </button>
+                          <%= if editable? do %>
+                            <button
+                              type="button"
+                              class="btn btn-ghost btn-xs"
+                              phx-click="edit_promotion_rule"
+                              phx-value-id={rule.id}
+                            >
+                              <.icon name="hero-pencil-square" class="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-ghost btn-xs text-error"
+                              phx-click="delete_promotion"
+                              phx-value-id={rule.id}
+                              data-confirm="Are you sure you want to delete this rule?"
+                            >
+                              <.icon name="hero-trash" class="w-4 h-4" />
+                            </button>
+                          <% else %>
+                            <.link
+                              :if={metric_rule_path(rule)}
+                              navigate={metric_rule_path(rule)}
+                              class="btn btn-ghost btn-xs"
+                            >
+                              <.icon name="hero-arrow-top-right-on-square" class="w-4 h-4" />
+                            </.link>
+                          <% end %>
                         </div>
                       </td>
                     </tr>
                   <% end %>
-                  <tr :if={@promotion_rules == []}>
-                    <td colspan="5" class="text-center text-base-content/60 py-8">
+                  <tr :if={@event_rules == []}>
+                    <td colspan="6" class="text-center text-base-content/60 py-8">
                       <div class="flex flex-col items-center gap-2">
                         <.icon name="hero-inbox" class="w-8 h-8 opacity-40" />
-                        <p>No event promotion rules configured.</p>
+                        <p>No event rules configured.</p>
                         <button
                           type="button"
                           class="btn btn-primary btn-sm"
                           phx-click="new_promotion_rule"
                         >
-                          Create your first rule
+                          Create your first log rule
                         </button>
                       </div>
                     </td>
@@ -563,9 +591,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
     |> unwrap_page()
   end
 
-  defp list_promotion_rules(scope) do
-    LogPromotionRule
+  defp list_event_rules(scope) do
+    EventRule
     |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.sort([:source_type, :priority, :name])
     |> Ash.read(scope: scope)
     |> unwrap_page()
   end
@@ -584,6 +613,34 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
   # Component to display match conditions summary
   attr :match, :map, default: nil
+  attr :rule, :map, required: true
+
+  defp event_rule_source(assigns) do
+    %{rule: rule} = assigns
+    label = if normalize_source_type(rule.source_type) == "metric", do: "Metric", else: "Log"
+    details = event_rule_source_details(rule)
+    assigns = assign(assigns, %{label: label, details: details})
+
+    ~H"""
+    <div class="flex flex-col gap-1">
+      <span class={["badge badge-xs", (@label == "Metric" && "badge-info") || "badge-ghost"]}>
+        {@label}
+      </span>
+      <span class="text-xs text-base-content/60">{@details}</span>
+    </div>
+    """
+  end
+
+  attr :source, :map, default: %{}
+
+  defp metric_rule_summary(assigns) do
+    metric = source_value(assigns.source, "metric") || "metric"
+    assigns = assign(assigns, :metric, metric)
+
+    ~H"""
+    <span class="badge badge-ghost badge-xs">threshold: {@metric}</span>
+    """
+  end
 
   defp match_conditions_summary(assigns) do
     conditions = build_conditions_list(assigns.match)
@@ -658,4 +715,55 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   end
 
   defp truncate(str, _max), do: str
+
+  defp event_rule_source_details(rule) do
+    source = rule.source || %{}
+
+    case normalize_source_type(rule.source_type) do
+      "metric" ->
+        device_id = source_value(source, "device_id") || "unknown device"
+        interface_uid = source_value(source, "interface_uid") || "unknown interface"
+        metric = source_value(source, "metric")
+
+        details =
+          [device_id, interface_uid, metric]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map_join(" • ", &to_string/1)
+
+        if details == "", do: "metric rule", else: details
+
+      _ ->
+        "log pattern"
+    end
+  end
+
+  defp normalize_source_type(type) when is_atom(type), do: Atom.to_string(type)
+  defp normalize_source_type(type) when is_binary(type), do: type
+  defp normalize_source_type(_), do: "log"
+
+  defp metric_rule_path(rule) do
+    source = rule.source || %{}
+    device_id = source_value(source, "device_id")
+    interface_uid = source_value(source, "interface_uid")
+
+    if device_id && interface_uid do
+      ~p"/devices/#{device_id}/interfaces/#{interface_uid}"
+    else
+      nil
+    end
+  end
+
+  defp source_value(source, "device_id") when is_map(source) do
+    Map.get(source, "device_id") || Map.get(source, :device_id)
+  end
+
+  defp source_value(source, "interface_uid") when is_map(source) do
+    Map.get(source, "interface_uid") || Map.get(source, :interface_uid)
+  end
+
+  defp source_value(source, "metric") when is_map(source) do
+    Map.get(source, "metric") || Map.get(source, :metric)
+  end
+
+  defp source_value(source, key) when is_map(source), do: Map.get(source, key)
 end

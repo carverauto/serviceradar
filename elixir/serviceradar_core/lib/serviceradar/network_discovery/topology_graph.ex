@@ -25,10 +25,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp upsert_link(link) when is_map(link) do
     case build_link_payload(link) do
-      {:ok, payload} -> upsert_link_payload(payload)
+      {:ok, payload} ->
+        upsert_link_payload(payload)
+
       {:error, :missing_ids} ->
         Logger.debug("Skipping topology link missing device identifiers")
         :ok
+
       {:error, :missing_interface} ->
         Logger.debug("Skipping topology link missing interface identifiers")
         :ok
@@ -39,7 +42,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp upsert_interface(interface) when is_map(interface) do
     case build_interface_payload(interface) do
-      {:ok, payload} -> upsert_interface_payload(payload)
+      {:ok, payload} ->
+        upsert_interface_payload(payload)
+
       {:error, :missing_ids} ->
         Logger.debug("Skipping interface graph upsert missing identifiers")
         :ok
@@ -74,12 +79,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp build_link_payload(link) do
     local_device_id = link_value(link, :local_device_id)
     neighbor_device_id = neighbor_device_id(link)
+
     local_interface_id =
       interface_id(
         local_device_id,
         link_value(link, :local_if_name),
         link_value(link, :local_if_index)
       )
+
     neighbor_port =
       non_blank(link_value(link, :neighbor_port_id)) ||
         non_blank(link_value(link, :neighbor_port_descr))
@@ -184,6 +191,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp non_blank(nil), do: nil
+
   defp non_blank(value) when is_binary(value) do
     trimmed = String.trim(value)
     if trimmed == "", do: nil, else: trimmed

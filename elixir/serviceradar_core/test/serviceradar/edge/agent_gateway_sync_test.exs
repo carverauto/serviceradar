@@ -25,10 +25,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
     agent_id = "test-agent-#{unique_id}"
     actor = SystemActor.system(:test)
 
-    {:ok,
-     agent_id: agent_id,
-     actor: actor,
-     unique_id: unique_id}
+    {:ok, agent_id: agent_id, actor: actor, unique_id: unique_id}
   end
 
   describe "ensure_device_for_agent/2" do
@@ -261,5 +258,4 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert agent.config_source == :local
     end
   end
-
 end

@@ -41,7 +41,10 @@ defmodule ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery do
         Ash.Changeset.change_attribute(changeset, :target_query, normalized_query)
 
       {:error, reason} ->
-        Ash.Changeset.add_error(changeset, field: :target_query, message: "Invalid SRQL query: #{reason}")
+        Ash.Changeset.add_error(changeset,
+          field: :target_query,
+          message: "Invalid SRQL query: #{reason}"
+        )
     end
   end
 end

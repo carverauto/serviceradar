@@ -153,9 +153,21 @@ defmodule ServiceRadar.NATS.AccountClient do
         expiration_seconds: 86_400  # 24 hours
       )
   """
-  @spec generate_user_credentials(String.t(), String.t(), String.t(), credential_type(), keyword()) ::
+  @spec generate_user_credentials(
+          String.t(),
+          String.t(),
+          String.t(),
+          credential_type(),
+          keyword()
+        ) ::
           {:ok, user_credentials()} | {:error, term()}
-  def generate_user_credentials(account_name, account_seed, user_name, credential_type, opts \\ []) do
+  def generate_user_credentials(
+        account_name,
+        account_seed,
+        user_name,
+        credential_type,
+        opts \\ []
+      ) do
     timeout = opts[:timeout] || @default_timeout
 
     request = %Proto.GenerateUserCredentialsRequest{
@@ -479,7 +491,10 @@ defmodule ServiceRadar.NATS.AccountClient do
             end
 
           {:error, reason} ->
-            Logger.warning("DataService.Client not connected: #{inspect(reason)}, creating fresh connection")
+            Logger.warning(
+              "DataService.Client not connected: #{inspect(reason)}, creating fresh connection"
+            )
+
             create_fresh_channel()
         end
       catch
@@ -504,7 +519,7 @@ defmodule ServiceRadar.NATS.AccountClient do
     with {:ok, cred_opts} <- build_cred_opts() do
       connect_opts =
         cred_opts
-        |> Keyword.put(:adapter_opts, [connect_timeout: 5_000])
+        |> Keyword.put(:adapter_opts, connect_timeout: 5_000)
 
       case GRPC.Stub.connect(endpoint, connect_opts) do
         {:ok, channel} ->
@@ -632,7 +647,12 @@ defmodule ServiceRadar.NATS.AccountClient do
 
   defp build_stream_imports(imports) when is_list(imports) do
     Enum.map(imports, fn
-      %{subject: subject, account_public_key: account_public_key, local_subject: local_subject, name: name} ->
+      %{
+        subject: subject,
+        account_public_key: account_public_key,
+        local_subject: local_subject,
+        name: name
+      } ->
         %Proto.StreamImport{
           subject: subject,
           account_public_key: account_public_key,

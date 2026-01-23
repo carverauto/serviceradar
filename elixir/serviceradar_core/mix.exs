@@ -28,7 +28,15 @@ defmodule ServiceRadarCore.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :ssl, :crypto, :public_key, :swoosh, :telemetry],
+      extra_applications: [
+        :logger,
+        :ssl,
+        :crypto,
+        :public_key,
+        :swoosh,
+        :telemetry,
+        :ash_state_machine
+      ],
       mod: {ServiceRadar.Application, []}
     ]
   end

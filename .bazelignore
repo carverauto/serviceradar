@@ -16,3 +16,4 @@ vendor
 _bazel_root
 _bazel_output
 .cache
+serviceradar-1.0.78

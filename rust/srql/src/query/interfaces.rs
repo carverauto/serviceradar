@@ -116,6 +116,11 @@ struct InterfaceRow {
     available_metrics: Option<serde_json::Value>,
     #[diesel(sql_type = Timestamptz)]
     created_at: DateTime<Utc>,
+    // Fields from interface_settings table (LEFT JOIN)
+    #[diesel(sql_type = Bool)]
+    favorited: bool,
+    #[diesel(sql_type = Bool)]
+    metrics_enabled: bool,
 }
 
 impl InterfaceRow {
@@ -148,6 +153,9 @@ impl InterfaceRow {
             "metadata": self.metadata.unwrap_or(serde_json::json!({})),
             "available_metrics": self.available_metrics,
             "created_at": self.created_at,
+            // Interface settings (from LEFT JOIN with interface_settings table)
+            "favorited": self.favorited,
+            "metrics_enabled": self.metrics_enabled,
         })
     }
 }
@@ -186,11 +194,17 @@ fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
         }
     }
 
+    // SELECT from discovered_interfaces with LEFT JOIN to interface_settings
+    // to include favorited and metrics_enabled flags
     let mut base_select = String::from(
         "SELECT di.timestamp, di.agent_id, di.gateway_id, di.device_ip, di.device_id, di.interface_uid, \
         di.if_index, di.if_name, di.if_descr, di.if_alias, di.if_type, di.if_type_name, di.interface_kind, \
         di.if_speed, di.speed_bps, di.mtu, di.duplex, di.if_phys_address, di.ip_addresses, \
-        di.if_admin_status, di.if_oper_status, di.metadata, di.available_metrics, di.created_at FROM discovered_interfaces di",
+        di.if_admin_status, di.if_oper_status, di.metadata, di.available_metrics, di.created_at, \
+        COALESCE(ifs.favorited, false) AS favorited, \
+        COALESCE(ifs.metrics_enabled, false) AS metrics_enabled \
+        FROM discovered_interfaces di \
+        LEFT JOIN interface_settings ifs ON ifs.device_id = di.device_id AND ifs.interface_uid = di.interface_uid",
     );
 
     if !clauses.is_empty() {
@@ -335,6 +349,11 @@ fn build_filter_clause(
         ),
         "mtu" => build_int_clause("di.mtu", filter, binds, bind_idx),
         "ip_addresses" | "ip_address" => build_ip_addresses_clause(filter, binds, bind_idx),
+        // Boolean filters from interface_settings (via LEFT JOIN)
+        "favorited" => build_bool_clause("COALESCE(ifs.favorited, false)", filter, binds, bind_idx),
+        "metrics_enabled" => {
+            build_bool_clause("COALESCE(ifs.metrics_enabled, false)", filter, binds, bind_idx)
+        }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field '{other}'"
         ))),
@@ -425,6 +444,39 @@ fn build_int_clause(
     };
 
     binds.push(BindParam::Int(value));
+    *bind_idx += 1;
+    Ok(Some(clause))
+}
+
+fn build_bool_clause(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+    bind_idx: &mut usize,
+) -> Result<Option<String>> {
+    let value = match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            let raw = filter.value.as_scalar()?.trim().to_lowercase();
+            parse_bool(&raw).ok_or_else(|| {
+                ServiceError::InvalidRequest(format!(
+                    "boolean filter expects true/false, got '{raw}'"
+                ))
+            })?
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "boolean filters only support equality".into(),
+            ))
+        }
+    };
+
+    let clause = match filter.op {
+        FilterOp::Eq => format!("{column} = ${bind_idx}"),
+        FilterOp::NotEq => format!("{column} != ${bind_idx}"),
+        _ => unreachable!("validated above"),
+    };
+
+    binds.push(BindParam::Bool(value));
     *bind_idx += 1;
     Ok(Some(clause))
 }

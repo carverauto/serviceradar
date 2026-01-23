@@ -146,7 +146,9 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
           Logger.debug("Recorded health event: #{entity_type} #{entity_id} -> #{new_state}")
 
           case HealthWriter.write(event) do
-            :ok -> :ok
+            :ok ->
+              :ok
+
             {:error, reason} ->
               Logger.warning("Failed to publish health log: #{inspect(reason)}")
           end
@@ -208,10 +210,11 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
           old_state: old_state,
           new_state: new_state,
           reason: if(healthy, do: :health_check_passed, else: :health_check_failed),
-          metadata: Map.merge(metadata, %{
-            latency_ms: latency_ms,
-            error: error
-          })
+          metadata:
+            Map.merge(metadata, %{
+              latency_ms: latency_ms,
+              error: error
+            })
         )
       else
         # State unchanged, just return ok
@@ -418,9 +421,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   end
 
   defp return_with_skip(entity_type, entity_id, reason) do
-    Logger.debug(
-      "Skipping health tracking for #{entity_type} #{entity_id}: #{inspect(reason)}"
-    )
+    Logger.debug("Skipping health tracking for #{entity_type} #{entity_id}: #{inspect(reason)}")
 
     {:error, reason}
   end

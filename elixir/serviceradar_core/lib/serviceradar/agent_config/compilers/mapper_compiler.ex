@@ -12,12 +12,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+
   alias ServiceRadar.NetworkDiscovery.{
     MapperJob,
     MapperSeed,
-    MapperSNMPCredential,
     MapperUnifiController
   }
+  alias ServiceRadar.SNMPProfiles.CredentialResolver
 
   @default_workers 20
   @default_timeout "30s"
@@ -30,15 +31,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
   @impl true
   def source_resources do
-    [MapperJob, MapperSeed, MapperSNMPCredential, MapperUnifiController]
+    [MapperJob, MapperSeed, MapperUnifiController]
   end
 
   @impl true
   def compile(partition, agent_id, opts \\ []) do
     actor = opts[:actor] || SystemActor.system(:mapper_compiler)
+    device_uid = opts[:device_uid]
 
     jobs = load_jobs(partition, agent_id, actor)
     unifi_controllers = load_unifi_controllers(jobs)
+    credentials = resolve_credentials(device_uid, actor)
 
     config = %{
       "workers" => @default_workers,
@@ -46,7 +49,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       "retries" => @default_retries,
       "max_active_jobs" => @default_max_active_jobs,
       "result_retention" => @default_result_retention,
-      "scheduled_jobs" => Enum.map(jobs, &compile_job/1),
+      "scheduled_jobs" => Enum.map(jobs, &compile_job(&1, credentials)),
       "unifi_apis" => unifi_controllers
     }
 
@@ -62,7 +65,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     |> Ash.Query.for_read(:for_agent_partition, %{agent_id: agent_id, partition: partition},
       actor: actor
     )
-    |> Ash.Query.load([:seeds, :snmp_credential, :unifi_controllers])
+    |> Ash.Query.load([:seeds, :unifi_controllers])
     |> Ash.read!()
   end
 
@@ -83,10 +86,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     }
   end
 
-  defp compile_job(job) do
+  defp compile_job(job, credentials) do
     seeds = job.seeds || []
 
     options = job.options || %{}
+
     options =
       options
       |> Map.put_new("mapper_job_id", to_string(job.id))
@@ -98,7 +102,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       "enabled" => job.enabled,
       "seeds" => Enum.map(seeds, & &1.seed),
       "type" => Atom.to_string(job.discovery_type),
-      "credentials" => compile_snmp_credentials(job.snmp_credential),
+      "credentials" => credentials,
       "concurrency" => job.concurrency,
       "timeout" => job.timeout,
       "retries" => job.retries,
@@ -106,17 +110,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     }
   end
 
-  defp compile_snmp_credentials(nil), do: nil
+  defp resolve_credentials(device_uid, actor) do
+    case CredentialResolver.resolve_for_device(device_uid, actor) do
+      {:ok, %{credential: nil}} ->
+        Logger.warning("MapperCompiler: no SNMP credentials resolved for discovery jobs")
+        %{"version" => "v2c"}
 
-  defp compile_snmp_credentials(%MapperSNMPCredential{} = credential) do
-    %{
-      "version" => Atom.to_string(credential.version),
-      "community" => credential.community,
-      "username" => credential.username,
-      "auth_protocol" => credential.auth_protocol,
-      "auth_password" => credential.auth_password,
-      "privacy_protocol" => credential.privacy_protocol,
-      "privacy_password" => credential.privacy_password
-    }
+      {:ok, %{credential: credential}} ->
+        CredentialResolver.to_mapper_credentials(credential)
+
+      {:error, _} ->
+        Logger.warning("MapperCompiler: failed to resolve SNMP credentials for discovery jobs")
+        %{"version" => "v2c"}
+    end
   end
 end

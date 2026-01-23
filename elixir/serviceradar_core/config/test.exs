@@ -43,7 +43,9 @@ parse_sslmode = fn
   url ->
     try do
       case URI.parse(url) do
-        %URI{query: nil} -> nil
+        %URI{query: nil} ->
+          nil
+
         %URI{query: query} ->
           case URI.decode_query(query) do
             %{"sslmode" => mode} -> String.downcase(mode)
@@ -84,9 +86,17 @@ ssl_verify =
     ssl_mode in ~w(verify-ca verify-full)
 
 cnpg_cert_dir = System.get_env("CNPG_CERT_DIR")
-cnpg_ca = System.get_env("CNPG_CA_FILE") || (cnpg_cert_dir && Path.join(cnpg_cert_dir, "root.pem"))
-cnpg_cert = System.get_env("CNPG_CERT_FILE") || (cnpg_cert_dir && Path.join(cnpg_cert_dir, "workstation.pem"))
-cnpg_key = System.get_env("CNPG_KEY_FILE") || (cnpg_cert_dir && Path.join(cnpg_cert_dir, "workstation-key.pem"))
+
+cnpg_ca =
+  System.get_env("CNPG_CA_FILE") || (cnpg_cert_dir && Path.join(cnpg_cert_dir, "root.pem"))
+
+cnpg_cert =
+  System.get_env("CNPG_CERT_FILE") ||
+    (cnpg_cert_dir && Path.join(cnpg_cert_dir, "workstation.pem"))
+
+cnpg_key =
+  System.get_env("CNPG_KEY_FILE") ||
+    (cnpg_cert_dir && Path.join(cnpg_cert_dir, "workstation-key.pem"))
 
 ssl_ca =
   System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT") ||

@@ -104,7 +104,9 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
     schema = Keyword.get(opts, :schema, "unknown")
 
     case Ash.create(changeset) do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning(
           "Failed to seed Zen rule #{attrs[:name]} for #{schema}: #{inspect(reason)}"
@@ -138,9 +140,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
         MapSet.put(existing, key)
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to rename Zen rule #{rule.name} for #{schema}: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to rename Zen rule #{rule.name} for #{schema}: #{inspect(reason)}")
 
         existing
     end

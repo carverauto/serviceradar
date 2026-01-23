@@ -29,7 +29,6 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
         :admin_only,
         :enabled
       ]
-
     end
 
     update :update do

@@ -94,7 +94,8 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       check_interval: Keyword.get(merged_opts, :check_interval, @default_check_interval),
       gateway_timeout: Keyword.get(merged_opts, :gateway_timeout, @default_gateway_timeout),
       agent_timeout: Keyword.get(merged_opts, :agent_timeout, @default_agent_timeout),
-      checker_failure_threshold: Keyword.get(merged_opts, :checker_failure_threshold, @default_checker_failure_threshold),
+      checker_failure_threshold:
+        Keyword.get(merged_opts, :checker_failure_threshold, @default_checker_failure_threshold),
       last_check: nil
     }
 

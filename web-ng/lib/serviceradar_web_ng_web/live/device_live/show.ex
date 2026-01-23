@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.SRQL.Viz
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.SysmonProfiles.SysmonProfile
@@ -60,6 +61,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      # Edit mode
      |> assign(:editing, false)
      |> assign(:device_form, to_form(%{}, as: :device))
+     |> assign(:device_snmp_credential, nil)
+     |> assign(:snmp_credential_form, to_form(%{}, as: :snmp))
      # Network interfaces for dedicated tab
      |> assign(:network_interfaces, [])
      |> assign(:interfaces_error, nil)
@@ -81,9 +84,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @impl true
   def handle_params(%{"uid" => uid} = params, uri, socket) do
     limit = parse_limit(Map.get(params, "limit"), @default_limit, @max_limit)
+    # Read tab from URL params, fall back to current or default
+    url_tab = Map.get(params, "tab")
 
-    default_query =
-      "in:devices uid:\"#{escape_value(uid)}\" limit:#{limit}"
+    requested_tab =
+      if url_tab in ["details", "interfaces", "profiles", "sysmon"],
+        do: url_tab,
+        else: socket.assigns.active_tab
+
+    default_query = default_device_query(uid, limit)
 
     query =
       params
@@ -98,27 +107,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     srql_module = srql_module()
     scope = Map.get(socket.assigns, :current_scope)
 
-    {results, error, viz} =
-      case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => results} = resp} when is_list(results) ->
-          viz =
-            case Map.get(resp, "viz") do
-              value when is_map(value) -> value
-              _ -> nil
-            end
-
-          {results, nil, viz}
-
-        {:ok, other} ->
-          {[], "unexpected SRQL response: #{inspect(other)}", nil}
-
-        {:error, reason} ->
-          {[], "SRQL error: #{format_error(reason)}", nil}
-      end
+    {results, error, viz} = execute_srql_query(srql_module, query, scope)
 
     page_path = uri |> to_string() |> URI.parse() |> Map.get(:path)
 
-    srql =
+    base_srql =
       socket.assigns.srql
       |> Map.merge(%{
         entity: "devices",
@@ -158,6 +151,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     interface_metrics =
       load_interface_metrics(srql_module, uid, favorited_interfaces, network_interfaces, scope)
 
+    device_snmp_credential = load_device_snmp_credential(scope, uid)
+
     {ip_aliases, ip_alias_error} =
       load_ip_aliases(scope, uid, socket.assigns.show_stale_aliases)
 
@@ -166,9 +161,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         (is_list(network_interfaces) and network_interfaces != [])
 
     active_tab =
-      if socket.assigns.active_tab == "interfaces" and not has_ifaces,
+      if requested_tab == "interfaces" and not has_ifaces,
         do: "details",
-        else: socket.assigns.active_tab
+        else: requested_tab
+
+    srql =
+      if active_tab == "interfaces" do
+        srql_for_tab("interfaces", uid, limit, base_srql)
+      else
+        base_srql
+      end
 
     {:noreply,
      socket
@@ -197,6 +199,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:availability, availability)
      |> assign(:healthcheck_summary, healthcheck_summary)
      |> assign(:sweep_results, sweep_results)
+     |> assign(:device_snmp_credential, device_snmp_credential)
      |> assign(:srql, srql)}
   end
 
@@ -229,7 +232,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:noreply,
        socket
        |> assign(:editing, false)
-       |> assign(:device_form, to_form(%{}, as: :device))}
+       |> assign(:device_form, to_form(%{}, as: :device))
+       |> assign(:snmp_credential_form, to_form(%{}, as: :snmp))}
     else
       # Start editing - populate form with current device data
       device_row = List.first(Enum.filter(socket.assigns.results, &is_map/1))
@@ -253,7 +257,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:noreply,
        socket
        |> assign(:editing, true)
-       |> assign(:device_form, to_form(form_data, as: :device))}
+       |> assign(:device_form, to_form(form_data, as: :device))
+       |> assign(
+         :snmp_credential_form,
+         to_form(snmp_credential_form_data(socket.assigns.device_snmp_credential), as: :snmp)
+       )}
     end
   end
 
@@ -299,8 +307,82 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_event("snmp_form_change", %{"snmp" => params}, socket) do
+    current = socket.assigns.snmp_credential_form.source || %{}
+    updated = Map.merge(current, params)
+
+    {:noreply, assign(socket, :snmp_credential_form, to_form(updated, as: :snmp))}
+  end
+
+  def handle_event("save_snmp_credentials", %{"snmp" => params}, socket) do
+    scope = socket.assigns.current_scope
+    device_uid = socket.assigns.device_uid
+    editing = not is_nil(socket.assigns.device_snmp_credential)
+    normalized = normalize_snmp_credential_params(params, editing)
+
+    if editing or snmp_params_present?(normalized) do
+      case DeviceSNMPCredential.upsert_for_device(device_uid, normalized, scope: scope) do
+        {:ok, credential} ->
+          {:noreply,
+           socket
+           |> assign(:device_snmp_credential, credential)
+           |> assign(
+             :snmp_credential_form,
+             to_form(snmp_credential_form_data(credential), as: :snmp)
+           )
+           |> put_flash(:info, "SNMP credentials saved")}
+
+        {:error, %Ash.Error.Invalid{} = error} ->
+          {:noreply, put_flash(socket, :error, format_ash_error(error))}
+
+        {:error, reason} ->
+          {:noreply,
+           put_flash(socket, :error, "Failed to save SNMP credentials: #{inspect(reason)}")}
+      end
+    else
+      {:noreply, put_flash(socket, :info, "Provide SNMP credentials to create an override")}
+    end
+  end
+
+  def handle_event("clear_snmp_credentials", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    case socket.assigns.device_snmp_credential do
+      nil ->
+        {:noreply, socket}
+
+      credential ->
+        case Ash.destroy(credential, scope: scope) do
+          :ok ->
+            {:noreply,
+             socket
+             |> assign(:device_snmp_credential, nil)
+             |> assign(:snmp_credential_form, to_form(%{}, as: :snmp))
+             |> put_flash(:info, "SNMP credential override cleared")}
+
+          {:error, reason} ->
+            {:noreply,
+             put_flash(socket, :error, "Failed to clear SNMP credentials: #{inspect(reason)}")}
+        end
+    end
+  end
+
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
-    {:noreply, assign(socket, :active_tab, tab)}
+    srql = srql_for_tab(tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
+
+    # Update URL with tab parameter for shareable/bookmarkable links
+    path =
+      if tab == "details" do
+        ~p"/devices/#{socket.assigns.device_uid}"
+      else
+        ~p"/devices/#{socket.assigns.device_uid}?tab=#{tab}"
+      end
+
+    {:noreply,
+     socket
+     |> assign(:active_tab, tab)
+     |> assign(:srql, srql)
+     |> push_patch(to: path, replace: true)}
   end
 
   # ---------------------------------------------------------------------------
@@ -454,10 +536,98 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_tags_for_edit(_), do: ""
 
+  defp load_device_snmp_credential(_scope, nil), do: nil
+
+  defp load_device_snmp_credential(scope, device_uid) do
+    case DeviceSNMPCredential.get_by_device(device_uid, scope: scope) do
+      {:ok, credential} -> credential
+      {:error, _} -> nil
+    end
+  end
+
+  defp snmp_credential_form_data(nil) do
+    %{
+      "version" => "v2c",
+      "username" => "",
+      "security_level" => "no_auth_no_priv",
+      "auth_protocol" => "",
+      "priv_protocol" => ""
+    }
+  end
+
+  defp snmp_credential_form_data(%DeviceSNMPCredential{} = credential) do
+    %{
+      "version" => to_string(credential.version || :v2c),
+      "username" => credential.username || "",
+      "security_level" => to_string(credential.security_level || :no_auth_no_priv),
+      "auth_protocol" => to_string(credential.auth_protocol || ""),
+      "priv_protocol" => to_string(credential.priv_protocol || "")
+    }
+  end
+
+  defp normalize_snmp_credential_params(params, editing) do
+    params =
+      if editing do
+        drop_blank(params, ["community", "auth_password", "priv_password"])
+      else
+        params
+      end
+
+    params =
+      case Map.get(params, "version") do
+        nil -> Map.put(params, "version", "v2c")
+        "" -> Map.put(params, "version", "v2c")
+        _ -> params
+      end
+
+    case Map.get(params, "version") do
+      "v1" ->
+        Map.drop(params, [
+          "username",
+          "security_level",
+          "auth_protocol",
+          "auth_password",
+          "priv_protocol",
+          "priv_password"
+        ])
+
+      "v2c" ->
+        Map.drop(params, [
+          "username",
+          "security_level",
+          "auth_protocol",
+          "auth_password",
+          "priv_protocol",
+          "priv_password"
+        ])
+
+      "v3" ->
+        Map.drop(params, ["community"])
+
+      _ ->
+        params
+    end
+  end
+
+  defp snmp_params_present?(params) do
+    Enum.any?(["community", "username", "auth_password", "priv_password"], fn key ->
+      value = Map.get(params, key)
+      is_binary(value) and String.trim(value) != ""
+    end)
+  end
+
+  defp drop_blank(params, keys) do
+    Enum.reduce(keys, params, fn key, acc ->
+      case Map.get(acc, key) do
+        nil -> acc
+        "" -> Map.delete(acc, key)
+        _ -> acc
+      end
+    end)
+  end
+
   defp load_interfaces(srql_module, device_uid, scope) do
-    query =
-      "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
-        "sort:if_name:asc limit:#{@interfaces_limit}"
+    query = default_interfaces_query(device_uid)
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -497,17 +667,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_interface_metrics(srql_module, device_uid, favorited_uids, interfaces, scope) do
-    # Get the if_index values for favorited interfaces
-    favorited_if_indices =
+    # Get the favorited interfaces with their if_index, name, and speed
+    favorited_interfaces =
       interfaces
       |> Enum.filter(fn iface ->
         uid = Map.get(iface, "interface_uid")
-        is_binary(uid) and MapSet.member?(favorited_uids, uid)
-      end)
-      |> Enum.map(fn iface -> Map.get(iface, "if_index") end)
-      |> Enum.filter(&is_integer/1)
 
-    if favorited_if_indices == [] do
+        is_binary(uid) and MapSet.member?(favorited_uids, uid) and
+          is_integer(Map.get(iface, "if_index"))
+      end)
+      |> Enum.map(fn iface ->
+        # Get interface speed for proper graph scaling (bps -> bytes per second)
+        if_speed_bps = Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
+        if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8, else: nil
+
+        %{
+          if_index: Map.get(iface, "if_index"),
+          name:
+            Map.get(iface, "if_name") || Map.get(iface, "if_descr") ||
+              "Interface #{Map.get(iface, "if_index")}",
+          max_speed_bytes_per_sec: if_speed_bytes_per_sec
+        }
+      end)
+
+    if favorited_interfaces == [] do
       %{
         has_favorited: true,
         panels: [],
@@ -516,26 +699,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         message: "No interface metrics available. Favorited interfaces may not have SNMP indices."
       }
     else
-      # Query SNMP metrics for the favorited interfaces
-      if_filter = Enum.map_join(favorited_if_indices, ",", &to_string/1)
+      # Query SNMP metrics for each favorited interface separately and build panels per interface
+      # Use agg:max to pull the latest counter values per bucket; rate deltas are calculated in UI
+      {all_panels, errors} =
+        Enum.reduce(favorited_interfaces, {[], []}, fn fav_iface, {panels_acc, errs} ->
+          query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs)
+        end)
 
-      query =
-        "in:snmp_metrics uid:\"#{escape_value(device_uid)}\" if_index:[#{if_filter}] " <>
-          "time:last_24h bucket:5m agg:avg series:if_index limit:200"
-
-      case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => results} = resp} when is_list(results) and results != [] ->
-          srql_response = %{"results" => results, "viz" => Map.get(resp, "viz")}
-          panels = Engine.build_panels(srql_response)
-
+      cond do
+        all_panels != [] ->
           %{
             has_favorited: true,
-            panels: Enum.reject(panels, &(&1.plugin == TablePlugin)),
+            panels: all_panels,
             error: nil,
             favorited_count: MapSet.size(favorited_uids)
           }
 
-        {:ok, %{"results" => []}} ->
+        errors != [] ->
+          %{
+            has_favorited: true,
+            panels: [],
+            error: "Failed to load metrics: #{Enum.join(Enum.uniq(errors), "; ")}",
+            favorited_count: MapSet.size(favorited_uids)
+          }
+
+        true ->
           %{
             has_favorited: true,
             panels: [],
@@ -544,25 +732,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             message:
               "No metrics data available yet. Ensure SNMP polling is configured for this device."
           }
-
-        {:ok, _} ->
-          %{
-            has_favorited: true,
-            panels: [],
-            error: nil,
-            favorited_count: MapSet.size(favorited_uids),
-            message: "No metrics data available."
-          }
-
-        {:error, reason} ->
-          %{
-            has_favorited: true,
-            panels: [],
-            error: "Failed to load metrics: #{format_error(reason)}",
-            favorited_count: MapSet.size(favorited_uids)
-          }
       end
     end
+  end
+
+  # Helper to query metrics for a single interface (extracted to reduce nesting depth)
+  defp query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs) do
+    %{if_index: if_index, name: iface_name, max_speed_bytes_per_sec: max_speed} = fav_iface
+
+    query =
+      "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
+        "time:last_24h bucket:5m agg:max series:metric_name limit:200"
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
+        interface_panels = build_interface_panels(response, iface_name, if_index, max_speed)
+        {panels_acc ++ interface_panels, errs}
+
+      {:ok, %{"results" => []}} ->
+        {panels_acc, errs}
+
+      {:error, reason} ->
+        {panels_acc, [format_error(reason) | errs]}
+
+      _ ->
+        {panels_acc, errs}
+    end
+  end
+
+  # Build panels for interface metrics (extracted to reduce nesting depth)
+  # Takes full SRQL response (including viz) to properly handle series grouping
+  defp build_interface_panels(srql_response, iface_name, if_index, max_speed) do
+    Engine.build_panels(srql_response)
+    |> Enum.reject(&(&1.plugin == TablePlugin))
+    |> Enum.map(fn panel ->
+      assigns =
+        panel.assigns
+        |> Map.put(:interface_label, "#{iface_name} (ifIndex: #{if_index})")
+        |> Map.put(:max_speed_bytes_per_sec, max_speed)
+        # Enable combined chart mode for traffic metrics (inbound + outbound on same chart)
+        |> Map.put(:chart_mode, :combined)
+        |> Map.put(:rate_mode, :counter)
+
+      %{panel | assigns: assigns}
+    end)
   end
 
   defp upsert_interface_setting(_scope, nil, _interface_uid, _attrs), do: {:error, :no_device}
@@ -700,6 +913,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
+        <%!-- Breadcrumb --%>
+        <nav class="text-sm breadcrumbs mb-4">
+          <ul>
+            <li><.link navigate={~p"/devices"}>Devices</.link></li>
+            <li :if={@active_tab == "details"}>
+              <span class="text-base-content/70">{device_display_name(@device_row)}</span>
+            </li>
+            <li :if={@active_tab != "details"}>
+              <.link navigate={~p"/devices/#{@device_uid}"}>{device_display_name(@device_row)}</.link>
+            </li>
+            <li :if={@active_tab == "interfaces"} class="text-base-content/70">Interfaces</li>
+            <li :if={@active_tab == "profiles"} class="text-base-content/70">Profiles</li>
+            <li :if={@active_tab == "sysmon"} class="text-base-content/70">System Monitor</li>
+          </ul>
+        </nav>
+
         <.header>
           Device
           <:subtitle>
@@ -937,6 +1166,195 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 >{@device_form[:tags].value}</textarea>
               </div>
             </.form>
+
+            <div class="border-t border-base-200 px-4 py-4">
+              <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-lock-closed" class="size-4 text-base-content/60" />
+                  <span class="text-sm font-semibold">SNMP Credentials Override</span>
+                  <span
+                    :if={@device_snmp_credential}
+                    class="inline-flex items-center rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success"
+                  >
+                    Override active
+                  </span>
+                </div>
+                <.ui_button
+                  :if={@device_snmp_credential}
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  phx-click="clear_snmp_credentials"
+                >
+                  Clear Override
+                </.ui_button>
+              </div>
+
+              <.form
+                for={@snmp_credential_form}
+                id="device-snmp-credential-form"
+                phx-change="snmp_form_change"
+                phx-submit="save_snmp_credentials"
+                class="space-y-4"
+              >
+                <% snmp_version =
+                  Phoenix.HTML.Form.input_value(@snmp_credential_form, :version) || "v2c" %>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label class="label">
+                      <span class="label-text text-xs font-medium">SNMP Version</span>
+                    </label>
+                    <.input
+                      type="select"
+                      field={@snmp_credential_form[:version]}
+                      class="select select-bordered select-sm w-full"
+                      options={[
+                        {"SNMPv1", "v1"},
+                        {"SNMPv2c", "v2c"},
+                        {"SNMPv3", "v3"}
+                      ]}
+                    />
+                  </div>
+                </div>
+
+                <%= if snmp_version in ["v1", "v2c"] do %>
+                  <div>
+                    <label class="label">
+                      <span class="label-text text-xs font-medium">Community</span>
+                    </label>
+                    <.input
+                      type="password"
+                      name="snmp[community]"
+                      value=""
+                      class="input input-bordered input-sm w-full"
+                      placeholder={
+                        if @device_snmp_credential,
+                          do: "Leave blank to keep existing",
+                          else: "e.g., public"
+                      }
+                      autocomplete="off"
+                    />
+                    <label class="label py-0">
+                      <span class="label-text-alt text-xs text-base-content/50">
+                        Credentials are encrypted at rest.
+                      </span>
+                    </label>
+                  </div>
+                <% else %>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Username</span>
+                      </label>
+                      <.input
+                        type="text"
+                        field={@snmp_credential_form[:username]}
+                        class="input input-bordered input-sm w-full"
+                      />
+                    </div>
+                    <div>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Security Level</span>
+                      </label>
+                      <.input
+                        type="select"
+                        field={@snmp_credential_form[:security_level]}
+                        class="select select-bordered select-sm w-full"
+                        options={[
+                          {"No Auth, No Privacy", "no_auth_no_priv"},
+                          {"Auth, No Privacy", "auth_no_priv"},
+                          {"Auth + Privacy", "auth_priv"}
+                        ]}
+                      />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Auth Protocol</span>
+                      </label>
+                      <.input
+                        type="select"
+                        field={@snmp_credential_form[:auth_protocol]}
+                        class="select select-bordered select-sm w-full"
+                        options={[
+                          {"MD5", "md5"},
+                          {"SHA", "sha"},
+                          {"SHA-224", "sha224"},
+                          {"SHA-256", "sha256"},
+                          {"SHA-384", "sha384"},
+                          {"SHA-512", "sha512"}
+                        ]}
+                      />
+                    </div>
+                    <div>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Auth Password</span>
+                      </label>
+                      <.input
+                        type="password"
+                        name="snmp[auth_password]"
+                        value=""
+                        class="input input-bordered input-sm w-full"
+                        placeholder={
+                          if @device_snmp_credential,
+                            do: "Leave blank to keep existing",
+                            else: "Auth password"
+                        }
+                        autocomplete="off"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Privacy Protocol</span>
+                      </label>
+                      <.input
+                        type="select"
+                        field={@snmp_credential_form[:priv_protocol]}
+                        class="select select-bordered select-sm w-full"
+                        options={[
+                          {"DES", "des"},
+                          {"AES", "aes"},
+                          {"AES-192", "aes192"},
+                          {"AES-256", "aes256"}
+                        ]}
+                      />
+                    </div>
+                    <div>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Privacy Password</span>
+                      </label>
+                      <.input
+                        type="password"
+                        name="snmp[priv_password]"
+                        value=""
+                        class="input input-bordered input-sm w-full"
+                        placeholder={
+                          if @device_snmp_credential,
+                            do: "Leave blank to keep existing",
+                            else: "Privacy password"
+                        }
+                        autocomplete="off"
+                      />
+                    </div>
+                  </div>
+                <% end %>
+
+                <div class="flex items-center gap-2">
+                  <.ui_button type="submit" variant="outline" size="xs">
+                    Save SNMP Credentials
+                  </.ui_button>
+                  <span class="text-xs text-base-content/50">
+                    Overrides take precedence over profile credentials.
+                  </span>
+                </div>
+              </.form>
+            </div>
           </div>
           
     <!-- Tabs Navigation (show if sysmon or interfaces present) -->
@@ -956,7 +1374,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               phx-value-tab="interfaces"
               class={["tab", @active_tab == "interfaces" && "tab-active"]}
             >
-              <.icon name="hero-signal" class="size-4 mr-1.5" /> Interfaces
+              <.icon name="hero-arrows-right-left" class="size-4 mr-1.5" /> Interfaces
             </button>
             <button
               :if={@sysmon_presence}
@@ -1567,11 +1985,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   </td>
                   <td class="w-8 text-center">
                     <% metrics_enabled = Map.get(iface, "metrics_enabled", false) %>
-                    <.icon
-                      :if={metrics_enabled}
-                      name="hero-chart-bar-solid"
-                      class="size-4 text-success cursor-pointer hover:text-success/80"
+                    <.link
+                      :if={metrics_enabled && iface_uid}
+                      navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
                       title="Metrics collection enabled - Click to view details"
+                    >
+                      <.icon
+                        name="hero-chart-bar-solid"
+                        class="size-4 text-success cursor-pointer hover:text-success/80"
+                      />
+                    </.link>
+                    <.icon
+                      :if={metrics_enabled && !iface_uid}
+                      name="hero-chart-bar-solid"
+                      class="size-4 text-success"
+                      title="Metrics collection enabled"
                     />
                     <.icon
                       :if={!metrics_enabled}
@@ -1670,13 +2098,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       </div>
 
       <%!-- Metrics panels --%>
-      <div :if={@metrics.panels != []} class="p-4">
-        <%= for panel <- @metrics.panels do %>
+      <% panel_count = length(@metrics.panels) %>
+      <div
+        :if={@metrics.panels != []}
+        class={
+          [
+            "p-4 gap-4",
+            # 1-2 panels: full width stacked
+            panel_count <= 2 && "space-y-4",
+            # 3+ panels: responsive grid
+            panel_count > 2 && "grid grid-cols-1 sm:grid-cols-2"
+          ]
+        }
+      >
+        <%= for {panel, idx} <- Enum.with_index(@metrics.panels) do %>
           <.live_component
             module={panel.plugin}
-            id={"interface-metrics-#{@device_uid}-#{panel.id}"}
-            title="Interface Metrics"
-            panel_assigns={Map.put(panel.assigns, :compact, true)}
+            id={"interface-metrics-#{@device_uid}-#{panel.id}-#{idx}"}
+            title={Map.get(panel.assigns, :interface_label, "Interface Metrics")}
+            panel_assigns={Map.put(panel.assigns, :compact, panel_count > 2)}
           />
         <% end %>
       </div>
@@ -2452,6 +2892,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 
+  defp execute_srql_query(srql_module, query, scope) do
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results} = resp} when is_list(results) ->
+        viz = if is_map(resp["viz"]), do: resp["viz"], else: nil
+        {results, nil, viz}
+
+      {:ok, other} ->
+        {[], "unexpected SRQL response: #{inspect(other)}", nil}
+
+      {:error, reason} ->
+        {[], "SRQL error: #{format_error(reason)}", nil}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Availability Section
   # ---------------------------------------------------------------------------
@@ -2885,6 +3339,41 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
+
+  defp default_device_query(device_uid, limit) do
+    "in:devices uid:\"#{escape_value(device_uid)}\" limit:#{limit}"
+  end
+
+  defp default_interfaces_query(device_uid) do
+    "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
+      "sort:if_name:asc limit:#{@interfaces_limit}"
+  end
+
+  defp srql_for_tab("interfaces", device_uid, _limit, srql)
+       when is_binary(device_uid) and device_uid != "" do
+    query = default_interfaces_query(device_uid)
+
+    srql
+    |> Map.put(:entity, "interfaces")
+    |> Map.put(:query, query)
+    |> Map.put(:draft, query)
+    |> Map.put(:error, nil)
+    |> Map.put(:loading, false)
+  end
+
+  defp srql_for_tab(_tab, device_uid, limit, srql)
+       when is_binary(device_uid) and device_uid != "" do
+    query = default_device_query(device_uid, limit)
+
+    srql
+    |> Map.put(:entity, "devices")
+    |> Map.put(:query, query)
+    |> Map.put(:draft, query)
+    |> Map.put(:error, nil)
+    |> Map.put(:loading, false)
+  end
+
+  defp srql_for_tab(_tab, _device_uid, _limit, srql), do: srql
 
   # ---------------------------------------------------------------------------
   # Sweep Status Section
@@ -3462,6 +3951,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       _ -> "Agent"
     end
   end
+
+  defp device_display_name(nil), do: "Device"
+
+  defp device_display_name(row) when is_map(row) do
+    hostname = Map.get(row, "hostname")
+    ip = Map.get(row, "ip")
+
+    cond do
+      is_binary(hostname) and hostname != "" -> hostname
+      is_binary(ip) and ip != "" -> ip
+      true -> "Device"
+    end
+  end
+
+  defp device_display_name(_), do: "Device"
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_single_ash_error/1)

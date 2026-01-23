@@ -25,9 +25,24 @@ defmodule ServiceRadar.Inventory.Changes.ScheduleThresholdEvaluator do
   def atomic(_changeset, _opts, _context), do: :ok
 
   defp schedule_if_enabled(record) do
-    if record.threshold_enabled do
+    if thresholds_enabled?(record) do
       schedule_threshold_evaluator(record)
     end
+  end
+
+  defp thresholds_enabled?(record) do
+    metric_thresholds = Map.get(record, :metric_thresholds) || %{}
+
+    Enum.any?(metric_thresholds, fn {_metric, config} ->
+      enabled = config_value(config, :enabled, true)
+      comparison = config_value(config, :comparison)
+      value = config_value(config, :value)
+      enabled and not is_nil(comparison) and not is_nil(value)
+    end) || record.threshold_enabled
+  end
+
+  defp config_value(config, key, default \\ nil) when is_map(config) do
+    Map.get(config, key) || Map.get(config, Atom.to_string(key)) || default
   end
 
   defp schedule_threshold_evaluator(record) do

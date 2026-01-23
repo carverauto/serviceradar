@@ -103,6 +103,10 @@ pub enum DownsampleAgg {
     Max,
     Sum,
     Count,
+    /// Rate of change per second - for counter metrics like SNMP byte counters.
+    /// Calculates (current_value - previous_value) / time_delta_seconds,
+    /// then averages within each bucket. Skips rows where counter appears to wrap/reset.
+    Rate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -428,8 +432,9 @@ fn parse_downsample_agg(raw: &str) -> Result<DownsampleAgg> {
         "max" => Ok(DownsampleAgg::Max),
         "sum" => Ok(DownsampleAgg::Sum),
         "count" => Ok(DownsampleAgg::Count),
+        "rate" => Ok(DownsampleAgg::Rate),
         other => Err(ServiceError::InvalidRequest(format!(
-            "unsupported agg '{other}' (use avg|min|max|sum|count)"
+            "unsupported agg '{other}' (use avg|min|max|sum|count|rate)"
         ))),
     }
 }
@@ -649,11 +654,11 @@ fn tokenize(input: &str) -> Vec<String> {
                 quote = Some(ch);
                 current.push(ch);
             }
-            '(' => {
+            '(' | '[' => {
                 depth += 1;
                 current.push(ch);
             }
-            ')' => {
+            ')' | ']' => {
                 depth = depth.saturating_sub(1);
                 current.push(ch);
             }
@@ -687,8 +692,17 @@ fn split_token(token: &str) -> Result<(&str, &str)> {
 
 fn parse_value(raw: &str) -> FilterValue {
     let trimmed = raw.trim();
-    if trimmed.starts_with('(') && trimmed.ends_with(')') {
-        let inner = &trimmed[1..trimmed.len().saturating_sub(1)];
+    let list_bounds = [
+        ('(', ')'),
+        ('[', ']'),
+    ];
+
+    if let Some((open, close)) = list_bounds
+        .iter()
+        .copied()
+        .find(|(open, close)| trimmed.starts_with(*open) && trimmed.ends_with(*close))
+    {
+        let inner = &trimmed[open.len_utf8()..trimmed.len().saturating_sub(close.len_utf8())];
         let values = split_list(inner)
             .into_iter()
             .map(|item| item.trim().trim_matches('"').trim_matches('\'').to_string())
@@ -731,11 +745,11 @@ fn split_list(value: &str) -> Vec<String> {
                 quote = Some(ch);
                 current.push(ch);
             }
-            '(' => {
+            '(' | '[' => {
                 depth += 1;
                 current.push(ch);
             }
-            ')' => {
+            ')' | ']' => {
                 depth = depth.saturating_sub(1);
                 current.push(ch);
             }
@@ -774,6 +788,14 @@ mod tests {
         let ast = parse("in:devices discovery_sources:(sweep,armis)").unwrap();
         assert_eq!(ast.filters.len(), 1);
         assert!(matches!(ast.filters[0].value, FilterValue::List(_)));
+    }
+
+    #[test]
+    fn parses_bracket_lists() {
+        let ast = parse("in:devices if_index:[1,2]").unwrap();
+        assert_eq!(ast.filters.len(), 1);
+        assert!(matches!(ast.filters[0].value, FilterValue::List(_)));
+        assert!(matches!(ast.filters[0].op, FilterOp::In));
     }
 
     #[test]

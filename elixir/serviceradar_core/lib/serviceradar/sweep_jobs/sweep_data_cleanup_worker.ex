@@ -81,8 +81,12 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   def perform(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
-    host_results_days = Keyword.get(config, :host_results_retention_days, @default_host_results_retention_days)
-    executions_days = Keyword.get(config, :executions_retention_days, @default_executions_retention_days)
+    host_results_days =
+      Keyword.get(config, :host_results_retention_days, @default_host_results_retention_days)
+
+    executions_days =
+      Keyword.get(config, :executions_retention_days, @default_executions_retention_days)
+
     batch_size = Keyword.get(config, :batch_size, @default_batch_size)
 
     host_results_cutoff = DateTime.add(DateTime.utc_now(), -host_results_days * 86_400, :second)
@@ -148,6 +152,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
 
   defp cleanup_in_batches(resource, timestamp_field, cutoff, batch_size, extra_filter \\ nil) do
     table = get_table_name(resource)
+
     do_cleanup_batch(
       table,
       resource,

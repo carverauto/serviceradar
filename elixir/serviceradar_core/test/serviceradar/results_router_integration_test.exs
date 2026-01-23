@@ -56,7 +56,8 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
       metadata: %{"armis_device_id" => armis_id}
     }
 
-    assert {:ok, expected_id} = IdentityReconciler.resolve_device_id(identity_update, actor: actor)
+    assert {:ok, expected_id} =
+             IdentityReconciler.resolve_device_id(identity_update, actor: actor)
 
     status = %{
       source: "results",

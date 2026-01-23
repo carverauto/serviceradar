@@ -180,13 +180,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "agent_id",
         "metric_name",
         "uid",
+        "device_id",
         "target_device_ip",
         "partition",
         "if_index"
       ],
       downsample: true,
       default_bucket: "5m",
-      default_agg: "avg",
+      # Use rate aggregation by default for SNMP metrics (byte counters need rate calculation)
+      default_agg: "rate",
       default_series_field: "metric_name",
       series_fields: [
         "metric_name",
