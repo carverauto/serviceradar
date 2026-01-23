@@ -131,13 +131,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
       profile ->
         scope = socket.assigns.current_scope
-
-        target_query =
-          case profile.target_query do
-            nil -> if profile.is_default, do: "in:interfaces", else: nil
-            "" -> if profile.is_default, do: "in:interfaces", else: ""
-            other -> other
-          end
+        target_query = resolve_target_query(profile.target_query, profile.is_default)
 
         ash_form =
           Form.for_update(profile, :update, domain: ServiceRadar.SNMPProfiles, scope: scope)
@@ -2924,6 +2918,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     builtin ++ custom
   end
 
+  # Resolve target query for a profile, using defaults for default profiles
+  defp resolve_target_query(nil, true), do: "in:interfaces"
+  defp resolve_target_query("", true), do: "in:interfaces"
+  defp resolve_target_query(nil, _is_default), do: nil
+  defp resolve_target_query("", _is_default), do: ""
+  defp resolve_target_query(query, _is_default), do: query
+
   defp count_target_devices(_scope, nil), do: nil
   defp count_target_devices(_scope, ""), do: nil
 
@@ -2931,25 +2932,23 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     # Parse the SRQL query and count matching targets based on entity type
     entity = extract_srql_entity(target_query)
 
-    case ServiceRadarSRQL.Native.parse_ast(target_query) do
-      {:ok, ast_json} ->
-        case Jason.decode(ast_json) do
-          {:ok, ast} ->
-            case entity do
-              "devices" -> count_devices_from_ast(scope, ast)
-              "interfaces" -> count_interfaces_from_ast(scope, ast)
-              _ -> count_devices_from_ast(scope, ast)
-            end
-
-          {:error, _} ->
-            nil
-        end
-
-      {:error, _} ->
-        nil
+    with {:ok, ast_json} <- ServiceRadarSRQL.Native.parse_ast(target_query),
+         {:ok, ast} <- Jason.decode(ast_json) do
+      count_entity_from_ast(scope, entity, ast)
+    else
+      _ -> nil
     end
   rescue
     _ -> nil
+  end
+
+  # Helper to count entities from parsed AST (extracted to reduce nesting depth)
+  defp count_entity_from_ast(scope, entity, ast) do
+    case entity do
+      "devices" -> count_devices_from_ast(scope, ast)
+      "interfaces" -> count_interfaces_from_ast(scope, ast)
+      _ -> count_devices_from_ast(scope, ast)
+    end
   end
 
   defp extract_srql_entity(query) when is_binary(query) do

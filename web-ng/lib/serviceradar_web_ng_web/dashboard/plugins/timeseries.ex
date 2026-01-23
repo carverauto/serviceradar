@@ -176,23 +176,29 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp normalize_series_label(nil), do: "overall"
   defp normalize_series_label(value), do: value
 
-  defp chart_paths(points) when is_list(points) do
+  # Chart paths with optional max_y for fixed Y-axis scaling (e.g., interface speed)
+  # max_y can be nil for auto-scaling or a number for fixed upper bound
+  defp chart_paths(points, max_y) when is_list(points) do
     values = Enum.map(points, fn {_dt, v} -> v end)
 
     case values do
       [] ->
-        %{line: "", area: "", min: 0.0, max: 0.0, latest: nil}
+        %{line: "", area: "", min: 0.0, max: 0.0, avg: 0.0, latest: nil}
 
       _ ->
         min_v = Enum.min(values, fn -> 0 end)
         max_v = Enum.max(values, fn -> 0 end)
+        avg_v = Enum.sum(values) / length(values)
         latest = List.last(values)
+
+        # Use fixed max if provided (e.g., interface speed), otherwise use data max
+        chart_max = if is_number(max_y) and max_y > 0, do: max_y, else: max_v
 
         coords =
           Enum.with_index(values)
           |> Enum.map(fn {v, idx} ->
             x = idx_to_x(idx, length(values))
-            y = value_to_y(v, min_v, max_v)
+            y = value_to_y(v, 0, chart_max)
             {x, y}
           end)
 
@@ -202,7 +208,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
         area = area_path(coords)
 
-        %{line: line, area: area, min: min_v, max: max_v, latest: latest}
+        %{line: line, area: area, min: min_v, max: max_v, avg: avg_v, latest: latest}
     end
   end
 
@@ -255,19 +261,81 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp dt_label(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %-d %H:%M")
   defp dt_label(_), do: ""
 
-  defp format_value(v) when is_float(v), do: :erlang.float_to_binary(v, decimals: 2)
-  defp format_value(v) when is_integer(v), do: Integer.to_string(v)
+  # Format values as bytes per second with human-readable units
+  # This handles SNMP counter rates (bytes/sec from agg:rate)
+  defp format_value(v) when is_float(v) or is_integer(v) do
+    format_bytes_per_sec(v * 1.0)
+  end
+
   defp format_value(_), do: "—"
+
+  defp format_bytes_per_sec(bps) when bps >= 1_000_000_000 do
+    "#{Float.round(bps / 1_000_000_000, 2)} GB/s"
+  end
+
+  defp format_bytes_per_sec(bps) when bps >= 1_000_000 do
+    "#{Float.round(bps / 1_000_000, 2)} MB/s"
+  end
+
+  defp format_bytes_per_sec(bps) when bps >= 1_000 do
+    "#{Float.round(bps / 1_000, 2)} KB/s"
+  end
+
+  defp format_bytes_per_sec(bps) when bps >= 0 do
+    "#{Float.round(bps, 1)} B/s"
+  end
+
+  defp format_bytes_per_sec(bps) do
+    # Negative values (shouldn't happen with rate calc, but just in case)
+    "#{Float.round(bps, 2)}"
+  end
+
+  # Map raw SNMP metric names to human-readable labels
+  defp humanize_series_name("ifInOctets"), do: "Inbound Traffic"
+  defp humanize_series_name("ifOutOctets"), do: "Outbound Traffic"
+  defp humanize_series_name("ifInErrors"), do: "Inbound Errors"
+  defp humanize_series_name("ifOutErrors"), do: "Outbound Errors"
+  defp humanize_series_name("ifInDiscards"), do: "Inbound Discards"
+  defp humanize_series_name("ifOutDiscards"), do: "Outbound Discards"
+  defp humanize_series_name("ifInUcastPkts"), do: "Inbound Packets"
+  defp humanize_series_name("ifOutUcastPkts"), do: "Outbound Packets"
+  defp humanize_series_name("ifHCInOctets"), do: "Inbound Traffic (64-bit)"
+  defp humanize_series_name("ifHCOutOctets"), do: "Outbound Traffic (64-bit)"
+  defp humanize_series_name(name), do: name
+
+  # Check if a series is a traffic metric (bytes/sec) that should use interface speed scaling
+  defp traffic_series?("ifInOctets"), do: true
+  defp traffic_series?("ifOutOctets"), do: true
+  defp traffic_series?("ifHCInOctets"), do: true
+  defp traffic_series?("ifHCOutOctets"), do: true
+  defp traffic_series?(_), do: false
+
+  # Compute utilization percentage from current value and max speed
+  defp compute_utilization(value, max_speed) when is_number(value) and is_number(max_speed) and max_speed > 0 do
+    percentage = value / max_speed * 100
+    Float.round(percentage, 1)
+  end
+
+  defp compute_utilization(_, _), do: nil
+
+  # Badge color based on utilization percentage thresholds
+  defp utilization_badge_class(pct) when pct >= 90, do: "badge-error"
+  defp utilization_badge_class(pct) when pct >= 75, do: "badge-warning"
+  defp utilization_badge_class(pct) when pct >= 50, do: "badge-info"
+  defp utilization_badge_class(_), do: "badge-success"
 
   @impl true
   def update(%{panel_assigns: panel_assigns} = assigns, socket) do
     compact = Map.get(panel_assigns || %{}, :compact, false)
+    # Get max speed for traffic metrics (bytes/sec) for proper Y-axis scaling
+    max_speed = Map.get(panel_assigns || %{}, :max_speed_bytes_per_sec)
 
     socket =
       socket
       |> assign(Map.drop(assigns, [:panel_assigns]))
       |> assign(panel_assigns || %{})
       |> assign(:compact, compact)
+      |> assign(:max_speed_bytes_per_sec, max_speed)
       |> assign(:chart_width, @chart_width)
       |> assign(:chart_height, @chart_height)
       |> assign(:chart_pad, @chart_pad)
@@ -279,15 +347,40 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   def render(assigns) do
     compact = Map.get(assigns, :compact, false)
     series_points = assigns.series_points || []
+    max_speed = Map.get(assigns, :max_speed_bytes_per_sec)
 
     # Pre-compute chart data for each series for hover functionality
     series_data =
       Enum.with_index(series_points)
       |> Enum.map(fn {{series, points}, idx} ->
-        paths = chart_paths(points)
+        # Check if this is a traffic metric that should use max_speed for scaling
+        effective_max = if traffic_series?(series), do: max_speed, else: nil
+
+        paths = chart_paths(points, effective_max)
         {stroke, _fill} = series_color(idx)
         point_data = Enum.map(points, fn {dt, v} -> %{dt: dt_label(dt), v: v} end)
-        %{series: series, paths: paths, stroke: stroke, idx: idx, point_data: point_data}
+        # Use humanized series name for display
+        display_name = humanize_series_name(series || "series")
+
+        # Get first and last timestamps for this series
+        series_first_dt = series_first_dt(points)
+        series_last_dt = series_last_dt(points)
+
+        # Calculate utilization percentage if we have interface speed
+        utilization = compute_utilization(paths.avg, effective_max)
+
+        %{
+          series: display_name,
+          raw_series: series,
+          paths: paths,
+          stroke: stroke,
+          idx: idx,
+          point_data: point_data,
+          first_dt: series_first_dt,
+          last_dt: series_last_dt,
+          max_speed: effective_max,
+          utilization: utilization
+        }
       end)
 
     assigns =
@@ -392,6 +485,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           <span class={["font-medium truncate", @compact && "text-xs", not @compact && "text-sm"]}>
             {@data.series}
           </span>
+          <span
+            :if={@data.utilization}
+            class={[
+              "badge badge-xs font-mono",
+              utilization_badge_class(@data.utilization)
+            ]}
+            title={"#{@data.utilization}% of interface capacity"}
+          >
+            {@data.utilization}%
+          </span>
         </div>
         <div class={[
           "text-base-content/60 font-mono shrink-0",
@@ -445,8 +548,20 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         @compact && "text-[10px]",
         not @compact && "text-xs"
       ]}>
-        <span>min: <span class="font-mono">{format_value(@data.paths.min)}</span></span>
-        <span>max: <span class="font-mono">{format_value(@data.paths.max)}</span></span>
+        <span>avg: <span class="font-mono">{format_value(@data.paths.avg)}</span></span>
+        <span :if={@data.max_speed} class="text-base-content/40">
+          limit: <span class="font-mono">{format_value(@data.max_speed)}</span>
+        </span>
+        <span>peak: <span class="font-mono">{format_value(@data.paths.max)}</span></span>
+      </div>
+      <!-- Timeline axis -->
+      <div class={[
+        "flex items-center justify-between text-base-content/40 mt-1 font-mono",
+        @compact && "text-[9px]",
+        not @compact && "text-[10px]"
+      ]}>
+        <span>{@data.first_dt}</span>
+        <span>{@data.last_dt}</span>
       </div>
     </div>
     """
@@ -475,4 +590,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp last_dt(_), do: nil
+
+  # Get first datetime label from a list of points
+  defp series_first_dt([{%DateTime{} = dt, _} | _]), do: dt_label(dt)
+  defp series_first_dt(_), do: ""
+
+  # Get last datetime label from a list of points
+  defp series_last_dt(points) when is_list(points) do
+    case List.last(points) do
+      {%DateTime{} = dt, _} -> dt_label(dt)
+      _ -> ""
+    end
+  end
+
+  defp series_last_dt(_), do: ""
 end

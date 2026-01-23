@@ -938,16 +938,19 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     if is_nil(if_index) do
       %{panels: [], error: nil, message: "Interface has no if_index for SNMP metrics"}
     else
+      # Use agg:rate to calculate rate of change per second for counter metrics
+      # This properly handles SNMP byte counters (ifInOctets, ifOutOctets, etc.)
       query =
         "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-          "time:last_24h bucket:5m agg:avg series:metric_name limit:200"
+          "time:last_24h bucket:5m agg:rate series:metric_name limit:200"
+
+      # Get interface speed for proper graph scaling (bps -> bytes per second)
+      if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")
+      if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8, else: nil
 
       case srql_module.query(query, %{scope: scope}) do
         {:ok, %{"results" => results}} when is_list(results) and results != [] ->
-          panels =
-            Engine.build_panels(%{"results" => results})
-            |> Enum.reject(&(&1.plugin == TablePlugin))
-
+          panels = build_metrics_panels(results, if_speed_bytes_per_sec)
           %{panels: panels, error: nil}
 
         {:ok, %{"results" => []}} ->
@@ -960,6 +963,15 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           %{panels: [], error: nil}
       end
     end
+  end
+
+  # Build panels for interface metrics with speed scaling
+  defp build_metrics_panels(results, max_speed_bytes_per_sec) do
+    Engine.build_panels(%{"results" => results})
+    |> Enum.reject(&(&1.plugin == TablePlugin))
+    |> Enum.map(fn panel ->
+      %{panel | assigns: Map.put(panel.assigns, :max_speed_bytes_per_sec, max_speed_bytes_per_sec)}
+    end)
   end
 
   defp escape_value(value) when is_binary(value) do

@@ -329,28 +329,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     editing = not is_nil(socket.assigns.device_snmp_credential)
     normalized = normalize_snmp_credential_params(params, editing)
 
-    cond do
-      editing or snmp_params_present?(normalized) ->
-        case DeviceSNMPCredential.upsert_for_device(device_uid, normalized, scope: scope) do
-          {:ok, credential} ->
-            {:noreply,
-             socket
-             |> assign(:device_snmp_credential, credential)
-             |> assign(
-               :snmp_credential_form,
-               to_form(snmp_credential_form_data(credential), as: :snmp)
-             )
-             |> put_flash(:info, "SNMP credentials saved")}
+    if editing or snmp_params_present?(normalized) do
+      case DeviceSNMPCredential.upsert_for_device(device_uid, normalized, scope: scope) do
+        {:ok, credential} ->
+          {:noreply,
+           socket
+           |> assign(:device_snmp_credential, credential)
+           |> assign(
+             :snmp_credential_form,
+             to_form(snmp_credential_form_data(credential), as: :snmp)
+           )
+           |> put_flash(:info, "SNMP credentials saved")}
 
-          {:error, %Ash.Error.Invalid{} = error} ->
-            {:noreply, put_flash(socket, :error, format_ash_error(error))}
+        {:error, %Ash.Error.Invalid{} = error} ->
+          {:noreply, put_flash(socket, :error, format_ash_error(error))}
 
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to save SNMP credentials: #{inspect(reason)}")}
-        end
-
-      true ->
-        {:noreply, put_flash(socket, :info, "Provide SNMP credentials to create an override")}
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to save SNMP credentials: #{inspect(reason)}")}
+      end
+    else
+      {:noreply, put_flash(socket, :info, "Provide SNMP credentials to create an override")}
     end
   end
 
@@ -653,18 +651,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_interface_metrics(srql_module, device_uid, favorited_uids, interfaces, scope) do
-    # Get the favorited interfaces with their if_index and name
+    # Get the favorited interfaces with their if_index, name, and speed
     favorited_interfaces =
       interfaces
       |> Enum.filter(fn iface ->
         uid = Map.get(iface, "interface_uid")
-        is_binary(uid) and MapSet.member?(favorited_uids, uid)
+        is_binary(uid) and MapSet.member?(favorited_uids, uid) and is_integer(Map.get(iface, "if_index"))
       end)
-      |> Enum.filter(fn iface -> is_integer(Map.get(iface, "if_index")) end)
       |> Enum.map(fn iface ->
+        # Get interface speed for proper graph scaling (bps -> bytes per second)
+        if_speed_bps = Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
+        if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8, else: nil
+
         %{
           if_index: Map.get(iface, "if_index"),
-          name: Map.get(iface, "if_name") || Map.get(iface, "if_descr") || "Interface #{Map.get(iface, "if_index")}"
+          name: Map.get(iface, "if_name") || Map.get(iface, "if_descr") || "Interface #{Map.get(iface, "if_index")}",
+          max_speed_bytes_per_sec: if_speed_bytes_per_sec
         }
       end)
 
@@ -678,34 +680,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       }
     else
       # Query SNMP metrics for each favorited interface separately and build panels per interface
+      # Use agg:rate to calculate rate of change per second for counter metrics
       {all_panels, errors} =
-        Enum.reduce(favorited_interfaces, {[], []}, fn %{if_index: if_index, name: iface_name}, {panels_acc, errs} ->
-          query =
-            "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-              "time:last_24h bucket:5m agg:avg series:metric_name limit:200"
-
-          case srql_module.query(query, %{scope: scope}) do
-            {:ok, %{"results" => results}} when is_list(results) and results != [] ->
-              # Build panels for this interface's metrics
-              interface_panels =
-                Engine.build_panels(%{"results" => results})
-                |> Enum.reject(&(&1.plugin == TablePlugin))
-                |> Enum.map(fn panel ->
-                  # Add interface context to the panel
-                  %{panel | assigns: Map.put(panel.assigns, :interface_label, "#{iface_name} (ifIndex: #{if_index})")}
-                end)
-
-              {panels_acc ++ interface_panels, errs}
-
-            {:ok, %{"results" => []}} ->
-              {panels_acc, errs}
-
-            {:error, reason} ->
-              {panels_acc, [format_error(reason) | errs]}
-
-            _ ->
-              {panels_acc, errs}
-          end
+        Enum.reduce(favorited_interfaces, {[], []}, fn fav_iface, {panels_acc, errs} ->
+          query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs)
         end)
 
       cond do
@@ -736,6 +714,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           }
       end
     end
+  end
+
+  # Helper to query metrics for a single interface (extracted to reduce nesting depth)
+  defp query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs) do
+    %{if_index: if_index, name: iface_name, max_speed_bytes_per_sec: max_speed} = fav_iface
+
+    query =
+      "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
+        "time:last_24h bucket:5m agg:rate series:metric_name limit:200"
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) and results != [] ->
+        interface_panels = build_interface_panels(results, iface_name, if_index, max_speed)
+        {panels_acc ++ interface_panels, errs}
+
+      {:ok, %{"results" => []}} ->
+        {panels_acc, errs}
+
+      {:error, reason} ->
+        {panels_acc, [format_error(reason) | errs]}
+
+      _ ->
+        {panels_acc, errs}
+    end
+  end
+
+  # Build panels for interface metrics (extracted to reduce nesting depth)
+  defp build_interface_panels(results, iface_name, if_index, max_speed) do
+    Engine.build_panels(%{"results" => results})
+    |> Enum.reject(&(&1.plugin == TablePlugin))
+    |> Enum.map(fn panel ->
+      assigns =
+        panel.assigns
+        |> Map.put(:interface_label, "#{iface_name} (ifIndex: #{if_index})")
+        |> Map.put(:max_speed_bytes_per_sec, max_speed)
+
+      %{panel | assigns: assigns}
+    end)
   end
 
   defp upsert_interface_setting(_scope, nil, _interface_uid, _attrs), do: {:error, :no_device}
@@ -1907,11 +1923,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   </td>
                   <td class="w-8 text-center">
                     <% metrics_enabled = Map.get(iface, "metrics_enabled", false) %>
-                    <.icon
-                      :if={metrics_enabled}
-                      name="hero-chart-bar-solid"
-                      class="size-4 text-success cursor-pointer hover:text-success/80"
+                    <.link
+                      :if={metrics_enabled && iface_uid}
+                      navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
                       title="Metrics collection enabled - Click to view details"
+                    >
+                      <.icon
+                        name="hero-chart-bar-solid"
+                        class="size-4 text-success cursor-pointer hover:text-success/80"
+                      />
+                    </.link>
+                    <.icon
+                      :if={metrics_enabled && !iface_uid}
+                      name="hero-chart-bar-solid"
+                      class="size-4 text-success"
+                      title="Metrics collection enabled"
                     />
                     <.icon
                       :if={!metrics_enabled}

@@ -103,6 +103,10 @@ pub enum DownsampleAgg {
     Max,
     Sum,
     Count,
+    /// Rate of change per second - for counter metrics like SNMP byte counters.
+    /// Calculates (current_value - previous_value) / time_delta_seconds,
+    /// then averages within each bucket. Skips rows where counter appears to wrap/reset.
+    Rate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -428,8 +432,9 @@ fn parse_downsample_agg(raw: &str) -> Result<DownsampleAgg> {
         "max" => Ok(DownsampleAgg::Max),
         "sum" => Ok(DownsampleAgg::Sum),
         "count" => Ok(DownsampleAgg::Count),
+        "rate" => Ok(DownsampleAgg::Rate),
         other => Err(ServiceError::InvalidRequest(format!(
-            "unsupported agg '{other}' (use avg|min|max|sum|count)"
+            "unsupported agg '{other}' (use avg|min|max|sum|count|rate)"
         ))),
     }
 }
