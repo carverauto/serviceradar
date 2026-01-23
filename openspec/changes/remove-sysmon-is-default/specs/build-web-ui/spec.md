@@ -1,0 +1,182 @@
+## MODIFIED Requirements
+### Requirement: Sysmon Profile Management
+
+The web-ng UI MUST provide an interface for administrators to create, view, edit, and delete Sysmon Profiles.
+
+#### Scenario: Navigate to Sysmon Profiles
+- **GIVEN** an authenticated admin user
+- **WHEN** they navigate to Settings → Sysmon Profiles
+- **THEN** they see a list of all existing profiles
+- **AND** the list shows profile name, description, sample interval, and assignment count
+
+#### Scenario: Create new profile
+- **GIVEN** an admin on the Sysmon Profiles page
+- **WHEN** they click "Create Profile"
+- **THEN** a form opens with fields for:
+  - Name (required, unique)
+  - Description (optional)
+  - Sample Interval (dropdown: 1s, 5s, 10s, 30s, 1m, custom)
+  - Enabled Metrics (checkboxes: CPU, Memory, Disk, Network, Processes)
+  - Disk Paths (multi-input for paths like "/", "/data")
+  - Thresholds (optional: warning/critical levels for CPU, Memory, Disk)
+- **AND** they can save the profile
+
+#### Scenario: Target query input updates builder
+- **GIVEN** an admin editing a sysmon profile with the query builder open
+- **WHEN** they paste a valid SRQL target query into the Target Query input
+- **THEN** the builder filters update to match the parsed query
+- **AND** the builder indicates the query is applied
+
+#### Scenario: Unsupported SRQL leaves builder unsynced
+- **GIVEN** the query builder is open
+- **WHEN** the admin enters a target query that includes unsupported SRQL clauses
+- **THEN** the Target Query input value is preserved
+- **AND** the builder indicates it is not applied to the query
+
+#### Scenario: Edit existing profile
+- **GIVEN** an existing profile "High Performance"
+- **WHEN** the admin clicks "Edit" on that profile
+- **THEN** the form pre-populates with current values
+- **AND** they can modify and save changes
+- **AND** changes propagate to assigned devices on their next config refresh
+
+#### Scenario: Delete profile with assignments
+- **GIVEN** a profile "Legacy" assigned to 5 devices
+- **WHEN** the admin attempts to delete it
+- **THEN** a confirmation dialog shows "This profile is assigned to 5 devices"
+- **AND** they must confirm clearing those assignments
+- **AND** upon confirmation, affected devices have no direct sysmon profile assignment
+
+#### Scenario: View profile JSON preview
+- **GIVEN** an admin editing a profile
+- **WHEN** they click "Preview JSON"
+- **THEN** they see the compiled JSON that agents will receive
+- **AND** the preview updates live as they modify settings
+
+### Requirement: Profile Assignment to Devices
+
+The UI MUST allow direct profile assignment to individual devices.
+
+#### Scenario: Assign profile from device detail
+- **GIVEN** an admin viewing a device detail page
+- **WHEN** they click "Sysmon Profile" dropdown
+- **THEN** they see a list of available profiles
+- **AND** can select one to assign directly to this device
+
+#### Scenario: Bulk assign profile to devices
+- **GIVEN** an admin on the Devices list page
+- **WHEN** they select multiple devices
+- **AND** click "Bulk Actions" → "Assign Sysmon Profile"
+- **THEN** they can select a profile to assign to all selected devices
+
+#### Scenario: Clear device profile assignment
+- **GIVEN** a device with directly assigned profile "Database"
+- **WHEN** the admin clicks "Clear Assignment"
+- **THEN** the device no longer has a direct profile
+- **AND** it falls back to tag-based assignment when available
+- **AND** it is otherwise unassigned
+
+### Requirement: Profile Assignment via Tags
+
+The UI MUST allow assigning profiles to device tags for group-based configuration.
+
+#### Scenario: Assign profile to tag
+- **GIVEN** a tag "database-server" exists with 50 devices
+- **WHEN** the admin navigates to Settings → Tags (or Sysmon Profiles → Tag Assignments)
+- **AND** assigns "High Performance" profile to tag "database-server"
+- **THEN** all 50 devices with that tag receive the "High Performance" configuration
+- **AND** the assignment is stored for future devices gaining this tag
+
+#### Scenario: View tag assignments
+- **GIVEN** the Sysmon Profiles page
+- **WHEN** the admin clicks "Tag Assignments" tab
+- **THEN** they see a table of tag → profile mappings
+- **AND** each row shows tag name, assigned profile, and device count
+
+#### Scenario: Remove tag assignment
+- **GIVEN** tag "production" is assigned profile "Prod Standard"
+- **WHEN** the admin removes this assignment
+- **THEN** devices with only this tag become unassigned
+- **AND** devices with other tag assignments use their remaining profile
+
+#### Scenario: Tag assignment priority
+- **GIVEN** a device with tags "production" and "database"
+- **AND** both tags have profile assignments
+- **WHEN** the admin views the device detail
+- **THEN** it shows which profile is effective
+- **AND** explains the resolution reason (e.g., "Database profile (higher priority)")
+
+### Requirement: Device Sysmon Status Visibility
+
+The UI MUST show the sysmon configuration status for devices. The UI MUST render the Devices list and device detail views even when sysmon profile or status data is missing or malformed, and MUST display a fallback label and neutral status indicator when data is unavailable.
+
+#### Scenario: Device list sysmon column
+- **GIVEN** the Devices list page
+- **WHEN** the admin enables the "Sysmon" column
+- **THEN** each device row shows:
+  - Profile name (or "Unassigned")
+  - Status indicator (configured, local override, disabled)
+
+#### Scenario: Device detail sysmon section
+- **GIVEN** a device detail page
+- **THEN** a "System Monitoring" section shows:
+  - Current profile name and source (direct, tag, unassigned)
+  - Configuration summary (interval, enabled metrics)
+  - Local override indicator if agent is using local config
+  - Last config fetch timestamp
+
+#### Scenario: Local override indicator
+- **GIVEN** a device where the agent is using local sysmon.json
+- **WHEN** the admin views the device
+- **THEN** they see a badge "Local Override"
+- **AND** a tooltip explains "Agent is using local configuration file"
+
+#### Scenario: Missing sysmon profile data
+- **GIVEN** a device record without sysmon profile assignment or status fields
+- **WHEN** the Devices list page renders the Sysmon column
+- **THEN** the row SHALL render a fallback label such as "Unassigned"
+- **AND** the page SHALL render without error
+
+### Requirement: Ash Resource Backend
+
+The backend MUST implement Ash resources for sysmon profile management following established patterns.
+
+#### Scenario: SysmonProfile resource
+- **GIVEN** the SysmonProfile Ash resource
+- **THEN** it includes:
+  - `id` (UUID, primary key)
+  - `name` (string, unique per tenant)
+  - `description` (string, optional)
+  - `sample_interval` (integer, milliseconds)
+  - `collect_cpu` (boolean, default true)
+  - `collect_memory` (boolean, default true)
+  - `collect_disk` (boolean, default true)
+  - `collect_network` (boolean, default false)
+  - `collect_processes` (boolean, default false)
+  - `disk_paths` (array of strings)
+  - `process_top_n` (integer, default 10)
+  - `thresholds` (embedded map)
+  - `tenant_id` (UUID, for multi-tenancy)
+
+#### Scenario: SysmonProfileAssignment resource
+- **GIVEN** the SysmonProfileAssignment Ash resource
+- **THEN** it includes:
+  - `id` (UUID, primary key)
+  - `profile_id` (belongs_to SysmonProfile)
+  - `device_id` (belongs_to Device, nullable)
+  - `tag_name` (string, nullable - for tag-based assignments)
+  - `priority` (integer, for multiple tag matches)
+  - `tenant_id` (UUID)
+- **AND** either device_id or tag_name must be set (not both, not neither)
+
+#### Scenario: SysmonCompiler integration
+- **GIVEN** the AgentConfig compiler system
+- **WHEN** an agent requests sysmon configuration
+- **THEN** the SysmonCompiler resolves the effective profile
+- **AND** compiles it to JSON matching the agent schema
+- **AND** the ConfigInvalidationNotifier triggers on profile changes
+
+## REMOVED Requirements
+### Requirement: Default Profile Protection
+**Reason**: Sysmon profiles are optional and no longer have a protected default.
+**Migration**: Admins can create an SRQL profile to cover all devices when needed.

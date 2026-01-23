@@ -621,9 +621,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     attribute :config_source, :atom do
       public? true
-      constraints one_of: [:remote, :local, :cached, :default]
+      constraints one_of: [:remote, :local, :cached, :unassigned]
 
-      description "Source of sysmon config: remote (from backend), local (file override), cached, or default"
+      description "Source of sysmon config: remote (from backend), local (file override), cached, or unassigned"
     end
   end
 

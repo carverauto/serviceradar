@@ -750,7 +750,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           "remote" -> :remote
           "local" -> :local
           "cached" -> :cached
-          "default" -> :default
+          "unassigned" -> :unassigned
+          "default" -> :unassigned
           _ -> nil
         end
 

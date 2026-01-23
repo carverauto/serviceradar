@@ -16,7 +16,7 @@ defmodule ServiceRadar.SysmonProfiles do
 
   When an agent requests its sysmon configuration, the profile is resolved:
   1. SRQL targeting: Profiles with `target_query` evaluated by priority (highest first)
-  2. Default profile for the deployment (fallback)
+  2. No match returns a disabled sysmon configuration
 
   ## Integration with Agents
 

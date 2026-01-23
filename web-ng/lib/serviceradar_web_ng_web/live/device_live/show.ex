@@ -4089,7 +4089,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp sysmon_profile_card(assigns) do
     profile = Map.get(assigns.profile_info, :profile)
-    source = Map.get(assigns.profile_info, :source, "default")
+    source = Map.get(assigns.profile_info, :source, "unassigned")
 
     assigns =
       assigns
@@ -4115,7 +4115,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 Sample interval: <span class="font-mono">{@profile.sample_interval}</span>
               </div>
             </div>
-            <.ui_badge :if={@profile.is_default} variant="info" size="sm">Default</.ui_badge>
           </div>
 
           <div :if={@profile.target_query && @source == "srql"} class="text-xs">
@@ -4138,7 +4137,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         </div>
 
         <div :if={is_nil(@profile)} class="text-sm text-base-content/60">
-          Using default configuration
+          No matching sysmon profile
         </div>
 
         <div class="text-xs text-base-content/50 pt-3 border-t border-base-200 mt-4">
@@ -4174,9 +4173,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {label, variant} =
       case assigns.source do
         "srql" -> {"SRQL Targeting", "primary"}
-        "default" -> {"Default", "ghost"}
+        "unassigned" -> {"Unassigned", "ghost"}
         "local" -> {"Local Override", "warning"}
-        _ -> {"Default", "ghost"}
+        _ -> {"Unassigned", "ghost"}
       end
 
     assigns =
@@ -4209,10 +4208,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     # Determine source based on profile type
     source =
       cond do
-        is_nil(profile) -> "default"
-        profile.is_default -> "default"
+        is_nil(profile) -> "unassigned"
         not is_nil(profile.target_query) -> "srql"
-        true -> "default"
+        true -> "unassigned"
       end
 
     profile_info = %{
