@@ -2,7 +2,7 @@ defmodule ServiceRadar.Identity.Token do
   @moduledoc """
   Token resource for AshAuthentication.
 
-  Stores authentication tokens (session, magic link, password reset, etc.)
+  Stores authentication tokens (session, password reset, etc.)
   with configurable expiration and purpose.
   """
 

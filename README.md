@@ -55,7 +55,7 @@ docker compose up -d
 docker compose logs config-updater | grep "Password:"
 ```
 
-**Access ServiceRadar:** http://localhost (login: `admin` / password from above)
+**Access ServiceRadar:** http://localhost (login: `root@localhost` / password from above)
 
 **Prerequisites:** Docker Engine 20.10+, Docker Compose 2.0+, 8GB+ RAM
 

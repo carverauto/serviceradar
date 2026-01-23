@@ -18,6 +18,8 @@ docker compose up -d
 docker compose logs config-updater | grep "Password:"
 ```
 
+Login with `root@localhost` and the password from the logs.
+
 ### Kubernetes / Helm
 
 ```bash
