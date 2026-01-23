@@ -186,21 +186,12 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
   defp parse_if_index_from_interface_uid(""), do: nil
 
   defp parse_if_index_from_interface_uid(uid) when is_binary(uid) do
-    case String.split(uid, ":", parts: 2) do
-      [prefix, value] ->
-        prefix = String.downcase(String.trim(prefix))
-
-        if prefix == "ifindex" do
-          case Integer.parse(String.trim(value)) do
-            {parsed, _} -> parsed
-            :error -> nil
-          end
-        else
-          nil
-        end
-
-      _ ->
-        nil
+    with [prefix, value] <- String.split(uid, ":", parts: 2),
+         "ifindex" <- prefix |> String.trim() |> String.downcase(),
+         {parsed, _} <- Integer.parse(String.trim(value)) do
+      parsed
+    else
+      _ -> nil
     end
   end
 

@@ -17,34 +17,51 @@ defmodule ServiceRadar.SNMPProfiles.Changes.EncryptCredentials do
 
   @impl true
   def change(changeset, _opts, _context) do
-    changeset
-    |> encrypt_if_present(:community, :community_encrypted)
-    |> encrypt_if_present(:auth_password, :auth_password_encrypted)
-    |> encrypt_if_present(:priv_password, :priv_password_encrypted)
+    case build_encrypted_payload(changeset) do
+      {:ok, payload} ->
+        Enum.reduce(payload, changeset, fn {field, value}, acc ->
+          Ash.Changeset.change_attribute(acc, field, value)
+        end)
+
+      {:error, {field, message}} ->
+        Ash.Changeset.add_error(changeset, field: field, message: message)
+    end
   end
 
-  defp encrypt_if_present(changeset, plaintext_field, encrypted_field) do
-    # Check if the plaintext credential was provided in the input arguments
+  @impl true
+  def atomic(changeset, _opts, _context) do
+    case build_encrypted_payload(changeset) do
+      {:ok, payload} ->
+        {:atomic, payload}
+
+      {:error, {field, message}} ->
+        {:error, Ash.Error.Changes.InvalidAttribute.exception(field: field, message: message)}
+    end
+  end
+
+  defp build_encrypted_payload(changeset) do
+    with {:ok, payload} <- encrypt_field(changeset, :community, :community_encrypted, %{}),
+         {:ok, payload} <- encrypt_field(changeset, :auth_password, :auth_password_encrypted, payload),
+         {:ok, payload} <- encrypt_field(changeset, :priv_password, :priv_password_encrypted, payload) do
+      {:ok, payload}
+    end
+  end
+
+  defp encrypt_field(changeset, plaintext_field, encrypted_field, payload) do
     case Ash.Changeset.get_argument(changeset, plaintext_field) do
       nil ->
-        # No change to this credential
-        changeset
+        {:ok, payload}
 
       "" ->
-        # Empty value - clear the encrypted field
-        Ash.Changeset.change_attribute(changeset, encrypted_field, nil)
+        {:ok, Map.put(payload, encrypted_field, nil)}
 
       credential when is_binary(credential) ->
-        # Encrypt and store
         case Vault.encrypt(credential) do
           {:ok, encrypted} ->
-            Ash.Changeset.change_attribute(changeset, encrypted_field, encrypted)
+            {:ok, Map.put(payload, encrypted_field, encrypted)}
 
           {:error, _reason} ->
-            Ash.Changeset.add_error(changeset,
-              field: plaintext_field,
-              message: "Failed to encrypt credential"
-            )
+            {:error, {plaintext_field, "Failed to encrypt credential"}}
         end
     end
   end
