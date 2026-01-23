@@ -180,6 +180,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "agent_id",
         "metric_name",
         "uid",
+        "device_id",
         "target_device_ip",
         "partition",
         "if_index"

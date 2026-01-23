@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadarWebNGWeb.Dashboard.Engine
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
   alias ServiceRadar.Inventory.InterfaceSettings
 
@@ -36,7 +38,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:metric_modal_open, false)
      |> assign(:metric_modal_metric, nil)
      |> assign(:loading, true)
-     |> assign(:error, nil)}
+     |> assign(:error, nil)
+     |> assign(:metrics, %{panels: [], error: nil})}
   end
 
   @impl true
@@ -56,6 +59,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
     # Load interface settings (favorites, metrics enabled)
     settings = load_interface_settings(scope, device_uid, interface_uid)
+
+    # Load metrics for this interface
+    metrics = load_interface_metrics(srql_module, device_uid, interface, scope)
 
     page_title =
       if interface do
@@ -102,6 +108,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:srql, srql)
      |> assign(:loading, false)
      |> assign(:error, error)
+     |> assign(:metrics, metrics)
      |> assign(:page_title, page_title)}
   end
 
@@ -324,6 +331,35 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     admin_status={Map.get(@interface, "if_admin_status")}
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <%!-- Metrics Graphs Section (positioned at top, below header) --%>
+          <div :if={@metrics.panels != [] || @metrics.error} class="card bg-base-100 border border-base-200 shadow-sm">
+            <div class="card-body">
+              <h2 class="card-title text-lg">
+                <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics History
+              </h2>
+
+              <%!-- Error state --%>
+              <div :if={@metrics.error} class="py-4">
+                <div class="alert alert-error alert-sm">
+                  <.icon name="hero-exclamation-triangle" class="size-4" />
+                  <span class="text-sm">{@metrics.error}</span>
+                </div>
+              </div>
+
+              <%!-- Metrics panels --%>
+              <div :if={@metrics.panels != []} class="space-y-4">
+                <%= for {panel, idx} <- Enum.with_index(@metrics.panels) do %>
+                  <.live_component
+                    module={panel.plugin}
+                    id={"interface-detail-metrics-#{@interface_uid}-#{panel.id}-#{idx}"}
+                    title={panel.title || "Metrics"}
+                    panel_assigns={Map.put(panel.assigns, :compact, false)}
+                  />
+                <% end %>
               </div>
             </div>
           </div>
@@ -889,6 +925,40 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
       _ ->
         {nil, nil}
+    end
+  end
+
+  defp load_interface_metrics(_srql_module, _device_uid, nil, _scope) do
+    %{panels: [], error: nil}
+  end
+
+  defp load_interface_metrics(srql_module, device_uid, interface, scope) do
+    if_index = Map.get(interface, "if_index")
+
+    if is_nil(if_index) do
+      %{panels: [], error: nil, message: "Interface has no if_index for SNMP metrics"}
+    else
+      query =
+        "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
+          "time:last_24h bucket:5m agg:avg series:metric_name limit:200"
+
+      case srql_module.query(query, %{scope: scope}) do
+        {:ok, %{"results" => results}} when is_list(results) and results != [] ->
+          panels =
+            Engine.build_panels(%{"results" => results})
+            |> Enum.reject(&(&1.plugin == TablePlugin))
+
+          %{panels: panels, error: nil}
+
+        {:ok, %{"results" => []}} ->
+          %{panels: [], error: nil, message: "No metrics data available yet"}
+
+        {:error, reason} ->
+          %{panels: [], error: "Failed to load metrics: #{inspect(reason)}"}
+
+        _ ->
+          %{panels: [], error: nil}
+      end
     end
   end
 

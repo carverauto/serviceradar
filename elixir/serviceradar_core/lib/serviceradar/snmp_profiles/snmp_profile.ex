@@ -84,7 +84,8 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
         :username,
         :security_level,
         :auth_protocol,
-        :priv_protocol
+        :priv_protocol,
+        :oid_template_ids
       ]
 
       argument :community, :string, allow_nil?: true, sensitive?: true
@@ -109,7 +110,8 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
         :username,
         :security_level,
         :auth_protocol,
-        :priv_protocol
+        :priv_protocol,
+        :oid_template_ids
       ]
 
       argument :community, :string, allow_nil?: true, sensitive?: true
@@ -259,6 +261,14 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
       default 0
       public? true
       description "Priority for resolution order (higher = evaluated first)"
+    end
+
+    # OID template selection
+    attribute :oid_template_ids, {:array, :uuid} do
+      allow_nil? true
+      default []
+      public? true
+      description "List of OID template IDs to apply when polling devices matched by this profile"
     end
 
     # SNMP credentials (profile-scoped, encrypted at rest)

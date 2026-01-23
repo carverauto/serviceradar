@@ -653,17 +653,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_interface_metrics(srql_module, device_uid, favorited_uids, interfaces, scope) do
-    # Get the if_index values for favorited interfaces
-    favorited_if_indices =
+    # Get the favorited interfaces with their if_index and name
+    favorited_interfaces =
       interfaces
       |> Enum.filter(fn iface ->
         uid = Map.get(iface, "interface_uid")
         is_binary(uid) and MapSet.member?(favorited_uids, uid)
       end)
-      |> Enum.map(fn iface -> Map.get(iface, "if_index") end)
-      |> Enum.filter(&is_integer/1)
+      |> Enum.filter(fn iface -> is_integer(Map.get(iface, "if_index")) end)
+      |> Enum.map(fn iface ->
+        %{
+          if_index: Map.get(iface, "if_index"),
+          name: Map.get(iface, "if_name") || Map.get(iface, "if_descr") || "Interface #{Map.get(iface, "if_index")}"
+        }
+      end)
 
-    if favorited_if_indices == [] do
+    if favorited_interfaces == [] do
       %{
         has_favorited: true,
         panels: [],
@@ -672,32 +677,42 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         message: "No interface metrics available. Favorited interfaces may not have SNMP indices."
       }
     else
-      # Query SNMP metrics for the favorited interfaces
-      {results, errors} =
-        Enum.reduce(favorited_if_indices, {[], []}, fn if_index, {acc, errs} ->
+      # Query SNMP metrics for each favorited interface separately and build panels per interface
+      {all_panels, errors} =
+        Enum.reduce(favorited_interfaces, {[], []}, fn %{if_index: if_index, name: iface_name}, {panels_acc, errs} ->
           query =
-            "in:snmp_metrics uid:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-              "time:last_24h bucket:5m agg:avg series:if_index limit:200"
+            "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
+              "time:last_24h bucket:5m agg:avg series:metric_name limit:200"
 
           case srql_module.query(query, %{scope: scope}) do
-            {:ok, %{"results" => new_results}} when is_list(new_results) ->
-              {acc ++ new_results, errs}
+            {:ok, %{"results" => results}} when is_list(results) and results != [] ->
+              # Build panels for this interface's metrics
+              interface_panels =
+                Engine.build_panels(%{"results" => results})
+                |> Enum.reject(&(&1.plugin == TablePlugin))
+                |> Enum.map(fn panel ->
+                  # Add interface context to the panel
+                  %{panel | assigns: Map.put(panel.assigns, :interface_label, "#{iface_name} (ifIndex: #{if_index})")}
+                end)
+
+              {panels_acc ++ interface_panels, errs}
+
+            {:ok, %{"results" => []}} ->
+              {panels_acc, errs}
 
             {:error, reason} ->
-              {acc, [format_error(reason) | errs]}
+              {panels_acc, [format_error(reason) | errs]}
 
             _ ->
-              {acc, errs}
+              {panels_acc, errs}
           end
         end)
 
       cond do
-        results != [] ->
-          panels = Engine.build_panels(%{"results" => results})
-
+        all_panels != [] ->
           %{
             has_favorited: true,
-            panels: Enum.reject(panels, &(&1.plugin == TablePlugin)),
+            panels: all_panels,
             error: nil,
             favorited_count: MapSet.size(favorited_uids)
           }
@@ -1995,12 +2010,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       </div>
 
       <%!-- Metrics panels --%>
-      <div :if={@metrics.panels != []} class="p-4">
-        <%= for panel <- @metrics.panels do %>
+      <div :if={@metrics.panels != []} class="p-4 space-y-4">
+        <%= for {panel, idx} <- Enum.with_index(@metrics.panels) do %>
           <.live_component
             module={panel.plugin}
-            id={"interface-metrics-#{@device_uid}-#{panel.id}"}
-            title="Interface Metrics"
+            id={"interface-metrics-#{@device_uid}-#{panel.id}-#{idx}"}
+            title={Map.get(panel.assigns, :interface_label, "Interface Metrics")}
             panel_assigns={Map.put(panel.assigns, :compact, true)}
           />
         <% end %>

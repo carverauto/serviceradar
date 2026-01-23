@@ -2,10 +2,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   @moduledoc """
   LiveView for managing SNMP profiles configuration.
 
+  ## Architecture (v2)
+
+  SNMP profiles now use a cleaner SRQL-based model:
+  - **Target Query (SRQL)**: Dynamically matches devices/interfaces from inventory
+  - **OID Templates**: Select which metrics to poll via reusable template collections
+  - **Credentials**: Profile-level fallback, with per-device overrides via DeviceSNMPCredential
+
+  Legacy manual SNMPTarget configuration is deprecated but shown read-only for existing profiles.
+
   Provides UI for:
   - SNMP Profiles: Admin-managed SNMP monitoring configuration profiles with SRQL targeting
-  - SNMP Targets: Per-device SNMP connection settings
-  - OID Templates: Vendor-based OID template library
+  - OID Template Selection: Choose which metrics to poll from matched devices
+  - OID Templates: Vendor-based OID template library (builtin + custom)
   """
   use ServiceRadarWebNGWeb, :live_view
 
@@ -59,6 +68,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       |> assign(:custom_template_oids, [])
       |> assign(:editing_custom_template, nil)
       |> assign(:custom_templates, load_custom_templates(scope))
+      # OID template selection state (for profile form)
+      |> assign(:available_templates, load_all_templates(scope))
+      |> assign(:selected_template_ids, [])
 
     {:ok, socket}
   end
@@ -83,6 +95,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     |> assign(:editing_target, nil)
     |> assign(:target_oids, [])
     |> assign(:show_template_browser, false)
+    |> assign(:selected_template_ids, [])
   end
 
   defp apply_action(socket, :new_profile, _params) do
@@ -106,6 +119,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     |> assign(:editing_target, nil)
     |> assign(:target_oids, [])
     |> assign(:show_template_browser, false)
+    |> assign(:selected_template_ids, [])
   end
 
   defp apply_action(socket, :edit_profile, %{"id" => id}) do
@@ -134,8 +148,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         # Parse the existing target_query into builder state if possible
         {builder, builder_sync} = parse_target_query_to_builder(target_query)
 
-        # Load targets for this profile
+        # Load targets for this profile (legacy, for display only)
         targets = load_profile_targets(scope, profile.id)
+
+        # Load profile's selected OID templates
+        selected_template_ids = profile.oid_template_ids || []
 
         socket
         |> assign(:page_title, "Edit #{profile.name}")
@@ -148,6 +165,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         |> assign(:builder, builder)
         |> assign(:builder_sync, builder_sync)
         |> assign(:targets, targets)
+        |> assign(:selected_template_ids, selected_template_ids)
         |> assign(:show_target_modal, false)
         |> assign(:target_form, nil)
         |> assign(:editing_target, nil)
@@ -181,6 +199,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       else
         params
       end
+
+    # Include selected OID template IDs
+    params = Map.put(params, "oid_template_ids", socket.assigns.selected_template_ids)
 
     ash_form = socket.assigns.ash_form |> Form.validate(params)
     scope = socket.assigns.current_scope
@@ -383,7 +404,27 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
      |> assign(:target_device_count, device_count)}
   end
 
-  # Target modal event handlers
+  # OID Template Selection event handlers
+
+  def handle_event("toggle_template", %{"id" => template_id}, socket) do
+    current_ids = socket.assigns.selected_template_ids
+
+    new_ids =
+      if template_id in current_ids do
+        Enum.reject(current_ids, &(&1 == template_id))
+      else
+        current_ids ++ [template_id]
+      end
+
+    {:noreply, assign(socket, :selected_template_ids, new_ids)}
+  end
+
+  def handle_event("remove_template", %{"id" => template_id}, socket) do
+    new_ids = Enum.reject(socket.assigns.selected_template_ids, &(&1 == template_id))
+    {:noreply, assign(socket, :selected_template_ids, new_ids)}
+  end
+
+  # Target modal event handlers (legacy)
 
   def handle_event("open_target_modal", _params, socket) do
     scope = socket.assigns.current_scope
@@ -1153,6 +1194,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               builder={@builder}
               builder_sync={@builder_sync}
               targets={@targets}
+              selected_template_ids={@selected_template_ids}
+              available_templates={@available_templates}
             />
           <% else %>
             <.profiles_panel profiles={@profiles} />
@@ -1328,6 +1371,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   attr :builder, :map, default: %{}
   attr :builder_sync, :boolean, default: true
   attr :targets, :list, default: []
+  attr :selected_template_ids, :list, default: []
+  attr :available_templates, :list, default: []
 
   defp profile_form(assigns) do
     is_default = assigns.selected_profile && assigns.selected_profile.is_default
@@ -1737,6 +1782,80 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             </div>
         </div>
 
+    <!-- OID Templates Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            OID Templates
+          </h3>
+          <p class="text-sm text-base-content/60">
+            Select OID templates to define what metrics are polled from devices matched by this profile.
+          </p>
+
+          <!-- Selected Templates -->
+          <div :if={@selected_template_ids != []} class="flex flex-wrap gap-2">
+            <%= for template_id <- @selected_template_ids do %>
+              <% template = Enum.find(@available_templates, &(&1.id == template_id)) %>
+              <div
+                :if={template}
+                class="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-sm"
+              >
+                <span>{template.name}</span>
+                <button
+                  type="button"
+                  class="hover:bg-primary/20 rounded-full p-0.5"
+                  phx-click="remove_template"
+                  phx-value-id={template_id}
+                  title="Remove template"
+                >
+                  <.icon name="hero-x-mark" class="size-3" />
+                </button>
+              </div>
+            <% end %>
+          </div>
+
+          <!-- Template Dropdown -->
+          <div class="dropdown dropdown-bottom w-full max-w-md">
+            <div tabindex="0" role="button" class="btn btn-outline w-full justify-between">
+              <span>
+                <.icon name="hero-plus" class="size-4 mr-2" /> Add OID Template
+              </span>
+              <.icon name="hero-chevron-down" class="size-4" />
+            </div>
+            <ul
+              tabindex="0"
+              class="dropdown-content menu bg-base-100 rounded-box z-[1] w-full max-h-60 overflow-y-auto p-2 shadow border border-base-200"
+            >
+              <li :if={@available_templates == []}>
+                <span class="text-base-content/50">No templates available</span>
+              </li>
+              <%= for template <- @available_templates do %>
+                <% selected = template.id in @selected_template_ids %>
+                <li>
+                  <button
+                    type="button"
+                    class={"flex items-center justify-between #{if selected, do: "bg-primary/10"}"}
+                    phx-click="toggle_template"
+                    phx-value-id={template.id}
+                  >
+                    <div class="flex flex-col items-start">
+                      <span class="font-medium">{template.name}</span>
+                      <span class="text-xs text-base-content/60">
+                        {template.vendor} · {template.oid_count} OID(s)
+                      </span>
+                    </div>
+                    <.icon :if={selected} name="hero-check" class="size-4 text-primary" />
+                  </button>
+                </li>
+              <% end %>
+            </ul>
+          </div>
+
+          <p class="text-xs text-base-content/50">
+            OID templates define which SNMP metrics (OIDs) to poll. Select one or more templates to monitor
+            interface traffic, CPU/memory, environment sensors, or other vendor-specific metrics.
+          </p>
+        </div>
+
     <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
           <.link navigate={~p"/settings/snmp"}>
@@ -1748,42 +1867,34 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         </div>
       </.form>
       
-    <!-- SNMP Targets Section (only shown when editing) -->
-      <div :if={@show_form == :edit_profile} class="mt-6 pt-6 border-t border-base-200">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
-              SNMP Targets
-            </h3>
-            <p class="text-xs text-base-content/50 mt-1">
-              Network devices to poll with this profile
-            </p>
+    <!-- Legacy SNMP Targets Section (deprecated, only shown when existing targets present) -->
+      <div :if={@show_form == :edit_profile && @targets != []} class="mt-6 pt-6 border-t border-base-200">
+        <div class="bg-warning/10 border border-warning/30 rounded-lg p-4 mb-4">
+          <div class="flex items-start gap-3">
+            <.icon name="hero-exclamation-triangle" class="size-5 text-warning shrink-0 mt-0.5" />
+            <div>
+              <p class="text-sm font-medium">Legacy Configuration</p>
+              <p class="text-xs text-base-content/70 mt-1">
+                Manual SNMP targets are deprecated. Targets are now automatically derived from devices
+                matched by the target query. Existing targets will continue to work but cannot be edited.
+                Configure SNMP credentials on individual devices in the Inventory section.
+              </p>
+            </div>
           </div>
-          <.ui_button
-            variant="primary"
-            size="sm"
-            type="button"
-            phx-click="open_target_modal"
-          >
-            <.icon name="hero-plus" class="size-4" /> Add Target
-          </.ui_button>
         </div>
 
-        <div :if={@targets == []} class="text-center py-8 text-base-content/60">
-          <.icon name="hero-server-stack" class="size-10 mx-auto mb-2 opacity-50" />
-          <p>No SNMP targets configured</p>
-          <p class="text-xs mt-1">Add targets to start monitoring network devices via SNMP</p>
-        </div>
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60 mb-4">
+          Legacy Manual Targets ({length(@targets)})
+        </h3>
 
-        <div :if={@targets != []} class="overflow-x-auto">
-          <table class="table table-sm">
+        <div class="overflow-x-auto">
+          <table class="table table-sm opacity-75">
             <thead>
               <tr class="text-xs uppercase tracking-wide text-base-content/60">
                 <th>Name</th>
                 <th>Host</th>
                 <th>Port</th>
                 <th>Version</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1796,31 +1907,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                     <.ui_badge variant={version_badge_variant(target.version)} size="xs">
                       {format_version(target.version)}
                     </.ui_badge>
-                  </td>
-                  <td>
-                    <div class="flex items-center gap-1">
-                      <.ui_button
-                        variant="ghost"
-                        size="xs"
-                        type="button"
-                        phx-click="edit_target"
-                        phx-value-id={target.id}
-                        title="Edit target"
-                      >
-                        <.icon name="hero-pencil" class="size-3" />
-                      </.ui_button>
-                      <.ui_button
-                        variant="ghost"
-                        size="xs"
-                        type="button"
-                        phx-click="delete_target"
-                        phx-value-id={target.id}
-                        data-confirm="Are you sure you want to delete this target?"
-                        title="Delete target"
-                      >
-                        <.icon name="hero-trash" class="size-3" />
-                      </.ui_button>
-                    </div>
                   </td>
                 </tr>
               <% end %>
@@ -2800,6 +2886,44 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     end
   end
 
+  defp load_all_templates(scope) do
+    # Load builtin templates
+    builtin = BuiltinTemplates.all_templates()
+    |> Enum.map(fn t ->
+      %{
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        vendor: t.vendor,
+        category: t.category,
+        oid_count: length(t.oids || []),
+        is_builtin: true
+      }
+    end)
+
+    # Load custom templates from database
+    custom =
+      case Ash.read(SNMPOIDTemplate, action: :list_custom, scope: scope) do
+        {:ok, templates} ->
+          Enum.map(templates, fn t ->
+            %{
+              id: t.id,
+              name: t.name,
+              description: t.description,
+              vendor: t.vendor,
+              category: t.category,
+              oid_count: length(t.oids || []),
+              is_builtin: false
+            }
+          end)
+
+        {:error, _} ->
+          []
+      end
+
+    builtin ++ custom
+  end
+
   defp count_target_devices(_scope, nil), do: nil
   defp count_target_devices(_scope, ""), do: nil
 
@@ -2868,6 +2992,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       Interface
       |> Ash.Query.for_read(:read, %{})
       |> apply_srql_filters(filters)
+      # Add distinct on interface_uid to avoid counting historical snapshots
+      |> Ash.Query.distinct(:interface_uid)
 
     case Ash.count(query, scope: scope) do
       {:ok, count} -> count

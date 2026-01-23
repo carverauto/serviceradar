@@ -5,15 +5,19 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   Transforms SNMPProfile Ash resources into agent-consumable SNMP
   configuration format using SRQL-based targeting.
 
+  ## New Architecture (v2)
+
+  SNMP profiles now use SRQL queries to dynamically target devices from inventory:
+  1. Execute target_query (SRQL) to find matching interfaces/devices
+  2. Load OIDs from profile's oid_template_ids
+  3. For each device, resolve credentials (device override → profile fallback)
+  4. Build target config for each device
+
   ## Resolution Order
 
   When resolving which profile applies to a device:
   1. SRQL targeting profiles (ordered by priority, highest first)
   2. Default profile (fallback)
-
-  Profiles use `target_query` (SRQL) to define which devices they apply to.
-  Example: `target_query: "in:devices tags.role:network-monitor"` matches all
-  devices with the tag `role=network-monitor`.
 
   ## Output Format
 
@@ -25,7 +29,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         "profile_name" => "Core Network Monitoring",
         "targets" => [
           %{
-            "id" => "target-uuid",
+            "id" => "device-uid",
             "name" => "Core Router 1",
             "host" => "192.168.1.1",
             "port" => 161,
@@ -54,10 +58,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
-  alias ServiceRadar.SNMPProfiles.SNMPProfile
-  alias ServiceRadar.SNMPProfiles.SNMPTarget
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SNMPProfiles.CredentialResolver
+  alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SrqlTargetResolver
   alias ServiceRadar.Vault
 
@@ -66,7 +71,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   @impl true
   def source_resources do
-    [SNMPProfile, SNMPTarget, SNMPOIDConfig]
+    [SNMPProfile, SNMPOIDTemplate, Device]
   end
 
   @impl true
@@ -135,16 +140,25 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   @doc """
-  Compiles a profile to the agent config format with all targets and OIDs.
+  Compiles a profile to the agent config format using SRQL-based targeting.
+
+  New flow:
+  1. Execute target_query to find matching devices
+  2. Load OIDs from profile's oid_template_ids
+  3. For each device, build target config with resolved credentials
   """
   @spec compile_profile(SNMPProfile.t(), map()) :: map()
   def compile_profile(profile, actor) do
-    # Load targets with their OID configs
-    targets = load_profile_targets(profile.id, actor)
+    # 1. Execute target_query to find matching devices
+    devices = execute_target_query(profile.target_query, actor)
 
+    # 2. Load OIDs from profile's templates
+    oids = load_template_oids(profile.oid_template_ids, actor)
+
+    # 3. Build target config for each device
     compiled_targets =
-      targets
-      |> Enum.map(&compile_target(&1, actor))
+      devices
+      |> Enum.map(fn device -> compile_device_target(device, profile, oids, actor) end)
       |> Enum.reject(&is_nil/1)
 
     %{
@@ -155,75 +169,326 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     }
   end
 
-  # Compile a single SNMP target with its OIDs
-  defp compile_target(target, actor) do
-    oids = load_target_oids(target.id, actor)
+  @doc """
+  Execute the SRQL target_query to find matching devices.
 
-    compiled_oids =
-      Enum.map(oids, fn oid ->
-        %{
-          "oid" => oid.oid,
-          "name" => oid.name,
-          "data_type" => Atom.to_string(oid.data_type),
-          "scale" => oid.scale,
-          "delta" => oid.delta
-        }
-      end)
+  Handles both interface and device queries:
+  - `in:interfaces ...` → Extract unique devices from matching interfaces
+  - `in:devices ...` → Use matched devices directly
+  """
+  @spec execute_target_query(String.t() | nil, map()) :: [Device.t()]
+  def execute_target_query(nil, _actor), do: []
+  def execute_target_query("", _actor), do: []
 
-    if compiled_oids == [] do
-      Logger.debug(
-        "SNMPCompiler: skipping target #{target.name} (no OIDs configured)"
-      )
+  def execute_target_query(target_query, actor) do
+    target_query = String.trim(target_query)
 
+    case ServiceRadarSRQL.Native.parse_ast(target_query) do
+      {:ok, ast_json} ->
+        case Jason.decode(ast_json) do
+          {:ok, ast} ->
+            entity = extract_entity(target_query)
+            execute_parsed_query(entity, ast, actor)
+
+          {:error, reason} ->
+            Logger.warning("SNMPCompiler: failed to decode SRQL AST - #{inspect(reason)}")
+            []
+        end
+
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: failed to parse SRQL query - #{inspect(reason)}")
+        []
+    end
+  rescue
+    e ->
+      Logger.error("SNMPCompiler: error executing target query - #{inspect(e)}")
+      []
+  end
+
+  # Extract the entity type from SRQL query
+  defp extract_entity(query) when is_binary(query) do
+    case Regex.run(~r/^in:(\S+)/, query) do
+      [_, entity] -> String.downcase(entity)
+      _ -> "devices"
+    end
+  end
+
+  # Execute query based on entity type
+  defp execute_parsed_query("interfaces", ast, actor) do
+    # Query interfaces, then extract unique devices
+    filters = extract_filters(ast)
+
+    query =
+      Interface
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> apply_interface_filters(filters)
+      |> Ash.Query.distinct(:device_id)
+      |> Ash.Query.load(:device)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, interfaces} ->
+        # Extract unique devices
+        interfaces
+        |> Enum.map(& &1.device)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq_by(& &1.uid)
+
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: failed to query interfaces - #{inspect(reason)}")
+        []
+    end
+  end
+
+  defp execute_parsed_query(_entity, ast, actor) do
+    # Query devices directly
+    filters = extract_filters(ast)
+
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> apply_device_filters(filters)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, devices} -> devices
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: failed to query devices - #{inspect(reason)}")
+        []
+    end
+  end
+
+  # Extract filter conditions from parsed SRQL AST
+  defp extract_filters(%{"filters" => filters}) when is_list(filters) do
+    Enum.map(filters, fn filter ->
+      %{
+        field: Map.get(filter, "field"),
+        op: Map.get(filter, "op", "eq"),
+        value: Map.get(filter, "value")
+      }
+    end)
+  end
+
+  defp extract_filters(_), do: []
+
+  # Apply filters to interface query
+  defp apply_interface_filters(query, filters) do
+    Enum.reduce(filters, query, fn filter, q ->
+      apply_interface_filter(q, filter)
+    end)
+  end
+
+  defp apply_interface_filter(query, %{field: field, op: op, value: value})
+       when is_binary(field) do
+    mapped = map_interface_field(field)
+
+    if mapped do
+      apply_filter_op(query, mapped, op, value)
+    else
+      query
+    end
+  rescue
+    _ -> query
+  end
+
+  defp apply_interface_filter(query, _), do: query
+
+  # Map SRQL interface fields to Ash attributes
+  @interface_field_map %{
+    "if_name" => :if_name,
+    "name" => :if_name,
+    "if_descr" => :if_descr,
+    "description" => :if_descr,
+    "if_alias" => :if_alias,
+    "alias" => :if_alias,
+    "device_id" => :device_id,
+    "device_ip" => :device_ip,
+    "ip" => :device_ip,
+    "gateway_id" => :gateway_id,
+    "agent_id" => :agent_id,
+    "if_oper_status" => :if_oper_status,
+    "oper_status" => :if_oper_status,
+    "if_admin_status" => :if_admin_status,
+    "admin_status" => :if_admin_status,
+    "if_speed" => :if_speed,
+    "speed" => :if_speed,
+    "if_phys_address" => :if_phys_address,
+    "mac" => :if_phys_address,
+    "type" => :if_type
+  }
+
+  defp map_interface_field(field), do: Map.get(@interface_field_map, field)
+
+  # Apply filters to device query
+  defp apply_device_filters(query, filters) do
+    Enum.reduce(filters, query, fn filter, q ->
+      apply_device_filter(q, filter)
+    end)
+  end
+
+  defp apply_device_filter(query, %{field: field, op: op, value: value})
+       when is_binary(field) do
+    # Handle tag filters specially
+    if String.starts_with?(field, "tags.") do
+      tag_key = String.replace_prefix(field, "tags.", "")
+      Ash.Query.filter(query, fragment("tags @> ?", ^%{tag_key => value}))
+    else
+      mapped = map_device_field(field)
+
+      if mapped do
+        apply_filter_op(query, mapped, op, value)
+      else
+        query
+      end
+    end
+  rescue
+    _ -> query
+  end
+
+  defp apply_device_filter(query, _), do: query
+
+  # Map SRQL device fields to Ash attributes
+  @device_field_map %{
+    "uid" => :uid,
+    "device_id" => :uid,
+    "hostname" => :hostname,
+    "name" => :name,
+    "ip" => :ip,
+    "gateway_id" => :gateway_id,
+    "agent_id" => :agent_id,
+    "vendor_name" => :vendor_name,
+    "model" => :model,
+    "type" => :type,
+    "type_id" => :type_id,
+    "os" => :os,
+    "status" => :status
+  }
+
+  defp map_device_field(field), do: Map.get(@device_field_map, field)
+
+  # Apply filter operation
+  defp apply_filter_op(query, field, op, value) when op in ["eq", "equals"] do
+    Ash.Query.filter_input(query, %{field => %{eq: value}})
+  end
+
+  defp apply_filter_op(query, field, op, value) when op in ["contains", "like"] do
+    # Strip % wildcards if present from SRQL like syntax
+    value = value |> String.trim_leading("%") |> String.trim_trailing("%")
+    Ash.Query.filter_input(query, %{field => %{contains: value}})
+  end
+
+  defp apply_filter_op(query, field, "in", value) when is_list(value) do
+    Ash.Query.filter_input(query, %{field => %{in: value}})
+  end
+
+  defp apply_filter_op(query, field, _op, value) do
+    # Default to equality
+    Ash.Query.filter_input(query, %{field => %{eq: value}})
+  end
+
+  @doc """
+  Load OIDs from the selected OID templates.
+  """
+  @spec load_template_oids([String.t()] | nil, map()) :: [map()]
+  def load_template_oids(nil, _actor), do: []
+  def load_template_oids([], _actor), do: []
+
+  def load_template_oids(template_ids, actor) when is_list(template_ids) do
+    # Load templates from database
+    query =
+      SNMPOIDTemplate
+      |> Ash.Query.filter(id in ^template_ids)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, templates} ->
+        # Flatten all OIDs from all templates
+        templates
+        |> Enum.flat_map(fn template -> template.oids || [] end)
+        |> Enum.uniq_by(fn oid -> Map.get(oid, "oid") end)
+
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: failed to load OID templates - #{inspect(reason)}")
+        []
+    end
+  end
+
+  # Compile a device into a target config
+  defp compile_device_target(device, profile, oids, actor) do
+    # Get host address - prefer IP, fall back to hostname
+    host = device.ip || device.hostname
+
+    if is_nil(host) or host == "" do
+      Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
       nil
     else
-      credential = resolve_target_credentials(target, actor)
+      # Resolve credentials: device override → profile fallback
+      credential = resolve_device_credentials(device.uid, profile, actor)
 
       if valid_credentials?(credential) do
-        version = Map.get(credential, :version, target.version)
+        version = Map.get(credential, :version, profile.version)
 
         base_target = %{
-          "id" => target.id,
-          "name" => target.name,
-          "host" => target.host,
-          "port" => target.port,
+          "id" => device.uid,
+          "name" => device.name || device.hostname || device.uid,
+          "host" => host,
+          "port" => 161,
           "version" => format_version(version),
-          "poll_interval_seconds" => target.snmp_profile.poll_interval,
-          "timeout_seconds" => target.snmp_profile.timeout,
-          "retries" => target.snmp_profile.retries,
-          "oids" => compiled_oids
+          "poll_interval_seconds" => profile.poll_interval,
+          "timeout_seconds" => profile.timeout,
+          "retries" => profile.retries,
+          "oids" => compile_oids(oids)
         }
 
         # Add authentication based on version
         case version do
-          :v1 ->
-            Map.put(base_target, "community", Map.get(credential, :community))
-
-          :v2c ->
-            Map.put(base_target, "community", Map.get(credential, :community))
-
-          :v3 ->
-            Map.put(base_target, "v3_auth", compile_v3_auth(credential))
+          :v1 -> Map.put(base_target, "community", Map.get(credential, :community))
+          :v2c -> Map.put(base_target, "community", Map.get(credential, :community))
+          :v3 -> Map.put(base_target, "v3_auth", compile_v3_auth(credential))
         end
       else
-        Logger.warning(
-          "SNMPCompiler: skipping target #{target.name} (missing credentials)"
-        )
-
+        Logger.debug("SNMPCompiler: skipping device #{device.uid} (missing credentials)")
         nil
       end
     end
   end
 
-  # Compile SNMPv3 authentication parameters
-  defp compile_v3_auth(credential) do
+  # Compile OIDs to the expected format
+  defp compile_oids(oids) do
+    Enum.map(oids, fn oid ->
+      %{
+        "oid" => Map.get(oid, "oid"),
+        "name" => Map.get(oid, "name"),
+        "data_type" => to_string(Map.get(oid, "data_type", "gauge")),
+        "scale" => Map.get(oid, "scale", 1.0),
+        "delta" => Map.get(oid, "delta", false)
+      }
+    end)
+  end
+
+  # Resolve credentials: device override → profile fallback
+  defp resolve_device_credentials(device_uid, profile, actor) do
+    case CredentialResolver.resolve_for_device(device_uid, actor) do
+      {:ok, %{credential: credential, source: :device_override}} when is_map(credential) ->
+        credential
+
+      {:ok, %{credential: credential, source: :profile}} when is_map(credential) ->
+        credential
+
+      _ ->
+        # Use profile credentials as fallback
+        build_profile_credential(profile)
+    end
+  end
+
+  # Build credential map from profile
+  defp build_profile_credential(profile) do
     %{
-      "username" => Map.get(credential, :username),
-      "security_level" => format_security_level(Map.get(credential, :security_level)),
-      "auth_protocol" => format_auth_protocol(Map.get(credential, :auth_protocol)),
-      "auth_password" => Map.get(credential, :auth_password),
-      "priv_protocol" => format_priv_protocol(Map.get(credential, :priv_protocol)),
-      "priv_password" => Map.get(credential, :priv_password)
+      version: profile.version || :v2c,
+      community: decrypt_credential(profile.community_encrypted),
+      username: profile.username,
+      security_level: profile.security_level,
+      auth_protocol: profile.auth_protocol,
+      auth_password: decrypt_credential(profile.auth_password_encrypted),
+      priv_protocol: profile.priv_protocol,
+      priv_password: decrypt_credential(profile.priv_password_encrypted)
     }
   end
 
@@ -237,29 +502,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
-  defp resolve_target_credentials(target, actor) do
-    case CredentialResolver.resolve_for_host(target.host, actor) do
-      {:ok, %{credential: credential}} when is_map(credential) ->
-        credential
-
-      _ ->
-        credential_from_target(target)
-    end
-  end
-
-  defp credential_from_target(target) do
-    %{
-      version: target.version,
-      community: decrypt_credential(target.community_encrypted),
-      username: target.username,
-      security_level: target.security_level,
-      auth_protocol: target.auth_protocol,
-      auth_password: decrypt_credential(target.auth_password_encrypted),
-      priv_protocol: target.priv_protocol,
-      priv_password: decrypt_credential(target.priv_password_encrypted)
-    }
-  end
-
+  # Check if credentials are valid for SNMP connection
   defp valid_credentials?(nil), do: false
 
   defp valid_credentials?(credential) when is_map(credential) do
@@ -277,6 +520,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp present?(nil), do: false
   defp present?(""), do: false
   defp present?(_), do: true
+
+  # Compile SNMPv3 authentication parameters
+  defp compile_v3_auth(credential) do
+    %{
+      "username" => Map.get(credential, :username),
+      "security_level" => format_security_level(Map.get(credential, :security_level)),
+      "auth_protocol" => format_auth_protocol(Map.get(credential, :auth_protocol)),
+      "auth_password" => Map.get(credential, :auth_password),
+      "priv_protocol" => format_priv_protocol(Map.get(credential, :priv_protocol)),
+      "priv_password" => Map.get(credential, :priv_password)
+    }
+  end
 
   # Format version atom to string
   defp format_version(:v1), do: "v1"
@@ -307,31 +562,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp format_priv_protocol(:aes192c), do: "AES-192-C"
   defp format_priv_protocol(:aes256c), do: "AES-256-C"
   defp format_priv_protocol(_), do: nil
-
-  # Load all targets for a profile
-  defp load_profile_targets(profile_id, actor) do
-    query =
-      SNMPTarget
-      |> Ash.Query.filter(snmp_profile_id == ^profile_id)
-      |> Ash.Query.load(:snmp_profile)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, targets} -> targets
-      {:error, _} -> []
-    end
-  end
-
-  # Load all OIDs for a target
-  defp load_target_oids(target_id, actor) do
-    query =
-      SNMPOIDConfig
-      |> Ash.Query.filter(snmp_target_id == ^target_id)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, oids} -> oids
-      {:error, _} -> []
-    end
-  end
 
   @doc """
   Returns disabled SNMP configuration when no profile is assigned.
