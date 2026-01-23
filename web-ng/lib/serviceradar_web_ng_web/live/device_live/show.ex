@@ -2418,7 +2418,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     <span
       :if={@status != nil}
       class={[
-        "badge badge-xs gap-1",
+        "badge badge-xs gap-1 min-w-[4.5rem] justify-center",
         oper_status_class(@status)
       ]}
       title="Operational Status"
@@ -2426,7 +2426,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       <.icon name={oper_status_icon(@status)} class="size-3" />
       {oper_status_text(@status)}
     </span>
-    <span :if={@status == nil} class="badge badge-xs badge-ghost gap-1" title="Operational Status">
+    <span
+      :if={@status == nil}
+      class="badge badge-xs badge-ghost gap-1 min-w-[4.5rem] justify-center"
+      title="Operational Status"
+    >
       <.icon name="hero-question-mark-circle" class="size-3" /> Unknown
     </span>
     """
@@ -2439,7 +2443,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     <span
       :if={@status != nil}
       class={[
-        "badge badge-xs badge-outline gap-1",
+        "badge badge-xs badge-outline gap-1 min-w-[5rem] justify-center",
         admin_status_class(@status)
       ]}
       title="Admin Status"
