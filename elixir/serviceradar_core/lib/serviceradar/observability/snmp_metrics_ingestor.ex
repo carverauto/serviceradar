@@ -69,13 +69,13 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
   defp build_metric_row(result, status, actor, created_at) when is_map(result) do
     host =
       fetch_string(result, [
-        "target",
-        "host",
         "host_ip",
         "hostIp",
+        "host",
         "target_device_ip",
         "targetDeviceIp",
-        "ip"
+        "ip",
+        "target"
       ])
 
     metric_name =
