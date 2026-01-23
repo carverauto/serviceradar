@@ -435,8 +435,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp load_sysmon_config(agent_id) do
     # Resolve partition from agent registry, fall back to "default"
     partition = get_agent_partition(agent_id)
+    actor = SystemActor.system(:sysmon_config_loader)
+    device_uid = resolve_agent_device_uid(agent_id, actor)
 
-    case ConfigServer.get_config(:sysmon, partition, agent_id) do
+    case ConfigServer.get_config(:sysmon, partition, agent_id, actor: actor, device_uid: device_uid) do
       {:ok, entry} ->
         entry.config
 
@@ -675,7 +677,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, agent} -> agent.device_uid
       {:error, reason} ->
-        Logger.debug("SNMP config device lookup failed for agent #{agent_id}: #{inspect(reason)}")
+        Logger.debug("Agent config device lookup failed for agent #{agent_id}: #{inspect(reason)}")
         nil
     end
   end
