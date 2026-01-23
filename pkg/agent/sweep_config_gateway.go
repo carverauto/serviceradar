@@ -37,13 +37,22 @@ type gatewaySweepConfig struct {
 }
 
 type gatewaySweepGroup struct {
-	ID           string               `json:"id"`
-	SweepGroupID string               `json:"sweep_group_id"`
-	Targets      []string             `json:"targets"`
-	Ports        []int                `json:"ports"`
-	Modes        []string             `json:"modes"`
-	Schedule     gatewaySweepSchedule `json:"schedule"`
-	Settings     gatewaySweepSettings `json:"settings"`
+	ID            string                 `json:"id"`
+	SweepGroupID  string                 `json:"sweep_group_id"`
+	Targets       []string               `json:"targets"`
+	Ports         []int                  `json:"ports"`
+	Modes         []string               `json:"modes"`
+	Schedule      gatewaySweepSchedule   `json:"schedule"`
+	Settings      gatewaySweepSettings   `json:"settings"`
+	DeviceTargets []gatewayDeviceTarget  `json:"device_targets,omitempty"`
+}
+
+type gatewayDeviceTarget struct {
+	Network    string            `json:"network"`
+	SweepModes []string          `json:"sweep_modes,omitempty"`
+	QueryLabel string            `json:"query_label,omitempty"`
+	Source     string            `json:"source,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
 type gatewaySweepSchedule struct {
@@ -94,12 +103,13 @@ func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepConfig
 	}
 
 	config := &SweepConfig{
-		Networks:     normalizeTargets(group.Targets, log),
-		Ports:        group.Ports,
-		SweepModes:   parseSweepModes(group.Modes, log),
-		Concurrency:  group.Settings.Concurrency,
-		SweepGroupID: sweepGroupID,
-		ConfigHash:   sweep.ConfigHash,
+		Networks:      normalizeTargets(group.Targets, log),
+		Ports:         group.Ports,
+		SweepModes:    parseSweepModes(group.Modes, log),
+		DeviceTargets: convertDeviceTargets(group.DeviceTargets, log),
+		Concurrency:   group.Settings.Concurrency,
+		SweepGroupID:  sweepGroupID,
+		ConfigHash:    sweep.ConfigHash,
 	}
 
 	if interval, ok := parseScheduleInterval(group.Schedule, log); ok {
@@ -194,4 +204,38 @@ func parseSweepModes(modes []string, log logger.Logger) []models.SweepMode {
 	}
 
 	return parsed
+}
+
+func convertDeviceTargets(targets []gatewayDeviceTarget, log logger.Logger) []models.DeviceTarget {
+	if len(targets) == 0 {
+		return nil
+	}
+
+	converted := make([]models.DeviceTarget, 0, len(targets))
+	for _, t := range targets {
+		network := strings.TrimSpace(t.Network)
+		if network == "" {
+			continue
+		}
+
+		// Normalize to CIDR if it's a plain IP
+		if !strings.Contains(network, "/") {
+			if ip := net.ParseIP(network); ip != nil {
+				network += "/32"
+			} else {
+				log.Warn().Str("network", t.Network).Msg("Skipping invalid device target network")
+				continue
+			}
+		}
+
+		converted = append(converted, models.DeviceTarget{
+			Network:    network,
+			SweepModes: parseSweepModes(t.SweepModes, log),
+			QueryLabel: t.QueryLabel,
+			Source:     t.Source,
+			Metadata:   t.Metadata,
+		})
+	}
+
+	return converted
 }
