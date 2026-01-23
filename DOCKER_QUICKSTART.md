@@ -59,6 +59,7 @@ make -f Makefile.docker test
 ## Access Services
 
 - **Web UI**: http://localhost (Caddy)
+- **Login**: `root@localhost` + password from `docker compose logs config-updater | grep "Password:"`
 - **Core API**: http://localhost/api (via proxy) or http://localhost:8090
 - **Metrics**: http://localhost:9090/metrics
 

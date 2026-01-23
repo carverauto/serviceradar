@@ -131,7 +131,7 @@ CNPG_HOST=localhost CNPG_PORT=5455 CNPG_SSL_MODE=verify-full \
 ### 4. Access the App
 
 - Web UI: http://localhost:4000
-- Dev Mailbox: http://localhost:4000/dev/mailbox (for testing magic links)
+- Dev Mailbox: http://localhost:4000/dev/mailbox (for testing auth emails)
 - Live Dashboard: http://localhost:4000/dev/dashboard
 
 ### Troubleshooting

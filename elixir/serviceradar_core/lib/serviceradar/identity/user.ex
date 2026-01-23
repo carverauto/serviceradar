@@ -14,7 +14,6 @@ defmodule ServiceRadar.Identity.User do
 
   Users can authenticate via:
   - Password (with bcrypt hashing)
-  - Magic link (email-based)
   - OAuth2 (future: Google, GitHub)
   """
 
@@ -46,21 +45,11 @@ defmodule ServiceRadar.Identity.User do
         hashed_password_field :hashed_password
 
         hash_provider AshAuthentication.BcryptProvider
+        registration_enabled? false
 
         resettable do
           sender ServiceRadar.Identity.Senders.SendPasswordResetEmail
         end
-      end
-
-      magic_link :magic_link do
-        identity_field :email
-        registration_enabled? true
-        require_interaction? true
-        lookup_action_name :by_email
-        sender ServiceRadar.Identity.Senders.SendMagicLinkEmail
-        # Disable prevent_hijacking since we have auto_confirm_actions for magic link
-        # and the magic link itself proves email ownership
-        prevent_hijacking? false
       end
     end
 
@@ -70,13 +59,8 @@ defmodule ServiceRadar.Identity.User do
         require_interaction? true
         sender ServiceRadar.Identity.Senders.SendConfirmationEmail
         # Auto-confirm for these actions:
-        # - sign_in_with_magic_link: Magic link verifies email ownership
         # - update_email: Uses token-based verification in the Accounts context
-        auto_confirm_actions [:sign_in_with_magic_link, :update_email]
-        # Disable prevent_hijacking for upserts since magic link auto-confirms
-        # and proves email ownership. This allows magic link sign-in/registration
-        # to work for new and unconfirmed users.
-        prevent_hijacking? false
+        auto_confirm_actions [:update_email]
       end
     end
   end
@@ -87,49 +71,6 @@ defmodule ServiceRadar.Identity.User do
 
   actions do
     defaults [:read]
-
-    create :create do
-      description "Register a new user with email only (magic link flow)"
-      accept [:email, :display_name, :role]
-      change ServiceRadar.Identity.Changes.AssignFirstUserRole
-      primary? true
-    end
-
-    create :sign_in_with_magic_link do
-      description "Sign in or register a user with magic link."
-
-      argument :token, :string do
-        description "The token from the magic link that was sent to the user"
-        allow_nil? false
-      end
-
-      argument :remember_me, :boolean do
-        description "Whether to generate a remember me token"
-        allow_nil? true
-      end
-
-      upsert? true
-      upsert_identity :email
-      upsert_fields [:email]
-
-      change ServiceRadar.Identity.Changes.AssignFirstUserRole
-      change AshAuthentication.Strategy.MagicLink.SignInChange
-
-      change {AshAuthentication.Strategy.RememberMe.MaybeGenerateTokenChange,
-              strategy_name: :remember_me}
-
-      metadata :token, :string do
-        allow_nil? false
-      end
-    end
-
-    action :request_magic_link do
-      argument :email, :ci_string do
-        allow_nil? false
-      end
-
-      run AshAuthentication.Strategy.MagicLink.Request
-    end
 
     read :by_email do
       argument :email, :ci_string, allow_nil?: false
@@ -284,22 +225,10 @@ defmodule ServiceRadar.Identity.User do
       authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Registration is allowed without an actor (public action)
+    # Registration is restricted to system/admin actors (bootstrap or admin workflow).
     policy action(:register_with_password) do
-      authorize_if always()
-    end
-
-    # Magic link registration uses the primary create action
-    policy action(:create) do
-      authorize_if always()
-    end
-
-    policy action(:request_magic_link) do
-      authorize_if always()
-    end
-
-    policy action(:sign_in_with_magic_link) do
-      authorize_if always()
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :system)
     end
 
     # Users can update their own non-role fields
@@ -389,7 +318,7 @@ defmodule ServiceRadar.Identity.User do
   end
 
   identities do
-    # Email identity required by AshAuthentication for password/magic_link strategies.
+    # Email identity required by AshAuthentication for password strategies.
     # Email uniqueness is enforced per instance schema.
     identity :email, [:email]
   end

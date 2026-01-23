@@ -4,7 +4,7 @@ defmodule ServiceRadar.Identity do
 
   This domain is responsible for:
   - User management and profiles
-  - Authentication (password, magic link, OAuth2)
+  - Authentication (password, OAuth2)
   - API token management
   - Session management
 

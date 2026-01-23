@@ -5,26 +5,26 @@ title: Ash Authentication
 
 # Authentication Flows
 
-ServiceRadar uses [AshAuthentication](https://hexdocs.pm/ash_authentication/) for user authentication with multiple strategies.
+ServiceRadar uses [AshAuthentication](https://hexdocs.pm/ash_authentication/) for user authentication with password and API token strategies.
 
 ## Authentication Strategies
 
 ### Password Authentication
 
-Standard email/password authentication with bcrypt hashing:
+Standard email/password authentication with bcrypt hashing. Self-service registration is disabled; admins create users.
 
 ```mermaid
 sequenceDiagram
+    participant Admin
     participant User
     participant Web as Web UI
     participant Auth as AshAuthentication
     participant DB as Database
 
-    User->>Web: POST /auth/user/password/register
+    Admin->>Web: Create user (Admin UI)
     Web->>Auth: register_with_password
     Auth->>DB: Create user with hashed password
     Auth-->>Web: {:ok, user}
-    Web-->>User: Redirect + session cookie
 
     User->>Web: POST /auth/user/password/sign_in
     Web->>Auth: sign_in_with_password
@@ -34,31 +34,14 @@ sequenceDiagram
 ```
 
 **Actions:**
-- `register_with_password` - Create new user account
+- `register_with_password` - Admin/system-only create user account
 - `sign_in_with_password` - Authenticate existing user
 
-### Magic Link Authentication
+### Bootstrap Admin User
 
-Passwordless authentication via email:
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Web as Web UI
-    participant Auth as AshAuthentication
-    participant Email as Email Service
-
-    User->>Web: POST /auth/user/magic_link/request
-    Web->>Auth: request_magic_link
-    Auth->>Email: Send magic link email
-    Auth-->>Web: {:ok, :sent}
-    Web-->>User: Check your email
-
-    User->>Web: GET /auth/user/magic_link?token=xxx
-    Web->>Auth: sign_in_with_magic_link
-    Auth-->>Web: {:ok, user, token}
-    Web-->>User: Redirect + session
-```
+On first install, web-ng bootstraps an admin user from environment credentials. The default email is
+`root@localhost`, and the password is sourced from either `SERVICERADAR_ADMIN_PASSWORD` or
+`SERVICERADAR_ADMIN_PASSWORD_FILE` (Compose writes the password to a volume and logs it once).
 
 ### API Token Authentication
 
@@ -107,22 +90,18 @@ defmodule ServiceRadar.Identity.User do
       password :password do
         identity_field :email
         hashed_password_field :hashed_password
+        registration_enabled? false
 
         resettable do
-          sender ServiceRadar.Identity.User.Senders.SendPasswordResetEmail
+          sender ServiceRadar.Identity.Senders.SendPasswordResetEmail
         end
-      end
-
-      magic_link :magic_link do
-        identity_field :email
-        sender ServiceRadar.Identity.User.Senders.SendMagicLink
       end
     end
 
     add_ons do
-      confirmation :confirm_new_user do
+      confirmation :confirm_email do
         monitor_fields [:email]
-        sender ServiceRadar.Identity.User.Senders.SendConfirmationEmail
+        sender ServiceRadar.Identity.Senders.SendConfirmationEmail
       end
     end
   end
@@ -173,12 +152,12 @@ The authenticated user is available as an actor in Ash operations:
 ```elixir
 # In LiveView
 def mount(_params, _session, socket) do
-  actor = socket.assigns.current_scope.user
+  scope = socket.assigns.current_scope
 
   {:ok, devices} =
     ServiceRadar.Inventory.Device
     |> Ash.Query.for_read(:list)
-    |> Ash.read(actor: actor)
+    |> Ash.read(scope: scope)
 
   {:ok, assign(socket, devices: devices)}
 end

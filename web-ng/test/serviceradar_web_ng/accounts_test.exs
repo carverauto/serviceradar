@@ -50,44 +50,6 @@ defmodule ServiceRadarWebNG.AccountsTest do
     end
   end
 
-  describe "register_user/1" do
-    test "requires email to be set" do
-      # In a single deployment, schema context is implicit - only email is required
-      {:error, error} = Accounts.register_user(%{})
-
-      # Ash returns Ash.Error, not Ecto.Changeset
-      assert has_error?(error, :email)
-    end
-
-    test "validates email when given" do
-      {:error, error} = Accounts.register_user(%{email: "not valid"})
-
-      assert has_error?(error, :email)
-    end
-
-    test "validates email uniqueness" do
-      %{email: email} = user_fixture()
-
-      {:error, error} = Accounts.register_user(%{email: email})
-
-      # Email uniqueness constraint
-      assert has_error?(error, :email)
-
-      # Now try with the uppercased email too, to check that email case is ignored.
-      {:error, error} = Accounts.register_user(%{email: String.upcase(to_string(email))})
-
-      assert has_error?(error, :email)
-    end
-
-    test "registers users without password" do
-      email = unique_user_email()
-      {:ok, user} = Accounts.register_user(valid_user_attributes(email: email))
-      assert to_string(user.email) == email
-      assert is_nil(user.hashed_password)
-      assert is_nil(user.confirmed_at)
-    end
-  end
-
   describe "sudo_mode?/2" do
     test "returns true for authenticated users (has id)" do
       # With Ash JWT tokens, sudo mode is always true for authenticated users

@@ -69,24 +69,6 @@ defmodule ServiceRadarWebNG.Accounts do
   """
   def get_user!(id), do: AshUsers.get!(id)
 
-  ## User registration
-
-  @doc """
-  Registers a user.
-
-  ## Examples
-
-      iex> register_user(%{field: value})
-      {:ok, %User{}}
-
-      iex> register_user(%{field: bad_value})
-      {:error, %Ash.Error{}}
-
-  """
-  def register_user(attrs) do
-    AshUsers.register(attrs)
-  end
-
   ## Settings
 
   @doc """

@@ -81,6 +81,20 @@ services:
     networks:
       - serviceradar-net
 
+  # Bootstrap admin credentials (idempotent).
+  config-updater:
+    image: alpine:3.20
+    container_name: serviceradar-config-updater
+    environment:
+      - SERVICERADAR_ADMIN_EMAIL=${SERVICERADAR_ADMIN_EMAIL:-root@localhost}
+    volumes:
+      - admin-creds:/etc/serviceradar/admin
+      - ./docker/compose/bootstrap-admin.sh:/bootstrap-admin.sh:ro
+    command: sh /bootstrap-admin.sh
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   cloak-keygen:
     image: alpine:3.20
     container_name: serviceradar-cloak-keygen
@@ -603,6 +617,8 @@ services:
       - SERVICERADAR_DEV_ROUTES=${SERVICERADAR_DEV_ROUTES:-true}
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-true}
       - SERVICERADAR_WEB_NG_OBAN_ENABLED=${SERVICERADAR_WEB_NG_OBAN_ENABLED:-true}
+      - SERVICERADAR_ADMIN_EMAIL=${SERVICERADAR_ADMIN_EMAIL:-root@localhost}
+      - SERVICERADAR_ADMIN_PASSWORD_FILE=/etc/serviceradar/admin/admin-password
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
       - CLUSTER_HOSTS=serviceradar_agent_gateway@agent-gateway,serviceradar_core@core-elx,serviceradar_agent_gateway_t2@agent-gateway-t2
@@ -637,10 +653,13 @@ services:
       - DATASVC_SERVER_NAME=datasvc.serviceradar
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
+      - admin-creds:/etc/serviceradar/admin:ro
       - ./docker/compose/ssl_dist.web.conf:/etc/serviceradar/ssl_dist.conf:ro
       - cloak-key:/etc/serviceradar/cloak:ro
     depends_on:
       cert-permissions-fixer:
+        condition: service_completed_successfully
+      config-updater:
         condition: service_completed_successfully
       cloak-keygen:
         condition: service_completed_successfully
@@ -694,6 +713,8 @@ volumes:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_nats-creds"
   cloak-key:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cloak-key"
+  admin-creds:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_admin-creds"
   logs:
   otel-data:
   flowgger-data:

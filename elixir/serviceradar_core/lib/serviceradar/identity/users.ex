@@ -31,7 +31,7 @@ defmodule ServiceRadar.Identity.Users do
   @spec get_by_email(String.t(), keyword()) :: User.t() | nil
   def get_by_email(email, opts \\ []) when is_binary(email) do
     actor = Keyword.get(opts, :actor)
-    authorize? = Keyword.get(opts, :authorize?, false)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
     case User
          |> Ash.Query.for_read(:by_email, %{email: email}, actor: actor, authorize?: authorize?)
@@ -110,25 +110,6 @@ defmodule ServiceRadar.Identity.Users do
   end
 
   @doc """
-  Registers a new user with email only (for magic link registration).
-
-  ## Options
-
-    * `:role` - User role (default: :viewer)
-    * `:display_name` - Optional display name
-
-  """
-  @spec register(map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
-  def register(attrs, opts \\ []) do
-    actor = Keyword.get(opts, :actor)
-    authorize? = Keyword.get(opts, :authorize?, false)
-
-    User
-    |> Ash.Changeset.for_create(:create, attrs, actor: actor, authorize?: authorize?)
-    |> Ash.create()
-  end
-
-  @doc """
   Registers a new user with password.
 
   ## Options
@@ -168,8 +149,7 @@ defmodule ServiceRadar.Identity.Users do
   @doc """
   Updates a user's password.
 
-  Requires the current password for verification (when user already has a password).
-  For users without a password (magic link registration), current_password is not required.
+  Requires the current password for verification when a password is already set.
   """
   @spec update_password(User.t(), map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def update_password(user, attrs, opts \\ []) do

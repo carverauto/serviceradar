@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
   import Ecto.Query
 
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.AshTestHelpers
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
   def valid_user_password, do: "hello_world_123!"
@@ -24,10 +25,14 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
   Creates a user without confirming their email.
   """
   def unconfirmed_user_fixture(attrs \\ %{}) do
+    password = Map.get(attrs, :password, valid_user_password())
+
     {:ok, user} =
       attrs
       |> valid_user_attributes()
-      |> ServiceRadar.Identity.Users.register()
+      |> Map.put(:password, password)
+      |> Map.put(:password_confirmation, password)
+      |> ServiceRadar.Identity.Users.register_with_password(actor: AshTestHelpers.system_actor())
 
     user
   end
@@ -56,7 +61,7 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
       |> valid_user_attributes()
       |> Map.put(:password, password)
       |> Map.put(:password_confirmation, password)
-      |> ServiceRadar.Identity.Users.register_with_password()
+      |> ServiceRadar.Identity.Users.register_with_password(actor: AshTestHelpers.system_actor())
 
     # Confirm the user
     {:ok, confirmed_user} = ServiceRadar.Identity.Users.confirm(user)

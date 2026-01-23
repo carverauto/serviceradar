@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
   @moduledoc """
   Controller for user session management.
 
-  Login and registration are handled by AshAuthentication.Phoenix via AuthController.
+  Login is handled by AshAuthentication.Phoenix via AuthController.
   This controller handles logout and password updates.
   """
   use ServiceRadarWebNGWeb, :controller

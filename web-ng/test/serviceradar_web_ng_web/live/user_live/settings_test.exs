@@ -84,8 +84,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
 
   describe "update password form" do
     setup %{conn: conn} do
-      # User registered via magic link - no password initially
-      # The settings form allows setting an initial password
+      # User created with a password
       user = user_fixture()
       %{conn: log_in_user(conn, user), user: user}
     end

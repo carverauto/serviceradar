@@ -22,7 +22,7 @@ docker compose up -d
 docker compose logs config-updater | grep "Password:"
 ```
 
-Access ServiceRadar at http://localhost (Caddy). The API is available at http://localhost/api or http://localhost:8090.
+Access ServiceRadar at http://localhost (Caddy). Log in with `root@localhost` and the password from the logs. The API is available at http://localhost/api or http://localhost:8090.
 
 ### Kubernetes / Helm
 

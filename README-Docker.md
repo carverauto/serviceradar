@@ -78,7 +78,7 @@ To default to the dev compose overlay (no `-f`), set `COMPOSE_FILE=docker-compos
    - Web Interface: https://localhost (Caddy on port 443, self-signed)
    - HTTP fallback: http://localhost (Caddy on port 80)
    - API via Caddy: https://localhost/api/
-   - Username: `admin`
+   - Email: `root@localhost`
    - Password: (from step 5)
 
 ## Update an Existing Stack
@@ -101,9 +101,10 @@ The stack automatically handles certificate generation and configuration:
 1. **cert-generator** - Creates all mTLS certificates (one-shot)
 2. **cnpg** - PostgreSQL with mTLS + password auth
 3. **cert-permissions-fixer** - Sets proper certificate ownership (one-shot)
-4. **nats** - Message broker with mTLS
-5. **datasvc, core-elx, agent-gateway, agent** - Core services
-6. **checkers, web-ng, etc.** - Additional services
+4. **config-updater** - Writes the bootstrap admin password (one-shot)
+5. **nats** - Message broker with mTLS
+6. **datasvc, core-elx, agent-gateway, agent** - Core services
+7. **checkers, web-ng, etc.** - Additional services
 
 ## Test Your Setup
 
@@ -219,9 +220,10 @@ On first startup, ServiceRadar generates:
 - API keys and JWT secrets
 - mTLS certificates for all services
 
-**Save your admin password** and delete the auto-generated password file:
+**Save your admin password**. The password is stored in the admin creds volume at
+`/etc/serviceradar/admin/admin-password` (mounted into `web-ng` and `config-updater`):
 ```bash
-docker compose exec core-elx rm /etc/serviceradar/certs/password.txt
+docker compose exec web-ng cat /etc/serviceradar/admin/admin-password
 ```
 
 ## Support

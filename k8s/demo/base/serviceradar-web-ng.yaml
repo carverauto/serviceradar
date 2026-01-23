@@ -38,6 +38,13 @@ spec:
               value: "true"
             - name: SERVICERADAR_LOCAL_MAILER
               value: "true"
+            - name: SERVICERADAR_ADMIN_EMAIL
+              value: "root@localhost"
+            - name: SERVICERADAR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: serviceradar-secrets
+                  key: admin-password
             - name: SECRET_KEY_BASE
               valueFrom:
                 secretKeyRef:

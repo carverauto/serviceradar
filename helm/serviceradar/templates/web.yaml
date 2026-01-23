@@ -71,6 +71,13 @@ spec:
           value: {{ default "false" $webNg.devRoutes | quote }}
         - name: SERVICERADAR_LOCAL_MAILER
           value: {{ default "false" $webNg.localMailer | quote }}
+        - name: SERVICERADAR_ADMIN_EMAIL
+          value: "root@localhost"
+        - name: SERVICERADAR_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: admin-password
         - name: CLUSTER_ENABLED
           value: {{ default "true" $webNg.clusterEnabled | quote }}
         - name: CLUSTER_STRATEGY
