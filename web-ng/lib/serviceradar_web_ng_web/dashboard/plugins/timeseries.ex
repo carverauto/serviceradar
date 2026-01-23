@@ -181,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   # Chart paths with optional max_y for fixed Y-axis scaling (e.g., interface speed)
   # Always auto-scale Y-axis to actual data values for visibility
   # max_y is kept for reference/display but not used for scaling
-  defp chart_paths(points, _max_y) when is_list(points) do
+  defp chart_paths(points, max_y) when is_list(points) do
     values = Enum.map(points, fn {_dt, v} -> v end)
 
     case values do
@@ -194,9 +194,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         avg_v = Enum.sum(values) / length(values)
         latest = List.last(values)
 
-        # Always auto-scale to data max for visibility
-        # Add 10% padding to max for visual breathing room
-        chart_max = if max_v > 0, do: max_v * 1.1, else: 1.0
+        # Use fixed max when provided (percent scale), otherwise auto-scale with padding
+        chart_max =
+          cond do
+            is_number(max_y) and max_y > 0 -> max_y
+            max_v > 0 -> max_v * 1.1
+            true -> 1.0
+          end
 
         coords =
           Enum.with_index(values)
@@ -213,6 +217,87 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         %{line: line, area: area, min: min_v, max: max_v, avg: avg_v, latest: latest}
     end
   end
+
+  defp chart_max_from_value(_max_v, _unit, scale_max) when is_number(scale_max) and scale_max > 0 do
+    scale_max
+  end
+
+  defp chart_max_from_value(max_v, _unit, _scale_max) when is_number(max_v) and max_v > 0 do
+    max_v * 1.1
+  end
+
+  defp chart_max_from_value(_, _unit, _scale_max), do: 1.0
+
+  defp combined_chart_max(series_data, unit) when is_list(series_data) do
+    max_v =
+      series_data
+      |> Enum.map(&Map.get(&1.paths, :max))
+      |> Enum.filter(&is_number/1)
+      |> Enum.max(fn -> 0.0 end)
+
+    chart_max_from_value(max_v, unit, scale_max_for_unit(unit))
+  end
+
+  defp combined_chart_max(_series_data, unit), do: chart_max_from_value(nil, unit, scale_max_for_unit(unit))
+
+  defp x_ticks(points, compact) when is_list(points) do
+    len = length(points)
+
+    case len do
+      0 ->
+        []
+
+      1 ->
+        [{@chart_pad, time_label(elem(List.first(points), 0))}]
+
+      _ ->
+        tick_count =
+          cond do
+            compact && len >= 4 -> 3
+            len >= 6 -> 5
+            true -> len
+          end
+
+        tick_indices(len, tick_count)
+        |> Enum.map(fn idx ->
+          {dt, _v} = Enum.at(points, idx)
+          {idx_to_x(idx, len), time_label(dt)}
+        end)
+    end
+  end
+
+  defp x_ticks(_points, _compact), do: []
+
+  defp y_ticks(max_v, compact, unit) when is_number(max_v) and max_v > 0 do
+    ticks = if compact, do: 3, else: 5
+
+    0..ticks
+    |> Enum.map(fn idx ->
+      value = max_v * idx / ticks
+      {value_to_y(value, 0, max_v), format_value(value, unit)}
+    end)
+  end
+
+  defp y_ticks(_max_v, _compact, unit),
+    do: [{value_to_y(0, 0, 1), format_value(0, unit)}]
+
+  defp tick_indices(len, tick_count) when tick_count >= len do
+    0..(len - 1)
+    |> Enum.to_list()
+  end
+
+  defp tick_indices(len, tick_count) when tick_count > 1 do
+    0..(tick_count - 1)
+    |> Enum.map(fn idx ->
+      round(idx * (len - 1) / (tick_count - 1))
+    end)
+    |> Enum.uniq()
+  end
+
+  defp tick_indices(_len, _tick_count), do: [0]
+
+  defp time_label(%DateTime{} = dt), do: Calendar.strftime(dt, "%-I:%M %p")
+  defp time_label(_), do: ""
 
   # Convert counter metrics into per-second rates by calculating deltas between points.
   defp counter_rates(series_points, max_speed) when is_list(series_points) do
@@ -422,13 +507,81 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp dt_label(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %-d %H:%M")
   defp dt_label(_), do: ""
 
-  # Format values as bytes per second with human-readable units
-  # This handles SNMP counter rates (bytes/sec from counter deltas or rate agg)
-  defp format_value(v) when is_float(v) or is_integer(v) do
-    format_bytes_per_sec(v * 1.0)
+  defp scale_max_for_unit(:percent), do: 100.0
+  defp scale_max_for_unit(_), do: nil
+
+  defp unit_for_series(series, spec, rate_mode) do
+    cond do
+      rate_mode == :counter ->
+        if traffic_series?(series), do: :bytes_per_sec, else: :count_per_sec
+
+      percent_field?(spec) ->
+        :percent
+
+      bytes_field?(spec) ->
+        :bytes
+
+      hz_field?(spec) ->
+        :hz
+
+      true ->
+        :number
+    end
   end
 
-  defp format_value(_), do: "—"
+  defp percent_field?(%{y: y}) when is_binary(y), do: String.contains?(y, "percent")
+  defp percent_field?(_), do: false
+
+  defp bytes_field?(%{y: y}) when is_binary(y), do: String.contains?(y, "bytes")
+  defp bytes_field?(_), do: false
+
+  defp hz_field?(%{y: y}) when is_binary(y), do: String.contains?(y, "hz")
+  defp hz_field?(_), do: false
+
+  defp combined_unit(series_data) when is_list(series_data) do
+    series_data
+    |> Enum.map(&Map.get(&1, :unit))
+    |> Enum.uniq()
+    |> case do
+      [unit] -> unit
+      _ -> :number
+    end
+  end
+
+  defp combined_unit(_), do: :number
+
+  defp unit_to_string(unit) do
+    case unit do
+      :percent -> "percent"
+      :bytes_per_sec -> "bytes_per_sec"
+      :bytes -> "bytes"
+      :hz -> "hz"
+      :count_per_sec -> "count_per_sec"
+      _ -> "number"
+    end
+  end
+
+  defp format_value(v, unit) when is_float(v) or is_integer(v) do
+    value = v * 1.0
+
+    case unit do
+      :percent -> "#{Float.round(value, 1)}%"
+      :bytes_per_sec -> format_bytes_per_sec(value)
+      :bytes -> format_bytes(value)
+      :hz -> format_hz(value)
+      :count_per_sec -> format_count_per_sec(value)
+      _ -> format_number(value)
+    end
+  end
+
+  defp format_value(_, _), do: "—"
+
+  defp format_number(value) do
+    cond do
+      abs(value) >= 1_000 -> Float.round(value, 1) |> to_string()
+      true -> Float.round(value, 2) |> to_string()
+    end
+  end
 
   defp format_bytes_per_sec(bps) when bps >= 1_000_000_000 do
     "#{Float.round(bps / 1_000_000_000, 2)} GB/s"
@@ -450,6 +603,56 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     # Negative values (shouldn't happen with rate calc, but just in case)
     "#{Float.round(bps, 2)}"
   end
+
+  defp format_bytes(bytes) when bytes >= 1_000_000_000 do
+    "#{Float.round(bytes / 1_000_000_000, 2)} GB"
+  end
+
+  defp format_bytes(bytes) when bytes >= 1_000_000 do
+    "#{Float.round(bytes / 1_000_000, 2)} MB"
+  end
+
+  defp format_bytes(bytes) when bytes >= 1_000 do
+    "#{Float.round(bytes / 1_000, 2)} KB"
+  end
+
+  defp format_bytes(bytes) when bytes >= 0 do
+    "#{Float.round(bytes, 1)} B"
+  end
+
+  defp format_bytes(bytes), do: "#{Float.round(bytes, 2)}"
+
+  defp format_hz(value) when value >= 1_000_000_000 do
+    "#{Float.round(value / 1_000_000_000, 2)} GHz"
+  end
+
+  defp format_hz(value) when value >= 1_000_000 do
+    "#{Float.round(value / 1_000_000, 2)} MHz"
+  end
+
+  defp format_hz(value) when value >= 1_000 do
+    "#{Float.round(value / 1_000, 2)} KHz"
+  end
+
+  defp format_hz(value) when value >= 0 do
+    "#{Float.round(value, 1)} Hz"
+  end
+
+  defp format_hz(value), do: "#{Float.round(value, 2)}"
+
+  defp format_count_per_sec(value) when value >= 1_000_000 do
+    "#{Float.round(value / 1_000_000, 2)} M/s"
+  end
+
+  defp format_count_per_sec(value) when value >= 1_000 do
+    "#{Float.round(value / 1_000, 2)} K/s"
+  end
+
+  defp format_count_per_sec(value) when value >= 0 do
+    "#{Float.round(value, 2)} /s"
+  end
+
+  defp format_count_per_sec(value), do: "#{Float.round(value, 2)} /s"
 
   # Map raw SNMP metric names to human-readable labels
   defp humanize_series_name("ifInOctets"), do: "Inbound Traffic"
@@ -495,8 +698,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     chart_mode = Map.get(panel_assigns || %{}, :chart_mode, :single)
     # Rate mode: :counter (compute deltas) or :none (use values directly)
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
-
-    series_points = Map.get(assigns, :series_points, [])
+    series_points = series_points_from_assigns(assigns, panel_assigns)
+    spec = fetch_panel_value(panel_assigns, :spec, Map.get(assigns, :spec))
 
     series_points =
       case rate_mode do
@@ -510,6 +713,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(panel_assigns || %{})
       |> assign(:compact, compact)
       |> assign(:series_points, series_points)
+      |> assign(:spec, spec)
       |> assign(:max_speed_bytes_per_sec, max_speed)
       |> assign(:chart_mode, chart_mode)
       |> assign(:rate_mode, rate_mode)
@@ -518,6 +722,50 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:chart_pad, @chart_pad)
 
     {:ok, socket}
+  end
+
+  defp series_points_from_assigns(assigns, panel_assigns) do
+    cond do
+      is_map(panel_assigns) and fetch_panel_value(panel_assigns, :series_points) != nil ->
+        fetch_panel_value(panel_assigns, :series_points) || []
+
+      is_map(panel_assigns) and fetch_panel_value(panel_assigns, :series) != nil ->
+        series_to_points(fetch_panel_value(panel_assigns, :series))
+
+      true ->
+        Map.get(assigns, :series_points, [])
+    end
+  end
+
+  defp series_to_points(series) when is_list(series) do
+    series
+    |> Enum.map(fn item ->
+      name = Map.get(item, :name) || Map.get(item, "name") || "series"
+      data = Map.get(item, :data) || Map.get(item, "data") || []
+
+      points =
+        data
+        |> Enum.reduce([], fn point, acc ->
+          time = Map.get(point, :time) || Map.get(point, "time")
+          value = Map.get(point, :value) || Map.get(point, "value")
+
+          with {:ok, dt} <- parse_datetime(time),
+               {:ok, v} <- parse_number(value) do
+            [{dt, v} | acc]
+          else
+            _ -> acc
+          end
+        end)
+        |> Enum.reverse()
+
+      {to_string(name), points}
+    end)
+  end
+
+  defp series_to_points(_), do: []
+
+  defp fetch_panel_value(panel_assigns, key, default \\ nil) when is_map(panel_assigns) do
+    Map.get(panel_assigns, key, Map.get(panel_assigns, to_string(key), default))
   end
 
   @impl true
@@ -534,7 +782,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         # Check if this is a traffic metric that should use max_speed for scaling
         effective_max = if traffic_series?(series), do: max_speed, else: nil
 
-        paths = chart_paths(points, effective_max)
         {stroke, _fill} = series_color(idx)
         point_data = Enum.map(points, fn {dt, v} -> %{dt: dt_label(dt), v: v} end)
         # Use humanized series name for display
@@ -545,7 +792,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         series_last_dt = series_last_dt(points)
 
         # Calculate utilization percentage if we have interface speed
+        unit = unit_for_series(series, Map.get(assigns, :spec), Map.get(assigns, :rate_mode, :none))
+        scale_max = scale_max_for_unit(unit)
+        paths = chart_paths(points, scale_max)
         utilization = compute_utilization(paths.avg, effective_max)
+        chart_max = chart_max_from_value(paths.max, unit, scale_max)
 
         %{
           series: display_name,
@@ -554,6 +805,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           stroke: stroke,
           idx: idx,
           point_data: point_data,
+          unit: unit,
+          raw_points: points,
+          x_ticks: x_ticks(points, compact),
+          y_ticks: y_ticks(chart_max, compact, unit),
+          chart_max: chart_max,
           first_dt: series_first_dt,
           last_dt: series_last_dt,
           max_speed: effective_max,
@@ -567,7 +823,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     # In combined mode, group traffic series together
     combined_traffic =
       if chart_mode == :combined and length(traffic_series) > 1 do
-        [build_combined_traffic_data(traffic_series, max_speed)]
+        [build_combined_traffic_data(traffic_series, max_speed, compact)]
       else
         []
       end
@@ -597,15 +853,23 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   # Build combined traffic data for multi-series chart
-  defp build_combined_traffic_data(traffic_series, max_speed) do
+  defp build_combined_traffic_data(traffic_series, max_speed, compact) do
     # Get the time range from the first series
     first_series = List.first(traffic_series)
+    unit = combined_unit(traffic_series)
+    chart_max = combined_chart_max(traffic_series, unit)
+    x_ticks = first_series && x_ticks(first_series.raw_points || [], compact)
+    y_ticks = y_ticks(chart_max, compact, unit)
 
     %{
       type: :combined,
       title: "Interface Traffic",
       series: traffic_series,
       max_speed: max_speed,
+      unit: unit,
+      chart_max: chart_max,
+      x_ticks: x_ticks || [],
+      y_ticks: y_ticks,
       first_dt: first_series && first_series.first_dt,
       last_dt: first_series && first_series.last_dt
     }
@@ -714,6 +978,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       ]}
       phx-hook="TimeseriesChart"
       data-points={Jason.encode!(@data.point_data)}
+      data-unit={unit_to_string(@data.unit)}
     >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-2 min-w-0">
@@ -740,7 +1005,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           @compact && "text-[10px]",
           not @compact && "text-xs"
         ]}>
-          <span style={"color: #{@data.stroke}"}>{format_value(@data.paths.latest)}</span>
+          <span style={"color: #{@data.stroke}"}>{format_value(@data.paths.latest, @data.unit)}</span>
         </div>
       </div>
 
@@ -756,6 +1021,46 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               <stop offset="100%" stop-color={@data.stroke} stop-opacity="0.05" />
             </linearGradient>
           </defs>
+
+          <!-- Gridlines -->
+          <g stroke="currentColor" class="text-base-content/10" stroke-dasharray="3 4">
+            <%= for {y, _label} <- @data.y_ticks do %>
+              <line x1={@chart_pad} x2={@chart_width - @chart_pad} y1={y} y2={y} />
+            <% end %>
+            <%= for {x, _label} <- @data.x_ticks do %>
+              <line x1={x} x2={x} y1={@chart_pad} y2={@chart_height - @chart_pad} />
+            <% end %>
+          </g>
+
+          <!-- Axes -->
+          <g stroke="currentColor" class="text-base-content/40">
+            <line x1={@chart_pad} x2={@chart_pad} y1={@chart_pad} y2={@chart_height - @chart_pad} />
+            <line x1={@chart_pad} x2={@chart_width - @chart_pad} y1={@chart_height - @chart_pad} y2={@chart_height - @chart_pad} />
+          </g>
+
+          <!-- Axis ticks -->
+          <g stroke="currentColor" class="text-base-content/40">
+            <%= for {y, _label} <- @data.y_ticks do %>
+              <line x1={@chart_pad - 3} x2={@chart_pad} y1={y} y2={y} />
+            <% end %>
+            <%= for {x, _label} <- @data.x_ticks do %>
+              <line x1={x} x2={x} y1={@chart_height - @chart_pad} y2={@chart_height - @chart_pad + 3} />
+            <% end %>
+          </g>
+
+          <!-- Y-axis labels -->
+          <g class="text-[8px] fill-base-content/70 font-mono">
+            <%= for {y, label} <- @data.y_ticks do %>
+              <text x={@chart_pad - 4} y={y + 3} text-anchor="end">{label}</text>
+            <% end %>
+          </g>
+
+          <!-- X-axis labels -->
+          <g class="text-[8px] fill-base-content/70 font-mono">
+            <%= for {x, label} <- @data.x_ticks do %>
+              <text x={x} y={@chart_height - 2} text-anchor="middle">{label}</text>
+            <% end %>
+          </g>
 
           <path d={@data.paths.area} fill={"url(#series-fill-#{@id}-#{@data.idx})"} />
           <path
@@ -787,11 +1092,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         @compact && "text-[10px]",
         not @compact && "text-xs"
       ]}>
-        <span>avg: <span class="font-mono">{format_value(@data.paths.avg)}</span></span>
+        <span>avg: <span class="font-mono">{format_value(@data.paths.avg, @data.unit)}</span></span>
         <span :if={@data.max_speed} class="text-base-content/40">
-          interface rate: <span class="font-mono">{format_value(@data.max_speed)}</span>
+          interface rate: <span class="font-mono">{format_value(@data.max_speed, :bytes_per_sec)}</span>
         </span>
-        <span>peak: <span class="font-mono">{format_value(@data.paths.max)}</span></span>
+        <span>peak: <span class="font-mono">{format_value(@data.paths.max, @data.unit)}</span></span>
       </div>
       <!-- Timeline axis -->
       <div class={[
@@ -870,8 +1175,48 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               </linearGradient>
             <% end %>
           </defs>
-          
-    <!-- Render each series -->
+
+          <!-- Gridlines -->
+          <g stroke="currentColor" class="text-base-content/10" stroke-dasharray="3 4">
+            <%= for {y, _label} <- @data.y_ticks do %>
+              <line x1={@chart_pad} x2={@chart_width - @chart_pad} y1={y} y2={y} />
+            <% end %>
+            <%= for {x, _label} <- @data.x_ticks do %>
+              <line x1={x} x2={x} y1={@chart_pad} y2={@chart_height - @chart_pad} />
+            <% end %>
+          </g>
+
+          <!-- Axes -->
+          <g stroke="currentColor" class="text-base-content/40">
+            <line x1={@chart_pad} x2={@chart_pad} y1={@chart_pad} y2={@chart_height - @chart_pad} />
+            <line x1={@chart_pad} x2={@chart_width - @chart_pad} y1={@chart_height - @chart_pad} y2={@chart_height - @chart_pad} />
+          </g>
+
+          <!-- Axis ticks -->
+          <g stroke="currentColor" class="text-base-content/40">
+            <%= for {y, _label} <- @data.y_ticks do %>
+              <line x1={@chart_pad - 3} x2={@chart_pad} y1={y} y2={y} />
+            <% end %>
+            <%= for {x, _label} <- @data.x_ticks do %>
+              <line x1={x} x2={x} y1={@chart_height - @chart_pad} y2={@chart_height - @chart_pad + 3} />
+            <% end %>
+          </g>
+
+          <!-- Y-axis labels -->
+          <g class="text-[8px] fill-base-content/70 font-mono">
+            <%= for {y, label} <- @data.y_ticks do %>
+              <text x={@chart_pad - 4} y={y + 3} text-anchor="end">{label}</text>
+            <% end %>
+          </g>
+
+          <!-- X-axis labels -->
+          <g class="text-[8px] fill-base-content/70 font-mono">
+            <%= for {x, label} <- @data.x_ticks do %>
+              <text x={x} y={@chart_height - 2} text-anchor="middle">{label}</text>
+            <% end %>
+          </g>
+
+          <!-- Render each series -->
           <%= for series <- @data.series do %>
             <path d={series.paths.area} fill={"url(#combined-fill-#{@id}-#{series.idx})"} />
             <path
@@ -898,11 +1243,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               class="inline-block size-1.5 rounded-full"
               style={"background-color: #{series.stroke}"}
             />
-            <span class="font-mono">{format_value(series.paths.avg)}</span>
+            <span class="font-mono">{format_value(series.paths.avg, series.unit)}</span>
           </div>
         <% end %>
         <span :if={@data.max_speed} class="text-base-content/40 ml-auto">
-          interface rate: <span class="font-mono">{format_value(@data.max_speed)}</span>
+          interface rate: <span class="font-mono">{format_value(@data.max_speed, :bytes_per_sec)}</span>
         </span>
       </div>
       
