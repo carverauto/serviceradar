@@ -268,7 +268,12 @@ fn build_query_plan(
 fn determine_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
     let default = config.default_limit;
     let max = config.max_limit;
-    candidate.unwrap_or(default).clamp(1, max)
+    let limit = candidate.unwrap_or(default).max(1);
+    if max <= 0 {
+        limit
+    } else {
+        limit.min(max)
+    }
 }
 
 fn normalize_device_aliases(

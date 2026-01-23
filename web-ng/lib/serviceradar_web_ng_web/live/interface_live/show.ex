@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
   alias ServiceRadar.Inventory.InterfaceSettings
 
+  @snmp_metrics_limit 3600
+
   @impl true
   def mount(_params, _session, socket) do
     srql = %{
@@ -1412,7 +1414,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       # Rate deltas are calculated client-side for SNMP counter metrics.
       query =
         "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-          "time:last_24h bucket:5m agg:max series:metric_name limit:200"
+          "time:last_24h bucket:5m agg:max series:metric_name limit:#{@snmp_metrics_limit}"
 
       # Get interface speed for proper graph scaling (bps -> bytes per second)
       if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")

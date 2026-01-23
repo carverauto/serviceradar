@@ -20,8 +20,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   @default_limit 50
   @max_limit 200
-  @metrics_limit 200
+  @metrics_limit 300
   @disk_panel_limit 6
+  @disk_metrics_limit @metrics_limit * @disk_panel_limit
+  @snmp_metrics_limit @metrics_limit * 12
   @process_limit 25
   @process_query_limit 200
   @interfaces_limit 200
@@ -748,7 +750,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     query =
       "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-        "time:last_24h bucket:5m agg:max series:metric_name limit:200"
+        "time:last_24h bucket:5m agg:max series:metric_name limit:#{@snmp_metrics_limit}"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
@@ -2814,7 +2816,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp build_memory_section(srql_module, filter_tokens, scope) do
-    series_limit = max(div(@metrics_limit, 2), 1)
+    series_limit = @metrics_limit
     used_query = metric_query("memory_metrics", filter_tokens, nil, "used_bytes", series_limit)
 
     available_query =
@@ -2865,10 +2867,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     series_field = resolve_disk_series_field(srql_module, filter_tokens, scope)
 
     used_query =
-      metric_query("disk_metrics", filter_tokens, series_field, "used_bytes", @metrics_limit)
+      metric_query("disk_metrics", filter_tokens, series_field, "used_bytes", @disk_metrics_limit)
 
     total_query =
-      metric_query("disk_metrics", filter_tokens, series_field, "total_bytes", @metrics_limit)
+      metric_query("disk_metrics", filter_tokens, series_field, "total_bytes", @disk_metrics_limit)
 
     base = %{
       key: "disk",

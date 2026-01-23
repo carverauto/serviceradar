@@ -65,7 +65,7 @@ const fn default_limit() -> i64 {
 }
 
 const fn default_max_limit() -> i64 {
-    500
+    0
 }
 
 const fn default_timeout_secs() -> u64 {
@@ -127,7 +127,11 @@ impl AppConfig {
             api_key_kv_key: raw.srql_api_key_kv_key,
             allowed_origins,
             default_limit: raw.srql_default_limit.max(1),
-            max_limit: raw.srql_max_limit.max(raw.srql_default_limit),
+            max_limit: if raw.srql_max_limit <= 0 {
+                0
+            } else {
+                raw.srql_max_limit.max(raw.srql_default_limit)
+            },
             request_timeout: Duration::from_secs(raw.srql_request_timeout_secs.max(1)),
             rate_limit_max_requests: raw.srql_rate_limit_max.max(1),
             rate_limit_window: Duration::from_secs(raw.srql_rate_limit_window_secs.max(1)),
