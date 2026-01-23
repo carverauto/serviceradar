@@ -36,6 +36,6 @@
 - [x] 6.5 Show utilization badge on interface cards (already implemented)
 
 ## 7. Tests
-- [ ] 7.1 Unit tests for percentage threshold evaluation with various if_speed values
-- [ ] 7.2 Unit tests for combined chart path generation
-- [ ] 7.3 Integration test for event creation from percentage threshold breach
+- [x] 7.1 Unit tests for percentage threshold evaluation with various if_speed values
+- [x] 7.2 Unit tests for combined chart path generation
+- [ ] 7.3 Integration test for event creation from percentage threshold breach (requires DB)
