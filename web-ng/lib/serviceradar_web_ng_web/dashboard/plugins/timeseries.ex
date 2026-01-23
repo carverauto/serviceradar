@@ -825,6 +825,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     max_speed = Map.get(panel_assigns || %{}, :max_speed_bytes_per_sec)
     # Chart mode: :single (default) or :combined (multiple series on same chart)
     chart_mode = Map.get(panel_assigns || %{}, :chart_mode, :single)
+    combine_all_series = Map.get(panel_assigns || %{}, :combine_all_series, false)
+    combined_title = Map.get(panel_assigns || %{}, :combined_title)
     # Rate mode: :counter (compute deltas) or :none (use values directly)
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
     series_points = series_points_from_assigns(assigns, panel_assigns)
@@ -845,6 +847,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:spec, spec)
       |> assign(:max_speed_bytes_per_sec, max_speed)
       |> assign(:chart_mode, chart_mode)
+      |> assign(:combine_all_series, combine_all_series)
+      |> assign(:combined_title, combined_title)
       |> assign(:rate_mode, rate_mode)
       |> assign(:chart_width, @chart_width)
       |> assign(:chart_height, @chart_height)
@@ -903,83 +907,96 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     series_points = assigns.series_points || []
     max_speed = Map.get(assigns, :max_speed_bytes_per_sec)
     chart_mode = Map.get(assigns, :chart_mode, :single)
+    combine_all_series = Map.get(assigns, :combine_all_series, false)
+    combined_title = Map.get(assigns, :combined_title, "Combined")
 
-    # Pre-compute chart data for each series for hover functionality
-    series_data =
-      Enum.with_index(series_points)
-      |> Enum.map(fn {{series, points}, idx} ->
-        # Check if this is a traffic metric that should use max_speed for scaling
-        effective_max = if traffic_series?(series), do: max_speed, else: nil
+    series_data = build_series_data(series_points, assigns, compact, max_speed)
 
-        {stroke, _fill} = series_color(idx)
-        # Use humanized series name for display
-        display_name = humanize_series_name(series || "series")
-
-        # Get first and last timestamps for this series
-        series_first_dt = series_first_dt(points)
-        series_last_dt = series_last_dt(points)
-
-        # Calculate utilization percentage if we have interface speed
-        unit =
-          unit_for_series(series, Map.get(assigns, :spec), Map.get(assigns, :rate_mode, :none))
-
-        chart_points = chart_points(points, unit, compact)
-        scale_max = scale_max_for_unit(unit)
-        paths = chart_paths(chart_points, scale_max)
-        utilization = compute_utilization(paths.avg, effective_max)
-        chart_max = chart_max_from_value(paths.max, unit, scale_max)
-
-        %{
-          series: display_name,
-          raw_series: series,
-          paths: paths,
-          stroke: stroke,
-          idx: idx,
-          point_data: Enum.map(chart_points, fn {dt, v} -> %{dt: dt_label(dt), v: v} end),
-          unit: unit,
-          raw_points: points,
-          x_ticks: x_ticks(points, compact),
-          y_ticks: y_ticks(chart_max, compact, unit),
-          chart_max: chart_max,
-          first_dt: series_first_dt,
-          last_dt: series_last_dt,
-          max_speed: effective_max,
-          utilization: utilization
-        }
-      end)
-
-    # Check if we should combine traffic series into one chart
-    {traffic_series, other_series} = Enum.split_with(series_data, &traffic_series?(&1.raw_series))
-
-    # In combined mode, group traffic series together
-    combined_traffic =
-      if chart_mode == :combined and length(traffic_series) > 1 do
-        [build_combined_traffic_data(traffic_series, max_speed, compact)]
-      else
-        []
-      end
-
-    # Series to render as individual charts (non-traffic or single traffic in combined mode)
-    individual_series =
-      if chart_mode == :combined and length(traffic_series) > 1 do
-        other_series
-      else
-        series_data
-      end
+    {combined_charts, individual_series} =
+      resolve_chart_groups(
+        series_data,
+        combine_all_series,
+        chart_mode,
+        max_speed,
+        compact,
+        combined_title
+      )
 
     assigns =
       assigns
       |> assign(:compact, compact)
       |> assign(:series_count, length(series_points))
       |> assign(:series_data, individual_series)
-      |> assign(:combined_traffic, combined_traffic)
+      |> assign(:combined_charts, combined_charts)
       |> assign(:first_dt, first_dt(series_points))
       |> assign(:last_dt, last_dt(series_points))
 
-    if compact do
-      render_compact(assigns)
-    else
-      render_full(assigns)
+    render_chart(assigns, compact)
+  end
+
+  defp render_chart(assigns, true), do: render_compact(assigns)
+  defp render_chart(assigns, false), do: render_full(assigns)
+
+  defp build_series_data(series_points, assigns, compact, max_speed) do
+    spec = Map.get(assigns, :spec)
+    rate_mode = Map.get(assigns, :rate_mode, :none)
+
+    series_points
+    |> Enum.with_index()
+    |> Enum.map(fn {{series, points}, idx} ->
+      series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed)
+    end)
+  end
+
+  defp series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed) do
+    effective_max = if traffic_series?(series), do: max_speed, else: nil
+    {stroke, _fill} = series_color(idx)
+    display_name = humanize_series_name(series || "series")
+    unit = unit_for_series(series, spec, rate_mode)
+    chart_points = chart_points(points, unit, compact)
+    scale_max = scale_max_for_unit(unit)
+    paths = chart_paths(chart_points, scale_max)
+    utilization = compute_utilization(paths.avg, effective_max)
+    chart_max = chart_max_from_value(paths.max, unit, scale_max)
+
+    %{
+      series: display_name,
+      raw_series: series,
+      paths: paths,
+      stroke: stroke,
+      idx: idx,
+      point_data: Enum.map(chart_points, fn {dt, v} -> %{dt: dt_label(dt), v: v} end),
+      unit: unit,
+      raw_points: points,
+      x_ticks: x_ticks(points, compact),
+      y_ticks: y_ticks(chart_max, compact, unit),
+      chart_max: chart_max,
+      first_dt: series_first_dt(points),
+      last_dt: series_last_dt(points),
+      max_speed: effective_max,
+      utilization: utilization
+    }
+  end
+
+  defp resolve_chart_groups(
+         series_data,
+         combine_all_series,
+         chart_mode,
+         max_speed,
+         compact,
+         combined_title
+       ) do
+    {traffic_series, other_series} = Enum.split_with(series_data, &traffic_series?(&1.raw_series))
+
+    cond do
+      combine_all_series && length(series_data) > 1 ->
+        {[build_combined_series_data(series_data, compact, combined_title)], []}
+
+      chart_mode == :combined and length(traffic_series) > 1 ->
+        {[build_combined_traffic_data(traffic_series, max_speed, compact)], other_series}
+
+      true ->
+        {[], series_data}
     end
   end
 
@@ -1006,6 +1023,27 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     }
   end
 
+  defp build_combined_series_data(series_data, compact, title) do
+    first_series = List.first(series_data)
+    unit = combined_unit(series_data)
+    chart_max = combined_chart_max(series_data, unit)
+    x_ticks = first_series && x_ticks(first_series.raw_points || [], compact)
+    y_ticks = y_ticks(chart_max, compact, unit)
+
+    %{
+      type: :combined,
+      title: title,
+      series: series_data,
+      max_speed: nil,
+      unit: unit,
+      chart_max: chart_max,
+      x_ticks: x_ticks || [],
+      y_ticks: y_ticks,
+      first_dt: first_series && first_series.first_dt,
+      last_dt: first_series && first_series.last_dt
+    }
+  end
+
   defp render_compact(assigns) do
     ~H"""
     <div id={"panel-#{@id}"} class="p-4">
@@ -1014,7 +1052,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         @series_count > 1 && "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3",
         @series_count == 1 && "grid-cols-1"
       ]}>
-        <%= for combined <- @combined_traffic do %>
+        <%= for combined <- @combined_charts do %>
           <.combined_chart_card
             id={@id}
             data={combined}
@@ -1054,8 +1092,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           </div>
         </:header>
         
-    <!-- Combined traffic charts (inbound + outbound on same chart) -->
-        <%= for combined <- @combined_traffic do %>
+    <!-- Combined charts (multi-series on same chart) -->
+        <%= for combined <- @combined_charts do %>
           <.combined_chart_card
             id={@id}
             data={combined}

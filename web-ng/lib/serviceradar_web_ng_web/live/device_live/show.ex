@@ -1418,15 +1418,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       <span class="text-sm font-semibold">{section.title}</span>
                       <span class="text-xs text-base-content/50">{section.subtitle}</span>
                     </div>
-                    <div :if={is_number(Map.get(section, :header_value))} class="flex items-center gap-2">
-                      <% header_value = Map.get(section, :header_value) %>
-                      <div class="h-1.5 w-20 rounded-full bg-base-200 overflow-hidden">
-                        <div
-                          class="h-full bg-accent"
-                          style={"width: #{percent_width(header_value)}%"}
-                        />
+                    <div class="flex items-center gap-3">
+                      <div
+                        :if={is_map(Map.get(section, :header_stats))}
+                        class="flex items-center gap-2 text-[11px] text-base-content/60"
+                      >
+                        <% stats = Map.get(section, :header_stats) %>
+                        <span class="font-mono">min {format_pct(Map.get(stats, :min))}%</span>
+                        <span class="font-mono">avg {format_pct(Map.get(stats, :avg))}%</span>
+                        <span class="font-mono">max {format_pct(Map.get(stats, :max))}%</span>
                       </div>
-                      <span class="text-xs font-mono">{format_pct(header_value)}%</span>
+                      <div
+                        :if={is_number(Map.get(section, :header_value))}
+                        class="flex items-center gap-2"
+                      >
+                        <% header_value = Map.get(section, :header_value) %>
+                        <div class="h-1.5 w-20 rounded-full bg-base-200 overflow-hidden">
+                          <div
+                            class="h-full bg-accent"
+                            style={"width: #{percent_width(header_value)}%"}
+                          />
+                        </div>
+                        <span class="text-xs font-mono">{format_pct(header_value)}%</span>
+                      </div>
                     </div>
                   </div>
 
@@ -2635,7 +2649,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       query: query,
       panels: [],
       error: nil,
-      header_value: nil
+      header_value: nil,
+      header_stats: nil
     }
 
     case srql_module.query(query, %{scope: scope}) do
@@ -2644,7 +2659,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         viz = timeseries_viz("usage_percent", nil)
         panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
         header_value = latest_metric_value(normalized, "usage_percent")
-        %{base | panels: panels, header_value: header_value}
+        header_stats = metric_stats(normalized, "usage_percent")
+        %{base | panels: panels, header_value: header_value, header_stats: header_stats}
 
       {:ok, %{"results" => results}} when is_list(results) ->
         base
@@ -2687,6 +2703,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       else
         viz = timeseries_viz("bytes", "series")
         panels = build_metric_panels(%{"results" => combined, "viz" => viz}, combined, "series")
+
+        panels =
+          apply_panel_assigns(panels, %{
+            combine_all_series: true,
+            combined_title: "Memory (Used vs Available)"
+          })
+
         %{base | panels: panels}
       end
     else
@@ -2752,27 +2775,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     used_by_series = group_rows_by_series(used_rows)
     total_by_series = group_rows_by_series(total_rows)
 
+    used_by_series
+    |> disk_series_keys(total_by_series)
+    |> Enum.take(@disk_panel_limit)
+    |> Enum.map(&build_disk_series_panels(&1, used_by_series, total_by_series))
+    |> Enum.flat_map(& &1)
+  end
+
+  defp disk_series_keys(used_by_series, total_by_series) do
     (Map.keys(used_by_series) ++ Map.keys(total_by_series))
     |> Enum.uniq()
     |> Enum.sort()
-    |> Enum.take(@disk_panel_limit)
-    |> Enum.flat_map(fn series ->
-      combined =
-        build_series_rows(Map.get(used_by_series, series, []), "Used", "bytes")
-        |> Kernel.++(build_series_rows(Map.get(total_by_series, series, []), "Total", "bytes"))
-        |> sort_rows_by_timestamp()
+  end
 
-      if combined == [] do
-        []
-      else
-        viz = timeseries_viz("bytes", "series")
+  defp build_disk_series_panels(series, used_by_series, total_by_series) do
+    combined =
+      build_series_rows(Map.get(used_by_series, series, []), "Used", "bytes")
+      |> Kernel.++(build_series_rows(Map.get(total_by_series, series, []), "Total", "bytes"))
+      |> sort_rows_by_timestamp()
 
-        build_metric_panels(%{"results" => combined, "viz" => viz}, combined, "series")
-        |> Enum.map(fn panel ->
-          Map.put(panel, :title, "Disk · #{series_label(series)}")
-        end)
-      end
-    end)
+    if combined == [] do
+      []
+    else
+      viz = timeseries_viz("bytes", "series")
+
+      build_metric_panels(%{"results" => combined, "viz" => viz}, combined, "series")
+      |> Enum.map(fn panel ->
+        Map.put(panel, :title, "Disk · #{series_label(series)}")
+      end)
+    end
   end
 
   defp group_rows_by_series(rows) when is_list(rows) do
@@ -2880,26 +2911,68 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp latest_metric_value(rows, field) when is_list(rows) do
     rows
-    |> Enum.filter(&is_map/1)
-    |> Enum.reduce(nil, fn row, acc ->
-      with {:ok, dt} <- parse_datetime(Map.get(row, "timestamp")),
-           value <- parse_number(Map.get(row, field)),
-           true <- not is_nil(value) do
-        case acc do
-          nil -> {dt, value}
-          {prev_dt, _} = prev -> if(DateTime.compare(dt, prev_dt) == :gt, do: {dt, value}, else: prev)
-        end
-      else
-        _ -> acc
-      end
-    end)
-    |> case do
-      {_dt, value} -> value
-      _ -> nil
-    end
+    |> latest_metric_tuple(field)
+    |> extract_metric_value()
   end
 
   defp latest_metric_value(_rows, _field), do: nil
+
+  defp latest_metric_tuple(rows, field) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.reduce(nil, &update_latest_metric(&1, field, &2))
+  end
+
+  defp extract_metric_value({_dt, value}), do: value
+  defp extract_metric_value(_), do: nil
+
+  defp update_latest_metric(row, field, acc) do
+    with {:ok, dt} <- parse_datetime(Map.get(row, "timestamp")),
+         value when is_number(value) <- parse_number(Map.get(row, field)) do
+      pick_latest_metric({dt, value}, acc)
+    else
+      _ -> acc
+    end
+  end
+
+  defp pick_latest_metric(current, nil), do: current
+
+  defp pick_latest_metric({dt, _} = current, {prev_dt, _} = previous) do
+    if DateTime.compare(dt, prev_dt) == :gt, do: current, else: previous
+  end
+
+  defp metric_stats(rows, field) when is_list(rows) do
+    {min, max, sum, count} =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce({nil, nil, 0.0, 0}, &accumulate_metric_stat(&1, field, &2))
+
+    if count > 0 do
+      %{min: min, max: max, avg: sum / count}
+    else
+      nil
+    end
+  end
+
+  defp metric_stats(_rows, _field), do: nil
+
+  defp accumulate_metric_stat(row, field, {min_v, max_v, sum_v, count_v}) do
+    case parse_number(Map.get(row, field)) do
+      value when is_number(value) ->
+        {min_value(min_v, value), max_value(max_v, value), sum_v + value, count_v + 1}
+
+      _ ->
+        {min_v, max_v, sum_v, count_v}
+    end
+  end
+
+  defp min_value(nil, value), do: value
+  defp min_value(min_v, value) when value < min_v, do: value
+  defp min_value(min_v, _value), do: min_v
+
+  defp max_value(nil, value), do: value
+  defp max_value(max_v, value) when value > max_v, do: value
+  defp max_value(max_v, _value), do: max_v
 
   defp normalize_metric_results(results, target_field) when is_list(results) do
     Enum.map(results, fn
@@ -2958,6 +3031,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> maybe_force_timeseries(results, series_field)
     |> drop_category_panels_when_timeseries()
   end
+
+  defp apply_panel_assigns(panels, assigns) when is_list(panels) and is_map(assigns) do
+    Enum.map(panels, fn panel ->
+      Map.update(panel, :assigns, assigns, &Map.merge(&1, assigns))
+    end)
+  end
+
+  defp apply_panel_assigns(panels, _assigns), do: panels
 
   defp extract_viz(resp) do
     case Map.get(resp, "viz") do
