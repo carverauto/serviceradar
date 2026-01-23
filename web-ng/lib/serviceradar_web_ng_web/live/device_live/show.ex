@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @default_limit 50
   @max_limit 200
   @metrics_limit 200
+  @disk_panel_limit 6
   @interfaces_limit 200
   @availability_window "last_24h"
   @availability_bucket "30m"
@@ -1417,6 +1418,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       <span class="text-sm font-semibold">{section.title}</span>
                       <span class="text-xs text-base-content/50">{section.subtitle}</span>
                     </div>
+                    <div :if={is_number(Map.get(section, :header_value))} class="flex items-center gap-2">
+                      <% header_value = Map.get(section, :header_value) %>
+                      <div class="h-1.5 w-20 rounded-full bg-base-200 overflow-hidden">
+                        <div
+                          class="h-full bg-accent"
+                          style={"width: #{percent_width(header_value)}%"}
+                        />
+                      </div>
+                      <span class="text-xs font-mono">{format_pct(header_value)}%</span>
+                    </div>
                   </div>
 
                   <div :if={is_binary(section.error)} class="px-4 py-3 text-sm text-base-content/70">
@@ -1428,7 +1439,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       <.live_component
                         module={panel.plugin}
                         id={"device-#{@device_uid}-#{section.key}-#{panel.id}"}
-                        title={section.title}
+                        title={Map.get(panel, :title) || section.title}
                         panel_assigns={Map.put(panel.assigns, :compact, true)}
                       />
                     <% end %>
@@ -2606,52 +2617,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp load_metric_sections(_srql_module, [], _scope), do: []
 
   defp load_metric_sections(srql_module, filter_tokens, scope) do
-    metric_section_specs()
-    |> Enum.map(&build_metric_section(srql_module, &1, filter_tokens, scope))
-  end
-
-  defp metric_section_specs do
     [
-      %{
-        key: "cpu",
-        title: "CPU",
-        entity: "cpu_metrics",
-        series: nil,
-        subtitle: "last 24h · 5m buckets · avg across cores"
-      },
-      %{
-        key: "memory",
-        title: "Memory",
-        entity: "memory_metrics",
-        series: "partition",
-        subtitle: "last 24h · 5m buckets · avg"
-      },
-      %{
-        key: "disk",
-        title: "Disk",
-        entity: "disk_metrics",
-        series: "mount_point",
-        subtitle: "last 24h · 5m buckets · avg"
-      }
+      build_cpu_section(srql_module, filter_tokens, scope),
+      build_memory_section(srql_module, filter_tokens, scope),
+      build_disk_section(srql_module, filter_tokens, scope)
     ]
+    |> Enum.filter(& &1)
   end
 
-  defp build_metric_section(srql_module, spec, filter_tokens, scope) do
-    query = metric_query(spec.entity, filter_tokens, spec.series)
+  defp build_cpu_section(srql_module, filter_tokens, scope) do
+    query = metric_query("cpu_metrics", filter_tokens, nil, "usage_percent", @metrics_limit)
 
     base = %{
-      key: spec.key,
-      title: spec.title,
-      subtitle: spec.subtitle,
+      key: "cpu",
+      title: "CPU",
+      subtitle: "last 24h · 5m buckets · avg across cores",
       query: query,
       panels: [],
-      error: nil
+      error: nil,
+      header_value: nil
     }
 
     case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results} = resp} when is_list(results) and results != [] ->
-        panels = build_metric_panels(resp, results, spec.series)
-        %{base | panels: panels}
+      {:ok, %{"results" => results}} when is_list(results) and results != [] ->
+        normalized = normalize_metric_results(results, "usage_percent")
+        viz = timeseries_viz("usage_percent", nil)
+        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+        header_value = latest_metric_value(normalized, "usage_percent")
+        %{base | panels: panels, header_value: header_value}
 
       {:ok, %{"results" => results}} when is_list(results) ->
         base
@@ -2662,6 +2655,294 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:error, reason} ->
         %{base | error: "SRQL error: #{format_error(reason)}"}
     end
+  end
+
+  defp build_memory_section(srql_module, filter_tokens, scope) do
+    series_limit = max(div(@metrics_limit, 2), 1)
+    used_query = metric_query("memory_metrics", filter_tokens, nil, "used_bytes", series_limit)
+
+    available_query =
+      metric_query("memory_metrics", filter_tokens, nil, "available_bytes", series_limit)
+
+    base = %{
+      key: "memory",
+      title: "Memory",
+      subtitle: "last 24h · 5m buckets · avg",
+      query: used_query,
+      panels: [],
+      error: nil
+    }
+
+    with {:ok, %{"results" => used_rows}} when is_list(used_rows) <-
+           srql_module.query(used_query, %{scope: scope}),
+         {:ok, %{"results" => available_rows}} when is_list(available_rows) <-
+           srql_module.query(available_query, %{scope: scope}) do
+      combined =
+        build_series_rows(used_rows, "Used", "bytes")
+        |> Kernel.++(build_series_rows(available_rows, "Available", "bytes"))
+        |> sort_rows_by_timestamp()
+
+      if combined == [] do
+        base
+      else
+        viz = timeseries_viz("bytes", "series")
+        panels = build_metric_panels(%{"results" => combined, "viz" => viz}, combined, "series")
+        %{base | panels: panels}
+      end
+    else
+      {:ok, other} ->
+        %{base | error: "unexpected SRQL response: #{inspect(other)}"}
+
+      {:error, reason} ->
+        %{base | error: "SRQL error: #{format_error(reason)}"}
+    end
+  end
+
+  defp build_disk_section(srql_module, filter_tokens, scope) do
+    series_field = resolve_disk_series_field(srql_module, filter_tokens, scope)
+
+    used_query =
+      metric_query("disk_metrics", filter_tokens, series_field, "used_bytes", @metrics_limit)
+
+    total_query =
+      metric_query("disk_metrics", filter_tokens, series_field, "total_bytes", @metrics_limit)
+
+    base = %{
+      key: "disk",
+      title: "Disk",
+      subtitle: "last 24h · 5m buckets · avg",
+      query: used_query,
+      panels: [],
+      error: nil
+    }
+
+    with {:ok, %{"results" => used_rows}} when is_list(used_rows) <-
+           srql_module.query(used_query, %{scope: scope}),
+         {:ok, %{"results" => total_rows}} when is_list(total_rows) <-
+           srql_module.query(total_query, %{scope: scope}) do
+      panels = build_disk_panels(used_rows, total_rows)
+      %{base | panels: panels}
+    else
+      {:ok, other} ->
+        %{base | error: "unexpected SRQL response: #{inspect(other)}"}
+
+      {:error, reason} ->
+        %{base | error: "SRQL error: #{format_error(reason)}"}
+    end
+  end
+
+  defp resolve_disk_series_field(srql_module, filter_tokens, scope) do
+    probe_query = metric_probe_query("disk_metrics", filter_tokens)
+
+    case srql_module.query(probe_query, %{scope: scope}) do
+      {:ok, %{"results" => [row | _]}} when is_map(row) ->
+        cond do
+          present?(Map.get(row, "device_name")) -> "device_name"
+          present?(Map.get(row, "partition")) -> "partition"
+          present?(Map.get(row, "mount_point")) -> "mount_point"
+          true -> "mount_point"
+        end
+
+      _ ->
+        "mount_point"
+    end
+  end
+
+  defp build_disk_panels(used_rows, total_rows) do
+    used_by_series = group_rows_by_series(used_rows)
+    total_by_series = group_rows_by_series(total_rows)
+
+    (Map.keys(used_by_series) ++ Map.keys(total_by_series))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.take(@disk_panel_limit)
+    |> Enum.flat_map(fn series ->
+      combined =
+        build_series_rows(Map.get(used_by_series, series, []), "Used", "bytes")
+        |> Kernel.++(build_series_rows(Map.get(total_by_series, series, []), "Total", "bytes"))
+        |> sort_rows_by_timestamp()
+
+      if combined == [] do
+        []
+      else
+        viz = timeseries_viz("bytes", "series")
+
+        build_metric_panels(%{"results" => combined, "viz" => viz}, combined, "series")
+        |> Enum.map(fn panel ->
+          Map.put(panel, :title, "Disk · #{series_label(series)}")
+        end)
+      end
+    end)
+  end
+
+  defp group_rows_by_series(rows) when is_list(rows) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.group_by(fn row ->
+      series_label(Map.get(row, "series"))
+    end)
+  end
+
+  defp group_rows_by_series(_), do: %{}
+
+  defp series_label(nil), do: "unknown"
+
+  defp series_label(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "unknown"
+      other -> other
+    end
+  end
+
+  defp series_label(value), do: series_label(to_string(value))
+
+  defp build_series_rows(rows, series_label, output_field) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.reduce([], fn row, acc ->
+      value = Map.get(row, "value")
+
+      if is_nil(value) do
+        acc
+      else
+        [
+          %{
+            "timestamp" => Map.get(row, "timestamp"),
+            output_field => value,
+            "series" => series_label
+          }
+          | acc
+        ]
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp sort_rows_by_timestamp(rows) when is_list(rows) do
+    Enum.sort_by(rows, &timestamp_sort_key/1)
+  end
+
+  defp sort_rows_by_timestamp(rows), do: rows
+
+  defp timestamp_sort_key(row) when is_map(row) do
+    case parse_datetime(Map.get(row, "timestamp")) do
+      {:ok, dt} -> DateTime.to_unix(dt, :millisecond)
+      _ -> 0
+    end
+  end
+
+  defp timestamp_sort_key(_), do: 0
+
+  defp parse_datetime(%DateTime{} = dt), do: {:ok, dt}
+
+  defp parse_datetime(%NaiveDateTime{} = ndt) do
+    {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+  end
+
+  defp parse_datetime(value) when is_binary(value) do
+    value = String.trim(value)
+
+    with {:error, _} <- DateTime.from_iso8601(value),
+         {:ok, ndt} <- NaiveDateTime.from_iso8601(value) do
+      {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+    else
+      {:ok, dt, _offset} -> {:ok, dt}
+      {:error, _} -> {:error, :invalid_datetime}
+    end
+  end
+
+  defp parse_datetime(_), do: {:error, :invalid_datetime}
+
+  defp parse_number(value) when is_integer(value), do: value * 1.0
+  defp parse_number(value) when is_float(value), do: value
+
+  defp parse_number(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      value == "" ->
+        nil
+
+      match?({_, ""}, Float.parse(value)) ->
+        {v, ""} = Float.parse(value)
+        v
+
+      match?({_, ""}, Integer.parse(value)) ->
+        {v, ""} = Integer.parse(value)
+        v * 1.0
+
+      true ->
+        nil
+    end
+  end
+
+  defp parse_number(_), do: nil
+
+  defp latest_metric_value(rows, field) when is_list(rows) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.reduce(nil, fn row, acc ->
+      with {:ok, dt} <- parse_datetime(Map.get(row, "timestamp")),
+           value <- parse_number(Map.get(row, field)),
+           true <- not is_nil(value) do
+        case acc do
+          nil -> {dt, value}
+          {prev_dt, _} = prev -> if(DateTime.compare(dt, prev_dt) == :gt, do: {dt, value}, else: prev)
+        end
+      else
+        _ -> acc
+      end
+    end)
+    |> case do
+      {_dt, value} -> value
+      _ -> nil
+    end
+  end
+
+  defp latest_metric_value(_rows, _field), do: nil
+
+  defp normalize_metric_results(results, target_field) when is_list(results) do
+    Enum.map(results, fn
+      row when is_map(row) ->
+        value = Map.get(row, "value")
+
+        if is_nil(value) do
+          row
+        else
+          Map.put(row, target_field, value)
+        end
+
+      other ->
+        other
+    end)
+  end
+
+  defp normalize_metric_results(results, _target_field), do: results
+
+  defp timeseries_viz(y_field, series_field) do
+    suggestion =
+      %{"kind" => "timeseries", "x" => "timestamp", "y" => y_field}
+      |> maybe_put_series(series_field)
+
+    %{"suggestions" => [suggestion]}
+  end
+
+  defp maybe_put_series(viz, nil), do: viz
+  defp maybe_put_series(viz, ""), do: viz
+
+  defp maybe_put_series(viz, series_field) do
+    Map.put(viz, "series", series_field)
+  end
+
+  defp metric_probe_query(entity, filter_tokens) do
+    [
+      "in:#{entity}",
+      "time:last_24h",
+      "sort:timestamp:desc",
+      "limit:1"
+    ]
+    |> Kernel.++(filter_tokens)
+    |> Enum.join(" ")
   end
 
   defp build_metric_panels(resp, results, series_field) do
@@ -2858,9 +3139,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> String.downcase()
   end
 
-  defp metric_query(entity, filter_tokens, series_field) do
+  defp metric_query(entity, filter_tokens, series_field, value_field, limit) do
     series_field =
       case series_field do
+        nil -> nil
+        "" -> nil
+        other -> to_string(other) |> String.trim()
+      end
+
+    value_field =
+      case value_field do
         nil -> nil
         "" -> nil
         other -> to_string(other) |> String.trim()
@@ -2871,20 +3159,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         "in:#{entity}",
         "time:last_24h",
         "bucket:5m",
-        "agg:avg",
-        "sort:timestamp:desc",
-        "limit:#{@metrics_limit}"
+        "agg:avg"
       ]
-      |> Kernel.++(filter_tokens)
 
     tokens =
-      if is_binary(series_field) and series_field != "" do
-        List.insert_at(tokens, 5, "series:#{series_field}")
-      else
-        tokens
-      end
+      tokens
+      |> maybe_add_token("series", series_field)
+      |> maybe_add_token("value_field", value_field)
+      |> Kernel.++(filter_tokens)
+      |> Kernel.++(["sort:timestamp:desc", "limit:#{limit}"])
 
     Enum.join(tokens, " ")
+  end
+
+  defp maybe_add_token(tokens, _key, nil), do: tokens
+  defp maybe_add_token(tokens, _key, ""), do: tokens
+
+  defp maybe_add_token(tokens, key, value) do
+    tokens ++ ["#{key}:#{value}"]
   end
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
@@ -2997,6 +3289,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_pct(value) when is_integer(value), do: Integer.to_string(value)
   defp format_pct(_), do: "—"
+
+  defp percent_width(value) when is_number(value) do
+    value = value * 1.0
+
+    cond do
+      value < 0.0 -> 0.0
+      value > 100.0 -> 100.0
+      true -> value
+    end
+  end
+
+  defp percent_width(_), do: 0
 
   # ---------------------------------------------------------------------------
   # Data Loading Functions

@@ -957,6 +957,29 @@ mod tests {
     }
 
     #[test]
+    fn translate_downsample_respects_value_field() {
+        let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+        let request = QueryRequest {
+            query:
+                "in:memory_metrics time:last_7d bucket:5m agg:avg value_field:used_bytes limit:10"
+                    .to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = translate_request(&config, request).expect("translation should succeed");
+        let sql = response.sql.to_lowercase();
+
+        assert!(
+            sql.contains("avg(used_bytes)"),
+            "expected downsample to use used_bytes, got: {}",
+            response.sql
+        );
+    }
+
+    #[test]
     fn translate_graph_cypher_rejects_mutations() {
         let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
         let request = QueryRequest {

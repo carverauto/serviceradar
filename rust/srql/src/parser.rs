@@ -114,6 +114,7 @@ pub struct DownsampleSpec {
     pub bucket_seconds: i64,
     pub agg: DownsampleAgg,
     pub series: Option<String>,
+    pub value_field: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -188,6 +189,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
     let mut downsample_bucket_seconds: Option<i64> = None;
     let mut downsample_agg = DownsampleAgg::Avg;
     let mut downsample_series: Option<String> = None;
+    let mut downsample_value_field: Option<String> = None;
     let mut rollup_stats: Option<String> = None;
 
     let mut tokens = tokenize(input).into_iter().peekable();
@@ -226,6 +228,9 @@ pub fn parse(input: &str) -> Result<QueryAst> {
             }
             "series" => {
                 downsample_series = normalize_optional_string(value.as_scalar()?);
+            }
+            "value_field" | "value-field" => {
+                downsample_value_field = normalize_optional_string(value.as_scalar()?);
             }
             "stats" => {
                 let mut expr = value.as_scalar()?.to_string();
@@ -337,6 +342,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
         bucket_seconds,
         agg: downsample_agg,
         series: downsample_series,
+        value_field: downsample_value_field,
     });
 
     Ok(QueryAst {
