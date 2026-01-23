@@ -611,8 +611,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 </span>
               </label>
             </div>
-
-            <!-- Visual Query Builder -->
+            
+    <!-- Visual Query Builder -->
             <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
               <div class="flex items-center justify-between mb-4">
                 <div class="text-sm font-semibold">Query Builder</div>
@@ -717,8 +717,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 </div>
               </div>
             </div>
-
-            <!-- Device Count Preview -->
+            
+    <!-- Device Count Preview -->
             <div :if={@target_device_count != nil} class="flex items-center gap-2">
               <.icon name="hero-device-phone-mobile" class="size-4 text-base-content/60" />
               <span class="text-sm">
@@ -726,8 +726,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 <span class="text-base-content/60">device(s) match this query</span>
               </span>
             </div>
-
-            <!-- Priority -->
+            
+    <!-- Priority -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label class="label"><span class="label-text">Priority</span></label>

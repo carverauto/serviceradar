@@ -1607,12 +1607,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     profile_name = sysmon_profile_label(assigns.profile)
 
     {label, source} =
-      cond do
-        is_binary(profile_name) ->
-          {profile_name, :direct}
-
-        true ->
-          {"Unassigned", :missing}
+      if is_binary(profile_name) do
+        {profile_name, :direct}
+      else
+        {"Unassigned", :missing}
       end
 
     assigns =
