@@ -1777,7 +1777,9 @@ func (p *PushLoop) applySweepConfig(configJSON []byte) {
 
 	p.logger.Info().
 		Str("config_hash", sweepConfig.ConfigHash).
-		Int("targets", len(sweepConfig.Networks)).
+		Int("networks", len(sweepConfig.Networks)).
+		Int("device_targets", len(sweepConfig.DeviceTargets)).
+		Int("ports", len(sweepConfig.Ports)).
 		Msg("Applied sweep config from gateway")
 }
 
