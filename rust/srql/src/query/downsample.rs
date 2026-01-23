@@ -48,20 +48,22 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
         ServiceError::InvalidRequest("downsample requires bucket:<duration>".into())
     })?;
 
-    let (table, ts_col, value_col, forced_metric_type) = match plan.entity {
-        Entity::TimeseriesMetrics => ("timeseries_metrics", "timestamp", "value", None),
-        Entity::SnmpMetrics => ("timeseries_metrics", "timestamp", "value", Some("snmp")),
-        Entity::RperfMetrics => ("timeseries_metrics", "timestamp", "value", Some("rperf")),
-        Entity::CpuMetrics => ("cpu_metrics", "timestamp", "usage_percent", None),
-        Entity::MemoryMetrics => ("memory_metrics", "timestamp", "usage_percent", None),
-        Entity::DiskMetrics => ("disk_metrics", "timestamp", "usage_percent", None),
-        Entity::ProcessMetrics => ("process_metrics", "timestamp", "cpu_usage", None),
+    let (table, ts_col, forced_metric_type) = match plan.entity {
+        Entity::TimeseriesMetrics => ("timeseries_metrics", "timestamp", None),
+        Entity::SnmpMetrics => ("timeseries_metrics", "timestamp", Some("snmp")),
+        Entity::RperfMetrics => ("timeseries_metrics", "timestamp", Some("rperf")),
+        Entity::CpuMetrics => ("cpu_metrics", "timestamp", None),
+        Entity::MemoryMetrics => ("memory_metrics", "timestamp", None),
+        Entity::DiskMetrics => ("disk_metrics", "timestamp", None),
+        Entity::ProcessMetrics => ("process_metrics", "timestamp", None),
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "downsample is only supported for metric entities".into(),
             ))
         }
     };
+
+    let value_col = resolve_value_column(plan.entity.clone(), downsample.value_field.as_deref())?;
 
     let time_range = plan.time_range.as_ref().ok_or_else(|| {
         ServiceError::InvalidRequest("downsample queries require time:<range>".into())
@@ -182,6 +184,55 @@ fn build_bind_values(plan: &QueryPlan) -> Result<Vec<SqlBindValue>> {
     binds.push(SqlBindValue::BigInt(plan.offset));
 
     Ok(binds)
+}
+
+fn resolve_value_column(entity: Entity, value_field: Option<&str>) -> Result<&'static str> {
+    let value_field = value_field.map(|value| value.trim().to_lowercase());
+    let field = value_field.as_deref();
+
+    match entity {
+        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => match field {
+            None | Some("value") => Ok("value"),
+            Some(other) => Err(ServiceError::InvalidRequest(format!(
+                "unsupported value_field '{other}' for timeseries metrics"
+            ))),
+        },
+        Entity::CpuMetrics => match field {
+            None | Some("usage_percent") => Ok("usage_percent"),
+            Some("frequency_hz") => Ok("frequency_hz"),
+            Some(other) => Err(ServiceError::InvalidRequest(format!(
+                "unsupported value_field '{other}' for cpu_metrics"
+            ))),
+        },
+        Entity::MemoryMetrics => match field {
+            None | Some("usage_percent") => Ok("usage_percent"),
+            Some("used_bytes") => Ok("used_bytes"),
+            Some("available_bytes") => Ok("available_bytes"),
+            Some("total_bytes") => Ok("total_bytes"),
+            Some(other) => Err(ServiceError::InvalidRequest(format!(
+                "unsupported value_field '{other}' for memory_metrics"
+            ))),
+        },
+        Entity::DiskMetrics => match field {
+            None | Some("usage_percent") => Ok("usage_percent"),
+            Some("used_bytes") => Ok("used_bytes"),
+            Some("available_bytes") => Ok("available_bytes"),
+            Some("total_bytes") => Ok("total_bytes"),
+            Some(other) => Err(ServiceError::InvalidRequest(format!(
+                "unsupported value_field '{other}' for disk_metrics"
+            ))),
+        },
+        Entity::ProcessMetrics => match field {
+            None | Some("cpu_usage") => Ok("cpu_usage"),
+            Some("memory_usage") => Ok("memory_usage"),
+            Some(other) => Err(ServiceError::InvalidRequest(format!(
+                "unsupported value_field '{other}' for process_metrics"
+            ))),
+        },
+        _ => Err(ServiceError::InvalidRequest(
+            "downsample is only supported for metric entities".into(),
+        )),
+    }
 }
 
 fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {

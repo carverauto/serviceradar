@@ -19,6 +19,8 @@ package sysmon
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -184,6 +186,22 @@ func TestCollectDisksExcludePaths(t *testing.T) {
 		if disk.MountPoint == "/" {
 			t.Errorf("expected excluded mount point to be omitted: %s", disk.MountPoint)
 		}
+	}
+}
+
+func TestIsMountpointDir(t *testing.T) {
+	dir := t.TempDir()
+	if !isMountpointDir(dir) {
+		t.Errorf("expected temp dir to be recognized as directory: %s", dir)
+	}
+
+	filePath := filepath.Join(dir, "mountpoint.txt")
+	if err := os.WriteFile(filePath, []byte("data"), 0o644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	if isMountpointDir(filePath) {
+		t.Errorf("expected file path to be treated as non-directory: %s", filePath)
 	}
 }
 
