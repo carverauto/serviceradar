@@ -46,7 +46,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       ["in:#{entity}"]
       |> maybe_add_time(time)
       |> maybe_add_downsample(entity, time, bucket, agg, series)
-      |> maybe_add_filters(filters)
+      |> maybe_add_filters(entity, filters)
       |> maybe_add_sort(sort_field, sort_dir)
       |> Kernel.++(["limit:#{limit}"])
 
@@ -296,16 +296,24 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp maybe_add_sort(tokens, nil, _dir), do: tokens
   defp maybe_add_sort(tokens, field, dir), do: tokens ++ ["sort:#{field}:#{dir}"]
 
-  defp maybe_add_filters(tokens, filters) when is_list(filters) do
+  defp maybe_add_filters(entity, tokens, filters) when is_list(filters) do
     # Group filters by field and operator type for merging
     grouped = group_filters_for_merge(filters)
+    array_fields = get_array_fields(entity)
 
     Enum.reduce(grouped, tokens, fn filter_group, acc ->
-      case build_merged_filter_token(filter_group) do
+      case build_merged_filter_token(filter_group, array_fields) do
         nil -> acc
         token -> acc ++ [token]
       end
     end)
+  end
+
+  defp get_array_fields(entity) do
+    case Catalog.entity(entity) do
+      %{array_fields: fields} when is_list(fields) -> fields
+      _ -> []
+    end
   end
 
   # Group filters that can be merged (same field, compatible operators)
@@ -334,32 +342,34 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     merged ++ singles
   end
 
-  defp build_merged_filter_token(%{"field" => field, "op" => op, "values" => values}) do
+  defp build_merged_filter_token(%{"field" => field, "op" => op, "values" => values}, array_fields) do
     field = field |> safe_to_string() |> String.trim()
-    if field == "", do: nil, else: build_filter_by_op(field, op, values)
+    if field == "", do: nil, else: build_filter_by_op(field, op, values, array_fields)
   end
 
-  defp build_filter_by_op(field, "equals", values) do
+  defp build_filter_by_op(field, "equals", values, array_fields) do
     expanded = expand_comma_values(values)
-    build_equals_token(field, expanded)
+    is_array_field = field in array_fields
+    build_equals_token(field, expanded, is_array_field)
   end
 
-  defp build_filter_by_op(field, "not_equals", values) do
+  defp build_filter_by_op(field, "not_equals", values, array_fields) do
     expanded = expand_comma_values(values)
-    build_not_equals_token(field, expanded)
+    is_array_field = field in array_fields
+    build_not_equals_token(field, expanded, is_array_field)
   end
 
-  defp build_filter_by_op(field, "contains", values) do
+  defp build_filter_by_op(field, "contains", values, _array_fields) do
     value = values |> List.first() |> safe_to_string() |> String.trim()
     if value == "", do: nil, else: "#{field}:%#{escape_value(value)}%"
   end
 
-  defp build_filter_by_op(field, "not_contains", values) do
+  defp build_filter_by_op(field, "not_contains", values, _array_fields) do
     value = values |> List.first() |> safe_to_string() |> String.trim()
     if value == "", do: nil, else: "!#{field}:%#{escape_value(value)}%"
   end
 
-  defp build_filter_by_op(_field, _op, _values), do: nil
+  defp build_filter_by_op(_field, _op, _values, _array_fields), do: nil
 
   # Expand comma-separated values into individual items (for equals/not_equals only)
   defp expand_comma_values(values) do
@@ -370,18 +380,34 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     |> Enum.filter(&(&1 != ""))
   end
 
-  defp build_equals_token(_field, []), do: nil
-  defp build_equals_token(field, [value]), do: "#{field}:#{escape_value(value)}"
+  defp build_equals_token(_field, [], _is_array_field), do: nil
 
-  defp build_equals_token(field, values) do
+  # For array fields, always use list syntax even for single values
+  defp build_equals_token(field, [value], true = _is_array_field) do
+    "#{field}:(#{escape_value(value)})"
+  end
+
+  defp build_equals_token(field, [value], false = _is_array_field) do
+    "#{field}:#{escape_value(value)}"
+  end
+
+  defp build_equals_token(field, values, _is_array_field) do
     escaped = Enum.map(values, &escape_value/1)
     "#{field}:(#{Enum.join(escaped, ",")})"
   end
 
-  defp build_not_equals_token(_field, []), do: nil
-  defp build_not_equals_token(field, [value]), do: "!#{field}:#{escape_value(value)}"
+  defp build_not_equals_token(_field, [], _is_array_field), do: nil
 
-  defp build_not_equals_token(field, values) do
+  # For array fields, always use list syntax even for single values
+  defp build_not_equals_token(field, [value], true = _is_array_field) do
+    "!#{field}:(#{escape_value(value)})"
+  end
+
+  defp build_not_equals_token(field, [value], false = _is_array_field) do
+    "!#{field}:#{escape_value(value)}"
+  end
+
+  defp build_not_equals_token(field, values, _is_array_field) do
     escaped = Enum.map(values, &escape_value/1)
     "!#{field}:(#{Enum.join(escaped, ",")})"
   end
