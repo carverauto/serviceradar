@@ -56,6 +56,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :metrics_enabled,
         :metrics_selected,
         :metric_thresholds,
+        :metric_groups,
         :metrics_interval_seconds,
         :threshold_enabled,
         :threshold_value,
@@ -73,6 +74,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :metrics_enabled,
         :metrics_selected,
         :metric_thresholds,
+        :metric_groups,
         :metrics_interval_seconds,
         :threshold_enabled,
         :threshold_value,
@@ -97,6 +99,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :metrics_enabled,
         :metrics_selected,
         :metric_thresholds,
+        :metric_groups,
         :metrics_interval_seconds,
         :threshold_enabled,
         :threshold_value,
@@ -295,6 +298,17 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     attribute :tags, {:array, :string} do
       default []
       description "User-defined tags for this interface"
+    end
+
+    attribute :metric_groups, {:array, :map} do
+      default []
+      description """
+      User-defined metric groupings for composite charts.
+      Each group is a map with:
+        - id: UUID for the group
+        - name: Display name for the group
+        - metrics: List of metric names to combine in this chart
+      """
     end
 
     create_timestamp :inserted_at

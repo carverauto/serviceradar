@@ -204,16 +204,28 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
   defp check_threshold(setting, metric_name, config, metric_value, cooldown_key, now) do
     comparison = config_value(config, :comparison)
-    threshold = parse_number(config_value(config, :value))
+    threshold_type = config_value(config, :threshold_type, "absolute")
+    raw_threshold = parse_number(config_value(config, :value))
+
+    # Resolve effective threshold based on type
+    {effective_threshold, if_speed_bps, utilization_pct} =
+      resolve_threshold(setting, metric_name, threshold_type, raw_threshold, metric_value)
 
     violation_start_key =
       {__MODULE__, :violation_start, setting.device_id, setting.interface_uid, metric_name}
 
-    if threshold_violated?(metric_value, comparison, threshold) do
+    if threshold_violated?(metric_value, comparison, effective_threshold) do
+      # Store utilization info in config for event metadata
+      enriched_config =
+        config
+        |> Map.put("effective_threshold", effective_threshold)
+        |> Map.put("if_speed_bps", if_speed_bps)
+        |> Map.put("utilization_percent", utilization_pct)
+
       handle_violation(
         setting,
         metric_name,
-        config,
+        enriched_config,
         metric_value,
         cooldown_key,
         violation_start_key,
@@ -226,9 +238,95 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         violation_start_key,
         metric_value,
         comparison,
-        threshold
+        effective_threshold
       )
     end
+  end
+
+  # Resolve threshold value, converting percentage to absolute if needed
+  defp resolve_threshold(_setting, _metric_name, "absolute", threshold, _metric_value) do
+    {threshold, nil, nil}
+  end
+
+  defp resolve_threshold(setting, metric_name, "percentage", threshold_pct, metric_value) do
+    case get_interface_speed(setting) do
+      {:ok, if_speed_bps} when is_number(if_speed_bps) and if_speed_bps > 0 ->
+        # Convert interface speed from bps to bytes/sec
+        max_bytes_per_sec = if_speed_bps / 8
+        # Convert percentage to absolute bytes/sec threshold
+        effective_threshold = max_bytes_per_sec * threshold_pct / 100
+        # Calculate current utilization for event metadata
+        utilization_pct =
+          if is_number(metric_value) and max_bytes_per_sec > 0 do
+            Float.round(metric_value / max_bytes_per_sec * 100, 1)
+          else
+            nil
+          end
+
+        {effective_threshold, if_speed_bps, utilization_pct}
+
+      {:ok, _} ->
+        # No valid interface speed, log warning and skip threshold evaluation
+        Logger.warning("Skipping percentage threshold - no interface speed available",
+          device_id: setting.device_id,
+          interface_uid: setting.interface_uid,
+          metric: metric_name
+        )
+
+        {nil, nil, nil}
+
+      {:error, reason} ->
+        Logger.warning("Failed to get interface speed for percentage threshold",
+          device_id: setting.device_id,
+          interface_uid: setting.interface_uid,
+          metric: metric_name,
+          reason: inspect(reason)
+        )
+
+        {nil, nil, nil}
+    end
+  end
+
+  defp resolve_threshold(_setting, _metric_name, _type, threshold, _metric_value) do
+    # Unknown threshold type, treat as absolute
+    {threshold, nil, nil}
+  end
+
+  # Get interface speed (in bps) from the Interface resource
+  defp get_interface_speed(setting) do
+    import Ecto.Query
+
+    if_index = get_if_index(setting)
+
+    if is_nil(if_index) do
+      {:error, :missing_if_index}
+    else
+      # Query latest interface record for speed_bps or if_speed
+      query =
+        from(i in "interfaces",
+          where: i.device_id == ^setting.device_id,
+          where: i.if_index == ^if_index,
+          order_by: [desc: i.timestamp],
+          limit: 1,
+          select: %{speed_bps: i.speed_bps, if_speed: i.if_speed}
+        )
+
+      case ServiceRadar.Repo.one(query) do
+        nil ->
+          {:ok, nil}
+
+        %{speed_bps: speed_bps} when is_number(speed_bps) and speed_bps > 0 ->
+          {:ok, speed_bps}
+
+        %{if_speed: if_speed} when is_number(if_speed) and if_speed > 0 ->
+          {:ok, if_speed}
+
+        _ ->
+          {:ok, nil}
+      end
+    end
+  rescue
+    error -> {:error, error}
   end
 
   defp handle_violation(
@@ -439,6 +537,23 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   defp build_metric_metadata(setting, metric_name, config, metric_value, duration_seconds) do
     comparison = normalize_comparison(config_value(config, :comparison))
     threshold = parse_number(config_value(config, :value))
+    threshold_type = config_value(config, :threshold_type, "absolute")
+
+    # Include utilization-related fields if available
+    utilization_fields =
+      if threshold_type == "percentage" do
+        %{
+          "threshold_type" => threshold_type,
+          "threshold_percent" => threshold,
+          "effective_threshold_bytes_per_sec" => config_value(config, :effective_threshold),
+          "if_speed_bps" => config_value(config, :if_speed_bps),
+          "utilization_percent" => config_value(config, :utilization_percent)
+        }
+        |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+        |> Map.new()
+      else
+        %{"threshold_type" => threshold_type}
+      end
 
     OCSF.build_metadata(
       version: "1.7.0",
@@ -446,29 +561,47 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
       correlation_uid:
         "metric_threshold:#{setting.device_id}:#{setting.interface_uid}:#{metric_name}:#{System.unique_integer([:positive])}"
     )
-    |> Map.put("serviceradar", %{
-      "source" => "metric",
-      "device_id" => setting.device_id,
-      "interface_uid" => setting.interface_uid,
-      "metric" => metric_name,
-      "comparison" => to_string(comparison),
-      "threshold_value" => threshold,
-      "metric_value" => metric_value,
-      "duration_seconds" => duration_seconds
-    })
+    |> Map.put(
+      "serviceradar",
+      %{
+        "source" => "metric",
+        "device_id" => setting.device_id,
+        "interface_uid" => setting.interface_uid,
+        "metric" => metric_name,
+        "comparison" => to_string(comparison),
+        "threshold_value" => threshold,
+        "metric_value" => metric_value,
+        "duration_seconds" => duration_seconds
+      }
+      |> Map.merge(utilization_fields)
+    )
   end
 
   defp build_metric_unmapped(setting, metric_name, config, metric_value, duration_seconds) do
-    %{
+    threshold_type = config_value(config, :threshold_type, "absolute")
+
+    base = %{
       "device_id" => setting.device_id,
       "interface_uid" => setting.interface_uid,
       "metric" => metric_name,
       "comparison" => to_string(normalize_comparison(config_value(config, :comparison))),
       "threshold_value" => parse_number(config_value(config, :value)),
+      "threshold_type" => threshold_type,
       "metric_value" => metric_value,
       "duration_seconds" => duration_seconds,
       "event_config" => config_value(config, :event, %{})
     }
+
+    # Add utilization fields if percentage threshold
+    if threshold_type == "percentage" do
+      Map.merge(base, %{
+        "effective_threshold_bytes_per_sec" => config_value(config, :effective_threshold),
+        "if_speed_bps" => config_value(config, :if_speed_bps),
+        "utilization_percent" => config_value(config, :utilization_percent)
+      })
+    else
+      base
+    end
   end
 
   defp event_severity_id(event_config, config) do
@@ -529,8 +662,26 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   end
 
   defp event_message(event_config, metric_name, metric_value, config) do
-    config_value(event_config, :message) ||
-      "Metric #{metric_name} threshold violated (value=#{metric_value}, threshold=#{config_value(config, :value)})"
+    case config_value(event_config, :message) do
+      nil ->
+        threshold_type = config_value(config, :threshold_type, "absolute")
+
+        if threshold_type == "percentage" do
+          utilization_pct = config_value(config, :utilization_percent)
+          threshold_pct = config_value(config, :value)
+
+          if utilization_pct do
+            "Interface utilization at #{utilization_pct}% exceeds #{threshold_pct}% threshold (#{metric_name})"
+          else
+            "Metric #{metric_name} exceeds #{threshold_pct}% threshold (value=#{metric_value})"
+          end
+        else
+          "Metric #{metric_name} threshold violated (value=#{metric_value}, threshold=#{config_value(config, :value)})"
+        end
+
+      custom_message ->
+        custom_message
+    end
   end
 
   defp log_level_for_severity(severity_id) do

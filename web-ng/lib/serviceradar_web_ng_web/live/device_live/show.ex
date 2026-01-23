@@ -725,8 +725,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         "time:last_24h bucket:5m agg:rate series:metric_name limit:200"
 
     case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) and results != [] ->
-        interface_panels = build_interface_panels(results, iface_name, if_index, max_speed)
+      {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
+        interface_panels = build_interface_panels(response, iface_name, if_index, max_speed)
         {panels_acc ++ interface_panels, errs}
 
       {:ok, %{"results" => []}} ->
@@ -741,14 +741,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   # Build panels for interface metrics (extracted to reduce nesting depth)
-  defp build_interface_panels(results, iface_name, if_index, max_speed) do
-    Engine.build_panels(%{"results" => results})
+  # Takes full SRQL response (including viz) to properly handle series grouping
+  defp build_interface_panels(srql_response, iface_name, if_index, max_speed) do
+    Engine.build_panels(srql_response)
     |> Enum.reject(&(&1.plugin == TablePlugin))
     |> Enum.map(fn panel ->
       assigns =
         panel.assigns
         |> Map.put(:interface_label, "#{iface_name} (ifIndex: #{if_index})")
         |> Map.put(:max_speed_bytes_per_sec, max_speed)
+        # Enable combined chart mode for traffic metrics (inbound + outbound on same chart)
+        |> Map.put(:chart_mode, :combined)
 
       %{panel | assigns: assigns}
     end)

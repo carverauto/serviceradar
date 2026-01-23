@@ -329,6 +329,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     compact = Map.get(panel_assigns || %{}, :compact, false)
     # Get max speed for traffic metrics (bytes/sec) for proper Y-axis scaling
     max_speed = Map.get(panel_assigns || %{}, :max_speed_bytes_per_sec)
+    # Chart mode: :single (default) or :combined (multiple series on same chart)
+    chart_mode = Map.get(panel_assigns || %{}, :chart_mode, :single)
 
     socket =
       socket
@@ -336,6 +338,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(panel_assigns || %{})
       |> assign(:compact, compact)
       |> assign(:max_speed_bytes_per_sec, max_speed)
+      |> assign(:chart_mode, chart_mode)
       |> assign(:chart_width, @chart_width)
       |> assign(:chart_height, @chart_height)
       |> assign(:chart_pad, @chart_pad)
@@ -348,6 +351,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     compact = Map.get(assigns, :compact, false)
     series_points = assigns.series_points || []
     max_speed = Map.get(assigns, :max_speed_bytes_per_sec)
+    chart_mode = Map.get(assigns, :chart_mode, :single)
 
     # Pre-compute chart data for each series for hover functionality
     series_data =
@@ -383,11 +387,31 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         }
       end)
 
+    # Check if we should combine traffic series into one chart
+    {traffic_series, other_series} = Enum.split_with(series_data, &traffic_series?(&1.raw_series))
+
+    # In combined mode, group traffic series together
+    combined_traffic =
+      if chart_mode == :combined and length(traffic_series) > 1 do
+        [build_combined_traffic_data(traffic_series, max_speed)]
+      else
+        []
+      end
+
+    # Series to render as individual charts (non-traffic or single traffic in combined mode)
+    individual_series =
+      if chart_mode == :combined and length(traffic_series) > 1 do
+        other_series
+      else
+        series_data
+      end
+
     assigns =
       assigns
       |> assign(:compact, compact)
       |> assign(:series_count, length(series_points))
-      |> assign(:series_data, series_data)
+      |> assign(:series_data, individual_series)
+      |> assign(:combined_traffic, combined_traffic)
       |> assign(:first_dt, first_dt(series_points))
       |> assign(:last_dt, last_dt(series_points))
 
@@ -398,6 +422,21 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     end
   end
 
+  # Build combined traffic data for multi-series chart
+  defp build_combined_traffic_data(traffic_series, max_speed) do
+    # Get the time range from the first series
+    first_series = List.first(traffic_series)
+
+    %{
+      type: :combined,
+      title: "Interface Traffic",
+      series: traffic_series,
+      max_speed: max_speed,
+      first_dt: first_series && first_series.first_dt,
+      last_dt: first_series && first_series.last_dt
+    }
+  end
+
   defp render_compact(assigns) do
     ~H"""
     <div id={"panel-#{@id}"} class="p-4">
@@ -406,6 +445,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         @series_count > 1 && "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3",
         @series_count == 1 && "grid-cols-1"
       ]}>
+        <%= for combined <- @combined_traffic do %>
+          <.combined_chart_card
+            id={@id}
+            data={combined}
+            chart_width={@chart_width}
+            chart_height={@chart_height}
+            chart_pad={@chart_pad}
+            compact={true}
+          />
+        <% end %>
         <%= for data <- @series_data do %>
           <.chart_card
             id={@id}
@@ -436,11 +485,27 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           </div>
         </:header>
 
-        <div class={[
-          "grid gap-4",
-          @series_count > 1 && "grid-cols-1 md:grid-cols-2",
-          @series_count <= 1 && "grid-cols-1"
-        ]}>
+        <!-- Combined traffic charts (inbound + outbound on same chart) -->
+        <%= for combined <- @combined_traffic do %>
+          <.combined_chart_card
+            id={@id}
+            data={combined}
+            chart_width={@chart_width}
+            chart_height={@chart_height}
+            chart_pad={@chart_pad}
+            compact={false}
+          />
+        <% end %>
+
+        <!-- Individual series charts -->
+        <div
+          :if={@series_data != []}
+          class={[
+            "grid gap-4",
+            length(@series_data) > 1 && "grid-cols-1 md:grid-cols-2",
+            length(@series_data) <= 1 && "grid-cols-1"
+          ]}
+        >
           <%= for data <- @series_data do %>
             <.chart_card
               id={@id}
@@ -554,6 +619,115 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         </span>
         <span>peak: <span class="font-mono">{format_value(@data.paths.max)}</span></span>
       </div>
+      <!-- Timeline axis -->
+      <div class={[
+        "flex items-center justify-between text-base-content/40 mt-1 font-mono",
+        @compact && "text-[9px]",
+        not @compact && "text-[10px]"
+      ]}>
+        <span>{@data.first_dt}</span>
+        <span>{@data.last_dt}</span>
+      </div>
+    </div>
+    """
+  end
+
+  # Combined chart card for multiple traffic series on same chart
+  attr :id, :string, required: true
+  attr :data, :map, required: true
+  attr :chart_width, :integer, required: true
+  attr :chart_height, :integer, required: true
+  attr :chart_pad, :integer, required: true
+  attr :compact, :boolean, default: false
+
+  defp combined_chart_card(assigns) do
+    ~H"""
+    <div
+      id={"combined-chart-#{@id}"}
+      class={[
+        "rounded-lg border border-base-200 bg-base-100 relative",
+        @compact && "p-3",
+        not @compact && "p-4"
+      ]}
+    >
+      <!-- Header with title and legend -->
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class={["font-medium", @compact && "text-xs", not @compact && "text-sm"]}>
+            {@data.title}
+          </span>
+        </div>
+        <!-- Legend for each series -->
+        <div class="flex items-center gap-3">
+          <%= for series <- @data.series do %>
+            <div class="flex items-center gap-1">
+              <span
+                class="inline-block size-2 rounded-full shrink-0"
+                style={"background-color: #{series.stroke}"}
+              />
+              <span class={["text-base-content/70", @compact && "text-[10px]", not @compact && "text-xs"]}>
+                {series.series}
+                <span :if={series.utilization} class="text-base-content/50">
+                  ({series.utilization}%)
+                </span>
+              </span>
+            </div>
+          <% end %>
+        </div>
+      </div>
+
+      <!-- SVG chart with multiple series -->
+      <div class="relative">
+        <svg
+          viewBox={"0 0 #{@chart_width} #{@chart_height}"}
+          class={["w-full", @compact && "h-24", not @compact && "h-40"]}
+          preserveAspectRatio="none"
+        >
+          <!-- Gradient fills for each series -->
+          <defs>
+            <%= for series <- @data.series do %>
+              <linearGradient id={"combined-fill-#{@id}-#{series.idx}"} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color={series.stroke} stop-opacity="0.2" />
+                <stop offset="100%" stop-color={series.stroke} stop-opacity="0.02" />
+              </linearGradient>
+            <% end %>
+          </defs>
+
+          <!-- Render each series -->
+          <%= for series <- @data.series do %>
+            <path d={series.paths.area} fill={"url(#combined-fill-#{@id}-#{series.idx})"} />
+            <polyline
+              fill="none"
+              stroke={series.stroke}
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              points={series.paths.line}
+            />
+          <% end %>
+        </svg>
+      </div>
+
+      <!-- Stats footer -->
+      <div class={[
+        "flex items-center justify-between text-base-content/50 mt-1 gap-4",
+        @compact && "text-[10px]",
+        not @compact && "text-xs"
+      ]}>
+        <%= for series <- @data.series do %>
+          <div class="flex items-center gap-1">
+            <span
+              class="inline-block size-1.5 rounded-full"
+              style={"background-color: #{series.stroke}"}
+            />
+            <span class="font-mono">{format_value(series.paths.avg)}</span>
+          </div>
+        <% end %>
+        <span :if={@data.max_speed} class="text-base-content/40 ml-auto">
+          limit: <span class="font-mono">{format_value(@data.max_speed)}</span>
+        </span>
+      </div>
+
       <!-- Timeline axis -->
       <div class={[
         "flex items-center justify-between text-base-content/40 mt-1 font-mono",

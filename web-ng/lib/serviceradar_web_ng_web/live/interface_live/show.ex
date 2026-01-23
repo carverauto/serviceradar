@@ -37,6 +37,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:metric_form, to_form(%{}, as: :metric))
      |> assign(:metric_modal_open, false)
      |> assign(:metric_modal_metric, nil)
+     |> assign(:group_modal_open, false)
+     |> assign(:group_modal_group, nil)
+     |> assign(:group_form, to_form(%{}, as: :group))
      |> assign(:loading, true)
      |> assign(:error, nil)
      |> assign(:metrics, %{panels: [], error: nil})}
@@ -61,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     settings = load_interface_settings(scope, device_uid, interface_uid)
 
     # Load metrics for this interface
-    metrics = load_interface_metrics(srql_module, device_uid, interface, scope)
+    metrics = load_interface_metrics(srql_module, device_uid, interface, settings, scope)
 
     page_title =
       if interface do
@@ -203,7 +206,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       {:noreply, socket}
     else
       config = metric_threshold_config(socket.assigns.settings, metric_name)
-      form = to_form(metric_form_values(metric_name, config), as: :metric)
+      interface = socket.assigns.interface
+      form = to_form(metric_form_values(metric_name, config, interface), as: :metric)
 
       {:noreply,
        socket
@@ -218,6 +222,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      socket
      |> assign(:metric_modal_open, false)
      |> assign(:metric_modal_metric, nil)}
+  end
+
+  def handle_event("update_threshold_form", %{"metric" => params}, socket) do
+    # Update form with new values when threshold type changes
+    form = to_form(params, as: :metric)
+    {:noreply, assign(socket, :metric_form, form)}
   end
 
   def handle_event("save_metric_settings", %{"metric" => params}, socket) do
@@ -261,6 +271,139 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         {:error, _reason} ->
           {:noreply, put_flash(socket, :error, "Failed to save metric settings")}
       end
+    end
+  end
+
+  # Chart Group Management Events
+  def handle_event("open_group_modal", params, socket) do
+    group_id = params["group_id"]
+    groups = settings_list_value(socket.assigns.settings, :metric_groups)
+
+    {group, form_values} =
+      if group_id do
+        group = Enum.find(groups, &(&1["id"] == group_id))
+
+        if group do
+          {group,
+           %{
+             "id" => group["id"],
+             "name" => group["name"],
+             "metrics" => group["metrics"] || []
+           }}
+        else
+          {nil, new_group_form_values()}
+        end
+      else
+        {nil, new_group_form_values()}
+      end
+
+    form = to_form(form_values, as: :group)
+
+    {:noreply,
+     socket
+     |> assign(:group_form, form)
+     |> assign(:group_modal_group, group)
+     |> assign(:group_modal_open, true)}
+  end
+
+  def handle_event("close_group_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:group_modal_open, false)
+     |> assign(:group_modal_group, nil)}
+  end
+
+  def handle_event("update_group_form", %{"group" => params}, socket) do
+    form = to_form(params, as: :group)
+    {:noreply, assign(socket, :group_form, form)}
+  end
+
+  def handle_event("save_group", %{"group" => params}, socket) do
+    device_uid = socket.assigns.device_uid
+    interface_uid = socket.assigns.interface_uid
+    scope = socket.assigns.current_scope
+    current_settings = socket.assigns.settings
+    groups = settings_list_value(current_settings, :metric_groups)
+
+    group_id = params["id"]
+    group_name = String.trim(params["name"] || "")
+
+    # Handle metrics - could be a map from checkboxes or a list
+    metrics =
+      case params["metrics"] do
+        m when is_map(m) ->
+          m
+          |> Enum.filter(fn {_k, v} -> v == "true" or v == true end)
+          |> Enum.map(fn {k, _v} -> k end)
+          |> Enum.sort()
+
+        m when is_list(m) ->
+          Enum.sort(m)
+
+        _ ->
+          []
+      end
+
+    if group_name == "" do
+      {:noreply, put_flash(socket, :error, "Group name is required")}
+    else
+      updated_groups =
+        if group_id && group_id != "" do
+          # Update existing group
+          Enum.map(groups, fn g ->
+            if g["id"] == group_id do
+              %{"id" => group_id, "name" => group_name, "metrics" => metrics}
+            else
+              g
+            end
+          end)
+        else
+          # Create new group
+          new_group = %{
+            "id" => Ecto.UUID.generate(),
+            "name" => group_name,
+            "metrics" => metrics
+          }
+
+          groups ++ [new_group]
+        end
+
+      attrs = %{metric_groups: updated_groups}
+
+      case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
+        {:ok, updated_settings} ->
+          {:noreply,
+           socket
+           |> assign(:settings, updated_settings)
+           |> assign(:group_modal_open, false)
+           |> assign(:group_modal_group, nil)
+           |> put_flash(:info, "Chart group saved")}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to save chart group")}
+      end
+    end
+  end
+
+  def handle_event("delete_group", %{"group_id" => group_id}, socket) do
+    device_uid = socket.assigns.device_uid
+    interface_uid = socket.assigns.interface_uid
+    scope = socket.assigns.current_scope
+    current_settings = socket.assigns.settings
+    groups = settings_list_value(current_settings, :metric_groups)
+
+    updated_groups = Enum.reject(groups, &(&1["id"] == group_id))
+    attrs = %{metric_groups: updated_groups}
+
+    case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
+      {:ok, updated_settings} ->
+        {:noreply,
+         socket
+         |> assign(:settings, updated_settings)
+         |> put_flash(:info, "Chart group deleted")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to delete chart group")}
     end
   end
 
@@ -439,11 +582,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       Select at least one metric to enable collection.
                     </p>
                   </div>
+                  <% normalized_metrics = if available_metrics, do: Enum.filter(available_metrics, &is_map/1), else: [] %>
                   <%!-- Available Metrics Section --%>
-                  <div :if={available_metrics && length(available_metrics) > 0} class="py-3 space-y-3">
-                    <% normalized_metrics = Enum.filter(available_metrics, &is_map/1) %>
+                  <div :if={normalized_metrics != []} class="py-3 space-y-3">
                     <h3 class="text-sm font-medium">Available Metrics</h3>
-                    <div :if={normalized_metrics != []} class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <.available_metric_card
                         :for={metric <- normalized_metrics}
                         metric={metric}
@@ -457,7 +600,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       />
                     </div>
                   </div>
-                  <div :if={!available_metrics || available_metrics == []} class="py-3">
+                  <div :if={normalized_metrics == []} class="py-3">
                     <div class="flex items-start gap-2 text-base-content/50">
                       <.icon name="hero-question-mark-circle" class="size-4 mt-0.5" />
                       <div>
@@ -466,6 +609,35 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                           Metric discovery not yet performed. Run a discovery scan to detect available metrics.
                         </p>
                       </div>
+                    </div>
+                  </div>
+                  <%!-- Chart Groups Section --%>
+                  <% metric_groups = settings_list_value(@settings, :metric_groups) %>
+                  <div class="py-3 space-y-3 border-t border-base-200">
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <h3 class="text-sm font-medium">Composite Charts</h3>
+                        <p class="text-xs text-base-content/50">
+                          Group metrics together to display on a single chart.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-xs btn-primary"
+                        phx-click="open_group_modal"
+                      >
+                        <.icon name="hero-plus-mini" class="size-3" /> New Group
+                      </button>
+                    </div>
+                    <div :if={metric_groups != []} class="space-y-2">
+                      <.chart_group_card
+                        :for={group <- metric_groups}
+                        group={group}
+                        available_metrics={normalized_metrics}
+                      />
+                    </div>
+                    <div :if={metric_groups == []} class="text-xs text-base-content/50">
+                      No chart groups configured. Create a group to combine multiple metrics on a single chart.
                     </div>
                   </div>
                 </div>
@@ -477,6 +649,15 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             :if={@metric_modal_open}
             form={@metric_form}
             metric_name={@metric_modal_metric}
+            interface={@interface}
+          />
+
+          <.chart_group_modal
+            :if={@group_modal_open}
+            form={@group_form}
+            group={@group_modal_group}
+            available_metrics={Map.get(@interface, "available_metrics") || []}
+            selected_metrics={settings_list_value(@settings, :metrics_selected)}
           />
         </div>
 
@@ -596,10 +777,220 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     """
   end
 
+  attr :group, :map, required: true
+  attr :available_metrics, :list, default: []
+
+  defp chart_group_card(assigns) do
+    metrics = assigns.group["metrics"] || []
+    metric_count = length(metrics)
+
+    # Get display names for metrics
+    metric_labels =
+      metrics
+      |> Enum.take(3)
+      |> Enum.map(fn metric_name ->
+        case Enum.find(assigns.available_metrics, &(metric_raw_name(&1) == metric_name)) do
+          nil -> metric_name
+          metric -> metric_display_name(metric)
+        end
+      end)
+
+    remaining = max(0, metric_count - 3)
+
+    assigns =
+      assigns
+      |> assign(:metric_count, metric_count)
+      |> assign(:metric_labels, metric_labels)
+      |> assign(:remaining, remaining)
+
+    ~H"""
+    <div class="flex items-center justify-between p-3 rounded-lg bg-base-200/50 border border-base-300">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-chart-bar-square" class="size-4 text-primary" />
+          <span class="text-sm font-medium">{@group["name"]}</span>
+          <span class="badge badge-xs badge-ghost">{@metric_count} metrics</span>
+        </div>
+        <div :if={@metric_labels != []} class="text-xs text-base-content/50 mt-1 truncate">
+          {Enum.join(@metric_labels, ", ")}<span :if={@remaining > 0}> +{@remaining} more</span>
+        </div>
+        <div :if={@metric_labels == []} class="text-xs text-warning mt-1">
+          No metrics selected
+        </div>
+      </div>
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          class="btn btn-xs btn-ghost"
+          phx-click="open_group_modal"
+          phx-value-group_id={@group["id"]}
+          title="Edit group"
+        >
+          <.icon name="hero-pencil" class="size-3" />
+        </button>
+        <button
+          type="button"
+          class="btn btn-xs btn-ghost text-error"
+          phx-click="delete_group"
+          phx-value-group_id={@group["id"]}
+          data-confirm="Delete this chart group?"
+          title="Delete group"
+        >
+          <.icon name="hero-trash" class="size-3" />
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  attr :form, :any, required: true
+  attr :group, :map, default: nil
+  attr :available_metrics, :list, default: []
+  attr :selected_metrics, :list, default: []
+
+  defp chart_group_modal(assigns) do
+    # Normalize available metrics
+    available_metrics =
+      assigns.available_metrics
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn m ->
+        name = metric_raw_name(m)
+        display = metric_display_name(m)
+        category = Map.get(m, "category") || Map.get(m, :category) || "unknown"
+        %{name: name, display: display, category: category}
+      end)
+      |> Enum.sort_by(& &1.display)
+
+    # Get currently selected metrics in the group
+    group_metrics = assigns.form[:metrics].value || []
+
+    group_metrics =
+      cond do
+        is_list(group_metrics) -> group_metrics
+        is_map(group_metrics) -> Enum.filter(Map.keys(group_metrics), &(group_metrics[&1] == "true"))
+        true -> []
+      end
+
+    is_editing = assigns.group != nil
+
+    assigns =
+      assigns
+      |> assign(:available_metrics, available_metrics)
+      |> assign(:group_metrics, group_metrics)
+      |> assign(:is_editing, is_editing)
+
+    ~H"""
+    <dialog class="modal modal-open">
+      <div class="modal-box max-w-xl">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_group_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">
+          {if @is_editing, do: "Edit Chart Group", else: "Create Chart Group"}
+        </h3>
+        <p class="text-sm text-base-content/60 mt-1">
+          Select metrics to display together on a single chart.
+        </p>
+
+        <.form
+          for={@form}
+          id="chart-group-form"
+          phx-submit="save_group"
+          phx-change="update_group_form"
+          class="space-y-4 mt-4"
+        >
+          <input type="hidden" name="group[id]" value={@form[:id].value} />
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Group Name</span>
+            </label>
+            <input
+              type="text"
+              name="group[name]"
+              value={@form[:name].value}
+              placeholder="e.g., Traffic, Errors, etc."
+              class="input input-bordered w-full"
+              required
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Metrics</span>
+              <span class="label-text-alt text-base-content/50">
+                Select compatible metrics to combine
+              </span>
+            </label>
+            <div class="border border-base-300 rounded-lg p-3 max-h-64 overflow-y-auto space-y-1">
+              <div :if={@available_metrics == []} class="text-sm text-base-content/50 py-2 text-center">
+                No metrics available. Enable metric discovery first.
+              </div>
+              <label
+                :for={metric <- @available_metrics}
+                class={[
+                  "flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-base-200 transition",
+                  metric.name in @group_metrics && "bg-primary/10"
+                ]}
+              >
+                <input
+                  type="checkbox"
+                  name={"group[metrics][#{metric.name}]"}
+                  value="true"
+                  checked={metric.name in @group_metrics}
+                  class="checkbox checkbox-sm checkbox-primary"
+                />
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-medium">{metric.display}</span>
+                  <span class="text-xs text-base-content/50 ml-2">({metric.name})</span>
+                </div>
+                <span class="badge badge-xs badge-ghost">{metric.category}</span>
+              </label>
+            </div>
+            <div class="label">
+              <span class="label-text-alt text-base-content/50">
+                Tip: Combine metrics with the same unit (e.g., inbound + outbound traffic)
+              </span>
+            </div>
+          </div>
+
+          <div class="modal-action">
+            <button type="button" class="btn btn-ghost" phx-click="close_group_modal">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              <.icon name="hero-check" class="size-4" />
+              {if @is_editing, do: "Update Group", else: "Create Group"}
+            </button>
+          </div>
+        </.form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_group_modal">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
   attr :form, :any, required: true
   attr :metric_name, :string, required: true
+  attr :interface, :map, default: nil
 
   defp metric_settings_modal(assigns) do
+    # Extract interface speed for percentage threshold context
+    interface_speed_bps = interface_speed_bps(assigns.interface)
+
+    assigns =
+      assigns
+      |> assign(:interface_speed_bps, interface_speed_bps)
+      |> assign(:has_speed_data, is_number(interface_speed_bps) and interface_speed_bps > 0)
+
     ~H"""
     <dialog class="modal modal-open">
       <div class="modal-box max-w-3xl">
@@ -621,6 +1012,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           for={@form}
           id="metric-settings-form"
           phx-submit="save_metric_settings"
+          phx-change="update_threshold_form"
           class="space-y-6 mt-4"
         >
           <input type="hidden" name="metric[name]" value={@metric_name} />
@@ -640,6 +1032,56 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 class="toggle toggle-info"
                 checked={@form[:enabled].value}
               />
+            </div>
+
+            <%!-- Threshold Type Selector --%>
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text text-xs font-medium">Threshold Type</span>
+                <span :if={!@has_speed_data} class="label-text-alt text-warning text-xs">
+                  <.icon name="hero-exclamation-triangle-mini" class="size-3" />
+                  Interface speed unknown
+                </span>
+              </label>
+              <div class="flex gap-2">
+                <label class={[
+                  "flex-1 btn btn-sm",
+                  @form[:threshold_type].value != "percentage" && "btn-primary",
+                  @form[:threshold_type].value == "percentage" && "btn-ghost"
+                ]}>
+                  <input
+                    type="radio"
+                    name="metric[threshold_type]"
+                    value="absolute"
+                    class="hidden"
+                    checked={@form[:threshold_type].value != "percentage"}
+                  />
+                  <.icon name="hero-cube" class="size-4" />
+                  Absolute (bytes/sec)
+                </label>
+                <label class={[
+                  "flex-1 btn btn-sm",
+                  @form[:threshold_type].value == "percentage" && "btn-primary",
+                  @form[:threshold_type].value != "percentage" && "btn-ghost",
+                  !@has_speed_data && "btn-disabled opacity-50"
+                ]}>
+                  <input
+                    type="radio"
+                    name="metric[threshold_type]"
+                    value="percentage"
+                    class="hidden"
+                    checked={@form[:threshold_type].value == "percentage"}
+                    disabled={!@has_speed_data}
+                  />
+                  <.icon name="hero-chart-pie" class="size-4" />
+                  Percentage (% of speed)
+                </label>
+              </div>
+              <div :if={@has_speed_data} class="label">
+                <span class="label-text-alt text-xs text-base-content/50">
+                  Interface speed: {format_bps(@interface_speed_bps) || "Unknown"}
+                </span>
+              </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -668,15 +1110,25 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
               </div>
               <div class="form-control">
                 <label class="label">
-                  <span class="label-text text-xs">Value</span>
+                  <span class="label-text text-xs">
+                    {threshold_value_label(@form[:threshold_type].value)}
+                  </span>
                 </label>
-                <input
-                  type="number"
-                  name="metric[value]"
-                  value={@form[:value].value}
-                  placeholder="e.g., 80"
-                  class="input input-bordered input-sm w-full"
-                />
+                <div class="join w-full">
+                  <input
+                    type="number"
+                    name="metric[value]"
+                    value={@form[:value].value}
+                    placeholder={threshold_placeholder(@form[:threshold_type].value)}
+                    min={if @form[:threshold_type].value == "percentage", do: "0", else: nil}
+                    max={if @form[:threshold_type].value == "percentage", do: "100", else: nil}
+                    step={if @form[:threshold_type].value == "percentage", do: "1", else: "any"}
+                    class="input input-bordered input-sm w-full join-item"
+                  />
+                  <span class="btn btn-sm btn-ghost join-item pointer-events-none">
+                    {threshold_unit(@form[:threshold_type].value)}
+                  </span>
+                </div>
               </div>
               <div class="form-control">
                 <label class="label">
@@ -928,11 +1380,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     end
   end
 
-  defp load_interface_metrics(_srql_module, _device_uid, nil, _scope) do
+  defp load_interface_metrics(_srql_module, _device_uid, nil, _settings, _scope) do
     %{panels: [], error: nil}
   end
 
-  defp load_interface_metrics(srql_module, device_uid, interface, scope) do
+  defp load_interface_metrics(srql_module, device_uid, interface, settings, scope) do
     if_index = Map.get(interface, "if_index")
 
     if is_nil(if_index) do
@@ -948,9 +1400,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")
       if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8, else: nil
 
+      # Get user-defined metric groups for composite charts
+      metric_groups = settings_list_value(settings, :metric_groups)
+
       case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => results}} when is_list(results) and results != [] ->
-          panels = build_metrics_panels(results, if_speed_bytes_per_sec)
+        {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
+          panels = build_metrics_panels(response, if_speed_bytes_per_sec, metric_groups)
           %{panels: panels, error: nil}
 
         {:ok, %{"results" => []}} ->
@@ -965,14 +1420,146 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     end
   end
 
-  # Build panels for interface metrics with speed scaling
-  defp build_metrics_panels(results, max_speed_bytes_per_sec) do
-    Engine.build_panels(%{"results" => results})
+  # Build panels for interface metrics with speed scaling and combined chart mode
+  # Takes the full SRQL response (including viz) to properly handle series grouping
+  # If metric_groups is provided and non-empty, group panels according to user configuration
+  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups \\ [])
+
+  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, []) do
+    # No user-defined groups - build panels normally
+    Engine.build_panels(srql_response)
     |> Enum.reject(&(&1.plugin == TablePlugin))
     |> Enum.map(fn panel ->
-      %{panel | assigns: Map.put(panel.assigns, :max_speed_bytes_per_sec, max_speed_bytes_per_sec)}
+      assigns =
+        panel.assigns
+        |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
+        # Enable combined chart mode for traffic metrics (inbound + outbound on same chart)
+        |> Map.put(:chart_mode, :combined)
+
+      %{panel | assigns: assigns}
     end)
   end
+
+  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups) do
+    results = Map.get(srql_response, "results", [])
+
+    if results == [] do
+      []
+    else
+      # Build panels for each user-defined group
+      grouped_panels =
+        metric_groups
+        |> Enum.filter(fn group ->
+          metrics = group["metrics"] || []
+          metrics != []
+        end)
+        |> Enum.map(fn group ->
+          build_grouped_panel(group, results, max_speed_bytes_per_sec)
+        end)
+        |> Enum.filter(&(&1 != nil))
+
+      # Get all metrics that are in groups
+      grouped_metric_names =
+        metric_groups
+        |> Enum.flat_map(fn g -> g["metrics"] || [] end)
+        |> MapSet.new()
+
+      # Build panels for ungrouped metrics
+      ungrouped_results =
+        Enum.filter(results, fn result ->
+          metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
+          metric_name not in grouped_metric_names
+        end)
+
+      ungrouped_panels =
+        if ungrouped_results != [] do
+          # Create a modified response with only ungrouped results
+          ungrouped_response = Map.put(srql_response, "results", ungrouped_results)
+
+          Engine.build_panels(ungrouped_response)
+          |> Enum.reject(&(&1.plugin == TablePlugin))
+          |> Enum.map(fn panel ->
+            assigns =
+              panel.assigns
+              |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
+              |> Map.put(:chart_mode, :combined)
+
+            %{panel | assigns: assigns}
+          end)
+        else
+          []
+        end
+
+      grouped_panels ++ ungrouped_panels
+    end
+  end
+
+  # Build a single panel for a group of metrics
+  defp build_grouped_panel(group, results, max_speed_bytes_per_sec) do
+    group_name = group["name"] || "Combined Chart"
+    group_metrics = group["metrics"] || []
+
+    # Filter results to only include metrics in this group
+    group_results =
+      Enum.filter(results, fn result ->
+        metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
+        metric_name in group_metrics
+      end)
+
+    if group_results == [] do
+      nil
+    else
+      # Extract time series data for each metric in the group
+      series =
+        group_results
+        |> Enum.map(fn result ->
+          metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
+          time = Map.get(result, "time") || Map.get(result, :time)
+          value = Map.get(result, "value") || Map.get(result, :value)
+          %{name: metric_name, time: time, value: value}
+        end)
+        |> Enum.group_by(& &1.name)
+        |> Enum.map(fn {name, points} ->
+          data =
+            points
+            |> Enum.map(fn p -> %{time: p.time, value: p.value} end)
+            |> Enum.sort_by(& &1.time)
+
+          %{name: format_metric_series_name(name), data: data}
+        end)
+
+      %{
+        id: "group-#{group["id"]}",
+        plugin: ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries,
+        title: group_name,
+        assigns: %{
+          series: series,
+          max_speed_bytes_per_sec: max_speed_bytes_per_sec,
+          chart_mode: :combined,
+          group_id: group["id"]
+        }
+      }
+    end
+  end
+
+  # Format metric name for display in chart legend
+  defp format_metric_series_name(name) when is_binary(name) do
+    case name do
+      "ifInOctets" -> "Inbound"
+      "ifOutOctets" -> "Outbound"
+      "ifHCInOctets" -> "Inbound (64-bit)"
+      "ifHCOutOctets" -> "Outbound (64-bit)"
+      "ifInErrors" -> "In Errors"
+      "ifOutErrors" -> "Out Errors"
+      "ifInDiscards" -> "In Discards"
+      "ifOutDiscards" -> "Out Discards"
+      "ifInUcastPkts" -> "In Packets"
+      "ifOutUcastPkts" -> "Out Packets"
+      _ -> name
+    end
+  end
+
+  defp format_metric_series_name(name), do: to_string(name)
 
   defp escape_value(value) when is_binary(value) do
     String.replace(value, "\"", "\\\"")
@@ -1137,13 +1724,29 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     config_enabled?(config) and config_bool(alert, :enabled, false)
   end
 
-  defp metric_form_values(metric_name, config) do
+  defp metric_form_values(metric_name, config, interface \\ nil) do
     alert = config_value(config, :alert, %{})
     event = config_value(config, :event, %{})
+
+    # Default to percentage for traffic metrics when interface has speed data
+    # and threshold_type hasn't been explicitly set
+    default_threshold_type =
+      case config_value(config, :threshold_type) do
+        nil ->
+          if traffic_metric?(metric_name) and has_interface_speed?(interface) do
+            "percentage"
+          else
+            "absolute"
+          end
+
+        existing ->
+          existing
+      end
 
     %{
       "name" => metric_name,
       "enabled" => config_bool(config, :enabled, true),
+      "threshold_type" => default_threshold_type,
       "comparison" => config_value(config, :comparison, ""),
       "value" => config_value(config, :value, ""),
       "duration_seconds" => config_value(config, :duration_seconds, 0),
@@ -1159,6 +1762,22 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       "alert_description" => config_value(alert, :description, "")
     }
   end
+
+  # Check if metric is a traffic/bytes metric that makes sense for percentage thresholds
+  defp traffic_metric?(name) when is_binary(name) do
+    name in ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
+  end
+
+  defp traffic_metric?(_), do: false
+
+  defp has_interface_speed?(nil), do: false
+
+  defp has_interface_speed?(interface) when is_map(interface) do
+    speed = interface_speed_bps(interface)
+    is_number(speed) and speed > 0
+  end
+
+  defp has_interface_speed?(_), do: false
 
   defp build_metric_config(params) do
     event = %{}
@@ -1178,6 +1797,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
     %{
       "enabled" => param_bool(params["enabled"], true),
+      "threshold_type" => blank_to_nil(params["threshold_type"]) || "absolute",
       "comparison" => blank_to_nil(params["comparison"]),
       "value" => parse_number(params["value"]),
       "duration_seconds" => parse_int(params["duration_seconds"]) || 0,
@@ -1260,7 +1880,33 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     |> Map.new()
   end
 
-  # Threshold label helpers
+  # Group form helpers
+  defp new_group_form_values do
+    %{
+      "id" => "",
+      "name" => "",
+      "metrics" => []
+    }
+  end
+
+  # Threshold type UI helpers
+  defp interface_speed_bps(nil), do: nil
+
+  defp interface_speed_bps(interface) when is_map(interface) do
+    speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, :speed_bps)
+    if_speed = Map.get(interface, "if_speed") || Map.get(interface, :if_speed)
+    speed_bps || if_speed
+  end
+
+  defp threshold_value_label("percentage"), do: "Threshold (%)"
+  defp threshold_value_label(_), do: "Threshold Value"
+
+  defp threshold_placeholder("percentage"), do: "e.g., 80"
+  defp threshold_placeholder(_), do: "e.g., 10000000"
+
+  defp threshold_unit("percentage"), do: "%"
+  defp threshold_unit(_), do: "B/s"
+
   # Available metrics helpers
   defp metric_display_name(metric) when is_map(metric) do
     name = Map.get(metric, "name") || Map.get(metric, :name) || "Unknown"
