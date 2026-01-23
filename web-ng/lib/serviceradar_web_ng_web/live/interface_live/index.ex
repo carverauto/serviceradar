@@ -68,7 +68,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
   end
 
   def handle_event("srql_builder_run", _params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/interfaces")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/interfaces")}
   end
 
   @impl true
@@ -86,8 +87,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
             Search and browse network interfaces across all devices
           </p>
         </div>
-
-        <!-- Quick Filters -->
+        
+    <!-- Quick Filters -->
         <div class="mb-4 flex flex-wrap items-center gap-2">
           <span class="text-xs font-medium text-base-content/60 mr-1">Quick filters:</span>
           <.link
@@ -130,8 +131,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
                 <tr>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Device</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Interface</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">MAC Address</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">IP Addresses</th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">
+                    MAC Address
+                  </th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">
+                    IP Addresses
+                  </th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Type</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Speed</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Status</th>

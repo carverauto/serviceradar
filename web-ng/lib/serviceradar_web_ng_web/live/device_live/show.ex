@@ -2111,15 +2111,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> case do
         nil -> nil
         row -> Map.get(row, "timestamp")
-      end
-    %>
+      end %>
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <.icon name="hero-command-line" class="size-4 text-accent" />
           <span class="text-sm font-semibold">Processes</span>
           <span class="text-xs text-base-content/50">
-            last 15m<%= if row_count > 0, do: " · top #{row_count} by CPU", else: "" %>
+            last 15m{if row_count > 0, do: " · top #{row_count} by CPU", else: ""}
           </span>
         </div>
         <div class="text-xs text-base-content/50">
@@ -2889,7 +2888,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       metric_query("disk_metrics", filter_tokens, series_field, "used_bytes", @disk_metrics_limit)
 
     total_query =
-      metric_query("disk_metrics", filter_tokens, series_field, "total_bytes", @disk_metrics_limit)
+      metric_query(
+        "disk_metrics",
+        filter_tokens,
+        series_field,
+        "total_bytes",
+        @disk_metrics_limit
+      )
 
     base = %{
       key: "disk",
