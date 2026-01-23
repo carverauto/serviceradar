@@ -7,9 +7,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.MapperCompiler
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperSeed
-  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   @tag :integration

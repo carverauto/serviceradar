@@ -32,8 +32,8 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     unique: [period: 60, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.SweepJobs.ObanSupport
   alias UUID
@@ -46,6 +46,17 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
   # Cooldown period to avoid duplicate alerts for same interface (5 minutes)
   @alert_cooldown_ms :timer.minutes(5)
+
+  @severity_map %{
+    "emergency" => OCSF.severity_fatal(),
+    "critical" => OCSF.severity_critical(),
+    "high" => OCSF.severity_high(),
+    "warning" => OCSF.severity_medium(),
+    "warn" => OCSF.severity_medium(),
+    "info" => OCSF.severity_informational(),
+    "informational" => OCSF.severity_informational(),
+    "low" => OCSF.severity_low()
+  }
 
   @doc """
   Schedules threshold evaluation if not already scheduled.
@@ -624,17 +635,9 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   end
 
   defp severity_from_text(text) when is_binary(text) do
-    case String.downcase(text) do
-      "emergency" -> OCSF.severity_fatal()
-      "critical" -> OCSF.severity_critical()
-      "high" -> OCSF.severity_high()
-      "warning" -> OCSF.severity_medium()
-      "warn" -> OCSF.severity_medium()
-      "info" -> OCSF.severity_informational()
-      "informational" -> OCSF.severity_informational()
-      "low" -> OCSF.severity_low()
-      _ -> OCSF.severity_unknown()
-    end
+    text
+    |> String.downcase()
+    |> Map.get(@severity_map, OCSF.severity_unknown())
   end
 
   defp event_uids(event_config) do
@@ -664,23 +667,31 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   defp event_message(event_config, metric_name, metric_value, config) do
     case config_value(event_config, :message) do
       nil ->
-        threshold_type = config_value(config, :threshold_type, "absolute")
-
-        if threshold_type == "percentage" do
-          utilization_pct = config_value(config, :utilization_percent)
-          threshold_pct = config_value(config, :value)
-
-          if utilization_pct do
-            "Interface utilization at #{utilization_pct}% exceeds #{threshold_pct}% threshold (#{metric_name})"
-          else
-            "Metric #{metric_name} exceeds #{threshold_pct}% threshold (value=#{metric_value})"
-          end
-        else
-          "Metric #{metric_name} threshold violated (value=#{metric_value}, threshold=#{config_value(config, :value)})"
-        end
+        default_event_message(metric_name, metric_value, config)
 
       custom_message ->
         custom_message
+    end
+  end
+
+  defp default_event_message(metric_name, metric_value, config) do
+    threshold_type = config_value(config, :threshold_type, "absolute")
+
+    if threshold_type == "percentage" do
+      percentage_message(metric_name, metric_value, config)
+    else
+      "Metric #{metric_name} threshold violated (value=#{metric_value}, threshold=#{config_value(config, :value)})"
+    end
+  end
+
+  defp percentage_message(metric_name, metric_value, config) do
+    utilization_pct = config_value(config, :utilization_percent)
+    threshold_pct = config_value(config, :value)
+
+    if utilization_pct do
+      "Interface utilization at #{utilization_pct}% exceeds #{threshold_pct}% threshold (#{metric_name})"
+    else
+      "Metric #{metric_name} exceeds #{threshold_pct}% threshold (value=#{metric_value})"
     end
   end
 

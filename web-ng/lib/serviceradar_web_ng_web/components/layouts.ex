@@ -32,7 +32,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
   attr :srql, :map, default: %{}, doc: "SRQL query bar state for SRQL-driven pages"
-  attr :hide_breadcrumb, :boolean, default: false, doc: "Hide auto breadcrumb when page has custom one"
+
+  attr :hide_breadcrumb, :boolean,
+    default: false,
+    doc: "Hide auto breadcrumb when page has custom one"
 
   slot :inner_block, required: true
 

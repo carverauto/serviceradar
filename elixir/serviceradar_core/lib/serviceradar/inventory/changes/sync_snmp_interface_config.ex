@@ -11,8 +11,8 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Inventory.{Device, Interface, InterfaceSettings}
-  alias ServiceRadar.SNMPProfiles.{SNMPOIDConfig, SNMPProfile, SNMPTarget}
   alias ServiceRadar.SNMPProfiles.CredentialResolver
+  alias ServiceRadar.SNMPProfiles.{SNMPOIDConfig, SNMPProfile, SNMPTarget}
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -374,37 +374,28 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   defp normalize_metric_name(metric), do: to_string(metric)
 
   defp build_oid_config(metric_name, metrics, interface) do
-    metric = Map.get(metrics, metric_name)
-
-    if metric do
-      if_index = interface.if_index
-
-      if is_integer(if_index) do
-        oid_base = Map.get(metric, "oid_64bit") || Map.get(metric, :oid_64bit)
-
-        oid =
-          if Map.get(metric, "supports_64bit") || Map.get(metric, :supports_64bit) do
-            oid_base || Map.get(metric, "oid") || Map.get(metric, :oid)
-          else
-            Map.get(metric, "oid") || Map.get(metric, :oid)
-          end
-
-        if is_binary(oid) and oid != "" do
-          %{
-            oid: "#{oid}.#{if_index}",
-            name: metric_oid_name(metric_name, interface.interface_uid),
-            data_type: normalize_data_type(Map.get(metric, "data_type") || Map.get(metric, :data_type)),
-            scale: 1.0,
-            delta: metric_delta?(metric)
-          }
-        else
-          nil
-        end
-      else
-        nil
-      end
+    with metric when is_map(metric) <- Map.get(metrics, metric_name),
+         if_index when is_integer(if_index) <- interface.if_index,
+         oid when is_binary(oid) and oid != "" <- resolve_metric_oid(metric) do
+      %{
+        oid: "#{oid}.#{if_index}",
+        name: metric_oid_name(metric_name, interface.interface_uid),
+        data_type: normalize_data_type(Map.get(metric, "data_type") || Map.get(metric, :data_type)),
+        scale: 1.0,
+        delta: metric_delta?(metric)
+      }
     else
-      nil
+      _ -> nil
+    end
+  end
+
+  defp resolve_metric_oid(metric) do
+    oid_base = Map.get(metric, "oid_64bit") || Map.get(metric, :oid_64bit)
+
+    if Map.get(metric, "supports_64bit") || Map.get(metric, :supports_64bit) do
+      oid_base || Map.get(metric, "oid") || Map.get(metric, :oid)
+    else
+      Map.get(metric, "oid") || Map.get(metric, :oid)
     end
   end
 

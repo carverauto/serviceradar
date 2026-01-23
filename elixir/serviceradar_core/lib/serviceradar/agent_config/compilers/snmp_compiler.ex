@@ -415,40 +415,50 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     # Get host address - prefer IP, fall back to hostname
     host = device.ip || device.hostname
 
-    if is_nil(host) or host == "" do
+    if missing_host?(host) do
       Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
       nil
     else
-      # Resolve credentials: device override → profile fallback
-      credential = resolve_device_credentials(device.uid, profile, actor)
-
-      if valid_credentials?(credential) do
-        version = Map.get(credential, :version, profile.version)
-
-        base_target = %{
-          "id" => device.uid,
-          "name" => device.name || device.hostname || device.uid,
-          "host" => host,
-          "port" => 161,
-          "version" => format_version(version),
-          "poll_interval_seconds" => profile.poll_interval,
-          "timeout_seconds" => profile.timeout,
-          "retries" => profile.retries,
-          "oids" => compile_oids(oids)
-        }
-
-        # Add authentication based on version
-        case version do
-          :v1 -> Map.put(base_target, "community", Map.get(credential, :community))
-          :v2c -> Map.put(base_target, "community", Map.get(credential, :community))
-          :v3 -> Map.put(base_target, "v3_auth", compile_v3_auth(credential))
-        end
-      else
-        Logger.debug("SNMPCompiler: skipping device #{device.uid} (missing credentials)")
-        nil
-      end
+      compile_device_target_with_host(device, profile, oids, actor, host)
     end
   end
+
+  defp compile_device_target_with_host(device, profile, oids, actor, host) do
+    credential = resolve_device_credentials(device.uid, profile, actor)
+
+    if valid_credentials?(credential) do
+      version = Map.get(credential, :version, profile.version)
+      base_target = build_base_target(device, host, profile, oids, version)
+      apply_snmp_auth(base_target, version, credential)
+    else
+      Logger.debug("SNMPCompiler: skipping device #{device.uid} (missing credentials)")
+      nil
+    end
+  end
+
+  defp build_base_target(device, host, profile, oids, version) do
+    %{
+      "id" => device.uid,
+      "name" => device.name || device.hostname || device.uid,
+      "host" => host,
+      "port" => 161,
+      "version" => format_version(version),
+      "poll_interval_seconds" => profile.poll_interval,
+      "timeout_seconds" => profile.timeout,
+      "retries" => profile.retries,
+      "oids" => compile_oids(oids)
+    }
+  end
+
+  defp apply_snmp_auth(base_target, version, credential) do
+    case version do
+      :v1 -> Map.put(base_target, "community", Map.get(credential, :community))
+      :v2c -> Map.put(base_target, "community", Map.get(credential, :community))
+      :v3 -> Map.put(base_target, "v3_auth", compile_v3_auth(credential))
+    end
+  end
+
+  defp missing_host?(host), do: is_nil(host) or host == ""
 
   # Compile OIDs to the expected format
   defp compile_oids(oids) do

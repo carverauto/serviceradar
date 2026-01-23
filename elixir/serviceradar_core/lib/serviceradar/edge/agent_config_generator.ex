@@ -37,8 +37,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentRegistry
-  alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
 
   # Default intervals
@@ -514,6 +514,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp build_snmp_target_config(target) when is_map(target) do
     v3_auth = build_snmp_v3_auth(Map.get(target, "v3_auth"))
+    community = community_for_target(target, v3_auth)
+    oids = target |> Map.get("oids", []) |> List.wrap() |> Enum.map(&build_snmp_oid_config/1)
 
     %Monitoring.SNMPTargetConfig{
       id: Map.get(target, "id", "") || "",
@@ -521,16 +523,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       host: Map.get(target, "host", "") || "",
       port: Map.get(target, "port", 161) || 161,
       version: snmp_version(Map.get(target, "version")),
-      community: if(v3_auth, do: "", else: Map.get(target, "community", "") || ""),
+      community: community,
       v3_auth: v3_auth,
       poll_interval_seconds: Map.get(target, "poll_interval_seconds", 60) || 60,
       timeout_seconds: Map.get(target, "timeout_seconds", 5) || 5,
       retries: Map.get(target, "retries", 3) || 3,
-      oids:
-        target
-        |> Map.get("oids", [])
-        |> List.wrap()
-        |> Enum.map(&build_snmp_oid_config/1)
+      oids: oids
     }
   end
 
@@ -550,6 +548,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp build_snmp_v3_auth(_), do: nil
+
+  defp community_for_target(target, v3_auth) do
+    if v3_auth do
+      ""
+    else
+      Map.get(target, "community", "") || ""
+    end
+  end
 
   defp build_snmp_oid_config(oid) when is_map(oid) do
     %Monitoring.SNMPOIDConfig{
