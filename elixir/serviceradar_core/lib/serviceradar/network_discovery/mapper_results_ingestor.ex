@@ -446,14 +446,51 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         :ok
 
       %Ash.BulkResult{status: :error, errors: errors} ->
-        Logger.warning("Mapper #{label} ingestion failed: #{inspect(errors)}")
-        {:error, errors}
+        # Check if all errors are TimescaleDB chunk-prefixed constraint violations
+        # These occur because TimescaleDB prefixes constraint names with chunk IDs
+        # (e.g., "1_2_discovered_interfaces_pkey" instead of "discovered_interfaces_pkey")
+        if timescaledb_pkey_violations?(errors) do
+          Logger.debug(
+            "Mapper #{label}: skipped #{length(List.wrap(errors))} duplicate(s) (TimescaleDB constraint)"
+          )
+
+          :ok
+        else
+          Logger.warning("Mapper #{label} ingestion failed: #{inspect(errors)}")
+          {:error, errors}
+        end
 
       {:error, reason} ->
         Logger.warning("Mapper #{label} ingestion failed: #{inspect(reason)}")
         {:error, reason}
     end
   end
+
+  # Check if errors are all TimescaleDB chunk-prefixed primary key constraint violations.
+  # TimescaleDB creates chunk-specific constraint names like "1_2_discovered_interfaces_pkey"
+  # which Ash/Ecto can't match to the base constraint "discovered_interfaces_pkey".
+  defp timescaledb_pkey_violations?(errors) when is_list(errors) do
+    Enum.all?(errors, &timescaledb_pkey_violation?/1)
+  end
+
+  defp timescaledb_pkey_violations?(%Ash.Error.Unknown{errors: nested_errors}) do
+    timescaledb_pkey_violations?(nested_errors)
+  end
+
+  defp timescaledb_pkey_violations?(_), do: false
+
+  defp timescaledb_pkey_violation?(%Ash.Error.Unknown{errors: nested_errors}) do
+    Enum.all?(nested_errors, &timescaledb_pkey_violation?/1)
+  end
+
+  defp timescaledb_pkey_violation?(%Ash.Error.Unknown.UnknownError{error: error_msg})
+       when is_binary(error_msg) do
+    # Match patterns like "1_2_discovered_interfaces_pkey" or "1_3_topology_links_pkey"
+    String.contains?(error_msg, "unique_constraint") and
+      Regex.match?(~r/\d+_\d+_\w+_pkey/, error_msg)
+  end
+
+  defp timescaledb_pkey_violation?(_), do: false
 
   defp interface_identity_key(record) when is_map(record) do
     {
