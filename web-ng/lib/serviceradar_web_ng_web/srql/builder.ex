@@ -342,7 +342,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     merged ++ singles
   end
 
-  defp build_merged_filter_token(%{"field" => field, "op" => op, "values" => values}, array_fields) do
+  defp build_merged_filter_token(
+         %{"field" => field, "op" => op, "values" => values},
+         array_fields
+       ) do
     field = field |> safe_to_string() |> String.trim()
     if field == "", do: nil, else: build_filter_by_op(field, op, values, array_fields)
   end
