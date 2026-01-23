@@ -173,6 +173,25 @@ When an agent requests its sysmon configuration, ServiceRadar resolves it in thi
 3. Verify the agent is connected and reporting status
 4. Check agent logs for sysmon-related errors
 
+### Process Metrics Missing
+
+1. Confirm the profile has `collect_processes: true` and the agent has reloaded its config
+2. Run an SRQL query to confirm data is present:
+
+```
+in:process_metrics device_id:"<device_uid>" time:last_24h sort:timestamp:desc limit:10
+```
+
+3. Verify rows exist directly in CNPG:
+
+```
+SELECT timestamp, pid, name, cpu_usage, memory_usage
+FROM process_metrics
+WHERE device_id = '<device_uid>'
+ORDER BY timestamp DESC
+LIMIT 20;
+```
+
 ### Config Changes Not Propagating
 
 Agents check for configuration updates every 5 minutes (with jitter). To force an update:

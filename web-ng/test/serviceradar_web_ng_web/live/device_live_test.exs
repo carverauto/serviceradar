@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Save SNMP Credentials"
   end
 
-  test "renders sysmon cpu header gauge and memory/disk sections", %{conn: conn} do
+  test "renders sysmon cpu header gauge and process/memory/disk sections", %{conn: conn} do
     uid = "test-device-sysmon-metrics-#{System.unique_integer([:positive])}"
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
@@ -120,12 +120,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
+    Repo.insert_all("process_metrics", [
+      %{
+        timestamp: now,
+        gateway_id: "test-gw",
+        pid: 4242,
+        name: "nginx",
+        cpu_usage: 12.3,
+        memory_usage: 1_048_576,
+        status: "Running",
+        device_id: uid,
+        created_at: now
+      }
+    ])
+
     {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
 
     assert html =~ "CPU"
     assert html =~ "42.4%"
     assert html =~ "Memory"
     assert html =~ "Disk"
+    assert html =~ "Processes"
+    assert html =~ "nginx"
   end
 
   describe "device show page interfaces tab" do
