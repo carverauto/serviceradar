@@ -10,7 +10,7 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
 
   ## Resolution Process
 
-  1. Load all targeting profiles (enabled, non-default, with target_query)
+  1. Load all targeting profiles (enabled, with target_query)
   2. Sort by priority (highest first)
   3. For each profile, execute the SRQL query with a device UID filter
   4. Return the first profile where the query matches the device

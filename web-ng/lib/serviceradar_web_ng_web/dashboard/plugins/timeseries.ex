@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   alias ServiceRadarWebNGWeb.SRQL.Viz
 
   @max_series 6
-  @max_points 200
+  @max_points 800
   @chart_width 800
   @chart_height 140
   @chart_pad 8
@@ -92,7 +92,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     rows =
       results
       |> Enum.filter(&is_map/1)
-      |> Enum.take(@max_points)
 
     points =
       Enum.reduce(rows, %{}, fn row, acc ->
@@ -117,6 +116,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
     series_points =
       points
+      |> Enum.map(fn {series, series_points} ->
+        sorted =
+          series_points
+          |> Enum.sort_by(fn {dt, _} -> DateTime.to_unix(dt, :millisecond) end)
+
+        {series, sorted}
+      end)
       |> Enum.sort_by(fn {series, _points} -> series end)
       |> Enum.take(@max_series)
 
@@ -533,21 +539,21 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp baseline_y, do: @chart_height - @chart_pad
 
-  defp chart_points(points, unit, compact) when is_list(points) do
+  defp chart_points(points, unit, compact, cap) when is_list(points) do
     points
-    |> maybe_densify(unit, compact)
+    |> maybe_densify(unit, compact, cap)
     |> maybe_smooth(unit, compact)
   end
 
-  defp chart_points(points, _unit, _compact), do: points
+  defp chart_points(points, _unit, _compact, _cap), do: points
 
-  defp maybe_densify(points, :bytes_per_sec, compact) do
+  defp maybe_densify(points, :bytes_per_sec, compact, cap) do
     factor = if compact, do: 2, else: 4
     densified = densify_points(points, factor)
-    limit_points(densified, 600)
+    limit_points(densified, cap)
   end
 
-  defp maybe_densify(points, _unit, _compact), do: points
+  defp maybe_densify(points, _unit, _compact, _cap), do: points
 
   defp maybe_smooth(points, :bytes_per_sec, compact) do
     window = if compact, do: 1, else: 2
@@ -603,9 +609,66 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp smooth_points(points, _window), do: points
 
+  defp points_cap(points) when is_list(points) do
+    width_cap = @max_points
+
+    with [{%DateTime{} = first_dt, _} | _] <- points,
+         {%DateTime{} = last_dt, _} <- List.last(points),
+         {:ok, delta_secs} <- median_delta_seconds(points),
+         span_secs when span_secs > 0 <- DateTime.diff(last_dt, first_dt, :second),
+         expected when expected > 0 <- div(span_secs, max(delta_secs, 1)) + 1 do
+      min(width_cap, max(expected, 2))
+    else
+      _ -> width_cap
+    end
+  end
+
+  defp points_cap(_), do: @max_points
+
+  defp median_delta_seconds(points) when is_list(points) do
+    deltas =
+      points
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.map(fn [{dt0, _}, {dt1, _}] -> DateTime.diff(dt1, dt0, :second) end)
+      |> Enum.filter(&(&1 > 0))
+
+    case deltas do
+      [] ->
+        {:error, :no_deltas}
+
+      _ ->
+        sorted = Enum.sort(deltas)
+        mid = div(length(sorted), 2)
+        {:ok, Enum.at(sorted, mid)}
+    end
+  end
+
+  defp median_delta_seconds(_), do: {:error, :no_deltas}
+
   defp limit_points(points, max_points) when is_list(points) and length(points) > max_points do
-    points
-    |> Enum.take(max_points)
+    total = length(points)
+    step = Float.ceil(total / max_points) |> trunc()
+    sampled = Enum.take_every(points, step)
+    sampled = if length(sampled) > max_points, do: Enum.take(sampled, max_points), else: sampled
+
+    case {sampled, List.last(points)} do
+      {[], _} ->
+        []
+
+      {sampled, last_all} ->
+        sampled =
+          case {List.first(points), List.first(sampled)} do
+            {nil, _} -> sampled
+            {first_all, first_all} -> sampled
+            {first_all, _} -> List.replace_at(sampled, 0, first_all)
+          end
+
+        if List.last(sampled) == last_all do
+          sampled
+        else
+          List.replace_at(sampled, length(sampled) - 1, last_all)
+        end
+    end
   end
 
   defp limit_points(points, _max_points), do: points
@@ -953,7 +1016,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     {stroke, _fill} = series_color(idx)
     display_name = humanize_series_name(series || "series")
     unit = unit_for_series(series, spec, rate_mode)
-    chart_points = chart_points(points, unit, compact)
+    points = Enum.sort_by(points, fn {dt, _} -> DateTime.to_unix(dt, :millisecond) end)
+    cap = points_cap(points)
+    points = limit_points(points, cap)
+    chart_points = chart_points(points, unit, compact, cap)
     scale_max = scale_max_for_unit(unit)
     paths = chart_paths(chart_points, scale_max)
     utilization = compute_utilization(paths.avg, effective_max)

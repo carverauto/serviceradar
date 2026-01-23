@@ -112,7 +112,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
       {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
-      assert config["enabled"] == true
+      assert config["enabled"] == false
       assert config["profile_id"] == profile.id
       assert config["profile_name"] == "Test Default"
       assert config["targets"] == []

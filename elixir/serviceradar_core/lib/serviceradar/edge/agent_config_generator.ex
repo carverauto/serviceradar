@@ -443,14 +443,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         entry.config
 
       {:error, :no_config_found} ->
-        # Return default sysmon config when none defined
-        Logger.debug("No sysmon config found for agent #{agent_id}, using default")
-        SysmonCompiler.default_config()
+        Logger.debug("No sysmon config found for agent #{agent_id}, using disabled config")
+        SysmonCompiler.disabled_config()
 
       {:error, reason} ->
         Logger.warning("Failed to load sysmon config for agent #{agent_id}: #{inspect(reason)}")
 
-        SysmonCompiler.default_config()
+        SysmonCompiler.disabled_config()
     end
   end
 
@@ -492,7 +491,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       thresholds: Map.get(config, "thresholds", %{}),
       profile_id: Map.get(config, "profile_id", ""),
       profile_name: Map.get(config, "profile_name", ""),
-      config_source: Map.get(config, "config_source", "default")
+      config_source: Map.get(config, "config_source", "unassigned")
     }
   end
 

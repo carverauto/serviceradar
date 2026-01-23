@@ -23,11 +23,13 @@ spec:
       postInitApplicationSQL:
         - CREATE EXTENSION IF NOT EXISTS timescaledb;
         - CREATE EXTENSION IF NOT EXISTS age;
+        - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
   postgresql:
     shared_preload_libraries:
       - timescaledb
       - age
+      - pg_stat_statements
     pg_hba:
       - "hostnossl all all all reject"
       - "hostssl all all all scram-sha-256"

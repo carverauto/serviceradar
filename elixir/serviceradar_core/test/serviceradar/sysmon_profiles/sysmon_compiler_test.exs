@@ -11,6 +11,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   require Ash.Query
@@ -35,28 +36,28 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
     end
   end
 
-  describe "default_config/0" do
+  describe "disabled_config/0" do
     test "returns valid config structure" do
-      config = SysmonCompiler.default_config()
+      config = SysmonCompiler.disabled_config()
 
-      assert config["enabled"] == true
+      assert config["enabled"] == false
       assert config["sample_interval"] == "10s"
-      assert config["collect_cpu"] == true
-      assert config["collect_memory"] == true
-      assert config["collect_disk"] == true
+      assert config["collect_cpu"] == false
+      assert config["collect_memory"] == false
+      assert config["collect_disk"] == false
       assert config["collect_network"] == false
       assert config["collect_processes"] == false
       assert config["disk_paths"] == []
       assert config["disk_exclude_paths"] == []
       assert config["thresholds"] == %{}
-      assert config["profile_name"] == "Default"
-      assert config["config_source"] == "default"
+      assert config["profile_name"] == ""
+      assert config["config_source"] == "unassigned"
     end
   end
 
   describe "validate/1" do
     test "valid config passes validation" do
-      config = SysmonCompiler.default_config()
+      config = SysmonCompiler.disabled_config()
       assert :ok = SysmonCompiler.validate(config)
     end
 
@@ -82,22 +83,37 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
     test "returns default config when no profile exists" do
       {:ok, config} = SysmonCompiler.compile("default", "agent-1", [])
 
-      assert config["enabled"] == true
+      assert config["enabled"] == false
       assert config["sample_interval"] == "10s"
-      assert config["config_source"] == "default"
+      assert config["config_source"] == "unassigned"
     end
 
     @tag :integration
-    test "returns profile config when default profile exists" do
-      # Create a default profile
+    test "returns profile config when SRQL profile matches" do
       actor = SystemActor.system(:test)
+      device_uid = "sr:" <> Ecto.UUID.generate()
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: device_uid,
+            hostname: "sysmon-agent-01",
+            type_id: 3,
+            created_time: DateTime.utc_now(),
+            modified_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
 
       {:ok, profile} =
         SysmonProfile
         |> Ash.Changeset.for_create(
           :create,
           %{
-            name: "Test Default",
+            name: "Targeted Profile",
             sample_interval: "30s",
             collect_cpu: true,
             collect_memory: true,
@@ -107,12 +123,16 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
             disk_paths: ["/", "/data"],
             disk_exclude_paths: ["/var/lib/docker"],
             thresholds: %{"cpu_warning" => "75"},
-            is_default: true,
-            enabled: true
-          }, actor: actor)
+            enabled: true,
+            target_query: "in:devices hostname:sysmon-agent-01",
+            priority: 10
+          },
+          actor: actor
+        )
         |> Ash.create(actor: actor)
 
-      {:ok, config} = SysmonCompiler.compile("default", "agent-1", [])
+      {:ok, config} =
+        SysmonCompiler.compile("default", "agent-1", actor: actor, device_uid: device_uid)
 
       assert config["enabled"] == true
       assert config["sample_interval"] == "30s"
@@ -123,7 +143,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["disk_exclude_paths"] == ["/var/lib/docker"]
       assert config["thresholds"]["cpu_warning"] == "75"
       assert config["profile_id"] == profile.id
-      assert config["profile_name"] == "Test Default"
+      assert config["profile_name"] == "Targeted Profile"
     end
   end
 
@@ -145,7 +165,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
           "cpu_warning" => "70",
           "cpu_critical" => "90"
         },
-        is_default: false,
         target_query: "in:devices tags.env:prod"
       }
 
@@ -164,29 +183,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["thresholds"]["cpu_critical"] == "90"
       assert config["profile_id"] == "test-uuid"
       assert config["profile_name"] == "Production Monitoring"
-      assert config["config_source"] == "srql"
+      assert config["config_source"] == "remote"
     end
 
-    test "sets config_source to default for default profile" do
-      profile = %SysmonProfile{
-        id: "default-uuid",
-        name: "Default Profile",
-        enabled: true,
-        sample_interval: "10s",
-        collect_cpu: true,
-        collect_memory: true,
-        collect_disk: true,
-        collect_network: false,
-        collect_processes: false,
-        disk_paths: [],
-        disk_exclude_paths: [],
-        thresholds: %{},
-        is_default: true,
-        target_query: nil
-      }
-
-      config = SysmonCompiler.compile_profile(profile)
-      assert config["config_source"] == "default"
-    end
   end
 end

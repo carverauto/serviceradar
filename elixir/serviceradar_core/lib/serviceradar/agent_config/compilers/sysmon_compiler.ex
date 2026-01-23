@@ -9,7 +9,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
 
   When resolving which profile applies to a device:
   1. SRQL targeting profiles (ordered by priority, highest first)
-  2. Default profile (fallback)
+  2. No match returns a disabled sysmon config
 
   Profiles use `target_query` (SRQL) to define which devices they apply to.
   Example: `target_query: "in:devices tags.role:database"` matches all devices
@@ -35,7 +35,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
         },
         "profile_id" => "uuid",
         "profile_name" => "Production Monitoring",
-        "config_source" => "srql"
+        "config_source" => "remote"
       }
   """
 
@@ -69,8 +69,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
       config = compile_profile(profile)
       {:ok, config}
     else
-      # Return default config if no profile found
-      {:ok, default_config()}
+      # Return disabled config if no profile found
+      {:ok, disabled_config()}
     end
   rescue
     e ->
@@ -97,14 +97,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
 
   Resolution order:
   1. SRQL targeting profiles (ordered by priority, highest first)
-  2. Default profile
 
   Returns the matching SysmonProfile or nil if no profile matches.
   """
   @spec resolve_profile(String.t() | nil, map()) :: SysmonProfile.t() | nil
   def resolve_profile(device_uid, actor) do
-    try_srql_targeting(device_uid, actor) ||
-      get_default_profile(actor)
+    try_srql_targeting(device_uid, actor)
   end
 
   # Try to find a matching profile via SRQL targeting
@@ -126,12 +124,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   """
   @spec compile_profile(SysmonProfile.t()) :: map()
   def compile_profile(profile) do
-    config_source =
-      cond do
-        profile.is_default -> "default"
-        not is_nil(profile.target_query) -> "srql"
-        true -> "profile"
-      end
+    config_source = "remote"
 
     %{
       "enabled" => profile.enabled,
@@ -151,36 +144,24 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   end
 
   @doc """
-  Returns default sysmon configuration when no profile is assigned.
+  Returns a disabled sysmon configuration when no profile is assigned.
   """
-  @spec default_config() :: map()
-  def default_config do
+  @spec disabled_config() :: map()
+  def disabled_config do
     %{
-      "enabled" => true,
+      "enabled" => false,
       "sample_interval" => "10s",
-      "collect_cpu" => true,
-      "collect_memory" => true,
-      "collect_disk" => true,
+      "collect_cpu" => false,
+      "collect_memory" => false,
+      "collect_disk" => false,
       "collect_network" => false,
       "collect_processes" => false,
       "disk_paths" => [],
       "disk_exclude_paths" => [],
       "thresholds" => %{},
-      "profile_id" => nil,
-      "profile_name" => "Default",
-      "config_source" => "default"
+      "profile_id" => "",
+      "profile_name" => "",
+      "config_source" => "unassigned"
     }
-  end
-
-  # Get the default profile
-  defp get_default_profile(actor) do
-    query =
-      SysmonProfile
-      |> Ash.Query.for_read(:get_default, %{})
-
-    case Ash.read_one(query, actor: actor) do
-      {:ok, profile} -> profile
-      {:error, _} -> nil
-    end
   end
 end

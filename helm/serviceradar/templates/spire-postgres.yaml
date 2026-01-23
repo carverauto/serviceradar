@@ -42,6 +42,7 @@
   (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS age');")
   (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS pg_trgm');")
   (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS pgcrypto');")
+  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements');")
   (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE SCHEMA IF NOT EXISTS %s AUTHORIZATION serviceradar');" $appSchema)
   (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'GRANT ALL ON SCHEMA %s TO serviceradar');" $appSchema)
   (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'ALTER ROLE serviceradar SET search_path TO %s,ag_catalog');" $appSchema)

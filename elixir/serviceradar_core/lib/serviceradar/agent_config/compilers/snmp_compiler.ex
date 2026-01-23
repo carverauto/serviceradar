@@ -61,17 +61,20 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SNMPProfiles.CredentialResolver
+  alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
+  alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadar.SNMPProfiles.SrqlTargetResolver
   alias ServiceRadar.Vault
+  alias UUID
 
   @impl true
   def config_type, do: :snmp
 
   @impl true
   def source_resources do
-    [SNMPProfile, SNMPOIDTemplate, Device]
+    [SNMPProfile, SNMPOIDTemplate, SNMPTarget, SNMPOIDConfig, Device]
   end
 
   @impl true
@@ -149,17 +152,24 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   """
   @spec compile_profile(SNMPProfile.t(), map()) :: map()
   def compile_profile(profile, actor) do
-    # 1. Execute target_query to find matching devices
+    # 1. Load explicit targets (from interface selection or profile overrides)
+    profile_targets = load_profile_targets(profile, actor)
+
+    # 2. Execute target_query to find matching devices
     devices = execute_target_query(profile.target_query, actor)
 
-    # 2. Load OIDs from profile's templates
+    # 3. Load OIDs from profile's templates
     oids = load_template_oids(profile.oid_template_ids, actor)
 
-    # 3. Build target config for each device
-    compiled_targets =
+    # 4. Build target config for each device (only when templates are present)
+    query_targets =
       devices
       |> Enum.map(fn device -> compile_device_target(device, profile, oids, actor) end)
       |> Enum.reject(&is_nil/1)
+
+    compiled_targets =
+      profile_targets
+      |> merge_targets(query_targets)
 
     %{
       "enabled" => profile.enabled and compiled_targets != [],
@@ -412,6 +422,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   # Compile a device into a target config
   defp compile_device_target(device, profile, oids, actor) do
+    if oids == [] do
+      Logger.debug("SNMPCompiler: skipping device #{device.uid} (no OIDs)")
+      nil
+    else
     # Get host address - prefer IP, fall back to hostname
     host = device.ip || device.hostname
 
@@ -420,6 +434,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       nil
     else
       compile_device_target_with_host(device, profile, oids, actor, host)
+    end
     end
   end
 
@@ -471,6 +486,92 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         "delta" => Map.get(oid, "delta", false)
       }
     end)
+  end
+
+  defp load_profile_targets(profile, actor) do
+    query =
+      SNMPTarget
+      |> Ash.Query.filter(snmp_profile_id == ^profile.id)
+      |> Ash.Query.load(:oid_configs)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, targets} ->
+        targets
+        |> Enum.map(&compile_profile_target(&1, profile))
+        |> Enum.reject(&is_nil/1)
+
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: failed to load profile targets - #{inspect(reason)}")
+        []
+    end
+  end
+
+  defp compile_profile_target(%SNMPTarget{} = target, profile) do
+    oids =
+      target.oid_configs
+      |> Enum.map(&oid_config_to_map/1)
+      |> Enum.reject(&is_nil/1)
+
+    if oids == [] do
+      nil
+    else
+      base_target = %{
+        "id" => target.id,
+        "name" => target.name,
+        "host" => target.host,
+        "port" => target.port,
+        "version" => format_version(target.version),
+        "poll_interval_seconds" => profile.poll_interval,
+        "timeout_seconds" => profile.timeout,
+        "retries" => profile.retries,
+        "oids" => compile_oids(oids)
+      }
+
+      apply_snmp_auth(base_target, target.version, target_credential(target))
+    end
+  end
+
+  defp compile_profile_target(_, _), do: nil
+
+  defp oid_config_to_map(%SNMPOIDConfig{} = oid) do
+    %{
+      "oid" => oid.oid,
+      "name" => oid.name,
+      "data_type" => to_string(oid.data_type),
+      "scale" => oid.scale || 1.0,
+      "delta" => oid.delta || false
+    }
+  end
+
+  defp oid_config_to_map(_), do: nil
+
+  defp target_credential(%SNMPTarget{} = target) do
+    %{
+      version: target.version || :v2c,
+      community: decrypt_credential(Map.get(target, :community_encrypted)),
+      username: target.username,
+      security_level: target.security_level,
+      auth_protocol: target.auth_protocol,
+      auth_password: decrypt_credential(Map.get(target, :auth_password_encrypted)),
+      priv_protocol: target.priv_protocol,
+      priv_password: decrypt_credential(Map.get(target, :priv_password_encrypted))
+    }
+  end
+
+  defp target_credential(_), do: %{}
+
+  defp merge_targets(primary, secondary) do
+    (primary ++ secondary)
+    |> Enum.reduce(%{}, fn target, acc ->
+      key =
+        Map.get(target, "host") ||
+          Map.get(target, "name") ||
+          Map.get(target, "id") ||
+          UUID.uuid4()
+
+      Map.put_new(acc, key, target)
+    end)
+    |> Map.values()
   end
 
   # Resolve credentials: device override → profile fallback

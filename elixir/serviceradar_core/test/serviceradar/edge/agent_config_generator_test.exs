@@ -239,21 +239,21 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   end
 
   describe "sysmon config" do
-    test "includes default sysmon config when no profile exists", %{agent_uid: agent_uid} do
+    test "includes disabled sysmon config when no profile exists", %{agent_uid: agent_uid} do
       {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
 
-      # Should have sysmon_config field with default values
+      # Should have sysmon_config field with disabled values
       assert config.sysmon_config != nil
-      assert config.sysmon_config.enabled == true
+      assert config.sysmon_config.enabled == false
       assert config.sysmon_config.sample_interval == "10s"
-      assert config.sysmon_config.collect_cpu == true
-      assert config.sysmon_config.collect_memory == true
-      assert config.sysmon_config.collect_disk == true
+      assert config.sysmon_config.collect_cpu == false
+      assert config.sysmon_config.collect_memory == false
+      assert config.sysmon_config.collect_disk == false
       assert config.sysmon_config.collect_network == false
       assert config.sysmon_config.collect_processes == false
       assert config.sysmon_config.disk_paths == []
       assert config.sysmon_config.disk_exclude_paths == []
-      assert config.sysmon_config.config_source == "default"
+      assert config.sysmon_config.config_source == "unassigned"
     end
 
     test "sysmon config affects version hash", %{agent_uid: agent_uid} do

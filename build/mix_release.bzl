@@ -162,9 +162,70 @@ patch_file(
         ),
     ],
 )
+
+# Patch protobuf cli.ex for parse_param functions
+patch_file(
+    Path("deps/protobuf/lib/protobuf/protoc/cli.ex"),
+    [
+        ('defp parse_param("plugins=" <> plugins, ctx) do\\n', 'defp parse_param("plugins=" <> plugins, %Context{} = ctx) do\\n'),
+        ('defp parse_param("gen_descriptors=" <> value, ctx) do\\n', 'defp parse_param("gen_descriptors=" <> value, %Context{} = ctx) do\\n'),
+        ('defp parse_param("package_prefix=" <> package, ctx) do\\n', 'defp parse_param("package_prefix=" <> package, %Context{} = ctx) do\\n'),
+        ('defp parse_param("transform_module=" <> module, ctx) do\\n', 'defp parse_param("transform_module=" <> module, %Context{} = ctx) do\\n'),
+        ('defp parse_param("one_file_per_module=" <> value, ctx) do\\n', 'defp parse_param("one_file_per_module=" <> value, %Context{} = ctx) do\\n'),
+        ('defp parse_param("include_docs=" <> value, ctx) do\\n', 'defp parse_param("include_docs=" <> value, %Context{} = ctx) do\\n'),
+    ],
+)
+
+# Patch protobuf message.ex for Context struct updates
+patch_file(
+    Path("deps/protobuf/lib/protobuf/protoc/generator/message.ex"),
+    [
+        ("  defp gen_nested_msgs(ctx, desc) do\\n", "  defp gen_nested_msgs(%Context{} = ctx, desc) do\\n"),
+        ("  defp gen_nested_enums(ctx, desc) do\\n", "  defp gen_nested_enums(%Context{} = ctx, desc) do\\n"),
+        ("  defp get_fields(ctx, desc) do\\n", "  defp get_fields(%Context{} = ctx, desc) do\\n"),
+        ("  defp get_field(ctx, %FieldDescriptorProto{} = field_desc, nested_maps, oneofs) do\\n", "  defp get_field(%Context{} = ctx, %FieldDescriptorProto{} = field_desc, nested_maps, oneofs) do\\n"),
+        ("  defp field_type_name(ctx, %FieldDescriptorProto{type_name: type_name} = field_desc) do\\n", "  defp field_type_name(%Context{} = ctx, %FieldDescriptorProto{type_name: type_name} = field_desc) do\\n"),
+        ("  defp nested_maps(ctx, desc) do\\n", "  defp nested_maps(%Context{} = ctx, desc) do\\n"),
+    ],
+)
+
+# Patch protobuf extension.ex for Context struct updates
+patch_file(
+    Path("deps/protobuf/lib/protobuf/protoc/generator/extension.ex"),
+    [
+        ("  defp generate_extend_dsl(ctx, %FieldDescriptorProto{} = f, ns) do\\n", "  defp generate_extend_dsl(%Context{} = ctx, %FieldDescriptorProto{} = f, ns) do\\n"),
+        # Convert the complex struct update to use map update syntax instead
+        # The function already has %Context{} = ctx pattern match, so we can use %{} for the update
+        (
+            "          %Context{\\n"
+            "            Context.append_comment_path(ctx, \\"6.#{index}\\")\\n"
+            "            | namespace: ctx.namespace ++ [Macro.camelize(desc.name)]\\n"
+            "          },",
+            "          (fn %Context{} = c -> %Context{c | namespace: ctx.namespace ++ [Macro.camelize(desc.name)]} end).(Context.append_comment_path(ctx, \\"6.#{index}\\")),",
+        ),
+    ],
+)
+
+# Patch protobuf service.ex for Context struct updates
+patch_file(
+    Path("deps/protobuf/lib/protobuf/protoc/generator/service.ex"),
+    [
+        ("  defp generate_service_method(ctx, method) do\\n", "  defp generate_service_method(%Context{} = ctx, method) do\\n"),
+    ],
+)
+
+# Patch additional dsl.ex function
+patch_file(
+    Path("deps/protobuf/lib/protobuf/dsl.ex"),
+    [
+        ("  defp cal_json_name(props), do: %FieldProps{props | json_name: props.name}\\n", "  defp cal_json_name(%FieldProps{} = props), do: %FieldProps{props | json_name: props.name}\\n"),
+    ],
+)
 PY
 """
-    patch_script = patch_script.replace("{", "{{").replace("}", "}}")
+    # Note: We use a placeholder and manual replacement instead of .format()
+    # because .format() doesn't unescape {{ in substituted values.
+    patch_script_placeholder = "___PATCH_SCRIPT_PLACEHOLDER___"
 
     ctx.actions.run_shell(
         mnemonic = "MixRelease",
@@ -414,10 +475,10 @@ tar -czf "$EXECROOT/{tar_out}" -C "$RELEASE_DIR" .
             otp_tar = otp_tar.path if otp_tar else "",
             extra_copy = "".join(extra_copy_cmds),
             run_assets = run_assets,
-            patch_script = patch_script,
+            patch_script = patch_script_placeholder,
             hex_cache_tar = hex_cache.path if hex_cache else "",
             bun_path = bun.path if bun else "",
-        ),
+        ).replace(patch_script_placeholder, patch_script),
         use_default_shell_env = False,
     )
 

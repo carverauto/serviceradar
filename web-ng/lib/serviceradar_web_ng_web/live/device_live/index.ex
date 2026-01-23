@@ -9,7 +9,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   @default_limit 20
   @max_limit 100
@@ -33,7 +32,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:snmp_presence, %{})
      |> assign(:sysmon_presence, %{})
      |> assign(:sysmon_profiles_by_device, %{})
-     |> assign(:default_sysmon_profile, nil)
      |> assign(:limit, @default_limit)
      |> assign(:total_device_count, nil)
      |> assign(:current_page, 1)
@@ -87,8 +85,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {snmp_presence, sysmon_presence} =
       load_metric_presence(srql_module(), socket.assigns.devices, scope)
 
-    {sysmon_profiles_by_device, default_sysmon_profile} =
-      load_sysmon_profiles_for_devices(scope, socket.assigns.devices)
+    sysmon_profiles_by_device = load_sysmon_profiles_for_devices(scope, socket.assigns.devices)
 
     # Load total count for pagination display
     total_device_count = get_total_matching_count(scope, query)
@@ -106,7 +103,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        snmp_presence: snmp_presence,
        sysmon_presence: sysmon_presence,
        sysmon_profiles_by_device: sysmon_profiles_by_device,
-       default_sysmon_profile: default_sysmon_profile,
        total_device_count: total_device_count,
        current_page: current_page,
        device_stats: device_stats,
@@ -1606,22 +1602,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   attr :profile, :any, default: nil
-  attr :default_profile, :any, default: nil
 
   def sysmon_profile_badge(assigns) do
     profile_name = sysmon_profile_label(assigns.profile)
-    default_name = sysmon_profile_label(assigns.default_profile)
 
     {label, source} =
-      cond do
-        is_binary(profile_name) ->
-          {profile_name, :direct}
-
-        is_binary(default_name) ->
-          {default_name, :default}
-
-        true ->
-          {"Unassigned", :missing}
+      if is_binary(profile_name) do
+        {profile_name, :direct}
+      else
+        {"Unassigned", :missing}
       end
 
     assigns =
@@ -1639,13 +1628,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         ]}
       >
         {@label}
-      </span>
-      <span
-        :if={@source == :default}
-        class="badge badge-ghost badge-xs"
-        title="Using default profile"
-      >
-        Default
       </span>
     </div>
     """
@@ -2278,22 +2260,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   # Sysmon profile helpers
   # Note: Profile-per-device tracking removed - profiles now target devices via SRQL queries.
-  # This function returns an empty map for profiles_by_device and just the default profile.
+  # This function returns an empty map for profiles_by_device.
   defp load_sysmon_profiles_for_devices(_scope, _devices) do
-    # Load default profile for display purposes
-    default_profile =
-      SysmonProfile
-      |> Ash.Query.for_read(:get_default, %{})
-      |> Ash.read_one()
-      |> case do
-        {:ok, profile} -> profile
-        _ -> nil
-      end
-
-    # Return empty map for profiles_by_device since profile targeting is now via SRQL
-    {%{}, default_profile}
+    %{}
   rescue
-    _ -> {%{}, nil}
+    _ -> %{}
   end
 
   # CSV Import helpers

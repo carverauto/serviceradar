@@ -79,12 +79,14 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
       ])
 
     metric_name =
-      fetch_string(result, [
+      result
+      |> fetch_string([
         "metric",
         "metric_name",
         "metricName",
         "name"
       ])
+      |> normalize_metric_name()
 
     oid = fetch_string(result, ["oid", "oid_name", "oidName"])
 
@@ -170,10 +172,26 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
       bin when is_binary(bin) ->
         case Integer.parse(bin) do
           {parsed, _} -> parsed
-          :error -> parse_if_index_from_oid(oid)
+          :error ->
+            parse_if_index_from_interface_uid(fetch_value(result, ["interface_uid", "interfaceUid"])) ||
+              parse_if_index_from_oid(oid)
         end
       _ ->
-        parse_if_index_from_oid(oid)
+        parse_if_index_from_interface_uid(fetch_value(result, ["interface_uid", "interfaceUid"])) ||
+          parse_if_index_from_oid(oid)
+    end
+  end
+
+  defp parse_if_index_from_interface_uid(nil), do: nil
+  defp parse_if_index_from_interface_uid(""), do: nil
+
+  defp parse_if_index_from_interface_uid(uid) when is_binary(uid) do
+    with [prefix, value] <- String.split(uid, ":", parts: 2),
+         "ifindex" <- prefix |> String.trim() |> String.downcase(),
+         {parsed, _} <- Integer.parse(String.trim(value)) do
+      parsed
+    else
+      _ -> nil
     end
   end
 
@@ -241,6 +259,22 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
       value when is_atom(value) -> Atom.to_string(value)
       value when is_integer(value) -> Integer.to_string(value)
       _ -> nil
+    end
+  end
+
+  defp normalize_metric_name(nil), do: nil
+
+  defp normalize_metric_name(metric_name) when is_binary(metric_name) do
+    metric_name
+    |> String.trim()
+    |> case do
+      "" -> nil
+      name ->
+        case String.split(name, "::", parts: 2) do
+          [base, _suffix] -> base
+          [base] -> base
+          _ -> name
+        end
     end
   end
 
