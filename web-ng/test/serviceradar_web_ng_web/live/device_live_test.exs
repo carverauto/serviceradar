@@ -69,6 +69,65 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Save SNMP Credentials"
   end
 
+  test "renders sysmon cpu header gauge and memory/disk sections", %{conn: conn} do
+    uid = "test-device-sysmon-metrics-#{System.unique_integer([:positive])}"
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "test-host-sysmon",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    Repo.insert_all("cpu_metrics", [
+      %{
+        timestamp: now,
+        gateway_id: "test-gw",
+        core_id: 0,
+        usage_percent: 42.4,
+        device_id: uid,
+        created_at: now
+      }
+    ])
+
+    Repo.insert_all("memory_metrics", [
+      %{
+        timestamp: now,
+        gateway_id: "test-gw",
+        used_bytes: 1_073_741_824,
+        available_bytes: 2_147_483_648,
+        total_bytes: 3_221_225_472,
+        device_id: uid,
+        created_at: now
+      }
+    ])
+
+    Repo.insert_all("disk_metrics", [
+      %{
+        timestamp: now,
+        gateway_id: "test-gw",
+        mount_point: "/",
+        device_name: "/dev/sda1",
+        used_bytes: 10_737_418_240,
+        total_bytes: 21_474_836_480,
+        device_id: uid,
+        created_at: now
+      }
+    ])
+
+    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
+
+    assert html =~ "CPU"
+    assert html =~ "42.4%"
+    assert html =~ "Memory"
+    assert html =~ "Disk"
+  end
+
   describe "device show page interfaces tab" do
     setup %{conn: conn} do
       device_uid = "test-device-interfaces-#{System.unique_integer([:positive])}"

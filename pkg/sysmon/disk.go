@@ -18,6 +18,7 @@ package sysmon
 
 import (
 	"context"
+	"os"
 
 	"github.com/shirou/gopsutil/v3/disk"
 )
@@ -69,6 +70,10 @@ func CollectDisks(ctx context.Context, paths []string, excludePaths []string) ([
 			continue
 		}
 
+		if !isMountpointDir(mountpoint) {
+			continue
+		}
+
 		// Skip pseudo filesystems
 		if isPseudoFilesystem(partition.Fstype) {
 			continue
@@ -96,6 +101,10 @@ func collectDiskUsageForPaths(ctx context.Context, paths []string, excludeSet ma
 
 	for _, path := range paths {
 		if path == "" {
+			continue
+		}
+
+		if !isMountpointDir(path) {
 			continue
 		}
 
@@ -129,6 +138,14 @@ func collectDiskUsageForPaths(ctx context.Context, paths []string, excludeSet ma
 	}
 
 	return metrics
+}
+
+func isMountpointDir(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }
 
 func buildPathSet(paths []string) map[string]struct{} {
