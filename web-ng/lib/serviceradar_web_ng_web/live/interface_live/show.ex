@@ -42,7 +42,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:group_form, to_form(%{}, as: :group))
      |> assign(:loading, true)
      |> assign(:error, nil)
-     |> assign(:metrics, %{panels: [], error: nil})}
+     |> assign(:metrics, %{panels: [], error: nil, message: nil})}
   end
 
   @impl true
@@ -477,7 +477,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
           <%!-- Metrics Graphs Section (positioned at top, below header) --%>
           <div
-            :if={@metrics.panels != [] || @metrics.error}
+            :if={@metrics.panels != [] || @metrics.error || @metrics.message}
             class="card bg-base-100 border border-base-200 shadow-sm"
           >
             <div class="card-body">
@@ -490,6 +490,14 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 <div class="alert alert-error alert-sm">
                   <.icon name="hero-exclamation-triangle" class="size-4" />
                   <span class="text-sm">{@metrics.error}</span>
+                </div>
+              </div>
+
+              <%!-- Empty-state message --%>
+              <div :if={@metrics.message && @metrics.panels == [] && !@metrics.error} class="py-4">
+                <div class="alert alert-info alert-sm">
+                  <.icon name="hero-information-circle" class="size-4" />
+                  <span class="text-sm">{@metrics.message}</span>
                 </div>
               </div>
 
@@ -1391,7 +1399,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   end
 
   defp load_interface_metrics(_srql_module, _device_uid, nil, _settings, _scope) do
-    %{panels: [], error: nil}
+    %{panels: [], error: nil, message: nil}
   end
 
   defp load_interface_metrics(srql_module, device_uid, interface, settings, scope) do
@@ -1416,16 +1424,16 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       case srql_module.query(query, %{scope: scope}) do
         {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
           panels = build_metrics_panels(response, if_speed_bytes_per_sec, metric_groups)
-          %{panels: panels, error: nil}
+          %{panels: panels, error: nil, message: nil}
 
         {:ok, %{"results" => []}} ->
           %{panels: [], error: nil, message: "No metrics data available yet"}
 
         {:error, reason} ->
-          %{panels: [], error: "Failed to load metrics: #{inspect(reason)}"}
+          %{panels: [], error: "Failed to load metrics: #{inspect(reason)}", message: nil}
 
         _ ->
-          %{panels: [], error: nil}
+          %{panels: [], error: nil, message: nil}
       end
     end
   end
