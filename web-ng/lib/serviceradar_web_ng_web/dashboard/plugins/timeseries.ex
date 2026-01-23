@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   @chart_width 800
   @chart_height 140
   @chart_pad 8
+  @counter_max_32 4_294_967_295.0
+  @counter_max_64 18_446_744_073_709_551_615.0
 
   @impl true
   def id, do: "timeseries"
@@ -204,15 +206,89 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             {x, y}
           end)
 
-        line =
-          coords
-          |> Enum.map_join(" ", fn {x, y} -> "#{x},#{y}" end)
-
-        area = area_path(coords)
+        # Use smooth curves for bandwidth data - looks better than jagged lines
+        line = smooth_line_path(coords)
+        area = smooth_area_path(coords)
 
         %{line: line, area: area, min: min_v, max: max_v, avg: avg_v, latest: latest}
     end
   end
+
+  # Convert counter metrics into per-second rates by calculating deltas between points.
+  defp counter_rates(series_points, max_speed) when is_list(series_points) do
+    Enum.map(series_points, fn {series, points} ->
+      sorted_points = Enum.sort_by(points, fn {dt, _v} -> dt end)
+      {series, counter_rate_points(sorted_points, series, max_speed)}
+    end)
+  end
+
+  defp counter_rates(series_points, _max_speed), do: series_points
+
+  defp counter_rate_points(points, series, max_speed) do
+    {_prev, acc} =
+      Enum.reduce(points, {nil, []}, fn {dt, value}, {prev, acc} ->
+        case prev do
+          nil ->
+            {{dt, value}, [{dt, 0.0} | acc]}
+
+          {prev_dt, prev_value} ->
+            diff = DateTime.diff(dt, prev_dt, :second)
+
+            rate =
+              if diff <= 0 do
+                0.0
+              else
+                value
+                |> counter_delta(prev_value, series)
+                |> Kernel./(diff)
+                |> clamp_rate(max_speed)
+              end
+
+            {{dt, value}, [{dt, rate} | acc]}
+        end
+      end)
+
+    Enum.reverse(acc)
+  end
+
+  defp counter_delta(current, previous, series) when is_number(current) and is_number(previous) do
+    cond do
+      current >= previous ->
+        current - previous
+
+      true ->
+        max_value = counter_max(series, previous)
+
+        if max_value > previous do
+          (max_value - previous) + current
+        else
+          0.0
+        end
+    end
+  end
+
+  defp counter_delta(_, _, _), do: 0.0
+
+  defp counter_max(series, previous) do
+    series_label = to_string(series || "")
+
+    cond do
+      String.contains?(series_label, "HC") -> @counter_max_64
+      previous > @counter_max_32 -> @counter_max_64
+      true -> @counter_max_32
+    end
+  end
+
+  defp clamp_rate(rate, max_speed)
+       when is_number(rate) and is_number(max_speed) and max_speed > 0 do
+    if rate > max_speed do
+      max_speed
+    else
+      rate
+    end
+  end
+
+  defp clamp_rate(rate, _max_speed), do: rate
 
   defp value_to_y(_v, min_v, max_v) when min_v == max_v, do: round(@chart_height / 2)
 
@@ -222,18 +298,101 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     round(@chart_height - @chart_pad - scaled * usable)
   end
 
-  defp area_path([]), do: ""
+  # Smooth line path using monotone cubic interpolation
+  # Creates visually appealing curves that pass through all points
+  defp smooth_line_path([]), do: ""
+  defp smooth_line_path([{x, y}]), do: "M #{x},#{y}"
 
-  defp area_path([{first_x, _} | _] = coords) do
+  defp smooth_line_path(coords) do
+    [{x0, y0} | _rest] = coords
+    curves = build_smooth_curves(coords)
+    "M #{x0},#{y0} #{curves}"
+  end
+
+  # Smooth area path with gradient fill
+  defp smooth_area_path([]), do: ""
+
+  defp smooth_area_path([{x, y}]) do
+    base = baseline_y()
+    "M #{x},#{base} L #{x},#{y} L #{x},#{base} Z"
+  end
+
+  defp smooth_area_path(coords) do
+    [{first_x, _} | _] = coords
     {last_x, _} = List.last(coords)
+    base = baseline_y()
+    curves = build_smooth_curves(coords)
+    [{x0, y0} | _] = coords
 
-    path =
-      coords
-      |> Enum.map_join(" L ", fn {x, y} -> "#{x},#{y}" end)
+    "M #{first_x},#{base} L #{x0},#{y0} #{curves} L #{last_x},#{base} Z"
+  end
 
-    "M #{first_x},#{baseline_y()} L " <>
-      path <>
-      " L #{last_x},#{baseline_y()} Z"
+  # Build smooth bezier curve segments using Catmull-Rom spline
+  defp build_smooth_curves(coords) when length(coords) < 2, do: ""
+
+  defp build_smooth_curves(coords) do
+    # Convert to Catmull-Rom control points, then to cubic bezier
+    points = Enum.map(coords, fn {x, y} -> {x / 1, y / 1} end)
+
+    points
+    |> Enum.chunk_every(4, 1, :discard)
+    |> Enum.map(&catmull_rom_to_bezier/1)
+    |> Enum.concat(handle_end_segments(points))
+    |> Enum.join(" ")
+  end
+
+  defp handle_end_segments(points) when length(points) < 2, do: []
+
+  defp handle_end_segments(points) do
+    # Handle first segment (no preceding point)
+    first_segment =
+      case Enum.take(points, 3) do
+        [{x0, y0}, {x1, y1}, {_x2, _y2}] ->
+          # Simple quadratic approximation for first segment
+          cx = x0 + (x1 - x0) * 0.5
+          cy = y0 + (y1 - y0) * 0.5
+          "Q #{cx},#{cy} #{x1},#{y1}"
+
+        [{_x0, _y0}, {x1, y1}] ->
+          "L #{x1},#{y1}"
+
+        _ ->
+          ""
+      end
+
+    # Handle remaining points with simple lines if not enough for spline
+    remaining =
+      if length(points) <= 3 do
+        points
+        |> Enum.drop(2)
+        |> Enum.map(fn {x, y} -> "L #{x},#{y}" end)
+      else
+        # Last segment
+        case Enum.take(points, -3) do
+          [{_x0, _y0}, {x1, y1}, {x2, y2}] ->
+            cx = x1 + (x2 - x1) * 0.5
+            cy = y1 + (y2 - y1) * 0.5
+            ["Q #{cx},#{cy} #{x2},#{y2}"]
+
+          _ ->
+            []
+        end
+      end
+
+    [first_segment | remaining]
+  end
+
+  defp catmull_rom_to_bezier([{x0, y0}, {x1, y1}, {x2, y2}, {x3, y3}]) do
+    # Catmull-Rom to cubic bezier conversion
+    # Tension factor (0.5 = standard Catmull-Rom)
+    t = 0.5
+
+    cp1x = x1 + (x2 - x0) * t / 3
+    cp1y = y1 + (y2 - y0) * t / 3
+    cp2x = x2 - (x3 - x1) * t / 3
+    cp2y = y2 - (y3 - y1) * t / 3
+
+    "C #{round(cp1x)},#{round(cp1y)} #{round(cp2x)},#{round(cp2y)} #{round(x2)},#{round(y2)}"
   end
 
   defp baseline_y, do: @chart_height - @chart_pad
@@ -264,7 +423,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp dt_label(_), do: ""
 
   # Format values as bytes per second with human-readable units
-  # This handles SNMP counter rates (bytes/sec from agg:rate)
+  # This handles SNMP counter rates (bytes/sec from counter deltas or rate agg)
   defp format_value(v) when is_float(v) or is_integer(v) do
     format_bytes_per_sec(v * 1.0)
   end
@@ -334,14 +493,26 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     max_speed = Map.get(panel_assigns || %{}, :max_speed_bytes_per_sec)
     # Chart mode: :single (default) or :combined (multiple series on same chart)
     chart_mode = Map.get(panel_assigns || %{}, :chart_mode, :single)
+    # Rate mode: :counter (compute deltas) or :none (use values directly)
+    rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
+
+    series_points = Map.get(assigns, :series_points, [])
+
+    series_points =
+      case rate_mode do
+        :counter -> counter_rates(series_points, max_speed)
+        _ -> series_points
+      end
 
     socket =
       socket
       |> assign(Map.drop(assigns, [:panel_assigns]))
       |> assign(panel_assigns || %{})
       |> assign(:compact, compact)
+      |> assign(:series_points, series_points)
       |> assign(:max_speed_bytes_per_sec, max_speed)
       |> assign(:chart_mode, chart_mode)
+      |> assign(:rate_mode, rate_mode)
       |> assign(:chart_width, @chart_width)
       |> assign(:chart_height, @chart_height)
       |> assign(:chart_pad, @chart_pad)
@@ -587,13 +758,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           </defs>
 
           <path d={@data.paths.area} fill={"url(#series-fill-#{@id}-#{@data.idx})"} />
-          <polyline
+          <path
+            d={@data.paths.line}
             fill="none"
             stroke={@data.stroke}
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
-            points={@data.paths.line}
           />
         </svg>
         
@@ -703,13 +874,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     <!-- Render each series -->
           <%= for series <- @data.series do %>
             <path d={series.paths.area} fill={"url(#combined-fill-#{@id}-#{series.idx})"} />
-            <polyline
+            <path
+              d={series.paths.line}
               fill="none"
               stroke={series.stroke}
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
-              points={series.paths.line}
             />
           <% end %>
         </svg>

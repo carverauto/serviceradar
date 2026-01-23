@@ -409,7 +409,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql} hide_breadcrumb={true}>
       <div class="container mx-auto px-4 py-6 max-w-6xl">
         <%!-- Breadcrumb --%>
         <nav class="text-sm breadcrumbs mb-4">
@@ -423,9 +423,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             <li>
               <.link navigate={~p"/devices/#{@device_uid}?tab=interfaces"}>Interfaces</.link>
             </li>
-            <li class="text-base-content/70">
-              {if @interface, do: interface_name(@interface), else: "Interface"}
-            </li>
+            <li class="text-base-content/70">{@interface_uid}</li>
           </ul>
         </nav>
 
@@ -640,7 +638,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       />
                     </div>
                     <div :if={metric_groups == []} class="text-xs text-base-content/50">
-                      No custom chart groups configured. Traffic metrics (inbound/outbound) are automatically combined. Create a group to define additional custom metric combinations.
+                      No chart groups configured. Create a group to combine multiple metrics on a single chart.
                     </div>
                   </div>
                 </div>
@@ -1402,11 +1400,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     if is_nil(if_index) do
       %{panels: [], error: nil, message: "Interface has no if_index for SNMP metrics"}
     else
-      # Use agg:rate to calculate rate of change per second for counter metrics
-      # This properly handles SNMP byte counters (ifInOctets, ifOutOctets, etc.)
+      # Use agg:max to pull the latest counter values per bucket.
+      # Rate deltas are calculated client-side for SNMP counter metrics.
       query =
         "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-          "time:last_24h bucket:5m agg:rate series:metric_name limit:200"
+          "time:last_24h bucket:5m agg:max series:metric_name limit:200"
 
       # Get interface speed for proper graph scaling (bps -> bytes per second)
       if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")
@@ -1438,15 +1436,14 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups)
 
   defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, []) do
-    # No user-defined groups - build panels normally
+    # No user-defined groups - build individual panels for each metric
     Engine.build_panels(srql_response)
     |> Enum.reject(&(&1.plugin == TablePlugin))
     |> Enum.map(fn panel ->
       assigns =
         panel.assigns
         |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
-        # Enable combined chart mode for traffic metrics (inbound + outbound on same chart)
-        |> Map.put(:chart_mode, :combined)
+        |> Map.put(:rate_mode, :counter)
 
       %{panel | assigns: assigns}
     end)
@@ -1505,6 +1502,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       panel.assigns
       |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
       |> Map.put(:chart_mode, :combined)
+      |> Map.put(:rate_mode, :counter)
 
     %{panel | assigns: assigns}
   end
@@ -1530,7 +1528,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           series: series,
           max_speed_bytes_per_sec: max_speed_bytes_per_sec,
           chart_mode: :combined,
-          group_id: group["id"]
+          group_id: group["id"],
+          rate_mode: :counter
         }
       }
     end

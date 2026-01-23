@@ -107,23 +107,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     srql_module = srql_module()
     scope = Map.get(socket.assigns, :current_scope)
 
-    {results, error, viz} =
-      case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => results} = resp} when is_list(results) ->
-          viz =
-            case Map.get(resp, "viz") do
-              value when is_map(value) -> value
-              _ -> nil
-            end
-
-          {results, nil, viz}
-
-        {:ok, other} ->
-          {[], "unexpected SRQL response: #{inspect(other)}", nil}
-
-        {:error, reason} ->
-          {[], "SRQL error: #{format_error(reason)}", nil}
-      end
+    {results, error, viz} = execute_srql_query(srql_module, query, scope)
 
     page_path = uri |> to_string() |> URI.parse() |> Map.get(:path)
 
@@ -716,7 +700,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       }
     else
       # Query SNMP metrics for each favorited interface separately and build panels per interface
-      # Use agg:rate to calculate rate of change per second for counter metrics
+      # Use agg:max to pull the latest counter values per bucket; rate deltas are calculated in UI
       {all_panels, errors} =
         Enum.reduce(favorited_interfaces, {[], []}, fn fav_iface, {panels_acc, errs} ->
           query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs)
@@ -758,7 +742,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     query =
       "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-        "time:last_24h bucket:5m agg:rate series:metric_name limit:200"
+        "time:last_24h bucket:5m agg:max series:metric_name limit:200"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
@@ -788,6 +772,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         |> Map.put(:max_speed_bytes_per_sec, max_speed)
         # Enable combined chart mode for traffic metrics (inbound + outbound on same chart)
         |> Map.put(:chart_mode, :combined)
+        |> Map.put(:rate_mode, :counter)
 
       %{panel | assigns: assigns}
     end)
@@ -2906,6 +2891,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
+
+  defp execute_srql_query(srql_module, query, scope) do
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results} = resp} when is_list(results) ->
+        viz = if is_map(resp["viz"]), do: resp["viz"], else: nil
+        {results, nil, viz}
+
+      {:ok, other} ->
+        {[], "unexpected SRQL response: #{inspect(other)}", nil}
+
+      {:error, reason} ->
+        {[], "SRQL error: #{format_error(reason)}", nil}
+    end
+  end
 
   # ---------------------------------------------------------------------------
   # Availability Section
