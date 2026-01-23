@@ -1334,7 +1334,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     ~H"""
     <div class="flex gap-2">
       <span class={[
-        "badge badge-sm gap-1",
+        "badge badge-sm gap-1 min-w-[4.5rem] justify-center",
         oper_status_class(@oper_status)
       ]}>
         <.icon name={oper_status_icon(@oper_status)} class="size-3" />
@@ -1343,7 +1343,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       <span
         :if={@admin_status}
         class={[
-          "badge badge-sm badge-outline gap-1",
+          "badge badge-sm badge-outline gap-1 min-w-[5rem] justify-center",
           admin_status_class(@admin_status)
         ]}
       >
