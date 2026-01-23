@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @max_limit 200
   @metrics_limit 200
   @disk_panel_limit 6
+  @process_limit 25
   @interfaces_limit 200
   @availability_window "last_24h"
   @availability_bucket "30m"
@@ -57,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:availability, nil)
      |> assign(:healthcheck_summary, nil)
      |> assign(:sweep_results, nil)
+     |> assign(:process_metrics, nil)
      |> assign(:limit, @default_limit)
      |> assign(:srql, srql)
      # Edit mode
@@ -132,6 +134,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     metric_sections = load_metric_sections(srql_module, sysmon_filters, scope)
     sysmon_presence = sysmon_filters != []
+    process_metrics = load_process_metrics(srql_module, sysmon_filters, scope)
     availability = load_availability(srql_module, uid, scope)
     healthcheck_summary = load_healthcheck_summary(srql_module, uid, scope)
 
@@ -197,6 +200,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:sysmon_presence, sysmon_presence)
      |> assign(:sysmon_profile_info, sysmon_profile_info)
      |> assign(:available_profiles, available_profiles)
+     |> assign(:process_metrics, process_metrics)
      |> assign(:availability, availability)
      |> assign(:healthcheck_summary, healthcheck_summary)
      |> assign(:sweep_results, sweep_results)
@@ -1461,6 +1465,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 </div>
               <% end %>
 
+              <.process_metrics_section
+                :if={@sysmon_metrics_visible and is_list(@process_metrics)}
+                metrics={@process_metrics}
+              />
+
               <%= for panel <- @panels do %>
                 <%= if panel.plugin == TablePlugin and length(@results) == 1 and is_map(@device_row) do %>
                   <.device_properties_card row={@device_row} />
@@ -2070,6 +2079,80 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   # ---------------------------------------------------------------------------
+  # Process Metrics Section
+  # ---------------------------------------------------------------------------
+
+  attr :metrics, :list, required: true
+
+  defp process_metrics_section(assigns) do
+    ~H"""
+    <% rows = @metrics || [] %>
+    <% row_count = length(rows) %>
+    <% last_sampled =
+      rows
+      |> Enum.max_by(&timestamp_sort_key/1, fn -> nil end)
+      |> case do
+        nil -> nil
+        row -> Map.get(row, "timestamp")
+      end
+    %>
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-command-line" class="size-4 text-accent" />
+          <span class="text-sm font-semibold">Processes</span>
+          <span class="text-xs text-base-content/50">
+            last 15m<%= if row_count > 0, do: " · top #{row_count} by CPU", else: "" %>
+          </span>
+        </div>
+        <div class="text-xs text-base-content/50">
+          <span :if={row_count > 0} class="font-mono">{format_timestamp(last_sampled)}</span>
+        </div>
+      </div>
+
+      <div :if={row_count == 0} class="p-6 text-center">
+        <.icon name="hero-command-line" class="size-10 text-base-content/20 mx-auto" />
+        <p class="text-sm text-base-content/70 mt-2">No process metrics collected.</p>
+        <p class="text-xs text-base-content/50 mt-1">
+          Enable process collection in the sysmon profile and wait for samples.
+        </p>
+      </div>
+
+      <div :if={row_count > 0} class="p-4 overflow-x-auto">
+        <table class="table table-xs">
+          <thead>
+            <tr>
+              <th>Process</th>
+              <th class="text-right">PID</th>
+              <th class="text-right">CPU %</th>
+              <th class="text-right">Memory</th>
+              <th>Status</th>
+              <th>Sampled</th>
+            </tr>
+          </thead>
+          <tbody>
+            <%= for row <- rows do %>
+              <tr class="hover">
+                <td class="text-xs font-medium">{format_value(Map.get(row, "name"))}</td>
+                <td class="text-xs font-mono text-right">{format_value(Map.get(row, "pid"))}</td>
+                <td class="text-xs font-mono text-right">
+                  {format_pct(parse_number(Map.get(row, "cpu_usage")))}%
+                </td>
+                <td class="text-xs font-mono text-right">
+                  {format_bytes(Map.get(row, "memory_usage"))}
+                </td>
+                <td class="text-xs">{format_value(Map.get(row, "status"))}</td>
+                <td class="text-xs font-mono">{format_timestamp(Map.get(row, "timestamp"))}</td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
   # Interface Metrics Section
   # ---------------------------------------------------------------------------
 
@@ -2628,6 +2711,62 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp escape_value(other), do: escape_value(to_string(other))
 
+  defp load_process_metrics(_srql_module, [], _scope), do: []
+
+  defp load_process_metrics(srql_module, filter_tokens, scope) do
+    query = process_metrics_query(filter_tokens)
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        normalize_process_rows(results)
+
+      {:ok, _} ->
+        []
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp process_metrics_query(filter_tokens) do
+    [
+      "in:process_metrics",
+      "time:last_15m"
+    ]
+    |> Kernel.++(filter_tokens)
+    |> Kernel.++(["sort:cpu_usage:desc", "limit:#{@process_limit}"])
+    |> Enum.join(" ")
+  end
+
+  defp normalize_process_rows(rows) when is_list(rows) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.sort_by(&timestamp_sort_key/1, :desc)
+    |> Enum.reduce(%{}, fn row, acc ->
+      Map.put_new(acc, process_identity(row), row)
+    end)
+    |> Map.values()
+    |> Enum.sort_by(&process_cpu_sort_key/1, :desc)
+    |> Enum.take(@process_limit)
+  end
+
+  defp normalize_process_rows(_), do: []
+
+  defp process_identity(row) when is_map(row) do
+    {Map.get(row, "pid"), Map.get(row, "name")}
+  end
+
+  defp process_identity(_), do: {nil, nil}
+
+  defp process_cpu_sort_key(row) when is_map(row) do
+    case parse_number(Map.get(row, "cpu_usage")) do
+      value when is_number(value) -> value
+      _ -> -1
+    end
+  end
+
+  defp process_cpu_sort_key(_), do: -1
+
   defp load_metric_sections(_srql_module, [], _scope), do: []
 
   defp load_metric_sections(srql_module, filter_tokens, scope) do
@@ -2883,6 +3022,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp parse_datetime(_), do: {:error, :invalid_datetime}
+
+  defp format_timestamp(nil), do: "—"
+
+  defp format_timestamp(value) do
+    case parse_datetime(value) do
+      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      {:ok, %NaiveDateTime{} = ndt} -> Calendar.strftime(ndt, "%Y-%m-%d %H:%M:%S")
+      _ -> "—"
+    end
+  end
 
   defp parse_number(value) when is_integer(value), do: value * 1.0
   defp parse_number(value) when is_float(value), do: value
