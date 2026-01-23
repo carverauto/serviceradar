@@ -396,73 +396,85 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp insert_bulk([], _resource, _actor, _label), do: :ok
 
   defp insert_bulk(records, resource, actor, label) do
-    # Use upsert with skip_unknown_inputs to handle duplicates gracefully.
-    # TimescaleDB hypertables have chunk-prefixed constraint names (e.g., "1_3_discovered_interfaces_pkey")
-    # that Ash can't match, so we use upsert?: true with upsert_fields: [] to skip duplicates.
-    {records, opts} =
-      if resource == Interface do
-        filtered =
-          records
-          |> Enum.reject(fn record ->
-            key = interface_identity_key(record)
-            elem(key, 0) == nil or elem(key, 1) == nil or elem(key, 2) == nil
-          end)
+    {prepared_records, opts} = prepare_bulk_records(records, resource, actor)
 
-        deduped = Enum.uniq_by(filtered, &interface_identity_key/1)
-        deduped = dedupe_by_interface(deduped)
+    prepared_records
+    |> Ash.bulk_create(resource, :create, opts)
+    |> handle_bulk_result(label)
+  end
 
-        if length(filtered) != length(records) do
-          Logger.debug(
-            "Mapper interfaces batch dropped #{length(records) - length(filtered)} record(s) missing identity fields"
-          )
-        end
+  defp prepare_bulk_records(records, Interface, actor) do
+    filtered = Enum.reject(records, &missing_interface_identity?/1)
+    log_filtered_interfaces(records, filtered)
 
-        if length(deduped) != length(filtered) do
-          Logger.debug(
-            "Mapper interfaces batch contained duplicates, deduped #{length(filtered) - length(deduped)} record(s)"
-          )
-        end
+    deduped =
+      filtered
+      |> Enum.uniq_by(&interface_identity_key/1)
+      |> dedupe_by_interface()
 
-        {deduped,
-         [
-           actor: actor,
-           return_errors?: true,
-           stop_on_error?: false,
-           upsert?: true,
-           upsert_identity: :unique_interface,
-           upsert_fields: []
-         ]}
-      else
-        {records,
-         [
-           actor: actor,
-           return_errors?: true,
-           stop_on_error?: false
-         ]}
-      end
+    log_deduped_interfaces(filtered, deduped)
 
-    case Ash.bulk_create(records, resource, :create, opts) do
-      %Ash.BulkResult{status: :success} ->
-        :ok
+    {deduped,
+     [
+       actor: actor,
+       return_errors?: true,
+       stop_on_error?: false,
+       upsert?: true,
+       upsert_identity: :unique_interface,
+       upsert_fields: []
+     ]}
+  end
 
-      %Ash.BulkResult{status: :error, errors: errors} ->
-        # Check if all errors are TimescaleDB chunk-prefixed constraint violations
-        # These occur because TimescaleDB prefixes constraint names with chunk IDs
-        # (e.g., "1_2_discovered_interfaces_pkey" instead of "discovered_interfaces_pkey")
-        if timescaledb_pkey_violations?(errors) do
-          Logger.debug(
-            "Mapper #{label}: skipped #{length(List.wrap(errors))} duplicate(s) (TimescaleDB constraint)"
-          )
+  defp prepare_bulk_records(records, _resource, actor) do
+    {records,
+     [
+       actor: actor,
+       return_errors?: true,
+       stop_on_error?: false
+     ]}
+  end
 
-          :ok
-        else
-          Logger.warning("Mapper #{label} ingestion failed: #{inspect(errors)}")
-          {:error, errors}
-        end
+  defp handle_bulk_result(%Ash.BulkResult{status: :success}, _label), do: :ok
 
-      {:error, reason} ->
-        Logger.warning("Mapper #{label} ingestion failed: #{inspect(reason)}")
-        {:error, reason}
+  defp handle_bulk_result(%Ash.BulkResult{status: :error, errors: errors}, label) do
+    # Check if all errors are TimescaleDB chunk-prefixed constraint violations
+    # These occur because TimescaleDB prefixes constraint names with chunk IDs
+    # (e.g., "1_2_discovered_interfaces_pkey" instead of "discovered_interfaces_pkey")
+    if timescaledb_pkey_violations?(errors) do
+      Logger.debug(
+        "Mapper #{label}: skipped #{length(List.wrap(errors))} duplicate(s) (TimescaleDB constraint)"
+      )
+
+      :ok
+    else
+      Logger.warning("Mapper #{label} ingestion failed: #{inspect(errors)}")
+      {:error, errors}
+    end
+  end
+
+  defp handle_bulk_result({:error, reason}, label) do
+    Logger.warning("Mapper #{label} ingestion failed: #{inspect(reason)}")
+    {:error, reason}
+  end
+
+  defp missing_interface_identity?(record) do
+    key = interface_identity_key(record)
+    elem(key, 0) == nil or elem(key, 1) == nil or elem(key, 2) == nil
+  end
+
+  defp log_filtered_interfaces(records, filtered) do
+    if length(filtered) != length(records) do
+      Logger.debug(
+        "Mapper interfaces batch dropped #{length(records) - length(filtered)} record(s) missing identity fields"
+      )
+    end
+  end
+
+  defp log_deduped_interfaces(filtered, deduped) do
+    if length(deduped) != length(filtered) do
+      Logger.debug(
+        "Mapper interfaces batch contained duplicates, deduped #{length(filtered) - length(deduped)} record(s)"
+      )
     end
   end
 

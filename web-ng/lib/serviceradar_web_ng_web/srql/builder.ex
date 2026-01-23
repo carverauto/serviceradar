@@ -296,7 +296,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp maybe_add_sort(tokens, nil, _dir), do: tokens
   defp maybe_add_sort(tokens, field, dir), do: tokens ++ ["sort:#{field}:#{dir}"]
 
-  defp maybe_add_filters(entity, tokens, filters) when is_list(filters) do
+  defp maybe_add_filters(tokens, entity, filters) when is_list(filters) do
     # Group filters by field and operator type for merging
     grouped = group_filters_for_merge(filters)
     array_fields = get_array_fields(entity)
