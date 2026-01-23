@@ -210,9 +210,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             {x, y}
           end)
 
-        # Use smooth curves for bandwidth data - looks better than jagged lines
-        line = smooth_line_path(coords)
-        area = smooth_area_path(coords)
+        line = line_path(coords)
+        area = area_path(coords)
 
         %{line: line, area: area, min: min_v, max: max_v, avg: avg_v, latest: latest}
     end
@@ -383,104 +382,220 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     round(@chart_height - @chart_pad - scaled * usable)
   end
 
-  # Smooth line path using monotone cubic interpolation
-  # Creates visually appealing curves that pass through all points
-  defp smooth_line_path([]), do: ""
-  defp smooth_line_path([{x, y}]), do: "M #{x},#{y}"
+  defp line_path([]), do: ""
+  defp line_path([{x, y}]), do: "M #{x},#{y}"
 
-  defp smooth_line_path(coords) do
-    [{x0, y0} | _rest] = coords
-    curves = build_smooth_curves(coords)
-    "M #{x0},#{y0} #{curves}"
+  defp line_path(coords) when length(coords) < 3 do
+    [{x0, y0} | rest] = coords
+
+    segments =
+      rest
+      |> Enum.map(fn {x, y} -> "L #{x},#{y}" end)
+      |> Enum.join(" ")
+
+    "M #{x0},#{y0} #{segments}"
   end
 
-  # Smooth area path with gradient fill
-  defp smooth_area_path([]), do: ""
+  defp line_path(coords) do
+    {x0, y0, segments} = monotone_segments(coords)
+    "M #{x0},#{y0} #{segments}"
+  end
 
-  defp smooth_area_path([{x, y}]) do
+  defp area_path([]), do: ""
+
+  defp area_path([{x, y}]) do
     base = baseline_y()
     "M #{x},#{base} L #{x},#{y} L #{x},#{base} Z"
   end
 
-  defp smooth_area_path(coords) do
-    [{first_x, _} | _] = coords
+  defp area_path(coords) when length(coords) < 3 do
+    [{first_x, first_y} | rest] = coords
     {last_x, _} = List.last(coords)
     base = baseline_y()
-    curves = build_smooth_curves(coords)
-    [{x0, y0} | _] = coords
 
-    "M #{first_x},#{base} L #{x0},#{y0} #{curves} L #{last_x},#{base} Z"
+    segments =
+      rest
+      |> Enum.map(fn {x, y} -> "L #{x},#{y}" end)
+      |> Enum.join(" ")
+
+    "M #{first_x},#{base} L #{first_x},#{first_y} #{segments} L #{last_x},#{base} Z"
   end
 
-  # Build smooth bezier curve segments using Catmull-Rom spline
-  defp build_smooth_curves(coords) when length(coords) < 2, do: ""
+  defp area_path(coords) do
+    {x0, y0, segments} = monotone_segments(coords)
+    {last_x, _} = List.last(coords)
+    base = baseline_y()
 
-  defp build_smooth_curves(coords) do
-    # Convert to Catmull-Rom control points, then to cubic bezier
-    points = Enum.map(coords, fn {x, y} -> {x / 1, y / 1} end)
-
-    points
-    |> Enum.chunk_every(4, 1, :discard)
-    |> Enum.map(&catmull_rom_to_bezier/1)
-    |> Enum.concat(handle_end_segments(points))
-    |> Enum.join(" ")
+    "M #{x0},#{base} L #{x0},#{y0} #{segments} L #{last_x},#{base} Z"
   end
 
-  defp handle_end_segments(points) when length(points) < 2, do: []
+  defp monotone_segments(coords) do
+    {xs, ys} = Enum.unzip(coords)
+    n = length(xs)
+    deltas = deltas(xs, ys)
+    slopes = slopes(xs, ys, deltas)
+    segments = build_monotone_segments(xs, ys, slopes, n)
+    {List.first(xs), List.first(ys), Enum.join(segments, " ")}
+  end
 
-  defp handle_end_segments(points) do
-    # Handle first segment (no preceding point)
-    first_segment =
-      case Enum.take(points, 3) do
-        [{x0, y0}, {x1, y1}, {_x2, _y2}] ->
-          # Simple quadratic approximation for first segment
-          cx = x0 + (x1 - x0) * 0.5
-          cy = y0 + (y1 - y0) * 0.5
-          "Q #{cx},#{cy} #{x1},#{y1}"
+  defp deltas(xs, ys) do
+    0..(length(xs) - 2)
+    |> Enum.map(fn i ->
+      x0 = Enum.at(xs, i)
+      x1 = Enum.at(xs, i + 1)
+      y0 = Enum.at(ys, i)
+      y1 = Enum.at(ys, i + 1)
+      h = x1 - x0
+      if h == 0, do: 0.0, else: (y1 - y0) / h
+    end)
+  end
 
-        [{_x0, _y0}, {x1, y1}] ->
-          "L #{x1},#{y1}"
+  defp slopes(xs, _ys, deltas) do
+    n = length(xs)
 
-        _ ->
-          ""
-      end
+    base =
+      0..(n - 1)
+      |> Enum.map(fn i ->
+        cond do
+          i == 0 ->
+            Enum.at(deltas, 0) || 0.0
 
-    # Handle remaining points with simple lines if not enough for spline
-    remaining =
-      if length(points) <= 3 do
-        points
-        |> Enum.drop(2)
-        |> Enum.map(fn {x, y} -> "L #{x},#{y}" end)
+          i == n - 1 ->
+            Enum.at(deltas, n - 2) || 0.0
+
+          true ->
+            d0 = Enum.at(deltas, i - 1)
+            d1 = Enum.at(deltas, i)
+            if d0 * d1 <= 0, do: 0.0, else: (d0 + d1) / 2
+        end
+      end)
+
+    0..(n - 2)
+    |> Enum.reduce(base, fn i, acc ->
+      d = Enum.at(deltas, i) || 0.0
+
+      if d == 0 do
+        acc
+        |> List.replace_at(i, 0.0)
+        |> List.replace_at(i + 1, 0.0)
       else
-        # Last segment
-        case Enum.take(points, -3) do
-          [{_x0, _y0}, {x1, y1}, {x2, y2}] ->
-            cx = x1 + (x2 - x1) * 0.5
-            cy = y1 + (y2 - y1) * 0.5
-            ["Q #{cx},#{cy} #{x2},#{y2}"]
+        m0 = Enum.at(acc, i) || 0.0
+        m1 = Enum.at(acc, i + 1) || 0.0
+        a = m0 / d
+        b = m1 / d
+        norm = a * a + b * b
 
-          _ ->
-            []
+        if norm > 9 do
+          tau = 3 / :math.sqrt(norm)
+          acc
+          |> List.replace_at(i, tau * a * d)
+          |> List.replace_at(i + 1, tau * b * d)
+        else
+          acc
         end
       end
-
-    [first_segment | remaining]
+    end)
   end
 
-  defp catmull_rom_to_bezier([{x0, y0}, {x1, y1}, {x2, y2}, {x3, y3}]) do
-    # Catmull-Rom to cubic bezier conversion
-    # Tension factor (0.5 = standard Catmull-Rom)
-    t = 0.5
+  defp build_monotone_segments(xs, ys, slopes, n) do
+    0..(n - 2)
+    |> Enum.map(fn i ->
+      x0 = Enum.at(xs, i)
+      y0 = Enum.at(ys, i)
+      x1 = Enum.at(xs, i + 1)
+      y1 = Enum.at(ys, i + 1)
+      h = x1 - x0
+      m0 = Enum.at(slopes, i) || 0.0
+      m1 = Enum.at(slopes, i + 1) || 0.0
 
-    cp1x = x1 + (x2 - x0) * t / 3
-    cp1y = y1 + (y2 - y0) * t / 3
-    cp2x = x2 - (x3 - x1) * t / 3
-    cp2y = y2 - (y3 - y1) * t / 3
+      cp1x = x0 + h / 3
+      cp1y = y0 + m0 * h / 3
+      cp2x = x1 - h / 3
+      cp2y = y1 - m1 * h / 3
 
-    "C #{round(cp1x)},#{round(cp1y)} #{round(cp2x)},#{round(cp2y)} #{round(x2)},#{round(y2)}"
+      "C #{fmt(cp1x)},#{fmt(cp1y)} #{fmt(cp2x)},#{fmt(cp2y)} #{fmt(x1)},#{fmt(y1)}"
+    end)
   end
+
+  defp fmt(value) when is_number(value), do: :erlang.float_to_binary(value * 1.0, decimals: 2)
 
   defp baseline_y, do: @chart_height - @chart_pad
+
+  defp chart_points(points, unit, compact) when is_list(points) do
+    points
+    |> maybe_densify(unit, compact)
+    |> maybe_smooth(unit, compact)
+  end
+
+  defp chart_points(points, _unit, _compact), do: points
+
+  defp maybe_densify(points, :bytes_per_sec, compact) do
+    factor = if compact, do: 2, else: 4
+    densified = densify_points(points, factor)
+    limit_points(densified, 600)
+  end
+
+  defp maybe_densify(points, _unit, _compact), do: points
+
+  defp maybe_smooth(points, :bytes_per_sec, compact) do
+    window = if compact, do: 1, else: 2
+    smooth_points(points, window)
+  end
+
+  defp maybe_smooth(points, _unit, _compact), do: points
+
+  defp densify_points(points, factor) when is_list(points) and factor > 1 do
+    case points do
+      [] -> []
+      [_] -> points
+      _ ->
+        points
+        |> Enum.chunk_every(2, 1, :discard)
+        |> Enum.reduce([List.first(points)], fn [{dt0, v0}, {dt1, v1}], acc ->
+          total_secs = max(DateTime.diff(dt1, dt0, :second), 1)
+          steps = factor
+
+          intermediates =
+            1..(steps - 1)
+            |> Enum.map(fn i ->
+              t = i / steps
+              dt = DateTime.add(dt0, round(total_secs * t), :second)
+              v = v0 + (v1 - v0) * t
+              {dt, v}
+            end)
+
+          acc ++ intermediates ++ [{dt1, v1}]
+        end)
+    end
+  end
+
+  defp densify_points(points, _factor), do: points
+
+  defp smooth_points(points, window) when is_list(points) and window > 0 do
+    values = Enum.map(points, fn {_dt, v} -> v end)
+    len = length(values)
+
+    smoothed =
+      values
+      |> Enum.with_index()
+      |> Enum.map(fn {_v, idx} ->
+        from = max(idx - window, 0)
+        to = min(idx + window, len - 1)
+        slice = Enum.slice(values, from..to)
+        Enum.sum(slice) / max(length(slice), 1)
+      end)
+
+    Enum.zip(Enum.map(points, &elem(&1, 0)), smoothed)
+  end
+
+  defp smooth_points(points, _window), do: points
+
+  defp limit_points(points, max_points) when is_list(points) and length(points) > max_points do
+    points
+    |> Enum.take(max_points)
+  end
+
+  defp limit_points(points, _max_points), do: points
 
   defp idx_to_x(_idx, 0), do: @chart_pad
   defp idx_to_x(0, _len), do: @chart_pad
@@ -783,7 +898,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         effective_max = if traffic_series?(series), do: max_speed, else: nil
 
         {stroke, _fill} = series_color(idx)
-        point_data = Enum.map(points, fn {dt, v} -> %{dt: dt_label(dt), v: v} end)
         # Use humanized series name for display
         display_name = humanize_series_name(series || "series")
 
@@ -793,8 +907,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
         # Calculate utilization percentage if we have interface speed
         unit = unit_for_series(series, Map.get(assigns, :spec), Map.get(assigns, :rate_mode, :none))
+        chart_points = chart_points(points, unit, compact)
         scale_max = scale_max_for_unit(unit)
-        paths = chart_paths(points, scale_max)
+        paths = chart_paths(chart_points, scale_max)
         utilization = compute_utilization(paths.avg, effective_max)
         chart_max = chart_max_from_value(paths.max, unit, scale_max)
 
@@ -804,7 +919,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           paths: paths,
           stroke: stroke,
           idx: idx,
-          point_data: point_data,
+          point_data: Enum.map(chart_points, fn {dt, v} -> %{dt: dt_label(dt), v: v} end),
           unit: unit,
           raw_points: points,
           x_ticks: x_ticks(points, compact),
