@@ -95,7 +95,10 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
             {:ok, state}
 
           {:error, reason} ->
-            Logger.error("Failed to register #{String.downcase(entity_label)}: #{inspect(reason)}")
+            Logger.error(
+              "Failed to register #{String.downcase(entity_label)}: #{inspect(reason)}"
+            )
+
             {:stop, reason}
         end
 

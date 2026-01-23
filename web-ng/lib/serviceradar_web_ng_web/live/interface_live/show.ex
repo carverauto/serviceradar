@@ -4,24 +4,53 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadarWebNGWeb.Dashboard.Engine
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
   alias ServiceRadar.Inventory.InterfaceSettings
 
   @impl true
   def mount(_params, _session, socket) do
+    srql = %{
+      enabled: true,
+      entity: "interfaces",
+      page_path: nil,
+      query: nil,
+      draft: nil,
+      error: nil,
+      viz: nil,
+      loading: false,
+      builder_available: false,
+      builder_open: false,
+      builder_supported: false,
+      builder_sync: false,
+      builder: %{}
+    }
+
     {:ok,
      socket
      |> assign(:page_title, "Interface Details")
      |> assign(:interface, nil)
      |> assign(:device, nil)
      |> assign(:settings, nil)
-     |> assign(:threshold_form, to_form(%{}, as: :threshold))
+     |> assign(:srql, srql)
+     |> assign(:metric_form, to_form(%{}, as: :metric))
+     |> assign(:metric_modal_open, false)
+     |> assign(:metric_modal_metric, nil)
+     |> assign(:group_modal_open, false)
+     |> assign(:group_modal_group, nil)
+     |> assign(:group_form, to_form(%{}, as: :group))
      |> assign(:loading, true)
-     |> assign(:error, nil)}
+     |> assign(:error, nil)
+     |> assign(:metrics, %{panels: [], error: nil})}
   end
 
   @impl true
-  def handle_params(%{"device_uid" => device_uid, "interface_uid" => interface_uid}, _uri, socket) do
+  def handle_params(
+        %{"device_uid" => device_uid, "interface_uid" => interface_uid} = params,
+        uri,
+        socket
+      ) do
     scope = socket.assigns.current_scope
     srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
 
@@ -34,12 +63,43 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     # Load interface settings (favorites, metrics enabled)
     settings = load_interface_settings(scope, device_uid, interface_uid)
 
+    # Load metrics for this interface
+    metrics = load_interface_metrics(srql_module, device_uid, interface, settings, scope)
+
     page_title =
       if interface do
         interface_name(interface)
       else
         "Interface Details"
       end
+
+    default_query =
+      "in:interfaces device_id:\"#{escape_value(device_uid)}\" " <>
+        "interface_uid:\"#{escape_value(interface_uid)}\" latest:true limit:1"
+
+    query =
+      params
+      |> Map.get("q", default_query)
+      |> to_string()
+      |> String.trim()
+      |> case do
+        "" -> default_query
+        other -> other
+      end
+
+    page_path =
+      uri
+      |> to_string()
+      |> URI.parse()
+      |> Map.get(:path)
+
+    srql =
+      socket.assigns.srql
+      |> Map.put(:query, query)
+      |> Map.put(:draft, query)
+      |> Map.put(:error, nil)
+      |> Map.put(:loading, false)
+      |> Map.put(:page_path, page_path)
 
     {:noreply,
      socket
@@ -48,9 +108,36 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:interface, interface)
      |> assign(:device, device)
      |> assign(:settings, settings)
+     |> assign(:srql, srql)
      |> assign(:loading, false)
      |> assign(:error, error)
+     |> assign(:metrics, metrics)
      |> assign(:page_title, page_title)}
+  end
+
+  @impl true
+  def handle_event("srql_change", %{"q" => q}, socket) do
+    {:noreply, assign(socket, :srql, Map.put(socket.assigns.srql, :draft, to_string(q)))}
+  end
+
+  def handle_event("srql_submit", %{"q" => q}, socket) do
+    page_path =
+      socket.assigns.srql[:page_path] ||
+        "/devices/#{socket.assigns.device_uid}/interfaces/#{socket.assigns.interface_uid}"
+
+    query =
+      q
+      |> to_string()
+      |> String.trim()
+      |> case do
+        "" -> to_string(socket.assigns.srql[:query] || "")
+        other -> other
+      end
+
+    {:noreply,
+     push_patch(socket,
+       to: page_path <> "?" <> URI.encode_query(%{"q" => query})
+     )}
   end
 
   @impl true
@@ -114,84 +201,229 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     end
   end
 
-  def handle_event("toggle_threshold", _params, socket) do
+  def handle_event("open_metric_modal", %{"metric" => metric_name}, socket) do
+    if metric_name == "Unknown" do
+      {:noreply, socket}
+    else
+      config = metric_threshold_config(socket.assigns.settings, metric_name)
+      interface = socket.assigns.interface
+      form = to_form(metric_form_values(metric_name, config, interface), as: :metric)
+
+      {:noreply,
+       socket
+       |> assign(:metric_form, form)
+       |> assign(:metric_modal_metric, metric_name)
+       |> assign(:metric_modal_open, true)}
+    end
+  end
+
+  def handle_event("close_metric_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:metric_modal_open, false)
+     |> assign(:metric_modal_metric, nil)}
+  end
+
+  def handle_event("update_threshold_form", %{"metric" => params}, socket) do
+    # Update form with new values when threshold type changes
+    form = to_form(params, as: :metric)
+    {:noreply, assign(socket, :metric_form, form)}
+  end
+
+  def handle_event("save_metric_settings", %{"metric" => params}, socket) do
+    device_uid = socket.assigns.device_uid
+    interface_uid = socket.assigns.interface_uid
+    scope = socket.assigns.current_scope
+    metric_name = params["name"] || params["metric"]
+
+    if is_nil(metric_name) or metric_name == "" do
+      {:noreply, put_flash(socket, :error, "Metric name is required")}
+    else
+      current_settings = socket.assigns.settings
+      thresholds = settings_map_value(current_settings, :metric_thresholds)
+      selected_metrics = settings_list_value(current_settings, :metrics_selected)
+      updated_config = build_metric_config(params)
+
+      updated_thresholds = Map.put(thresholds, metric_name, updated_config)
+
+      selected_metrics =
+        if config_enabled?(updated_config) and metric_name not in selected_metrics do
+          Enum.sort([metric_name | selected_metrics])
+        else
+          selected_metrics
+        end
+
+      attrs = %{
+        metric_thresholds: updated_thresholds,
+        metrics_selected: selected_metrics,
+        metrics_enabled: selected_metrics != []
+      }
+
+      case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
+        {:ok, updated_settings} ->
+          {:noreply,
+           socket
+           |> assign(:settings, updated_settings)
+           |> assign(:metric_modal_open, false)
+           |> assign(:metric_modal_metric, nil)
+           |> put_flash(:info, "Metric settings saved")}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to save metric settings")}
+      end
+    end
+  end
+
+  # Chart Group Management Events
+  def handle_event("open_group_modal", params, socket) do
+    group_id = params["group_id"]
+    groups = settings_list_value(socket.assigns.settings, :metric_groups)
+
+    {group, form_values} =
+      if group_id do
+        group = Enum.find(groups, &(&1["id"] == group_id))
+
+        if group do
+          {group,
+           %{
+             "id" => group["id"],
+             "name" => group["name"],
+             "metrics" => group["metrics"] || []
+           }}
+        else
+          {nil, new_group_form_values()}
+        end
+      else
+        {nil, new_group_form_values()}
+      end
+
+    form = to_form(form_values, as: :group)
+
+    {:noreply,
+     socket
+     |> assign(:group_form, form)
+     |> assign(:group_modal_group, group)
+     |> assign(:group_modal_open, true)}
+  end
+
+  def handle_event("close_group_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:group_modal_open, false)
+     |> assign(:group_modal_group, nil)}
+  end
+
+  def handle_event("update_group_form", %{"group" => params}, socket) do
+    form = to_form(params, as: :group)
+    {:noreply, assign(socket, :group_form, form)}
+  end
+
+  def handle_event("save_group", %{"group" => params}, socket) do
+    group_name = String.trim(params["name"] || "")
+
+    if group_name == "" do
+      {:noreply, put_flash(socket, :error, "Group name is required")}
+    else
+      save_group_with_name(socket, params, group_name)
+    end
+  end
+
+  def handle_event("delete_group", %{"group_id" => group_id}, socket) do
     device_uid = socket.assigns.device_uid
     interface_uid = socket.assigns.interface_uid
     scope = socket.assigns.current_scope
     current_settings = socket.assigns.settings
-    current_enabled = settings_value(current_settings, :threshold_enabled)
+    groups = settings_list_value(current_settings, :metric_groups)
 
-    case upsert_interface_setting(scope, device_uid, interface_uid, %{
-           threshold_enabled: not current_enabled
-         }) do
-      {:ok, updated_settings} ->
-        {:noreply,
-         socket
-         |> assign(:settings, updated_settings)
-         |> put_flash(
-           :info,
-           if(current_enabled,
-             do: "Threshold alerting disabled",
-             else: "Threshold alerting enabled"
-           )
-         )}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to update threshold setting")}
-    end
-  end
-
-  def handle_event("update_threshold", %{"threshold" => params}, socket) do
-    # Just update the form state, don't persist yet
-    {:noreply, assign(socket, :threshold_form, to_form(params, as: :threshold))}
-  end
-
-  def handle_event("save_threshold", %{"threshold" => params}, socket) do
-    device_uid = socket.assigns.device_uid
-    interface_uid = socket.assigns.interface_uid
-    scope = socket.assigns.current_scope
-
-    # Parse and validate the threshold values
-    attrs = %{
-      threshold_metric: parse_threshold_metric(params["metric"]),
-      threshold_comparison: parse_threshold_comparison(params["comparison"]),
-      threshold_value: parse_threshold_value(params["value"]),
-      threshold_duration_seconds: parse_threshold_duration(params["duration"]),
-      threshold_severity: parse_threshold_severity(params["severity"])
-    }
+    updated_groups = Enum.reject(groups, &(&1["id"] == group_id))
+    attrs = %{metric_groups: updated_groups}
 
     case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
       {:ok, updated_settings} ->
         {:noreply,
          socket
          |> assign(:settings, updated_settings)
-         |> put_flash(:info, "Threshold configuration saved")}
+         |> put_flash(:info, "Chart group deleted")}
 
       {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to save threshold configuration")}
+        {:noreply, put_flash(socket, :error, "Failed to delete chart group")}
     end
+  end
+
+  defp save_group_with_name(socket, params, group_name) do
+    device_uid = socket.assigns.device_uid
+    interface_uid = socket.assigns.interface_uid
+    scope = socket.assigns.current_scope
+    current_settings = socket.assigns.settings
+    groups = settings_list_value(current_settings, :metric_groups)
+
+    group_id = params["id"]
+    metrics = parse_metrics_from_params(params["metrics"])
+    updated_groups = update_or_create_group(groups, group_id, group_name, metrics)
+
+    attrs = %{metric_groups: updated_groups}
+
+    case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
+      {:ok, updated_settings} ->
+        {:noreply,
+         socket
+         |> assign(:settings, updated_settings)
+         |> assign(:group_modal_open, false)
+         |> assign(:group_modal_group, nil)
+         |> put_flash(:info, "Chart group saved")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to save chart group")}
+    end
+  end
+
+  defp parse_metrics_from_params(metrics) when is_map(metrics) do
+    metrics
+    |> Enum.filter(fn {_k, v} -> v == "true" or v == true end)
+    |> Enum.map(fn {k, _v} -> k end)
+    |> Enum.sort()
+  end
+
+  defp parse_metrics_from_params(metrics) when is_list(metrics), do: Enum.sort(metrics)
+  defp parse_metrics_from_params(_), do: []
+
+  defp update_or_create_group(groups, group_id, group_name, metrics)
+       when is_binary(group_id) and group_id != "" do
+    Enum.map(groups, fn g ->
+      if g["id"] == group_id,
+        do: %{"id" => group_id, "name" => group_name, "metrics" => metrics},
+        else: g
+    end)
+  end
+
+  defp update_or_create_group(groups, _group_id, group_name, metrics) do
+    new_group = %{
+      "id" => Ecto.UUID.generate(),
+      "name" => group_name,
+      "metrics" => metrics
+    }
+
+    groups ++ [new_group]
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql} hide_breadcrumb={true}>
       <div class="container mx-auto px-4 py-6 max-w-6xl">
         <%!-- Breadcrumb --%>
         <nav class="text-sm breadcrumbs mb-4">
           <ul>
             <li><.link navigate={~p"/devices"}>Devices</.link></li>
-            <li :if={@device}>
+            <li>
               <.link navigate={~p"/devices/#{@device_uid}"}>
-                {device_name(@device)}
+                {if @device, do: device_name(@device), else: "Device"}
               </.link>
             </li>
-            <li :if={!@device}>
-              <.link navigate={~p"/devices/#{@device_uid}"}>Device</.link>
+            <li>
+              <.link navigate={~p"/devices/#{@device_uid}?tab=interfaces"}>Interfaces</.link>
             </li>
-            <li class="text-base-content/70">
-              {if @interface, do: interface_name(@interface), else: "Interface"}
-            </li>
+            <li class="text-base-content/70">{@interface_uid}</li>
           </ul>
         </nav>
 
@@ -243,6 +475,38 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
           </div>
 
+          <%!-- Metrics Graphs Section (positioned at top, below header) --%>
+          <div
+            :if={@metrics.panels != [] || @metrics.error}
+            class="card bg-base-100 border border-base-200 shadow-sm"
+          >
+            <div class="card-body">
+              <h2 class="card-title text-lg">
+                <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics History
+              </h2>
+
+              <%!-- Error state --%>
+              <div :if={@metrics.error} class="py-4">
+                <div class="alert alert-error alert-sm">
+                  <.icon name="hero-exclamation-triangle" class="size-4" />
+                  <span class="text-sm">{@metrics.error}</span>
+                </div>
+              </div>
+
+              <%!-- Metrics panels --%>
+              <div :if={@metrics.panels != []} class="space-y-4">
+                <%= for {panel, idx} <- Enum.with_index(@metrics.panels) do %>
+                  <.live_component
+                    module={panel.plugin}
+                    id={"interface-detail-metrics-#{@interface_uid}-#{panel.id}-#{idx}"}
+                    title={panel.title || "Metrics"}
+                    panel_assigns={Map.put(panel.assigns, :compact, false)}
+                  />
+                <% end %>
+              </div>
+            </div>
+          </div>
+
           <%!-- Properties Grid --%>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <%!-- Basic Information --%>
@@ -260,7 +524,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   <.property_row
                     label="Type"
                     value={InterfaceTypes.humanize(Map.get(@interface, "if_type_name"))}
+                    value_title={Map.get(@interface, "if_type_name")}
                   />
+                  <.property_row label="ifIndex" value={Map.get(@interface, "if_index")} />
                   <.property_row label="Interface UID" value={@interface_uid} monospace />
                 </div>
               </div>
@@ -286,22 +552,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
               </div>
             </div>
 
-            <%!-- SNMP Information --%>
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
-              <div class="card-body">
-                <h2 class="card-title text-lg">
-                  <.icon name="hero-server" class="size-5 text-primary" /> SNMP Information
-                </h2>
-                <div class="divide-y divide-base-200">
-                  <.property_row label="ifIndex" value={Map.get(@interface, "if_index")} />
-                  <.property_row label="ifType (numeric)" value={Map.get(@interface, "if_type")} />
-                  <.property_row label="ifType (name)" value={Map.get(@interface, "if_type_name")} />
-                </div>
-              </div>
-            </div>
-
             <%!-- Metrics Collection --%>
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
+            <div class="card bg-base-100 border border-base-200 shadow-sm lg:col-span-2">
               <div class="card-body">
                 <h2 class="card-title text-lg">
                   <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics Collection
@@ -315,7 +567,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       <div>
                         <span class="text-sm font-medium">Metrics Collection</span>
                         <p class="text-xs text-base-content/50 mt-0.5">
-                          Click a metric below to enable or disable its collection.
+                          Enable collection per metric and configure event/alert settings.
                         </p>
                       </div>
                       <span class={[
@@ -330,19 +582,26 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       Select at least one metric to enable collection.
                     </p>
                   </div>
+                  <% normalized_metrics =
+                    if available_metrics, do: Enum.filter(available_metrics, &is_map/1), else: [] %>
                   <%!-- Available Metrics Section --%>
-                  <div :if={available_metrics && length(available_metrics) > 0} class="py-3 space-y-3">
-                    <% normalized_metrics = Enum.filter(available_metrics, &is_map/1) %>
+                  <div :if={normalized_metrics != []} class="py-3 space-y-3">
                     <h3 class="text-sm font-medium">Available Metrics</h3>
-                    <div :if={normalized_metrics != []} class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <.available_metric_card
                         :for={metric <- normalized_metrics}
                         metric={metric}
                         enabled={metric_selected?(metric, selected_metrics)}
+                        event_enabled={
+                          metric_event_enabled?(metric_threshold_config(@settings, metric))
+                        }
+                        alert_enabled={
+                          metric_alert_enabled?(metric_threshold_config(@settings, metric))
+                        }
                       />
                     </div>
                   </div>
-                  <div :if={!available_metrics || available_metrics == []} class="py-3">
+                  <div :if={normalized_metrics == []} class="py-3">
                     <div class="flex items-start gap-2 text-base-content/50">
                       <.icon name="hero-question-mark-circle" class="size-4 mt-0.5" />
                       <div>
@@ -353,193 +612,54 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <%!-- Threshold Configuration (full width) --%>
-          <div class="card bg-base-100 border border-base-200 shadow-sm">
-            <div class="card-body">
-              <h2 class="card-title text-lg">
-                <.icon name="hero-bell-alert" class="size-5 text-primary" /> Threshold Alerting
-              </h2>
-
-              <% threshold_enabled = settings_value(@settings, :threshold_enabled) %>
-              <% threshold_metric = settings_value(@settings, :threshold_metric) %>
-              <% threshold_comparison = settings_value(@settings, :threshold_comparison) %>
-              <% threshold_value = settings_value(@settings, :threshold_value) %>
-              <% threshold_duration = settings_value(@settings, :threshold_duration_seconds) || 0 %>
-              <% threshold_severity = settings_value(@settings, :threshold_severity) || :warning %>
-
-              <div class="divide-y divide-base-200">
-                <div class="py-3 flex items-center justify-between">
-                  <div>
-                    <span class="text-sm font-medium">Enable Threshold Alerts</span>
-                    <p class="text-xs text-base-content/50 mt-0.5">
-                      Generate alerts when interface metrics exceed configured thresholds
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    class="toggle toggle-warning"
-                    checked={threshold_enabled}
-                    phx-click="toggle_threshold"
-                  />
-                </div>
-
-                <div :if={threshold_enabled} class="py-4 space-y-4">
-                  <.form
-                    for={@threshold_form}
-                    phx-change="update_threshold"
-                    phx-submit="save_threshold"
-                    class="space-y-4"
-                  >
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text text-xs">Metric</span>
-                        </label>
-                        <select
-                          name="threshold[metric]"
-                          class="select select-bordered select-sm w-full"
-                        >
-                          <option value="" disabled selected={!threshold_metric}>
-                            Select metric
-                          </option>
-                          <option value="utilization" selected={threshold_metric == :utilization}>
-                            Utilization %
-                          </option>
-                          <option value="bandwidth_in" selected={threshold_metric == :bandwidth_in}>
-                            Bandwidth In
-                          </option>
-                          <option value="bandwidth_out" selected={threshold_metric == :bandwidth_out}>
-                            Bandwidth Out
-                          </option>
-                          <option value="errors" selected={threshold_metric == :errors}>
-                            Errors
-                          </option>
-                        </select>
+                  <%!-- Chart Groups Section --%>
+                  <% metric_groups = settings_list_value(@settings, :metric_groups) %>
+                  <div class="py-3 space-y-3 border-t border-base-200">
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <h3 class="text-sm font-medium">Composite Charts</h3>
+                        <p class="text-xs text-base-content/50">
+                          Group metrics together to display on a single chart.
+                        </p>
                       </div>
-
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text text-xs">Condition</span>
-                        </label>
-                        <select
-                          name="threshold[comparison]"
-                          class="select select-bordered select-sm w-full"
-                        >
-                          <option value="" disabled selected={!threshold_comparison}>
-                            Select condition
-                          </option>
-                          <option value="gt" selected={threshold_comparison == :gt}>
-                            Greater than (&gt;)
-                          </option>
-                          <option value="gte" selected={threshold_comparison == :gte}>
-                            Greater or equal (&ge;)
-                          </option>
-                          <option value="lt" selected={threshold_comparison == :lt}>
-                            Less than (&lt;)
-                          </option>
-                          <option value="lte" selected={threshold_comparison == :lte}>
-                            Less or equal (&le;)
-                          </option>
-                          <option value="eq" selected={threshold_comparison == :eq}>
-                            Equal to (=)
-                          </option>
-                        </select>
-                      </div>
-
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text text-xs">Value</span>
-                        </label>
-                        <input
-                          type="number"
-                          name="threshold[value]"
-                          value={threshold_value}
-                          placeholder="e.g., 80"
-                          class="input input-bordered input-sm w-full"
-                        />
-                      </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text text-xs">Duration (seconds)</span>
-                        </label>
-                        <input
-                          type="number"
-                          name="threshold[duration]"
-                          value={threshold_duration}
-                          placeholder="0"
-                          min="0"
-                          class="input input-bordered input-sm w-full"
-                        />
-                        <label class="label">
-                          <span class="label-text-alt text-xs text-base-content/50">
-                            How long threshold must be exceeded before alerting (0 = immediate)
-                          </span>
-                        </label>
-                      </div>
-
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text text-xs">Alert Severity</span>
-                        </label>
-                        <select
-                          name="threshold[severity]"
-                          class="select select-bordered select-sm w-full"
-                        >
-                          <option value="info" selected={threshold_severity == :info}>Info</option>
-                          <option value="warning" selected={threshold_severity == :warning}>
-                            Warning
-                          </option>
-                          <option value="critical" selected={threshold_severity == :critical}>
-                            Critical
-                          </option>
-                          <option value="emergency" selected={threshold_severity == :emergency}>
-                            Emergency
-                          </option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div class="flex justify-end">
-                      <button type="submit" class="btn btn-primary btn-sm">
-                        <.icon name="hero-check" class="size-4" /> Save Threshold
+                      <button
+                        type="button"
+                        class="btn btn-xs btn-primary"
+                        phx-click="open_group_modal"
+                      >
+                        <.icon name="hero-plus-mini" class="size-3" /> New Group
                       </button>
                     </div>
-                  </.form>
-
-                  <div
-                    :if={threshold_metric && threshold_comparison && threshold_value}
-                    class="alert alert-info alert-sm"
-                  >
-                    <.icon name="hero-information-circle" class="size-4" />
-                    <span class="text-sm">
-                      Alert (<strong>{threshold_severity}</strong>) when
-                      <strong>{threshold_metric_label(threshold_metric)}</strong>
-                      is <strong>{threshold_comparison_label(threshold_comparison)}</strong>
-                      <strong>
-                        {threshold_value}{if threshold_metric == :utilization, do: "%", else: ""}
-                      </strong>
-                      {if threshold_duration > 0, do: " for #{threshold_duration} seconds", else: ""}
-                    </span>
+                    <div :if={metric_groups != []} class="space-y-2">
+                      <.chart_group_card
+                        :for={group <- metric_groups}
+                        group={group}
+                        available_metrics={normalized_metrics}
+                      />
+                    </div>
+                    <div :if={metric_groups == []} class="text-xs text-base-content/50">
+                      No chart groups configured. Create a group to combine multiple metrics on a single chart.
+                    </div>
                   </div>
-                </div>
-
-                <div :if={!threshold_enabled} class="py-3">
-                  <p class="text-sm text-base-content/50">
-                    Enable threshold alerting to receive notifications when this interface's
-                    metrics exceed configured limits.
-                  </p>
                 </div>
               </div>
             </div>
           </div>
+
+          <.metric_settings_modal
+            :if={@metric_modal_open}
+            form={@metric_form}
+            metric_name={@metric_modal_metric}
+            interface={@interface}
+          />
+
+          <.chart_group_modal
+            :if={@group_modal_open}
+            form={@group_form}
+            group={@group_modal_group}
+            available_metrics={Map.get(@interface, "available_metrics") || []}
+            selected_metrics={settings_list_value(@settings, :metrics_selected)}
+          />
         </div>
 
         <%!-- Not Found State --%>
@@ -565,16 +685,20 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   attr :label, :string, required: true
   attr :value, :any, required: true
   attr :monospace, :boolean, default: false
+  attr :value_title, :string, default: nil
 
   defp property_row(assigns) do
     ~H"""
     <div class="py-3 flex justify-between gap-4">
       <span class="text-sm text-base-content/70 shrink-0">{@label}</span>
-      <span class={[
-        "text-sm text-right",
-        @monospace && "font-mono",
-        is_nil(@value) || (@value == "" && "text-base-content/40")
-      ]}>
+      <span
+        class={[
+          "text-sm text-right",
+          @monospace && "font-mono",
+          is_nil(@value) || (@value == "" && "text-base-content/40")
+        ]}
+        title={@value_title}
+      >
         {format_value(@value)}
       </span>
     </div>
@@ -583,37 +707,623 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   attr :metric, :map, required: true
   attr :enabled, :boolean, default: false
+  attr :event_enabled, :boolean, default: false
+  attr :alert_enabled, :boolean, default: false
 
   defp available_metric_card(assigns) do
     ~H"""
-    <button
-      type="button"
-      phx-click="toggle_metric"
-      phx-value-metric={metric_raw_name(@metric)}
-      class={[
-        "flex items-center justify-between p-2 rounded-lg border transition",
-        @enabled && "border-success bg-success/10",
-        !@enabled && "bg-base-200/50 border-base-300 hover:border-primary/50"
-      ]}
-      title={if @enabled, do: "Disable metric collection", else: "Enable metric collection"}
-    >
-      <div class="flex items-center gap-2">
-        <.icon name={metric_category_icon(@metric)} class="size-4 text-primary" />
-        <div>
-          <span class="text-sm font-medium">{metric_display_name(@metric)}</span>
-          <span
-            :if={metric_supports_64bit?(@metric)}
-            class="ml-1 badge badge-xs badge-success"
-            title="64-bit counter available"
-          >
-            64-bit
+    <div class={[
+      "p-3 rounded-lg border transition",
+      @enabled && "border-success bg-success/5",
+      !@enabled && "bg-base-200/50 border-base-300 hover:border-primary/50"
+    ]}>
+      <div class="flex items-start justify-between gap-3">
+        <div
+          class="flex items-center gap-2 flex-1 cursor-pointer"
+          role="button"
+          tabindex="0"
+          phx-click="open_metric_modal"
+          phx-value-metric={metric_raw_name(@metric)}
+        >
+          <.icon name={metric_category_icon(@metric)} class="size-4 text-primary" />
+          <div>
+            <span class="text-sm font-medium">{metric_display_name(@metric)}</span>
+            <span
+              :if={metric_supports_64bit?(@metric)}
+              class="ml-1 badge badge-xs badge-success"
+              title="64-bit counter available"
+            >
+              64-bit
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          class={[
+            "btn btn-xs",
+            @enabled && "btn-success",
+            !@enabled && "btn-ghost"
+          ]}
+          phx-click="toggle_metric"
+          phx-value-metric={metric_raw_name(@metric)}
+        >
+          {if @enabled, do: "Collecting", else: "Enable"}
+        </button>
+      </div>
+      <div
+        class="mt-2 flex items-center justify-between cursor-pointer"
+        role="button"
+        tabindex="0"
+        phx-click="open_metric_modal"
+        phx-value-metric={metric_raw_name(@metric)}
+      >
+        <div class="flex items-center gap-2 text-xs">
+          <span class={[
+            "badge badge-xs gap-1",
+            @event_enabled && "badge-info",
+            !@event_enabled && "badge-ghost"
+          ]}>
+            <.icon name="hero-bolt" class="size-3" /> Event
+          </span>
+          <span class={[
+            "badge badge-xs gap-1",
+            @alert_enabled && "badge-success",
+            !@alert_enabled && "badge-ghost"
+          ]}>
+            <.icon name="hero-bell-alert" class="size-3" /> Alert
           </span>
         </div>
+        <span class="text-xs text-base-content/50">
+          {metric_category_label(@metric)}
+        </span>
       </div>
-      <span class="text-xs text-base-content/50 badge badge-ghost badge-sm">
-        {metric_category_label(@metric)}
-      </span>
-    </button>
+    </div>
+    """
+  end
+
+  attr :group, :map, required: true
+  attr :available_metrics, :list, default: []
+
+  defp chart_group_card(assigns) do
+    metrics = assigns.group["metrics"] || []
+    metric_count = length(metrics)
+
+    # Get display names for metrics
+    metric_labels =
+      metrics
+      |> Enum.take(3)
+      |> Enum.map(fn metric_name ->
+        case Enum.find(assigns.available_metrics, &(metric_raw_name(&1) == metric_name)) do
+          nil -> metric_name
+          metric -> metric_display_name(metric)
+        end
+      end)
+
+    remaining = max(0, metric_count - 3)
+
+    assigns =
+      assigns
+      |> assign(:metric_count, metric_count)
+      |> assign(:metric_labels, metric_labels)
+      |> assign(:remaining, remaining)
+
+    ~H"""
+    <div class="flex items-center justify-between p-3 rounded-lg bg-base-200/50 border border-base-300">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-chart-bar-square" class="size-4 text-primary" />
+          <span class="text-sm font-medium">{@group["name"]}</span>
+          <span class="badge badge-xs badge-ghost">{@metric_count} metrics</span>
+        </div>
+        <div :if={@metric_labels != []} class="text-xs text-base-content/50 mt-1 truncate">
+          {Enum.join(@metric_labels, ", ")}<span :if={@remaining > 0}> +{@remaining} more</span>
+        </div>
+        <div :if={@metric_labels == []} class="text-xs text-warning mt-1">
+          No metrics selected
+        </div>
+      </div>
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          class="btn btn-xs btn-ghost"
+          phx-click="open_group_modal"
+          phx-value-group_id={@group["id"]}
+          title="Edit group"
+        >
+          <.icon name="hero-pencil" class="size-3" />
+        </button>
+        <button
+          type="button"
+          class="btn btn-xs btn-ghost text-error"
+          phx-click="delete_group"
+          phx-value-group_id={@group["id"]}
+          data-confirm="Delete this chart group?"
+          title="Delete group"
+        >
+          <.icon name="hero-trash" class="size-3" />
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  attr :form, :any, required: true
+  attr :group, :map, default: nil
+  attr :available_metrics, :list, default: []
+  attr :selected_metrics, :list, default: []
+
+  defp chart_group_modal(assigns) do
+    # Normalize available metrics
+    available_metrics =
+      assigns.available_metrics
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn m ->
+        name = metric_raw_name(m)
+        display = metric_display_name(m)
+        category = Map.get(m, "category") || Map.get(m, :category) || "unknown"
+        %{name: name, display: display, category: category}
+      end)
+      |> Enum.sort_by(& &1.display)
+
+    # Get currently selected metrics in the group
+    group_metrics = assigns.form[:metrics].value || []
+
+    group_metrics =
+      cond do
+        is_list(group_metrics) ->
+          group_metrics
+
+        is_map(group_metrics) ->
+          Enum.filter(Map.keys(group_metrics), &(group_metrics[&1] == "true"))
+
+        true ->
+          []
+      end
+
+    is_editing = assigns.group != nil
+
+    assigns =
+      assigns
+      |> assign(:available_metrics, available_metrics)
+      |> assign(:group_metrics, group_metrics)
+      |> assign(:is_editing, is_editing)
+
+    ~H"""
+    <dialog class="modal modal-open">
+      <div class="modal-box max-w-xl">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_group_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">
+          {if @is_editing, do: "Edit Chart Group", else: "Create Chart Group"}
+        </h3>
+        <p class="text-sm text-base-content/60 mt-1">
+          Select metrics to display together on a single chart.
+        </p>
+
+        <.form
+          for={@form}
+          id="chart-group-form"
+          phx-submit="save_group"
+          phx-change="update_group_form"
+          class="space-y-4 mt-4"
+        >
+          <input type="hidden" name="group[id]" value={@form[:id].value} />
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Group Name</span>
+            </label>
+            <input
+              type="text"
+              name="group[name]"
+              value={@form[:name].value}
+              placeholder="e.g., Traffic, Errors, etc."
+              class="input input-bordered w-full"
+              required
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Metrics</span>
+              <span class="label-text-alt text-base-content/50">
+                Select compatible metrics to combine
+              </span>
+            </label>
+            <div class="border border-base-300 rounded-lg p-3 max-h-64 overflow-y-auto space-y-1">
+              <div
+                :if={@available_metrics == []}
+                class="text-sm text-base-content/50 py-2 text-center"
+              >
+                No metrics available. Enable metric discovery first.
+              </div>
+              <label
+                :for={metric <- @available_metrics}
+                class={[
+                  "flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-base-200 transition",
+                  metric.name in @group_metrics && "bg-primary/10"
+                ]}
+              >
+                <input
+                  type="checkbox"
+                  name={"group[metrics][#{metric.name}]"}
+                  value="true"
+                  checked={metric.name in @group_metrics}
+                  class="checkbox checkbox-sm checkbox-primary"
+                />
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-medium">{metric.display}</span>
+                  <span class="text-xs text-base-content/50 ml-2">({metric.name})</span>
+                </div>
+                <span class="badge badge-xs badge-ghost">{metric.category}</span>
+              </label>
+            </div>
+            <div class="label">
+              <span class="label-text-alt text-base-content/50">
+                Tip: Combine metrics with the same unit (e.g., inbound + outbound traffic)
+              </span>
+            </div>
+          </div>
+
+          <div class="modal-action">
+            <button type="button" class="btn btn-ghost" phx-click="close_group_modal">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              <.icon name="hero-check" class="size-4" />
+              {if @is_editing, do: "Update Group", else: "Create Group"}
+            </button>
+          </div>
+        </.form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_group_modal">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
+  attr :form, :any, required: true
+  attr :metric_name, :string, required: true
+  attr :interface, :map, default: nil
+
+  defp metric_settings_modal(assigns) do
+    # Extract interface speed for percentage threshold context
+    interface_speed_bps = interface_speed_bps(assigns.interface)
+
+    assigns =
+      assigns
+      |> assign(:interface_speed_bps, interface_speed_bps)
+      |> assign(:has_speed_data, is_number(interface_speed_bps) and interface_speed_bps > 0)
+
+    ~H"""
+    <dialog class="modal modal-open">
+      <div class="modal-box max-w-3xl">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_metric_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">Configure {@metric_name} metric</h3>
+        <p class="text-sm text-base-content/60 mt-1">
+          Tune event creation and alert promotion for this metric.
+        </p>
+
+        <.form
+          for={@form}
+          id="metric-settings-form"
+          phx-submit="save_metric_settings"
+          phx-change="update_threshold_form"
+          class="space-y-6 mt-4"
+        >
+          <input type="hidden" name="metric[name]" value={@metric_name} />
+
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-sm font-semibold">Event Threshold</span>
+                <p class="text-xs text-base-content/50">
+                  Create an event when this metric crosses the threshold.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                name="metric[enabled]"
+                value="true"
+                class="toggle toggle-info"
+                checked={@form[:enabled].value}
+              />
+            </div>
+
+            <%!-- Threshold Type Selector --%>
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text text-xs font-medium">Threshold Type</span>
+                <span :if={!@has_speed_data} class="label-text-alt text-warning text-xs">
+                  <.icon name="hero-exclamation-triangle-mini" class="size-3" />
+                  Interface speed unknown
+                </span>
+              </label>
+              <div class="flex gap-2">
+                <label class={[
+                  "flex-1 btn btn-sm",
+                  @form[:threshold_type].value != "percentage" && "btn-primary",
+                  @form[:threshold_type].value == "percentage" && "btn-ghost"
+                ]}>
+                  <input
+                    type="radio"
+                    name="metric[threshold_type]"
+                    value="absolute"
+                    class="hidden"
+                    checked={@form[:threshold_type].value != "percentage"}
+                  />
+                  <.icon name="hero-cube" class="size-4" /> Absolute (bytes/sec)
+                </label>
+                <label class={[
+                  "flex-1 btn btn-sm",
+                  @form[:threshold_type].value == "percentage" && "btn-primary",
+                  @form[:threshold_type].value != "percentage" && "btn-ghost",
+                  !@has_speed_data && "btn-disabled opacity-50"
+                ]}>
+                  <input
+                    type="radio"
+                    name="metric[threshold_type]"
+                    value="percentage"
+                    class="hidden"
+                    checked={@form[:threshold_type].value == "percentage"}
+                    disabled={!@has_speed_data}
+                  />
+                  <.icon name="hero-chart-pie" class="size-4" /> Percentage (% of speed)
+                </label>
+              </div>
+              <div :if={@has_speed_data} class="label">
+                <span class="label-text-alt text-xs text-base-content/50">
+                  Interface speed: {format_bps(@interface_speed_bps) || "Unknown"}
+                </span>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Comparison</span>
+                </label>
+                <select name="metric[comparison]" class="select select-bordered select-sm w-full">
+                  <option value="">Select condition</option>
+                  <option value="gt" selected={@form[:comparison].value == "gt"}>
+                    Greater than (&gt;)
+                  </option>
+                  <option value="gte" selected={@form[:comparison].value == "gte"}>
+                    Greater or equal (&ge;)
+                  </option>
+                  <option value="lt" selected={@form[:comparison].value == "lt"}>
+                    Less than (&lt;)
+                  </option>
+                  <option value="lte" selected={@form[:comparison].value == "lte"}>
+                    Less or equal (&le;)
+                  </option>
+                  <option value="eq" selected={@form[:comparison].value == "eq"}>
+                    Equal to (=)
+                  </option>
+                </select>
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">
+                    {threshold_value_label(@form[:threshold_type].value)}
+                  </span>
+                </label>
+                <div class="join w-full">
+                  <input
+                    type="number"
+                    name="metric[value]"
+                    value={@form[:value].value}
+                    placeholder={threshold_placeholder(@form[:threshold_type].value)}
+                    min={if @form[:threshold_type].value == "percentage", do: "0", else: nil}
+                    max={if @form[:threshold_type].value == "percentage", do: "100", else: nil}
+                    step={if @form[:threshold_type].value == "percentage", do: "1", else: "any"}
+                    class="input input-bordered input-sm w-full join-item"
+                  />
+                  <span class="btn btn-sm btn-ghost join-item pointer-events-none">
+                    {threshold_unit(@form[:threshold_type].value)}
+                  </span>
+                </div>
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Duration (seconds)</span>
+                </label>
+                <input
+                  type="number"
+                  name="metric[duration_seconds]"
+                  value={@form[:duration_seconds].value}
+                  placeholder="0"
+                  min="0"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Event Severity</span>
+                </label>
+                <select name="metric[event_severity]" class="select select-bordered select-sm w-full">
+                  <option value="info" selected={@form[:event_severity].value == "info"}>
+                    Info
+                  </option>
+                  <option value="warning" selected={@form[:event_severity].value == "warning"}>
+                    Warning
+                  </option>
+                  <option value="critical" selected={@form[:event_severity].value == "critical"}>
+                    Critical
+                  </option>
+                  <option value="emergency" selected={@form[:event_severity].value == "emergency"}>
+                    Emergency
+                  </option>
+                </select>
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Event Message</span>
+                </label>
+                <input
+                  type="text"
+                  name="metric[event_message]"
+                  value={@form[:event_message].value}
+                  placeholder="Optional message override"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="divider text-xs text-base-content/50">Alert Promotion</div>
+
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-sm font-semibold">Enable Alerts</span>
+                <p class="text-xs text-base-content/50">
+                  Promote metric events into alerts when thresholds are met.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                name="metric[alert_enabled]"
+                value="true"
+                class="toggle toggle-success"
+                checked={@form[:alert_enabled].value}
+              />
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Event Count</span>
+                </label>
+                <input
+                  type="number"
+                  name="metric[alert_threshold]"
+                  value={@form[:alert_threshold].value}
+                  min="1"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Window (seconds)</span>
+                </label>
+                <input
+                  type="number"
+                  name="metric[alert_window_seconds]"
+                  value={@form[:alert_window_seconds].value}
+                  min="60"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Cooldown (seconds)</span>
+                </label>
+                <input
+                  type="number"
+                  name="metric[alert_cooldown_seconds]"
+                  value={@form[:alert_cooldown_seconds].value}
+                  min="60"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Renotify (seconds)</span>
+                </label>
+                <input
+                  type="number"
+                  name="metric[alert_renotify_seconds]"
+                  value={@form[:alert_renotify_seconds].value}
+                  min="300"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Alert Severity</span>
+                </label>
+                <select name="metric[alert_severity]" class="select select-bordered select-sm w-full">
+                  <option value="info" selected={@form[:alert_severity].value == "info"}>
+                    Info
+                  </option>
+                  <option value="warning" selected={@form[:alert_severity].value == "warning"}>
+                    Warning
+                  </option>
+                  <option value="critical" selected={@form[:alert_severity].value == "critical"}>
+                    Critical
+                  </option>
+                  <option value="emergency" selected={@form[:alert_severity].value == "emergency"}>
+                    Emergency
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Alert Title</span>
+                </label>
+                <input
+                  type="text"
+                  name="metric[alert_title]"
+                  value={@form[:alert_title].value}
+                  placeholder="Optional title override"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+              <div class="form-control">
+                <label class="label">
+                  <span class="label-text text-xs">Alert Description</span>
+                </label>
+                <input
+                  type="text"
+                  name="metric[alert_description]"
+                  value={@form[:alert_description].value}
+                  placeholder="Optional description override"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-action">
+            <button type="button" class="btn btn-ghost" phx-click="close_metric_modal">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              <.icon name="hero-check" class="size-4" /> Save Settings
+            </button>
+          </div>
+        </.form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_metric_modal">close</button>
+      </form>
+    </dialog>
     """
   end
 
@@ -679,6 +1389,201 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         {nil, nil}
     end
   end
+
+  defp load_interface_metrics(_srql_module, _device_uid, nil, _settings, _scope) do
+    %{panels: [], error: nil}
+  end
+
+  defp load_interface_metrics(srql_module, device_uid, interface, settings, scope) do
+    if_index = Map.get(interface, "if_index")
+
+    if is_nil(if_index) do
+      %{panels: [], error: nil, message: "Interface has no if_index for SNMP metrics"}
+    else
+      # Use agg:max to pull the latest counter values per bucket.
+      # Rate deltas are calculated client-side for SNMP counter metrics.
+      query =
+        "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
+          "time:last_24h bucket:5m agg:max series:metric_name limit:200"
+
+      # Get interface speed for proper graph scaling (bps -> bytes per second)
+      if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")
+      if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8, else: nil
+
+      # Get user-defined metric groups for composite charts
+      metric_groups = settings_list_value(settings, :metric_groups)
+
+      case srql_module.query(query, %{scope: scope}) do
+        {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
+          panels = build_metrics_panels(response, if_speed_bytes_per_sec, metric_groups)
+          %{panels: panels, error: nil}
+
+        {:ok, %{"results" => []}} ->
+          %{panels: [], error: nil, message: "No metrics data available yet"}
+
+        {:error, reason} ->
+          %{panels: [], error: "Failed to load metrics: #{inspect(reason)}"}
+
+        _ ->
+          %{panels: [], error: nil}
+      end
+    end
+  end
+
+  # Build panels for interface metrics with speed scaling and combined chart mode
+  # Takes the full SRQL response (including viz) to properly handle series grouping
+  # If metric_groups is provided and non-empty, group panels according to user configuration
+  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups)
+
+  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, []) do
+    # No user-defined groups - build individual panels for each metric
+    Engine.build_panels(srql_response)
+    |> Enum.reject(&(&1.plugin == TablePlugin))
+    |> Enum.map(fn panel ->
+      assigns =
+        panel.assigns
+        |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
+        |> Map.put(:rate_mode, :counter)
+
+      %{panel | assigns: assigns}
+    end)
+  end
+
+  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups) do
+    results = Map.get(srql_response, "results", [])
+
+    if results == [] do
+      []
+    else
+      # Build panels for each user-defined group
+      grouped_panels =
+        metric_groups
+        |> Enum.filter(fn group ->
+          metrics = group["metrics"] || []
+          metrics != []
+        end)
+        |> Enum.map(fn group ->
+          build_grouped_panel(group, results, max_speed_bytes_per_sec)
+        end)
+        |> Enum.filter(&(&1 != nil))
+
+      # Get all metrics that are in groups
+      grouped_metric_names =
+        metric_groups
+        |> Enum.flat_map(fn g -> g["metrics"] || [] end)
+        |> MapSet.new()
+
+      # Build panels for ungrouped metrics
+      ungrouped_results =
+        Enum.filter(results, fn result ->
+          metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
+          metric_name not in grouped_metric_names
+        end)
+
+      ungrouped_panels =
+        build_ungrouped_panels(srql_response, ungrouped_results, max_speed_bytes_per_sec)
+
+      grouped_panels ++ ungrouped_panels
+    end
+  end
+
+  defp build_ungrouped_panels(_srql_response, [], _max_speed_bytes_per_sec), do: []
+
+  defp build_ungrouped_panels(srql_response, ungrouped_results, max_speed_bytes_per_sec) do
+    ungrouped_response = Map.put(srql_response, "results", ungrouped_results)
+
+    Engine.build_panels(ungrouped_response)
+    |> Enum.reject(&(&1.plugin == TablePlugin))
+    |> Enum.map(&add_panel_assigns(&1, max_speed_bytes_per_sec))
+  end
+
+  defp add_panel_assigns(panel, max_speed_bytes_per_sec) do
+    assigns =
+      panel.assigns
+      |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
+      |> Map.put(:chart_mode, :combined)
+      |> Map.put(:rate_mode, :counter)
+
+    %{panel | assigns: assigns}
+  end
+
+  # Build a single panel for a group of metrics
+  defp build_grouped_panel(group, results, max_speed_bytes_per_sec) do
+    group_name = group["name"] || "Combined Chart"
+    group_metrics = group["metrics"] || []
+
+    # Filter results to only include metrics in this group
+    group_results = filter_results_by_metrics(results, group_metrics)
+
+    if group_results == [] do
+      nil
+    else
+      series = build_series_from_results(group_results)
+
+      %{
+        id: "group-#{group["id"]}",
+        plugin: ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries,
+        title: group_name,
+        assigns: %{
+          series: series,
+          max_speed_bytes_per_sec: max_speed_bytes_per_sec,
+          chart_mode: :combined,
+          group_id: group["id"],
+          rate_mode: :counter
+        }
+      }
+    end
+  end
+
+  defp filter_results_by_metrics(results, group_metrics) do
+    Enum.filter(results, fn result ->
+      metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
+      metric_name in group_metrics
+    end)
+  end
+
+  defp build_series_from_results(group_results) do
+    group_results
+    |> Enum.map(&extract_metric_point/1)
+    |> Enum.group_by(& &1.name)
+    |> Enum.map(&format_series/1)
+  end
+
+  defp extract_metric_point(result) do
+    %{
+      name: Map.get(result, "metric_name") || Map.get(result, :metric_name),
+      time: Map.get(result, "time") || Map.get(result, :time),
+      value: Map.get(result, "value") || Map.get(result, :value)
+    }
+  end
+
+  defp format_series({name, points}) do
+    data =
+      points
+      |> Enum.map(fn p -> %{time: p.time, value: p.value} end)
+      |> Enum.sort_by(& &1.time)
+
+    %{name: format_metric_series_name(name), data: data}
+  end
+
+  # Format metric name for display in chart legend
+  defp format_metric_series_name(name) when is_binary(name) do
+    case name do
+      "ifInOctets" -> "Inbound"
+      "ifOutOctets" -> "Outbound"
+      "ifHCInOctets" -> "Inbound (64-bit)"
+      "ifHCOutOctets" -> "Outbound (64-bit)"
+      "ifInErrors" -> "In Errors"
+      "ifOutErrors" -> "Out Errors"
+      "ifInDiscards" -> "In Discards"
+      "ifOutDiscards" -> "Out Discards"
+      "ifInUcastPkts" -> "In Packets"
+      "ifOutUcastPkts" -> "Out Packets"
+      _ -> name
+    end
+  end
+
+  defp format_metric_series_name(name), do: to_string(name)
 
   defp escape_value(value) when is_binary(value) do
     String.replace(value, "\"", "\\\"")
@@ -809,69 +1714,222 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp normalize_list(value) when is_list(value), do: value
   defp normalize_list(_), do: []
 
-  # Threshold parsing helpers
-  defp parse_threshold_metric(""), do: nil
-  defp parse_threshold_metric(nil), do: nil
-  defp parse_threshold_metric("utilization"), do: :utilization
-  defp parse_threshold_metric("bandwidth_in"), do: :bandwidth_in
-  defp parse_threshold_metric("bandwidth_out"), do: :bandwidth_out
-  defp parse_threshold_metric("errors"), do: :errors
-  defp parse_threshold_metric(_), do: nil
+  defp settings_map_value(nil, _key), do: %{}
 
-  defp parse_threshold_comparison(""), do: nil
-  defp parse_threshold_comparison(nil), do: nil
-  defp parse_threshold_comparison("gt"), do: :gt
-  defp parse_threshold_comparison("gte"), do: :gte
-  defp parse_threshold_comparison("lt"), do: :lt
-  defp parse_threshold_comparison("lte"), do: :lte
-  defp parse_threshold_comparison("eq"), do: :eq
-  defp parse_threshold_comparison(_), do: nil
+  defp settings_map_value(settings, key) when is_struct(settings),
+    do: normalize_map(Map.get(settings, key))
 
-  defp parse_threshold_value(""), do: nil
-  defp parse_threshold_value(nil), do: nil
+  defp settings_map_value(settings, key) when is_map(settings),
+    do: normalize_map(Map.get(settings, key))
 
-  defp parse_threshold_value(value) when is_binary(value) do
+  defp settings_map_value(_, _), do: %{}
+
+  defp normalize_map(value) when is_map(value), do: value
+  defp normalize_map(_), do: %{}
+
+  # Metric settings helpers
+  defp metric_threshold_config(settings, metric) do
+    metric_name =
+      case metric do
+        %{} -> metric_raw_name(metric)
+        name -> name
+      end
+
+    thresholds = settings_map_value(settings, :metric_thresholds)
+    Map.get(thresholds, metric_name) || Map.get(thresholds, to_string(metric_name)) || %{}
+  end
+
+  defp metric_event_enabled?(config) do
+    config_enabled?(config)
+  end
+
+  defp metric_alert_enabled?(config) do
+    alert = config_value(config, :alert)
+    config_enabled?(config) and config_bool(alert, :enabled, false)
+  end
+
+  defp metric_form_values(metric_name, config, interface) do
+    alert = config_value(config, :alert, %{})
+    event = config_value(config, :event, %{})
+
+    # Default to percentage for traffic metrics when interface has speed data
+    # and threshold_type hasn't been explicitly set
+    default_threshold_type =
+      case config_value(config, :threshold_type) do
+        nil ->
+          if traffic_metric?(metric_name) and has_interface_speed?(interface) do
+            "percentage"
+          else
+            "absolute"
+          end
+
+        existing ->
+          existing
+      end
+
+    %{
+      "name" => metric_name,
+      "enabled" => config_bool(config, :enabled, true),
+      "threshold_type" => default_threshold_type,
+      "comparison" => config_value(config, :comparison, ""),
+      "value" => config_value(config, :value, ""),
+      "duration_seconds" => config_value(config, :duration_seconds, 0),
+      "event_severity" => config_value(event, :severity, "warning"),
+      "event_message" => config_value(event, :message, ""),
+      "alert_enabled" => config_bool(alert, :enabled, false),
+      "alert_threshold" => config_value(alert, :threshold, 1),
+      "alert_window_seconds" => config_value(alert, :window_seconds, 300),
+      "alert_cooldown_seconds" => config_value(alert, :cooldown_seconds, 300),
+      "alert_renotify_seconds" => config_value(alert, :renotify_seconds, 21_600),
+      "alert_severity" => config_value(alert, :severity, "warning"),
+      "alert_title" => config_value(alert, :title, ""),
+      "alert_description" => config_value(alert, :description, "")
+    }
+  end
+
+  # Check if metric is a traffic/bytes metric that makes sense for percentage thresholds
+  defp traffic_metric?(name) when is_binary(name) do
+    name in ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
+  end
+
+  defp traffic_metric?(_), do: false
+
+  defp has_interface_speed?(nil), do: false
+
+  defp has_interface_speed?(interface) when is_map(interface) do
+    speed = interface_speed_bps(interface)
+    is_number(speed) and speed > 0
+  end
+
+  defp has_interface_speed?(_), do: false
+
+  defp build_metric_config(params) do
+    event = %{}
+    event = maybe_put(event, "severity", blank_to_nil(params["event_severity"]))
+    event = maybe_put(event, "message", blank_to_nil(params["event_message"]))
+
+    alert = %{
+      "enabled" => param_bool(params["alert_enabled"], false),
+      "threshold" => parse_int(params["alert_threshold"]) || 1,
+      "window_seconds" => parse_int(params["alert_window_seconds"]) || 300,
+      "cooldown_seconds" => parse_int(params["alert_cooldown_seconds"]) || 300,
+      "renotify_seconds" => parse_int(params["alert_renotify_seconds"]) || 21_600,
+      "severity" => blank_to_nil(params["alert_severity"]),
+      "title" => blank_to_nil(params["alert_title"]),
+      "description" => blank_to_nil(params["alert_description"])
+    }
+
+    %{
+      "enabled" => param_bool(params["enabled"], true),
+      "threshold_type" => blank_to_nil(params["threshold_type"]) || "absolute",
+      "comparison" => blank_to_nil(params["comparison"]),
+      "value" => parse_number(params["value"]),
+      "duration_seconds" => parse_int(params["duration_seconds"]) || 0,
+      "severity" => blank_to_nil(params["event_severity"]),
+      "event" => compact_map(event),
+      "alert" => compact_map(alert)
+    }
+  end
+
+  defp config_enabled?(config) do
+    enabled = config_bool(config, :enabled, true)
+    comparison = config_value(config, :comparison)
+    value = config_value(config, :value)
+
+    enabled and comparison not in ["", nil] and not is_nil(value)
+  end
+
+  defp config_value(config, key, default \\ nil)
+
+  defp config_value(config, key, default) when is_map(config) do
+    Map.get(config, key) || Map.get(config, Atom.to_string(key)) || default
+  end
+
+  defp config_value(_, _key, default), do: default
+
+  defp config_bool(config, key, default) when is_map(config) do
+    case config_value(config, key) do
+      nil -> default
+      value when is_boolean(value) -> value
+      value when is_binary(value) -> String.downcase(value) in ["true", "1", "yes", "on"]
+      value -> !!value
+    end
+  end
+
+  defp config_bool(_config, _key, default), do: default
+
+  defp param_bool(nil, default), do: default
+  defp param_bool("true", _default), do: true
+  defp param_bool("on", _default), do: true
+  defp param_bool(true, _default), do: true
+  defp param_bool(false, _default), do: false
+  defp param_bool(_value, default), do: default
+
+  defp parse_int(nil), do: nil
+  defp parse_int(""), do: nil
+
+  defp parse_int(value) when is_binary(value) do
     case Integer.parse(value) do
       {int, _} -> int
       :error -> nil
     end
   end
 
-  defp parse_threshold_value(value) when is_integer(value), do: value
-  defp parse_threshold_value(_), do: nil
+  defp parse_int(value) when is_integer(value), do: value
+  defp parse_int(_), do: nil
 
-  defp parse_threshold_duration(""), do: 0
-  defp parse_threshold_duration(nil), do: 0
+  defp parse_number(nil), do: nil
+  defp parse_number(""), do: nil
 
-  defp parse_threshold_duration(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, _} -> max(0, int)
-      :error -> 0
+  defp parse_number(value) when is_binary(value) do
+    case Float.parse(value) do
+      {float, _} -> float
+      :error -> nil
     end
   end
 
-  defp parse_threshold_duration(value) when is_integer(value), do: max(0, value)
-  defp parse_threshold_duration(_), do: 0
+  defp parse_number(value) when is_number(value), do: value
+  defp parse_number(_), do: nil
 
-  defp parse_threshold_severity("info"), do: :info
-  defp parse_threshold_severity("warning"), do: :warning
-  defp parse_threshold_severity("critical"), do: :critical
-  defp parse_threshold_severity("emergency"), do: :emergency
-  defp parse_threshold_severity(_), do: :warning
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-  # Threshold label helpers
-  defp threshold_metric_label(:utilization), do: "Utilization"
-  defp threshold_metric_label(:bandwidth_in), do: "Bandwidth In"
-  defp threshold_metric_label(:bandwidth_out), do: "Bandwidth Out"
-  defp threshold_metric_label(:errors), do: "Errors"
-  defp threshold_metric_label(_), do: "Unknown"
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
 
-  defp threshold_comparison_label(:gt), do: "greater than"
-  defp threshold_comparison_label(:gte), do: "greater than or equal to"
-  defp threshold_comparison_label(:lt), do: "less than"
-  defp threshold_comparison_label(:lte), do: "less than or equal to"
-  defp threshold_comparison_label(:eq), do: "equal to"
-  defp threshold_comparison_label(_), do: ""
+  defp compact_map(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  # Group form helpers
+  defp new_group_form_values do
+    %{
+      "id" => "",
+      "name" => "",
+      "metrics" => []
+    }
+  end
+
+  # Threshold type UI helpers
+  defp interface_speed_bps(nil), do: nil
+
+  defp interface_speed_bps(interface) when is_map(interface) do
+    speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, :speed_bps)
+    if_speed = Map.get(interface, "if_speed") || Map.get(interface, :if_speed)
+    speed_bps || if_speed
+  end
+
+  defp threshold_value_label("percentage"), do: "Threshold (%)"
+  defp threshold_value_label(_), do: "Threshold Value"
+
+  defp threshold_placeholder("percentage"), do: "e.g., 80"
+  defp threshold_placeholder(_), do: "e.g., 10000000"
+
+  defp threshold_unit("percentage"), do: "%"
+  defp threshold_unit(_), do: "B/s"
 
   # Available metrics helpers
   defp metric_display_name(metric) when is_map(metric) do

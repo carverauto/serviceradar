@@ -148,11 +148,13 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
   def init(opts) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
-    service_type = Keyword.get(opts, :service_type) ||
-                   Keyword.get(config, :service_type, :core)
+    service_type =
+      Keyword.get(opts, :service_type) ||
+        Keyword.get(config, :service_type, :core)
 
-    interval = Keyword.get(opts, :interval) ||
-               Keyword.get(config, :interval, @default_interval)
+    interval =
+      Keyword.get(opts, :interval) ||
+        Keyword.get(config, :interval, @default_interval)
 
     service_id = generate_service_id(service_type)
 
@@ -265,10 +267,7 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
 
     Logger.debug("Heartbeat sent for #{state.service_type} (#{state.service_id})")
 
-    %{state |
-      last_heartbeat_at: now,
-      heartbeat_count: state.heartbeat_count + 1
-    }
+    %{state | last_heartbeat_at: now, heartbeat_count: state.heartbeat_count + 1}
   end
 
   defp schedule_heartbeat(interval) do

@@ -34,14 +34,15 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
       nodes = [node() | Node.list()]
 
       # Verify no nodes have "agent" in their name (edge agents should be Go, not Elixir)
-      agent_nodes = Enum.filter(nodes, fn node ->
-        node_str = Atom.to_string(node)
-        String.contains?(node_str, "agent@") or String.contains?(node_str, "_agent@")
-      end)
+      agent_nodes =
+        Enum.filter(nodes, fn node ->
+          node_str = Atom.to_string(node)
+          String.contains?(node_str, "agent@") or String.contains?(node_str, "_agent@")
+        end)
 
       assert agent_nodes == [],
-        "Found unexpected agent nodes in ERTS cluster: #{inspect(agent_nodes)}. " <>
-        "Edge agents should be Go processes communicating via gRPC, not ERTS cluster members."
+             "Found unexpected agent nodes in ERTS cluster: #{inspect(agent_nodes)}. " <>
+               "Edge agents should be Go processes communicating via gRPC, not ERTS cluster members."
     end
 
     test "cluster topology identifies node types correctly" do
@@ -51,10 +52,10 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
       node_type = detect_node_type(node_str)
 
       refute node_type == :agent,
-        "Test is running on an agent node, but agents should not be ERTS cluster members"
+             "Test is running on an agent node, but agents should not be ERTS cluster members"
 
       assert node_type in [:core, :gateway, :web, :test, :unknown],
-        "Node type #{node_type} should be a valid cluster node type"
+             "Node type #{node_type} should be a valid cluster node type"
     end
 
     test "remote RPC is only available to ERTS cluster members" do
@@ -65,7 +66,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
       result = :rpc.call(fake_agent_node, Kernel, :node, [], 1000)
 
       assert result == {:badrpc, :nodedown},
-        "RPC to non-ERTS node should return {:badrpc, :nodedown}, got: #{inspect(result)}"
+             "RPC to non-ERTS node should return {:badrpc, :nodedown}, got: #{inspect(result)}"
     end
 
     test "Horde registries are not accessible from non-ERTS processes" do
@@ -82,14 +83,15 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
 
           Enum.each(member_nodes, fn member_node ->
             node_str = Atom.to_string(member_node)
+
             refute String.contains?(node_str, "agent"),
-              "Horde registry member on agent node: #{member_node}"
+                   "Horde registry member on agent node: #{member_node}"
           end)
 
         pid when is_pid(pid) ->
           # Registry exists as local process
           assert node(pid) == node(),
-            "Registry should be on local ERTS node"
+                 "Registry should be on local ERTS node"
       end
     end
   end
@@ -104,11 +106,12 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
       # No per-deployment registry initialization needed
 
       # Register a Go agent with gRPC details
-      {:ok, _pid} = AgentRegistry.register_agent(agent_id, %{
-        grpc_host: "192.168.1.100",
-        grpc_port: 50_051,
-        capabilities: [:icmp, :tcp]
-      })
+      {:ok, _pid} =
+        AgentRegistry.register_agent(agent_id, %{
+          grpc_host: "192.168.1.100",
+          grpc_port: 50_051,
+          capabilities: [:icmp, :tcp]
+        })
 
       # Lookup should return gRPC address, not an ERTS connection
       {:ok, {host, port}} = AgentRegistry.get_grpc_address(agent_id)
@@ -161,12 +164,14 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
       # Create agent with gRPC connection details
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register, %{
-          uid: "security-test-agent-#{unique_id}",
-          name: "Security Test Agent",
-          host: "192.168.1.50",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            uid: "security-test-agent-#{unique_id}",
+            name: "Security Test Agent",
+            host: "192.168.1.50",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       # Verify agent has gRPC connection details
@@ -175,7 +180,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
 
       # Agent should NOT have ERTS node reference
       refute Map.has_key?(agent, :node) or Map.get(agent, :node),
-        "Agent should not have ERTS node reference"
+             "Agent should not have ERTS node reference"
     end
   end
 

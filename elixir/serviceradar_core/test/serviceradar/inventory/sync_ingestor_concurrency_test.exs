@@ -50,7 +50,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
       metadata: %{"armis_device_id" => armis_id}
     }
 
-    assert {:ok, expected_id} = IdentityReconciler.resolve_device_id(identity_update, actor: actor)
+    assert {:ok, expected_id} =
+             IdentityReconciler.resolve_device_id(identity_update, actor: actor)
 
     tasks =
       Enum.map(1..2, fn _ ->

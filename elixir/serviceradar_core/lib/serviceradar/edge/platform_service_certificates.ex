@@ -75,6 +75,7 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
 
   defp create_platform_package(component_type, component_id, label, partition_id, metadata) do
     actor = SystemActor.system(:platform_service_certificates)
+
     attrs = %{
       label: label,
       component_id: component_id,
@@ -132,9 +133,7 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
       actor = SystemActor.system(:platform_service_certificates)
 
       package
-      |> Ash.Changeset.for_update(:update_metadata, %{metadata_json: merged},
-        actor: actor
-      )
+      |> Ash.Changeset.for_update(:update_metadata, %{metadata_json: merged}, actor: actor)
       |> Ash.update()
     end
   end
@@ -154,7 +153,8 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
     listen_addr =
       config_value(:sync_listen_addr, "SERVICERADAR_SYNC_LISTEN_ADDR", @default_sync_listen_addr)
 
-    gateway_server_name = config_value(:gateway_server_name, "SERVICERADAR_GATEWAY_SERVER_NAME", nil)
+    gateway_server_name =
+      config_value(:gateway_server_name, "SERVICERADAR_GATEWAY_SERVER_NAME", nil)
 
     metadata = %{
       "gateway_addr" => gateway_addr,

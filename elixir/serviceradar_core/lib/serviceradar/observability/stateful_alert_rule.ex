@@ -46,6 +46,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
         :event,
         :alert
       ]
+
       validate ServiceRadar.Observability.Validations.WindowBucket
       change ServiceRadar.Observability.Changes.ScheduleAlertCleanup
     end
@@ -67,16 +68,12 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
         :event,
         :alert
       ]
+
       validate ServiceRadar.Observability.Validations.WindowBucket
     end
   end
 
-  identities do
-    identity :unique_name, [:name]
-  end
-
   policies do
-
     # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
@@ -180,4 +177,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
     update_timestamp :updated_at
   end
 
+  identities do
+    identity :unique_name, [:name]
+  end
 end

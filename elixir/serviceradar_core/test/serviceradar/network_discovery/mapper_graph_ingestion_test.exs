@@ -15,8 +15,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     if age_available?() do
       case ensure_graph(@graph_name) do
-        :ok -> :ok
-        {:error, reason} -> {:skip, "Apache AGE graph #{@graph_name} not available: #{inspect(reason)}"}
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          {:skip, "Apache AGE graph #{@graph_name} not available: #{inspect(reason)}"}
       end
     else
       {:skip, "Apache AGE is not available (ag_catalog.cypher missing)"}
@@ -126,12 +129,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     quoted_ids = Enum.map_join(ids, ", ", &("'" <> &1 <> "'"))
 
     cypher = "MATCH (n) WHERE n.id IN [#{quoted_ids}] DETACH DELETE n"
-    _ = SQL.query(Repo, "SELECT * FROM ag_catalog.cypher($1, $$#{cypher}$$) AS (v agtype)", [@graph_name])
+
+    _ =
+      SQL.query(Repo, "SELECT * FROM ag_catalog.cypher($1, $$#{cypher}$$) AS (v agtype)", [
+        @graph_name
+      ])
+
     :ok
   end
 
   defp cypher_rows(cypher) do
-    sql = "SELECT ag_catalog.agtype_to_text(result) FROM ag_catalog.cypher($1, $$#{cypher}$$) AS (result agtype)"
+    sql =
+      "SELECT ag_catalog.agtype_to_text(result) FROM ag_catalog.cypher($1, $$#{cypher}$$) AS (result agtype)"
 
     case SQL.query(Repo, sql, [@graph_name]) do
       {:ok, %Postgrex.Result{rows: rows}} ->

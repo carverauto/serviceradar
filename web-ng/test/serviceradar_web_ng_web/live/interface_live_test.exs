@@ -159,4 +159,131 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
       assert html =~ "Metric" or html =~ "Condition" or html =~ "threshold"
     end
   end
+
+  # ============================================================================
+  # Task 7.2: Integration tests for composite charts metric grouping
+  # See interface_live_metrics_test.exs for unit tests
+  # ============================================================================
+
+  describe "composite charts metric grouping" do
+    setup %{conn: conn} do
+      device_uid = "test-device-groups-#{System.unique_integer([:positive])}"
+      interface_uid = "test-interface-groups-#{System.unique_integer([:positive])}"
+
+      Repo.insert_all("ocsf_devices", [
+        %{
+          uid: device_uid,
+          type_id: 0,
+          hostname: "test-host-groups",
+          is_available: true,
+          first_seen_time: ~U[2100-01-01 00:00:00Z],
+          last_seen_time: ~U[2100-01-01 00:00:00Z]
+        }
+      ])
+
+      # Insert interface with available metrics
+      Repo.insert_all("interfaces", [
+        %{
+          timestamp: ~U[2100-01-01 00:00:00Z],
+          device_id: device_uid,
+          interface_uid: interface_uid,
+          if_name: "eth2",
+          if_descr: "Test Interface for Metric Groups",
+          if_type_name: "ethernetCsmacd",
+          if_oper_status: 1,
+          if_admin_status: 1,
+          speed_bps: 1_000_000_000,
+          if_index: 3,
+          available_metrics: [
+            %{"name" => "ifInOctets", "category" => "traffic"},
+            %{"name" => "ifOutOctets", "category" => "traffic"},
+            %{"name" => "ifInErrors", "category" => "errors"},
+            %{"name" => "ifOutErrors", "category" => "errors"}
+          ]
+        }
+      ])
+
+      {:ok, conn: conn, device_uid: device_uid, interface_uid: interface_uid}
+    end
+
+    test "shows composite charts section", %{
+      conn: conn,
+      device_uid: device_uid,
+      interface_uid: interface_uid
+    } do
+      {:ok, _lv, html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
+
+      assert html =~ "Composite Charts"
+      assert html =~ "New Group"
+    end
+
+    test "can open group creation modal", %{
+      conn: conn,
+      device_uid: device_uid,
+      interface_uid: interface_uid
+    } do
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
+
+      # Click New Group button
+      view
+      |> element("button[phx-click=open_group_modal]")
+      |> render_click()
+
+      html = render(view)
+      assert html =~ "Create Chart Group"
+      assert html =~ "Group Name"
+    end
+
+    test "can create a chart group", %{
+      conn: conn,
+      device_uid: device_uid,
+      interface_uid: interface_uid
+    } do
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
+
+      # Open modal
+      view
+      |> element("button[phx-click=open_group_modal]")
+      |> render_click()
+
+      # Submit form with group data
+      view
+      |> element("#chart-group-form")
+      |> render_submit(%{
+        "group" => %{
+          "id" => "",
+          "name" => "Traffic",
+          "metrics" => %{"ifInOctets" => "true", "ifOutOctets" => "true"}
+        }
+      })
+
+      html = render(view)
+      # Modal should close and group should appear
+      assert html =~ "Traffic"
+      assert html =~ "2 metrics"
+    end
+
+    test "can close group modal", %{
+      conn: conn,
+      device_uid: device_uid,
+      interface_uid: interface_uid
+    } do
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
+
+      # Open modal
+      view
+      |> element("button[phx-click=open_group_modal]")
+      |> render_click()
+
+      assert render(view) =~ "Create Chart Group"
+
+      # Close modal
+      view
+      |> element("button[phx-click=close_group_modal]")
+      |> render_click()
+
+      # Modal should be closed
+      refute render(view) =~ "Create Chart Group"
+    end
+  end
 end

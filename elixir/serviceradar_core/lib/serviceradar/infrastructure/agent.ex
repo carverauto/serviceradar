@@ -34,14 +34,34 @@ defmodule ServiceRadar.Infrastructure.Agent do
   """
 
   @capability_definitions %{
-    icmp: %{icon: "hero-signal", color: "info", description: "ICMP ping checks for host reachability"},
-    tcp: %{icon: "hero-server-stack", color: "success", description: "TCP port checks for service availability"},
+    icmp: %{
+      icon: "hero-signal",
+      color: "info",
+      description: "ICMP ping checks for host reachability"
+    },
+    tcp: %{
+      icon: "hero-server-stack",
+      color: "success",
+      description: "TCP port checks for service availability"
+    },
     http: %{icon: "hero-globe-alt", color: "warning", description: "HTTP/HTTPS endpoint checks"},
-    grpc: %{icon: "hero-cpu-chip", color: "secondary", description: "gRPC health checks via external checkers"},
+    grpc: %{
+      icon: "hero-cpu-chip",
+      color: "secondary",
+      description: "gRPC health checks via external checkers"
+    },
     dns: %{icon: "hero-at-symbol", color: "info", description: "DNS resolution checks"},
     process: %{icon: "hero-cog-6-tooth", color: "accent", description: "Local process monitoring"},
-    snmp: %{icon: "hero-chart-bar", color: "accent", description: "SNMP monitoring via external checker"},
-    sweep: %{icon: "hero-magnifying-glass", color: "primary", description: "Network sweep/discovery"},
+    snmp: %{
+      icon: "hero-chart-bar",
+      color: "accent",
+      description: "SNMP monitoring via external checker"
+    },
+    sweep: %{
+      icon: "hero-magnifying-glass",
+      color: "primary",
+      description: "Network sweep/discovery"
+    },
     agent: %{icon: "hero-cube", color: "ghost", description: "Agent management capabilities"}
   }
 
@@ -64,7 +84,11 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
   @doc "Returns capability info for a specific capability"
   def capability_info(capability) when is_atom(capability) do
-    Map.get(@capability_definitions, capability, %{icon: "hero-cube", color: "ghost", description: to_string(capability)})
+    Map.get(@capability_definitions, capability, %{
+      icon: "hero-cube",
+      color: "ghost",
+      description: to_string(capability)
+    })
   end
 
   def capability_info(capability) when is_binary(capability) do
@@ -320,7 +344,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:is_healthy, true)
       change set_attribute(:last_seen_time, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :connected}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :agent, new_state: :connected}
     end
 
     update :connection_failed do
@@ -328,7 +354,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
       change transition_state(:disconnected)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :disconnected}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :agent, new_state: :disconnected}
     end
 
     update :degrade do
@@ -337,7 +365,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :degraded}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :agent, new_state: :degraded}
     end
 
     update :restore_health do
@@ -346,7 +376,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :connected}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :agent, new_state: :connected}
     end
 
     update :lose_connection do
@@ -355,7 +387,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change transition_state(:disconnected)
       change set_attribute(:gateway_id, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :disconnected}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :agent, new_state: :disconnected}
     end
 
     update :reconnect do
@@ -363,7 +397,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
       change transition_state(:connecting)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :connecting}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :agent, new_state: :connecting}
     end
 
     update :mark_unavailable do
@@ -373,7 +409,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change transition_state(:unavailable)
       change set_attribute(:is_healthy, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :unavailable}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :agent, new_state: :unavailable}
     end
 
     update :recover do
@@ -381,7 +419,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
       change transition_state(:connecting)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :connecting}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :agent, new_state: :connecting}
     end
 
     update :reassign_device do
@@ -399,7 +439,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:is_healthy, true)
       change set_attribute(:last_seen_time, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :connected}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :agent, new_state: :connected}
     end
 
     update :disconnect do
@@ -408,7 +450,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change transition_state(:disconnected)
       change set_attribute(:gateway_id, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :disconnected}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :agent, new_state: :disconnected}
     end
 
     update :mark_unhealthy do
@@ -417,7 +461,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :degraded}
+
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange,
+              entity_type: :agent, new_state: :degraded}
     end
   end
 
@@ -576,9 +622,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
     attribute :config_source, :atom do
       public? true
       constraints one_of: [:remote, :local, :cached, :default]
+
       description "Source of sysmon config: remote (from backend), local (file override), cached, or default"
     end
-
   end
 
   relationships do

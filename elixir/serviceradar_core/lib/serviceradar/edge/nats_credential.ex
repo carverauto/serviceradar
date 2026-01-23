@@ -107,7 +107,10 @@ defmodule ServiceRadar.Edge.NatsCredential do
         changeset
         |> Ash.Changeset.change_attribute(:status, :revoked)
         |> Ash.Changeset.change_attribute(:revoked_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(:revoke_reason, Ash.Changeset.get_argument(changeset, :reason))
+        |> Ash.Changeset.change_attribute(
+          :revoke_reason,
+          Ash.Changeset.get_argument(changeset, :reason)
+        )
         |> Ash.Changeset.after_action(fn _changeset, credential ->
           __MODULE__.broadcast_revoked(credential)
           {:ok, credential}

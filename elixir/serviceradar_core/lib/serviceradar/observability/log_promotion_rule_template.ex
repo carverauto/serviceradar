@@ -46,12 +46,7 @@ defmodule ServiceRadar.Observability.LogPromotionRuleTemplate do
     end
   end
 
-  identities do
-    identity :unique_name, [:name]
-  end
-
   policies do
-
     # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
@@ -106,5 +101,9 @@ defmodule ServiceRadar.Observability.LogPromotionRuleTemplate do
 
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+
+  identities do
+    identity :unique_name, [:name]
   end
 end

@@ -43,10 +43,12 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
     all()
     |> Enum.map(fn template ->
       # Generate a stable ID based on vendor and name
-      slug = template.name
-             |> String.downcase()
-             |> String.replace(~r/[^a-z0-9]+/, "-")
-             |> String.trim("-")
+      slug =
+        template.name
+        |> String.downcase()
+        |> String.replace(~r/[^a-z0-9]+/, "-")
+        |> String.trim("-")
+
       id = "#{String.downcase(template.vendor)}-#{slug}"
       Map.put(template, :id, id)
     end)
@@ -88,6 +90,7 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
   @spec seed!(map()) :: {:ok, integer()} | {:error, term()}
   def seed!(actor) do
     templates = all()
+
     results =
       Enum.map(templates, fn template ->
         attrs = Map.put(template, :is_builtin, true)
@@ -103,12 +106,17 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
   end
 
   defp classify_seed_result({:ok, _}), do: :created
-  defp classify_seed_result({:error, %Ash.Error.Invalid{errors: errors}}), do: classify_ash_error(errors)
+
+  defp classify_seed_result({:error, %Ash.Error.Invalid{errors: errors}}),
+    do: classify_ash_error(errors)
+
   defp classify_seed_result({:error, _}), do: :error
 
   defp classify_ash_error(errors) do
     # Check if it's a uniqueness error (template already exists)
-    if Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)), do: :exists, else: :error
+    if Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)),
+      do: :exists,
+      else: :error
   end
 
   # Standard MIB-II Templates
@@ -120,11 +128,41 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Standard",
         category: "System",
         oids: [
-          %{oid: ".1.3.6.1.2.1.1.1.0", name: "sysDescr", data_type: "string", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.2.1.1.3.0", name: "sysUpTime", data_type: "counter", scale: 0.01, delta: false},
-          %{oid: ".1.3.6.1.2.1.1.5.0", name: "sysName", data_type: "string", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.2.1.1.6.0", name: "sysLocation", data_type: "string", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.2.1.1.4.0", name: "sysContact", data_type: "string", scale: 1.0, delta: false}
+          %{
+            oid: ".1.3.6.1.2.1.1.1.0",
+            name: "sysDescr",
+            data_type: "string",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.2.1.1.3.0",
+            name: "sysUpTime",
+            data_type: "counter",
+            scale: 0.01,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.2.1.1.5.0",
+            name: "sysName",
+            data_type: "string",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.2.1.1.6.0",
+            name: "sysLocation",
+            data_type: "string",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.2.1.1.4.0",
+            name: "sysContact",
+            data_type: "string",
+            scale: 1.0,
+            delta: false
+          }
         ]
       },
       %{
@@ -133,13 +171,55 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Standard",
         category: "Network",
         oids: [
-          %{oid: ".1.3.6.1.2.1.2.2.1.10", name: "ifInOctets", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.2.2.1.16", name: "ifOutOctets", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.2.2.1.8", name: "ifOperStatus", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.2.1.2.2.1.5", name: "ifSpeed", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.2.1.2.2.1.7", name: "ifAdminStatus", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.2.1.2.2.1.14", name: "ifInErrors", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.2.2.1.20", name: "ifOutErrors", data_type: "counter", scale: 1.0, delta: true}
+          %{
+            oid: ".1.3.6.1.2.1.2.2.1.10",
+            name: "ifInOctets",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.2.2.1.16",
+            name: "ifOutOctets",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.2.2.1.8",
+            name: "ifOperStatus",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.2.1.2.2.1.5",
+            name: "ifSpeed",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.2.1.2.2.1.7",
+            name: "ifAdminStatus",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.2.1.2.2.1.14",
+            name: "ifInErrors",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.2.2.1.20",
+            name: "ifOutErrors",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          }
         ]
       },
       %{
@@ -148,11 +228,41 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Standard",
         category: "Network",
         oids: [
-          %{oid: ".1.3.6.1.2.1.31.1.1.1.6", name: "ifHCInOctets", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.31.1.1.1.10", name: "ifHCOutOctets", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.31.1.1.1.7", name: "ifHCInUcastPkts", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.31.1.1.1.11", name: "ifHCOutUcastPkts", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.31.1.1.1.15", name: "ifHighSpeed", data_type: "gauge", scale: 1_000_000.0, delta: false}
+          %{
+            oid: ".1.3.6.1.2.1.31.1.1.1.6",
+            name: "ifHCInOctets",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.31.1.1.1.10",
+            name: "ifHCOutOctets",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.31.1.1.1.7",
+            name: "ifHCInUcastPkts",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.31.1.1.1.11",
+            name: "ifHCOutUcastPkts",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.31.1.1.1.15",
+            name: "ifHighSpeed",
+            data_type: "gauge",
+            scale: 1_000_000.0,
+            delta: false
+          }
         ]
       },
       %{
@@ -161,10 +271,34 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Standard",
         category: "Network",
         oids: [
-          %{oid: ".1.3.6.1.2.1.4.3.0", name: "ipInReceives", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.4.10.0", name: "ipOutRequests", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.4.8.0", name: "ipInDiscards", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.4.6.0", name: "ipForwDatagrams", data_type: "counter", scale: 1.0, delta: true}
+          %{
+            oid: ".1.3.6.1.2.1.4.3.0",
+            name: "ipInReceives",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.4.10.0",
+            name: "ipOutRequests",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.4.8.0",
+            name: "ipInDiscards",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.4.6.0",
+            name: "ipForwDatagrams",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          }
         ]
       },
       %{
@@ -173,10 +307,34 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Standard",
         category: "Network",
         oids: [
-          %{oid: ".1.3.6.1.2.1.6.9.0", name: "tcpCurrEstab", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.2.1.6.10.0", name: "tcpInSegs", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.6.11.0", name: "tcpOutSegs", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.6.12.0", name: "tcpRetransSegs", data_type: "counter", scale: 1.0, delta: true}
+          %{
+            oid: ".1.3.6.1.2.1.6.9.0",
+            name: "tcpCurrEstab",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.2.1.6.10.0",
+            name: "tcpInSegs",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.6.11.0",
+            name: "tcpOutSegs",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.6.12.0",
+            name: "tcpRetransSegs",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          }
         ]
       },
       %{
@@ -185,10 +343,34 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Standard",
         category: "System",
         oids: [
-          %{oid: ".1.3.6.1.2.1.11.1.0", name: "snmpInPkts", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.11.2.0", name: "snmpOutPkts", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.11.8.0", name: "snmpInBadVersions", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.2.1.11.4.0", name: "snmpInBadCommunityNames", data_type: "counter", scale: 1.0, delta: true}
+          %{
+            oid: ".1.3.6.1.2.1.11.1.0",
+            name: "snmpInPkts",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.11.2.0",
+            name: "snmpOutPkts",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.11.8.0",
+            name: "snmpInBadVersions",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.2.1.11.4.0",
+            name: "snmpInBadCommunityNames",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          }
         ]
       }
     ]
@@ -203,11 +385,41 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Cisco",
         category: "Performance",
         oids: [
-          %{oid: ".1.3.6.1.4.1.9.9.109.1.1.1.1.3.1", name: "cpmCPUTotal5sec", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.9.9.109.1.1.1.1.4.1", name: "cpmCPUTotal1min", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.9.9.109.1.1.1.1.5.1", name: "cpmCPUTotal5min", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.9.9.48.1.1.1.5.1", name: "ciscoMemoryPoolUsed", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.9.9.48.1.1.1.6.1", name: "ciscoMemoryPoolFree", data_type: "gauge", scale: 1.0, delta: false}
+          %{
+            oid: ".1.3.6.1.4.1.9.9.109.1.1.1.1.3.1",
+            name: "cpmCPUTotal5sec",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.109.1.1.1.1.4.1",
+            name: "cpmCPUTotal1min",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.109.1.1.1.1.5.1",
+            name: "cpmCPUTotal5min",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.48.1.1.1.5.1",
+            name: "ciscoMemoryPoolUsed",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.48.1.1.1.6.1",
+            name: "ciscoMemoryPoolFree",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          }
         ]
       },
       %{
@@ -216,10 +428,34 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Cisco",
         category: "Environment",
         oids: [
-          %{oid: ".1.3.6.1.4.1.9.9.13.1.3.1.3", name: "ciscoEnvMonTemperatureValue", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.9.9.13.1.3.1.6", name: "ciscoEnvMonTemperatureState", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.9.9.13.1.4.1.3", name: "ciscoEnvMonFanState", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.9.9.13.1.5.1.3", name: "ciscoEnvMonSupplyState", data_type: "gauge", scale: 1.0, delta: false}
+          %{
+            oid: ".1.3.6.1.4.1.9.9.13.1.3.1.3",
+            name: "ciscoEnvMonTemperatureValue",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.13.1.3.1.6",
+            name: "ciscoEnvMonTemperatureState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.13.1.4.1.3",
+            name: "ciscoEnvMonFanState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.13.1.5.1.3",
+            name: "ciscoEnvMonSupplyState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          }
         ]
       },
       %{
@@ -228,10 +464,34 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Cisco",
         category: "Routing",
         oids: [
-          %{oid: ".1.3.6.1.4.1.9.9.187.1.2.5.1.3", name: "cbgpPeerState", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.9.9.187.1.2.5.1.6", name: "cbgpPeerPrefixAccepted", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.9.9.187.1.2.5.1.7", name: "cbgpPeerPrefixDenied", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.4.1.9.9.187.1.2.5.1.11", name: "cbgpPeerPrefixAdvertised", data_type: "gauge", scale: 1.0, delta: false}
+          %{
+            oid: ".1.3.6.1.4.1.9.9.187.1.2.5.1.3",
+            name: "cbgpPeerState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.187.1.2.5.1.6",
+            name: "cbgpPeerPrefixAccepted",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.187.1.2.5.1.7",
+            name: "cbgpPeerPrefixDenied",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.187.1.2.5.1.11",
+            name: "cbgpPeerPrefixAdvertised",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          }
         ]
       },
       %{
@@ -240,9 +500,27 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Cisco",
         category: "Platform",
         oids: [
-          %{oid: ".1.3.6.1.4.1.9.9.500.1.2.1.1.1", name: "cswSwitchNumCurrent", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.9.9.500.1.2.1.1.6", name: "cswSwitchState", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.9.9.500.1.2.1.1.7", name: "cswSwitchMacAddress", data_type: "string", scale: 1.0, delta: false}
+          %{
+            oid: ".1.3.6.1.4.1.9.9.500.1.2.1.1.1",
+            name: "cswSwitchNumCurrent",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.500.1.2.1.1.6",
+            name: "cswSwitchState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.9.9.500.1.2.1.1.7",
+            name: "cswSwitchMacAddress",
+            data_type: "string",
+            scale: 1.0,
+            delta: false
+          }
         ]
       }
     ]
@@ -257,10 +535,34 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Juniper",
         category: "Performance",
         oids: [
-          %{oid: ".1.3.6.1.4.1.2636.3.1.13.1.8", name: "jnxOperatingCPU", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.2636.3.1.13.1.11", name: "jnxOperatingBuffer", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.2636.3.1.13.1.15", name: "jnxOperatingMemory", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.2636.3.1.13.1.5", name: "jnxOperatingDRAMSize", data_type: "gauge", scale: 1.0, delta: false}
+          %{
+            oid: ".1.3.6.1.4.1.2636.3.1.13.1.8",
+            name: "jnxOperatingCPU",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.2636.3.1.13.1.11",
+            name: "jnxOperatingBuffer",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.2636.3.1.13.1.15",
+            name: "jnxOperatingMemory",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.2636.3.1.13.1.5",
+            name: "jnxOperatingDRAMSize",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          }
         ]
       },
       %{
@@ -269,10 +571,34 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Juniper",
         category: "Environment",
         oids: [
-          %{oid: ".1.3.6.1.4.1.2636.3.1.13.1.7", name: "jnxOperatingTemp", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.2636.3.1.13.1.6", name: "jnxOperatingState", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.2636.3.4.1.1.1", name: "jnxFanOperatingState", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.2636.3.4.2.1.1", name: "jnxPowerSupplyOperatingState", data_type: "gauge", scale: 1.0, delta: false}
+          %{
+            oid: ".1.3.6.1.4.1.2636.3.1.13.1.7",
+            name: "jnxOperatingTemp",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.2636.3.1.13.1.6",
+            name: "jnxOperatingState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.2636.3.4.1.1.1",
+            name: "jnxFanOperatingState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.2636.3.4.2.1.1",
+            name: "jnxPowerSupplyOperatingState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          }
         ]
       },
       %{
@@ -281,10 +607,34 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Juniper",
         category: "Routing",
         oids: [
-          %{oid: ".1.3.6.1.4.1.2636.5.1.1.2.1.1.1.2", name: "jnxBgpM2PeerState", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.2636.5.1.1.2.6.2.1.7", name: "jnxBgpM2PrefixInPrefixes", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.2636.5.1.1.2.6.2.1.8", name: "jnxBgpM2PrefixInPrefixesAccepted", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.2636.5.1.1.2.6.2.1.10", name: "jnxBgpM2PrefixOutPrefixes", data_type: "gauge", scale: 1.0, delta: false}
+          %{
+            oid: ".1.3.6.1.4.1.2636.5.1.1.2.1.1.1.2",
+            name: "jnxBgpM2PeerState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.2636.5.1.1.2.6.2.1.7",
+            name: "jnxBgpM2PrefixInPrefixes",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.2636.5.1.1.2.6.2.1.8",
+            name: "jnxBgpM2PrefixInPrefixesAccepted",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.2636.5.1.1.2.6.2.1.10",
+            name: "jnxBgpM2PrefixOutPrefixes",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          }
         ]
       },
       %{
@@ -293,8 +643,20 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Juniper",
         category: "Security",
         oids: [
-          %{oid: ".1.3.6.1.4.1.2636.3.5.2.1.4", name: "jnxFWCounterPacketCount", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.4.1.2636.3.5.2.1.5", name: "jnxFWCounterByteCount", data_type: "counter", scale: 1.0, delta: true}
+          %{
+            oid: ".1.3.6.1.4.1.2636.3.5.2.1.4",
+            name: "jnxFWCounterPacketCount",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.4.1.2636.3.5.2.1.5",
+            name: "jnxFWCounterByteCount",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          }
         ]
       }
     ]
@@ -309,10 +671,34 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Arista",
         category: "Environment",
         oids: [
-          %{oid: ".1.3.6.1.4.1.30065.3.12.1.1.1.3", name: "aristaEnvMonTempSensorValue", data_type: "gauge", scale: 0.1, delta: false},
-          %{oid: ".1.3.6.1.4.1.30065.3.12.1.1.1.5", name: "aristaEnvMonTempSensorState", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.30065.3.12.1.2.1.3", name: "aristaEnvMonFanState", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.30065.3.12.1.3.1.3", name: "aristaEnvMonPowerSupplyState", data_type: "gauge", scale: 1.0, delta: false}
+          %{
+            oid: ".1.3.6.1.4.1.30065.3.12.1.1.1.3",
+            name: "aristaEnvMonTempSensorValue",
+            data_type: "gauge",
+            scale: 0.1,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.30065.3.12.1.1.1.5",
+            name: "aristaEnvMonTempSensorState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.30065.3.12.1.2.1.3",
+            name: "aristaEnvMonFanState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.30065.3.12.1.3.1.3",
+            name: "aristaEnvMonPowerSupplyState",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          }
         ]
       },
       %{
@@ -321,10 +707,34 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Arista",
         category: "Network",
         oids: [
-          %{oid: ".1.3.6.1.4.1.30065.3.15.1.2.1.5", name: "aristaQosQueueStatDropPackets", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.4.1.30065.3.15.1.2.1.6", name: "aristaQosQueueStatDropBytes", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.4.1.30065.3.15.1.2.1.7", name: "aristaQosQueueStatSentPackets", data_type: "counter", scale: 1.0, delta: true},
-          %{oid: ".1.3.6.1.4.1.30065.3.15.1.2.1.8", name: "aristaQosQueueStatSentBytes", data_type: "counter", scale: 1.0, delta: true}
+          %{
+            oid: ".1.3.6.1.4.1.30065.3.15.1.2.1.5",
+            name: "aristaQosQueueStatDropPackets",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.4.1.30065.3.15.1.2.1.6",
+            name: "aristaQosQueueStatDropBytes",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.4.1.30065.3.15.1.2.1.7",
+            name: "aristaQosQueueStatSentPackets",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          },
+          %{
+            oid: ".1.3.6.1.4.1.30065.3.15.1.2.1.8",
+            name: "aristaQosQueueStatSentBytes",
+            data_type: "counter",
+            scale: 1.0,
+            delta: true
+          }
         ]
       },
       %{
@@ -333,9 +743,27 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
         vendor: "Arista",
         category: "Platform",
         oids: [
-          %{oid: ".1.3.6.1.4.1.30065.3.16.1.1.0", name: "aristaMlagDomainId", data_type: "string", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.30065.3.16.1.2.0", name: "aristaMlagLocalStatus", data_type: "gauge", scale: 1.0, delta: false},
-          %{oid: ".1.3.6.1.4.1.30065.3.16.1.3.0", name: "aristaMlagPeerLinkStatus", data_type: "gauge", scale: 1.0, delta: false}
+          %{
+            oid: ".1.3.6.1.4.1.30065.3.16.1.1.0",
+            name: "aristaMlagDomainId",
+            data_type: "string",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.30065.3.16.1.2.0",
+            name: "aristaMlagLocalStatus",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          },
+          %{
+            oid: ".1.3.6.1.4.1.30065.3.16.1.3.0",
+            name: "aristaMlagPeerLinkStatus",
+            data_type: "gauge",
+            scale: 1.0,
+            delta: false
+          }
         ]
       }
     ]

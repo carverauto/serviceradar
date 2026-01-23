@@ -141,9 +141,7 @@ defmodule ServiceRadar.ProcessRegistry do
   def select_by_type(type) do
     # Match keys that start with the type atom and include the node key
     match_spec = [
-      {{{type, :"$1", :"$2"}, :"$3", :"$4"},
-       [],
-       [{{{{type, :"$1", :"$2"}}, :"$3", :"$4"}}]},
+      {{{type, :"$1", :"$2"}, :"$3", :"$4"}, [], [{{{{type, :"$1", :"$2"}}, :"$3", :"$4"}}]},
       {{{type, :"$1"}, :"$2", :"$3"}, [], [{{{{type, :"$1"}}, :"$2", :"$3"}}]}
     ]
 

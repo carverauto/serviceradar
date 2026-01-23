@@ -18,3 +18,24 @@ The interface metrics UI SHALL provide a concise per-metric status summary in ea
 - **WHEN** the user clicks the card to configure thresholds
 - **THEN** the configuration modal SHALL open
 - **AND** the metric enable/disable state SHALL NOT change unless explicitly toggled
+
+### Requirement: Unified event rules visible in settings
+The Events settings tab SHALL list unified event rules from all sources (logs and metrics) with source context.
+
+#### Scenario: Metric event rules listed
+- **GIVEN** metric event rules are configured
+- **WHEN** a user visits the Events settings tab
+- **THEN** the rules list SHALL include metric-derived event rules with a source label
+
+#### Scenario: Log event rules listed
+- **GIVEN** log event rules are configured
+- **WHEN** a user visits the Events settings tab
+- **THEN** the rules list SHALL include log-derived event rules
+
+### Requirement: Metric alert rules visible in settings
+The Alerts settings tab SHALL list metric-derived alert rules created from per-metric configurations.
+
+#### Scenario: Metric alert rule listed
+- **GIVEN** per-metric alert settings are enabled
+- **WHEN** a user visits the Alerts settings tab
+- **THEN** the list SHALL include the corresponding metric-derived alert rule

@@ -103,13 +103,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.DuskCompilerTest do
 
       {:ok, profile} =
         DuskProfile
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Test Default Dusk",
-          node_address: "localhost:8080",
-          timeout: "10m",
-          is_default: true,
-          enabled: true
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Test Default Dusk",
+            node_address: "localhost:8080",
+            timeout: "10m",
+            is_default: true,
+            enabled: true
+          }, actor: actor)
         |> Ash.create(actor: actor)
 
       {:ok, config} = DuskCompiler.compile("default", "agent-1", [])

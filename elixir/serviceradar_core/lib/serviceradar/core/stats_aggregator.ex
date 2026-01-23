@@ -338,8 +338,7 @@ defmodule ServiceRadar.Core.StatsAggregator do
         if should_replace_record?(existing, device) do
           {Map.put(canonical, normalized_key, device), fallback, meta}
         else
-          {canonical, fallback,
-           %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
+          {canonical, fallback, %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
         end
     end
   end
@@ -364,8 +363,7 @@ defmodule ServiceRadar.Core.StatsAggregator do
         if should_replace_record?(existing, device) do
           {canonical, Map.put(fallback, normalized_key, device), meta}
         else
-          {canonical, fallback,
-           %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
+          {canonical, fallback, %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
         end
     end
   end
@@ -565,7 +563,8 @@ defmodule ServiceRadar.Core.StatsAggregator do
   end
 
   defp should_log_snapshot?(previous, previous_meta, current, meta) do
-    stats_changed?(previous, current) or meta_changed?(previous_meta, meta) or current.total_devices == 0
+    stats_changed?(previous, current) or meta_changed?(previous_meta, meta) or
+      current.total_devices == 0
   end
 
   defp stats_changed?(nil, _current), do: true

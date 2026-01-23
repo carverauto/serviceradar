@@ -6,7 +6,13 @@ defmodule Proto.NATSAccountService.Service do
   rpc(:BootstrapOperator, Proto.BootstrapOperatorRequest, Proto.BootstrapOperatorResponse)
   rpc(:GetOperatorInfo, Proto.GetOperatorInfoRequest, Proto.GetOperatorInfoResponse)
   rpc(:CreateAccount, Proto.CreateAccountRequest, Proto.CreateAccountResponse)
-  rpc(:GenerateUserCredentials, Proto.GenerateUserCredentialsRequest, Proto.GenerateUserCredentialsResponse)
+
+  rpc(
+    :GenerateUserCredentials,
+    Proto.GenerateUserCredentialsRequest,
+    Proto.GenerateUserCredentialsResponse
+  )
+
   rpc(:SignAccountJWT, Proto.SignAccountJWTRequest, Proto.SignAccountJWTResponse)
   rpc(:PushAccountJWT, Proto.PushAccountJWTRequest, Proto.PushAccountJWTResponse)
 end

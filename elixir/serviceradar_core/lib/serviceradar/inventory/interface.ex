@@ -309,11 +309,6 @@ defmodule ServiceRadar.Inventory.Interface do
     end
   end
 
-  identities do
-    # Identity for composite primary key - used for upsert operations
-    identity :unique_interface, [:timestamp, :device_id, :interface_uid]
-  end
-
   calculations do
     calculate :admin_status_name,
               :string,
@@ -384,5 +379,10 @@ defmodule ServiceRadar.Inventory.Interface do
               )
 
     calculate :primary_ip, :string, expr(fragment("(?)[1]", ip_addresses))
+  end
+
+  identities do
+    # Identity for composite primary key - used for upsert operations
+    identity :unique_interface, [:timestamp, :device_id, :interface_uid]
   end
 end

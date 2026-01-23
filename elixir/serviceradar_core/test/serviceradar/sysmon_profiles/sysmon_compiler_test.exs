@@ -94,20 +94,22 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
 
       {:ok, profile} =
         SysmonProfile
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Test Default",
-          sample_interval: "30s",
-          collect_cpu: true,
-          collect_memory: true,
-          collect_disk: false,
-          collect_network: true,
-          collect_processes: true,
-          disk_paths: ["/", "/data"],
-          disk_exclude_paths: ["/var/lib/docker"],
-          thresholds: %{"cpu_warning" => "75"},
-          is_default: true,
-          enabled: true
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Test Default",
+            sample_interval: "30s",
+            collect_cpu: true,
+            collect_memory: true,
+            collect_disk: false,
+            collect_network: true,
+            collect_processes: true,
+            disk_paths: ["/", "/data"],
+            disk_exclude_paths: ["/var/lib/docker"],
+            thresholds: %{"cpu_warning" => "75"},
+            is_default: true,
+            enabled: true
+          }, actor: actor)
         |> Ash.create(actor: actor)
 
       {:ok, config} = SysmonCompiler.compile("default", "agent-1", [])

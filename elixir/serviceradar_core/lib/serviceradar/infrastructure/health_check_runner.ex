@@ -213,9 +213,11 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
     results_timer = schedule_results_check(service_id, service.results_interval)
 
     new_services = Map.put(state.services, service_id, service)
-    new_timers = state.timers
-                 |> Map.put({service_id, :health}, health_timer)
-                 |> Map.put({service_id, :results}, results_timer)
+
+    new_timers =
+      state.timers
+      |> Map.put({service_id, :health}, health_timer)
+      |> Map.put({service_id, :results}, results_timer)
 
     Logger.info("Registered service #{service_id} (#{service.service_type}) for health checks")
 
@@ -339,9 +341,10 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
     end
 
     # Remove from timers map
-    new_timers = state.timers
-                 |> Map.delete({service_id, :health})
-                 |> Map.delete({service_id, :results})
+    new_timers =
+      state.timers
+      |> Map.delete({service_id, :health})
+      |> Map.delete({service_id, :results})
 
     %{state | timers: new_timers}
   end
@@ -490,9 +493,14 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
     app_config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
     case key do
-      :default_health_interval -> Keyword.get(app_config, :default_health_interval, @default_health_interval)
-      :default_results_interval -> Keyword.get(app_config, :default_results_interval, @default_results_interval)
-      :check_timeout -> Keyword.get(app_config, :check_timeout, @check_timeout)
+      :default_health_interval ->
+        Keyword.get(app_config, :default_health_interval, @default_health_interval)
+
+      :default_results_interval ->
+        Keyword.get(app_config, :default_results_interval, @default_results_interval)
+
+      :check_timeout ->
+        Keyword.get(app_config, :check_timeout, @check_timeout)
     end
   end
 end

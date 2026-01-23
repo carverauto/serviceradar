@@ -11,27 +11,28 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
 
   describe "parse_message/1" do
     test "parses valid OTEL trace message" do
-      json_data = Jason.encode!(%{
-        "timestamp" => "2024-01-15T10:30:00Z",
-        "trace_id" => "trace-abc123",
-        "span_id" => "span-def456",
-        "parent_span_id" => "span-parent",
-        "name" => "HTTP GET /api/users",
-        "kind" => 2,
-        "start_time_unix_nano" => 1_705_315_800_000_000_000,
-        "end_time_unix_nano" => 1_705_315_800_100_000_000,
-        "service_name" => "api-gateway",
-        "service_version" => "1.5.0",
-        "service_instance" => "pod-123",
-        "scope_name" => "opentelemetry.sdk",
-        "scope_version" => "1.0.0",
-        "status_code" => 1,
-        "status_message" => "OK",
-        "attributes" => %{"http.method" => "GET", "http.url" => "/api/users"},
-        "resource_attributes" => %{"service.name" => "api-gateway"},
-        "events" => [%{"name" => "request_start", "timestamp" => 1_705_315_800_000_000_000}],
-        "links" => []
-      })
+      json_data =
+        Jason.encode!(%{
+          "timestamp" => "2024-01-15T10:30:00Z",
+          "trace_id" => "trace-abc123",
+          "span_id" => "span-def456",
+          "parent_span_id" => "span-parent",
+          "name" => "HTTP GET /api/users",
+          "kind" => 2,
+          "start_time_unix_nano" => 1_705_315_800_000_000_000,
+          "end_time_unix_nano" => 1_705_315_800_100_000_000,
+          "service_name" => "api-gateway",
+          "service_version" => "1.5.0",
+          "service_instance" => "pod-123",
+          "scope_name" => "opentelemetry.sdk",
+          "scope_version" => "1.0.0",
+          "status_code" => 1,
+          "status_message" => "OK",
+          "attributes" => %{"http.method" => "GET", "http.url" => "/api/users"},
+          "resource_attributes" => %{"service.name" => "api-gateway"},
+          "events" => [%{"name" => "request_start", "timestamp" => 1_705_315_800_000_000_000}],
+          "links" => []
+        })
 
       message = %{data: json_data, metadata: %{subject: "otel.traces.test"}}
       result = OtelTraces.parse_message(message)
@@ -55,21 +56,22 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
     end
 
     test "parses camelCase fields" do
-      json_data = Jason.encode!(%{
-        "traceId" => "trace-camel",
-        "spanId" => "span-camel",
-        "parentSpanId" => "parent-camel",
-        "startTimeUnixNano" => 1_705_315_800_000_000_000,
-        "endTimeUnixNano" => 1_705_315_800_100_000_000,
-        "serviceName" => "camel-service",
-        "serviceVersion" => "2.0.0",
-        "serviceInstance" => "camel-instance",
-        "scopeName" => "camel-scope",
-        "scopeVersion" => "1.0.0",
-        "statusCode" => 0,
-        "statusMessage" => "Success",
-        "resourceAttributes" => %{"env" => "prod"}
-      })
+      json_data =
+        Jason.encode!(%{
+          "traceId" => "trace-camel",
+          "spanId" => "span-camel",
+          "parentSpanId" => "parent-camel",
+          "startTimeUnixNano" => 1_705_315_800_000_000_000,
+          "endTimeUnixNano" => 1_705_315_800_100_000_000,
+          "serviceName" => "camel-service",
+          "serviceVersion" => "2.0.0",
+          "serviceInstance" => "camel-instance",
+          "scopeName" => "camel-scope",
+          "scopeVersion" => "1.0.0",
+          "statusCode" => 0,
+          "statusMessage" => "Success",
+          "resourceAttributes" => %{"env" => "prod"}
+        })
 
       message = %{data: json_data, metadata: %{}}
       result = OtelTraces.parse_message(message)
@@ -89,12 +91,13 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
       max_int64 = 9_223_372_036_854_775_807
       overflow_value = max_int64 + 1000
 
-      json_data = Jason.encode!(%{
-        "trace_id" => "trace-overflow",
-        "span_id" => "span-overflow",
-        "start_time_unix_nano" => overflow_value,
-        "service_name" => "test"
-      })
+      json_data =
+        Jason.encode!(%{
+          "trace_id" => "trace-overflow",
+          "span_id" => "span-overflow",
+          "start_time_unix_nano" => overflow_value,
+          "service_name" => "test"
+        })
 
       message = %{data: json_data, metadata: %{}}
       result = OtelTraces.parse_message(message)
@@ -115,22 +118,23 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
     end
 
     test "encodes complex attributes as JSON" do
-      json_data = Jason.encode!(%{
-        "trace_id" => "trace-attrs",
-        "span_id" => "span-attrs",
-        "attributes" => %{
-          "http.method" => "POST",
-          "http.status_code" => 200,
-          "custom.data" => %{"nested" => "value"}
-        },
-        "events" => [
-          %{"name" => "event1", "attributes" => %{"key" => "value"}},
-          %{"name" => "event2"}
-        ],
-        "links" => [
-          %{"trace_id" => "linked-trace", "span_id" => "linked-span"}
-        ]
-      })
+      json_data =
+        Jason.encode!(%{
+          "trace_id" => "trace-attrs",
+          "span_id" => "span-attrs",
+          "attributes" => %{
+            "http.method" => "POST",
+            "http.status_code" => 200,
+            "custom.data" => %{"nested" => "value"}
+          },
+          "events" => [
+            %{"name" => "event1", "attributes" => %{"key" => "value"}},
+            %{"name" => "event2"}
+          ],
+          "links" => [
+            %{"trace_id" => "linked-trace", "span_id" => "linked-span"}
+          ]
+        })
 
       message = %{data: json_data, metadata: %{}}
       result = OtelTraces.parse_message(message)
@@ -153,12 +157,13 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
     end
 
     test "parses string bigint values" do
-      json_data = Jason.encode!(%{
-        "trace_id" => "trace-string",
-        "span_id" => "span-string",
-        "start_time_unix_nano" => "1_705_315_800_000_000_000",
-        "end_time_unix_nano" => "1_705_315_800_100_000_000"
-      })
+      json_data =
+        Jason.encode!(%{
+          "trace_id" => "trace-string",
+          "span_id" => "span-string",
+          "start_time_unix_nano" => "1_705_315_800_000_000_000",
+          "end_time_unix_nano" => "1_705_315_800_100_000_000"
+        })
 
       message = %{data: json_data, metadata: %{}}
       result = OtelTraces.parse_message(message)

@@ -9,7 +9,13 @@ defmodule ServiceRadar.SweepJobs.SweepScheduleReconciler do
   use GenServer
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.SweepJobs.{ObanSupport, SweepDataCleanupWorker, SweepGroup, SweepMonitorWorker}
+
+  alias ServiceRadar.SweepJobs.{
+    ObanSupport,
+    SweepDataCleanupWorker,
+    SweepGroup,
+    SweepMonitorWorker
+  }
 
   require Ash.Query
   require Logger
@@ -22,9 +28,12 @@ defmodule ServiceRadar.SweepJobs.SweepScheduleReconciler do
 
   @impl true
   def init(_opts) do
-    interval = Application.get_env(:serviceradar_core, :sweep_schedule_reconcile_interval_seconds,
-      @default_interval_seconds
-    )
+    interval =
+      Application.get_env(
+        :serviceradar_core,
+        :sweep_schedule_reconcile_interval_seconds,
+        @default_interval_seconds
+      )
 
     schedule_reconcile(0)
 

@@ -32,12 +32,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
     test "new agent starts healthy", %{actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register, %{
-          uid: "agent-health-new-#{unique_id}",
-          name: "New Agent",
-          host: "192.168.1.10",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            uid: "agent-health-new-#{unique_id}",
+            name: "New Agent",
+            host: "192.168.1.10",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       assert agent.is_healthy == true
@@ -46,12 +48,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
     test "connected agent starts healthy", %{actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-health-connected-#{unique_id}",
-          name: "Connected Agent",
-          host: "192.168.1.11",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-health-connected-#{unique_id}",
+            name: "Connected Agent",
+            host: "192.168.1.11",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       assert agent.is_healthy == true
@@ -62,12 +66,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       # Create connected agent
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-health-degrade-#{unique_id}",
-          name: "Degrade Test Agent",
-          host: "192.168.1.12",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-health-degrade-#{unique_id}",
+            name: "Degrade Test Agent",
+            host: "192.168.1.12",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       assert agent.is_healthy == true
@@ -87,12 +93,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       # Create and degrade agent
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-health-restore-#{unique_id}",
-          name: "Restore Test Agent",
-          host: "192.168.1.13",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-health-restore-#{unique_id}",
+            name: "Restore Test Agent",
+            host: "192.168.1.13",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       {:ok, degraded} =
@@ -115,12 +123,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
     test "mark_unavailable action marks agent as unhealthy", %{actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-health-unavailable-#{unique_id}",
-          name: "Unavailable Test Agent",
-          host: "192.168.1.14",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-health-unavailable-#{unique_id}",
+            name: "Unavailable Test Agent",
+            host: "192.168.1.14",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       {:ok, unavailable} =
@@ -136,12 +146,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       # Create connecting agent (default state)
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register, %{
-          uid: "agent-health-connect-#{unique_id}",
-          name: "Connect Health Test",
-          host: "192.168.1.15",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            uid: "agent-health-connect-#{unique_id}",
+            name: "Connect Health Test",
+            host: "192.168.1.15",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       # Establish connection
@@ -160,23 +172,27 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       # Create a healthy connected agent
       {:ok, healthy_agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-query-healthy-#{unique_id}",
-          name: "Healthy Agent",
-          host: "192.168.1.20",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-query-healthy-#{unique_id}",
+            name: "Healthy Agent",
+            host: "192.168.1.20",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       # Create a degraded (unhealthy) agent
       {:ok, degraded_agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-query-degraded-#{unique_id}",
-          name: "Degraded Agent",
-          host: "192.168.1.21",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-query-degraded-#{unique_id}",
+            name: "Degraded Agent",
+            host: "192.168.1.21",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       {:ok, degraded_agent} =
@@ -223,12 +239,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
     test "heartbeat updates last_seen_time", %{actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-heartbeat-time-#{unique_id}",
-          name: "Heartbeat Agent",
-          host: "192.168.1.30",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-heartbeat-time-#{unique_id}",
+            name: "Heartbeat Agent",
+            host: "192.168.1.30",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       original_seen = agent.last_seen_time
@@ -249,12 +267,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
     test "heartbeat can update is_healthy flag", %{actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-heartbeat-health-#{unique_id}",
-          name: "Heartbeat Health Agent",
-          host: "192.168.1.31",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-heartbeat-health-#{unique_id}",
+            name: "Heartbeat Health Agent",
+            host: "192.168.1.31",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       assert agent.is_healthy == true
@@ -276,15 +296,20 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       assert healthy.is_healthy == true
     end
 
-    test "first_seen_time is set on creation and never changes", %{actor: actor, unique_id: unique_id} do
+    test "first_seen_time is set on creation and never changes", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register, %{
-          uid: "agent-first-seen-#{unique_id}",
-          name: "First Seen Agent",
-          host: "192.168.1.32",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            uid: "agent-first-seen-#{unique_id}",
+            name: "First Seen Agent",
+            host: "192.168.1.32",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       original_first_seen = agent.first_seen_time
@@ -303,12 +328,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
     test "modified_time is updated on state changes", %{actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-modified-time-#{unique_id}",
-          name: "Modified Time Agent",
-          host: "192.168.1.33",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-modified-time-#{unique_id}",
+            name: "Modified Time Agent",
+            host: "192.168.1.33",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       # Sleep to ensure measurable time difference
@@ -334,12 +361,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       # 1. Create new agent
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register, %{
-          uid: "agent-cycle-#{unique_id}",
-          name: "Cycle Test Agent",
-          host: "192.168.1.40",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            uid: "agent-cycle-#{unique_id}",
+            name: "Cycle Test Agent",
+            host: "192.168.1.40",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       assert agent.status == :connecting
@@ -375,7 +404,9 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       # 5. Mark unavailable for maintenance
       {:ok, unavailable} =
         restored
-        |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "Scheduled maintenance"}, actor: actor)
+        |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "Scheduled maintenance"},
+          actor: actor
+        )
         |> Ash.update()
 
       assert unavailable.status == :unavailable
@@ -403,12 +434,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       # Create connected agent
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-disconnect-#{unique_id}",
-          name: "Disconnect Test Agent",
-          host: "192.168.1.41",
-          port: 50_051
-        }, actor: actor)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-disconnect-#{unique_id}",
+            name: "Disconnect Test Agent",
+            host: "192.168.1.41",
+            port: 50_051
+          }, actor: actor)
         |> Ash.create()
 
       assert agent.status == :connected

@@ -35,7 +35,6 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
         :actor_email,
         :change_reason
       ]
-
     end
 
     read :for_instance do

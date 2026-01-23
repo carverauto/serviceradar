@@ -126,7 +126,8 @@ if config_env() == :prod do
     status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
   config :serviceradar_core,
-    run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
+    run_startup_migrations:
+      System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
 
   sweep_srql_page_limit =
     System.get_env("SWEEP_SRQL_PAGE_LIMIT")
@@ -251,6 +252,7 @@ if config_env() == :prod do
 
   if event_writer_enabled do
     event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
+
     if event_writer_creds in [nil, ""] do
       raise """
       EVENT_WRITER_NATS_CREDS_FILE is required when EVENT_WRITER_ENABLED=true.

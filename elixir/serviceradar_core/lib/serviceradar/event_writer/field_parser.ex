@@ -186,12 +186,14 @@ defmodule ServiceRadar.EventWriter.FieldParser do
   @spec parse_value(nil | number() | String.t()) :: float()
   def parse_value(nil), do: 0.0
   def parse_value(v) when is_number(v), do: v / 1
+
   def parse_value(v) when is_binary(v) do
     case Float.parse(v) do
       {f, _} -> f
       :error -> 0.0
     end
   end
+
   def parse_value(_), do: 0.0
 
   @doc """
@@ -250,11 +252,13 @@ defmodule ServiceRadar.EventWriter.FieldParser do
 
   defp to_float(v) when is_float(v), do: v
   defp to_float(v) when is_integer(v), do: v / 1
+
   defp to_float(v) when is_binary(v) do
     case Float.parse(v) do
       {f, _} -> f
       :error -> nil
     end
   end
+
   defp to_float(_), do: nil
 end

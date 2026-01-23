@@ -77,7 +77,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     results = List.wrap(results)
     total_count = length(results)
 
-    Logger.info("SweepResultsIngestor: Processing #{total_count} results for execution #{execution_id}")
+    Logger.info(
+      "SweepResultsIngestor: Processing #{total_count} results for execution #{execution_id}"
+    )
 
     # Ensure execution record exists (creates one if missing)
     case ensure_execution_exists(
@@ -92,10 +94,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         :ok
 
       {:error, reason} ->
-        Logger.error("SweepResultsIngestor: Failed to ensure execution exists: #{inspect(reason)}")
+        Logger.error(
+          "SweepResultsIngestor: Failed to ensure execution exists: #{inspect(reason)}"
+        )
+
         # Continue anyway - we'll just update what we can
         :ok
     end
+
     start_time = System.monotonic_time(:millisecond)
 
     # Process in batches
@@ -141,16 +147,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         # Update execution with final statistics and scanner metrics
         execution =
           update_execution(
-          execution_id,
-          sweep_group_id,
-          final_stats,
-          scanner_metrics,
-          actor,
-          expected_total_hosts: expected_total_hosts,
-          chunk_index: chunk_index,
-          total_chunks: total_chunks,
-          is_final: is_final
-        )
+            execution_id,
+            sweep_group_id,
+            final_stats,
+            scanner_metrics,
+            actor,
+            expected_total_hosts: expected_total_hosts,
+            chunk_index: chunk_index,
+            total_chunks: total_chunks,
+            is_final: is_final
+          )
 
         broadcast_execution_progress(
           execution_id,
@@ -367,13 +373,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp open_ports(result) do
-    result["tcp_ports_open"] || result["tcpPortsOpen"] || []
-    |> List.wrap()
-    |> Enum.map(&parse_integer/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.filter(&valid_port?/1)
-    |> Enum.uniq()
-    |> Enum.sort()
+    result["tcp_ports_open"] || result["tcpPortsOpen"] ||
+      []
+      |> List.wrap()
+      |> Enum.map(&parse_integer/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.filter(&valid_port?/1)
+      |> Enum.uniq()
+      |> Enum.sort()
   end
 
   defp parse_integer(value) when is_integer(value), do: value
@@ -499,6 +506,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp maybe_add_sweep_source([]), do: :ok
+
   defp maybe_add_sweep_source(device_uids) do
     add_sweep_to_discovery_sources(device_uids)
   end
@@ -588,7 +596,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp maybe_mark_execution_complete(set_fields, false, _completed_at, _duration_ms), do: set_fields
+  defp maybe_mark_execution_complete(set_fields, false, _completed_at, _duration_ms),
+    do: set_fields
 
   defp maybe_mark_execution_complete(set_fields, true, completed_at, duration_ms) do
     set_fields
@@ -608,7 +617,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp maybe_set_expected_total(execution_id, expected_total_hosts, updated_at) do
     from(e in SweepGroupExecution,
-      where: e.id == ^execution_id and (is_nil(e.hosts_total) or e.hosts_total < ^expected_total_hosts),
+      where:
+        e.id == ^execution_id and (is_nil(e.hosts_total) or e.hosts_total < ^expected_total_hosts),
       update: [set: [hosts_total: ^expected_total_hosts, updated_at: ^updated_at]]
     )
     |> Repo.update_all([])
@@ -657,15 +667,30 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     else
       # Create execution record if we have a sweep_group_id
       if sweep_group_id && sweep_group_id != "" do
-        create_execution(execution_id, sweep_group_id, agent_id, config_version, expected_total_hosts)
+        create_execution(
+          execution_id,
+          sweep_group_id,
+          agent_id,
+          config_version,
+          expected_total_hosts
+        )
       else
-        Logger.warning("SweepResultsIngestor: Cannot create execution - no sweep_group_id provided")
+        Logger.warning(
+          "SweepResultsIngestor: Cannot create execution - no sweep_group_id provided"
+        )
+
         :ok
       end
     end
   end
 
-  defp create_execution(execution_id, sweep_group_id, agent_id, config_version, expected_total_hosts) do
+  defp create_execution(
+         execution_id,
+         sweep_group_id,
+         agent_id,
+         config_version,
+         expected_total_hosts
+       ) do
     now = DateTime.utc_now()
     started_at = DateTime.truncate(now, :second)
     inserted_at = DateTime.truncate(now, :microsecond)
@@ -695,7 +720,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            returning: false
          ) do
       {1, _} ->
-        Logger.info("SweepResultsIngestor: Created execution record #{execution_id} for group #{sweep_group_id}")
+        Logger.info(
+          "SweepResultsIngestor: Created execution record #{execution_id} for group #{sweep_group_id}"
+        )
 
         # Broadcast new execution for real-time UI updates
         execution = %{

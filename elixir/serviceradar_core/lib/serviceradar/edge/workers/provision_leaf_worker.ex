@@ -91,9 +91,11 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
     actor = SystemActor.system(:provision_leaf)
 
     leaf_server
-    |> Ash.Changeset.for_update(:provision, %{
-      config_checksum: config_checksum
-    }, actor: actor)
+    |> Ash.Changeset.for_update(
+      :provision,
+      %{
+        config_checksum: config_checksum
+      }, actor: actor)
     |> Ash.update()
   end
 end

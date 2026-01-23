@@ -29,7 +29,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
   describe "record_state_change/3" do
     test "creates a HealthEvent record for agent state transition", %{
-            unique_id: unique_id
+      unique_id: unique_id
     } do
       entity_id = "agent-#{unique_id}"
 
@@ -51,7 +51,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     end
 
     test "creates a HealthEvent for gateway heartbeat timeout", %{
-            unique_id: unique_id
+      unique_id: unique_id
     } do
       entity_id = "gateway-#{unique_id}"
 
@@ -69,7 +69,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     end
 
     test "creates a HealthEvent for checker state change", %{
-            unique_id: unique_id
+      unique_id: unique_id
     } do
       entity_id = "checker-#{unique_id}"
 
@@ -87,15 +87,13 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     end
 
     test "persisted event is queryable via timeline", %{
-            unique_id: unique_id
+      unique_id: unique_id
     } do
       entity_id = "agent-timeline-#{unique_id}"
 
       # Record multiple state changes
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, entity_id,
-          new_state: :connecting
-        )
+        HealthTracker.record_state_change(:agent, entity_id, new_state: :connecting)
 
       {:ok, _} =
         HealthTracker.record_state_change(:agent, entity_id,
@@ -134,9 +132,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       entity_id = "agent-default-node-#{unique_id}"
 
       {:ok, event} =
-        HealthTracker.record_state_change(:agent, entity_id,
-          new_state: :connected
-        )
+        HealthTracker.record_state_change(:agent, entity_id, new_state: :connected)
 
       assert event.node == to_string(node())
     end
@@ -144,7 +140,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
   describe "PubSub emission" do
     test "broadcasts health event on state change", %{
-            unique_id: unique_id
+      unique_id: unique_id
     } do
       entity_id = "agent-pubsub-#{unique_id}"
       topic = HealthPubSub.topic()
@@ -167,7 +163,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     end
 
     test "does not broadcast when broadcast: false", %{
-            unique_id: unique_id
+      unique_id: unique_id
     } do
       entity_id = "agent-no-broadcast-#{unique_id}"
       topic = HealthPubSub.topic()
@@ -187,15 +183,13 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
   describe "current_status/2" do
     test "returns the most recent health event for an entity", %{
-            unique_id: unique_id
+      unique_id: unique_id
     } do
       entity_id = "agent-status-#{unique_id}"
 
       # Record several events
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, entity_id,
-          new_state: :connecting
-        )
+        HealthTracker.record_state_change(:agent, entity_id, new_state: :connecting)
 
       {:ok, _} =
         HealthTracker.record_state_change(:agent, entity_id,
@@ -226,7 +220,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
   describe "record_health_check/3" do
     test "records state change when health status changes", %{
-            unique_id: unique_id
+      unique_id: unique_id
     } do
       entity_id = "datasvc-#{unique_id}"
 
@@ -252,21 +246,17 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     end
 
     test "returns :unchanged when health status is the same", %{
-            unique_id: unique_id
+      unique_id: unique_id
     } do
       entity_id = "datasvc-unchanged-#{unique_id}"
 
       # First health check
       {:ok, _} =
-        HealthTracker.record_health_check(:custom, entity_id,
-          healthy: true
-        )
+        HealthTracker.record_health_check(:custom, entity_id, healthy: true)
 
       # Second health check - same status
       result =
-        HealthTracker.record_health_check(:custom, entity_id,
-          healthy: true
-        )
+        HealthTracker.record_health_check(:custom, entity_id, healthy: true)
 
       assert result == {:ok, :unchanged}
     end
@@ -288,7 +278,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     end
 
     test "returns :unchanged for subsequent heartbeats with same state", %{
-            unique_id: unique_id
+      unique_id: unique_id
     } do
       entity_id = "core-unchanged-#{unique_id}"
 
@@ -317,7 +307,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
   describe "summary/0" do
     test "returns health summary grouped by entity type and state", %{
-            unique_id: unique_id
+      unique_id: unique_id
     } do
       # Create events for different entity types
       {:ok, _} =

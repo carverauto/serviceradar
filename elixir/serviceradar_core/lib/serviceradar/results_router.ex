@@ -11,6 +11,7 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Observability.IcmpMetricsIngestor
+  alias ServiceRadar.Observability.SnmpMetricsIngestor
   alias ServiceRadar.Observability.SysmonMetricsIngestor
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
@@ -80,6 +81,10 @@ defmodule ServiceRadar.ResultsRouter do
     handle_sysmon_metrics(status)
   end
 
+  defp process(%{source: source} = status) when source in ["snmp-metrics", :snmp_metrics] do
+    handle_snmp_metrics(status)
+  end
+
   defp process(_status), do: :ok
 
   defp handle_sync_results(status) do
@@ -147,6 +152,14 @@ defmodule ServiceRadar.ResultsRouter do
     # In schema-agnostic mode, DB schema is set by CNPG search_path
     with {:ok, payload} <- decode_payload(status[:message]) do
       sysmon_ingestor().ingest(payload, status)
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp handle_snmp_metrics(status) do
+    with {:ok, payload} <- decode_payload(status[:message]) do
+      snmp_ingestor().ingest(payload, status)
     else
       {:error, reason} -> {:error, reason}
     end
@@ -259,12 +272,14 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp present_id?(value) when is_binary(value), do: value != ""
   defp present_id?(_value), do: false
+
   defp deterministic_execution_id(sweep_group_id, last_sweep_time)
        when is_binary(sweep_group_id) and sweep_group_id != "" and
               is_binary(last_sweep_time) and last_sweep_time != "" do
     hash = :crypto.hash(:md5, "#{sweep_group_id}:#{last_sweep_time}")
 
-    <<a::binary-size(8), b::binary-size(4), c::binary-size(4), d::binary-size(4), e::binary-size(12)>> =
+    <<a::binary-size(8), b::binary-size(4), c::binary-size(4), d::binary-size(4),
+      e::binary-size(12)>> =
       Base.encode16(hash, case: :lower)
 
     Enum.join([a, b, c, d, e], "-")
@@ -505,6 +520,10 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp sysmon_ingestor do
     Application.get_env(:serviceradar_core, :sysmon_metrics_ingestor, SysmonMetricsIngestor)
+  end
+
+  defp snmp_ingestor do
+    Application.get_env(:serviceradar_core, :snmp_metrics_ingestor, SnmpMetricsIngestor)
   end
 
   defp icmp_ingestor do

@@ -37,6 +37,7 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.Log
     resource ServiceRadar.Observability.ZenRule
     resource ServiceRadar.Observability.ZenRuleTemplate
+    resource ServiceRadar.Observability.EventRule
     resource ServiceRadar.Observability.LogPromotionRule
     resource ServiceRadar.Observability.LogPromotionRuleTemplate
     resource ServiceRadar.Observability.StatefulAlertRule

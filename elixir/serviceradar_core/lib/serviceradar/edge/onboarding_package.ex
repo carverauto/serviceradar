@@ -114,7 +114,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
         :created_by,
         :downstream_spiffe_id
       ]
-
     end
 
     update :update_tokens do

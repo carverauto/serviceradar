@@ -71,7 +71,8 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
         :is_delta,
         :target_device_ip,
         :if_index,
-        :metadata
+        :metadata,
+        :created_at
       ]
     end
   end

@@ -97,7 +97,11 @@ defmodule ServiceRadar.Edge.EdgeSite do
             if Regex.match?(~r/^[a-z0-9][a-z0-9\-]*[a-z0-9]$|^[a-z0-9]$/, slug) do
               changeset
             else
-              Ash.Changeset.add_error(changeset, :slug, "must be lowercase alphanumeric with dashes")
+              Ash.Changeset.add_error(
+                changeset,
+                :slug,
+                "must be lowercase alphanumeric with dashes"
+              )
             end
         end
       end
@@ -229,7 +233,13 @@ defmodule ServiceRadar.Edge.EdgeSite do
   # Helper function to create associated NatsLeafServer
   defp create_nats_leaf_server(site) do
     # Get platform NATS URL from config
-    upstream_url = Application.get_env(:serviceradar, :nats_leaf_upstream_url, "tls://nats.serviceradar.cloud:7422")
+    upstream_url =
+      Application.get_env(
+        :serviceradar,
+        :nats_leaf_upstream_url,
+        "tls://nats.serviceradar.cloud:7422"
+      )
+
     actor = SystemActor.system(:edge_site)
 
     ServiceRadar.Edge.NatsLeafServer

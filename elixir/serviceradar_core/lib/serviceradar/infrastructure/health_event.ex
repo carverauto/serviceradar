@@ -174,7 +174,6 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   end
 
   policies do
-
     # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)

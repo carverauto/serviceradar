@@ -42,13 +42,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     repo ServiceRadar.Repo
   end
 
-  cloak do
-    vault(ServiceRadar.Vault)
-    attributes([:nats_creds_ciphertext, :tls_key_pem_ciphertext])
-    # Not decrypted by default for security - use ServiceRadar.Vault.decrypt/1 when needed
-    decrypt_by_default([])
-  end
-
   state_machine do
     initial_states [:pending]
     default_initial_state :pending
@@ -62,6 +55,13 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       transition :install, from: :downloaded, to: :installed
       transition :revoke, from: [:ready, :downloaded, :installed], to: :revoked
     end
+  end
+
+  cloak do
+    vault(ServiceRadar.Vault)
+    attributes([:nats_creds_ciphertext, :tls_key_pem_ciphertext])
+    # Not decrypted by default for security - use ServiceRadar.Vault.decrypt/1 when needed
+    decrypt_by_default([])
   end
 
   actions do
@@ -193,8 +193,14 @@ defmodule ServiceRadar.Edge.CollectorPackage do
           Ash.Changeset.get_argument(changeset, :nats_credential_id)
         )
         # Store TLS certificate (public - not encrypted)
-        |> Ash.Changeset.change_attribute(:tls_cert_pem, Ash.Changeset.get_argument(changeset, :tls_cert_pem))
-        |> Ash.Changeset.change_attribute(:ca_chain_pem, Ash.Changeset.get_argument(changeset, :ca_chain_pem))
+        |> Ash.Changeset.change_attribute(
+          :tls_cert_pem,
+          Ash.Changeset.get_argument(changeset, :tls_cert_pem)
+        )
+        |> Ash.Changeset.change_attribute(
+          :ca_chain_pem,
+          Ash.Changeset.get_argument(changeset, :ca_chain_pem)
+        )
         # Encrypt NATS credentials and TLS private key using AshCloak
         |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
         |> AshCloak.encrypt_and_set(:tls_key_pem_ciphertext, tls_key_pem)
@@ -239,7 +245,10 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       change fn changeset, _context ->
         changeset
         |> Ash.Changeset.change_attribute(:downloaded_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(:downloaded_by_ip, Ash.Changeset.get_argument(changeset, :downloaded_by_ip))
+        |> Ash.Changeset.change_attribute(
+          :downloaded_by_ip,
+          Ash.Changeset.get_argument(changeset, :downloaded_by_ip)
+        )
       end
     end
 
@@ -263,7 +272,10 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
         changeset
         |> Ash.Changeset.change_attribute(:revoked_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(:revoke_reason, Ash.Changeset.get_argument(changeset, :reason))
+        |> Ash.Changeset.change_attribute(
+          :revoke_reason,
+          Ash.Changeset.get_argument(changeset, :reason)
+        )
         |> Ash.Changeset.put_context(:old_status, old_status)
       end
 
@@ -274,6 +286,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
           # Revoke associated NATS credential
           if package.nats_credential_id do
             actor = SystemActor.system(:collector_package)
+
             case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id,
                    actor: actor
                  ) do
@@ -353,7 +366,17 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       allow_nil? false
       default :pending
       public? true
-      constraints one_of: [:pending, :provisioning, :ready, :downloaded, :installed, :revoked, :failed]
+
+      constraints one_of: [
+                    :pending,
+                    :provisioning,
+                    :ready,
+                    :downloaded,
+                    :installed,
+                    :revoked,
+                    :failed
+                  ]
+
       description "Package status"
     end
 

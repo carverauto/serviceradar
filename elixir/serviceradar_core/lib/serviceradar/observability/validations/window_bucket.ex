@@ -24,7 +24,9 @@ defmodule ServiceRadar.Observability.Validations.WindowBucket do
 
   defp validate_positive(_field, value) when is_integer(value) and value > 0, do: :ok
   defp validate_positive(_field, nil), do: :ok
-  defp validate_positive(field, _value), do: {:error, field: field, message: "must be greater than zero"}
+
+  defp validate_positive(field, _value),
+    do: {:error, field: field, message: "must be greater than zero"}
 
   defp validate_bucket_divides_window(window, bucket)
        when is_integer(window) and is_integer(bucket) and rem(window, bucket) != 0 do

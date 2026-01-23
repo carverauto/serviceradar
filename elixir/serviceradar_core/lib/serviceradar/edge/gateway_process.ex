@@ -253,6 +253,7 @@ defmodule ServiceRadar.Edge.GatewayProcess do
       |> Map.put(:last_heartbeat, DateTime.utc_now())
       |> Map.put(:status, registry_status(state.status))
     end)
+
     schedule_health_check()
     {:noreply, state}
   end

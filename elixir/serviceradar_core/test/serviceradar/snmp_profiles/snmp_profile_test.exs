@@ -62,6 +62,12 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
       priority = Enum.find(attrs, &(&1.name == :priority))
       assert priority.default == 0
     end
+
+    test "version defaults to v2c" do
+      attrs = ResourceInfo.attributes(SNMPProfile)
+      version = Enum.find(attrs, &(&1.name == :version))
+      assert version.default == :v2c
+    end
   end
 
   describe "actions" do
@@ -123,6 +129,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
       assert profile.is_default == false
       assert profile.enabled == true
       assert profile.priority == 0
+      assert profile.version == :v2c
     end
 
     @tag :integration
@@ -142,7 +149,12 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
             is_default: false,
             enabled: true,
             target_query: "in:devices tags.role:network",
-            priority: 50
+            priority: 50,
+            version: :v3,
+            username: "snmpuser",
+            security_level: :auth_no_priv,
+            auth_protocol: :sha,
+            priv_protocol: :aes
           },
           actor: actor
         )
@@ -155,6 +167,11 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
       assert profile.retries == 5
       assert profile.target_query == "in:devices tags.role:network"
       assert profile.priority == 50
+      assert profile.version == :v3
+      assert profile.username == "snmpuser"
+      assert profile.security_level == :auth_no_priv
+      assert profile.auth_protocol == :sha
+      assert profile.priv_protocol == :aes
     end
 
     @tag :integration

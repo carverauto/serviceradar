@@ -409,6 +409,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           end)
 
         deduped = Enum.uniq_by(filtered, &interface_identity_key/1)
+        deduped = dedupe_by_interface(deduped)
 
         if length(filtered) != length(records) do
           Logger.debug(
@@ -466,6 +467,30 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp get_record_value(record, atom_key, string_key) when is_map(record) do
     Map.get(record, atom_key) || Map.get(record, string_key)
+  end
+
+  defp dedupe_by_interface(records) do
+    records
+    |> Enum.group_by(fn record ->
+      {
+        get_record_value(record, :device_id, "device_id"),
+        get_record_value(record, :interface_uid, "interface_uid")
+      }
+    end)
+    |> Enum.map(fn {_key, grouped} -> newest_record(grouped) end)
+  end
+
+  defp newest_record([record]), do: record
+
+  defp newest_record(records) do
+    Enum.max_by(records, &record_timestamp/1, fn -> List.first(records) end)
+  end
+
+  defp record_timestamp(record) do
+    case get_record_value(record, :timestamp, "timestamp") do
+      %DateTime{} = timestamp -> timestamp
+      _ -> DateTime.from_unix!(0)
+    end
   end
 
   defp record_job_runs(updates) do

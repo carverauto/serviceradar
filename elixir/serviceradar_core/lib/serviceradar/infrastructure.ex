@@ -33,15 +33,15 @@ defmodule ServiceRadar.Infrastructure do
   end
 
   resources do
-    resource(ServiceRadar.Infrastructure.Gateway)
-    resource(ServiceRadar.Infrastructure.Agent)
-    resource(ServiceRadar.Infrastructure.Checker)
-    resource(ServiceRadar.Infrastructure.Partition)
-    resource(ServiceRadar.Infrastructure.HealthEvent)
+    resource ServiceRadar.Infrastructure.Gateway
+    resource ServiceRadar.Infrastructure.Agent
+    resource ServiceRadar.Infrastructure.Checker
+    resource ServiceRadar.Infrastructure.Partition
+    resource ServiceRadar.Infrastructure.HealthEvent
   end
 
   authorization do
-    require_actor?(false)
-    authorize(:by_default)
+    require_actor? false
+    authorize :by_default
   end
 end

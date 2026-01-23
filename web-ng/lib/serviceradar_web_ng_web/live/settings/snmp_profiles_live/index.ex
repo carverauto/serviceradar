@@ -2,10 +2,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   @moduledoc """
   LiveView for managing SNMP profiles configuration.
 
+  ## Architecture (v2)
+
+  SNMP profiles now use a cleaner SRQL-based model:
+  - **Target Query (SRQL)**: Dynamically matches devices/interfaces from inventory
+  - **OID Templates**: Select which metrics to poll via reusable template collections
+  - **Credentials**: Profile-level fallback, with per-device overrides via DeviceSNMPCredential
+
+  Legacy manual SNMPTarget configuration is deprecated but shown read-only for existing profiles.
+
   Provides UI for:
   - SNMP Profiles: Admin-managed SNMP monitoring configuration profiles with SRQL targeting
-  - SNMP Targets: Per-device SNMP connection settings
-  - OID Templates: Vendor-based OID template library
+  - OID Template Selection: Choose which metrics to poll from matched devices
+  - OID Templates: Vendor-based OID template library (builtin + custom)
   """
   use ServiceRadarWebNGWeb, :live_view
 
@@ -15,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   import ServiceRadarWebNGWeb.QueryBuilderComponents
 
   alias AshPhoenix.Form
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SNMPProfiles.BuiltinTemplates
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
@@ -58,6 +68,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       |> assign(:custom_template_oids, [])
       |> assign(:editing_custom_template, nil)
       |> assign(:custom_templates, load_custom_templates(scope))
+      # OID template selection state (for profile form)
+      |> assign(:available_templates, load_all_templates(scope))
+      |> assign(:selected_template_ids, [])
 
     {:ok, socket}
   end
@@ -82,6 +95,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     |> assign(:editing_target, nil)
     |> assign(:target_oids, [])
     |> assign(:show_template_browser, false)
+    |> assign(:selected_template_ids, [])
   end
 
   defp apply_action(socket, :new_profile, _params) do
@@ -105,6 +119,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     |> assign(:editing_target, nil)
     |> assign(:target_oids, [])
     |> assign(:show_template_browser, false)
+    |> assign(:selected_template_ids, [])
   end
 
   defp apply_action(socket, :edit_profile, %{"id" => id}) do
@@ -116,17 +131,22 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
       profile ->
         scope = socket.assigns.current_scope
+        target_query = resolve_target_query(profile.target_query, profile.is_default)
 
         ash_form =
           Form.for_update(profile, :update, domain: ServiceRadar.SNMPProfiles, scope: scope)
+          |> maybe_set_target_query(target_query)
 
-        device_count = count_target_devices(scope, profile.target_query)
+        device_count = count_target_devices(scope, target_query)
 
         # Parse the existing target_query into builder state if possible
-        {builder, builder_sync} = parse_target_query_to_builder(profile.target_query)
+        {builder, builder_sync} = parse_target_query_to_builder(target_query)
 
-        # Load targets for this profile
+        # Load targets for this profile (legacy, for display only)
         targets = load_profile_targets(scope, profile.id)
+
+        # Load profile's selected OID templates
+        selected_template_ids = profile.oid_template_ids || []
 
         socket
         |> assign(:page_title, "Edit #{profile.name}")
@@ -139,6 +159,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         |> assign(:builder, builder)
         |> assign(:builder_sync, builder_sync)
         |> assign(:targets, targets)
+        |> assign(:selected_template_ids, selected_template_ids)
         |> assign(:show_target_modal, false)
         |> assign(:target_form, nil)
         |> assign(:editing_target, nil)
@@ -162,6 +183,20 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   end
 
   def handle_event("save_profile", %{"form" => params}, socket) do
+    params =
+      if socket.assigns.show_form == :edit_profile do
+        sensitive_fields = ["community", "auth_password", "priv_password"]
+
+        Map.reject(params, fn {key, value} ->
+          key in sensitive_fields and value == ""
+        end)
+      else
+        params
+      end
+
+    # Include selected OID template IDs
+    params = Map.put(params, "oid_template_ids", socket.assigns.selected_template_ids)
+
     ash_form = socket.assigns.ash_form |> Form.validate(params)
     scope = socket.assigns.current_scope
 
@@ -363,7 +398,27 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
      |> assign(:target_device_count, device_count)}
   end
 
-  # Target modal event handlers
+  # OID Template Selection event handlers
+
+  def handle_event("toggle_template", %{"id" => template_id}, socket) do
+    current_ids = socket.assigns.selected_template_ids
+
+    new_ids =
+      if template_id in current_ids do
+        Enum.reject(current_ids, &(&1 == template_id))
+      else
+        current_ids ++ [template_id]
+      end
+
+    {:noreply, assign(socket, :selected_template_ids, new_ids)}
+  end
+
+  def handle_event("remove_template", %{"id" => template_id}, socket) do
+    new_ids = Enum.reject(socket.assigns.selected_template_ids, &(&1 == template_id))
+    {:noreply, assign(socket, :selected_template_ids, new_ids)}
+  end
+
+  # Target modal event handlers (legacy)
 
   def handle_event("open_target_modal", _params, socket) do
     scope = socket.assigns.current_scope
@@ -1133,6 +1188,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               builder={@builder}
               builder_sync={@builder_sync}
               targets={@targets}
+              selected_template_ids={@selected_template_ids}
+              available_templates={@available_templates}
             />
           <% else %>
             <.profiles_panel profiles={@profiles} />
@@ -1308,15 +1365,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   attr :builder, :map, default: %{}
   attr :builder_sync, :boolean, default: true
   attr :targets, :list, default: []
+  attr :selected_template_ids, :list, default: []
+  attr :available_templates, :list, default: []
 
   defp profile_form(assigns) do
     is_default = assigns.selected_profile && assigns.selected_profile.is_default
     config = Catalog.entity("interfaces")
+    version = get_form_value(assigns.form, :version, "v2c")
 
     assigns =
       assigns
       |> assign(:is_default, is_default)
       |> assign(:config, config)
+      |> assign(:version, version)
 
     ~H"""
     <.ui_panel>
@@ -1399,187 +1460,400 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
           </div>
         </div>
         
+    <!-- SNMP Credentials Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            SNMP Credentials
+          </h3>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="label"><span class="label-text">SNMP Version</span></label>
+              <.input
+                type="select"
+                field={@form[:version]}
+                class="select select-bordered w-full"
+                options={[
+                  {"SNMPv1", "v1"},
+                  {"SNMPv2c", "v2c"},
+                  {"SNMPv3", "v3"}
+                ]}
+              />
+            </div>
+          </div>
+
+          <%= if @version in ["v1", "v2c"] do %>
+            <div>
+              <label class="label"><span class="label-text">Community String</span></label>
+              <.input
+                type="password"
+                name="form[community]"
+                value=""
+                class="input input-bordered w-full"
+                placeholder={
+                  if @show_form == :edit_profile,
+                    do: "Leave blank to keep existing",
+                    else: "e.g., public"
+                }
+                autocomplete="off"
+              />
+              <label class="label">
+                <span class="label-text-alt text-base-content/50">
+                  Credentials are encrypted at rest.
+                </span>
+              </label>
+            </div>
+          <% else %>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Username</span></label>
+                <.input
+                  type="text"
+                  field={@form[:username]}
+                  class="input input-bordered w-full"
+                  placeholder="e.g., snmpuser"
+                />
+              </div>
+              <div>
+                <label class="label"><span class="label-text">Security Level</span></label>
+                <.input
+                  type="select"
+                  field={@form[:security_level]}
+                  class="select select-bordered w-full"
+                  options={[
+                    {"No Auth, No Privacy", "no_auth_no_priv"},
+                    {"Auth, No Privacy", "auth_no_priv"},
+                    {"Auth + Privacy", "auth_priv"}
+                  ]}
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Auth Protocol</span></label>
+                <.input
+                  type="select"
+                  field={@form[:auth_protocol]}
+                  class="select select-bordered w-full"
+                  options={[
+                    {"MD5", "md5"},
+                    {"SHA", "sha"},
+                    {"SHA-224", "sha224"},
+                    {"SHA-256", "sha256"},
+                    {"SHA-384", "sha384"},
+                    {"SHA-512", "sha512"}
+                  ]}
+                />
+              </div>
+              <div>
+                <label class="label"><span class="label-text">Auth Password</span></label>
+                <.input
+                  type="password"
+                  name="form[auth_password]"
+                  value=""
+                  class="input input-bordered w-full"
+                  placeholder={
+                    if @show_form == :edit_profile,
+                      do: "Leave blank to keep existing",
+                      else: "Auth password"
+                  }
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Privacy Protocol</span></label>
+                <.input
+                  type="select"
+                  field={@form[:priv_protocol]}
+                  class="select select-bordered w-full"
+                  options={[
+                    {"DES", "des"},
+                    {"AES", "aes"},
+                    {"AES-192", "aes192"},
+                    {"AES-256", "aes256"}
+                  ]}
+                />
+              </div>
+              <div>
+                <label class="label"><span class="label-text">Privacy Password</span></label>
+                <.input
+                  type="password"
+                  name="form[priv_password]"
+                  value=""
+                  class="input input-bordered w-full"
+                  placeholder={
+                    if @show_form == :edit_profile,
+                      do: "Leave blank to keep existing",
+                      else: "Privacy password"
+                  }
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+
+            <p class="text-xs text-base-content/50">
+              Leave password fields blank to keep existing values. Credentials are encrypted at rest.
+            </p>
+          <% end %>
+        </div>
+        
     <!-- Interface Targeting Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
             Interface Targeting
           </h3>
 
-          <%= if @is_default do %>
-            <div class="bg-info/10 border border-info/30 rounded-lg p-4">
+          <div class="space-y-4">
+            <div :if={@is_default} class="bg-info/10 border border-info/30 rounded-lg p-4">
               <div class="flex items-start gap-3">
                 <.icon name="hero-information-circle" class="size-5 text-info shrink-0 mt-0.5" />
                 <div>
                   <p class="text-sm font-medium">Default Profile</p>
                   <p class="text-xs text-base-content/70 mt-1">
-                    This is the default profile for your account. It will be applied to all interfaces
-                    that don't match any other profile's targeting query.
+                    This profile acts as the fallback for any interfaces that don't match other profiles.
+                    You can still set a targeting query here to scope the default and preview counts.
                   </p>
                 </div>
               </div>
             </div>
-          <% else %>
-            <div class="space-y-4">
-              <!-- Query Input with Builder Toggle -->
-              <div>
-                <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
-                <div class="flex items-center gap-2">
-                  <div class="flex-1">
-                    <.input
-                      type="text"
-                      field={@form[:target_query]}
-                      class="input input-bordered w-full font-mono text-sm"
-                      placeholder="e.g., in:interfaces type:ethernet device.hostname:%router%"
-                    />
-                  </div>
-                  <.ui_icon_button
-                    active={@builder_open}
-                    aria-label="Toggle query builder"
-                    title="Query builder"
-                    phx-click="builder_toggle"
-                  >
-                    <.icon name="hero-adjustments-horizontal" class="size-4" />
-                  </.ui_icon_button>
+            
+    <!-- Query Input with Builder Toggle -->
+            <div>
+              <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
+              <div class="flex items-center gap-2">
+                <div class="flex-1">
+                  <.input
+                    type="text"
+                    field={@form[:target_query]}
+                    class="input input-bordered w-full font-mono text-sm"
+                    placeholder="e.g., in:interfaces type:ethernet device.hostname:%router%"
+                  />
                 </div>
+                <.ui_icon_button
+                  active={@builder_open}
+                  aria-label="Toggle query builder"
+                  title="Query builder"
+                  phx-click="builder_toggle"
+                >
+                  <.icon name="hero-adjustments-horizontal" class="size-4" />
+                </.ui_icon_button>
+              </div>
+              <label class="label">
+                <span class="label-text-alt text-base-content/50">
+                  SRQL filters to match interfaces. Examples: <code class="bg-base-200 px-1 rounded">type:ethernet</code>,
+                  <code class="bg-base-200 px-1 rounded">device.hostname:%router%</code>
+                </span>
+              </label>
+            </div>
+            
+    <!-- Visual Query Builder -->
+            <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
+              <div class="flex items-center justify-between mb-4">
+                <div class="text-sm font-semibold">Query Builder</div>
+                <div class="flex items-center gap-2">
+                  <.ui_badge :if={not @builder_sync} size="sm">Not applied</.ui_badge>
+                  <.ui_button
+                    :if={not @builder_sync}
+                    size="sm"
+                    variant="ghost"
+                    type="button"
+                    phx-click="builder_apply"
+                  >
+                    Apply to query
+                  </.ui_button>
+                </div>
+              </div>
+
+              <form phx-change="builder_change" autocomplete="off">
+                <div class="flex flex-col gap-4">
+                  <!-- Filters Section -->
+                  <div class="flex flex-col gap-3">
+                    <div class="text-xs text-base-content/60 font-medium">
+                      Match interfaces where:
+                    </div>
+
+                    <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
+                      <div class="flex items-center gap-3">
+                        <.query_builder_pill label="Filter">
+                          <%= if @config.filter_fields == [] do %>
+                            <.ui_inline_input
+                              type="text"
+                              name={"builder[filters][#{idx}][field]"}
+                              value={filter["field"] || ""}
+                              placeholder="field"
+                              class="w-40 placeholder:text-base-content/40"
+                            />
+                          <% else %>
+                            <.ui_inline_select name={"builder[filters][#{idx}][field]"}>
+                              <%= for field <- @config.filter_fields do %>
+                                <option value={field} selected={filter["field"] == field}>
+                                  {field}
+                                </option>
+                              <% end %>
+                            </.ui_inline_select>
+                          <% end %>
+
+                          <.ui_inline_select
+                            name={"builder[filters][#{idx}][op]"}
+                            class="text-xs text-base-content/70"
+                          >
+                            <option
+                              value="contains"
+                              selected={(filter["op"] || "contains") == "contains"}
+                            >
+                              contains
+                            </option>
+                            <option value="not_contains" selected={filter["op"] == "not_contains"}>
+                              does not contain
+                            </option>
+                            <option value="equals" selected={filter["op"] == "equals"}>
+                              equals
+                            </option>
+                            <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                              does not equal
+                            </option>
+                          </.ui_inline_select>
+
+                          <.ui_inline_input
+                            type="text"
+                            name={"builder[filters][#{idx}][value]"}
+                            value={filter["value"] || ""}
+                            placeholder="value"
+                            class="placeholder:text-base-content/40 w-48"
+                          />
+                        </.query_builder_pill>
+
+                        <.ui_icon_button
+                          size="xs"
+                          aria-label="Remove filter"
+                          title="Remove filter"
+                          type="button"
+                          phx-click="builder_remove_filter"
+                          phx-value-idx={idx}
+                        >
+                          <.icon name="hero-x-mark" class="size-4" />
+                        </.ui_icon_button>
+                      </div>
+                    <% end %>
+
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                      phx-click="builder_add_filter"
+                    >
+                      <.icon name="hero-plus" class="size-4" /> Add filter
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+            
+    <!-- Device Count Preview -->
+            <div :if={@target_device_count != nil} class="flex items-center gap-2">
+              <.icon name="hero-signal" class="size-4 text-base-content/60" />
+              <span class="text-sm">
+                <span class="font-semibold">{@target_device_count}</span>
+                <span class="text-base-content/60">interface(s) match this query</span>
+              </span>
+            </div>
+            
+    <!-- Priority -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Priority</span></label>
+                <.input
+                  type="number"
+                  field={@form[:priority]}
+                  class="input input-bordered w-full"
+                  min="0"
+                  max="100"
+                />
                 <label class="label">
                   <span class="label-text-alt text-base-content/50">
-                    SRQL filters to match interfaces. Examples: <code class="bg-base-200 px-1 rounded">type:ethernet</code>,
-                    <code class="bg-base-200 px-1 rounded">device.hostname:%router%</code>
+                    Higher priority profiles are evaluated first (0-100)
                   </span>
                 </label>
               </div>
-              
-    <!-- Visual Query Builder -->
-              <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
-                <div class="flex items-center justify-between mb-4">
-                  <div class="text-sm font-semibold">Query Builder</div>
-                  <div class="flex items-center gap-2">
-                    <.ui_badge :if={not @builder_sync} size="sm">Not applied</.ui_badge>
-                    <.ui_button
-                      :if={not @builder_sync}
-                      size="sm"
-                      variant="ghost"
-                      type="button"
-                      phx-click="builder_apply"
-                    >
-                      Apply to query
-                    </.ui_button>
-                  </div>
-                </div>
-
-                <form phx-change="builder_change" autocomplete="off">
-                  <div class="flex flex-col gap-4">
-                    <!-- Filters Section -->
-                    <div class="flex flex-col gap-3">
-                      <div class="text-xs text-base-content/60 font-medium">
-                        Match interfaces where:
-                      </div>
-
-                      <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
-                        <div class="flex items-center gap-3">
-                          <.query_builder_pill label="Filter">
-                            <%= if @config.filter_fields == [] do %>
-                              <.ui_inline_input
-                                type="text"
-                                name={"builder[filters][#{idx}][field]"}
-                                value={filter["field"] || ""}
-                                placeholder="field"
-                                class="w-40 placeholder:text-base-content/40"
-                              />
-                            <% else %>
-                              <.ui_inline_select name={"builder[filters][#{idx}][field]"}>
-                                <%= for field <- @config.filter_fields do %>
-                                  <option value={field} selected={filter["field"] == field}>
-                                    {field}
-                                  </option>
-                                <% end %>
-                              </.ui_inline_select>
-                            <% end %>
-
-                            <.ui_inline_select
-                              name={"builder[filters][#{idx}][op]"}
-                              class="text-xs text-base-content/70"
-                            >
-                              <option
-                                value="contains"
-                                selected={(filter["op"] || "contains") == "contains"}
-                              >
-                                contains
-                              </option>
-                              <option value="not_contains" selected={filter["op"] == "not_contains"}>
-                                does not contain
-                              </option>
-                              <option value="equals" selected={filter["op"] == "equals"}>
-                                equals
-                              </option>
-                              <option value="not_equals" selected={filter["op"] == "not_equals"}>
-                                does not equal
-                              </option>
-                            </.ui_inline_select>
-
-                            <.ui_inline_input
-                              type="text"
-                              name={"builder[filters][#{idx}][value]"}
-                              value={filter["value"] || ""}
-                              placeholder="value"
-                              class="placeholder:text-base-content/40 w-48"
-                            />
-                          </.query_builder_pill>
-
-                          <.ui_icon_button
-                            size="xs"
-                            aria-label="Remove filter"
-                            title="Remove filter"
-                            type="button"
-                            phx-click="builder_remove_filter"
-                            phx-value-idx={idx}
-                          >
-                            <.icon name="hero-x-mark" class="size-4" />
-                          </.ui_icon_button>
-                        </div>
-                      <% end %>
-
-                      <button
-                        type="button"
-                        class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
-                        phx-click="builder_add_filter"
-                      >
-                        <.icon name="hero-plus" class="size-4" /> Add filter
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </div>
-              
-    <!-- Device Count Preview -->
-              <div :if={@target_device_count != nil} class="flex items-center gap-2">
-                <.icon name="hero-signal" class="size-4 text-base-content/60" />
-                <span class="text-sm">
-                  <span class="font-semibold">{@target_device_count}</span>
-                  <span class="text-base-content/60">interface(s) match this query</span>
-                </span>
-              </div>
-              
-    <!-- Priority -->
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label class="label"><span class="label-text">Priority</span></label>
-                  <.input
-                    type="number"
-                    field={@form[:priority]}
-                    class="input input-bordered w-full"
-                    min="0"
-                    max="100"
-                  />
-                  <label class="label">
-                    <span class="label-text-alt text-base-content/50">
-                      Higher priority profiles are evaluated first (0-100)
-                    </span>
-                  </label>
-                </div>
-              </div>
             </div>
-          <% end %>
+          </div>
+        </div>
+        
+    <!-- OID Templates Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            OID Templates
+          </h3>
+          <p class="text-sm text-base-content/60">
+            Select OID templates to define what metrics are polled from devices matched by this profile.
+          </p>
+          
+    <!-- Selected Templates -->
+          <div :if={@selected_template_ids != []} class="flex flex-wrap gap-2">
+            <%= for template_id <- @selected_template_ids do %>
+              <% template = Enum.find(@available_templates, &(&1.id == template_id)) %>
+              <div
+                :if={template}
+                class="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-sm"
+              >
+                <span>{template.name}</span>
+                <button
+                  type="button"
+                  class="hover:bg-primary/20 rounded-full p-0.5"
+                  phx-click="remove_template"
+                  phx-value-id={template_id}
+                  title="Remove template"
+                >
+                  <.icon name="hero-x-mark" class="size-3" />
+                </button>
+              </div>
+            <% end %>
+          </div>
+          
+    <!-- Template Dropdown -->
+          <div class="dropdown dropdown-bottom w-full max-w-md">
+            <div tabindex="0" role="button" class="btn btn-outline w-full justify-between">
+              <span>
+                <.icon name="hero-plus" class="size-4 mr-2" /> Add OID Template
+              </span>
+              <.icon name="hero-chevron-down" class="size-4" />
+            </div>
+            <ul
+              tabindex="0"
+              class="dropdown-content menu bg-base-100 rounded-box z-[1] w-full max-h-60 overflow-y-auto p-2 shadow border border-base-200"
+            >
+              <li :if={@available_templates == []}>
+                <span class="text-base-content/50">No templates available</span>
+              </li>
+              <%= for template <- @available_templates do %>
+                <% selected = template.id in @selected_template_ids %>
+                <li>
+                  <button
+                    type="button"
+                    class={"flex items-center justify-between #{if selected, do: "bg-primary/10"}"}
+                    phx-click="toggle_template"
+                    phx-value-id={template.id}
+                  >
+                    <div class="flex flex-col items-start">
+                      <span class="font-medium">{template.name}</span>
+                      <span class="text-xs text-base-content/60">
+                        {template.vendor} · {template.oid_count} OID(s)
+                      </span>
+                    </div>
+                    <.icon :if={selected} name="hero-check" class="size-4 text-primary" />
+                  </button>
+                </li>
+              <% end %>
+            </ul>
+          </div>
+
+          <p class="text-xs text-base-content/50">
+            OID templates define which SNMP metrics (OIDs) to poll. Select one or more templates to monitor
+            interface traffic, CPU/memory, environment sensors, or other vendor-specific metrics.
+          </p>
         </div>
         
     <!-- Actions -->
@@ -1593,42 +1867,37 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         </div>
       </.form>
       
-    <!-- SNMP Targets Section (only shown when editing) -->
-      <div :if={@show_form == :edit_profile} class="mt-6 pt-6 border-t border-base-200">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
-              SNMP Targets
-            </h3>
-            <p class="text-xs text-base-content/50 mt-1">
-              Network devices to poll with this profile
-            </p>
+    <!-- Legacy SNMP Targets Section (deprecated, only shown when existing targets present) -->
+      <div
+        :if={@show_form == :edit_profile && @targets != []}
+        class="mt-6 pt-6 border-t border-base-200"
+      >
+        <div class="bg-warning/10 border border-warning/30 rounded-lg p-4 mb-4">
+          <div class="flex items-start gap-3">
+            <.icon name="hero-exclamation-triangle" class="size-5 text-warning shrink-0 mt-0.5" />
+            <div>
+              <p class="text-sm font-medium">Legacy Configuration</p>
+              <p class="text-xs text-base-content/70 mt-1">
+                Manual SNMP targets are deprecated. Targets are now automatically derived from devices
+                matched by the target query. Existing targets will continue to work but cannot be edited.
+                Configure SNMP credentials on individual devices in the Inventory section.
+              </p>
+            </div>
           </div>
-          <.ui_button
-            variant="primary"
-            size="sm"
-            type="button"
-            phx-click="open_target_modal"
-          >
-            <.icon name="hero-plus" class="size-4" /> Add Target
-          </.ui_button>
         </div>
 
-        <div :if={@targets == []} class="text-center py-8 text-base-content/60">
-          <.icon name="hero-server-stack" class="size-10 mx-auto mb-2 opacity-50" />
-          <p>No SNMP targets configured</p>
-          <p class="text-xs mt-1">Add targets to start monitoring network devices via SNMP</p>
-        </div>
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60 mb-4">
+          Legacy Manual Targets ({length(@targets)})
+        </h3>
 
-        <div :if={@targets != []} class="overflow-x-auto">
-          <table class="table table-sm">
+        <div class="overflow-x-auto">
+          <table class="table table-sm opacity-75">
             <thead>
               <tr class="text-xs uppercase tracking-wide text-base-content/60">
                 <th>Name</th>
                 <th>Host</th>
                 <th>Port</th>
                 <th>Version</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1641,31 +1910,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                     <.ui_badge variant={version_badge_variant(target.version)} size="xs">
                       {format_version(target.version)}
                     </.ui_badge>
-                  </td>
-                  <td>
-                    <div class="flex items-center gap-1">
-                      <.ui_button
-                        variant="ghost"
-                        size="xs"
-                        type="button"
-                        phx-click="edit_target"
-                        phx-value-id={target.id}
-                        title="Edit target"
-                      >
-                        <.icon name="hero-pencil" class="size-3" />
-                      </.ui_button>
-                      <.ui_button
-                        variant="ghost"
-                        size="xs"
-                        type="button"
-                        phx-click="delete_target"
-                        phx-value-id={target.id}
-                        data-confirm="Are you sure you want to delete this target?"
-                        title="Delete target"
-                      >
-                        <.icon name="hero-trash" class="size-3" />
-                      </.ui_button>
-                    </div>
                   </td>
                 </tr>
               <% end %>
@@ -2645,23 +2889,106 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     end
   end
 
+  defp load_all_templates(scope) do
+    # Load builtin templates
+    builtin =
+      BuiltinTemplates.all_templates()
+      |> Enum.map(fn t ->
+        %{
+          id: t.id,
+          name: t.name,
+          description: t.description,
+          vendor: t.vendor,
+          category: t.category,
+          oid_count: length(t.oids || []),
+          is_builtin: true
+        }
+      end)
+
+    # Load custom templates from database
+    custom =
+      case Ash.read(SNMPOIDTemplate, action: :list_custom, scope: scope) do
+        {:ok, templates} ->
+          Enum.map(templates, fn t ->
+            %{
+              id: t.id,
+              name: t.name,
+              description: t.description,
+              vendor: t.vendor,
+              category: t.category,
+              oid_count: length(t.oids || []),
+              is_builtin: false
+            }
+          end)
+
+        {:error, _} ->
+          []
+      end
+
+    builtin ++ custom
+  end
+
+  # Resolve target query for a profile, using defaults for default profiles
+  defp resolve_target_query(nil, true), do: "in:interfaces"
+  defp resolve_target_query("", true), do: "in:interfaces"
+  defp resolve_target_query(nil, _is_default), do: nil
+  defp resolve_target_query("", _is_default), do: ""
+  defp resolve_target_query(query, _is_default), do: query
+
   defp count_target_devices(_scope, nil), do: nil
   defp count_target_devices(_scope, ""), do: nil
 
   defp count_target_devices(scope, target_query) when is_binary(target_query) do
-    # Parse the SRQL query and count matching interfaces
-    case ServiceRadarSRQL.Native.parse_ast(target_query) do
-      {:ok, ast_json} ->
-        case Jason.decode(ast_json) do
-          {:ok, ast} ->
-            count_interfaces_from_ast(scope, ast)
+    # Parse the SRQL query and count matching targets based on entity type
+    entity = extract_srql_entity(target_query)
 
-          {:error, _} ->
-            nil
-        end
+    with {:ok, ast_json} <- ServiceRadarSRQL.Native.parse_ast(target_query),
+         {:ok, ast} <- Jason.decode(ast_json) do
+      count_entity_from_ast(scope, entity, ast)
+    else
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
 
-      {:error, _} ->
+  # Helper to count entities from parsed AST (extracted to reduce nesting depth)
+  defp count_entity_from_ast(scope, entity, ast) do
+    case entity do
+      "devices" -> count_devices_from_ast(scope, ast)
+      "interfaces" -> count_interfaces_from_ast(scope, ast)
+      _ -> count_devices_from_ast(scope, ast)
+    end
+  end
+
+  defp extract_srql_entity(query) when is_binary(query) do
+    query = String.trim(query)
+
+    case Regex.run(~r/^in:(\S+)/, query) do
+      [_, entity] -> String.downcase(entity)
+      _ -> "interfaces"
+    end
+  end
+
+  defp extract_srql_entity(_), do: "interfaces"
+
+  defp count_devices_from_ast(scope, ast) do
+    filters = extract_srql_filters(ast)
+
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{})
+      |> apply_device_filters(filters)
+
+    case query do
+      {:error, :unsupported_filter} ->
         nil
+
+      query ->
+        case Ash.count(query, scope: scope) do
+          {:ok, count} -> count
+          _ -> nil
+        end
     end
   rescue
     _ -> nil
@@ -2674,6 +3001,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       Interface
       |> Ash.Query.for_read(:read, %{})
       |> apply_srql_filters(filters)
+      # Add distinct on interface_uid to avoid counting historical snapshots
+      |> Ash.Query.distinct(:interface_uid)
 
     case Ash.count(query, scope: scope) do
       {:ok, count} -> count
@@ -2682,6 +3011,42 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   rescue
     _ -> nil
   end
+
+  defp apply_device_filters(query, filters) do
+    Enum.reduce_while(filters, query, fn filter, q ->
+      case apply_device_filter(q, filter) do
+        {:ok, updated} -> {:cont, updated}
+        {:error, :unsupported_filter} -> {:halt, {:error, :unsupported_filter}}
+      end
+    end)
+  end
+
+  defp apply_device_filter(query, %{field: field, op: op, value: value}) when is_binary(field) do
+    case map_device_field(field) do
+      nil -> {:error, :unsupported_filter}
+      mapped_field -> {:ok, apply_field_filter(query, mapped_field, op, value)}
+    end
+  rescue
+    _ -> {:error, :unsupported_filter}
+  end
+
+  defp apply_device_filter(_query, _), do: {:error, :unsupported_filter}
+
+  @device_srql_field_mapping %{
+    "uid" => :uid,
+    "device_id" => :uid,
+    "hostname" => :hostname,
+    "name" => :name,
+    "ip" => :ip,
+    "gateway_id" => :gateway_id,
+    "agent_id" => :agent_id,
+    "vendor_name" => :vendor_name,
+    "model" => :model,
+    "type" => :type,
+    "type_id" => :type_id
+  }
+
+  defp map_device_field(field), do: Map.get(@device_srql_field_mapping, field)
 
   defp extract_srql_filters(%{"filters" => filters}) when is_list(filters) do
     Enum.map(filters, fn filter ->
@@ -2924,6 +3289,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   defp normalize_filter_field(nil, config), do: config.default_filter_field
   defp normalize_filter_field("", config), do: config.default_filter_field
   defp normalize_filter_field(field, _config), do: field
+
+  defp maybe_set_target_query(form, nil), do: form
+  defp maybe_set_target_query(form, ""), do: form
+
+  defp maybe_set_target_query(form, target_query) do
+    Form.validate(form, %{"target_query" => target_query})
+  end
 
   defp normalize_filter_op(op) when op in ["contains", "not_contains", "equals", "not_equals"],
     do: op

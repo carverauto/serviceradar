@@ -91,7 +91,7 @@ defmodule ServiceRadar.SPIFFE do
         base_opts
         |> Keyword.delete(:fail_if_no_peer_cert)
         |> Keyword.put(:verify, :verify_peer)
-        |> Keyword.put(:customize_hostname_check, [match_fun: &allow_any_hostname/2])
+        |> Keyword.put(:customize_hostname_check, match_fun: &allow_any_hostname/2)
 
       {:ok, client_opts}
     end
@@ -187,7 +187,8 @@ defmodule ServiceRadar.SPIFFE do
       path ->
         case String.split(path, "/", parts: 5) do
           [trust_domain, "ns", namespace, "sa", service_account] ->
-            {:ok, %{trust_domain: trust_domain, namespace: namespace, service_account: service_account}}
+            {:ok,
+             %{trust_domain: trust_domain, namespace: namespace, service_account: service_account}}
 
           _ ->
             {:error, :invalid_spiffe_path}
@@ -289,7 +290,14 @@ defmodule ServiceRadar.SPIFFE do
 
   defp watch_workload_api(callback, opts) do
     interval = Keyword.get(opts, :poll_interval, 60_000)
-    socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
+
+    socket =
+      Keyword.get(
+        opts,
+        :workload_api_socket,
+        config(:workload_api_socket, "/run/spire/sockets/agent.sock")
+      )
+
     trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
     fingerprint = workload_api_fingerprint(socket, trust_domain)
 
@@ -370,7 +378,13 @@ defmodule ServiceRadar.SPIFFE do
   end
 
   defp ssl_dist_opts_workload_api(opts) do
-    socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
+    socket =
+      Keyword.get(
+        opts,
+        :workload_api_socket,
+        config(:workload_api_socket, "/run/spire/sockets/agent.sock")
+      )
+
     trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
 
     case WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
@@ -412,10 +426,17 @@ defmodule ServiceRadar.SPIFFE do
   end
 
   defp cert_expiry_workload_api(opts) do
-    socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
+    socket =
+      Keyword.get(
+        opts,
+        :workload_api_socket,
+        config(:workload_api_socket, "/run/spire/sockets/agent.sock")
+      )
+
     trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
 
-    with {:ok, %{certs: [leaf | _]}} <- WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain),
+    with {:ok, %{certs: [leaf | _]}} <-
+           WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain),
          {:ok, validity} <- decode_validity(leaf),
          {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
          {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
@@ -732,8 +753,12 @@ defmodule ServiceRadar.SPIFFE do
     trust_domain = config(:trust_domain, @trust_domain_default)
 
     case parse_spiffe_id(spiffe_id) do
-      {:ok, %{trust_domain: ^trust_domain}} -> {:ok, spiffe_id}
-      {:ok, %{trust_domain: other}} -> {:error, {:trust_domain_mismatch, other, trust_domain}}
+      {:ok, %{trust_domain: ^trust_domain}} ->
+        {:ok, spiffe_id}
+
+      {:ok, %{trust_domain: other}} ->
+        {:error, {:trust_domain_mismatch, other, trust_domain}}
+
       {:error, _reason} ->
         case parse_k8s_spiffe_id(spiffe_id) do
           {:ok, %{trust_domain: ^trust_domain}} -> {:ok, spiffe_id}

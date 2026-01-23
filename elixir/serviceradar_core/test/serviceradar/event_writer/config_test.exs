@@ -121,6 +121,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
     test "parses batch settings from environment" do
       System.put_env("EVENT_WRITER_BATCH_SIZE", "200")
       System.put_env("EVENT_WRITER_BATCH_TIMEOUT", "2000")
+
       on_exit(fn ->
         System.delete_env("EVENT_WRITER_BATCH_SIZE")
         System.delete_env("EVENT_WRITER_BATCH_TIMEOUT")

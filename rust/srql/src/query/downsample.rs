@@ -68,7 +68,6 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
     })?;
 
     let series_expr = series_expr(plan, table)?;
-    let agg_expr = agg_expr(downsample.agg, value_col);
     let bucket_secs = downsample.bucket_seconds;
 
     let mut clauses = Vec::new();
@@ -85,12 +84,66 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
         clauses.push(clause);
     }
 
+    let where_clause = clauses.join(" AND ");
+
+    // For rate aggregation, use a CTE with window functions to calculate rate of change
+    if is_rate_agg(downsample.agg) {
+        // Rate calculation: (current_value - previous_value) / time_delta_seconds
+        // This handles SNMP counter metrics properly by calculating the rate of change per second
+        // We skip rows where value < prev_value (counter wrap/reset) to avoid negative rates
+        let sql = format!(
+            r#"WITH ordered_data AS (
+  SELECT
+    {ts_col},
+    {series_expr} AS series,
+    {value_col},
+    LAG({value_col}) OVER (PARTITION BY {series_expr} ORDER BY {ts_col}) AS prev_value,
+    LAG({ts_col}) OVER (PARTITION BY {series_expr} ORDER BY {ts_col}) AS prev_timestamp
+  FROM {table}
+  WHERE {where_clause}
+),
+rate_data AS (
+  SELECT
+    {ts_col} AS timestamp,
+    series,
+    CASE
+      -- Skip counter wraps/resets (when current < previous, counter wrapped or reset)
+      WHEN {value_col} < prev_value THEN NULL
+      -- Calculate rate: delta_value / delta_time_seconds
+      ELSE ({value_col} - prev_value) / NULLIF(EXTRACT(EPOCH FROM ({ts_col} - prev_timestamp)), 0)
+    END AS rate_value
+  FROM ordered_data
+  WHERE prev_value IS NOT NULL  -- Skip first row which has no previous
+)
+SELECT
+  to_timestamp(floor(extract(epoch from timestamp) / {bucket_secs}) * {bucket_secs}) AT TIME ZONE 'UTC' AS timestamp,
+  series,
+  AVG(rate_value) AS value
+FROM rate_data
+WHERE rate_value IS NOT NULL  -- Skip NULL rates from counter wraps
+GROUP BY 1, 2
+ORDER BY 1 ASC
+LIMIT ? OFFSET ?"#,
+            ts_col = ts_col,
+            series_expr = series_expr,
+            value_col = value_col,
+            table = table,
+            where_clause = where_clause,
+            bucket_secs = bucket_secs
+        );
+        let _ = time_range;
+        return Ok(sql);
+    }
+
+    // Standard aggregation (non-rate)
+    let agg_expr = agg_expr(downsample.agg, value_col);
+
     // Use standard PostgreSQL floor-based bucketing instead of TimescaleDB's time_bucket
     // This floors the timestamp to the nearest bucket boundary
     let mut sql = format!(
         "SELECT to_timestamp(floor(extract(epoch from {ts_col}) / {bucket_secs}) * {bucket_secs}) AT TIME ZONE 'UTC' AS timestamp, {series_expr} AS series, {agg_expr} AS value\nFROM {table}\nWHERE ",
     );
-    sql.push_str(&clauses.join(" AND "));
+    sql.push_str(&where_clause);
     sql.push_str("\nGROUP BY 1, 2\nORDER BY 1 ASC\nLIMIT ? OFFSET ?");
 
     let _ = time_range;
@@ -233,7 +286,14 @@ fn agg_expr(agg: DownsampleAgg, value_col: &str) -> String {
         DownsampleAgg::Max => format!("MAX({value_col})"),
         DownsampleAgg::Sum => format!("SUM({value_col})"),
         DownsampleAgg::Count => "COUNT(*)::double precision".to_string(),
+        // Rate is handled specially in build_sql with a CTE, this is a fallback
+        DownsampleAgg::Rate => format!("AVG({value_col})"),
     }
+}
+
+/// Check if the aggregation type requires special rate-based query structure
+fn is_rate_agg(agg: DownsampleAgg) -> bool {
+    matches!(agg, DownsampleAgg::Rate)
 }
 
 fn filter_clause(

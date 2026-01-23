@@ -112,8 +112,10 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
       timestamp: timestamp,
       gateway_id: FieldParser.get_field(json, "gateway_id", "gatewayId", "unknown"),
       agent_id: FieldParser.get_field(json, "agent_id", "agentId"),
-      metric_name: FieldParser.get_field(json, "metric_name", "metricName") || json["name"] || "unknown",
-      metric_type: FieldParser.get_field(json, "metric_type", "metricType") || json["type"] || "gauge",
+      metric_name:
+        FieldParser.get_field(json, "metric_name", "metricName") || json["name"] || "unknown",
+      metric_type:
+        FieldParser.get_field(json, "metric_type", "metricType") || json["type"] || "gauge",
       device_id: FieldParser.get_field(json, "device_id", "deviceId"),
       value: FieldParser.parse_value(json["value"]),
       unit: json["unit"],
@@ -127,5 +129,4 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
       created_at: DateTime.utc_now()
     }
   end
-
 end

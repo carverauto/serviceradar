@@ -133,6 +133,7 @@ defmodule ServiceRadar.DuskProfiles.DuskProfile do
       List profiles with SRQL targeting, ordered by priority (highest first).
       Used by the compiler to find which profile matches a device.
       """
+
       filter expr(enabled == true and is_default == false and not is_nil(target_query))
 
       prepare fn query, _context ->

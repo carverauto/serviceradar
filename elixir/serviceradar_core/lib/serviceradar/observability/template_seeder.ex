@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
+
   alias ServiceRadar.Observability.{
     LogPromotionRuleTemplate,
     StatefulAlertRuleTemplate,
@@ -97,7 +98,9 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
         end)
 
       {:error, reason} ->
-        Logger.warning("Failed to check template defaults for #{ZenRuleTemplate}: #{inspect(reason)}")
+        Logger.warning(
+          "Failed to check template defaults for #{ZenRuleTemplate}: #{inspect(reason)}"
+        )
     end
   end
 
@@ -113,7 +116,9 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
     changeset = Ash.Changeset.for_create(resource, :create, attrs, opts)
 
     case Ash.create(changeset) do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Failed to seed #{resource}: #{inspect(reason)}")
     end
@@ -133,7 +138,9 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
     changeset = Ash.Changeset.for_create(ZenRuleTemplate, :create, attrs, opts)
 
     case Ash.create(changeset) do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Failed to seed #{ZenRuleTemplate}: #{inspect(reason)}")
     end

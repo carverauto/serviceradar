@@ -109,8 +109,14 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
       parent_span_id: FieldParser.get_field(json, "parent_span_id", "parentSpanId"),
       name: json["name"],
       kind: json["kind"],
-      start_time_unix_nano: FieldParser.safe_bigint(FieldParser.get_field(json, "start_time_unix_nano", "startTimeUnixNano")),
-      end_time_unix_nano: FieldParser.safe_bigint(FieldParser.get_field(json, "end_time_unix_nano", "endTimeUnixNano")),
+      start_time_unix_nano:
+        FieldParser.safe_bigint(
+          FieldParser.get_field(json, "start_time_unix_nano", "startTimeUnixNano")
+        ),
+      end_time_unix_nano:
+        FieldParser.safe_bigint(
+          FieldParser.get_field(json, "end_time_unix_nano", "endTimeUnixNano")
+        ),
       service_name: FieldParser.get_field(json, "service_name", "serviceName", "unknown"),
       service_version: FieldParser.get_field(json, "service_version", "serviceVersion"),
       service_instance: FieldParser.get_field(json, "service_instance", "serviceInstance"),
@@ -119,7 +125,10 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
       status_code: FieldParser.get_field(json, "status_code", "statusCode"),
       status_message: FieldParser.get_field(json, "status_message", "statusMessage"),
       attributes: FieldParser.encode_json(json["attributes"]),
-      resource_attributes: FieldParser.encode_json(FieldParser.get_field(json, "resource_attributes", "resourceAttributes")),
+      resource_attributes:
+        FieldParser.encode_json(
+          FieldParser.get_field(json, "resource_attributes", "resourceAttributes")
+        ),
       events: FieldParser.encode_json(json["events"]),
       links: FieldParser.encode_json(json["links"]),
       created_at: DateTime.utc_now()
@@ -131,5 +140,4 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
     # For now, skip protobuf messages
     nil
   end
-
 end

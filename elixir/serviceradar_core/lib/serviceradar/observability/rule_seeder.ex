@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Observability.RuleSeeder do
   @moduledoc """
-  Seeds default LogPromotionRules and StatefulAlertRules on startup.
+  Seeds default EventRules and StatefulAlertRules on startup.
 
   These rules are created by default so the instance has working rules for
   common use cases like missed sweep detection out of the box.
@@ -15,7 +15,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Observability.LogPromotionRule
+  alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.StatefulAlertRule
 
   @seed_delay_ms 6_000
@@ -48,14 +48,14 @@ defmodule ServiceRadar.Observability.RuleSeeder do
     actor = SystemActor.system(:rule_seeder)
     opts = [actor: actor]
 
-    ensure_promotion_rules(opts)
+    ensure_event_rules(opts)
     ensure_stateful_rules(opts)
 
     :ok
   end
 
-  defp ensure_promotion_rules(opts) do
-    ensure_defaults(LogPromotionRule, default_promotion_rules(), opts)
+  defp ensure_event_rules(opts) do
+    ensure_defaults(EventRule, default_event_rules(), opts)
   end
 
   defp ensure_stateful_rules(opts) do
@@ -81,7 +81,10 @@ defmodule ServiceRadar.Observability.RuleSeeder do
 
       {:error, reason} ->
         schema = Keyword.get(opts, :schema, "unknown")
-        Logger.warning("Failed to check rule defaults for #{resource} in #{schema}: #{inspect(reason)}")
+
+        Logger.warning(
+          "Failed to check rule defaults for #{resource} in #{schema}: #{inspect(reason)}"
+        )
     end
   end
 
@@ -108,12 +111,14 @@ defmodule ServiceRadar.Observability.RuleSeeder do
     end
   end
 
-  defp default_promotion_rules do
+  defp default_event_rules do
     [
       %{
         name: "promote_missed_sweeps",
         priority: 25,
         enabled: true,
+        source_type: :log,
+        source: %{},
         match: %{
           "event_type" => "sweep.missed"
         },

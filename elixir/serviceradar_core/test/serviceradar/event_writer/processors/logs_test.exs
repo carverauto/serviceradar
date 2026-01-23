@@ -83,19 +83,33 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
     end
 
     test "extracts body from various fields" do
-      result1 = Logs.parse_message(%{data: Jason.encode!(%{"body" => "from body"}), metadata: %{}})
+      result1 =
+        Logs.parse_message(%{data: Jason.encode!(%{"body" => "from body"}), metadata: %{}})
+
       assert result1.body == "from body"
 
-      result2 = Logs.parse_message(%{data: Jason.encode!(%{"body" => %{"nested" => "data"}}), metadata: %{}})
+      result2 =
+        Logs.parse_message(%{
+          data: Jason.encode!(%{"body" => %{"nested" => "data"}}),
+          metadata: %{}
+        })
+
       assert result2.body == ~s({"nested":"data"})
 
-      result3 = Logs.parse_message(%{data: Jason.encode!(%{"message" => "from message"}), metadata: %{}})
+      result3 =
+        Logs.parse_message(%{data: Jason.encode!(%{"message" => "from message"}), metadata: %{}})
+
       assert result3.body == "from message"
 
       result4 = Logs.parse_message(%{data: Jason.encode!(%{"msg" => "from msg"}), metadata: %{}})
       assert result4.body == "from msg"
 
-      result5 = Logs.parse_message(%{data: Jason.encode!(%{"short_message" => "from short_message"}), metadata: %{}})
+      result5 =
+        Logs.parse_message(%{
+          data: Jason.encode!(%{"short_message" => "from short_message"}),
+          metadata: %{}
+        })
+
       assert result5.body == "from short_message"
     end
 
@@ -148,7 +162,10 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
 
       resource = %Resource{
         attributes: [
-          %KeyValue{key: "service.name", value: %AnyValue{value: {:string_value, "proto-service"}}},
+          %KeyValue{
+            key: "service.name",
+            value: %AnyValue{value: {:string_value, "proto-service"}}
+          },
           %KeyValue{key: "service.version", value: %AnyValue{value: {:string_value, "0.1.0"}}}
         ]
       }

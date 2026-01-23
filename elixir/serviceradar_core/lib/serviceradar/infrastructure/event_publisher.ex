@@ -50,7 +50,8 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   @event_types [:state_change, :registered, :deregistered, :health_change, :heartbeat_timeout]
 
   @type entity_type :: :gateway | :agent | :checker | :collector
-  @type event_type :: :state_change | :registered | :deregistered | :health_change | :heartbeat_timeout
+  @type event_type ::
+          :state_change | :registered | :deregistered | :health_change | :heartbeat_timeout
 
   @doc """
   Publishes a state change log to NATS JetStream.
@@ -308,6 +309,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   defp activity_for_event(_), do: OCSF.activity_log_update()
 
   defp severity_for_event(:heartbeat_timeout, _data), do: OCSF.severity_high()
+
   defp severity_for_event(:health_change, data) do
     case data[:is_healthy] || data["is_healthy"] do
       true -> OCSF.severity_informational()
@@ -315,7 +317,10 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
       _ -> severity_for_state(data[:new_state] || data["new_state"])
     end
   end
-  defp severity_for_event(:state_change, data), do: severity_for_state(data[:new_state] || data["new_state"])
+
+  defp severity_for_event(:state_change, data),
+    do: severity_for_state(data[:new_state] || data["new_state"])
+
   defp severity_for_event(_event_type, _data), do: OCSF.severity_informational()
 
   defp status_for_event(:heartbeat_timeout, _data), do: OCSF.status_failure()
@@ -397,7 +402,10 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   defp entity_type_from_record(%ServiceRadar.Infrastructure.Gateway{}), do: :gateway
   defp entity_type_from_record(%ServiceRadar.Infrastructure.Agent{}), do: :agent
   defp entity_type_from_record(%ServiceRadar.Infrastructure.Checker{}), do: :checker
-  defp entity_type_from_record(%{__struct__: module}), do: module |> Module.split() |> List.last() |> String.downcase() |> String.to_atom()
+
+  defp entity_type_from_record(%{__struct__: module}),
+    do: module |> Module.split() |> List.last() |> String.downcase() |> String.to_atom()
+
   defp entity_type_from_record(_), do: :unknown
 
   defp entity_id_from_record(%ServiceRadar.Infrastructure.Gateway{id: id}), do: id

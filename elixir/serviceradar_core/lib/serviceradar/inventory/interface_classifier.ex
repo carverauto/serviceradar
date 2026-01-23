@@ -40,7 +40,9 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
       |> Ash.Query.sort(priority: :desc)
 
     case Ash.read(query, actor: actor) do
-      {:ok, rules} -> rules
+      {:ok, rules} ->
+        rules
+
       {:error, reason} ->
         Logger.warning("Interface classification rule load failed: #{inspect(reason)}")
         []
@@ -120,16 +122,16 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
 
   defp has_constraints?(rule) do
     not Enum.all?(
-          [
-            rule.vendor_pattern,
-            rule.model_pattern,
-            rule.sys_descr_pattern,
-            rule.if_name_pattern,
-            rule.if_descr_pattern,
-            rule.if_alias_pattern
-          ],
-          &blank?/1
-        ) or
+      [
+        rule.vendor_pattern,
+        rule.model_pattern,
+        rule.sys_descr_pattern,
+        rule.if_name_pattern,
+        rule.if_descr_pattern,
+        rule.if_alias_pattern
+      ],
+      &blank?/1
+    ) or
       (rule.if_type_ids || []) != [] or
       (rule.ip_cidr_allow || []) != [] or
       (rule.ip_cidr_deny || []) != []
@@ -137,6 +139,7 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
 
   defp matches_pattern?(nil, _value), do: true
   defp matches_pattern?("", _value), do: true
+
   defp matches_pattern?(pattern, value) when is_binary(value) do
     case Regex.compile(pattern) do
       {:ok, regex} -> Regex.match?(regex, value)
@@ -154,11 +157,12 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
     sys_descr = device_ctx.sys_descr
 
     matches_pattern?(pattern, vendor) or
-      ((vendor in [nil, ""]) and matches_pattern?(pattern, sys_descr))
+      (vendor in [nil, ""] and matches_pattern?(pattern, sys_descr))
   end
 
   defp matches_if_type?(nil, _if_type), do: true
   defp matches_if_type?([], _if_type), do: true
+
   defp matches_if_type?(if_type_ids, if_type) when is_integer(if_type) do
     Enum.member?(if_type_ids, if_type)
   end
@@ -330,6 +334,7 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
   end
 
   defp normalize_classification(nil), do: ""
+
   defp normalize_classification(classification) when is_atom(classification) do
     classification |> Atom.to_string() |> String.downcase()
   end
@@ -337,6 +342,7 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
   defp normalize_classification(classification) when is_binary(classification) do
     classification |> String.trim() |> String.downcase()
   end
+
   defp normalize_classification(_), do: ""
 
   defp sys_descr_from_metadata(metadata) do

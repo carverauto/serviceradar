@@ -33,10 +33,15 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   attr :srql, :map, default: %{}, doc: "SRQL query bar state for SRQL-driven pages"
 
+  attr :hide_breadcrumb, :boolean,
+    default: false,
+    doc: "Hide auto breadcrumb when page has custom one"
+
   slot :inner_block, required: true
 
   def app(assigns) do
     assigns = assign_new(assigns, :srql, fn -> %{} end)
+    assigns = assign_new(assigns, :hide_breadcrumb, fn -> false end)
     current_scope = assigns[:current_scope]
     signed_in? = is_map(current_scope) and not is_nil(Map.get(current_scope, :user))
     current_path = Map.get(assigns.srql, :page_path)
@@ -88,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             </div>
 
             <%!-- Second row: breadcrumb navigation (all on one line) --%>
-            <.breadcrumb_nav :if={@current_path} current_path={@current_path} />
+            <.breadcrumb_nav :if={@current_path && !@hide_breadcrumb} current_path={@current_path} />
           </div>
         </header>
 

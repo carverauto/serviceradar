@@ -154,7 +154,9 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
 
   defp check_group_schedule(group, now, grace_period_seconds) do
     interval_seconds = parse_interval_to_seconds(group.interval)
-    expected_by = calculate_expected_time(group.last_run_at, interval_seconds, grace_period_seconds)
+
+    expected_by =
+      calculate_expected_time(group.last_run_at, interval_seconds, grace_period_seconds)
 
     if DateTime.compare(now, expected_by) == :gt do
       emit_missed_sweep_log(group, now, expected_by)

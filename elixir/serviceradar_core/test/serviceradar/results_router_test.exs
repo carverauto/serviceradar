@@ -135,7 +135,12 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert length(results) == 2
     assert Enum.any?(results, &(&1["host_ip"] == "192.168.1.10"))
     assert Enum.any?(results, &(&1["host_ip"] == "192.168.1.11"))
-    assert Enum.all?(results, &(&1["last_sweep_time"] == DateTime.to_iso8601(DateTime.from_unix!(last_sweep))))
+
+    assert Enum.all?(
+             results,
+             &(&1["last_sweep_time"] == DateTime.to_iso8601(DateTime.from_unix!(last_sweep)))
+           )
+
     assert opts[:sweep_group_id] == sweep_group_id
     assert opts[:agent_id] == "agent-1"
     assert opts[:expected_total_hosts] == 50

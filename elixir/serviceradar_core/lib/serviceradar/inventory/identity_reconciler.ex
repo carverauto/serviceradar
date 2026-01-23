@@ -592,9 +592,9 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
   defp build_identifier_index(actor) do
     query =
-    DeviceIdentifier
-    |> Ash.Query.filter(identifier_type in ^@identifier_priority)
-    |> Ash.Query.select([:device_id, :identifier_type, :identifier_value, :partition])
+      DeviceIdentifier
+      |> Ash.Query.filter(identifier_type in ^@identifier_priority)
+      |> Ash.Query.select([:device_id, :identifier_type, :identifier_value, :partition])
 
     Ash.stream!(query, actor: actor, batch_size: 2000)
     |> Enum.reduce({%{}, 0}, &accumulate_identifier_index/2)
@@ -786,13 +786,16 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
              :ok <- reassign_alias_states(from_device_id, to_device_id, actor),
              :ok <- reassign_interfaces(from_device_id, to_device_id, actor),
              {:ok, _merge} <-
-               MergeAudit.record(%{
-                 from_device_id: from_device_id,
-                 to_device_id: to_device_id,
-                 reason: reason,
-                 source: "identity_reconciler",
-                 details: details
-               }, actor: actor),
+               MergeAudit.record(
+                 %{
+                   from_device_id: from_device_id,
+                   to_device_id: to_device_id,
+                   reason: reason,
+                   source: "identity_reconciler",
+                   details: details
+                 },
+                 actor: actor
+               ),
              {:ok, _} <- Ash.destroy(from_device, actor: actor, action: :destroy) do
           :ok
         end
@@ -806,11 +809,25 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp reassign_device_identifiers(from_id, to_id, actor) do
-    bulk_reassign(DeviceIdentifier, :reassign_device, :device_id, from_id, %{device_id: to_id}, actor)
+    bulk_reassign(
+      DeviceIdentifier,
+      :reassign_device,
+      :device_id,
+      from_id,
+      %{device_id: to_id},
+      actor
+    )
   end
 
   defp reassign_service_checks(from_id, to_id, actor) do
-    bulk_reassign(ServiceCheck, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
+    bulk_reassign(
+      ServiceCheck,
+      :reassign_device,
+      :device_uid,
+      from_id,
+      %{device_uid: to_id},
+      actor
+    )
   end
 
   defp reassign_alerts(from_id, to_id, actor) do
@@ -822,7 +839,14 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp reassign_alias_states(from_id, to_id, actor) do
-    bulk_reassign(DeviceAliasState, :reassign_device, :device_id, from_id, %{device_id: to_id}, actor)
+    bulk_reassign(
+      DeviceAliasState,
+      :reassign_device,
+      :device_id,
+      from_id,
+      %{device_id: to_id},
+      actor
+    )
   end
 
   defp reassign_interfaces(from_id, to_id, actor) do

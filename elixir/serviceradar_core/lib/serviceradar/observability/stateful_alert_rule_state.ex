@@ -56,12 +56,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleState do
     end
   end
 
-  identities do
-    identity :unique_state, [:rule_id, :group_key]
-  end
-
   policies do
-
     # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
@@ -142,5 +137,9 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleState do
 
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+
+  identities do
+    identity :unique_state, [:rule_id, :group_key]
   end
 end

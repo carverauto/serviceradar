@@ -9,7 +9,15 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler, MergeAudit, SyncIngestor}
+
+  alias ServiceRadar.Inventory.{
+    Device,
+    DeviceIdentifier,
+    IdentityReconciler,
+    MergeAudit,
+    SyncIngestor
+  }
+
   alias ServiceRadar.TestSupport
 
   setup_all do

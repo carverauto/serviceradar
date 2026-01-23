@@ -164,12 +164,14 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   defp parse_int(nil), do: nil
   defp parse_int(value) when is_integer(value), do: value
   defp parse_int(value) when is_float(value), do: trunc(value)
+
   defp parse_int(value) when is_binary(value) do
     case Integer.parse(value) do
       {int, _} -> int
       :error -> nil
     end
   end
+
   defp parse_int(_), do: nil
 
   defp parse_string(value) when is_binary(value), do: value
@@ -188,7 +190,9 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
 
   defp maybe_evaluate_stateful_rules(rows) do
     case StatefulAlertEngine.evaluate_events(rows) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}")
         :ok

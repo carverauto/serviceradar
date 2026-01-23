@@ -30,13 +30,14 @@ defmodule ServiceRadar.AgentRegistryTest do
     test "registers agent with gRPC details", %{unique_id: unique_id} do
       agent_id = "agent-reg-#{unique_id}"
 
-      result = AgentRegistry.register_agent(agent_id, %{
-        partition_id: "partition-1",
-        grpc_host: "192.168.1.100",
-        grpc_port: 50_051,
-        capabilities: [:icmp, :tcp],
-        status: :connected
-      })
+      result =
+        AgentRegistry.register_agent(agent_id, %{
+          partition_id: "partition-1",
+          grpc_host: "192.168.1.100",
+          grpc_port: 50_051,
+          capabilities: [:icmp, :tcp],
+          status: :connected
+        })
 
       assert {:ok, _pid} = result
     end
@@ -44,11 +45,12 @@ defmodule ServiceRadar.AgentRegistryTest do
     test "registers agent and can be looked up", %{unique_id: unique_id} do
       agent_id = "agent-lookup-#{unique_id}"
 
-      {:ok, _pid} = AgentRegistry.register_agent(agent_id, %{
-        grpc_host: "10.0.0.50",
-        grpc_port: 50_052,
-        capabilities: [:http]
-      })
+      {:ok, _pid} =
+        AgentRegistry.register_agent(agent_id, %{
+          grpc_host: "10.0.0.50",
+          grpc_port: 50_052,
+          capabilities: [:http]
+        })
 
       entries = AgentRegistry.lookup(agent_id)
       assert length(entries) == 1
@@ -63,11 +65,12 @@ defmodule ServiceRadar.AgentRegistryTest do
       agent_id = "agent-caps-#{unique_id}"
       capabilities = [:icmp, :tcp, :http, :snmp]
 
-      {:ok, _} = AgentRegistry.register_agent(agent_id, %{
-        grpc_host: "192.168.1.11",
-        grpc_port: 50_051,
-        capabilities: capabilities
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent(agent_id, %{
+          grpc_host: "192.168.1.11",
+          grpc_port: 50_051,
+          capabilities: capabilities
+        })
 
       [{_pid, metadata}] = AgentRegistry.lookup(agent_id)
       assert metadata[:capabilities] == capabilities
@@ -80,10 +83,11 @@ defmodule ServiceRadar.AgentRegistryTest do
       host = "192.168.1.100"
       port = 50_051
 
-      {:ok, _} = AgentRegistry.register_agent(agent_id, %{
-        grpc_host: host,
-        grpc_port: port
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent(agent_id, %{
+          grpc_host: host,
+          grpc_port: port
+        })
 
       assert {:ok, {^host, ^port}} = AgentRegistry.get_grpc_address(agent_id)
     end
@@ -96,10 +100,11 @@ defmodule ServiceRadar.AgentRegistryTest do
     test "returns no_grpc_address if host is missing", %{unique_id: unique_id} do
       agent_id = "agent-no-host-#{unique_id}"
 
-      {:ok, _} = AgentRegistry.register_agent(agent_id, %{
-        grpc_port: 50_051
-        # No grpc_host
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent(agent_id, %{
+          grpc_port: 50_051
+          # No grpc_host
+        })
 
       assert {:error, :no_grpc_address} = AgentRegistry.get_grpc_address(agent_id)
     end
@@ -107,10 +112,11 @@ defmodule ServiceRadar.AgentRegistryTest do
     test "returns no_grpc_address if port is missing", %{unique_id: unique_id} do
       agent_id = "agent-no-port-#{unique_id}"
 
-      {:ok, _} = AgentRegistry.register_agent(agent_id, %{
-        grpc_host: "192.168.1.101"
-        # No grpc_port
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent(agent_id, %{
+          grpc_host: "192.168.1.101"
+          # No grpc_port
+        })
 
       assert {:error, :no_grpc_address} = AgentRegistry.get_grpc_address(agent_id)
     end
@@ -119,20 +125,23 @@ defmodule ServiceRadar.AgentRegistryTest do
   describe "find_agents_with_grpc/0" do
     test "returns only agents with complete gRPC addresses", %{unique_id: unique_id} do
       # Agent with gRPC
-      {:ok, _} = AgentRegistry.register_agent("agent-grpc-a-#{unique_id}", %{
-        grpc_host: "192.168.1.100",
-        grpc_port: 50_051
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent("agent-grpc-a-#{unique_id}", %{
+          grpc_host: "192.168.1.100",
+          grpc_port: 50_051
+        })
 
       # Agent without gRPC
-      {:ok, _} = AgentRegistry.register_agent("agent-no-grpc-#{unique_id}", %{
-        partition_id: "partition-1"
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent("agent-no-grpc-#{unique_id}", %{
+          partition_id: "partition-1"
+        })
 
       # Agent with only host
-      {:ok, _} = AgentRegistry.register_agent("agent-partial-#{unique_id}", %{
-        grpc_host: "192.168.1.102"
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent("agent-partial-#{unique_id}", %{
+          grpc_host: "192.168.1.102"
+        })
 
       agents = AgentRegistry.find_agents_with_grpc()
 
@@ -146,23 +155,26 @@ defmodule ServiceRadar.AgentRegistryTest do
 
   describe "find_agents_with_capability/1" do
     test "returns agents with specified capability", %{unique_id: unique_id} do
-      {:ok, _} = AgentRegistry.register_agent("agent-icmp-#{unique_id}", %{
-        grpc_host: "192.168.1.100",
-        grpc_port: 50_051,
-        capabilities: [:icmp, :tcp]
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent("agent-icmp-#{unique_id}", %{
+          grpc_host: "192.168.1.100",
+          grpc_port: 50_051,
+          capabilities: [:icmp, :tcp]
+        })
 
-      {:ok, _} = AgentRegistry.register_agent("agent-http-#{unique_id}", %{
-        grpc_host: "192.168.1.101",
-        grpc_port: 50_051,
-        capabilities: [:http, :tcp]
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent("agent-http-#{unique_id}", %{
+          grpc_host: "192.168.1.101",
+          grpc_port: 50_051,
+          capabilities: [:http, :tcp]
+        })
 
-      {:ok, _} = AgentRegistry.register_agent("agent-snmp-#{unique_id}", %{
-        grpc_host: "192.168.1.102",
-        grpc_port: 50_051,
-        capabilities: [:snmp]
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent("agent-snmp-#{unique_id}", %{
+          grpc_host: "192.168.1.102",
+          grpc_port: 50_051,
+          capabilities: [:snmp]
+        })
 
       icmp_agents = AgentRegistry.find_agents_with_capability(:icmp)
       tcp_agents = AgentRegistry.find_agents_with_capability(:tcp)
@@ -179,17 +191,19 @@ defmodule ServiceRadar.AgentRegistryTest do
       agent_p1 = "agent-p1-#{unique_id}"
       agent_p2 = "agent-p2-#{unique_id}"
 
-      {:ok, _} = AgentRegistry.register_agent(agent_p1, %{
-        partition_id: "partition-1",
-        grpc_host: "192.168.1.100",
-        grpc_port: 50_051
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent(agent_p1, %{
+          partition_id: "partition-1",
+          grpc_host: "192.168.1.100",
+          grpc_port: 50_051
+        })
 
-      {:ok, _} = AgentRegistry.register_agent(agent_p2, %{
-        partition_id: "partition-2",
-        grpc_host: "192.168.1.101",
-        grpc_port: 50_051
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent(agent_p2, %{
+          partition_id: "partition-2",
+          grpc_host: "192.168.1.101",
+          grpc_port: 50_051
+        })
 
       # Allow registry to sync
       Process.sleep(50)
@@ -209,10 +223,11 @@ defmodule ServiceRadar.AgentRegistryTest do
     test "removes agent from registry", %{unique_id: unique_id} do
       agent_id = "agent-unreg-#{unique_id}"
 
-      {:ok, _} = AgentRegistry.register_agent(agent_id, %{
-        grpc_host: "192.168.1.100",
-        grpc_port: 50_051
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent(agent_id, %{
+          grpc_host: "192.168.1.100",
+          grpc_port: 50_051
+        })
 
       # Verify registered
       assert length(AgentRegistry.lookup(agent_id)) == 1
@@ -229,10 +244,11 @@ defmodule ServiceRadar.AgentRegistryTest do
     test "updates last_heartbeat timestamp", %{unique_id: unique_id} do
       agent_id = "agent-hb-#{unique_id}"
 
-      {:ok, _} = AgentRegistry.register_agent(agent_id, %{
-        grpc_host: "192.168.1.100",
-        grpc_port: 50_051
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent(agent_id, %{
+          grpc_host: "192.168.1.100",
+          grpc_port: 50_051
+        })
 
       [{_pid, original}] = AgentRegistry.lookup(agent_id)
       original_hb = original[:last_heartbeat]
@@ -260,10 +276,11 @@ defmodule ServiceRadar.AgentRegistryTest do
     test "registered agents are countable", %{unique_id: unique_id} do
       agent_id = "agent-count-#{unique_id}"
 
-      {:ok, _} = AgentRegistry.register_agent(agent_id, %{
-        grpc_host: "192.168.1.100",
-        grpc_port: 50_051
-      })
+      {:ok, _} =
+        AgentRegistry.register_agent(agent_id, %{
+          grpc_host: "192.168.1.100",
+          grpc_port: 50_051
+        })
 
       # Allow registry to sync
       Process.sleep(50)
