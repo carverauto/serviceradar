@@ -319,69 +319,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   end
 
   def handle_event("save_group", %{"group" => params}, socket) do
-    device_uid = socket.assigns.device_uid
-    interface_uid = socket.assigns.interface_uid
-    scope = socket.assigns.current_scope
-    current_settings = socket.assigns.settings
-    groups = settings_list_value(current_settings, :metric_groups)
-
-    group_id = params["id"]
     group_name = String.trim(params["name"] || "")
-
-    # Handle metrics - could be a map from checkboxes or a list
-    metrics =
-      case params["metrics"] do
-        m when is_map(m) ->
-          m
-          |> Enum.filter(fn {_k, v} -> v == "true" or v == true end)
-          |> Enum.map(fn {k, _v} -> k end)
-          |> Enum.sort()
-
-        m when is_list(m) ->
-          Enum.sort(m)
-
-        _ ->
-          []
-      end
 
     if group_name == "" do
       {:noreply, put_flash(socket, :error, "Group name is required")}
     else
-      updated_groups =
-        if group_id && group_id != "" do
-          # Update existing group
-          Enum.map(groups, fn g ->
-            if g["id"] == group_id do
-              %{"id" => group_id, "name" => group_name, "metrics" => metrics}
-            else
-              g
-            end
-          end)
-        else
-          # Create new group
-          new_group = %{
-            "id" => Ecto.UUID.generate(),
-            "name" => group_name,
-            "metrics" => metrics
-          }
-
-          groups ++ [new_group]
-        end
-
-      attrs = %{metric_groups: updated_groups}
-
-      case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
-        {:ok, updated_settings} ->
-          {:noreply,
-           socket
-           |> assign(:settings, updated_settings)
-           |> assign(:group_modal_open, false)
-           |> assign(:group_modal_group, nil)
-           |> put_flash(:info, "Chart group saved")}
-
-        {:error, _reason} ->
-          {:noreply, put_flash(socket, :error, "Failed to save chart group")}
-      end
+      save_group_with_name(socket, params, group_name)
     end
   end
 
@@ -407,6 +350,62 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     end
   end
 
+  defp save_group_with_name(socket, params, group_name) do
+    device_uid = socket.assigns.device_uid
+    interface_uid = socket.assigns.interface_uid
+    scope = socket.assigns.current_scope
+    current_settings = socket.assigns.settings
+    groups = settings_list_value(current_settings, :metric_groups)
+
+    group_id = params["id"]
+    metrics = parse_metrics_from_params(params["metrics"])
+    updated_groups = update_or_create_group(groups, group_id, group_name, metrics)
+
+    attrs = %{metric_groups: updated_groups}
+
+    case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
+      {:ok, updated_settings} ->
+        {:noreply,
+         socket
+         |> assign(:settings, updated_settings)
+         |> assign(:group_modal_open, false)
+         |> assign(:group_modal_group, nil)
+         |> put_flash(:info, "Chart group saved")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to save chart group")}
+    end
+  end
+
+  defp parse_metrics_from_params(metrics) when is_map(metrics) do
+    metrics
+    |> Enum.filter(fn {_k, v} -> v == "true" or v == true end)
+    |> Enum.map(fn {k, _v} -> k end)
+    |> Enum.sort()
+  end
+
+  defp parse_metrics_from_params(metrics) when is_list(metrics), do: Enum.sort(metrics)
+  defp parse_metrics_from_params(_), do: []
+
+  defp update_or_create_group(groups, group_id, group_name, metrics)
+       when is_binary(group_id) and group_id != "" do
+    Enum.map(groups, fn g ->
+      if g["id"] == group_id,
+        do: %{"id" => group_id, "name" => group_name, "metrics" => metrics},
+        else: g
+    end)
+  end
+
+  defp update_or_create_group(groups, _group_id, group_name, metrics) do
+    new_group = %{
+      "id" => Ecto.UUID.generate(),
+      "name" => group_name,
+      "metrics" => metrics
+    }
+
+    groups ++ [new_group]
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -416,13 +415,13 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         <nav class="text-sm breadcrumbs mb-4">
           <ul>
             <li><.link navigate={~p"/devices"}>Devices</.link></li>
-            <li :if={@device}>
+            <li>
               <.link navigate={~p"/devices/#{@device_uid}"}>
-                {device_name(@device)}
+                {if @device, do: device_name(@device), else: "Device"}
               </.link>
             </li>
-            <li :if={!@device}>
-              <.link navigate={~p"/devices/#{@device_uid}"}>Device</.link>
+            <li>
+              <.link navigate={~p"/devices/#{@device_uid}?tab=interfaces"}>Interfaces</.link>
             </li>
             <li class="text-base-content/70">
               {if @interface, do: interface_name(@interface), else: "Interface"}
@@ -479,7 +478,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           </div>
 
           <%!-- Metrics Graphs Section (positioned at top, below header) --%>
-          <div :if={@metrics.panels != [] || @metrics.error} class="card bg-base-100 border border-base-200 shadow-sm">
+          <div
+            :if={@metrics.panels != [] || @metrics.error}
+            class="card bg-base-100 border border-base-200 shadow-sm"
+          >
             <div class="card-body">
               <h2 class="card-title text-lg">
                 <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics History
@@ -582,7 +584,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       Select at least one metric to enable collection.
                     </p>
                   </div>
-                  <% normalized_metrics = if available_metrics, do: Enum.filter(available_metrics, &is_map/1), else: [] %>
+                  <% normalized_metrics =
+                    if available_metrics, do: Enum.filter(available_metrics, &is_map/1), else: [] %>
                   <%!-- Available Metrics Section --%>
                   <div :if={normalized_metrics != []} class="py-3 space-y-3">
                     <h3 class="text-sm font-medium">Available Metrics</h3>
@@ -637,7 +640,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                       />
                     </div>
                     <div :if={metric_groups == []} class="text-xs text-base-content/50">
-                      No chart groups configured. Create a group to combine multiple metrics on a single chart.
+                      No custom chart groups configured. Traffic metrics (inbound/outbound) are automatically combined. Create a group to define additional custom metric combinations.
                     </div>
                   </div>
                 </div>
@@ -690,11 +693,14 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     ~H"""
     <div class="py-3 flex justify-between gap-4">
       <span class="text-sm text-base-content/70 shrink-0">{@label}</span>
-      <span class={[
-        "text-sm text-right",
-        @monospace && "font-mono",
-        is_nil(@value) || (@value == "" && "text-base-content/40")
-      ]} title={@value_title}>
+      <span
+        class={[
+          "text-sm text-right",
+          @monospace && "font-mono",
+          is_nil(@value) || (@value == "" && "text-base-content/40")
+        ]}
+        title={@value_title}
+      >
         {format_value(@value)}
       </span>
     </div>
@@ -866,9 +872,14 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
     group_metrics =
       cond do
-        is_list(group_metrics) -> group_metrics
-        is_map(group_metrics) -> Enum.filter(Map.keys(group_metrics), &(group_metrics[&1] == "true"))
-        true -> []
+        is_list(group_metrics) ->
+          group_metrics
+
+        is_map(group_metrics) ->
+          Enum.filter(Map.keys(group_metrics), &(group_metrics[&1] == "true"))
+
+        true ->
+          []
       end
 
     is_editing = assigns.group != nil
@@ -929,7 +940,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
               </span>
             </label>
             <div class="border border-base-300 rounded-lg p-3 max-h-64 overflow-y-auto space-y-1">
-              <div :if={@available_metrics == []} class="text-sm text-base-content/50 py-2 text-center">
+              <div
+                :if={@available_metrics == []}
+                class="text-sm text-base-content/50 py-2 text-center"
+              >
                 No metrics available. Enable metric discovery first.
               </div>
               <label
@@ -1056,8 +1070,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     class="hidden"
                     checked={@form[:threshold_type].value != "percentage"}
                   />
-                  <.icon name="hero-cube" class="size-4" />
-                  Absolute (bytes/sec)
+                  <.icon name="hero-cube" class="size-4" /> Absolute (bytes/sec)
                 </label>
                 <label class={[
                   "flex-1 btn btn-sm",
@@ -1073,8 +1086,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     checked={@form[:threshold_type].value == "percentage"}
                     disabled={!@has_speed_data}
                   />
-                  <.icon name="hero-chart-pie" class="size-4" />
-                  Percentage (% of speed)
+                  <.icon name="hero-chart-pie" class="size-4" /> Percentage (% of speed)
                 </label>
               </div>
               <div :if={@has_speed_data} class="label">
@@ -1423,7 +1435,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   # Build panels for interface metrics with speed scaling and combined chart mode
   # Takes the full SRQL response (including viz) to properly handle series grouping
   # If metric_groups is provided and non-empty, group panels according to user configuration
-  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups \\ [])
+  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups)
 
   defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, []) do
     # No user-defined groups - build panels normally
@@ -1472,26 +1484,29 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         end)
 
       ungrouped_panels =
-        if ungrouped_results != [] do
-          # Create a modified response with only ungrouped results
-          ungrouped_response = Map.put(srql_response, "results", ungrouped_results)
-
-          Engine.build_panels(ungrouped_response)
-          |> Enum.reject(&(&1.plugin == TablePlugin))
-          |> Enum.map(fn panel ->
-            assigns =
-              panel.assigns
-              |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
-              |> Map.put(:chart_mode, :combined)
-
-            %{panel | assigns: assigns}
-          end)
-        else
-          []
-        end
+        build_ungrouped_panels(srql_response, ungrouped_results, max_speed_bytes_per_sec)
 
       grouped_panels ++ ungrouped_panels
     end
+  end
+
+  defp build_ungrouped_panels(_srql_response, [], _max_speed_bytes_per_sec), do: []
+
+  defp build_ungrouped_panels(srql_response, ungrouped_results, max_speed_bytes_per_sec) do
+    ungrouped_response = Map.put(srql_response, "results", ungrouped_results)
+
+    Engine.build_panels(ungrouped_response)
+    |> Enum.reject(&(&1.plugin == TablePlugin))
+    |> Enum.map(&add_panel_assigns(&1, max_speed_bytes_per_sec))
+  end
+
+  defp add_panel_assigns(panel, max_speed_bytes_per_sec) do
+    assigns =
+      panel.assigns
+      |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
+      |> Map.put(:chart_mode, :combined)
+
+    %{panel | assigns: assigns}
   end
 
   # Build a single panel for a group of metrics
@@ -1500,33 +1515,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     group_metrics = group["metrics"] || []
 
     # Filter results to only include metrics in this group
-    group_results =
-      Enum.filter(results, fn result ->
-        metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
-        metric_name in group_metrics
-      end)
+    group_results = filter_results_by_metrics(results, group_metrics)
 
     if group_results == [] do
       nil
     else
-      # Extract time series data for each metric in the group
-      series =
-        group_results
-        |> Enum.map(fn result ->
-          metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
-          time = Map.get(result, "time") || Map.get(result, :time)
-          value = Map.get(result, "value") || Map.get(result, :value)
-          %{name: metric_name, time: time, value: value}
-        end)
-        |> Enum.group_by(& &1.name)
-        |> Enum.map(fn {name, points} ->
-          data =
-            points
-            |> Enum.map(fn p -> %{time: p.time, value: p.value} end)
-            |> Enum.sort_by(& &1.time)
-
-          %{name: format_metric_series_name(name), data: data}
-        end)
+      series = build_series_from_results(group_results)
 
       %{
         id: "group-#{group["id"]}",
@@ -1540,6 +1534,37 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         }
       }
     end
+  end
+
+  defp filter_results_by_metrics(results, group_metrics) do
+    Enum.filter(results, fn result ->
+      metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
+      metric_name in group_metrics
+    end)
+  end
+
+  defp build_series_from_results(group_results) do
+    group_results
+    |> Enum.map(&extract_metric_point/1)
+    |> Enum.group_by(& &1.name)
+    |> Enum.map(&format_series/1)
+  end
+
+  defp extract_metric_point(result) do
+    %{
+      name: Map.get(result, "metric_name") || Map.get(result, :metric_name),
+      time: Map.get(result, "time") || Map.get(result, :time),
+      value: Map.get(result, "value") || Map.get(result, :value)
+    }
+  end
+
+  defp format_series({name, points}) do
+    data =
+      points
+      |> Enum.map(fn p -> %{time: p.time, value: p.value} end)
+      |> Enum.sort_by(& &1.time)
+
+    %{name: format_metric_series_name(name), data: data}
   end
 
   # Format metric name for display in chart legend
@@ -1724,7 +1749,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     config_enabled?(config) and config_bool(alert, :enabled, false)
   end
 
-  defp metric_form_values(metric_name, config, interface \\ nil) do
+  defp metric_form_values(metric_name, config, interface) do
     alert = config_value(config, :alert, %{})
     event = config_value(config, :event, %{})
 

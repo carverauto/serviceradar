@@ -177,8 +177,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp normalize_series_label(value), do: value
 
   # Chart paths with optional max_y for fixed Y-axis scaling (e.g., interface speed)
-  # max_y can be nil for auto-scaling or a number for fixed upper bound
-  defp chart_paths(points, max_y) when is_list(points) do
+  # Always auto-scale Y-axis to actual data values for visibility
+  # max_y is kept for reference/display but not used for scaling
+  defp chart_paths(points, _max_y) when is_list(points) do
     values = Enum.map(points, fn {_dt, v} -> v end)
 
     case values do
@@ -191,8 +192,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         avg_v = Enum.sum(values) / length(values)
         latest = List.last(values)
 
-        # Use fixed max if provided (e.g., interface speed), otherwise use data max
-        chart_max = if is_number(max_y) and max_y > 0, do: max_y, else: max_v
+        # Always auto-scale to data max for visibility
+        # Add 10% padding to max for visual breathing room
+        chart_max = if max_v > 0, do: max_v * 1.1, else: 1.0
 
         coords =
           Enum.with_index(values)
@@ -311,7 +313,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp traffic_series?(_), do: false
 
   # Compute utilization percentage from current value and max speed
-  defp compute_utilization(value, max_speed) when is_number(value) and is_number(max_speed) and max_speed > 0 do
+  defp compute_utilization(value, max_speed)
+       when is_number(value) and is_number(max_speed) and max_speed > 0 do
     percentage = value / max_speed * 100
     Float.round(percentage, 1)
   end
@@ -484,8 +487,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             <span :if={is_struct(@last_dt, DateTime)}>{dt_label(@last_dt)}</span>
           </div>
         </:header>
-
-        <!-- Combined traffic charts (inbound + outbound on same chart) -->
+        
+    <!-- Combined traffic charts (inbound + outbound on same chart) -->
         <%= for combined <- @combined_traffic do %>
           <.combined_chart_card
             id={@id}
@@ -496,8 +499,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             compact={false}
           />
         <% end %>
-
-        <!-- Individual series charts -->
+        
+    <!-- Individual series charts -->
         <div
           :if={@series_data != []}
           class={[
@@ -615,7 +618,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       ]}>
         <span>avg: <span class="font-mono">{format_value(@data.paths.avg)}</span></span>
         <span :if={@data.max_speed} class="text-base-content/40">
-          limit: <span class="font-mono">{format_value(@data.max_speed)}</span>
+          interface rate: <span class="font-mono">{format_value(@data.max_speed)}</span>
         </span>
         <span>peak: <span class="font-mono">{format_value(@data.paths.max)}</span></span>
       </div>
@@ -665,7 +668,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
                 class="inline-block size-2 rounded-full shrink-0"
                 style={"background-color: #{series.stroke}"}
               />
-              <span class={["text-base-content/70", @compact && "text-[10px]", not @compact && "text-xs"]}>
+              <span class={[
+                "text-base-content/70",
+                @compact && "text-[10px]",
+                not @compact && "text-xs"
+              ]}>
                 {series.series}
                 <span :if={series.utilization} class="text-base-content/50">
                   ({series.utilization}%)
@@ -675,8 +682,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           <% end %>
         </div>
       </div>
-
-      <!-- SVG chart with multiple series -->
+      
+    <!-- SVG chart with multiple series -->
       <div class="relative">
         <svg
           viewBox={"0 0 #{@chart_width} #{@chart_height}"}
@@ -692,8 +699,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               </linearGradient>
             <% end %>
           </defs>
-
-          <!-- Render each series -->
+          
+    <!-- Render each series -->
           <%= for series <- @data.series do %>
             <path d={series.paths.area} fill={"url(#combined-fill-#{@id}-#{series.idx})"} />
             <polyline
@@ -707,8 +714,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           <% end %>
         </svg>
       </div>
-
-      <!-- Stats footer -->
+      
+    <!-- Stats footer -->
       <div class={[
         "flex items-center justify-between text-base-content/50 mt-1 gap-4",
         @compact && "text-[10px]",
@@ -724,11 +731,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           </div>
         <% end %>
         <span :if={@data.max_speed} class="text-base-content/40 ml-auto">
-          limit: <span class="font-mono">{format_value(@data.max_speed)}</span>
+          interface rate: <span class="font-mono">{format_value(@data.max_speed)}</span>
         </span>
       </div>
-
-      <!-- Timeline axis -->
+      
+    <!-- Timeline axis -->
       <div class={[
         "flex items-center justify-between text-base-content/40 mt-1 font-mono",
         @compact && "text-[9px]",

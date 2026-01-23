@@ -105,7 +105,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
 
     test "interface speed is passed to grouped panels" do
       results = build_sample_metric_results()
-      max_speed = 125_000_000  # 1 Gbps in bytes/sec
+      # 1 Gbps in bytes/sec
+      max_speed = 125_000_000
 
       groups = [
         %{
@@ -248,30 +249,39 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
     if group_results == [] do
       nil
     else
-      series =
-        group_results
-        |> Enum.group_by(& &1["metric_name"])
-        |> Enum.map(fn {name, points} ->
-          data =
-            points
-            |> Enum.map(fn p -> %{time: p["time"], value: p["value"]} end)
-            |> Enum.sort_by(& &1.time)
-
-          %{name: format_series_name(name), data: data}
-        end)
-
-      %{
-        id: "group-#{group["id"]}",
-        plugin: :timeseries,
-        title: group_name,
-        assigns: %{
-          series: series,
-          max_speed_bytes_per_sec: max_speed,
-          chart_mode: :combined,
-          group_id: group["id"]
-        }
-      }
+      build_panel_from_results(group, group_name, group_results, max_speed)
     end
+  end
+
+  defp build_panel_from_results(group, group_name, group_results, max_speed) do
+    series = build_series_list(group_results)
+
+    %{
+      id: "group-#{group["id"]}",
+      plugin: :timeseries,
+      title: group_name,
+      assigns: %{
+        series: series,
+        max_speed_bytes_per_sec: max_speed,
+        chart_mode: :combined,
+        group_id: group["id"]
+      }
+    }
+  end
+
+  defp build_series_list(group_results) do
+    group_results
+    |> Enum.group_by(& &1["metric_name"])
+    |> Enum.map(&build_single_series/1)
+  end
+
+  defp build_single_series({name, points}) do
+    data =
+      points
+      |> Enum.map(fn p -> %{time: p["time"], value: p["value"]} end)
+      |> Enum.sort_by(& &1.time)
+
+    %{name: format_series_name(name), data: data}
   end
 
   defp format_series_name(name) when is_binary(name) do

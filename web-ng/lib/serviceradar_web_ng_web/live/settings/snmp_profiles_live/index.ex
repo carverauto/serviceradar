@@ -1459,8 +1459,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             />
           </div>
         </div>
-
-        <!-- SNMP Credentials Section -->
+        
+    <!-- SNMP Credentials Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
             SNMP Credentials
@@ -1491,7 +1491,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                 value=""
                 class="input input-bordered w-full"
                 placeholder={
-                  if @show_form == :edit_profile, do: "Leave blank to keep existing", else: "e.g., public"
+                  if @show_form == :edit_profile,
+                    do: "Leave blank to keep existing",
+                    else: "e.g., public"
                 }
                 autocomplete="off"
               />
@@ -1552,7 +1554,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                   value=""
                   class="input input-bordered w-full"
                   placeholder={
-                    if @show_form == :edit_profile, do: "Leave blank to keep existing", else: "Auth password"
+                    if @show_form == :edit_profile,
+                      do: "Leave blank to keep existing",
+                      else: "Auth password"
                   }
                   autocomplete="off"
                 />
@@ -1582,7 +1586,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                   value=""
                   class="input input-bordered w-full"
                   placeholder={
-                    if @show_form == :edit_profile, do: "Leave blank to keep existing", else: "Privacy password"
+                    if @show_form == :edit_profile,
+                      do: "Leave blank to keep existing",
+                      else: "Privacy password"
                   }
                   autocomplete="off"
                 />
@@ -1594,7 +1600,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             </p>
           <% end %>
         </div>
-
+        
     <!-- Interface Targeting Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
@@ -1614,8 +1620,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                 </div>
               </div>
             </div>
-
-            <!-- Query Input with Builder Toggle -->
+            
+    <!-- Query Input with Builder Toggle -->
             <div>
               <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
               <div class="flex items-center gap-2">
@@ -1665,117 +1671,117 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               <form phx-change="builder_change" autocomplete="off">
                 <div class="flex flex-col gap-4">
                   <!-- Filters Section -->
-                    <div class="flex flex-col gap-3">
-                      <div class="text-xs text-base-content/60 font-medium">
-                        Match interfaces where:
-                      </div>
+                  <div class="flex flex-col gap-3">
+                    <div class="text-xs text-base-content/60 font-medium">
+                      Match interfaces where:
+                    </div>
 
-                      <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
-                        <div class="flex items-center gap-3">
-                          <.query_builder_pill label="Filter">
-                            <%= if @config.filter_fields == [] do %>
-                              <.ui_inline_input
-                                type="text"
-                                name={"builder[filters][#{idx}][field]"}
-                                value={filter["field"] || ""}
-                                placeholder="field"
-                                class="w-40 placeholder:text-base-content/40"
-                              />
-                            <% else %>
-                              <.ui_inline_select name={"builder[filters][#{idx}][field]"}>
-                                <%= for field <- @config.filter_fields do %>
-                                  <option value={field} selected={filter["field"] == field}>
-                                    {field}
-                                  </option>
-                                <% end %>
-                              </.ui_inline_select>
-                            <% end %>
-
-                            <.ui_inline_select
-                              name={"builder[filters][#{idx}][op]"}
-                              class="text-xs text-base-content/70"
-                            >
-                              <option
-                                value="contains"
-                                selected={(filter["op"] || "contains") == "contains"}
-                              >
-                                contains
-                              </option>
-                              <option value="not_contains" selected={filter["op"] == "not_contains"}>
-                                does not contain
-                              </option>
-                              <option value="equals" selected={filter["op"] == "equals"}>
-                                equals
-                              </option>
-                              <option value="not_equals" selected={filter["op"] == "not_equals"}>
-                                does not equal
-                              </option>
-                            </.ui_inline_select>
-
+                    <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
+                      <div class="flex items-center gap-3">
+                        <.query_builder_pill label="Filter">
+                          <%= if @config.filter_fields == [] do %>
                             <.ui_inline_input
                               type="text"
-                              name={"builder[filters][#{idx}][value]"}
-                              value={filter["value"] || ""}
-                              placeholder="value"
-                              class="placeholder:text-base-content/40 w-48"
+                              name={"builder[filters][#{idx}][field]"}
+                              value={filter["field"] || ""}
+                              placeholder="field"
+                              class="w-40 placeholder:text-base-content/40"
                             />
-                          </.query_builder_pill>
+                          <% else %>
+                            <.ui_inline_select name={"builder[filters][#{idx}][field]"}>
+                              <%= for field <- @config.filter_fields do %>
+                                <option value={field} selected={filter["field"] == field}>
+                                  {field}
+                                </option>
+                              <% end %>
+                            </.ui_inline_select>
+                          <% end %>
 
-                          <.ui_icon_button
-                            size="xs"
-                            aria-label="Remove filter"
-                            title="Remove filter"
-                            type="button"
-                            phx-click="builder_remove_filter"
-                            phx-value-idx={idx}
+                          <.ui_inline_select
+                            name={"builder[filters][#{idx}][op]"}
+                            class="text-xs text-base-content/70"
                           >
-                            <.icon name="hero-x-mark" class="size-4" />
-                          </.ui_icon_button>
-                        </div>
-                      <% end %>
+                            <option
+                              value="contains"
+                              selected={(filter["op"] || "contains") == "contains"}
+                            >
+                              contains
+                            </option>
+                            <option value="not_contains" selected={filter["op"] == "not_contains"}>
+                              does not contain
+                            </option>
+                            <option value="equals" selected={filter["op"] == "equals"}>
+                              equals
+                            </option>
+                            <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                              does not equal
+                            </option>
+                          </.ui_inline_select>
 
-                      <button
-                        type="button"
-                        class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
-                        phx-click="builder_add_filter"
-                      >
-                        <.icon name="hero-plus" class="size-4" /> Add filter
-                      </button>
-                    </div>
+                          <.ui_inline_input
+                            type="text"
+                            name={"builder[filters][#{idx}][value]"}
+                            value={filter["value"] || ""}
+                            placeholder="value"
+                            class="placeholder:text-base-content/40 w-48"
+                          />
+                        </.query_builder_pill>
+
+                        <.ui_icon_button
+                          size="xs"
+                          aria-label="Remove filter"
+                          title="Remove filter"
+                          type="button"
+                          phx-click="builder_remove_filter"
+                          phx-value-idx={idx}
+                        >
+                          <.icon name="hero-x-mark" class="size-4" />
+                        </.ui_icon_button>
+                      </div>
+                    <% end %>
+
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                      phx-click="builder_add_filter"
+                    >
+                      <.icon name="hero-plus" class="size-4" /> Add filter
+                    </button>
                   </div>
-                </form>
-              </div>
-              
-    <!-- Device Count Preview -->
-              <div :if={@target_device_count != nil} class="flex items-center gap-2">
-                <.icon name="hero-signal" class="size-4 text-base-content/60" />
-                <span class="text-sm">
-                  <span class="font-semibold">{@target_device_count}</span>
-                  <span class="text-base-content/60">interface(s) match this query</span>
-                </span>
-              </div>
-              
-    <!-- Priority -->
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label class="label"><span class="label-text">Priority</span></label>
-                  <.input
-                    type="number"
-                    field={@form[:priority]}
-                    class="input input-bordered w-full"
-                    min="0"
-                    max="100"
-                  />
-                  <label class="label">
-                    <span class="label-text-alt text-base-content/50">
-                      Higher priority profiles are evaluated first (0-100)
-                    </span>
-                  </label>
                 </div>
+              </form>
+            </div>
+            
+    <!-- Device Count Preview -->
+            <div :if={@target_device_count != nil} class="flex items-center gap-2">
+              <.icon name="hero-signal" class="size-4 text-base-content/60" />
+              <span class="text-sm">
+                <span class="font-semibold">{@target_device_count}</span>
+                <span class="text-base-content/60">interface(s) match this query</span>
+              </span>
+            </div>
+            
+    <!-- Priority -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Priority</span></label>
+                <.input
+                  type="number"
+                  field={@form[:priority]}
+                  class="input input-bordered w-full"
+                  min="0"
+                  max="100"
+                />
+                <label class="label">
+                  <span class="label-text-alt text-base-content/50">
+                    Higher priority profiles are evaluated first (0-100)
+                  </span>
+                </label>
               </div>
             </div>
+          </div>
         </div>
-
+        
     <!-- OID Templates Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
@@ -1784,8 +1790,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
           <p class="text-sm text-base-content/60">
             Select OID templates to define what metrics are polled from devices matched by this profile.
           </p>
-
-          <!-- Selected Templates -->
+          
+    <!-- Selected Templates -->
           <div :if={@selected_template_ids != []} class="flex flex-wrap gap-2">
             <%= for template_id <- @selected_template_ids do %>
               <% template = Enum.find(@available_templates, &(&1.id == template_id)) %>
@@ -1806,8 +1812,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               </div>
             <% end %>
           </div>
-
-          <!-- Template Dropdown -->
+          
+    <!-- Template Dropdown -->
           <div class="dropdown dropdown-bottom w-full max-w-md">
             <div tabindex="0" role="button" class="btn btn-outline w-full justify-between">
               <span>
@@ -1849,7 +1855,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             interface traffic, CPU/memory, environment sensors, or other vendor-specific metrics.
           </p>
         </div>
-
+        
     <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
           <.link navigate={~p"/settings/snmp"}>
@@ -1862,7 +1868,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       </.form>
       
     <!-- Legacy SNMP Targets Section (deprecated, only shown when existing targets present) -->
-      <div :if={@show_form == :edit_profile && @targets != []} class="mt-6 pt-6 border-t border-base-200">
+      <div
+        :if={@show_form == :edit_profile && @targets != []}
+        class="mt-6 pt-6 border-t border-base-200"
+      >
         <div class="bg-warning/10 border border-warning/30 rounded-lg p-4 mb-4">
           <div class="flex items-start gap-3">
             <.icon name="hero-exclamation-triangle" class="size-5 text-warning shrink-0 mt-0.5" />
@@ -2882,18 +2891,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
   defp load_all_templates(scope) do
     # Load builtin templates
-    builtin = BuiltinTemplates.all_templates()
-    |> Enum.map(fn t ->
-      %{
-        id: t.id,
-        name: t.name,
-        description: t.description,
-        vendor: t.vendor,
-        category: t.category,
-        oid_count: length(t.oids || []),
-        is_builtin: true
-      }
-    end)
+    builtin =
+      BuiltinTemplates.all_templates()
+      |> Enum.map(fn t ->
+        %{
+          id: t.id,
+          name: t.name,
+          description: t.description,
+          vendor: t.vendor,
+          category: t.category,
+          oid_count: length(t.oids || []),
+          is_builtin: true
+        }
+      end)
 
     # Load custom templates from database
     custom =

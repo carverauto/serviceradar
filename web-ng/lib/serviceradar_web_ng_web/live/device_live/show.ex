@@ -84,6 +84,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @impl true
   def handle_params(%{"uid" => uid} = params, uri, socket) do
     limit = parse_limit(Map.get(params, "limit"), @default_limit, @max_limit)
+    # Read tab from URL params, fall back to current or default
+    url_tab = Map.get(params, "tab")
+
+    requested_tab =
+      if url_tab in ["details", "interfaces", "profiles", "sysmon"],
+        do: url_tab,
+        else: socket.assigns.active_tab
 
     default_query = default_device_query(uid, limit)
 
@@ -170,9 +177,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         (is_list(network_interfaces) and network_interfaces != [])
 
     active_tab =
-      if socket.assigns.active_tab == "interfaces" and not has_ifaces,
+      if requested_tab == "interfaces" and not has_ifaces,
         do: "details",
-        else: socket.assigns.active_tab
+        else: requested_tab
 
     srql =
       if active_tab == "interfaces" do
@@ -345,7 +352,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           {:noreply, put_flash(socket, :error, format_ash_error(error))}
 
         {:error, reason} ->
-          {:noreply, put_flash(socket, :error, "Failed to save SNMP credentials: #{inspect(reason)}")}
+          {:noreply,
+           put_flash(socket, :error, "Failed to save SNMP credentials: #{inspect(reason)}")}
       end
     else
       {:noreply, put_flash(socket, :info, "Provide SNMP credentials to create an override")}
@@ -369,7 +377,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
              |> put_flash(:info, "SNMP credential override cleared")}
 
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to clear SNMP credentials: #{inspect(reason)}")}
+            {:noreply,
+             put_flash(socket, :error, "Failed to clear SNMP credentials: #{inspect(reason)}")}
         end
     end
   end
@@ -377,10 +386,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     srql = srql_for_tab(tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
 
+    # Update URL with tab parameter for shareable/bookmarkable links
+    path =
+      if tab == "details" do
+        ~p"/devices/#{socket.assigns.device_uid}"
+      else
+        ~p"/devices/#{socket.assigns.device_uid}?tab=#{tab}"
+      end
+
     {:noreply,
      socket
      |> assign(:active_tab, tab)
-     |> assign(:srql, srql)}
+     |> assign(:srql, srql)
+     |> push_patch(to: path, replace: true)}
   end
 
   # ---------------------------------------------------------------------------
@@ -580,10 +598,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     case Map.get(params, "version") do
       "v1" ->
-        Map.drop(params, ["username", "security_level", "auth_protocol", "auth_password", "priv_protocol", "priv_password"])
+        Map.drop(params, [
+          "username",
+          "security_level",
+          "auth_protocol",
+          "auth_password",
+          "priv_protocol",
+          "priv_password"
+        ])
 
       "v2c" ->
-        Map.drop(params, ["username", "security_level", "auth_protocol", "auth_password", "priv_protocol", "priv_password"])
+        Map.drop(params, [
+          "username",
+          "security_level",
+          "auth_protocol",
+          "auth_password",
+          "priv_protocol",
+          "priv_password"
+        ])
 
       "v3" ->
         Map.drop(params, ["community"])
@@ -656,7 +688,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       interfaces
       |> Enum.filter(fn iface ->
         uid = Map.get(iface, "interface_uid")
-        is_binary(uid) and MapSet.member?(favorited_uids, uid) and is_integer(Map.get(iface, "if_index"))
+
+        is_binary(uid) and MapSet.member?(favorited_uids, uid) and
+          is_integer(Map.get(iface, "if_index"))
       end)
       |> Enum.map(fn iface ->
         # Get interface speed for proper graph scaling (bps -> bytes per second)
@@ -665,7 +699,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
         %{
           if_index: Map.get(iface, "if_index"),
-          name: Map.get(iface, "if_name") || Map.get(iface, "if_descr") || "Interface #{Map.get(iface, "if_index")}",
+          name:
+            Map.get(iface, "if_name") || Map.get(iface, "if_descr") ||
+              "Interface #{Map.get(iface, "if_index")}",
           max_speed_bytes_per_sec: if_speed_bytes_per_sec
         }
       end)
@@ -892,6 +928,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
+        <%!-- Breadcrumb --%>
+        <nav class="text-sm breadcrumbs mb-4">
+          <ul>
+            <li><.link navigate={~p"/devices"}>Devices</.link></li>
+            <li :if={@active_tab == "details"}>
+              <span class="text-base-content/70">{device_display_name(@device_row)}</span>
+            </li>
+            <li :if={@active_tab != "details"}>
+              <.link navigate={~p"/devices/#{@device_uid}"}>{device_display_name(@device_row)}</.link>
+            </li>
+            <li :if={@active_tab == "interfaces"} class="text-base-content/70">Interfaces</li>
+            <li :if={@active_tab == "profiles"} class="text-base-content/70">Profiles</li>
+            <li :if={@active_tab == "sysmon"} class="text-base-content/70">System Monitor</li>
+          </ul>
+        </nav>
+
         <.header>
           Device
           <:subtitle>
@@ -1165,7 +1217,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label class="label"><span class="label-text text-xs font-medium">SNMP Version</span></label>
+                    <label class="label">
+                      <span class="label-text text-xs font-medium">SNMP Version</span>
+                    </label>
                     <.input
                       type="select"
                       field={@snmp_credential_form[:version]}
@@ -1181,14 +1235,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
                 <%= if snmp_version in ["v1", "v2c"] do %>
                   <div>
-                    <label class="label"><span class="label-text text-xs font-medium">Community</span></label>
+                    <label class="label">
+                      <span class="label-text text-xs font-medium">Community</span>
+                    </label>
                     <.input
                       type="password"
                       name="snmp[community]"
                       value=""
                       class="input input-bordered input-sm w-full"
                       placeholder={
-                        if @device_snmp_credential, do: "Leave blank to keep existing", else: "e.g., public"
+                        if @device_snmp_credential,
+                          do: "Leave blank to keep existing",
+                          else: "e.g., public"
                       }
                       autocomplete="off"
                     />
@@ -1201,7 +1259,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 <% else %>
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label class="label"><span class="label-text text-xs font-medium">Username</span></label>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Username</span>
+                      </label>
                       <.input
                         type="text"
                         field={@snmp_credential_form[:username]}
@@ -1209,7 +1269,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       />
                     </div>
                     <div>
-                      <label class="label"><span class="label-text text-xs font-medium">Security Level</span></label>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Security Level</span>
+                      </label>
                       <.input
                         type="select"
                         field={@snmp_credential_form[:security_level]}
@@ -1225,7 +1287,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label class="label"><span class="label-text text-xs font-medium">Auth Protocol</span></label>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Auth Protocol</span>
+                      </label>
                       <.input
                         type="select"
                         field={@snmp_credential_form[:auth_protocol]}
@@ -1241,14 +1305,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       />
                     </div>
                     <div>
-                      <label class="label"><span class="label-text text-xs font-medium">Auth Password</span></label>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Auth Password</span>
+                      </label>
                       <.input
                         type="password"
                         name="snmp[auth_password]"
                         value=""
                         class="input input-bordered input-sm w-full"
                         placeholder={
-                          if @device_snmp_credential, do: "Leave blank to keep existing", else: "Auth password"
+                          if @device_snmp_credential,
+                            do: "Leave blank to keep existing",
+                            else: "Auth password"
                         }
                         autocomplete="off"
                       />
@@ -1257,7 +1325,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label class="label"><span class="label-text text-xs font-medium">Privacy Protocol</span></label>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Privacy Protocol</span>
+                      </label>
                       <.input
                         type="select"
                         field={@snmp_credential_form[:priv_protocol]}
@@ -1271,14 +1341,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       />
                     </div>
                     <div>
-                      <label class="label"><span class="label-text text-xs font-medium">Privacy Password</span></label>
+                      <label class="label">
+                        <span class="label-text text-xs font-medium">Privacy Password</span>
+                      </label>
                       <.input
                         type="password"
                         name="snmp[priv_password]"
                         value=""
                         class="input input-bordered input-sm w-full"
                         placeholder={
-                          if @device_snmp_credential, do: "Leave blank to keep existing", else: "Privacy password"
+                          if @device_snmp_credential,
+                            do: "Leave blank to keep existing",
+                            else: "Privacy password"
                         }
                         autocomplete="off"
                       />
@@ -2039,13 +2113,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       </div>
 
       <%!-- Metrics panels --%>
-      <div :if={@metrics.panels != []} class="p-4 space-y-4">
+      <% panel_count = length(@metrics.panels) %>
+      <div
+        :if={@metrics.panels != []}
+        class={
+          [
+            "p-4 gap-4",
+            # 1-2 panels: full width stacked
+            panel_count <= 2 && "space-y-4",
+            # 3+ panels: responsive grid
+            panel_count > 2 && "grid grid-cols-1 sm:grid-cols-2"
+          ]
+        }
+      >
         <%= for {panel, idx} <- Enum.with_index(@metrics.panels) do %>
           <.live_component
             module={panel.plugin}
             id={"interface-metrics-#{@device_uid}-#{panel.id}-#{idx}"}
             title={Map.get(panel.assigns, :interface_label, "Interface Metrics")}
-            panel_assigns={Map.put(panel.assigns, :compact, true)}
+            panel_assigns={Map.put(panel.assigns, :compact, panel_count > 2)}
           />
         <% end %>
       </div>
@@ -3866,6 +3952,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       _ -> "Agent"
     end
   end
+
+  defp device_display_name(nil), do: "Device"
+
+  defp device_display_name(row) when is_map(row) do
+    hostname = Map.get(row, "hostname")
+    ip = Map.get(row, "ip")
+
+    cond do
+      is_binary(hostname) and hostname != "" -> hostname
+      is_binary(ip) and ip != "" -> ip
+      true -> "Device"
+    end
+  end
+
+  defp device_display_name(_), do: "Device"
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_single_ash_error/1)
