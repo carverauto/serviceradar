@@ -184,9 +184,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       nil ->
         {:noreply, put_flash(socket, :error, "Profile not found")}
 
-      %{is_default: true} ->
-        {:noreply, put_flash(socket, :error, "Cannot delete the default profile")}
-
       profile ->
         case Ash.destroy(profile, scope: scope) do
           :ok ->
@@ -197,27 +194,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Failed to delete profile")}
-        end
-    end
-  end
-
-  def handle_event("set_default", %{"id" => id}, socket) do
-    scope = socket.assigns.current_scope
-
-    case load_profile(scope, id) do
-      nil ->
-        {:noreply, put_flash(socket, :error, "Profile not found")}
-
-      profile ->
-        case Ash.update(profile, :set_as_default, scope: scope) do
-          {:ok, _updated} ->
-            {:noreply,
-             socket
-             |> assign(:profiles, load_profiles(scope))
-             |> put_flash(:info, "#{profile.name} is now the default profile")}
-
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Failed to set as default")}
         end
     end
   end
@@ -446,25 +422,21 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                     >
                       {profile.name}
                     </.link>
-                    <.ui_badge :if={profile.is_default} variant="info" size="xs">Default</.ui_badge>
                   </div>
                   <p :if={profile.description} class="text-xs text-base-content/60 truncate max-w-xs">
                     {profile.description}
                   </p>
                 </td>
                 <td class="text-xs max-w-xs">
-                  <%= cond do %>
-                    <% profile.is_default -> %>
-                      <span class="text-base-content/60 italic">All unmatched devices</span>
-                    <% profile.target_query && profile.target_query != "" -> %>
-                      <code
-                        class="font-mono text-[11px] bg-base-200/50 px-1.5 py-0.5 rounded truncate block max-w-[200px]"
-                        title={profile.target_query}
-                      >
-                        {profile.target_query}
-                      </code>
-                    <% true -> %>
-                      <span class="text-base-content/40">No targeting</span>
+                  <%= if profile.target_query && profile.target_query != "" do %>
+                    <code
+                      class="font-mono text-[11px] bg-base-200/50 px-1.5 py-0.5 rounded truncate block max-w-[200px]"
+                      title={profile.target_query}
+                    >
+                      {profile.target_query}
+                    </code>
+                  <% else %>
+                    <span class="text-base-content/40">No targeting (will not match devices)</span>
                   <% end %>
                 </td>
                 <td class="font-mono text-xs">
@@ -502,17 +474,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                       </.ui_button>
                     </.link>
                     <.ui_button
-                      :if={!profile.is_default}
-                      variant="ghost"
-                      size="xs"
-                      phx-click="set_default"
-                      phx-value-id={profile.id}
-                      title="Set as default"
-                    >
-                      <.icon name="hero-star" class="size-3" />
-                    </.ui_button>
-                    <.ui_button
-                      :if={!profile.is_default}
                       variant="ghost"
                       size="xs"
                       phx-click="delete_profile"
@@ -544,12 +505,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   attr :builder_sync, :boolean, default: true
 
   defp profile_form(assigns) do
-    is_default = assigns.selected_profile && assigns.selected_profile.is_default
     config = Catalog.entity("devices")
 
     assigns =
       assigns
-      |> assign(:is_default, is_default)
       |> assign(:config, config)
 
     ~H"""
@@ -623,185 +582,170 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             Device Targeting
           </h3>
 
-          <%= if @is_default do %>
-            <div class="bg-info/10 border border-info/30 rounded-lg p-4">
-              <div class="flex items-start gap-3">
-                <.icon name="hero-information-circle" class="size-5 text-info shrink-0 mt-0.5" />
-                <div>
-                  <p class="text-sm font-medium">Default Profile</p>
-                  <p class="text-xs text-base-content/70 mt-1">
-                    This is the default profile for your account. It will be applied to all devices
-                    that don't match any other profile's targeting query.
-                  </p>
+          <div class="space-y-4">
+            <!-- Query Input with Builder Toggle -->
+            <div>
+              <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
+              <div class="flex items-center gap-2">
+                <div class="flex-1">
+                  <.input
+                    type="text"
+                    field={@form[:target_query]}
+                    class="input input-bordered w-full font-mono text-sm"
+                    placeholder="e.g., tags.role:database hostname:%prod%"
+                  />
+                </div>
+                <.ui_icon_button
+                  active={@builder_open}
+                  aria-label="Toggle query builder"
+                  title="Query builder"
+                  phx-click="builder_toggle"
+                >
+                  <.icon name="hero-adjustments-horizontal" class="size-4" />
+                </.ui_icon_button>
+              </div>
+              <label class="label">
+                <span class="label-text-alt text-base-content/50">
+                  SRQL filters to match devices. Examples: <code class="bg-base-200 px-1 rounded">tags.environment:production</code>, <code class="bg-base-200 px-1 rounded">hostname:%prod%</code>,
+                  <code class="bg-base-200 px-1 rounded">type:Server</code>
+                </span>
+              </label>
+            </div>
+            
+    <!-- Visual Query Builder -->
+            <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
+              <div class="flex items-center justify-between mb-4">
+                <div class="text-sm font-semibold">Query Builder</div>
+                <div class="flex items-center gap-2">
+                  <.ui_badge :if={not @builder_sync} size="sm">Not applied</.ui_badge>
+                  <.ui_button
+                    :if={not @builder_sync}
+                    size="sm"
+                    variant="ghost"
+                    type="button"
+                    phx-click="builder_apply"
+                  >
+                    Apply to query
+                  </.ui_button>
+                </div>
+              </div>
+
+              <div class="flex flex-col gap-4">
+                <!-- Filters Section -->
+                <div class="flex flex-col gap-3">
+                  <div class="text-xs text-base-content/60 font-medium">
+                    Match devices where:
+                  </div>
+
+                  <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
+                    <div class="flex items-center gap-3">
+                      <.query_builder_pill label="Filter">
+                        <%= if @config.filter_fields == [] do %>
+                          <.ui_inline_input
+                            type="text"
+                            name={"builder[filters][#{idx}][field]"}
+                            value={filter["field"] || ""}
+                            placeholder="field"
+                            form="sysmon-builder-form"
+                            class="w-40 placeholder:text-base-content/40"
+                          />
+                        <% else %>
+                          <.ui_inline_select
+                            name={"builder[filters][#{idx}][field]"}
+                            form="sysmon-builder-form"
+                          >
+                            <%= for field <- @config.filter_fields do %>
+                              <option value={field} selected={filter["field"] == field}>
+                                {field}
+                              </option>
+                            <% end %>
+                          </.ui_inline_select>
+                        <% end %>
+
+                        <.ui_inline_select
+                          name={"builder[filters][#{idx}][op]"}
+                          class="text-xs text-base-content/70"
+                          form="sysmon-builder-form"
+                        >
+                          <option
+                            value="contains"
+                            selected={(filter["op"] || "contains") == "contains"}
+                          >
+                            contains
+                          </option>
+                          <option value="not_contains" selected={filter["op"] == "not_contains"}>
+                            does not contain
+                          </option>
+                          <option value="equals" selected={filter["op"] == "equals"}>
+                            equals
+                          </option>
+                          <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                            does not equal
+                          </option>
+                        </.ui_inline_select>
+
+                        <.ui_inline_input
+                          type="text"
+                          name={"builder[filters][#{idx}][value]"}
+                          value={filter["value"] || ""}
+                          placeholder="value"
+                          form="sysmon-builder-form"
+                          class="placeholder:text-base-content/40 w-48"
+                        />
+                      </.query_builder_pill>
+
+                      <.ui_icon_button
+                        size="xs"
+                        aria-label="Remove filter"
+                        title="Remove filter"
+                        type="button"
+                        phx-click="builder_remove_filter"
+                        phx-value-idx={idx}
+                      >
+                        <.icon name="hero-x-mark" class="size-4" />
+                      </.ui_icon_button>
+                    </div>
+                  <% end %>
+
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                    phx-click="builder_add_filter"
+                  >
+                    <.icon name="hero-plus" class="size-4" /> Add filter
+                  </button>
                 </div>
               </div>
             </div>
-          <% else %>
-            <div class="space-y-4">
-              <!-- Query Input with Builder Toggle -->
+            
+    <!-- Device Count Preview -->
+            <div :if={@target_device_count != nil} class="flex items-center gap-2">
+              <.icon name="hero-device-phone-mobile" class="size-4 text-base-content/60" />
+              <span class="text-sm">
+                <span class="font-semibold">{@target_device_count}</span>
+                <span class="text-base-content/60">device(s) match this query</span>
+              </span>
+            </div>
+            
+    <!-- Priority -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
-                <div class="flex items-center gap-2">
-                  <div class="flex-1">
-                    <.input
-                      type="text"
-                      field={@form[:target_query]}
-                      class="input input-bordered w-full font-mono text-sm"
-                      placeholder="e.g., tags.role:database hostname:%prod%"
-                    />
-                  </div>
-                  <.ui_icon_button
-                    active={@builder_open}
-                    aria-label="Toggle query builder"
-                    title="Query builder"
-                    phx-click="builder_toggle"
-                  >
-                    <.icon name="hero-adjustments-horizontal" class="size-4" />
-                  </.ui_icon_button>
-                </div>
+                <label class="label"><span class="label-text">Priority</span></label>
+                <.input
+                  type="number"
+                  field={@form[:priority]}
+                  class="input input-bordered w-full"
+                  min="0"
+                  max="100"
+                />
                 <label class="label">
                   <span class="label-text-alt text-base-content/50">
-                    SRQL filters to match devices. Examples: <code class="bg-base-200 px-1 rounded">tags.environment:production</code>, <code class="bg-base-200 px-1 rounded">hostname:%prod%</code>,
-                    <code class="bg-base-200 px-1 rounded">type:Server</code>
+                    Higher priority profiles are evaluated first (0-100)
                   </span>
                 </label>
               </div>
-              
-    <!-- Visual Query Builder -->
-              <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
-                <div class="flex items-center justify-between mb-4">
-                  <div class="text-sm font-semibold">Query Builder</div>
-                  <div class="flex items-center gap-2">
-                    <.ui_badge :if={not @builder_sync} size="sm">Not applied</.ui_badge>
-                    <.ui_button
-                      :if={not @builder_sync}
-                      size="sm"
-                      variant="ghost"
-                      type="button"
-                      phx-click="builder_apply"
-                    >
-                      Apply to query
-                    </.ui_button>
-                  </div>
-                </div>
-
-                <div class="flex flex-col gap-4">
-                  <!-- Filters Section -->
-                  <div class="flex flex-col gap-3">
-                    <div class="text-xs text-base-content/60 font-medium">
-                      Match devices where:
-                    </div>
-
-                    <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
-                      <div class="flex items-center gap-3">
-                        <.query_builder_pill label="Filter">
-                          <%= if @config.filter_fields == [] do %>
-                            <.ui_inline_input
-                              type="text"
-                              name={"builder[filters][#{idx}][field]"}
-                              value={filter["field"] || ""}
-                              placeholder="field"
-                              form="sysmon-builder-form"
-                              class="w-40 placeholder:text-base-content/40"
-                            />
-                          <% else %>
-                            <.ui_inline_select
-                              name={"builder[filters][#{idx}][field]"}
-                              form="sysmon-builder-form"
-                            >
-                              <%= for field <- @config.filter_fields do %>
-                                <option value={field} selected={filter["field"] == field}>
-                                  {field}
-                                </option>
-                              <% end %>
-                            </.ui_inline_select>
-                          <% end %>
-
-                          <.ui_inline_select
-                            name={"builder[filters][#{idx}][op]"}
-                            class="text-xs text-base-content/70"
-                            form="sysmon-builder-form"
-                          >
-                            <option
-                              value="contains"
-                              selected={(filter["op"] || "contains") == "contains"}
-                            >
-                              contains
-                            </option>
-                            <option value="not_contains" selected={filter["op"] == "not_contains"}>
-                              does not contain
-                            </option>
-                            <option value="equals" selected={filter["op"] == "equals"}>
-                              equals
-                            </option>
-                            <option value="not_equals" selected={filter["op"] == "not_equals"}>
-                              does not equal
-                            </option>
-                          </.ui_inline_select>
-
-                          <.ui_inline_input
-                            type="text"
-                            name={"builder[filters][#{idx}][value]"}
-                            value={filter["value"] || ""}
-                            placeholder="value"
-                            form="sysmon-builder-form"
-                            class="placeholder:text-base-content/40 w-48"
-                          />
-                        </.query_builder_pill>
-
-                        <.ui_icon_button
-                          size="xs"
-                          aria-label="Remove filter"
-                          title="Remove filter"
-                          type="button"
-                          phx-click="builder_remove_filter"
-                          phx-value-idx={idx}
-                        >
-                          <.icon name="hero-x-mark" class="size-4" />
-                        </.ui_icon_button>
-                      </div>
-                    <% end %>
-
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
-                      phx-click="builder_add_filter"
-                    >
-                      <.icon name="hero-plus" class="size-4" /> Add filter
-                    </button>
-                  </div>
-                </div>
-              </div>
-              
-    <!-- Device Count Preview -->
-              <div :if={@target_device_count != nil} class="flex items-center gap-2">
-                <.icon name="hero-device-phone-mobile" class="size-4 text-base-content/60" />
-                <span class="text-sm">
-                  <span class="font-semibold">{@target_device_count}</span>
-                  <span class="text-base-content/60">device(s) match this query</span>
-                </span>
-              </div>
-              
-    <!-- Priority -->
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label class="label"><span class="label-text">Priority</span></label>
-                  <.input
-                    type="number"
-                    field={@form[:priority]}
-                    class="input input-bordered w-full"
-                    min="0"
-                    max="100"
-                  />
-                  <label class="label">
-                    <span class="label-text-alt text-base-content/50">
-                      Higher priority profiles are evaluated first (0-100)
-                    </span>
-                  </label>
-                </div>
-              </div>
             </div>
-          <% end %>
+          </div>
         </div>
         
     <!-- Collectors Section -->

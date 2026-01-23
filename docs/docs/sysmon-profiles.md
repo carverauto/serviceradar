@@ -58,67 +58,16 @@ Navigate to **Settings > Sysmon Profiles** in the web UI.
 1. Click the delete icon on the profile row
 2. Confirm deletion
 
-**Note**: The default system profile cannot be deleted. If the profile is assigned to devices, you'll be prompted to reassign them first.
+If a deleted profile was the only match for a device, that device becomes unassigned and sysmon collection is disabled until another profile matches.
 
-### Default Profile
+## Profile Targeting (SRQL)
 
-Each deployment has a default sysmon profile that provides baseline monitoring:
-- Sample interval: 10 seconds
-- Enabled metrics: CPU, Memory, Disk
-- Disk paths: `/` (root filesystem)
+Profiles apply to devices based on their SRQL target query. When multiple profiles match, higher priority values win.
 
-The default profile:
-- Is marked with a "System" badge
-- Cannot be deleted
-- Can be modified to change default behavior
-- Applies to all agents that don't have a specific profile assignment
-
-## Profile Assignments
-
-Profiles can be assigned in three ways, with the following priority (highest to lowest):
-
-1. **Direct device assignment**: Profile assigned specifically to a device
-2. **Tag-based assignment**: Profile assigned to a tag that the device has
-3. **Default profile**: Fallback when no other assignments match
-
-### Assigning to Tags
-
-Tag assignments let you apply profiles to groups of devices:
-
-1. Go to **Settings > Sysmon Profiles**
-2. Click the **Tag Assignments** tab
-3. Click **Add Assignment**
-4. Select:
-   - **Profile**: The sysmon profile to assign
-   - **Tag Key**: The tag attribute (e.g., `environment`, `role`)
-   - **Tag Value**: The tag value to match (e.g., `production`, `database`)
-   - **Priority**: Higher values take precedence when multiple tags match
-5. Click **Save**
-
-Example assignments:
-| Tag Key | Tag Value | Profile | Priority |
-|---------|-----------|---------|----------|
-| environment | production | High Performance | 100 |
-| role | database | Database Monitoring | 90 |
-| environment | staging | Standard Monitoring | 50 |
-
-If a device has both `environment:production` and `role:database` tags, the "High Performance" profile applies because it has higher priority.
-
-### Assigning to Individual Devices
-
-For specific devices that need custom monitoring:
-
-1. Navigate to **Inventory > Devices**
-2. Select a device
-3. In the device detail page, find the **System Monitoring** section
-4. Use the **Assign Profile** dropdown to select a profile
-5. The assignment takes effect immediately
-
-You can also bulk-assign profiles:
-1. In the Devices list, select multiple devices using checkboxes
-2. Click **Actions > Assign Sysmon Profile**
-3. Select the profile to apply
-4. Confirm the assignment
+Example targeting queries:
+- `in:devices tags.role:database` - Match devices with role=database tag
+- `in:devices hostname:prod-*` - Match devices with hostname prefix "prod-"
+- `in:devices type:Server` - Match devices of type Server
 
 ## Device Integration
 
@@ -126,7 +75,7 @@ You can also bulk-assign profiles:
 
 On the device detail page, the **System Monitoring** section shows:
 - **Effective Profile**: The profile currently in use
-- **Assignment Source**: How the profile was assigned (direct, tag, or default)
+- **Assignment Source**: How the profile was applied (SRQL or unassigned)
 - **Config Source**: Whether the agent is using remote config or local override
 
 ### Local Override Badge
@@ -162,15 +111,11 @@ When an agent requests its sysmon configuration, ServiceRadar resolves it in thi
    - Linux: `/etc/serviceradar/sysmon.json`
    - macOS: `/usr/local/etc/serviceradar/sysmon.json`
 
-2. **Device-specific assignment**
-   - Profile assigned directly to the device
+2. **SRQL targeting**
+   - Profiles with `target_query` evaluated by priority (highest first)
 
-3. **Tag-based assignment**
-   - Profile assigned to a matching tag
-   - Higher priority values win when multiple tags match
-
-4. **Default profile** (lowest priority)
-   - The deployment's default sysmon profile
+3. **No match**
+   - Sysmon config is disabled until a profile matches
 
 ## Profile Settings Reference
 
@@ -191,7 +136,7 @@ When an agent requests its sysmon configuration, ServiceRadar resolves it in thi
 
 ## Best Practices
 
-1. **Start with the default profile** - Customize it for your baseline monitoring needs
+1. **Create a baseline profile** - Use a catch-all SRQL query (e.g., `in:devices`) if you want default monitoring
 
 2. **Use tags for scalability** - Instead of assigning profiles to individual devices, use tags:
    - `environment:production` → High-frequency monitoring
@@ -217,7 +162,7 @@ When an agent requests its sysmon configuration, ServiceRadar resolves it in thi
 ### Profile Not Applied
 
 1. Check the device's effective profile in the detail page
-2. Verify tag assignments match the device's tags
+2. Verify the profile SRQL query matches the device
 3. Check if a local config file exists (shows "Local Override" badge)
 4. Verify the agent has the `sysmon` capability
 

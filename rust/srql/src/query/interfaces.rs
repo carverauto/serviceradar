@@ -9,7 +9,7 @@ use diesel::deserialize::QueryableByName;
 use diesel::pg::Pg;
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
 use diesel::sql_query;
-use diesel::sql_types::{Array, BigInt, Bool, Int4, Jsonb, Nullable, Text, Timestamptz};
+use diesel::sql_types::{Array, BigInt, Bool, Float8, Int4, Jsonb, Nullable, Text, Timestamptz};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
@@ -114,6 +114,10 @@ struct InterfaceRow {
     metadata: Option<serde_json::Value>,
     #[diesel(sql_type = Nullable<Jsonb>)]
     available_metrics: Option<serde_json::Value>,
+    #[diesel(sql_type = Nullable<Float8>)]
+    in_errors: Option<f64>,
+    #[diesel(sql_type = Nullable<Float8>)]
+    out_errors: Option<f64>,
     #[diesel(sql_type = Timestamptz)]
     created_at: DateTime<Utc>,
     // Fields from interface_settings table (LEFT JOIN)
@@ -152,6 +156,8 @@ impl InterfaceRow {
             "if_oper_status": self.if_oper_status,
             "metadata": self.metadata.unwrap_or(serde_json::json!({})),
             "available_metrics": self.available_metrics,
+            "in_errors": self.in_errors,
+            "out_errors": self.out_errors,
             "created_at": self.created_at,
             // Interface settings (from LEFT JOIN with interface_settings table)
             "favorited": self.favorited,
@@ -200,11 +206,32 @@ fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
         "SELECT di.timestamp, di.agent_id, di.gateway_id, di.device_ip, di.device_id, di.interface_uid, \
         di.if_index, di.if_name, di.if_descr, di.if_alias, di.if_type, di.if_type_name, di.interface_kind, \
         di.if_speed, di.speed_bps, di.mtu, di.duplex, di.if_phys_address, di.ip_addresses, \
-        di.if_admin_status, di.if_oper_status, di.metadata, di.available_metrics, di.created_at, \
+        di.if_admin_status, di.if_oper_status, di.metadata, di.available_metrics, \
+        tm_in.value AS in_errors, tm_out.value AS out_errors, di.created_at, \
         COALESCE(ifs.favorited, false) AS favorited, \
         COALESCE(ifs.metrics_enabled, false) AS metrics_enabled \
         FROM discovered_interfaces di \
-        LEFT JOIN interface_settings ifs ON ifs.device_id = di.device_id AND ifs.interface_uid = di.interface_uid",
+        LEFT JOIN interface_settings ifs ON ifs.device_id = di.device_id AND ifs.interface_uid = di.interface_uid \
+        LEFT JOIN LATERAL ( \
+          SELECT tm.value \
+          FROM timeseries_metrics tm \
+          WHERE tm.device_id = di.device_id \
+            AND tm.if_index = di.if_index \
+            AND tm.metric_name = 'ifInErrors' \
+            AND tm.metric_type = 'snmp' \
+          ORDER BY tm.timestamp DESC \
+          LIMIT 1 \
+        ) tm_in ON true \
+        LEFT JOIN LATERAL ( \
+          SELECT tm.value \
+          FROM timeseries_metrics tm \
+          WHERE tm.device_id = di.device_id \
+            AND tm.if_index = di.if_index \
+            AND tm.metric_name = 'ifOutErrors' \
+            AND tm.metric_type = 'snmp' \
+          ORDER BY tm.timestamp DESC \
+          LIMIT 1 \
+        ) tm_out ON true",
     );
 
     if !clauses.is_empty() {
@@ -662,6 +689,43 @@ mod tests {
             sql.to_lowercase().contains("count("),
             "unexpected stats SQL: {}",
             sql
+        );
+    }
+
+    #[test]
+    fn interfaces_query_includes_error_metric_joins() {
+        let plan = QueryPlan {
+            entity: Entity::Interfaces,
+            filters: vec![Filter {
+                field: "device_id".into(),
+                value: FilterValue::Scalar("dev-1".into()),
+                op: FilterOp::Eq,
+            }],
+            order: vec![OrderClause {
+                field: "timestamp".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: None,
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+        };
+
+        let (sql, _) = to_sql_and_params(&plan).expect("interfaces SQL should be generated");
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains("timeseries_metrics"),
+            "expected timeseries_metrics join, got: {sql}"
+        );
+        assert!(
+            lower.contains("ifinerrors"),
+            "expected ifInErrors join, got: {sql}"
+        );
+        assert!(
+            lower.contains("ifouterrors"),
+            "expected ifOutErrors join, got: {sql}"
         );
     }
 

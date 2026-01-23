@@ -13,6 +13,7 @@ pub struct TimeRange {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum TimeFilterSpec {
+    RelativeMinutes(i64),
     RelativeHours(i64),
     RelativeDays(i64),
     Today,
@@ -33,6 +34,10 @@ impl TimeFilterSpec {
     pub fn resolve(&self, now: DateTime<Utc>) -> Result<TimeRange> {
         let max_duration = Duration::days(MAX_TIME_RANGE_DAYS);
         let range = match self {
+            TimeFilterSpec::RelativeMinutes(minutes) => TimeRange {
+                start: now - Duration::minutes(*minutes),
+                end: now,
+            },
             TimeFilterSpec::RelativeHours(hours) => TimeRange {
                 start: now - Duration::hours(*hours),
                 end: now,
@@ -116,7 +121,7 @@ pub fn parse_time_value(raw: &str) -> Result<TimeFilterSpec> {
         return Ok(spec);
     }
 
-    if value.contains("day") || value.contains("hour") {
+    if value.contains("day") || value.contains("hour") || value.contains("min") {
         if let Some(spec) = parse_spelled_duration(&value) {
             return Ok(spec);
         }
@@ -172,6 +177,7 @@ fn parse_numeric_suffix(value: &str) -> Option<TimeFilterSpec> {
     let suffix = suffix.trim();
 
     match suffix {
+        "m" | "min" | "mins" | "minute" | "minutes" => Some(TimeFilterSpec::RelativeMinutes(amount)),
         "h" | "hour" | "hours" => Some(TimeFilterSpec::RelativeHours(amount)),
         "d" | "day" | "days" => Some(TimeFilterSpec::RelativeDays(amount)),
         _ => None,
@@ -225,6 +231,14 @@ mod tests {
     #[test]
     fn parses_relative_days() {
         let spec = parse_time_value("last_7d").unwrap();
+        let now = Utc::now();
+        let range = spec.resolve(now).unwrap();
+        assert!(range.start < range.end);
+    }
+
+    #[test]
+    fn parses_relative_minutes() {
+        let spec = parse_time_value("last_15m").unwrap();
         let now = Utc::now();
         let range = spec.resolve(now).unwrap();
         assert!(range.start < range.end);
@@ -306,6 +320,13 @@ mod tests {
         let spec = TimeFilterSpec::RelativeHours(1);
         let json = serde_json::to_string(&spec).unwrap();
         assert_eq!(json, r#"{"type":"relative_hours","value":1}"#);
+    }
+
+    #[test]
+    fn serializes_relative_minutes() {
+        let spec = TimeFilterSpec::RelativeMinutes(15);
+        let json = serde_json::to_string(&spec).unwrap();
+        assert_eq!(json, r#"{"type":"relative_minutes","value":15}"#);
     }
 
     #[test]

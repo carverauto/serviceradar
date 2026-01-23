@@ -19,7 +19,6 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
   - `disk_paths`: Specific paths to monitor (empty means all mounted filesystems)
   - `disk_exclude_paths`: Paths to omit from disk metrics collection
   - `thresholds`: Alert thresholds as key-value pairs
-  - `is_default`: Whether this is the default profile for the instance
   - `enabled`: Whether this profile is available for use
   - `target_query`: SRQL query for device targeting (e.g., "in:devices tags.role:database")
   - `priority`: Priority for resolution order (higher = evaluated first)
@@ -28,18 +27,13 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
 
   Profiles can target specific devices using SRQL queries. When resolving which
   profile to use for a device, profiles are evaluated in priority order (highest first).
-  The first profile whose `target_query` matches the device is used.
+  The first profile whose `target_query` matches the device is used. If no profile
+  matches, sysmon is disabled for that device.
 
   Example queries:
   - `in:devices tags.role:database` - Match devices with role=database tag
   - `in:devices hostname:prod-*` - Match devices with hostname prefix "prod-"
   - `in:devices type:Server` - Match devices of type Server
-
-  ## Default Profile
-
-  Each instance has exactly one default profile (is_default: true). When no targeting
-  profile matches a device, the default profile is used. The default profile
-  cannot be deleted and has no `target_query` (applies to all unmatched devices).
 
   ## Usage
 
@@ -90,7 +84,6 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
         :disk_paths,
         :disk_exclude_paths,
         :thresholds,
-        :is_default,
         :enabled,
         :target_query,
         :priority
@@ -120,26 +113,6 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
       require_atomic? false
       change ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery
 
-      # Note: is_default cannot be changed via update
-      # Use set_as_default action instead
-    end
-
-    update :set_as_default do
-      description "Set this profile as the default for the instance"
-      accept []
-      require_atomic? false
-
-      change ServiceRadar.SysmonProfiles.Changes.SetAsDefault
-    end
-
-    update :unset_default do
-      description "Remove this profile as the default (internal use only)"
-      accept []
-      require_atomic? false
-
-      change fn changeset, _context ->
-        Ash.Changeset.change_attribute(changeset, :is_default, false)
-      end
     end
 
     read :list_available do
@@ -153,19 +126,13 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
       filter expr(name == ^arg(:name))
     end
 
-    read :get_default do
-      description "Get the default profile for the instance"
-      get? true
-      filter expr(is_default == true)
-    end
-
     read :list_targeting_profiles do
       description """
       List profiles with SRQL targeting, ordered by priority (highest first).
       Used by the compiler to find which profile matches a device.
       """
 
-      filter expr(enabled == true and is_default == false and not is_nil(target_query))
+      filter expr(enabled == true and not is_nil(target_query) and target_query != "")
 
       prepare fn query, _context ->
         Ash.Query.sort(query, priority: :desc)
@@ -190,10 +157,8 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
       authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Prevent deletion of default profile
     policy action_type(:destroy) do
       authorize_if actor_attribute_equals(:role, :admin)
-      forbid_if expr(is_default == true)
     end
 
     # Non-admin users can read profiles
@@ -280,13 +245,6 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
       public? true
       default %{}
       description "Alert thresholds as key-value pairs (e.g., cpu_warning: '80')"
-    end
-
-    attribute :is_default, :boolean do
-      allow_nil? false
-      public? true
-      default false
-      description "Whether this is the default profile for this deployment"
     end
 
     attribute :enabled, :boolean do

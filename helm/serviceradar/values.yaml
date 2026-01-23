@@ -311,9 +311,11 @@ spire:
     sharedPreloadLibraries:
       - timescaledb
       - age
+      - pg_stat_statements
     extensionsSQL:
       - CREATE EXTENSION IF NOT EXISTS timescaledb;
       - CREATE EXTENSION IF NOT EXISTS age;
+      - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
   controllerManager:
     enabled: true
     image: ghcr.io/spiffe/spire-controller-manager

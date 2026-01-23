@@ -250,14 +250,14 @@ INFO  Sysmon service started  source=local:/etc/serviceradar/sysmon.json
 Or for remote configuration:
 
 ```
-INFO  Using default sysmon configuration
-INFO  Sysmon service started  source=default
+INFO  Using sysmon configuration from remote profile
+INFO  Sysmon service started  source=remote
 ```
 
 ### Via UI
 
 The device detail page shows:
-- **Config Source**: `local`, `cache`, `remote`, or `default`
+- **Config Source**: `local`, `cache`, `remote`, or `unassigned`
 - A "Local Override" badge appears when using local config
 
 ### Via SRQL
