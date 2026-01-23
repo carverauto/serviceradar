@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
+  import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
   require Ash.Query
 
   alias ServiceRadarWebNGWeb.Dashboard.Engine
@@ -21,6 +22,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @default_limit 50
   @max_limit 200
   @metrics_limit 200
+  @process_limit 500
+  @process_top_n 10
   @disk_panel_limit 6
   @interfaces_limit 200
   @availability_window "last_24h"
@@ -904,7 +907,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         :metric_sections_to_render,
         if sysmon_metrics_visible?(assigns) do
           Enum.filter(assigns.metric_sections, fn section ->
-            is_binary(Map.get(section, :error)) or Map.get(section, :panels, []) != []
+            is_binary(Map.get(section, :error)) or
+              Map.get(section, :panels, []) != [] or Map.get(section, :rows, []) != []
           end)
         else
           []
@@ -1449,13 +1453,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   </div>
 
                   <div :if={is_nil(section.error)}>
-                    <%= for panel <- section.panels do %>
-                      <.live_component
-                        module={panel.plugin}
-                        id={"device-#{@device_uid}-#{section.key}-#{panel.id}"}
-                        title={Map.get(panel, :title) || section.title}
-                        panel_assigns={Map.put(panel.assigns, :compact, true)}
+                    <%= if section.key == "processes" do %>
+                      <.srql_results_table
+                        id={"device-#{@device_uid}-processes"}
+                        rows={Map.get(section, :rows, [])}
+                        columns={["process", "pid", "cpu_pct", "memory_pct"]}
+                        container={false}
+                        empty_message="No process metrics yet."
                       />
+                    <% else %>
+                      <%= for panel <- section.panels do %>
+                        <.live_component
+                          module={panel.plugin}
+                          id={"device-#{@device_uid}-#{section.key}-#{panel.id}"}
+                          title={Map.get(panel, :title) || section.title}
+                          panel_assigns={Map.put(panel.assigns, :compact, true)}
+                        />
+                      <% end %>
                     <% end %>
                   </div>
                 </div>
@@ -2634,7 +2648,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     [
       build_cpu_section(srql_module, filter_tokens, scope),
       build_memory_section(srql_module, filter_tokens, scope),
-      build_disk_section(srql_module, filter_tokens, scope)
+      build_disk_section(srql_module, filter_tokens, scope),
+      build_process_section(srql_module, filter_tokens, scope)
     ]
     |> Enum.filter(& &1)
   end
@@ -2754,6 +2769,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  defp build_process_section(srql_module, filter_tokens, scope) do
+    query = process_query(filter_tokens, @process_limit)
+
+    base = %{
+      key: "processes",
+      title: "Processes",
+      subtitle: "latest sample · top #{@process_top_n} by CPU",
+      query: query,
+      panels: [],
+      rows: [],
+      error: nil
+    }
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) and results != [] ->
+        latest_dt = latest_timestamp(results)
+        memory_total = latest_memory_total(srql_module, filter_tokens, scope)
+
+        rows =
+          build_process_rows(results, latest_dt, memory_total)
+          |> Enum.take(@process_top_n)
+
+        if rows == [] do
+          base
+        else
+          %{base | rows: rows}
+        end
+
+      {:ok, %{"results" => results}} when is_list(results) ->
+        base
+
+      {:ok, other} ->
+        %{base | error: "unexpected SRQL response: #{inspect(other)}"}
+
+      {:error, reason} ->
+        %{base | error: "SRQL error: #{format_error(reason)}"}
+    end
+  end
+
   defp resolve_disk_series_field(srql_module, filter_tokens, scope) do
     probe_query = metric_probe_query("disk_metrics", filter_tokens)
 
@@ -2770,6 +2824,132 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         "mount_point"
     end
   end
+
+  defp process_query(filter_tokens, limit) do
+    [
+      "in:process_metrics",
+      "time:last_24h"
+    ]
+    |> Kernel.++(filter_tokens)
+    |> Kernel.++(["sort:timestamp:desc", "sort:cpu_usage:desc", "limit:#{limit}"])
+    |> Enum.join(" ")
+  end
+
+  defp latest_memory_total(srql_module, filter_tokens, scope) do
+    query =
+      [
+        "in:memory_metrics",
+        "time:last_24h"
+      ]
+      |> Kernel.++(filter_tokens)
+      |> Kernel.++(["sort:timestamp:desc", "limit:1"])
+      |> Enum.join(" ")
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => [row | _]}} when is_map(row) ->
+        parse_number(Map.get(row, "total_bytes"))
+
+      _ ->
+        nil
+    end
+  end
+
+  defp latest_timestamp(rows) when is_list(rows) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.reduce(nil, fn row, acc ->
+      case parse_datetime(Map.get(row, "timestamp")) do
+        {:ok, dt} ->
+          if acc == nil or DateTime.compare(dt, acc) == :gt, do: dt, else: acc
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp latest_timestamp(_), do: nil
+
+  defp build_process_rows(results, nil, _memory_total), do: []
+
+  defp build_process_rows(results, %DateTime{} = latest_dt, memory_total) do
+    results
+    |> Enum.filter(&is_map/1)
+    |> Enum.reduce([], fn row, acc ->
+      with {:ok, dt} <- parse_datetime(Map.get(row, "timestamp")),
+           true <- DateTime.compare(dt, latest_dt) == :eq do
+        pid = parse_integer_value(Map.get(row, "pid"))
+        name = normalize_process_name(Map.get(row, "name"))
+        cpu_pct = round_pct(parse_number(Map.get(row, "cpu_usage")))
+        memory_bytes = parse_number(Map.get(row, "memory_usage"))
+        memory_pct = memory_percent(memory_bytes, memory_total) |> round_pct()
+
+        if is_nil(pid) and name == "unknown" do
+          acc
+        else
+          [
+            %{
+              "process" => name,
+              "pid" => pid,
+              "cpu_pct" => cpu_pct,
+              "memory_pct" => memory_pct
+            }
+            | acc
+          ]
+        end
+      else
+        _ -> acc
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.sort_by(&process_sort_key/1, :desc)
+  end
+
+  defp process_sort_key(row) when is_map(row) do
+    cpu = Map.get(row, "cpu_pct") || 0.0
+    mem = Map.get(row, "memory_pct") || 0.0
+    {cpu, mem}
+  end
+
+  defp process_sort_key(_), do: {0.0, 0.0}
+
+  defp normalize_process_name(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "unknown"
+      other -> other
+    end
+  end
+
+  defp normalize_process_name(nil), do: "unknown"
+  defp normalize_process_name(value), do: normalize_process_name(to_string(value))
+
+  defp parse_integer_value(value) when is_integer(value), do: value
+  defp parse_integer_value(value) when is_float(value), do: trunc(value)
+
+  defp parse_integer_value(value) when is_binary(value) do
+    value = String.trim(value)
+
+    case Integer.parse(value) do
+      {v, ""} -> v
+      _ -> nil
+    end
+  end
+
+  defp parse_integer_value(_), do: nil
+
+  defp memory_percent(nil, _total), do: nil
+  defp memory_percent(_bytes, nil), do: nil
+  defp memory_percent(_bytes, total) when total <= 0, do: nil
+
+  defp memory_percent(bytes, total) when is_number(bytes) and is_number(total) do
+    bytes / total * 100.0
+  end
+
+  defp memory_percent(_bytes, _total), do: nil
+
+  defp round_pct(nil), do: nil
+  defp round_pct(value) when is_number(value), do: Float.round(value, 1)
+  defp round_pct(_value), do: nil
 
   defp build_disk_panels(used_rows, total_rows) do
     used_by_series = group_rows_by_series(used_rows)
@@ -3163,9 +3343,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp sysmon_filter_has_data?(srql_module, filter_tokens, scope) do
+    ["cpu_metrics", "memory_metrics", "disk_metrics", "process_metrics"]
+    |> Enum.any?(&sysmon_entity_has_data?(srql_module, &1, filter_tokens, scope))
+  end
+
+  defp sysmon_entity_has_data?(srql_module, entity, filter_tokens, scope) do
     query =
       [
-        "in:cpu_metrics",
+        "in:#{entity}",
         Enum.join(filter_tokens, " "),
         "time:last_24h",
         "sort:timestamp:desc",
