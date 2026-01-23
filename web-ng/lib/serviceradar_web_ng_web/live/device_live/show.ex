@@ -2857,20 +2857,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp latest_timestamp(rows) when is_list(rows) do
     rows
     |> Enum.filter(&is_map/1)
-    |> Enum.reduce(nil, fn row, acc ->
-      case parse_datetime(Map.get(row, "timestamp")) do
-        {:ok, dt} ->
-          if acc == nil or DateTime.compare(dt, acc) == :gt, do: dt, else: acc
-
-        _ ->
-          acc
-      end
-    end)
+    |> Enum.reduce(nil, &latest_timestamp_from_row/2)
   end
 
   defp latest_timestamp(_), do: nil
 
-  defp build_process_rows(results, nil, _memory_total), do: []
+  defp latest_timestamp_from_row(row, acc) do
+    case parse_datetime(Map.get(row, "timestamp")) do
+      {:ok, dt} -> pick_latest_datetime(dt, acc)
+      _ -> acc
+    end
+  end
+
+  defp pick_latest_datetime(dt, nil), do: dt
+
+  defp pick_latest_datetime(dt, acc) do
+    if DateTime.compare(dt, acc) == :gt, do: dt, else: acc
+  end
+
+  defp build_process_rows(_results, nil, _memory_total), do: []
 
   defp build_process_rows(results, %DateTime{} = latest_dt, memory_total) do
     results
