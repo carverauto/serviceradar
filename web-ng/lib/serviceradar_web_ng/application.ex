@@ -54,6 +54,9 @@ defmodule ServiceRadarWebNG.Application do
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()
 
+    # Bootstrap the default admin user if credentials are available.
+    ServiceRadarWebNG.Bootstrap.AdminUser.ensure_admin_user()
+
     # Check core-elx availability for cluster coordination
     check_core_elx_health()
 

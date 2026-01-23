@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   @moduledoc """
   Controller for AshAuthentication callbacks.
 
-  Handles authentication callbacks from password, magic link, and OAuth strategies.
+  Handles authentication callbacks from password and OAuth strategies.
   Uses the AshAuthentication.Phoenix.Controller behavior for standard auth flows.
 
   ## Token Storage
@@ -30,17 +30,9 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   or the default analytics page.
   """
   def success(conn, _activity, nil, _token) do
-    redirect_path =
-      if Application.get_env(:serviceradar_web_ng, :dev_routes, false) ||
-           Application.get_env(:serviceradar_web_ng, :local_mailer, false) do
-        ~p"/dev/mailbox"
-      else
-        ~p"/users/log-in"
-      end
-
     conn
     |> put_flash(:info, "Check your email for the next step.")
-    |> redirect(to: redirect_path)
+    |> redirect(to: ~p"/users/log-in")
   end
 
   def success(conn, _activity, %_{} = user, _token) do

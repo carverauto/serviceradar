@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNGWeb.UserSessionControllerTest do
   @moduledoc """
   Tests for UserSessionController.
 
-  Note: Login and registration are handled by AshAuthentication.Phoenix via AuthController.
-  This controller only handles logout.
+  Note: Login is handled by AshAuthentication.Phoenix via AuthController.
+  This controller handles logout.
   """
   use ServiceRadarWebNGWeb.ConnCase, async: true
 

@@ -201,22 +201,12 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   ## AshAuthentication routes
-  # These routes handle password, magic link, and OAuth callbacks
+  # These routes handle password and OAuth callbacks
 
   scope "/", ServiceRadarWebNGWeb do
     pipe_through :browser
 
     sign_out_route(AuthController, "/auth/sign-out")
-
-    # Interactive magic link sign-in (require_interaction? is set in the strategy)
-    magic_sign_in_route(ServiceRadar.Identity.User, :magic_link,
-      auth_routes_prefix: "/auth",
-      overrides: [ServiceRadarWebNGWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default],
-      live_view: ServiceRadarWebNGWeb.AuthLive.MagicLinkSignIn,
-      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}],
-      path: "/auth/user/magic_link",
-      token_as_route_param?: false
-    )
 
     reset_route(path: "/auth/password-reset", auth_routes_prefix: "/auth")
 
@@ -323,13 +313,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/", ServiceRadarWebNGWeb do
     pipe_through [:browser]
 
-    # Custom registration with organization creation
-    live_session :registration,
-      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
-      live "/users/register", AuthLive.Register
-    end
-
-    # Legacy session routes (kept for logout and magic link token handling)
+    # Legacy session routes (kept for logout handling)
     delete "/users/log-out", UserSessionController, :delete
   end
 
