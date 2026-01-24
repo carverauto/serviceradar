@@ -177,7 +177,9 @@ fn parse_numeric_suffix(value: &str) -> Option<TimeFilterSpec> {
     let suffix = suffix.trim();
 
     match suffix {
-        "m" | "min" | "mins" | "minute" | "minutes" => Some(TimeFilterSpec::RelativeMinutes(amount)),
+        "m" | "min" | "mins" | "minute" | "minutes" => {
+            Some(TimeFilterSpec::RelativeMinutes(amount))
+        }
         "h" | "hour" | "hours" => Some(TimeFilterSpec::RelativeHours(amount)),
         "d" | "day" | "days" => Some(TimeFilterSpec::RelativeDays(amount)),
         _ => None,

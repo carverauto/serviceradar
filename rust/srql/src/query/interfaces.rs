@@ -357,9 +357,7 @@ fn build_filter_clause(
         "if_type_name" => build_text_clause("di.if_type_name", filter, binds, bind_idx),
         "interface_kind" => build_text_clause("di.interface_kind", filter, binds, bind_idx),
         "duplex" => build_text_clause("di.duplex", filter, binds, bind_idx),
-        "if_phys_address" | "mac" => {
-            build_text_clause("di.if_phys_address", filter, binds, bind_idx)
-        }
+        "if_phys_address" | "mac" => build_mac_clause(filter, binds, bind_idx),
         "if_index" => build_int_clause("di.if_index", filter, binds, bind_idx),
         "if_type" => build_int_clause("di.if_type", filter, binds, bind_idx),
         "if_admin_status" | "admin_status" => {
@@ -378,9 +376,12 @@ fn build_filter_clause(
         "ip_addresses" | "ip_address" => build_ip_addresses_clause(filter, binds, bind_idx),
         // Boolean filters from interface_settings (via LEFT JOIN)
         "favorited" => build_bool_clause("COALESCE(ifs.favorited, false)", filter, binds, bind_idx),
-        "metrics_enabled" => {
-            build_bool_clause("COALESCE(ifs.metrics_enabled, false)", filter, binds, bind_idx)
-        }
+        "metrics_enabled" => build_bool_clause(
+            "COALESCE(ifs.metrics_enabled, false)",
+            filter,
+            binds,
+            bind_idx,
+        ),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field '{other}'"
         ))),
@@ -447,6 +448,80 @@ fn build_text_clause(
             filter.op
         ))),
     }
+}
+
+fn build_mac_clause(
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+    bind_idx: &mut usize,
+) -> Result<Option<String>> {
+    let column = "lower(regexp_replace(di.if_phys_address, '[^0-9a-fA-F]', '', 'g'))";
+
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            let raw = filter.value.as_scalar()?;
+            let allow_wildcards = matches!(filter.op, FilterOp::Like | FilterOp::NotLike);
+            let normalized = normalize_mac_value(raw, allow_wildcards)?;
+
+            let clause = match filter.op {
+                FilterOp::Eq => format!("{column} = ${bind_idx}"),
+                FilterOp::NotEq => format!("{column} != ${bind_idx}"),
+                FilterOp::Like => format!("{column} LIKE ${bind_idx}"),
+                FilterOp::NotLike => format!("{column} NOT LIKE ${bind_idx}"),
+                _ => unreachable!("filtered above"),
+            };
+
+            binds.push(BindParam::Text(normalized));
+            *bind_idx += 1;
+            Ok(Some(clause))
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter
+                .value
+                .as_list()?
+                .iter()
+                .map(|value| normalize_mac_value(value, false))
+                .collect::<Result<Vec<_>>>()?;
+
+            if values.is_empty() {
+                return Ok(None);
+            }
+
+            let clause = match filter.op {
+                FilterOp::In => format!("{column} = ANY(${bind_idx})"),
+                FilterOp::NotIn => format!("NOT ({column} = ANY(${bind_idx}))"),
+                _ => unreachable!("filtered above"),
+            };
+
+            binds.push(BindParam::TextArray(values));
+            *bind_idx += 1;
+            Ok(Some(clause))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for mac filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn normalize_mac_value(raw: &str, allow_wildcards: bool) -> Result<String> {
+    let mut normalized = String::with_capacity(raw.len());
+
+    for ch in raw.chars() {
+        if ch.is_ascii_hexdigit() {
+            normalized.push(ch.to_ascii_lowercase());
+        } else if allow_wildcards && (ch == '%' || ch == '_') {
+            normalized.push(ch);
+        }
+    }
+
+    if normalized.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "mac filter expects hex digits".into(),
+        ));
+    }
+
+    Ok(normalized)
 }
 
 fn build_int_clause(
@@ -729,6 +804,46 @@ mod tests {
         );
     }
 
+    #[test]
+    fn interfaces_mac_filter_normalizes_exact_match() {
+        let plan = base_plan_with_filter(Filter {
+            field: "mac".into(),
+            value: FilterValue::Scalar("0E-EA-14-32-D2-78".into()),
+            op: FilterOp::Eq,
+        });
+
+        let (sql, binds) = to_sql_and_params(&plan).expect("mac SQL should be generated");
+        assert!(
+            sql.contains("regexp_replace"),
+            "expected mac normalization in SQL, got: {sql}"
+        );
+
+        match binds.get(0) {
+            Some(BindParam::Text(value)) => assert_eq!(value, "0eea1432d278"),
+            other => panic!("unexpected binds: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn interfaces_mac_filter_preserves_wildcards() {
+        let plan = base_plan_with_filter(Filter {
+            field: "mac".into(),
+            value: FilterValue::Scalar("%0e:ea:14:32:d2:78%".into()),
+            op: FilterOp::Like,
+        });
+
+        let (sql, binds) = to_sql_and_params(&plan).expect("mac LIKE SQL should be generated");
+        assert!(
+            sql.to_lowercase().contains("like"),
+            "expected LIKE clause for mac filter, got: {sql}"
+        );
+
+        match binds.get(0) {
+            Some(BindParam::Text(value)) => assert_eq!(value, "%0eea1432d278%"),
+            other => panic!("unexpected binds: {other:?}"),
+        }
+    }
+
     fn stats_plan(stats: &str) -> QueryPlan {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
         let end = start + ChronoDuration::hours(1);
@@ -747,6 +862,20 @@ mod tests {
             offset: 0,
             time_range: Some(TimeRange { start, end }),
             stats: Some(crate::parser::StatsSpec::from_raw(stats)),
+            downsample: None,
+            rollup_stats: None,
+        }
+    }
+
+    fn base_plan_with_filter(filter: Filter) -> QueryPlan {
+        QueryPlan {
+            entity: Entity::Interfaces,
+            filters: vec![filter],
+            order: vec![],
+            limit: 25,
+            offset: 0,
+            time_range: None,
+            stats: None,
             downsample: None,
             rollup_stats: None,
         }
