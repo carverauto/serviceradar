@@ -10,7 +10,7 @@ func TestUpsertInterfaceMergesByDeviceIPAndIdentifier(t *testing.T) {
 
 	first := &DiscoveredInterface{
 		DeviceIP:    "10.0.0.1",
-		DeviceID:    "dev-a",
+		DeviceID:    "dev-1",
 		IfIndex:     1,
 		IfName:      "eth0",
 		IPAddresses: []string{"10.0.0.1"},
@@ -24,8 +24,8 @@ func TestUpsertInterfaceMergesByDeviceIPAndIdentifier(t *testing.T) {
 	}
 
 	second := &DiscoveredInterface{
-		DeviceIP:    "10.0.0.1",
-		DeviceID:    "dev-b",
+		DeviceIP:    "10.0.0.2",
+		DeviceID:    "dev-1",
 		IfIndex:     1,
 		IfAlias:     "uplink",
 		IPAddresses: []string{"10.0.0.2"},
@@ -56,8 +56,8 @@ func TestUpsertInterfaceMergesByDeviceIPAndIdentifier(t *testing.T) {
 		t.Fatalf("expected alias to be merged, got %q", merged.IfAlias)
 	}
 
-	if merged.DeviceID != "dev-b" {
-		t.Fatalf("expected device_id to reflect latest value, got %q", merged.DeviceID)
+	if merged.DeviceID != "dev-1" {
+		t.Fatalf("expected device_id to remain canonical, got %q", merged.DeviceID)
 	}
 
 	if !containsString(merged.IPAddresses, "10.0.0.1") || !containsString(merged.IPAddresses, "10.0.0.2") {
@@ -74,7 +74,7 @@ func TestUpsertInterfaceMergesByDeviceIPAndIdentifier(t *testing.T) {
 	}
 }
 
-func TestInterfaceDedupKeyFallsBackToDeviceID(t *testing.T) {
+func TestInterfaceDedupKeyPrefersDeviceID(t *testing.T) {
 	iface := &DiscoveredInterface{
 		DeviceID: "dev-only",
 		IfName:   "eth9",
@@ -83,6 +83,57 @@ func TestInterfaceDedupKeyFallsBackToDeviceID(t *testing.T) {
 	key := interfaceDedupKey(iface)
 	if key != "dev-only|ifname:eth9" {
 		t.Fatalf("unexpected dedup key %q", key)
+	}
+}
+
+func TestInterfaceDedupKeyFallsBackToDeviceIP(t *testing.T) {
+	iface := &DiscoveredInterface{
+		DeviceIP: "10.0.0.9",
+		IfName:   "eth9",
+	}
+
+	key := interfaceDedupKey(iface)
+	if key != "10.0.0.9|ifname:eth9" {
+		t.Fatalf("unexpected dedup key %q", key)
+	}
+}
+
+func TestDeduplicateDevicesUsesAlternateIPsForInterfaces(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			Devices: []*DiscoveredDevice{
+				{
+					DeviceID: "dev-1",
+					IP:       "216.17.46.98",
+					Metadata: map[string]string{"alt_ip:192.168.10.1": "1"},
+				},
+			},
+			Interfaces: []*DiscoveredInterface{
+				{
+					DeviceIP: "192.168.10.1",
+					DeviceID: "dev-2",
+					IfIndex:  1,
+				},
+			},
+		},
+		deviceMap: map[string]*DeviceInterfaceMap{
+			"dev-1": {
+				DeviceID: "dev-1",
+				IPs:      map[string]struct{}{"216.17.46.98": {}},
+				MACs:     map[string]struct{}{},
+			},
+		},
+	}
+
+	engine.deduplicateDevices(job)
+
+	if len(job.Results.Interfaces) != 1 {
+		t.Fatalf("expected 1 interface, got %d", len(job.Results.Interfaces))
+	}
+
+	if job.Results.Interfaces[0].DeviceID != "dev-1" {
+		t.Fatalf("expected interface to be reassigned to dev-1, got %q", job.Results.Interfaces[0].DeviceID)
 	}
 }
 

@@ -75,9 +75,9 @@ func (e *DiscoveryEngine) publishInterfaces(
 }
 
 func interfaceDedupKey(iface *DiscoveredInterface) string {
-	deviceKey := strings.TrimSpace(iface.DeviceIP)
+	deviceKey := strings.TrimSpace(iface.DeviceID)
 	if deviceKey == "" {
-		deviceKey = strings.TrimSpace(iface.DeviceID)
+		deviceKey = strings.TrimSpace(iface.DeviceIP)
 	}
 	if deviceKey == "" {
 		return ""
@@ -89,6 +89,38 @@ func interfaceDedupKey(iface *DiscoveredInterface) string {
 	}
 
 	return deviceKey + "|" + identifier
+}
+
+func (e *DiscoveryEngine) deduplicateInterfaces(job *DiscoveryJob) {
+	if job == nil || job.Results == nil {
+		return
+	}
+
+	dedupedMap := make(map[string]*DiscoveredInterface, len(job.Results.Interfaces))
+	deduped := make([]*DiscoveredInterface, 0, len(job.Results.Interfaces))
+
+	for _, iface := range job.Results.Interfaces {
+		if iface == nil {
+			continue
+		}
+
+		key := interfaceDedupKey(iface)
+		if key == "" {
+			deduped = append(deduped, iface)
+			continue
+		}
+
+		if existing, ok := dedupedMap[key]; ok {
+			mergeInterface(existing, iface)
+			continue
+		}
+
+		dedupedMap[key] = iface
+		deduped = append(deduped, iface)
+	}
+
+	job.Results.Interfaces = deduped
+	job.interfaceMap = dedupedMap
 }
 
 func interfaceIdentifier(iface *DiscoveredInterface) string {

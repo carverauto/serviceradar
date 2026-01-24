@@ -20,6 +20,7 @@ package mapper
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -813,7 +814,9 @@ func (e *DiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
 	if job.Status.Status == DiscoveryStatusRunning {
 		// Step 1: Deduplicate devices using the device map
 		e.deduplicateDevices(job)
-		// Step 1b: Capture merged interfaces for publishing after unlock.
+		// Step 1b: Deduplicate interfaces after device IDs are reconciled
+		e.deduplicateInterfaces(job)
+		// Step 1c: Capture merged interfaces for publishing after unlock.
 		if len(job.Results.Interfaces) > 0 {
 			interfaces = append(interfaces, job.Results.Interfaces...)
 		}
@@ -854,6 +857,8 @@ type deviceGroup struct {
 }
 
 func (e *DiscoveryEngine) deduplicateDevices(job *DiscoveryJob) {
+	e.seedDeviceMapAlternateIPs(job)
+
 	// Step 1: Group devices by shared attributes
 	deviceGroups := e.buildDeviceGroups(job)
 
@@ -868,6 +873,51 @@ func (e *DiscoveryEngine) deduplicateDevices(job *DiscoveryJob) {
 
 	// Update the results
 	job.Results.Devices = newDevices
+}
+
+func (e *DiscoveryEngine) seedDeviceMapAlternateIPs(job *DiscoveryJob) {
+	for _, device := range job.Results.Devices {
+		if device == nil || device.DeviceID == "" {
+			continue
+		}
+
+		entry, ok := job.deviceMap[device.DeviceID]
+		if !ok || entry == nil {
+			continue
+		}
+
+		for _, ip := range alternateIPsFromMetadata(device.Metadata) {
+			if ip == "" {
+				continue
+			}
+			entry.IPs[ip] = struct{}{}
+		}
+	}
+}
+
+func alternateIPsFromMetadata(metadata map[string]string) []string {
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	ips := make([]string, 0, len(metadata))
+	for key := range metadata {
+		if strings.HasPrefix(key, "alt_ip:") {
+			ip := strings.TrimPrefix(key, "alt_ip:")
+			if ip != "" {
+				ips = append(ips, ip)
+			}
+			continue
+		}
+		if strings.HasPrefix(key, "ip_alias:") {
+			ip := strings.TrimPrefix(key, "ip_alias:")
+			if ip != "" {
+				ips = append(ips, ip)
+			}
+		}
+	}
+
+	return ips
 }
 
 // buildDeviceGroups groups devices by shared attributes (IPs, MACs, system names)
