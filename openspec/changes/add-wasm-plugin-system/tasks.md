@@ -11,8 +11,8 @@
 - [x] 1.8 Implement resource budgeting (per-agent limits + per-plugin requests + admission control)
 - [x] 1.9 Emit agent telemetry for Wasm engine health and resource usage
 - [x] 1.10 Extend agent-gateway/core ingestion to support `serviceradar.plugin_result.v1` without breaking existing checkers
-- [ ] 1.11 Add GitHub package source support (core fetch + verification + storage handoff)
-- [ ] 1.12 Add import review workflow (capability + allowlist confirmation) before distribution
+- [x] 1.11 Add GitHub package source support (core fetch + verification + storage handoff)
+- [x] 1.12 Add import review workflow (capability + allowlist confirmation) before distribution
 - [x] 1.13 Add UI flows for upload/import review, versioning, assignment, status visibility, capacity planning, and verification policy
 - [x] 1.13a Add admin UI for staging, reviewing, and uploading plugin packages
 - [x] 1.13b Add admin UI to assign approved packages to agents

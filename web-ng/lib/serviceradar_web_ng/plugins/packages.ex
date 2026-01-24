@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadarWebNG.Plugins.GitHubImporter
+  alias ServiceRadarWebNG.Plugins.Storage
 
   @default_limit 100
   @max_limit 500
@@ -46,29 +48,17 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   def create(attrs, opts \\ []) when is_map(attrs) do
     scope = Keyword.get(opts, :scope)
     attrs = drop_nil_values(attrs)
-    manifest = Map.get(attrs, :manifest) || %{}
+    source_type = normalize_source_type(Map.get(attrs, :source_type))
 
-    with {:ok, manifest_struct} <- Manifest.from_map(manifest),
-         {:ok, _plugin} <- ensure_plugin(manifest_struct, attrs, scope) do
-      attrs =
-        attrs
-        |> Map.put_new(:plugin_id, manifest_struct.id)
-        |> Map.put_new(:name, manifest_struct.name)
-        |> Map.put_new(:version, manifest_struct.version)
-        |> Map.put_new(:description, manifest_struct.description)
-        |> Map.put_new(:entrypoint, manifest_struct.entrypoint)
-        |> Map.put_new(:runtime, manifest_struct.runtime)
-        |> Map.put_new(:outputs, manifest_struct.outputs)
+    case source_type do
+      :github ->
+        create_from_github(attrs, scope)
 
-      PluginPackage
-      |> Ash.Changeset.for_create(:create, attrs)
-      |> create_resource(scope)
-    else
-      {:error, errors} when is_list(errors) ->
-        {:error, {:invalid_manifest, errors}}
+      :invalid ->
+        {:error, :invalid_source_type}
 
-      {:error, error} ->
-        {:error, error}
+      _ ->
+        create_from_upload(attrs, scope)
     end
   end
 
@@ -78,7 +68,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   def approve(id, attrs, opts \\ []) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
 
-    with {:ok, package} <- get(id, scope: scope) do
+    with {:ok, package} <- get(id, scope: scope),
+         :ok <- enforce_verification_policy(package) do
       attrs =
         attrs
         |> apply_manifest_defaults(package.manifest || %{})
@@ -163,6 +154,82 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     end
   end
 
+  defp create_from_upload(attrs, scope) do
+    manifest = Map.get(attrs, :manifest) || %{}
+
+    with {:ok, manifest_struct} <- Manifest.from_map(manifest),
+         {:ok, _plugin} <- ensure_plugin(manifest_struct, attrs, scope) do
+      attrs =
+        attrs
+        |> Map.put_new(:plugin_id, manifest_struct.id)
+        |> Map.put_new(:name, manifest_struct.name)
+        |> Map.put_new(:version, manifest_struct.version)
+        |> Map.put_new(:description, manifest_struct.description)
+        |> Map.put_new(:entrypoint, manifest_struct.entrypoint)
+        |> Map.put_new(:runtime, manifest_struct.runtime)
+        |> Map.put_new(:outputs, manifest_struct.outputs)
+
+      PluginPackage
+      |> Ash.Changeset.for_create(:create, attrs)
+      |> create_resource(scope)
+    else
+      {:error, errors} when is_list(errors) ->
+        {:error, {:invalid_manifest, errors}}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp create_from_github(attrs, scope) do
+    with {:ok, import} <- GitHubImporter.fetch(attrs),
+         {:ok, _plugin} <- ensure_plugin(import.manifest_struct, attrs, scope),
+         {:ok, package} <- create_github_package(import, attrs, scope),
+         {:ok, package} <- store_wasm_blob(package, import.wasm, import.content_hash, scope) do
+      {:ok, package}
+    end
+  end
+
+  defp create_github_package(import, attrs, scope) do
+    attrs =
+      attrs
+      |> Map.put(:manifest, import.manifest)
+      |> Map.put_new(:config_schema, import.config_schema || %{})
+      |> Map.put(:source_type, :github)
+      |> Map.put(:source_commit, import.source_commit)
+      |> Map.put(:signature, import.signature || %{})
+      |> Map.put(:gpg_verified_at, import.gpg_verified_at)
+      |> Map.put(:gpg_key_id, import.gpg_key_id)
+      |> Map.put(:content_hash, import.content_hash)
+
+    attrs =
+      attrs
+      |> Map.put_new(:plugin_id, import.manifest_struct.id)
+      |> Map.put_new(:name, import.manifest_struct.name)
+      |> Map.put_new(:version, import.manifest_struct.version)
+      |> Map.put_new(:description, import.manifest_struct.description)
+      |> Map.put_new(:entrypoint, import.manifest_struct.entrypoint)
+      |> Map.put_new(:runtime, import.manifest_struct.runtime)
+      |> Map.put_new(:outputs, import.manifest_struct.outputs)
+
+    PluginPackage
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> create_resource(scope)
+  end
+
+  defp store_wasm_blob(package, payload, content_hash, scope) do
+    object_key = Storage.object_key_for(package)
+
+    with :ok <- Storage.put_blob(object_key, payload) do
+      package
+      |> Ash.Changeset.for_update(:update, %{
+        wasm_object_key: object_key,
+        content_hash: content_hash
+      })
+      |> update_resource(scope)
+    end
+  end
+
   defp read_plugin(plugin_id, nil) do
     Plugin
     |> Ash.Query.for_read(:read)
@@ -235,6 +302,48 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     |> maybe_put(:approved_resources, Map.get(manifest, "resources") || Map.get(manifest, :resources))
   end
 
+  defp enforce_verification_policy(%PluginPackage{} = package) do
+    policy = plugin_verification_policy()
+
+    case package.source_type do
+      :github ->
+        if policy.require_gpg_for_github and is_nil(package.gpg_verified_at) do
+          {:error, :verification_required}
+        else
+          :ok
+        end
+
+      :upload ->
+        if policy.allow_unsigned_uploads do
+          :ok
+        else
+          signature_present =
+            case package.signature do
+              %{} = sig -> map_size(sig) > 0
+              _ -> false
+            end
+
+          if signature_present do
+            :ok
+          else
+            {:error, :signature_required}
+          end
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp plugin_verification_policy do
+    config = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
+
+    %{
+      require_gpg_for_github: Keyword.get(config, :require_gpg_for_github, false),
+      allow_unsigned_uploads: Keyword.get(config, :allow_unsigned_uploads, true)
+    }
+  end
+
   defp maybe_put(attrs, _key, nil), do: attrs
   defp maybe_put(attrs, key, value) when value == [], do: attrs
   defp maybe_put(attrs, key, value) when value == %{}, do: attrs
@@ -301,4 +410,20 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  defp normalize_source_type(nil), do: :upload
+  defp normalize_source_type(""), do: :upload
+  defp normalize_source_type(:upload), do: :upload
+  defp normalize_source_type(:github), do: :github
+
+  defp normalize_source_type(value) when is_binary(value) do
+    case String.trim(String.downcase(value)) do
+      "github" -> :github
+      "upload" -> :upload
+      "" -> :upload
+      _ -> :invalid
+    end
+  end
+
+  defp normalize_source_type(_), do: :invalid
 end

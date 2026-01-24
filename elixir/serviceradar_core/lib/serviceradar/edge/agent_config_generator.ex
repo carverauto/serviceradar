@@ -310,8 +310,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       wasm_object_key: package.wasm_object_key,
       content_hash: package.content_hash,
       source_type: normalize_source_type(package.source_type),
-      source_repo_url: package.source_repo_url,
-      source_commit: package.source_commit,
       download_url: nil
     }
   end

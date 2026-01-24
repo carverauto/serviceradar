@@ -72,6 +72,26 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
               |> put_status(:created)
               |> json(package_to_json(package))
 
+            {:error, :missing_repo_url} ->
+              conn
+              |> put_status(:bad_request)
+              |> json(%{error: "missing_repo_url"})
+
+            {:error, :invalid_repo_url} ->
+              conn
+              |> put_status(:bad_request)
+              |> json(%{error: "invalid_repo_url"})
+
+            {:error, :verification_required} ->
+              conn
+              |> put_status(:unprocessable_entity)
+              |> json(%{error: "verification_required"})
+
+            {:error, :payload_too_large} ->
+              conn
+              |> put_status(:request_entity_too_large)
+              |> json(%{error: "payload_too_large"})
+
             {:error, {:invalid_manifest, errors}} ->
               conn
               |> put_status(:unprocessable_entity)
@@ -197,8 +217,21 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
       }
 
       case Plugins.approve_package(id, attrs, scope: scope, approved_by: approved_by) do
-        {:ok, package} -> json(conn, package_to_json(package))
-        {:error, error} -> {:error, error}
+        {:ok, package} ->
+          json(conn, package_to_json(package))
+
+        {:error, :verification_required} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "verification_required"})
+
+        {:error, :signature_required} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "signature_required"})
+
+        {:error, error} ->
+          {:error, error}
       end
     end
   end

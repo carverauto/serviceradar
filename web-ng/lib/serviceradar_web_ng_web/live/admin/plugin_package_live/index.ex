@@ -156,51 +156,123 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     scope = socket.assigns.current_scope
     socket = assign(socket, :create_form, params)
 
-    with {:ok, manifest} <- parse_manifest(params["manifest_yaml"]),
-         {:ok, config_schema} <- parse_optional_json_map(params["config_schema_json"]),
-         attrs <-
-           build_create_attrs(params,
-             manifest: manifest,
-             config_schema: config_schema
-           ),
-         {:ok, package} <- Packages.create(attrs, scope: scope) do
-      {:noreply,
-       socket
-       |> assign(:packages, list_packages(current_filters(socket), scope))
-       |> assign(:show_create_modal, false)
-       |> assign(:create_form, default_create_form())
-       |> assign(:create_errors, [])
-       |> put_flash(:info, "Plugin package staged")
-       |> push_navigate(to: ~p"/admin/plugins/#{package.id}")}
-    else
-      {:error, {:invalid_manifest, errors}} ->
-        {:noreply,
-         socket
-         |> assign(:create_errors, errors)
-         |> put_flash(:error, "Manifest validation failed")}
+    source_type = normalize_source_type(params["source_type"])
 
-      {:error, errors} when is_list(errors) ->
-        {:noreply,
-         socket
-         |> assign(:create_errors, errors)
-         |> put_flash(:error, "Manifest validation failed")}
+    case source_type do
+      :github ->
+        with {:ok, config_schema} <- parse_optional_json_map(params["config_schema_json"]),
+             attrs <-
+               %{
+                 source_type: :github,
+                 source_repo_url: params["source_repo_url"],
+                 source_commit: params["source_commit"],
+                 config_schema: config_schema
+               },
+             {:ok, package} <- Packages.create(attrs, scope: scope) do
+          {:noreply,
+           socket
+           |> assign(:packages, list_packages(current_filters(socket), scope))
+           |> assign(:show_create_modal, false)
+           |> assign(:create_form, default_create_form())
+           |> assign(:create_errors, [])
+           |> put_flash(:info, "Plugin package staged")
+           |> push_navigate(to: ~p"/admin/plugins/#{package.id}")}
+        else
+          {:error, :missing_repo_url} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, ["source repo url is required for GitHub imports"])
+             |> put_flash(:error, "GitHub repo URL is required")}
 
-      {:error, :invalid_manifest_yaml} ->
-        {:noreply,
-         socket
-         |> assign(:create_errors, ["invalid yaml"])
-         |> put_flash(:error, "Manifest YAML is invalid")}
+          {:error, :invalid_repo_url} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, ["invalid GitHub repo url"])
+             |> put_flash(:error, "GitHub repo URL is invalid")}
 
-      {:error, {:invalid_json, message}} ->
-        {:noreply,
-         socket
-         |> assign(:create_errors, [message])
-         |> put_flash(:error, "Config schema JSON is invalid")}
+          {:error, :verification_required} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, ["gpg verification required by policy"])
+             |> put_flash(:error, "GitHub package must be GPG verified")}
 
-      {:error, error} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Failed to create package: #{format_error(error)}")}
+          {:error, :payload_too_large} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, ["wasm blob exceeds maximum upload size"])
+             |> put_flash(:error, "Wasm blob too large")}
+
+          {:error, {:invalid_manifest, errors}} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, errors)
+             |> put_flash(:error, "Manifest validation failed")}
+
+          {:error, errors} when is_list(errors) ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, errors)
+             |> put_flash(:error, "Manifest validation failed")}
+
+          {:error, {:invalid_json, message}} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, [message])
+             |> put_flash(:error, "Config schema JSON is invalid")}
+
+          {:error, error} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "Failed to import GitHub package: #{format_error(error)}")}
+        end
+
+      _ ->
+        with {:ok, manifest} <- parse_manifest(params["manifest_yaml"]),
+             {:ok, config_schema} <- parse_optional_json_map(params["config_schema_json"]),
+             attrs <-
+               build_create_attrs(params,
+                 manifest: manifest,
+                 config_schema: config_schema
+               ),
+             {:ok, package} <- Packages.create(attrs, scope: scope) do
+          {:noreply,
+           socket
+           |> assign(:packages, list_packages(current_filters(socket), scope))
+           |> assign(:show_create_modal, false)
+           |> assign(:create_form, default_create_form())
+           |> assign(:create_errors, [])
+           |> put_flash(:info, "Plugin package staged")
+           |> push_navigate(to: ~p"/admin/plugins/#{package.id}")}
+        else
+          {:error, {:invalid_manifest, errors}} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, errors)
+             |> put_flash(:error, "Manifest validation failed")}
+
+          {:error, errors} when is_list(errors) ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, errors)
+             |> put_flash(:error, "Manifest validation failed")}
+
+          {:error, :invalid_manifest_yaml} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, ["invalid yaml"])
+             |> put_flash(:error, "Manifest YAML is invalid")}
+
+          {:error, {:invalid_json, message}} ->
+            {:noreply,
+             socket
+             |> assign(:create_errors, [message])
+             |> put_flash(:error, "Config schema JSON is invalid")}
+
+          {:error, error} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "Failed to create package: #{format_error(error)}")}
+        end
     end
   end
 
@@ -234,6 +306,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     else
       {:error, {:invalid_json, message}} ->
         {:noreply, socket |> put_flash(:error, message)}
+
+      {:error, :verification_required} ->
+        {:noreply,
+         socket |> put_flash(:error, "GitHub package must be GPG verified before approval")}
+
+      {:error, :signature_required} ->
+        {:noreply,
+         socket |> put_flash(:error, "Unsigned uploads are blocked by verification policy")}
 
       {:error, error} ->
         {:noreply, socket |> put_flash(:error, "Failed to approve: #{format_error(error)}")}

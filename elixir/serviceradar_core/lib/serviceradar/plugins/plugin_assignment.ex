@@ -32,6 +32,8 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
         :permissions_override,
         :resources_override
       ]
+
+      validate ServiceRadar.Plugins.Validations.PackageApproved
     end
 
     update :update do
