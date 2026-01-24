@@ -49,6 +49,17 @@ pub async fn load_server_credentials(
         let source = match X509SourceBuilder::new().with_client(client).build().await {
             Ok(source) => source,
             Err(X509SourceError::GrpcError(grpc_err)) => {
+                if is_no_identity_issued(&grpc_err) {
+                    let message = format_no_identity_message(&trust_domain);
+                    if attempts >= max_retries {
+                        return Err(anyhow!(
+                            "{message}; exceeded {max_retries} attempts requesting a SPIFFE identity"
+                        ));
+                    }
+                    warn!("{message}; retrying in {}s", retry_delay.as_secs());
+                    sleep(retry_delay).await;
+                    continue;
+                }
                 if should_retry_grpc(&grpc_err) && attempts < max_retries {
                     warn!(
                         "SPIFFE Workload API unavailable ({grpc_err:?}); retrying in {}s",
@@ -187,6 +198,27 @@ fn should_retry_grpc(err: &GrpcClientError) -> bool {
     matches!(err, GrpcClientError::Grpc(_)) || matches!(err, GrpcClientError::Transport(_))
 }
 
+fn is_no_identity_issued(err: &GrpcClientError) -> bool {
+    match err {
+        GrpcClientError::Grpc(status) => {
+            is_no_identity_issued_status(&status.code().to_string(), status.message())
+        }
+        _ => false,
+    }
+}
+
+fn is_no_identity_issued_status(code: &str, message: &str) -> bool {
+    code.eq_ignore_ascii_case("PermissionDenied")
+        && message.to_ascii_lowercase().contains("no identity issued")
+}
+
+fn format_no_identity_message(trust_domain: &TrustDomain) -> String {
+    format!(
+        "SPIFFE Workload API denied identity for trust domain {trust_domain} (no identity issued). \
+Ensure the zen workload is registered in SPIRE (ClusterSPIFFEID/registration entry) and the trust domain matches"
+    )
+}
+
 fn is_retryable_source_error(err: &X509SourceError) -> bool {
     matches!(err, X509SourceError::NoSuitableSvid)
 }
@@ -209,5 +241,34 @@ impl Drop for SpiffeSourceGuard {
                 self.trust_domain
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_no_identity_permission_denied() {
+        assert!(is_no_identity_issued_status(
+            "PermissionDenied",
+            "no identity issued"
+        ));
+    }
+
+    #[test]
+    fn ignores_other_grpc_errors() {
+        assert!(!is_no_identity_issued_status(
+            "Unavailable",
+            "temporarily unavailable"
+        ));
+    }
+
+    #[test]
+    fn formats_no_identity_message_with_trust_domain() {
+        let trust_domain = TrustDomain::try_from("example.org").unwrap();
+        let message = format_no_identity_message(&trust_domain);
+        assert!(message.contains("example.org"));
+        assert!(message.contains("no identity issued"));
     }
 }
