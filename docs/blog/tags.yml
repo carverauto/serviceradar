@@ -77,3 +77,58 @@ cbpf:
     label: cBPF
     permalink: /cbpf
     description: Classic Berkeley Packet Filter
+
+elixir:
+    label: Elixir
+    permalink: /elixir
+    description: Elixir programming language
+
+phoenix:
+    label: Phoenix
+    permalink: /phoenix
+    description: Phoenix web framework
+
+rust:
+    label: Rust
+    permalink: /rust
+    description: Rust programming language
+
+rustler:
+    label: Rustler
+    permalink: /rustler
+    description: Rustler NIFs for Elixir
+
+postgres:
+    label: PostgreSQL
+    permalink: /postgres
+    description: PostgreSQL database
+
+timescaledb:
+    label: TimescaleDB
+    permalink: /timescaledb
+    description: TimescaleDB time-series database
+
+age:
+    label: AGE
+    permalink: /age
+    description: Apache AGE graph database
+
+architecture:
+    label: Architecture
+    permalink: /architecture
+    description: System architecture
+
+wasm:
+    label: WebAssembly
+    permalink: /wasm
+    description: WebAssembly runtime
+
+wazero:
+    label: wazero
+    permalink: /wazero
+    description: Pure Go WebAssembly runtime
+
+agent:
+    label: Agent
+    permalink: /agent
+    description: ServiceRadar agent

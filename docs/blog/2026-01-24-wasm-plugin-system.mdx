@@ -1,0 +1,79 @@
+---
+slug: safe-custom-checks-with-wasm
+title: "Beyond Scripts: A Capability-Based Plugin System for Edge Agents"
+authors: [mfreeman]
+tags: [go, wasm, wazero, security, observability, agent]
+date: 2026-01-24
+description: "How we implemented a secure, capability-based plugin system in the ServiceRadar agent using Wasm and wazero."
+---
+
+Running untrusted code safely is a solved problem—if you're willing to use WebAssembly. In our next release of ServiceRadar,
+we will be launching a new extensible plugin system based on the [Wazero](https://wazero.io/) WASI runtime to provide a plugin system that's secure, safe, powerful, and easy to use. 
+
+<!-- truncate -->
+
+## Why WebAssembly?
+
+WebAssembly's capability-based security model is what sold us. A WASM module starts with *zero* capabilities—it can't access the filesystem, open sockets, or do anything else unless the host explicitly provides those functions. This is the opposite of a traditional scripting runtime where you have to carefully deny access to dangerous APIs. 
+
+## Why wazero?
+
+We chose **wazero** as our engine for one primary reason: **Zero CGO.**
+ServiceRadar agents run on everything from beefy EPYC servers to tiny ARM-based edge gateways. By using a pure Go Wasm implementation, we keep our agent builds portable and cross-compile friendly. We don't have to worry about linking against `libwasmtime` or managing shared libraries on a remote customer site.
+
+## Architecture: The Proxy Pattern
+
+The most innovative part of our plugin system is how we handle networking. Instead of giving plugins raw socket access, we use a **Proxy-based Host Function ABI**.
+
+This means that if plugins needed to check an HTTP endpoint for example, in a legacy or traditional monitoring system you would have to give your program elevated priviledges at the host level to open a socket, where as with our new model, we would just call `host.http_request()`.
+
+```go
+// A snippet of what the host provides to the guest
+builder.NewFunctionBuilder().
+    WithFunc(func(ctx context.Context, mod api.Module, ptr, size uint32) uint64 {
+        url := readString(mod, ptr, size)
+        
+        // SECURITY: Agent enforces the admin-approved allowlist
+        if !isAllowed(url) { return 403 }
+        
+        resp, _ := agentClient.Get(url)
+        return uint64(resp.StatusCode)
+    }).
+    Export("http_request")
+```
+
+This "Network Access by Proxy" gives us three massive wins:
+1. **DNS Rebinding Protection:** The agent handles resolution and validates IPs against forbidden ranges (like `169.254.169.254`).
+2. **Global Timeouts:** The agent can forcibly kill a request, regardless of what the plugin code wants.
+3. **mTLS Injection:** The agent can inject the proper certificates and identity headers without ever exposing the private keys to the Wasm sandbox.
+
+## The Lifecycle: From UI to Edge
+
+We’ve integrated the entire plugin lifecycle into the ServiceRadar UI:
+
+1. **Upload & Stage:** Users upload a `.wasm` binary and a `plugin.yaml` manifest. 
+2. **Import Review:** This is our "Safety First" step. An admin must explicitly approve the capabilities requested by the plugin (e.g., "This plugin wants to talk to `api.internal.svc` on port 443").
+3. **Signed Distribution:** Once approved, `web-ng` signs the package hash. 
+4. **Agent Execution:** The Agent receives the assignment via the gRPC config stream, downloads the blob, verifies the signature, and begins execution based on the defined schedule.
+
+## Standardized Results
+
+To ensure custom plugins feel like first-class citizens, we adopted a **Nagios-style result schema** with structured metrics. 
+
+A plugin doesn't just return "Up" or "Down." It returns a `serviceradar.plugin_result.v1` JSON object:
+* **Status:** OK, WARNING, CRITICAL, or UNKNOWN.
+* **Perfdata:** Standardized metrics that feed directly into our TimescaleDB-backed dashboards.
+* **Resource Usage:** The agent tracks how much memory and CPU time each plugin uses, reporting it back to the control plane for capacity planning.
+
+## What’s Next?
+
+The infrastructure is now in place. We are currently working on:
+* **GitHub Integration:** Automatically fetching and verifying plugin packages from GitHub releases.
+* **SDKs:** First-party SDKs for **TinyGo** and **Rust** to make writing your first checker as easy as `import "github.com/carverauto/serviceradar-sdk"`.
+* **Resource Budgeting:** Admission control that prevents an agent from running a plugin if it would exceed its allocated memory or CPU window.
+
+Our vision is a library of community-driven, community-verified plugins that make ServiceRadar the most extensible monitoring platform on the market.
+
+Check out the [Wasm Plugin Specs](https://docs.serviceradar.cloud/specs/wasm-plugin-system) in our documentation to get started.
+
+— Michael Freeman, Open Source Software Engineer
