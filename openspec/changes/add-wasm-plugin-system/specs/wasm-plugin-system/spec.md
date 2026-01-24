@@ -1,11 +1,11 @@
 ## ADDED Requirements
 ### Requirement: Plugin Package Format
-The system SHALL accept plugin packages that include a manifest YAML and a Wasm binary, and it SHALL validate required metadata before storing or distributing the package.
+The system SHALL accept plugin packages that include a manifest YAML and a Wasm binary, and it SHALL validate required metadata (including resource requests) before storing or distributing the package.
 
 #### Scenario: Valid package upload
 - **GIVEN** a plugin package containing `plugin.yaml` and `plugin.wasm`
 - **WHEN** the package is uploaded
-- **THEN** the system validates required fields (`id`, `name`, `version`, `entrypoint`, `capabilities`, `outputs`)
+- **THEN** the system validates required fields (`id`, `name`, `version`, `entrypoint`, `capabilities`, `outputs`, `resources`)
 - **AND** stores the package only if validation succeeds
 
 #### Scenario: Invalid package rejection
@@ -48,7 +48,7 @@ The control plane SHALL allow assigning plugin packages to agents and SHALL deli
 The agent MUST execute plugins in a sandboxed Wasm runtime with resource limits and must not expose raw filesystem or socket access.
 
 #### Scenario: Resource limits enforced
-- **GIVEN** a plugin configured with `max_memory_mb: 32` and `max_cpu_ms: 5000`
+- **GIVEN** a plugin configured with `requested_memory_mb: 32` and `requested_cpu_ms: 5000`
 - **WHEN** the plugin executes
 - **THEN** the agent enforces the memory limit
 - **AND** terminates execution on timeout
@@ -105,3 +105,41 @@ The agent SHALL cache plugin packages by content hash and avoid re-downloading u
 - **WHEN** the agent receives a config update referencing the same hash
 - **THEN** it reuses the cached package
 - **AND** does not re-download the binary
+
+### Requirement: Resource Budgeting and Admission Control
+The system MUST support per-agent engine limits and per-plugin resource requests, and it MUST enforce admission control when requested resources exceed available capacity.
+
+#### Scenario: Per-agent limits configured
+- **GIVEN** an admin configures plugin engine limits for a specific agent (memory, CPU window, max concurrent plugins)
+- **WHEN** the agent fetches configuration
+- **THEN** the limits are applied to the plugin runtime
+
+#### Scenario: Admission control rejects over-commit
+- **GIVEN** per-agent limits of 256MB memory and 4 concurrent plugins
+- **AND** existing plugin assignments already request 240MB and 4 slots
+- **WHEN** a new plugin assignment requests 64MB and 1 slot
+- **THEN** the assignment is rejected or queued
+- **AND** the agent reports an `UNKNOWN` result indicating capacity exhaustion
+
+### Requirement: Capacity Planning Visibility
+The system SHALL expose plugin resource usage and capacity metrics in the Settings UI for each agent.
+
+#### Scenario: Capacity view shows usage
+- **GIVEN** an agent running multiple plugins
+- **WHEN** an admin opens the agent capacity view
+- **THEN** the UI shows current usage, configured limits, and remaining headroom
+
+### Requirement: Runtime Telemetry Reporting
+The agent MUST periodically report Wasm runtime health and resource usage telemetry to the control plane.
+
+#### Scenario: Telemetry heartbeat
+- **GIVEN** the agent has the Wasm runtime enabled
+- **WHEN** the telemetry interval elapses
+- **THEN** the agent submits a runtime status payload including engine health, resource usage, and recent execution stats
+- **AND** the status is delivered through the normal `GatewayServiceStatus` pipeline
+
+#### Scenario: Runtime unhealthy
+- **GIVEN** the Wasm runtime fails to initialize or repeatedly crashes
+- **WHEN** the agent emits runtime telemetry
+- **THEN** the status indicates a degraded or unhealthy runtime
+- **AND** the payload includes the failure reason

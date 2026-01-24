@@ -9,6 +9,9 @@ ServiceRadar needs a safe, portable way for users and first-party teams to ship 
 - Extend agent config distribution to deliver plugin assignments and package references.
 - Embed a Wasm runtime in the agent (wazero) with a capability-based host function ABI.
 - Standardize plugin result output (status, summary, perfdata, structured metrics) and map it into `GatewayServiceStatus`.
+- Add resource budgeting: per-agent engine limits configured in admin/agent settings plus per-plugin requested resources in the manifest, with admission control.
+- Add a Settings UI view for agent plugin capacity planning and resource usage tracking.
+- Add runtime telemetry: agent reports Wasm engine health, resource usage, and execution stats to the control plane.
 - Support package storage backends: filesystem (default) and NATS JetStream object storage (optional).
 - Establish integrity checks (hash + signature) and resource limits (CPU, memory, timeout).
 

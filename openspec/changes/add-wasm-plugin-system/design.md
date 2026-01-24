@@ -7,6 +7,8 @@ ServiceRadar currently relies on fixed checkers (SNMP, ICMP, Sysmon) or external
   - Support a first-class plugin packaging and distribution workflow.
   - Standardize results output with clear status semantics and perfdata.
   - Keep agent builds portable (no CGO) and resource-bounded.
+  - Support capacity planning with per-agent engine limits and per-plugin resource requests.
+  - Report Wasm runtime health and resource telemetry from agents.
   - Support both filesystem and NATS object storage for package hosting.
 - Non-Goals:
   - Replace existing gRPC checkers or sweep jobs.
@@ -26,7 +28,7 @@ ServiceRadar currently relies on fixed checkers (SNMP, ICMP, Sysmon) or external
     - `runtime` (e.g., `wasi-preview1` or `none`)
     - `capabilities` (host functions requested)
     - `permissions` (allowed_domains, allowed_networks, allowed_ports)
-    - `resources` (max_memory_mb, max_cpu_ms, max_open_connections)
+    - `resources` (requested_memory_mb, requested_cpu_ms, max_open_connections)
     - `outputs` (schema version: `serviceradar.plugin_result.v1`)
     - `source` (repo URL, commit, license)
 
@@ -61,6 +63,19 @@ ServiceRadar currently relies on fixed checkers (SNMP, ICMP, Sysmon) or external
 - Decision: Package integrity is enforced via hash + signature.
   - Web-ng signs the package hash with a deployment key.
   - Agents verify signature before execution and cache by hash.
+
+- Decision: Resource budgeting uses a per-agent engine pool plus per-plugin requests.
+  - Admins set per-agent limits (memory, CPU time window, max concurrent plugins, total connections).
+  - Each plugin declares requested resources in its manifest; assignments can override downward.
+  - Agent admission control rejects or queues plugins that exceed available capacity.
+
+- Decision: Capacity planning is surfaced in the Settings UI and agent details.
+  - The UI shows per-agent plugin usage, limits, and remaining capacity.
+  - Historical usage is summarized to guide sizing (min/avg/max over window).
+
+- Decision: Agents emit Wasm runtime telemetry via existing status pipelines.
+  - The agent periodically reports engine health, resource usage, and execution stats.
+  - Telemetry is mapped into `GatewayServiceStatus` with a dedicated service name/type.
 
 ## Risks / Trade-offs
 - Risk: Plugin output schema mismatch with existing UI expectations → Mitigation: strict schema validation and compatibility adapters in gateway/core.

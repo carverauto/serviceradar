@@ -6,6 +6,8 @@
 - [ ] 1.5 Extend agent config delivery (proto + gateway/core wiring) with plugin assignments
 - [ ] 1.6 Embed wazero runtime in the agent and implement host function ABI
 - [ ] 1.7 Implement result schema validation and mapping into `GatewayServiceStatus`
-- [ ] 1.8 Add UI flows for upload, versioning, assignment, and status visibility
-- [ ] 1.9 Add tests (package validation, storage, agent runtime sandboxing, result mapping)
-- [ ] 1.10 Update docs for plugin packaging, SDK usage, and deployment configuration
+- [ ] 1.8 Implement resource budgeting (per-agent limits + per-plugin requests + admission control)
+- [ ] 1.9 Emit agent telemetry for Wasm engine health and resource usage
+- [ ] 1.10 Add UI flows for upload, versioning, assignment, status visibility, and capacity planning
+- [ ] 1.11 Add tests (package validation, storage, agent runtime sandboxing, result mapping, resource budgeting, telemetry)
+- [ ] 1.12 Update docs for plugin packaging, SDK usage, and deployment configuration
