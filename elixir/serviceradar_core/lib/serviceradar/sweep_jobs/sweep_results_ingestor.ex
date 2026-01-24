@@ -82,7 +82,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     )
 
     # Ensure execution record exists (creates one if missing)
-    case ensure_execution_exists(
+    case ensure_execution_or_skip(
            execution_id,
            sweep_group_id,
            agent_id,
@@ -90,95 +90,26 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            expected_total_hosts,
            actor
          ) do
+      {:skip, reason} ->
+        {:error, reason}
+
       :ok ->
-        :ok
+        start_time = System.monotonic_time(:millisecond)
 
-      {:error, reason} ->
-        Logger.error(
-          "SweepResultsIngestor: Failed to ensure execution exists: #{inspect(reason)}"
-        )
-
-        # Continue anyway - we'll just update what we can
-        :ok
-    end
-
-    start_time = System.monotonic_time(:millisecond)
-
-    # Process in batches
-    batches =
-      results
-      |> Enum.chunk_every(@batch_size)
-      |> Enum.with_index(1)
-
-    total_batches = max(1, ceil(total_count / @batch_size))
-
-    # Accumulate stats across batches
-    initial_stats = %{
-      hosts_total: 0,
-      hosts_available: 0,
-      hosts_failed: 0,
-      devices_updated: 0,
-      devices_created: 0
-    }
-
-    result =
-      Enum.reduce_while(batches, {:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
-        batch_start = System.monotonic_time(:millisecond)
-
-        case process_batch(batch, execution_id, actor) do
-          {:ok, batch_stats} ->
-            batch_elapsed = System.monotonic_time(:millisecond) - batch_start
-
-            Logger.debug(
-              "SweepResultsIngestor: Batch #{batch_num}/#{total_batches} (#{length(batch)} results) completed in #{batch_elapsed}ms"
-            )
-
-            merged_stats = merge_stats(acc_stats, batch_stats)
-
-            {:cont, {:ok, merged_stats}}
-
-          {:error, reason} ->
-            {:halt, {:error, reason}}
-        end
-      end)
-
-    case result do
-      {:ok, final_stats} ->
-        # Update execution with final statistics and scanner metrics
-        execution =
-          update_execution(
-            execution_id,
-            sweep_group_id,
-            final_stats,
-            scanner_metrics,
-            actor,
-            expected_total_hosts: expected_total_hosts,
-            chunk_index: chunk_index,
-            total_chunks: total_chunks,
-            is_final: is_final
-          )
-
-        broadcast_execution_progress(
+        results
+        |> process_batches(execution_id, actor)
+        |> finalize_results(
           execution_id,
-          execution,
-          final_stats,
-          chunk_index,
-          total_chunks,
-          is_final
+          sweep_group_id,
+          scanner_metrics,
+          actor,
+          total_count,
+          start_time,
+          expected_total_hosts: expected_total_hosts,
+          chunk_index: chunk_index,
+          total_chunks: total_chunks,
+          is_final: is_final
         )
-
-        elapsed = System.monotonic_time(:millisecond) - start_time
-        rate = if elapsed > 0, do: Float.round(total_count / (elapsed / 1000), 1), else: 0
-
-        Logger.info(
-          "SweepResultsIngestor: Completed #{total_count} results in #{elapsed}ms (#{rate}/sec), " <>
-            "available: #{final_stats.hosts_available}, failed: #{final_stats.hosts_failed}"
-        )
-
-        {:ok, final_stats}
-
-      {:error, _} = error ->
-        error
     end
   end
 
@@ -193,6 +124,127 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   # Private functions
+
+  defp ensure_execution_or_skip(
+         execution_id,
+         sweep_group_id,
+         agent_id,
+         config_version,
+         expected_total_hosts,
+         actor
+       ) do
+    case ensure_execution_exists(
+           execution_id,
+           sweep_group_id,
+           agent_id,
+           config_version,
+           expected_total_hosts,
+           actor
+         ) do
+      :ok ->
+        :ok
+
+      {:error, :missing_sweep_group_id} ->
+        Logger.warning(
+          "SweepResultsIngestor: Skipping results for execution #{execution_id} because sweep_group_id is missing"
+        )
+
+        {:skip, :missing_sweep_group_id}
+
+      {:error, reason} ->
+        Logger.error(
+          "SweepResultsIngestor: Failed to ensure execution exists: #{inspect(reason)}"
+        )
+
+        # Continue anyway - we'll just update what we can
+        :ok
+    end
+  end
+
+  defp process_batches(results, execution_id, actor) do
+    batches =
+      results
+      |> Enum.chunk_every(@batch_size)
+      |> Enum.with_index(1)
+
+    total_batches = max(1, ceil(length(results) / @batch_size))
+
+    initial_stats = %{
+      hosts_total: 0,
+      hosts_available: 0,
+      hosts_failed: 0,
+      devices_updated: 0,
+      devices_created: 0
+    }
+
+    Enum.reduce_while(batches, {:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
+      batch_start = System.monotonic_time(:millisecond)
+
+      case process_batch(batch, execution_id, actor) do
+        {:ok, batch_stats} ->
+          batch_elapsed = System.monotonic_time(:millisecond) - batch_start
+
+          Logger.debug(
+            "SweepResultsIngestor: Batch #{batch_num}/#{total_batches} (#{length(batch)} results) completed in #{batch_elapsed}ms"
+          )
+
+          merged_stats = merge_stats(acc_stats, batch_stats)
+
+          {:cont, {:ok, merged_stats}}
+
+        {:error, reason} ->
+          Logger.error(
+            "SweepResultsIngestor: Batch #{batch_num}/#{total_batches} failed: #{inspect(reason)}"
+          )
+
+          {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp finalize_results(
+         {:ok, final_stats},
+         execution_id,
+         sweep_group_id,
+         scanner_metrics,
+         actor,
+         total_count,
+         start_time,
+         opts
+       ) do
+    execution =
+      update_execution(
+        execution_id,
+        sweep_group_id,
+        final_stats,
+        scanner_metrics,
+        actor,
+        opts
+      )
+
+    broadcast_execution_progress(
+      execution_id,
+      execution,
+      final_stats,
+      Keyword.get(opts, :chunk_index),
+      Keyword.get(opts, :total_chunks),
+      Keyword.get(opts, :is_final)
+    )
+
+    elapsed = System.monotonic_time(:millisecond) - start_time
+    rate = if elapsed > 0, do: Float.round(total_count / (elapsed / 1000), 1), else: 0
+
+    Logger.info(
+      "SweepResultsIngestor: Completed #{total_count} results in #{elapsed}ms (#{rate}/sec), " <>
+        "available: #{final_stats.hosts_available}, failed: #{final_stats.hosts_failed}"
+    )
+
+    {:ok, final_stats}
+  end
+
+  defp finalize_results({:error, _} = error, _execution_id, _sweep_group_id, _scanner_metrics, _actor, _total_count, _start_time, _opts) do
+    error
+  end
 
   defp process_batch(results, execution_id, actor) do
     # Step 1: Extract all IPs for bulk device lookup
@@ -679,7 +731,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           "SweepResultsIngestor: Cannot create execution - no sweep_group_id provided"
         )
 
-        :ok
+        {:error, :missing_sweep_group_id}
       end
     end
   end
