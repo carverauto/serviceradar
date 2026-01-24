@@ -698,10 +698,7 @@ fn split_token(token: &str) -> Result<(&str, &str)> {
 
 fn parse_value(raw: &str) -> FilterValue {
     let trimmed = raw.trim();
-    let list_bounds = [
-        ('(', ')'),
-        ('[', ']'),
-    ];
+    let list_bounds = [('(', ')'), ('[', ']')];
 
     if let Some((open, close)) = list_bounds
         .iter()
