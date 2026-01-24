@@ -6,6 +6,7 @@ go_library(
         "discovery.go",
         "errors.go",
         "grpc.go",
+        "interface_dedup.go",
         "interfaces.go",
         "mapper_agent_service.go",
         "mock_mapper.go",
@@ -36,6 +37,7 @@ go_test(
     srcs = [
         "discovery_test.go",
         "grpc_test.go",
+        "interface_dedup_test.go",
         "mapper_agent_service_test.go",
         "snmp_polling_test.go",
         "ubnt_poller_test.go",
