@@ -566,8 +566,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       wasm_object_key: assignment.wasm_object_key || "",
       content_hash: assignment.content_hash || "",
       source_type: assignment.source_type || "",
-      source_repo_url: assignment.source_repo_url || "",
-      source_commit: assignment.source_commit || "",
+      source_repo_url: Map.get(assignment, :source_repo_url, ""),
+      source_commit: Map.get(assignment, :source_commit, ""),
       download_url: assignment.download_url || ""
     }
   end

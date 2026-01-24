@@ -19,5 +19,5 @@
 - [x] 1.13c Add version history + integrity/status visibility to plugin review UI
 - [x] 1.13d Add capacity snapshot UI for plugin resource planning
 - [x] 1.13e Add verification policy visibility in plugin admin UI
-- [ ] 1.14 Add tests (package validation, storage, agent runtime sandboxing, result mapping, resource budgeting, telemetry, ingestion, GitHub verification, import approval)
-- [ ] 1.15 Update docs for plugin packaging, SDK usage, and deployment configuration
+- [x] 1.14 Add tests (package validation, storage, agent runtime sandboxing, result mapping, resource budgeting, telemetry, ingestion, GitHub verification, import approval)
+- [x] 1.15 Update docs for plugin packaging, SDK usage, and deployment configuration

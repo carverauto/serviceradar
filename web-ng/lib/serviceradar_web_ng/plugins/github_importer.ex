@@ -214,7 +214,9 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   defp github_api_get(url) do
     headers = github_headers([{<<"accept">>, "application/vnd.github+json"}])
 
-    case Req.get(url, headers: headers) do
+    client = github_http_client()
+
+    case client.get(url, headers: headers) do
       {:ok, %Req.Response{status: 200, body: body}} when is_map(body) ->
         {:ok, body}
 
@@ -235,7 +237,9 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   defp github_raw_get(url) do
     headers = github_headers([])
 
-    case Req.get(url, headers: headers, decode_body: false) do
+    client = github_http_client()
+
+    case client.get(url, headers: headers, decode_body: false) do
       {:ok, %Req.Response{status: 200, body: body}} -> {:ok, body}
       {:ok, %Req.Response{status: 404}} -> {:error, :not_found}
       {:ok, %Req.Response{status: status}} -> {:error, {:http_error, status}}
@@ -255,6 +259,10 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   defp github_token do
     Application.get_env(:serviceradar_web_ng, :github_token) ||
       System.get_env("GITHUB_TOKEN")
+  end
+
+  defp github_http_client do
+    Application.get_env(:serviceradar_web_ng, :github_http_client, Req)
   end
 
   defp decode_yaml(body) when is_binary(body) do
