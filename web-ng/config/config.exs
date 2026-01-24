@@ -93,6 +93,10 @@ config :serviceradar_web_ng, :plugin_storage,
   jetstream_replicas: 1,
   jetstream_storage: :file
 
+config :serviceradar_web_ng, :plugin_verification,
+  require_gpg_for_github: false,
+  allow_unsigned_uploads: true
+
 # Oban job processing configuration
 # web-ng only processes jobs, it does NOT schedule them
 # core-elx is the Oban coordinator and handles all scheduled/cron jobs

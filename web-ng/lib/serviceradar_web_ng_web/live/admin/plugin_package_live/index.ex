@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       |> assign(:versions, [])
       |> assign(:agents, list_agents(scope))
       |> assign_capacity(scope)
+      |> assign(:verification_policy, plugin_verification_policy())
       |> assign(:upload_url, nil)
       |> assign(:upload_expires_at, nil)
       |> assign(:download_url, nil)
@@ -117,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      |> assign(:assignments, [])
      |> assign(:assignment_form, default_assignment_form())
      |> assign(:versions, [])
-      |> assign(:upload_url, nil)
+     |> assign(:upload_url, nil)
      |> assign(:download_url, nil)
      |> assign(:blob_present, nil)}
   end
@@ -147,7 +148,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      socket
      |> assign(:packages, list_packages(current_filters(socket), scope))
      |> assign(:agents, list_agents(scope))
-     |> assign_capacity(scope)}
+     |> assign_capacity(scope)
+     |> assign(:verification_policy, plugin_verification_policy())}
   end
 
   def handle_event("create_package", %{"create" => params}, socket) do
@@ -416,6 +418,43 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         <.ui_panel>
           <:header>
             <div>
+              <div class="text-sm font-semibold">Verification Policy</div>
+              <p class="text-xs text-base-content/60">
+                Controls how GitHub and uploaded packages are treated before execution.
+              </p>
+            </div>
+          </:header>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div class="rounded-xl border border-base-200 p-4 space-y-1">
+              <div class="text-xs text-base-content/60">GitHub packages</div>
+              <div class="font-semibold">
+                <%= if @verification_policy.require_gpg_for_github do %>
+                  Require GPG verification
+                <% else %>
+                  Allow without GPG verification
+                <% end %>
+              </div>
+            </div>
+            <div class="rounded-xl border border-base-200 p-4 space-y-1">
+              <div class="text-xs text-base-content/60">Uploaded packages</div>
+              <div class="font-semibold">
+                <%= if @verification_policy.allow_unsigned_uploads do %>
+                  Allow unsigned uploads
+                <% else %>
+                  Require signed uploads
+                <% end %>
+              </div>
+            </div>
+          </div>
+          <p class="mt-3 text-xs text-base-content/60">
+            Adjust with environment variables and restart web-ng to apply changes.
+          </p>
+        </.ui_panel>
+
+        <.ui_panel>
+          <:header>
+            <div>
               <div class="text-sm font-semibold">Plugin Packages</div>
               <p class="text-xs text-base-content/60">
                 {@packages |> length()} package(s)
@@ -513,6 +552,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         assignment_form={@assignment_form}
         versions={@versions}
         blob_present={@blob_present}
+        verification_policy={@verification_policy}
         upload_url={@upload_url}
         upload_expires_at={@upload_expires_at}
         download_url={@download_url}
@@ -559,7 +599,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <textarea
               name="create[manifest_yaml]"
               class="textarea textarea-bordered w-full font-mono text-xs min-h-[180px]"
-              placeholder="id: http-check\nname: HTTP Checker\nversion: 1.0.0\nentrypoint: run_check\noutputs: serviceradar.plugin_result.v1\ncapabilities:\n  - http_request\nresources:\n  cpu_ms: 1000\n  memory_mb: 64"
+              placeholder="id: http-check\nname: HTTP Checker\nversion: 1.0.0\nentrypoint: run_check\noutputs: serviceradar.plugin_result.v1\ncapabilities:\n  - http_request\nresources:\n  requested_cpu_ms: 1000\n  requested_memory_mb: 64"
             ><%= @create_form["manifest_yaml"] %></textarea>
           </div>
 
@@ -655,6 +695,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           </div>
         </div>
 
+        <%= if policy_requires_verification?(@package, @verification_policy) do %>
+          <div class="mt-3 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+            This package is unverified and will be blocked by the current verification policy.
+          </div>
+        <% end %>
+
         <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div class="space-y-4">
             <div class="rounded-xl border border-base-200 p-4">
@@ -738,6 +784,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                       <div>
                         <span class="font-medium">{version.version}</span>
                         <span class="text-base-content/60">• {version.status}</span>
+                        <%= if version.id == @package.id do %>
+                          <.ui_badge size="xs" variant="ghost" class="ml-2">current</.ui_badge>
+                        <% end %>
                       </div>
                       <.link navigate={~p"/admin/plugins/#{version.id}"} class="link link-primary">
                         View
@@ -760,7 +809,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 <%= for assignment <- @assignments do %>
                   <div class="flex items-center justify-between rounded-lg border border-base-200/70 bg-base-100/60 p-2 text-xs">
                     <div>
-                      <div class="font-medium">{assignment.agent_uid}</div>
+                      <div class="font-medium flex items-center gap-2">
+                        {assignment.agent_uid}
+                        <%= if assignment.enabled == false do %>
+                          <.ui_badge size="xs" variant="ghost">disabled</.ui_badge>
+                        <% end %>
+                      </div>
                       <div class="text-base-content/60">
                         every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
                       </div>
@@ -984,6 +1038,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     Assignments.list(%{"plugin_package_id" => package_id}, scope: scope)
   end
 
+  defp list_versions(plugin_id, scope) do
+    Packages.list(%{"plugin_id" => plugin_id}, scope: scope)
+  end
+
   defp list_agents(scope) do
     Agent
     |> Ash.Query.for_read(:read)
@@ -992,6 +1050,137 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     |> Ash.read!(scope: scope)
   rescue
     _ -> []
+  end
+
+  defp assign_capacity(socket, scope) do
+    {rows, totals} =
+      try do
+        build_capacity_snapshot(scope)
+      rescue
+        _ -> {[], empty_capacity_totals()}
+      end
+
+    socket
+    |> assign(:capacity_rows, rows)
+    |> assign(:capacity_totals, totals)
+  end
+
+  defp build_capacity_snapshot(scope) do
+    agents = list_agents(scope)
+    assignments = Assignments.list(%{"limit" => 500}, scope: scope)
+    packages = Packages.list(%{"limit" => 500}, scope: scope)
+    packages_by_id = Map.new(packages, &{&1.id, &1})
+
+    assignments_by_agent = Enum.group_by(assignments, & &1.agent_uid)
+
+    rows =
+      Enum.map(agents, fn agent ->
+        agent_assignments = Map.get(assignments_by_agent, agent.uid, [])
+        enabled_assignments = Enum.reject(agent_assignments, &(&1.enabled == false))
+        resources = aggregate_resources(enabled_assignments, packages_by_id)
+
+        %{
+          agent_uid: agent.uid,
+          name: agent.name || agent.host || agent.uid,
+          assignments: length(enabled_assignments),
+          cpu_ms: resources.requested_cpu_ms,
+          memory_mb: resources.requested_memory_mb,
+          connections: resources.max_open_connections
+        }
+      end)
+
+    totals = %{
+      assignments: Enum.reduce(rows, 0, &(&1.assignments + &2)),
+      cpu_ms: Enum.reduce(rows, 0, &(&1.cpu_ms + &2)),
+      memory_mb: Enum.reduce(rows, 0, &(&1.memory_mb + &2)),
+      connections: Enum.reduce(rows, 0, &(&1.connections + &2))
+    }
+
+    {rows, totals}
+  end
+
+  defp plugin_verification_policy do
+    config = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
+
+    %{
+      require_gpg_for_github: Keyword.get(config, :require_gpg_for_github, false),
+      allow_unsigned_uploads: Keyword.get(config, :allow_unsigned_uploads, true)
+    }
+  end
+
+  defp policy_requires_verification?(package, policy) do
+    source =
+      case package.source_type do
+        value when is_atom(value) -> Atom.to_string(value)
+        value when is_binary(value) -> value
+        _ -> ""
+      end
+
+    policy.require_gpg_for_github && source == "github" && is_nil(package.gpg_verified_at)
+  end
+
+  defp empty_capacity_totals do
+    %{assignments: 0, cpu_ms: 0, memory_mb: 0, connections: 0}
+  end
+
+  defp aggregate_resources(assignments, packages_by_id) do
+    Enum.reduce(
+      assignments,
+      %{requested_cpu_ms: 0, requested_memory_mb: 0, max_open_connections: 0},
+      fn assignment, acc ->
+        if assignment.enabled == false do
+          acc
+        else
+          resources = effective_resources(assignment, packages_by_id)
+
+          %{
+            requested_cpu_ms: acc.requested_cpu_ms + resource_value(resources, :requested_cpu_ms),
+            requested_memory_mb:
+              acc.requested_memory_mb + resource_value(resources, :requested_memory_mb),
+            max_open_connections:
+              acc.max_open_connections + resource_value(resources, :max_open_connections)
+          }
+        end
+      end
+    )
+  end
+
+  defp effective_resources(assignment, packages_by_id) do
+    override = normalize_map(assignment.resources_override)
+
+    cond do
+      map_present?(override) ->
+        override
+
+      package = packages_by_id[assignment.plugin_package_id] ->
+        approved = normalize_map(package.approved_resources)
+
+        cond do
+          map_present?(approved) ->
+            approved
+
+          true ->
+            normalize_map(
+              Map.get(package.manifest || %{}, "resources") ||
+                Map.get(package.manifest || %{}, :resources)
+            )
+        end
+
+      true ->
+        %{}
+    end
+  end
+
+  defp map_present?(map) when is_map(map), do: map_size(map) > 0
+  defp map_present?(_), do: false
+
+  defp normalize_map(nil), do: %{}
+  defp normalize_map(map) when is_map(map), do: map
+  defp normalize_map(_), do: %{}
+
+  defp resource_value(map, key) do
+    value = Map.get(map, key) || Map.get(map, Atom.to_string(key))
+    parse_int(value, 0)
   end
 
   defp current_filters(socket) do
@@ -1253,6 +1442,37 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp format_json_value(value) when is_map(value), do: Jason.encode!(value, pretty: true)
   defp format_json_value(value) when is_binary(value), do: value
   defp format_json_value(_), do: ""
+
+  defp format_hash(nil), do: "—"
+  defp format_hash(""), do: "—"
+  defp format_hash(value) when is_binary(value), do: value
+  defp format_hash(_), do: "—"
+
+  defp blob_status(true), do: "Stored"
+  defp blob_status(false), do: "Missing"
+  defp blob_status(nil), do: "Unknown"
+  defp blob_status(_), do: "Unknown"
+
+  defp gpg_status(nil, nil), do: "Not verified"
+  defp gpg_status(nil, key_id) when is_binary(key_id), do: "Unverified (key #{key_id})"
+
+  defp gpg_status(%DateTime{} = dt, key_id) do
+    key = if is_binary(key_id) and key_id != "", do: " (#{key_id})", else: ""
+    "Verified #{Calendar.strftime(dt, "%Y-%m-%d %H:%M")}#{key}"
+  end
+
+  defp gpg_status(%NaiveDateTime{} = dt, key_id) do
+    dt
+    |> DateTime.from_naive!("Etc/UTC")
+    |> gpg_status(key_id)
+  end
+
+  defp gpg_status(_value, _key_id), do: "Unknown"
+
+  defp signature_status(nil), do: "none"
+  defp signature_status(%{} = signature) when map_size(signature) == 0, do: "none"
+  defp signature_status(%{}), do: "present"
+  defp signature_status(_), do: "unknown"
 
   defp parse_int(nil, default), do: default
   defp parse_int("", default), do: default

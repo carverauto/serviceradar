@@ -1534,6 +1534,11 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		p.applyDuskConfig(configResp.DuskConfig)
 	}
 
+	// Apply plugin config if present
+	if configResp.PluginConfig != nil {
+		p.applyPluginConfig(configResp.PluginConfig)
+	}
+
 	// Apply check configs (icmp checks supported)
 	p.applyCheckConfigs(configResp.Checks)
 
@@ -1592,6 +1597,16 @@ func (p *PushLoop) applyMapperConfig(configJSON []byte) {
 		Str("config_hash", mapperConfig.ConfigHash).
 		Int("scheduled_jobs", len(mapperConfig.ScheduledJobs)).
 		Msg("Applied mapper config from gateway")
+}
+
+func (p *PushLoop) applyPluginConfig(config *proto.PluginConfig) {
+	if config == nil {
+		return
+	}
+
+	p.logger.Info().
+		Int("assignments", len(config.Assignments)).
+		Msg("Received plugin assignments from gateway")
 }
 
 func (p *PushLoop) pushMapperResults(ctx context.Context) bool {

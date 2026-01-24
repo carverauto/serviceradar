@@ -273,6 +273,39 @@ message AgentConfigResponse {
 
   // Dusk blockchain node monitoring configuration
   DuskConfig dusk_config = 10;
+
+  // Wasm plugin configuration assignments
+  PluginConfig plugin_config = 11;
+}
+
+// PluginConfig defines plugin assignments for the agent.
+message PluginConfig {
+  repeated PluginAssignmentConfig assignments = 1;
+}
+
+// PluginAssignmentConfig defines a single plugin assignment for the agent.
+message PluginAssignmentConfig {
+  string assignment_id = 1;
+  string plugin_id = 2;
+  string package_id = 3;
+  string version = 4;
+  string name = 5;
+  string entrypoint = 6;
+  string runtime = 7;
+  string outputs = 8;
+  repeated string capabilities = 9;
+  bytes params_json = 10;
+  bytes permissions_json = 11;
+  bytes resources_json = 12;
+  bool enabled = 13;
+  int32 interval_sec = 14;
+  int32 timeout_sec = 15;
+  string wasm_object_key = 16;
+  string content_hash = 17;
+  string source_type = 18;
+  string source_repo_url = 19;
+  string source_commit = 20;
+  string download_url = 21;
 }
 
 // SysmonConfig defines system monitoring configuration for the embedded sysmon collector.
