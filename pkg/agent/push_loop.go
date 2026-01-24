@@ -18,6 +18,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -353,6 +354,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentMapperInterfaces := p.pushMapperInterfaces(ctx)
 	sentMapperTopology := p.pushMapperTopology(ctx)
 	sentSNMPMetrics := p.pushSNMPMetrics(ctx)
+	sentPluginResults := p.pushPluginResults(ctx)
 
 	if len(statuses) == 0 &&
 		sysmonStatus == nil &&
@@ -361,7 +363,8 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		!sentMapperResults &&
 		!sentMapperInterfaces &&
 		!sentMapperTopology &&
-		!sentSNMPMetrics {
+		!sentSNMPMetrics &&
+		!sentPluginResults {
 		p.logger.Debug().Msg("No statuses to push")
 	}
 }
@@ -510,6 +513,63 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	}
 
 	p.logger.Warn().Msg("Gateway did not acknowledge SNMP metrics stream")
+	return false
+}
+
+func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
+	p.server.mu.RLock()
+	pluginManager := p.server.pluginManager
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	p.server.mu.RUnlock()
+
+	if pluginManager == nil {
+		return false
+	}
+
+	results := pluginManager.DrainResults(200)
+	if len(results) == 0 {
+		return false
+	}
+
+	statuses := make([]*proto.GatewayServiceStatus, 0, len(results))
+	for _, result := range results {
+		status := p.buildPluginGatewayStatus(result, agentID, partition, kvStoreID)
+		if status != nil {
+			statuses = append(statuses, status)
+		}
+	}
+
+	if len(statuses) == 0 {
+		return false
+	}
+
+	req := &proto.GatewayStatusRequest{
+		Services:  statuses,
+		GatewayId: "",
+		AgentId:   agentID,
+		Timestamp: time.Now().UnixNano(),
+		Partition: partition,
+		SourceIp:  p.getSourceIP(),
+		KvStoreId: kvStoreID,
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := p.gateway.PushStatus(pushCtx, req)
+	if err != nil {
+		p.logger.Error().Err(err).Int("plugin_results", len(statuses)).Msg("Failed to push plugin results to gateway")
+		return false
+	}
+
+	if resp.Received {
+		p.logger.Info().Int("plugin_results", len(statuses)).Msg("Successfully pushed plugin results to gateway")
+		return true
+	}
+
+	p.logger.Warn().Msg("Gateway did not acknowledge plugin result push")
 	return false
 }
 
@@ -1144,6 +1204,205 @@ func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *pro
 	}
 }
 
+func (p *PushLoop) buildPluginGatewayStatus(
+	result PluginResult,
+	agentID string,
+	partition string,
+	kvStoreID string,
+) *proto.GatewayServiceStatus {
+	payload, available, err := p.normalizePluginPayload(result, agentID, partition)
+	if err != nil {
+		payload = p.buildPluginErrorPayload(result, err, agentID, partition)
+		available = false
+	}
+
+	serviceName := pluginServiceName(result)
+
+	return &proto.GatewayServiceStatus{
+		ServiceName:  serviceName,
+		Available:    available,
+		Message:      payload,
+		ServiceType:  "plugin",
+		ResponseTime: 0,
+		AgentId:      agentID,
+		GatewayId:    "",
+		Partition:    partition,
+		Source:       "plugin-result",
+		KvStoreId:    kvStoreID,
+	}
+}
+
+func (p *PushLoop) normalizePluginPayload(
+	result PluginResult,
+	agentID string,
+	partition string,
+) ([]byte, bool, error) {
+	if len(result.Payload) == 0 {
+		return nil, false, errors.New("empty payload")
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(result.Payload))
+	decoder.UseNumber()
+
+	var payload map[string]interface{}
+	if err := decoder.Decode(&payload); err != nil {
+		return nil, false, fmt.Errorf("invalid json: %w", err)
+	}
+
+	statusRaw, ok := payload["status"].(string)
+	if !ok {
+		return nil, false, errors.New("missing status")
+	}
+	status := strings.ToUpper(strings.TrimSpace(statusRaw))
+	if !isValidPluginStatus(status) {
+		return nil, false, fmt.Errorf("invalid status: %s", statusRaw)
+	}
+
+	summary, ok := payload["summary"].(string)
+	if !ok || strings.TrimSpace(summary) == "" {
+		return nil, false, errors.New("missing summary")
+	}
+
+	payload["status"] = status
+	ensureObservedAt(payload, result.ObservedAt)
+	labels := normalizePluginLabels(payload)
+
+	if result.AssignmentID != "" {
+		labels["assignment_id"] = result.AssignmentID
+	}
+	if result.PluginID != "" {
+		labels["plugin_id"] = result.PluginID
+	}
+	if result.PluginName != "" {
+		labels["plugin_name"] = result.PluginName
+	}
+	if agentID != "" {
+		labels["agent_id"] = agentID
+	}
+	if partition != "" {
+		labels["partition"] = partition
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal payload: %w", err)
+	}
+
+	return data, pluginStatusAvailable(status), nil
+}
+
+func (p *PushLoop) buildPluginErrorPayload(
+	result PluginResult,
+	err error,
+	agentID string,
+	partition string,
+) []byte {
+	summary := "plugin result invalid"
+	if err != nil {
+		summary = fmt.Sprintf("plugin result invalid: %s", err)
+	}
+
+	payload := map[string]interface{}{
+		"status":      "UNKNOWN",
+		"summary":     summary,
+		"observed_at": time.Now().UTC().Format(time.RFC3339Nano),
+		"labels":      map[string]interface{}{},
+	}
+
+	labels := normalizePluginLabels(payload)
+	if result.AssignmentID != "" {
+		labels["assignment_id"] = result.AssignmentID
+	}
+	if result.PluginID != "" {
+		labels["plugin_id"] = result.PluginID
+	}
+	if result.PluginName != "" {
+		labels["plugin_name"] = result.PluginName
+	}
+	if agentID != "" {
+		labels["agent_id"] = agentID
+	}
+	if partition != "" {
+		labels["partition"] = partition
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return []byte(`{"status":"UNKNOWN","summary":"plugin result invalid"}`)
+	}
+
+	return data
+}
+
+func normalizePluginLabels(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		return map[string]interface{}{}
+	}
+
+	if raw, ok := payload["labels"]; ok {
+		if labels, ok := raw.(map[string]interface{}); ok {
+			return labels
+		}
+		if labels, ok := raw.(map[string]string); ok {
+			converted := make(map[string]interface{}, len(labels))
+			for key, value := range labels {
+				converted[key] = value
+			}
+			payload["labels"] = converted
+			return converted
+		}
+	}
+
+	labels := map[string]interface{}{}
+	payload["labels"] = labels
+	return labels
+}
+
+func ensureObservedAt(payload map[string]interface{}, observed time.Time) {
+	raw, ok := payload["observed_at"].(string)
+	if ok && strings.TrimSpace(raw) != "" {
+		return
+	}
+
+	if observed.IsZero() {
+		observed = time.Now().UTC()
+	}
+	payload["observed_at"] = observed.Format(time.RFC3339Nano)
+}
+
+func pluginServiceName(result PluginResult) string {
+	if result.PluginName != "" {
+		return result.PluginName
+	}
+	if result.PluginID != "" {
+		return result.PluginID
+	}
+	if result.AssignmentID != "" {
+		return result.AssignmentID
+	}
+	return "plugin"
+}
+
+func isValidPluginStatus(status string) bool {
+	switch status {
+	case "OK", "WARNING", "CRITICAL", "UNKNOWN":
+		return true
+	default:
+		return false
+	}
+}
+
+func pluginStatusAvailable(status string) bool {
+	switch status {
+	case "OK", "WARNING":
+		return true
+	case "CRITICAL", "UNKNOWN":
+		return false
+	default:
+		return false
+	}
+}
+
 func (p *PushLoop) buildResultsStatusChunks(
 	chunks []*proto.ResultsChunk,
 	serviceName string,
@@ -1600,13 +1859,25 @@ func (p *PushLoop) applyMapperConfig(configJSON []byte) {
 }
 
 func (p *PushLoop) applyPluginConfig(config *proto.PluginConfig) {
+	p.server.mu.RLock()
+	pluginManager := p.server.pluginManager
+	p.server.mu.RUnlock()
+
+	if pluginManager == nil {
+		p.logger.Warn().Msg("Plugin manager not initialized")
+		return
+	}
+
 	if config == nil {
+		pluginManager.ApplyConfig(nil)
 		return
 	}
 
 	p.logger.Info().
 		Int("assignments", len(config.Assignments)).
 		Msg("Received plugin assignments from gateway")
+
+	pluginManager.ApplyConfig(config)
 }
 
 func (p *PushLoop) pushMapperResults(ctx context.Context) bool {

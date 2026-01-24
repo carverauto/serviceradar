@@ -1,0 +1,1214 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package agent
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/netip"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/carverauto/serviceradar/pkg/hashutil"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/proto"
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+)
+
+const (
+	pluginHostModule         = "env"
+	pluginDefaultInterval    = 60 * time.Second
+	pluginDefaultTimeout     = 10 * time.Second
+	pluginMaxPayloadBytes    = 2 * 1024 * 1024
+	pluginMaxWasmBytes       = 64 * 1024 * 1024
+	pluginMaxHTTPBodyBytes   = 2 * 1024 * 1024
+	pluginDefaultHTTPTimeout = 15 * time.Second
+)
+
+const (
+	pluginErrOK        int32 = 0
+	pluginErrInvalid   int32 = -1
+	pluginErrDenied    int32 = -2
+	pluginErrTooLarge  int32 = -3
+	pluginErrNotFound  int32 = -4
+	pluginErrInternal  int32 = -5
+	pluginErrTimeout   int32 = -6
+	pluginErrBadHandle int32 = -7
+)
+
+var errPluginWasmUnavailable = errors.New("plugin wasm unavailable")
+
+// PluginManagerConfig configures the Wasm plugin manager.
+type PluginManagerConfig struct {
+	CacheDir      string
+	LocalStoreDir string
+	Logger        logger.Logger
+	HTTPClient    *http.Client
+}
+
+// PluginManager manages Wasm plugin assignments and execution.
+type PluginManager struct {
+	logger        logger.Logger
+	cacheDir      string
+	localStoreDir string
+	httpClient    *http.Client
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	mu      sync.RWMutex
+	runners map[string]*pluginRunner
+	results chan PluginResult
+}
+
+// PluginResult captures a raw plugin result payload.
+type PluginResult struct {
+	AssignmentID string
+	PluginID     string
+	PluginName   string
+	Payload      []byte
+	ObservedAt   time.Time
+}
+
+func buildPluginErrorResult(assignment *pluginAssignment, summary string) PluginResult {
+	observed := time.Now().UTC()
+	payload := map[string]interface{}{
+		"status":      "UNKNOWN",
+		"summary":     summary,
+		"observed_at": observed.Format(time.RFC3339Nano),
+		"labels": map[string]string{
+			"assignment_id": assignment.AssignmentID,
+			"plugin_id":     assignment.PluginID,
+			"plugin_name":   assignment.Name,
+		},
+	}
+
+	data, _ := json.Marshal(payload)
+
+	return PluginResult{
+		AssignmentID: assignment.AssignmentID,
+		PluginID:     assignment.PluginID,
+		PluginName:   assignment.Name,
+		Payload:      data,
+		ObservedAt:   observed,
+	}
+}
+
+// NewPluginManager initializes a new plugin manager.
+func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManager {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	rootCtx, cancel := context.WithCancel(ctx)
+
+	cacheDir := strings.TrimSpace(cfg.CacheDir)
+	if cacheDir == "" {
+		cacheDir = filepath.Join(os.TempDir(), "serviceradar", "plugins")
+	}
+
+	localStoreDir := strings.TrimSpace(cfg.LocalStoreDir)
+	if localStoreDir == "" {
+		localStoreDir = cacheDir
+	}
+
+	client := cfg.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: pluginDefaultHTTPTimeout}
+	}
+
+	return &PluginManager{
+		logger:        cfg.Logger,
+		cacheDir:      cacheDir,
+		localStoreDir: localStoreDir,
+		httpClient:    client,
+		ctx:           rootCtx,
+		cancel:        cancel,
+		runners:       make(map[string]*pluginRunner),
+		results:       make(chan PluginResult, 1024),
+	}
+}
+
+// ApplyConfig applies plugin assignments from config, replacing existing runners.
+func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
+	if m == nil {
+		return
+	}
+
+	assignments := make([]*pluginAssignment, 0)
+	if cfg != nil {
+		for _, assignment := range cfg.Assignments {
+			if assignment == nil {
+				continue
+			}
+			if !assignment.Enabled {
+				continue
+			}
+			assignments = append(assignments, newPluginAssignment(assignment, m.logger))
+		}
+	}
+
+	m.mu.Lock()
+	prev := m.runners
+	m.runners = make(map[string]*pluginRunner)
+	m.mu.Unlock()
+
+	for _, runner := range prev {
+		runner.stop()
+	}
+
+	for _, assignment := range assignments {
+		runner := newPluginRunner(m, assignment)
+		m.mu.Lock()
+		m.runners[assignment.AssignmentID] = runner
+		m.mu.Unlock()
+		runner.start(m.ctx)
+	}
+}
+
+// Stop stops all plugin runners.
+func (m *PluginManager) Stop() {
+	if m == nil {
+		return
+	}
+
+	m.cancel()
+
+	m.mu.Lock()
+	prev := m.runners
+	m.runners = make(map[string]*pluginRunner)
+	m.mu.Unlock()
+
+	for _, runner := range prev {
+		runner.stop()
+	}
+}
+
+// DrainResults returns up to max pending results.
+func (m *PluginManager) DrainResults(max int) []PluginResult {
+	if m == nil || max <= 0 {
+		return nil
+	}
+
+	results := make([]PluginResult, 0, max)
+	for i := 0; i < max; i++ {
+		select {
+		case res := <-m.results:
+			results = append(results, res)
+		default:
+			return results
+		}
+	}
+
+	return results
+}
+
+func (m *PluginManager) enqueueResult(result PluginResult) {
+	select {
+	case m.results <- result:
+	default:
+		m.logger.Warn().
+			Str("assignment_id", result.AssignmentID).
+			Msg("Plugin result dropped due to backpressure")
+	}
+}
+
+type pluginRunner struct {
+	manager    *PluginManager
+	assignment *pluginAssignment
+	cancel     context.CancelFunc
+	done       chan struct{}
+}
+
+func newPluginRunner(manager *PluginManager, assignment *pluginAssignment) *pluginRunner {
+	return &pluginRunner{
+		manager:    manager,
+		assignment: assignment,
+		done:       make(chan struct{}),
+	}
+}
+
+func (r *pluginRunner) start(ctx context.Context) {
+	runCtx, cancel := context.WithCancel(ctx)
+	r.cancel = cancel
+
+	go func() {
+		defer close(r.done)
+
+		interval := r.assignment.Interval
+		if interval <= 0 {
+			interval = pluginDefaultInterval
+		}
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		r.runOnce(runCtx)
+
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-ticker.C:
+				r.runOnce(runCtx)
+			}
+		}
+	}()
+}
+
+func (r *pluginRunner) stop() {
+	if r.cancel != nil {
+		r.cancel()
+	}
+	<-r.done
+}
+
+func (r *pluginRunner) runOnce(ctx context.Context) {
+	timeout := r.assignment.Timeout
+	if timeout <= 0 {
+		timeout = pluginDefaultTimeout
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if err := r.manager.execute(runCtx, r.assignment); err != nil {
+		r.manager.enqueueResult(buildPluginErrorResult(r.assignment, fmt.Sprintf("execution failed: %s", err)))
+		r.manager.logger.Warn().
+			Err(err).
+			Str("assignment_id", r.assignment.AssignmentID).
+			Msg("Plugin execution failed")
+	}
+}
+
+type pluginAssignment struct {
+	AssignmentID string
+	PluginID     string
+	PackageID    string
+	Version      string
+	Name         string
+	Entrypoint   string
+	Runtime      string
+	Outputs      string
+	Capabilities map[string]bool
+	ParamsJSON   []byte
+	Permissions  pluginPermissions
+	Resources    pluginResources
+	Interval     time.Duration
+	Timeout      time.Duration
+	WasmObject   string
+	ContentHash  string
+	DownloadURL  string
+}
+
+type pluginPermissions struct {
+	AllowedDomains  []string `json:"allowed_domains"`
+	AllowedNetworks []string `json:"allowed_networks"`
+	AllowedPorts    []int    `json:"allowed_ports"`
+
+	allowedDomainSet map[string]struct{}
+	allowedPrefixes  []netip.Prefix
+	allowedPortSet   map[int]struct{}
+}
+
+type pluginResources struct {
+	RequestedMemoryMB  int `json:"requested_memory_mb"`
+	RequestedCPUMS     int `json:"requested_cpu_ms"`
+	MaxOpenConnections int `json:"max_open_connections"`
+}
+
+func newPluginAssignment(cfg *proto.PluginAssignmentConfig, log logger.Logger) *pluginAssignment {
+	assignment := &pluginAssignment{
+		AssignmentID: cfg.AssignmentId,
+		PluginID:     cfg.PluginId,
+		PackageID:    cfg.PackageId,
+		Version:      cfg.Version,
+		Name:         cfg.Name,
+		Entrypoint:   cfg.Entrypoint,
+		Runtime:      cfg.Runtime,
+		Outputs:      cfg.Outputs,
+		Capabilities: make(map[string]bool),
+		ParamsJSON:   cfg.ParamsJson,
+		Interval:     time.Duration(cfg.IntervalSec) * time.Second,
+		Timeout:      time.Duration(cfg.TimeoutSec) * time.Second,
+		WasmObject:   strings.TrimSpace(cfg.WasmObjectKey),
+		ContentHash:  strings.TrimSpace(cfg.ContentHash),
+		DownloadURL:  strings.TrimSpace(cfg.DownloadUrl),
+	}
+
+	for _, cap := range cfg.Capabilities {
+		clean := strings.TrimSpace(cap)
+		if clean == "" {
+			continue
+		}
+		assignment.Capabilities[clean] = true
+	}
+
+	if len(cfg.PermissionsJson) > 0 {
+		if err := json.Unmarshal(cfg.PermissionsJson, &assignment.Permissions); err != nil {
+			log.Warn().Err(err).Str("assignment_id", assignment.AssignmentID).Msg("Invalid plugin permissions JSON")
+		}
+	}
+
+	if len(cfg.ResourcesJson) > 0 {
+		if err := json.Unmarshal(cfg.ResourcesJson, &assignment.Resources); err != nil {
+			log.Warn().Err(err).Str("assignment_id", assignment.AssignmentID).Msg("Invalid plugin resources JSON")
+		}
+	}
+
+	assignment.Permissions.normalize()
+	assignment.ContentHash = normalizeContentHash(assignment.ContentHash, log, assignment.AssignmentID)
+
+	if assignment.Interval <= 0 {
+		assignment.Interval = pluginDefaultInterval
+	}
+	if assignment.Timeout <= 0 {
+		assignment.Timeout = pluginDefaultTimeout
+	}
+
+	return assignment
+}
+
+func normalizeContentHash(hash string, log logger.Logger, assignmentID string) string {
+	if hash == "" {
+		return ""
+	}
+	canonical, err := hashutil.CanonicalHexSHA256(hash)
+	if err != nil {
+		log.Warn().Err(err).Str("assignment_id", assignmentID).Msg("Invalid content hash")
+		return ""
+	}
+	return canonical
+}
+
+func (p *pluginPermissions) normalize() {
+	p.allowedDomainSet = make(map[string]struct{})
+	for _, domain := range p.AllowedDomains {
+		trimmed := strings.ToLower(strings.TrimSpace(domain))
+		if trimmed == "" {
+			continue
+		}
+		p.allowedDomainSet[trimmed] = struct{}{}
+	}
+
+	p.allowedPortSet = make(map[int]struct{})
+	for _, port := range p.AllowedPorts {
+		if port <= 0 {
+			continue
+		}
+		p.allowedPortSet[port] = struct{}{}
+	}
+
+	p.allowedPrefixes = p.allowedPrefixes[:0]
+	for _, network := range p.AllowedNetworks {
+		trimmed := strings.TrimSpace(network)
+		if trimmed == "" {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(trimmed)
+		if err != nil {
+			continue
+		}
+		p.allowedPrefixes = append(p.allowedPrefixes, prefix)
+	}
+}
+
+func (p *pluginPermissions) allowsDomain(host string) bool {
+	if len(p.allowedDomainSet) == 0 {
+		return false
+	}
+
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if host == "" {
+		return false
+	}
+
+	if _, ok := p.allowedDomainSet["*"]; ok {
+		return true
+	}
+
+	if _, ok := p.allowedDomainSet[host]; ok {
+		return true
+	}
+
+	for entry := range p.allowedDomainSet {
+		if strings.HasPrefix(entry, "*.") {
+			base := strings.TrimPrefix(entry, "*.")
+			if host == base || strings.HasSuffix(host, "."+base) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (p *pluginPermissions) allowsPort(port int) bool {
+	if len(p.allowedPortSet) == 0 {
+		return true
+	}
+	_, ok := p.allowedPortSet[port]
+	return ok
+}
+
+func (p *pluginPermissions) allowsAddress(addr netip.Addr) bool {
+	if len(p.allowedPrefixes) == 0 {
+		return false
+	}
+	for _, prefix := range p.allowedPrefixes {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *PluginManager) execute(ctx context.Context, assignment *pluginAssignment) error {
+	wasm, err := m.loadWasm(ctx, assignment)
+	if err != nil {
+		return err
+	}
+
+	memPages := memoryPages(assignment.Resources.RequestedMemoryMB)
+	runtimeCfg := wazero.NewRuntimeConfig()
+	if memPages > 0 {
+		runtimeCfg = runtimeCfg.WithMemoryLimitPages(memPages)
+	}
+
+	runtime := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
+	defer runtime.Close(ctx)
+
+	exec := newPluginExecution(m, assignment)
+	if err := exec.instantiateHostModule(ctx, runtime); err != nil {
+		return err
+	}
+
+	if assignment.Runtime == "wasi-preview1" {
+		if _, err := wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
+			return fmt.Errorf("instantiate wasi: %w", err)
+		}
+	}
+
+	modConfig := wazero.NewModuleConfig().WithName(assignment.AssignmentID)
+
+	module, err := runtime.InstantiateWithConfig(ctx, wasm, modConfig)
+	if err != nil {
+		return fmt.Errorf("instantiate module: %w", err)
+	}
+	defer module.Close(ctx)
+
+	entrypoint := module.ExportedFunction(assignment.Entrypoint)
+	if entrypoint == nil {
+		return fmt.Errorf("entrypoint not found: %s", assignment.Entrypoint)
+	}
+
+	if _, err := entrypoint.Call(ctx); err != nil {
+		return fmt.Errorf("entrypoint failed: %w", err)
+	}
+
+	if !exec.hasSubmitted() {
+		m.enqueueResult(buildPluginErrorResult(assignment, "no result submitted"))
+	}
+
+	exec.closeAll()
+
+	return nil
+}
+
+func memoryPages(requestedMB int) uint32 {
+	if requestedMB <= 0 {
+		return 0
+	}
+	bytes := int64(requestedMB) * 1024 * 1024
+	pages := bytes / (64 * 1024)
+	if bytes%(64*1024) != 0 {
+		pages++
+	}
+	if pages < 1 {
+		pages = 1
+	}
+	if pages > int64(^uint32(0)) {
+		return ^uint32(0)
+	}
+	return uint32(pages)
+}
+
+func (m *PluginManager) loadWasm(ctx context.Context, assignment *pluginAssignment) ([]byte, error) {
+	cachePath := m.cachePath(assignment)
+	if cachePath != "" {
+		if data, err := os.ReadFile(cachePath); err == nil {
+			if err := verifyContentHash(data, assignment.ContentHash); err == nil {
+				return data, nil
+			}
+			_ = os.Remove(cachePath)
+		}
+	}
+
+	if assignment.DownloadURL != "" {
+		data, err := m.downloadWasm(ctx, assignment.DownloadURL)
+		if err != nil {
+			return nil, err
+		}
+		if err := verifyContentHash(data, assignment.ContentHash); err != nil {
+			return nil, err
+		}
+		m.persistCache(cachePath, data)
+		return data, nil
+	}
+
+	if assignment.WasmObject != "" {
+		if localPath, err := safeJoin(m.localStoreDir, assignment.WasmObject); err == nil {
+			if data, err := os.ReadFile(localPath); err == nil {
+				if err := verifyContentHash(data, assignment.ContentHash); err != nil {
+					return nil, err
+				}
+				m.persistCache(cachePath, data)
+				return data, nil
+			}
+		}
+	}
+
+	return nil, errPluginWasmUnavailable
+}
+
+func (m *PluginManager) cachePath(assignment *pluginAssignment) string {
+	key := assignment.ContentHash
+	if key == "" {
+		key = assignment.PackageID
+	}
+	if key == "" {
+		key = assignment.AssignmentID
+	}
+	if key == "" {
+		return ""
+	}
+	return filepath.Join(m.cacheDir, key+".wasm")
+}
+
+func (m *PluginManager) persistCache(path string, data []byte) {
+	if path == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0o640)
+}
+
+func (m *PluginManager) downloadWasm(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download failed with status %d", resp.StatusCode)
+	}
+
+	limited := io.LimitReader(resp.Body, pluginMaxWasmBytes+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > pluginMaxWasmBytes {
+		return nil, fmt.Errorf("download exceeds %d bytes", pluginMaxWasmBytes)
+	}
+	return data, nil
+}
+
+func verifyContentHash(data []byte, expected string) error {
+	if expected == "" {
+		return nil
+	}
+	sum := sha256.Sum256(data)
+	if !hashutil.EqualSHA256(expected, sum) {
+		return fmt.Errorf("content hash mismatch")
+	}
+	return nil
+}
+
+func safeJoin(base, target string) (string, error) {
+	clean := filepath.Clean(strings.TrimSpace(target))
+	if clean == "" || clean == "." {
+		return "", fmt.Errorf("invalid path")
+	}
+	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+		return "", fmt.Errorf("invalid path")
+	}
+	return filepath.Join(base, clean), nil
+}
+
+type pluginExecution struct {
+	manager    *PluginManager
+	assignment *pluginAssignment
+	mu         sync.Mutex
+	conns      map[uint32]net.Conn
+	nextHandle uint32
+	submitted  bool
+}
+
+func newPluginExecution(manager *PluginManager, assignment *pluginAssignment) *pluginExecution {
+	return &pluginExecution{
+		manager:    manager,
+		assignment: assignment,
+		conns:      make(map[uint32]net.Conn),
+		nextHandle: 1,
+	}
+}
+
+func (e *pluginExecution) instantiateHostModule(ctx context.Context, runtime wazero.Runtime) error {
+	builder := runtime.NewHostModuleBuilder(pluginHostModule)
+
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostGetConfig).
+		Export("get_config")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostLog).
+		Export("log")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostSubmitResult).
+		Export("submit_result")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostHTTPRequest).
+		Export("http_request")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostTCPConnect).
+		Export("tcp_connect")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostTCPRead).
+		Export("tcp_read")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostTCPWrite).
+		Export("tcp_write")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostTCPClose).
+		Export("tcp_close")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostUDPSendTo).
+		Export("udp_sendto")
+
+	_, err := builder.Instantiate(ctx)
+	return err
+}
+
+func (e *pluginExecution) hostGetConfig(_ context.Context, mod api.Module, ptr, size uint32) int32 {
+	if !e.hasCapability("get_config") {
+		return pluginErrDenied
+	}
+
+	payload := e.assignment.ParamsJSON
+	if len(payload) == 0 {
+		return pluginErrOK
+	}
+
+	if len(payload) > int(size) {
+		return pluginErrTooLarge
+	}
+
+	if !writeMemory(mod, ptr, payload) {
+		return pluginErrInvalid
+	}
+
+	return int32(len(payload))
+}
+
+func (e *pluginExecution) hostLog(_ context.Context, mod api.Module, level uint32, ptr, size uint32) {
+	if !e.hasCapability("log") {
+		return
+	}
+
+	msg, ok := readMemory(mod, ptr, size)
+	if !ok {
+		return
+	}
+	if len(msg) > pluginMaxPayloadBytes {
+		msg = msg[:pluginMaxPayloadBytes]
+	}
+	text := strings.TrimSpace(string(msg))
+	if text == "" {
+		return
+	}
+
+	switch level {
+	case 0:
+		e.manager.logger.Debug().Str("assignment_id", e.assignment.AssignmentID).Msg(text)
+	case 1:
+		e.manager.logger.Info().Str("assignment_id", e.assignment.AssignmentID).Msg(text)
+	case 2:
+		e.manager.logger.Warn().Str("assignment_id", e.assignment.AssignmentID).Msg(text)
+	default:
+		e.manager.logger.Error().Str("assignment_id", e.assignment.AssignmentID).Msg(text)
+	}
+}
+
+func (e *pluginExecution) hostSubmitResult(_ context.Context, mod api.Module, ptr, size uint32) int32 {
+	if !e.hasCapability("submit_result") {
+		return pluginErrDenied
+	}
+
+	if size == 0 {
+		return pluginErrInvalid
+	}
+
+	payload, ok := readMemory(mod, ptr, size)
+	if !ok {
+		return pluginErrInvalid
+	}
+	if len(payload) > pluginMaxPayloadBytes {
+		return pluginErrTooLarge
+	}
+
+	e.manager.enqueueResult(PluginResult{
+		AssignmentID: e.assignment.AssignmentID,
+		PluginID:     e.assignment.PluginID,
+		PluginName:   e.assignment.Name,
+		Payload:      payload,
+		ObservedAt:   time.Now().UTC(),
+	})
+	e.markSubmitted()
+
+	return pluginErrOK
+}
+
+type httpRequestPayload struct {
+	Method     string            `json:"method"`
+	URL        string            `json:"url"`
+	Headers    map[string]string `json:"headers"`
+	Body       string            `json:"body"`
+	BodyBase64 string            `json:"body_base64"`
+	TimeoutMS  int               `json:"timeout_ms"`
+}
+
+type httpResponsePayload struct {
+	Status       int               `json:"status"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	BodyBase64   string            `json:"body_base64"`
+	BodyEncoding string            `json:"body_encoding,omitempty"`
+}
+
+func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, reqPtr, reqLen, respPtr, respLen uint32) int32 {
+	if !e.hasCapability("http_request") {
+		return pluginErrDenied
+	}
+
+	reqBytes, ok := readMemory(mod, reqPtr, reqLen)
+	if !ok {
+		return pluginErrInvalid
+	}
+	if len(reqBytes) > pluginMaxPayloadBytes {
+		return pluginErrTooLarge
+	}
+
+	var payload httpRequestPayload
+	if err := json.Unmarshal(reqBytes, &payload); err != nil {
+		return pluginErrInvalid
+	}
+
+	reqURL, err := url.Parse(strings.TrimSpace(payload.URL))
+	if err != nil || reqURL.Host == "" {
+		return pluginErrInvalid
+	}
+
+	host := reqURL.Hostname()
+	if !e.assignment.Permissions.allowsDomain(host) {
+		return pluginErrDenied
+	}
+
+	method := strings.ToUpper(strings.TrimSpace(payload.Method))
+	if method == "" {
+		method = http.MethodGet
+	}
+
+	body, err := decodeBody(payload)
+	if err != nil {
+		return pluginErrInvalid
+	}
+
+	timeout := pluginDefaultHTTPTimeout
+	if payload.TimeoutMS > 0 {
+		timeout = time.Duration(payload.TimeoutMS) * time.Millisecond
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(reqCtx, method, reqURL.String(), bytes.NewReader(body))
+	if err != nil {
+		return pluginErrInvalid
+	}
+
+	for key, value := range payload.Headers {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		httpReq.Header.Set(key, value)
+	}
+
+	resp, err := e.manager.httpClient.Do(httpReq)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return pluginErrTimeout
+		}
+		return pluginErrInternal
+	}
+	defer resp.Body.Close()
+
+	limited := io.LimitReader(resp.Body, pluginMaxHTTPBodyBytes+1)
+	bodyBytes, err := io.ReadAll(limited)
+	if err != nil {
+		return pluginErrInternal
+	}
+	if int64(len(bodyBytes)) > pluginMaxHTTPBodyBytes {
+		return pluginErrTooLarge
+	}
+
+	responsePayload := httpResponsePayload{
+		Status:       resp.StatusCode,
+		Headers:      flattenHeaders(resp.Header),
+		BodyBase64:   base64.StdEncoding.EncodeToString(bodyBytes),
+		BodyEncoding: "base64",
+	}
+
+	responseBytes, err := json.Marshal(responsePayload)
+	if err != nil {
+		return pluginErrInternal
+	}
+	if len(responseBytes) > int(respLen) {
+		return pluginErrTooLarge
+	}
+
+	if !writeMemory(mod, respPtr, responseBytes) {
+		return pluginErrInvalid
+	}
+
+	return int32(len(responseBytes))
+}
+
+func decodeBody(payload httpRequestPayload) ([]byte, error) {
+	if payload.BodyBase64 != "" {
+		return base64.StdEncoding.DecodeString(payload.BodyBase64)
+	}
+	if payload.Body != "" {
+		return []byte(payload.Body), nil
+	}
+	return nil, nil
+}
+
+func flattenHeaders(headers http.Header) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+
+	flat := make(map[string]string, len(headers))
+	for key, values := range headers {
+		if len(values) == 0 {
+			continue
+		}
+		flat[key] = strings.Join(values, ",")
+	}
+	return flat
+}
+
+func (e *pluginExecution) hostTCPConnect(ctx context.Context, mod api.Module, addrPtr, addrLen, port, timeoutMS uint32) int32 {
+	if !e.hasCapability("tcp_connect") {
+		return pluginErrDenied
+	}
+
+	addrBytes, ok := readMemory(mod, addrPtr, addrLen)
+	if !ok {
+		return pluginErrInvalid
+	}
+	host := strings.TrimSpace(string(addrBytes))
+	if host == "" {
+		return pluginErrInvalid
+	}
+
+	if !e.assignment.Permissions.allowsPort(int(port)) {
+		return pluginErrDenied
+	}
+
+	ip, allowed := e.resolveAllowedAddr(ctx, host)
+	if !allowed {
+		return pluginErrDenied
+	}
+
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = e.assignment.Timeout
+	}
+
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip.String(), fmt.Sprintf("%d", port)), timeout)
+	if err != nil {
+		return pluginErrInternal
+	}
+
+	handle := e.storeConn(conn)
+	if handle == 0 {
+		_ = conn.Close()
+		return pluginErrTooLarge
+	}
+
+	return int32(handle)
+}
+
+func (e *pluginExecution) hostTCPRead(_ context.Context, mod api.Module, handle, bufPtr, bufLen, timeoutMS uint32) int32 {
+	if !e.hasCapability("tcp_read") {
+		return pluginErrDenied
+	}
+
+	conn := e.getConn(handle)
+	if conn == nil {
+		return pluginErrBadHandle
+	}
+
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = e.assignment.Timeout
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(timeout))
+
+	if bufLen == 0 {
+		return pluginErrInvalid
+	}
+
+	readBuf := make([]byte, bufLen)
+	n, err := conn.Read(readBuf)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return pluginErrInternal
+	}
+
+	if n == 0 {
+		return pluginErrOK
+	}
+
+	if !writeMemory(mod, bufPtr, readBuf[:n]) {
+		return pluginErrInvalid
+	}
+
+	return int32(n)
+}
+
+func (e *pluginExecution) hostTCPWrite(_ context.Context, mod api.Module, handle, bufPtr, bufLen, timeoutMS uint32) int32 {
+	if !e.hasCapability("tcp_write") {
+		return pluginErrDenied
+	}
+
+	conn := e.getConn(handle)
+	if conn == nil {
+		return pluginErrBadHandle
+	}
+
+	data, ok := readMemory(mod, bufPtr, bufLen)
+	if !ok {
+		return pluginErrInvalid
+	}
+
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = e.assignment.Timeout
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(timeout))
+
+	n, err := conn.Write(data)
+	if err != nil {
+		return pluginErrInternal
+	}
+	return int32(n)
+}
+
+func (e *pluginExecution) hostTCPClose(_ context.Context, _ api.Module, handle uint32) int32 {
+	if !e.hasCapability("tcp_close") {
+		return pluginErrDenied
+	}
+
+	conn := e.deleteConn(handle)
+	if conn == nil {
+		return pluginErrBadHandle
+	}
+	_ = conn.Close()
+	return pluginErrOK
+}
+
+func (e *pluginExecution) hostUDPSendTo(ctx context.Context, mod api.Module, addrPtr, addrLen, port, bufPtr, bufLen, timeoutMS uint32) int32 {
+	if !e.hasCapability("udp_sendto") {
+		return pluginErrDenied
+	}
+
+	addrBytes, ok := readMemory(mod, addrPtr, addrLen)
+	if !ok {
+		return pluginErrInvalid
+	}
+	host := strings.TrimSpace(string(addrBytes))
+	if host == "" {
+		return pluginErrInvalid
+	}
+
+	if !e.assignment.Permissions.allowsPort(int(port)) {
+		return pluginErrDenied
+	}
+
+	ip, allowed := e.resolveAllowedAddr(ctx, host)
+	if !allowed {
+		return pluginErrDenied
+	}
+
+	payload, ok := readMemory(mod, bufPtr, bufLen)
+	if !ok {
+		return pluginErrInvalid
+	}
+
+	raddr := &net.UDPAddr{IP: net.ParseIP(ip.String()), Port: int(port)}
+	conn, err := net.DialUDP("udp", nil, raddr)
+	if err != nil {
+		return pluginErrInternal
+	}
+	defer conn.Close()
+
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = e.assignment.Timeout
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(timeout))
+
+	n, err := conn.Write(payload)
+	if err != nil {
+		return pluginErrInternal
+	}
+
+	return int32(n)
+}
+
+func (e *pluginExecution) hasCapability(capability string) bool {
+	if e.assignment.Capabilities == nil {
+		return false
+	}
+	return e.assignment.Capabilities[capability]
+}
+
+func (e *pluginExecution) resolveAllowedAddr(ctx context.Context, host string) (netip.Addr, bool) {
+	addr, err := netip.ParseAddr(host)
+	if err == nil {
+		return addr, e.assignment.Permissions.allowsAddress(addr)
+	}
+
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil || len(addrs) == 0 {
+		return netip.Addr{}, false
+	}
+
+	for _, candidate := range addrs {
+		if addr, ok := netip.AddrFromSlice(candidate.IP); ok {
+			if e.assignment.Permissions.allowsAddress(addr) {
+				return addr, true
+			}
+		}
+	}
+
+	return netip.Addr{}, false
+}
+
+func (e *pluginExecution) storeConn(conn net.Conn) uint32 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	max := e.assignment.Resources.MaxOpenConnections
+	if max > 0 && len(e.conns) >= max {
+		return 0
+	}
+
+	handle := e.nextHandle
+	e.nextHandle++
+	e.conns[handle] = conn
+	return handle
+}
+
+func (e *pluginExecution) getConn(handle uint32) net.Conn {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.conns[handle]
+}
+
+func (e *pluginExecution) deleteConn(handle uint32) net.Conn {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	conn := e.conns[handle]
+	delete(e.conns, handle)
+	return conn
+}
+
+func (e *pluginExecution) closeAll() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for handle, conn := range e.conns {
+		_ = conn.Close()
+		delete(e.conns, handle)
+	}
+}
+
+func (e *pluginExecution) markSubmitted() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.submitted = true
+}
+
+func (e *pluginExecution) hasSubmitted() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.submitted
+}
+
+func readMemory(mod api.Module, ptr, size uint32) ([]byte, bool) {
+	mem := mod.Memory()
+	if mem == nil {
+		return nil, false
+	}
+	data, ok := mem.Read(ptr, size)
+	if !ok {
+		return nil, false
+	}
+	out := make([]byte, len(data))
+	copy(out, data)
+	return out, true
+}
+
+func writeMemory(mod api.Module, ptr uint32, data []byte) bool {
+	mem := mod.Memory()
+	if mem == nil {
+		return false
+	}
+	return mem.Write(ptr, data)
+}

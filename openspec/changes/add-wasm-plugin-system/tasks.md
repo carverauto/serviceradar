@@ -6,8 +6,8 @@
 - [x] 1.4a Add admin API endpoints for plugins, packages, and agent assignments
 - [x] 1.4b Add upload/download endpoints (signed URL) for wasm packages
 - [x] 1.5 Extend agent config delivery (proto + gateway/core wiring) with plugin assignments
-- [ ] 1.6 Embed wazero runtime in the agent and implement host function ABI
-- [ ] 1.7 Implement result schema validation and mapping into `GatewayServiceStatus`
+- [x] 1.6 Embed wazero runtime in the agent and implement host function ABI
+- [x] 1.7 Implement result schema validation and mapping into `GatewayServiceStatus`
 - [ ] 1.8 Implement resource budgeting (per-agent limits + per-plugin requests + admission control)
 - [ ] 1.9 Emit agent telemetry for Wasm engine health and resource usage
 - [ ] 1.10 Extend agent-gateway/core ingestion to support `serviceradar.plugin_result.v1` without breaking existing checkers
