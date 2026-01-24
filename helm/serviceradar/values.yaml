@@ -341,14 +341,14 @@ spire:
         cpu: 50m
         memory: 256Mi
 ingress:
-  enabled: true
-  host: demo.serviceradar.cloud
+  enabled: false
+  host: ""
   className: nginx
   annotations: {}
   tls:
-    enabled: true
-    secretName: serviceradar-prod-tls
-    clusterIssuer: carverauto-issuer
+    enabled: false
+    secretName: ""
+    clusterIssuer: ""
 secrets:
   autoGenerate: true
   existingSecretName: serviceradar-secrets
