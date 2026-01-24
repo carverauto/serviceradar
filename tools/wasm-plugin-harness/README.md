@@ -15,6 +15,8 @@ This harness builds a minimal TinyGo Wasm plugin that submits a simple OK result
 ./build.sh
 ```
 
+On macOS, install TinyGo with Homebrew (`brew install tinygo`) or set `TINYGO_BIN` to a custom path.
+
 Output:
 
 - `dist/plugin.wasm`
