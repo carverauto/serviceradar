@@ -370,7 +370,7 @@ GET /api/admin/edge-packages
 POST /api/admin/edge-packages/:id/revoke
 ```
 
-See the [API Documentation](/api-reference) for complete details.
+See the [API Documentation](/api/) for complete details.
 
 ---
 
