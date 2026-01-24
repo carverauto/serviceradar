@@ -184,27 +184,26 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
     match filter.field.as_str() {
         "gateway_id" | "agent_id" | "metric_name" | "metric_type" | "device_id"
         | "target_device_ip" | "partition" => collect_text_params(params, filter),
-        "if_index" => {
-            match filter.op {
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = parse_i32_list(filter.value.as_list()?)?;
-                    if values.is_empty() {
-                        return Ok(());
-                    }
-                    params.push(BindParam::IntArray(values.into_iter().map(i64::from).collect()));
-                    Ok(())
+        "if_index" => match filter.op {
+            FilterOp::In | FilterOp::NotIn => {
+                let values = parse_i32_list(filter.value.as_list()?)?;
+                if values.is_empty() {
+                    return Ok(());
                 }
-                _ => {
-                    let value = filter
-                        .value
-                        .as_scalar()?
-                        .parse::<i32>()
-                        .map_err(|_| ServiceError::InvalidRequest("invalid if_index value".into()))?;
-                    params.push(BindParam::Int(i64::from(value)));
-                    Ok(())
-                }
+                params.push(BindParam::IntArray(
+                    values.into_iter().map(i64::from).collect(),
+                ));
+                Ok(())
             }
-        }
+            _ => {
+                let value =
+                    filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                        ServiceError::InvalidRequest("invalid if_index value".into())
+                    })?;
+                params.push(BindParam::Int(i64::from(value)));
+                Ok(())
+            }
+        },
         "value" => {
             let value = parse_f64(filter.value.as_scalar()?)?;
             params.push(BindParam::Float(value));
