@@ -78,7 +78,7 @@ type DiscoveryParams struct {
 	Timeout     time.Duration     // Timeout for each operation
 	Retries     int               // Number of retries for failed operations
 	AgentID     string            // ID of the agent performing discovery
-	GatewayID    string            // ID of the gateway initiating discovery
+	GatewayID   string            // ID of the gateway initiating discovery
 }
 
 // SNMPCredentials contains information needed to authenticate with SNMP devices.
@@ -137,6 +137,7 @@ type DiscoveryJob struct {
 	mu             sync.RWMutex
 	uniFiSiteCache map[string][]UniFiSite         // Key: baseURL, Value: list of sites
 	deviceMap      map[string]*DeviceInterfaceMap // DeviceID -> DeviceInterfaceMap
+	interfaceMap   map[string]*DiscoveredInterface
 }
 
 // DiscoveryResults contains the results of a discovery operation.
@@ -273,7 +274,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			InterfaceStream      string `json:"interface_stream"`
 			TopologyStream       string `json:"topology_stream"`
 			AgentID              string `json:"agent_id"`
-			GatewayID             string `json:"gateway_id"`
+			GatewayID            string `json:"gateway_id"`
 			Partition            string `json:"partition"`
 			PublishBatchSize     int    `json:"publish_batch_size"`
 			PublishRetries       int    `json:"publish_retries"`
@@ -359,7 +360,7 @@ type StreamConfig struct {
 	InterfaceStream      string
 	TopologyStream       string
 	AgentID              string
-	GatewayID             string
+	GatewayID            string
 	Partition            string
 	PublishBatchSize     int
 	PublishRetries       int

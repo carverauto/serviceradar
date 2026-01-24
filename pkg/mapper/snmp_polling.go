@@ -93,19 +93,19 @@ const (
 	// oidCdpCacheAddress    = ".1.3.6.1.4.1.9.9.23.1.2.1.1.4"
 
 	// Interface metrics OIDs (32-bit counters from IF-MIB)
-	oidIfInOctets    = ".1.3.6.1.2.1.2.2.1.10"
-	oidIfOutOctets   = ".1.3.6.1.2.1.2.2.1.16"
-	oidIfInErrors    = ".1.3.6.1.2.1.2.2.1.14"
-	oidIfOutErrors   = ".1.3.6.1.2.1.2.2.1.20"
-	oidIfInDiscards  = ".1.3.6.1.2.1.2.2.1.13"
-	oidIfOutDiscards = ".1.3.6.1.2.1.2.2.1.19"
-	oidIfInUcastPkts = ".1.3.6.1.2.1.2.2.1.11"
+	oidIfInOctets     = ".1.3.6.1.2.1.2.2.1.10"
+	oidIfOutOctets    = ".1.3.6.1.2.1.2.2.1.16"
+	oidIfInErrors     = ".1.3.6.1.2.1.2.2.1.14"
+	oidIfOutErrors    = ".1.3.6.1.2.1.2.2.1.20"
+	oidIfInDiscards   = ".1.3.6.1.2.1.2.2.1.13"
+	oidIfOutDiscards  = ".1.3.6.1.2.1.2.2.1.19"
+	oidIfInUcastPkts  = ".1.3.6.1.2.1.2.2.1.11"
 	oidIfOutUcastPkts = ".1.3.6.1.2.1.2.2.1.17"
 
 	// Interface metrics OIDs (64-bit counters from IF-MIB extensions)
-	oidIfHCInOctets    = ".1.3.6.1.2.1.31.1.1.1.6"
-	oidIfHCOutOctets   = ".1.3.6.1.2.1.31.1.1.1.10"
-	oidIfHCInUcastPkts = ".1.3.6.1.2.1.31.1.1.1.7"
+	oidIfHCInOctets     = ".1.3.6.1.2.1.31.1.1.1.6"
+	oidIfHCOutOctets    = ".1.3.6.1.2.1.31.1.1.1.10"
+	oidIfHCInUcastPkts  = ".1.3.6.1.2.1.31.1.1.1.7"
 	oidIfHCOutUcastPkts = ".1.3.6.1.2.1.31.1.1.1.11"
 
 	defaultMaxIPRange = 256 // Maximum IPs to process from a CIDR range
@@ -154,21 +154,18 @@ func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
 		return
 	}
 
-	// Lock the job while modifying results and device map
-	job.mu.Lock()
-	defer job.mu.Unlock()
-
+	job.mu.RLock()
 	var deviceID string
-
 	for _, device := range job.Results.Devices {
 		if device.IP == target {
 			deviceID = device.DeviceID
 			break
 		}
 	}
+	job.mu.RUnlock()
 
+	job.mu.Lock()
 	if deviceEntry, exists := job.deviceMap[deviceID]; exists {
-		deviceEntry.Interfaces = append(deviceEntry.Interfaces, interfaces...)
 		for _, iface := range interfaces {
 			deviceEntry.IPs[iface.DeviceIP] = struct{}{}
 			if iface.IfPhysAddress != "" {
@@ -176,16 +173,16 @@ func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
 			}
 		}
 	}
+	job.mu.Unlock()
 
-	job.Results.Interfaces = append(job.Results.Interfaces, interfaces...)
-
-	if e.publisher != nil {
-		for _, iface := range interfaces {
-			if err := e.publisher.PublishInterface(job.ctx, iface); err != nil {
-				e.logger.Error().Str("job_id", job.ID).Str("target", target).
-					Int32("if_index", iface.IfIndex).Err(err).Msg("Failed to publish interface")
-			}
+	for _, iface := range interfaces {
+		if iface.DeviceID == "" && deviceID != "" {
+			iface.DeviceID = deviceID
 		}
+		if iface.DeviceIP == "" {
+			iface.DeviceIP = target
+		}
+		e.upsertInterface(job, iface)
 	}
 }
 

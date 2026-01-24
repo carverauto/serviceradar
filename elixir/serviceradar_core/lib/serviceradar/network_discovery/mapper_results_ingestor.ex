@@ -395,6 +395,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp insert_bulk([], _resource, _actor, _label), do: :ok
 
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp insert_bulk(records, resource, actor, label) do
     {prepared_records, opts} = prepare_bulk_records(records, resource, actor)
 
