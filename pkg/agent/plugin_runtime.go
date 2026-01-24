@@ -65,7 +65,14 @@ const (
 	pluginErrBadHandle int32 = -7
 )
 
-var errPluginWasmUnavailable = errors.New("plugin wasm unavailable")
+var (
+	errPluginWasmUnavailable = errors.New("plugin wasm unavailable")
+	errEntrypointNotFound    = errors.New("entrypoint not found")
+	errDownloadFailed        = errors.New("download failed")
+	errDownloadTooLarge      = errors.New("download too large")
+	errContentHashMismatch   = errors.New("content hash mismatch")
+	errInvalidPath           = errors.New("invalid path")
+)
 
 // PluginManagerConfig configures the Wasm plugin manager.
 type PluginManagerConfig struct {
@@ -249,12 +256,6 @@ func (m *PluginManager) setLimits(limits pluginEngineLimits) {
 	m.limitsMu.Lock()
 	defer m.limitsMu.Unlock()
 	m.limits = limits
-}
-
-func (m *PluginManager) getLimits() pluginEngineLimits {
-	m.limitsMu.Lock()
-	defer m.limitsMu.Unlock()
-	return m.limits
 }
 
 func (m *PluginManager) acquireSlot() bool {
@@ -775,7 +776,9 @@ func (m *PluginManager) execute(ctx context.Context, assignment *pluginAssignmen
 	}
 
 	runtime := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
-	defer runtime.Close(ctx)
+	defer func() {
+		_ = runtime.Close(ctx)
+	}()
 
 	exec := newPluginExecution(m, assignment)
 	if err := exec.instantiateHostModule(ctx, runtime); err != nil {
@@ -794,11 +797,13 @@ func (m *PluginManager) execute(ctx context.Context, assignment *pluginAssignmen
 	if err != nil {
 		return fmt.Errorf("instantiate module: %w", err)
 	}
-	defer module.Close(ctx)
+	defer func() {
+		_ = module.Close(ctx)
+	}()
 
 	entrypoint := module.ExportedFunction(assignment.Entrypoint)
 	if entrypoint == nil {
-		return fmt.Errorf("entrypoint not found: %s", assignment.Entrypoint)
+		return fmt.Errorf("%w: %s", errEntrypointNotFound, assignment.Entrypoint)
 	}
 
 	if _, err := entrypoint.Call(ctx); err != nil {
@@ -904,10 +909,12 @@ func (m *PluginManager) downloadWasm(ctx context.Context, url string) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download failed with status %d", resp.StatusCode)
+		return nil, fmt.Errorf("%w: status %d", errDownloadFailed, resp.StatusCode)
 	}
 
 	limited := io.LimitReader(resp.Body, pluginMaxWasmBytes+1)
@@ -916,7 +923,7 @@ func (m *PluginManager) downloadWasm(ctx context.Context, url string) ([]byte, e
 		return nil, err
 	}
 	if int64(len(data)) > pluginMaxWasmBytes {
-		return nil, fmt.Errorf("download exceeds %d bytes", pluginMaxWasmBytes)
+		return nil, fmt.Errorf("%w: %d bytes", errDownloadTooLarge, pluginMaxWasmBytes)
 	}
 	return data, nil
 }
@@ -927,7 +934,7 @@ func verifyContentHash(data []byte, expected string) error {
 	}
 	sum := sha256.Sum256(data)
 	if !hashutil.EqualSHA256(expected, sum) {
-		return fmt.Errorf("content hash mismatch")
+		return errContentHashMismatch
 	}
 	return nil
 }
@@ -935,10 +942,10 @@ func verifyContentHash(data []byte, expected string) error {
 func safeJoin(base, target string) (string, error) {
 	clean := filepath.Clean(strings.TrimSpace(target))
 	if clean == "" || clean == "." {
-		return "", fmt.Errorf("invalid path")
+		return "", errInvalidPath
 	}
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
-		return "", fmt.Errorf("invalid path")
+		return "", errInvalidPath
 	}
 	return filepath.Join(base, clean), nil
 }
@@ -1156,7 +1163,9 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		}
 		return pluginErrInternal
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	limited := io.LimitReader(resp.Body, pluginMaxHTTPBodyBytes+1)
 	bodyBytes, err := io.ReadAll(limited)
@@ -1242,7 +1251,8 @@ func (e *pluginExecution) hostTCPConnect(ctx context.Context, mod api.Module, ad
 		timeout = e.assignment.Timeout
 	}
 
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip.String(), fmt.Sprintf("%d", port)), timeout)
+	dialer := net.Dialer{Timeout: timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), fmt.Sprintf("%d", port)))
 	if err != nil {
 		return pluginErrInternal
 	}
@@ -1367,7 +1377,9 @@ func (e *pluginExecution) hostUDPSendTo(ctx context.Context, mod api.Module, add
 	if err != nil {
 		return pluginErrInternal
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	timeout := time.Duration(timeoutMS) * time.Millisecond
 	if timeout <= 0 {

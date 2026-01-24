@@ -9,6 +9,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
+const unknownStatus = "UNKNOWN"
+
 func TestAdmitAssignmentsEnforcesLimits(t *testing.T) {
 	mgr := &PluginManager{logger: logger.NewTestLogger()}
 
@@ -157,8 +159,8 @@ func TestBuildPluginErrorPayload(t *testing.T) {
 		t.Fatalf("failed to unmarshal payload: %v", err)
 	}
 
-	if payload["status"] != "UNKNOWN" {
-		t.Fatalf("expected UNKNOWN status")
+	if payload["status"] != unknownStatus {
+		t.Fatalf("expected %s status", unknownStatus)
 	}
 	if _, ok := payload["summary"].(string); !ok {
 		t.Fatalf("expected summary to be a string")

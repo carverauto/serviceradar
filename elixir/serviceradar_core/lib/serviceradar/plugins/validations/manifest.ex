@@ -21,16 +21,8 @@ defmodule ServiceRadar.Plugins.Validations.Manifest do
         Map.get(changeset.data, :config_schema)
 
     errors =
-      case Manifest.from_map(manifest) do
-        {:ok, _manifest} -> []
-        {:error, errs} -> errs
-      end
-
-    errors =
-      case Manifest.validate_config_schema(config_schema) do
-        :ok -> errors
-        {:error, errs} -> errors ++ errs
-      end
+      manifest_errors(manifest) ++
+        config_schema_errors(config_schema)
 
     case errors do
       [] ->
@@ -44,6 +36,20 @@ defmodule ServiceRadar.Plugins.Validations.Manifest do
           |> Enum.join("; ")
 
         {:error, field: :manifest, message: message}
+    end
+  end
+
+  defp manifest_errors(manifest) do
+    case Manifest.from_map(manifest) do
+      {:ok, _manifest} -> []
+      {:error, errs} -> errs
+    end
+  end
+
+  defp config_schema_errors(config_schema) do
+    case Manifest.validate_config_schema(config_schema) do
+      :ok -> []
+      {:error, errs} -> errs
     end
   end
 end

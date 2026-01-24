@@ -111,7 +111,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
 
       with {:ok, package} <- Plugins.get_package(id, scope: scope),
            {:ok, package} <- ensure_object_key(package, scope),
-           {token, expires_at} <- Storage.sign_token(:upload, package.id, package.wasm_object_key, ttl) do
+           {token, expires_at} <-
+             Storage.sign_token(:upload, package.id, package.wasm_object_key, ttl) do
         json(conn, %{
           upload_url: Storage.upload_url(package.id, token),
           expires_at: format_datetime(expires_at),
@@ -157,14 +158,19 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
       _ = update_package_hash(package, content_hash)
       send_resp(conn, :created, "")
     else
-      {:error, :invalid_token} -> unauthorized(conn)
+      {:error, :invalid_token} ->
+        unauthorized(conn)
+
       {:error, :payload_too_large} ->
         conn
         |> put_status(:request_entity_too_large)
         |> json(%{error: "payload_too_large"})
 
-      false -> unauthorized(conn)
-      {:error, reason} -> {:error, reason}
+      false ->
+        unauthorized(conn)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -190,14 +196,19 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
           |> send_resp(200, data)
       end
     else
-      {:error, :invalid_token} -> unauthorized(conn)
-      false -> unauthorized(conn)
+      {:error, :invalid_token} ->
+        unauthorized(conn)
+
+      false ->
+        unauthorized(conn)
+
       {:error, :not_found} ->
         conn
         |> put_status(:not_found)
         |> json(%{error: "not_found"})
 
-      {:error, reason} -> {:error, reason}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -403,9 +414,14 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
     else
       read_body(conn, length: max_bytes - size, read_length: 1_000_000)
       |> case do
-        {:ok, body, conn} -> {:ok, acc <> body, conn}
-        {:more, body, conn} -> read_body_more(conn, max_bytes, acc <> body, size + byte_size(body))
-        {:error, reason} -> {:error, reason}
+        {:ok, body, conn} ->
+          {:ok, acc <> body, conn}
+
+        {:more, body, conn} ->
+          read_body_more(conn, max_bytes, acc <> body, size + byte_size(body))
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
@@ -419,7 +435,7 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   defp parse_ttl_seconds(nil, default), do: default
   defp parse_ttl_seconds("", default), do: default
 
-  defp parse_ttl_seconds(value, default) when is_integer(value) and value > 0 do
+  defp parse_ttl_seconds(value, _default) when is_integer(value) and value > 0 do
     value
   end
 

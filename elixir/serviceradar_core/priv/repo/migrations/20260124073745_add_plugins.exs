@@ -8,11 +8,7 @@ defmodule ServiceRadar.Repo.Migrations.AddPlugins do
   use Ecto.Migration
 
   def up do
-    alter table(:interface_settings) do
-      add :metric_groups, {:array, :map}, default: []
-    end
-
-    create table(:plugins, primary_key: false) do
+    create_if_not_exists table(:plugins, primary_key: false, prefix: "platform") do
       add :plugin_id, :text, null: false, primary_key: true
       add :name, :text, null: false
       add :description, :text
@@ -29,7 +25,7 @@ defmodule ServiceRadar.Repo.Migrations.AddPlugins do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create table(:plugin_packages, primary_key: false) do
+    create_if_not_exists table(:plugin_packages, primary_key: false, prefix: "platform") do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
 
       add :plugin_id,
@@ -37,7 +33,7 @@ defmodule ServiceRadar.Repo.Migrations.AddPlugins do
             column: :plugin_id,
             name: "plugin_packages_plugin_id_fkey",
             type: :text,
-            prefix: "public",
+            prefix: "platform",
             on_delete: :delete_all
           ), null: false
 
@@ -74,15 +70,28 @@ defmodule ServiceRadar.Repo.Migrations.AddPlugins do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create unique_index(:plugin_packages, [:plugin_id, :version],
-             name: "plugin_packages_unique_plugin_version_index"
-           )
+    create_if_not_exists unique_index(:plugin_packages, [:plugin_id, :version],
+                           name: "plugin_packages_unique_plugin_version_index",
+                           prefix: "platform"
+                         )
 
-    alter table(:snmp_profiles) do
-      add :oid_template_ids, {:array, :uuid}, default: []
-    end
+    execute """
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'platform'
+        AND table_name = 'snmp_profiles'
+        AND column_name = 'oid_template_ids'
+      ) THEN
+        ALTER TABLE platform.snmp_profiles
+        ADD COLUMN oid_template_ids uuid[] DEFAULT '{}';
+      END IF;
+    END $$;
+    """
 
-    create table(:plugin_assignments, primary_key: false) do
+    create_if_not_exists table(:plugin_assignments, primary_key: false, prefix: "platform") do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :agent_uid, :text, null: false
 
@@ -91,7 +100,7 @@ defmodule ServiceRadar.Repo.Migrations.AddPlugins do
             column: :id,
             name: "plugin_assignments_plugin_package_id_fkey",
             type: :uuid,
-            prefix: "public"
+            prefix: "platform"
           ), null: false
 
       add :enabled, :boolean, null: false, default: true
@@ -110,36 +119,37 @@ defmodule ServiceRadar.Repo.Migrations.AddPlugins do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create unique_index(:plugin_assignments, [:agent_uid, :plugin_package_id],
-             name: "plugin_assignments_unique_agent_package_index"
-           )
+    create_if_not_exists unique_index(:plugin_assignments, [:agent_uid, :plugin_package_id],
+                           name: "plugin_assignments_unique_agent_package_index",
+                           prefix: "platform"
+                         )
   end
 
   def down do
     drop_if_exists unique_index(:plugin_assignments, [:agent_uid, :plugin_package_id],
-                     name: "plugin_assignments_unique_agent_package_index"
+                     name: "plugin_assignments_unique_agent_package_index",
+                     prefix: "platform"
                    )
 
-    drop constraint(:plugin_assignments, "plugin_assignments_plugin_package_id_fkey")
+    drop constraint(:plugin_assignments, "plugin_assignments_plugin_package_id_fkey",
+           prefix: "platform"
+         )
 
-    drop table(:plugin_assignments)
+    drop table(:plugin_assignments, prefix: "platform")
 
-    alter table(:snmp_profiles) do
-      remove :oid_template_ids
+    alter table(:snmp_profiles, prefix: "platform") do
+      remove_if_exists :oid_template_ids
     end
 
     drop_if_exists unique_index(:plugin_packages, [:plugin_id, :version],
-                     name: "plugin_packages_unique_plugin_version_index"
+                     name: "plugin_packages_unique_plugin_version_index",
+                     prefix: "platform"
                    )
 
-    drop constraint(:plugin_packages, "plugin_packages_plugin_id_fkey")
+    drop constraint(:plugin_packages, "plugin_packages_plugin_id_fkey", prefix: "platform")
 
-    drop table(:plugin_packages)
+    drop table(:plugin_packages, prefix: "platform")
 
-    drop table(:plugins)
-
-    alter table(:interface_settings) do
-      remove :metric_groups
-    end
+    drop table(:plugins, prefix: "platform")
   end
 end

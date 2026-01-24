@@ -94,6 +94,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
     original_policy = Application.get_env(:serviceradar_web_ng, :plugin_verification)
 
     Application.put_env(:serviceradar_web_ng, :github_http_client, MockClient)
+
     Application.put_env(:serviceradar_web_ng, :plugin_verification,
       require_gpg_for_github: false,
       allow_unsigned_uploads: true
@@ -132,6 +133,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
 
   test "rejects unverified commits when policy requires gpg" do
     Application.put_env(:serviceradar_web_ng, :github_http_client, UnverifiedClient)
+
     Application.put_env(:serviceradar_web_ng, :plugin_verification,
       require_gpg_for_github: true,
       allow_unsigned_uploads: true

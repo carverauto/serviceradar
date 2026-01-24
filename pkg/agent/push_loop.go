@@ -51,8 +51,12 @@ const (
 )
 
 var (
-	errSweepMissingHosts  = errors.New("sweep data missing hosts field")
-	errSweepHostsNotArray = errors.New("hosts field is not an array")
+	errSweepMissingHosts    = errors.New("sweep data missing hosts field")
+	errSweepHostsNotArray   = errors.New("hosts field is not an array")
+	errPluginEmptyPayload   = errors.New("plugin payload empty")
+	errPluginMissingStatus  = errors.New("plugin status missing")
+	errPluginInvalidStatus  = errors.New("plugin status invalid")
+	errPluginMissingSummary = errors.New("plugin summary missing")
 )
 
 type icmpCheckConfig struct {
@@ -1299,7 +1303,7 @@ func (p *PushLoop) normalizePluginPayload(
 	partition string,
 ) ([]byte, bool, error) {
 	if len(result.Payload) == 0 {
-		return nil, false, errors.New("empty payload")
+		return nil, false, errPluginEmptyPayload
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(result.Payload))
@@ -1312,16 +1316,16 @@ func (p *PushLoop) normalizePluginPayload(
 
 	statusRaw, ok := payload["status"].(string)
 	if !ok {
-		return nil, false, errors.New("missing status")
+		return nil, false, errPluginMissingStatus
 	}
 	status := strings.ToUpper(strings.TrimSpace(statusRaw))
 	if !isValidPluginStatus(status) {
-		return nil, false, fmt.Errorf("invalid status: %s", statusRaw)
+		return nil, false, fmt.Errorf("%w: %s", errPluginInvalidStatus, statusRaw)
 	}
 
 	summary, ok := payload["summary"].(string)
 	if !ok || strings.TrimSpace(summary) == "" {
-		return nil, false, errors.New("missing summary")
+		return nil, false, errPluginMissingSummary
 	}
 
 	payload["status"] = status

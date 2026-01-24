@@ -70,7 +70,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     signature = sign(payload_json)
 
     token =
-      Base.url_encode64(payload_json, padding: false) <> "." <>
+      Base.url_encode64(payload_json, padding: false) <>
+        "." <>
         Base.url_encode64(signature, padding: false)
 
     {token, expires_at}
@@ -112,7 +113,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     end
   end
 
-  @spec fetch_blob(String.t()) :: {:ok, {:file, String.t()} | {:binary, binary()}} | {:error, term()}
+  @spec fetch_blob(String.t()) ::
+          {:ok, {:file, String.t()} | {:binary, binary()}} | {:error, term()}
   def fetch_blob(object_key) do
     case backend() do
       :filesystem -> fetch_blob_filesystem(object_key)
@@ -131,20 +133,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   @spec blob_exists?(String.t()) :: boolean()
   def blob_exists?(object_key) do
     case backend() do
-      :filesystem ->
-        case safe_path(object_key) do
-          {:ok, path} -> File.exists?(path)
-          {:error, _} -> false
-        end
-
-      :jetstream ->
-        case with_jetstream(fn conn ->
-               Jetstream.API.Object.info(conn, bucket_name(), object_key)
-             end) do
-          {:ok, _meta} -> true
-          {:error, %{"code" => 404}} -> false
-          {:error, _} -> false
-        end
+      :filesystem -> blob_exists_filesystem(object_key)
+      :jetstream -> blob_exists_jetstream(object_key)
     end
   end
 
@@ -218,10 +208,15 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   defp sanitize_segment(_), do: "unknown"
 
   defp put_blob_filesystem(object_key, payload) do
-    with {:ok, path} <- safe_path(object_key),
-         :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(path, payload) do
-      :ok
+    case safe_path(object_key) do
+      {:ok, path} ->
+        case File.mkdir_p(Path.dirname(path)) do
+          :ok -> File.write(path, payload)
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -250,22 +245,36 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   defp fetch_blob_jetstream(object_key) do
     with_jetstream(fn conn ->
       with {:ok, _} <- ensure_bucket(conn),
-           {:ok, io} <- StringIO.open("") do
-        case Jetstream.API.Object.get(conn, bucket_name(), object_key, fn chunk ->
+           {:ok, io} <- StringIO.open(""),
+           :ok <-
+             Jetstream.API.Object.get(conn, bucket_name(), object_key, fn chunk ->
                IO.binwrite(io, chunk)
              end) do
-          :ok ->
-            {_input, output} = StringIO.contents(io)
-            {:ok, {:binary, output}}
-
-          {:error, %{"code" => 404}} ->
-            {:error, :not_found}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+        {_input, output} = StringIO.contents(io)
+        {:ok, {:binary, output}}
+      else
+        {:error, %{"code" => 404}} -> {:error, :not_found}
+        {:error, reason} -> {:error, reason}
       end
     end)
+  end
+
+  defp blob_exists_filesystem(object_key) do
+    case safe_path(object_key) do
+      {:ok, path} -> File.exists?(path)
+      {:error, _} -> false
+    end
+  end
+
+  defp blob_exists_jetstream(object_key) do
+    with_jetstream(fn conn ->
+      Jetstream.API.Object.info(conn, bucket_name(), object_key)
+    end)
+    |> case do
+      {:ok, _meta} -> true
+      {:error, %{"code" => 404}} -> false
+      {:error, _} -> false
+    end
   end
 
   defp with_jetstream(fun) when is_function(fun, 1) do

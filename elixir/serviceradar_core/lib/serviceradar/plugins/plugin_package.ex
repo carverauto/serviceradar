@@ -12,7 +12,6 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
-
   postgres do
     table "plugin_packages"
     repo ServiceRadar.Repo

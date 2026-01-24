@@ -25,7 +25,9 @@ defmodule ServiceRadarWebNG.Plugins.Registry do
   end
 
   @spec get(String.t(), keyword()) :: {:ok, Plugin.t()} | {:error, :not_found} | {:error, term()}
-  def get(plugin_id, opts \\ []) when is_binary(plugin_id) do
+  def get(plugin_id, opts \\ [])
+
+  def get(plugin_id, opts) when is_binary(plugin_id) do
     scope = Keyword.get(opts, :scope)
 
     case read_one_by_id(plugin_id, scope) do
@@ -38,7 +40,9 @@ defmodule ServiceRadarWebNG.Plugins.Registry do
   def get(_plugin_id, _opts), do: {:error, :not_found}
 
   @spec create(map(), keyword()) :: {:ok, Plugin.t()} | {:error, term()}
-  def create(attrs, opts \\ []) when is_map(attrs) do
+  def create(attrs, opts \\ [])
+
+  def create(attrs, opts) when is_map(attrs) do
     scope = Keyword.get(opts, :scope)
 
     Plugin
@@ -49,7 +53,9 @@ defmodule ServiceRadarWebNG.Plugins.Registry do
   def create(_attrs, _opts), do: {:error, :invalid_attributes}
 
   @spec update(String.t(), map(), keyword()) :: {:ok, Plugin.t()} | {:error, term()}
-  def update(plugin_id, attrs, opts \\ []) when is_binary(plugin_id) and is_map(attrs) do
+  def update(plugin_id, attrs, opts \\ [])
+
+  def update(plugin_id, attrs, opts) when is_binary(plugin_id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
 
     with {:ok, plugin} <- get(plugin_id, scope: scope) do

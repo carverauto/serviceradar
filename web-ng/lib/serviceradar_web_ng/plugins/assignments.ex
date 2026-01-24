@@ -26,8 +26,11 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     read(query, scope)
   end
 
-  @spec get(String.t(), keyword()) :: {:ok, PluginAssignment.t()} | {:error, :not_found} | {:error, term()}
-  def get(id, opts \\ []) when is_binary(id) do
+  @spec get(String.t(), keyword()) ::
+          {:ok, PluginAssignment.t()} | {:error, :not_found} | {:error, term()}
+  def get(id, opts \\ [])
+
+  def get(id, opts) when is_binary(id) do
     scope = Keyword.get(opts, :scope)
 
     case read_one_by_id(id, scope) do
@@ -40,7 +43,9 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
   def get(_id, _opts), do: {:error, :not_found}
 
   @spec create(map(), keyword()) :: {:ok, PluginAssignment.t()} | {:error, term()}
-  def create(attrs, opts \\ []) when is_map(attrs) do
+  def create(attrs, opts \\ [])
+
+  def create(attrs, opts) when is_map(attrs) do
     scope = Keyword.get(opts, :scope)
     attrs = drop_nil_values(attrs)
 
@@ -52,7 +57,9 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
   def create(_attrs, _opts), do: {:error, :invalid_attributes}
 
   @spec update(String.t(), map(), keyword()) :: {:ok, PluginAssignment.t()} | {:error, term()}
-  def update(id, attrs, opts \\ []) when is_binary(id) and is_map(attrs) do
+  def update(id, attrs, opts \\ [])
+
+  def update(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
     attrs = drop_nil_values(attrs)
 
@@ -66,7 +73,9 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
   def update(_id, _attrs, _opts), do: {:error, :invalid_attributes}
 
   @spec delete(String.t(), keyword()) :: {:ok, PluginAssignment.t()} | {:error, term()}
-  def delete(id, opts \\ []) when is_binary(id) do
+  def delete(id, opts \\ [])
+
+  def delete(id, opts) when is_binary(id) do
     scope = Keyword.get(opts, :scope)
 
     with {:ok, assignment} <- get(id, scope: scope) do

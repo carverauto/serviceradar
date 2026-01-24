@@ -787,7 +787,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div class="text-sm font-semibold">Requested Capabilities</div>
               <div class="mt-2 flex flex-wrap gap-2">
                 <%= for cap <- requested_capabilities(@package) do %>
-                  <.ui_badge size="xs" variant="outline">{cap}</.ui_badge>
+                  <.ui_badge size="xs" variant="ghost">{cap}</.ui_badge>
                 <% end %>
                 <%= if requested_capabilities(@package) == [] do %>
                   <span class="text-xs text-base-content/50">None</span>
@@ -1030,7 +1030,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 name="review[denied_reason]"
                 value={@review_form["denied_reason"]}
                 class="input input-bordered w-full"
-                placeholder="Optional" />
+                placeholder="Optional"
+              />
             </div>
           </div>
 
@@ -1235,15 +1236,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       package = packages_by_id[assignment.plugin_package_id] ->
         approved = normalize_map(package.approved_resources)
 
-        cond do
-          map_present?(approved) ->
-            approved
-
-          true ->
-            normalize_map(
-              Map.get(package.manifest || %{}, "resources") ||
-                Map.get(package.manifest || %{}, :resources)
-            )
+        if map_present?(approved) do
+          approved
+        else
+          normalize_map(
+            Map.get(package.manifest || %{}, "resources") ||
+              Map.get(package.manifest || %{}, :resources)
+          )
         end
 
       true ->

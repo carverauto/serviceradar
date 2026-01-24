@@ -13,7 +13,10 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   def fetch(attrs) when is_map(attrs) do
     repo_url = fetch_value(attrs, [:source_repo_url, "source_repo_url"])
     commit = fetch_value(attrs, [:source_commit, "source_commit"])
-    manifest_path = fetch_value(attrs, [:manifest_path, "manifest_path"]) || @default_manifest_path
+
+    manifest_path =
+      fetch_value(attrs, [:manifest_path, "manifest_path"]) || @default_manifest_path
+
     wasm_path = fetch_value(attrs, [:wasm_path, "wasm_path"]) || @default_wasm_path
     config_schema = fetch_value(attrs, [:config_schema, "config_schema"]) || %{}
 
@@ -111,9 +114,9 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   end
 
   defp fetch_manifest(repo, ref, path) when is_binary(path) do
-    with {:ok, body} <- fetch_raw(repo, ref, path),
-         {:ok, manifest_map} <- decode_yaml(body) do
-      {:ok, manifest_map}
+    case fetch_raw(repo, ref, path) do
+      {:ok, body} -> decode_yaml(body)
+      {:error, reason} -> {:error, reason}
     end
   end
 

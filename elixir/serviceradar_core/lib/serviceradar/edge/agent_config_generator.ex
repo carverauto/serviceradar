@@ -130,6 +130,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         dusk_config = load_dusk_config(agent_id)
         plugin_assignments = load_plugin_assignments(agent_id)
         plugin_engine_limits = load_plugin_engine_limits(agent_id)
+        plugin_config = %{
+          assignments: plugin_assignments,
+          engine_limits: plugin_engine_limits
+        }
 
         config =
           build_config(
@@ -140,8 +144,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
             sysmon_config,
             snmp_config,
             dusk_config,
-            plugin_assignments,
-            plugin_engine_limits
+            plugin_config
           )
 
         {:ok, config}
@@ -387,10 +390,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          sysmon_config,
          snmp_config,
          dusk_config,
-         plugin_assignments,
-         plugin_engine_limits
+         plugin_config
        ) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
+    plugin_assignments = Map.get(plugin_config, :assignments, [])
+    plugin_engine_limits = Map.get(plugin_config, :engine_limits, %{})
 
     # Merge sweep config into the payload
     full_payload =

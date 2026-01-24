@@ -14,59 +14,20 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   def ingest(payload, status) when is_map(payload) do
     actor = SystemActor.system(:plugin_result_ingestor)
     created_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-
-    observed_at =
-      FieldParser.parse_timestamp(
-        fetch_value(payload, ["observed_at", "observedAt"]) ||
-          status[:agent_timestamp] ||
-          status[:timestamp]
-      )
-
-    summary =
-      fetch_string(payload, ["summary", "message"]) ||
-        fetch_string(payload, ["status"])
-
+    observed_at = resolve_observed_at(payload, status)
+    summary = resolve_summary(payload)
     status_label = fetch_string(payload, ["status"])
+    available = resolve_available(status, status_label)
 
-    available =
-      case status[:available] do
-        true -> true
-        false -> false
-        _ -> plugin_status_available(status_label)
-      end
-
-    service_name =
-      case status[:service_name] do
-        name when is_binary(name) and name != "" -> name
-        _ -> "plugin"
-      end
-
-    service_type =
-      case status[:service_type] do
-        type when is_binary(type) and type != "" -> type
-        _ -> "plugin"
-      end
-
-    gateway_id =
-      case status[:gateway_id] do
-        id when is_binary(id) and id != "" -> id
-        _ -> "unknown"
-      end
-
-    details = FieldParser.encode_json(payload)
-
-    status_row = %{
-      timestamp: observed_at,
-      gateway_id: gateway_id,
-      agent_id: status[:agent_id],
-      service_name: service_name,
-      service_type: service_type,
-      available: available,
-      message: summary,
-      details: details,
-      partition: status[:partition],
-      created_at: created_at
-    }
+    status_row =
+      build_status_row(
+        payload,
+        status,
+        observed_at,
+        created_at,
+        summary,
+        available
+      )
 
     with :ok <- insert_status(status_row, actor),
          :ok <- insert_metrics(payload, status, observed_at, created_at, actor) do
@@ -99,6 +60,63 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       {:error, error} -> {:error, error}
       other -> {:error, other}
     end
+  end
+
+  defp resolve_observed_at(payload, status) do
+    FieldParser.parse_timestamp(
+      fetch_value(payload, ["observed_at", "observedAt"]) ||
+        status[:agent_timestamp] ||
+        status[:timestamp]
+    )
+  end
+
+  defp resolve_summary(payload) do
+    fetch_string(payload, ["summary", "message"]) ||
+      fetch_string(payload, ["status"])
+  end
+
+  defp resolve_available(status, status_label) do
+    case status[:available] do
+      true -> true
+      false -> false
+      _ -> plugin_status_available(status_label)
+    end
+  end
+
+  defp resolve_service_name(status) do
+    case status[:service_name] do
+      name when is_binary(name) and name != "" -> name
+      _ -> "plugin"
+    end
+  end
+
+  defp resolve_service_type(status) do
+    case status[:service_type] do
+      type when is_binary(type) and type != "" -> type
+      _ -> "plugin"
+    end
+  end
+
+  defp resolve_gateway_id(status) do
+    case status[:gateway_id] do
+      id when is_binary(id) and id != "" -> id
+      _ -> "unknown"
+    end
+  end
+
+  defp build_status_row(payload, status, observed_at, created_at, summary, available) do
+    %{
+      timestamp: observed_at,
+      gateway_id: resolve_gateway_id(status),
+      agent_id: status[:agent_id],
+      service_name: resolve_service_name(status),
+      service_type: resolve_service_type(status),
+      available: available,
+      message: summary,
+      details: FieldParser.encode_json(payload),
+      partition: status[:partition],
+      created_at: created_at
+    }
   end
 
   defp insert_metrics(payload, status, observed_at, created_at, actor) do

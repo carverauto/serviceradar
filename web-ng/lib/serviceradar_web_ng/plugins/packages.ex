@@ -31,8 +31,11 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     read(query, scope)
   end
 
-  @spec get(String.t(), keyword()) :: {:ok, PluginPackage.t()} | {:error, :not_found} | {:error, term()}
-  def get(id, opts \\ []) when is_binary(id) do
+  @spec get(String.t(), keyword()) ::
+          {:ok, PluginPackage.t()} | {:error, :not_found} | {:error, term()}
+  def get(id, opts \\ [])
+
+  def get(id, opts) when is_binary(id) do
     scope = Keyword.get(opts, :scope)
 
     case read_one_by_id(id, scope) do
@@ -45,7 +48,9 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   def get(_id, _opts), do: {:error, :not_found}
 
   @spec create(map(), keyword()) :: {:ok, PluginPackage.t()} | {:error, term()}
-  def create(attrs, opts \\ []) when is_map(attrs) do
+  def create(attrs, opts \\ [])
+
+  def create(attrs, opts) when is_map(attrs) do
     scope = Keyword.get(opts, :scope)
     attrs = drop_nil_values(attrs)
     source_type = normalize_source_type(Map.get(attrs, :source_type))
@@ -65,7 +70,9 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   def create(_attrs, _opts), do: {:error, :invalid_attributes}
 
   @spec approve(String.t(), map(), keyword()) :: {:ok, PluginPackage.t()} | {:error, term()}
-  def approve(id, attrs, opts \\ []) when is_binary(id) and is_map(attrs) do
+  def approve(id, attrs, opts \\ [])
+
+  def approve(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
 
     with {:ok, package} <- get(id, scope: scope),
@@ -84,7 +91,9 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   def approve(_id, _attrs, _opts), do: {:error, :invalid_attributes}
 
   @spec deny(String.t(), map(), keyword()) :: {:ok, PluginPackage.t()} | {:error, term()}
-  def deny(id, attrs, opts \\ []) when is_binary(id) and is_map(attrs) do
+  def deny(id, attrs, opts \\ [])
+
+  def deny(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
 
     with {:ok, package} <- get(id, scope: scope) do
@@ -97,7 +106,9 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   def deny(_id, _attrs, _opts), do: {:error, :invalid_attributes}
 
   @spec revoke(String.t(), map(), keyword()) :: {:ok, PluginPackage.t()} | {:error, term()}
-  def revoke(id, attrs, opts \\ []) when is_binary(id) and is_map(attrs) do
+  def revoke(id, attrs, opts \\ [])
+
+  def revoke(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
 
     with {:ok, package} <- get(id, scope: scope) do
@@ -110,7 +121,9 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   def revoke(_id, _attrs, _opts), do: {:error, :invalid_attributes}
 
   @spec restage(String.t(), keyword()) :: {:ok, PluginPackage.t()} | {:error, term()}
-  def restage(id, opts \\ []) when is_binary(id) do
+  def restage(id, opts \\ [])
+
+  def restage(id, opts) when is_binary(id) do
     scope = Keyword.get(opts, :scope)
 
     with {:ok, package} <- get(id, scope: scope) do
@@ -184,9 +197,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp create_from_github(attrs, scope) do
     with {:ok, import} <- GitHubImporter.fetch(attrs),
          {:ok, _plugin} <- ensure_plugin(import.manifest_struct, attrs, scope),
-         {:ok, package} <- create_github_package(import, attrs, scope),
-         {:ok, package} <- store_wasm_blob(package, import.wasm, import.content_hash, scope) do
-      {:ok, package}
+         {:ok, package} <- create_github_package(import, attrs, scope) do
+      store_wasm_blob(package, import.wasm, import.content_hash, scope)
     end
   end
 
@@ -297,43 +309,52 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   defp apply_manifest_defaults(attrs, manifest) do
     attrs
-    |> maybe_put(:approved_capabilities, Map.get(manifest, "capabilities") || Map.get(manifest, :capabilities))
-    |> maybe_put(:approved_permissions, Map.get(manifest, "permissions") || Map.get(manifest, :permissions))
-    |> maybe_put(:approved_resources, Map.get(manifest, "resources") || Map.get(manifest, :resources))
+    |> maybe_put(
+      :approved_capabilities,
+      Map.get(manifest, "capabilities") || Map.get(manifest, :capabilities)
+    )
+    |> maybe_put(
+      :approved_permissions,
+      Map.get(manifest, "permissions") || Map.get(manifest, :permissions)
+    )
+    |> maybe_put(
+      :approved_resources,
+      Map.get(manifest, "resources") || Map.get(manifest, :resources)
+    )
   end
 
   defp enforce_verification_policy(%PluginPackage{} = package) do
     policy = plugin_verification_policy()
 
     case package.source_type do
-      :github ->
-        if policy.require_gpg_for_github and is_nil(package.gpg_verified_at) do
-          {:error, :verification_required}
-        else
-          :ok
-        end
-
-      :upload ->
-        if policy.allow_unsigned_uploads do
-          :ok
-        else
-          signature_present =
-            case package.signature do
-              %{} = sig -> map_size(sig) > 0
-              _ -> false
-            end
-
-          if signature_present do
-            :ok
-          else
-            {:error, :signature_required}
-          end
-        end
-
-      _ ->
-        :ok
+      :github -> enforce_github_policy(package, policy)
+      :upload -> enforce_upload_policy(package, policy)
+      _ -> :ok
     end
   end
+
+  defp enforce_github_policy(package, policy) do
+    if policy.require_gpg_for_github and is_nil(package.gpg_verified_at) do
+      {:error, :verification_required}
+    else
+      :ok
+    end
+  end
+
+  defp enforce_upload_policy(package, policy) do
+    if policy.allow_unsigned_uploads do
+      :ok
+    else
+      if signature_present?(package.signature) do
+        :ok
+      else
+        {:error, :signature_required}
+      end
+    end
+  end
+
+  defp signature_present?(%{} = sig), do: map_size(sig) > 0
+  defp signature_present?(_), do: false
 
   defp plugin_verification_policy do
     config = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
@@ -345,8 +366,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp maybe_put(attrs, _key, nil), do: attrs
-  defp maybe_put(attrs, key, value) when value == [], do: attrs
-  defp maybe_put(attrs, key, value) when value == %{}, do: attrs
+  defp maybe_put(attrs, _key, value) when value == [], do: attrs
+  defp maybe_put(attrs, _key, value) when value == %{}, do: attrs
 
   defp maybe_put(attrs, key, value) do
     case Map.get(attrs, key) do
@@ -389,6 +410,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp normalize_list(_), do: []
 
   defp normalize_status_value(value) when is_atom(value), do: value
+
   defp normalize_status_value(value) when is_binary(value) do
     trimmed = String.trim(value)
 
