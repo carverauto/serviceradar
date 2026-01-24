@@ -194,7 +194,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         proto_checks = ServiceRadar.Edge.AgentConfigGenerator.to_proto_checks(config.checks)
 
         proto_plugins =
-          ServiceRadar.Edge.AgentConfigGenerator.to_proto_plugin_config(config.plugins || [])
+          ServiceRadar.Edge.AgentConfigGenerator.to_proto_plugin_config(
+            config.plugins || [],
+            Map.get(config, :plugin_engine_limits, %{})
+          )
 
         config_json = Map.get(config, :config_json, <<>>)
 

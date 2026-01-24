@@ -351,6 +351,18 @@ defmodule Monitoring.PluginConfig do
   use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :assignments, 1, repeated: true, type: Monitoring.PluginAssignmentConfig
+  field :engine_limits, 2, type: Monitoring.PluginEngineLimits, json_name: "engineLimits"
+end
+
+defmodule Monitoring.PluginEngineLimits do
+  @moduledoc false
+
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+
+  field :max_memory_mb, 1, type: :int32, json_name: "maxMemoryMb"
+  field :max_cpu_ms, 2, type: :int32, json_name: "maxCpuMs"
+  field :max_concurrent, 3, type: :int32, json_name: "maxConcurrent"
+  field :max_open_connections, 4, type: :int32, json_name: "maxOpenConnections"
 end
 
 defmodule Monitoring.PluginAssignmentConfig do

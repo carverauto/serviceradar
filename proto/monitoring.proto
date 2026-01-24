@@ -281,6 +281,15 @@ message AgentConfigResponse {
 // PluginConfig defines plugin assignments for the agent.
 message PluginConfig {
   repeated PluginAssignmentConfig assignments = 1;
+  PluginEngineLimits engine_limits = 2;
+}
+
+// PluginEngineLimits defines per-agent engine resource limits.
+message PluginEngineLimits {
+  int32 max_memory_mb = 1;
+  int32 max_cpu_ms = 2;
+  int32 max_concurrent = 3;
+  int32 max_open_connections = 4;
 }
 
 // PluginAssignmentConfig defines a single plugin assignment for the agent.

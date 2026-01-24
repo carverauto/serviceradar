@@ -31,6 +31,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -87,6 +88,14 @@ type PluginManager struct {
 	mu      sync.RWMutex
 	runners map[string]*pluginRunner
 	results chan PluginResult
+
+	limitsMu         sync.Mutex
+	limits           pluginEngineLimits
+	concurrentActive int
+	openConnections  int
+
+	statsMu sync.Mutex
+	stats   pluginEngineStats
 }
 
 // PluginResult captures a raw plugin result payload.
@@ -96,6 +105,38 @@ type PluginResult struct {
 	PluginName   string
 	Payload      []byte
 	ObservedAt   time.Time
+}
+
+type pluginEngineStats struct {
+	assignmentsTotal     int
+	assignmentsAdmitted  int
+	assignmentsRejected  int
+	requestedMemoryMB    int
+	requestedCPUMS       int
+	requestedConnections int
+	lastConfigAt         time.Time
+	execTotal            int64
+	execFailures         int64
+	lastExecAt           time.Time
+	lastFailureAt        time.Time
+}
+
+type PluginEngineSnapshot struct {
+	ObservedAt           time.Time
+	Limits               pluginEngineLimits
+	RequestedMemoryMB    int
+	RequestedCPUMS       int
+	RequestedConnections int
+	AssignmentsTotal     int
+	AssignmentsAdmitted  int
+	AssignmentsRejected  int
+	ActiveExecutions     int
+	OpenConnections      int
+	ExecTotal            int64
+	ExecFailures         int64
+	LastExecAt           time.Time
+	LastFailureAt        time.Time
+	LastConfigAt         time.Time
 }
 
 func buildPluginErrorResult(assignment *pluginAssignment, summary string) PluginResult {
@@ -163,6 +204,9 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 		return
 	}
 
+	limits := engineLimitsFromProto(cfg)
+	m.setLimits(limits)
+
 	assignments := make([]*pluginAssignment, 0)
 	if cfg != nil {
 		for _, assignment := range cfg.Assignments {
@@ -176,6 +220,9 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 		}
 	}
 
+	admitted, rejected, usage := m.admitAssignments(assignments, limits)
+	m.updateConfigStats(len(assignments), len(admitted), len(rejected), usage)
+
 	m.mu.Lock()
 	prev := m.runners
 	m.runners = make(map[string]*pluginRunner)
@@ -185,13 +232,205 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 		runner.stop()
 	}
 
-	for _, assignment := range assignments {
+	for _, assignment := range rejected {
+		m.enqueueResult(buildPluginErrorResult(assignment, "admission denied: engine limits exceeded"))
+	}
+
+	for _, assignment := range admitted {
 		runner := newPluginRunner(m, assignment)
 		m.mu.Lock()
 		m.runners[assignment.AssignmentID] = runner
 		m.mu.Unlock()
 		runner.start(m.ctx)
 	}
+}
+
+func (m *PluginManager) setLimits(limits pluginEngineLimits) {
+	m.limitsMu.Lock()
+	defer m.limitsMu.Unlock()
+	m.limits = limits
+}
+
+func (m *PluginManager) getLimits() pluginEngineLimits {
+	m.limitsMu.Lock()
+	defer m.limitsMu.Unlock()
+	return m.limits
+}
+
+func (m *PluginManager) acquireSlot() bool {
+	m.limitsMu.Lock()
+	defer m.limitsMu.Unlock()
+
+	if m.limits.MaxConcurrent <= 0 {
+		m.concurrentActive++
+		return true
+	}
+	if m.concurrentActive >= m.limits.MaxConcurrent {
+		return false
+	}
+	m.concurrentActive++
+	return true
+}
+
+func (m *PluginManager) releaseSlot() {
+	m.limitsMu.Lock()
+	defer m.limitsMu.Unlock()
+	if m.concurrentActive > 0 {
+		m.concurrentActive--
+	}
+}
+
+func (m *PluginManager) reserveConnection() bool {
+	m.limitsMu.Lock()
+	defer m.limitsMu.Unlock()
+
+	if m.limits.MaxOpenConnections > 0 && m.openConnections >= m.limits.MaxOpenConnections {
+		return false
+	}
+
+	m.openConnections++
+	return true
+}
+
+func (m *PluginManager) releaseConnection() {
+	m.limitsMu.Lock()
+	defer m.limitsMu.Unlock()
+	if m.openConnections > 0 {
+		m.openConnections--
+	}
+}
+
+func (m *PluginManager) updateConfigStats(total, admitted, rejected int, usage engineUsage) {
+	m.statsMu.Lock()
+	defer m.statsMu.Unlock()
+
+	m.stats.assignmentsTotal = total
+	m.stats.assignmentsAdmitted = admitted
+	m.stats.assignmentsRejected = rejected
+	m.stats.requestedMemoryMB = usage.memoryMB
+	m.stats.requestedCPUMS = usage.cpuMS
+	m.stats.requestedConnections = usage.connections
+	m.stats.lastConfigAt = time.Now().UTC()
+}
+
+func (m *PluginManager) recordExecution(success bool) {
+	m.statsMu.Lock()
+	defer m.statsMu.Unlock()
+
+	now := time.Now().UTC()
+	m.stats.execTotal++
+	m.stats.lastExecAt = now
+	if !success {
+		m.stats.execFailures++
+		m.stats.lastFailureAt = now
+	}
+}
+
+func (m *PluginManager) Snapshot() PluginEngineSnapshot {
+	now := time.Now().UTC()
+
+	m.limitsMu.Lock()
+	limits := m.limits
+	active := m.concurrentActive
+	openConnections := m.openConnections
+	m.limitsMu.Unlock()
+
+	m.statsMu.Lock()
+	stats := m.stats
+	m.statsMu.Unlock()
+
+	return PluginEngineSnapshot{
+		ObservedAt:           now,
+		Limits:               limits,
+		RequestedMemoryMB:    stats.requestedMemoryMB,
+		RequestedCPUMS:       stats.requestedCPUMS,
+		RequestedConnections: stats.requestedConnections,
+		AssignmentsTotal:     stats.assignmentsTotal,
+		AssignmentsAdmitted:  stats.assignmentsAdmitted,
+		AssignmentsRejected:  stats.assignmentsRejected,
+		ActiveExecutions:     active,
+		OpenConnections:      openConnections,
+		ExecTotal:            stats.execTotal,
+		ExecFailures:         stats.execFailures,
+		LastExecAt:           stats.lastExecAt,
+		LastFailureAt:        stats.lastFailureAt,
+		LastConfigAt:         stats.lastConfigAt,
+	}
+}
+
+type engineUsage struct {
+	memoryMB    int
+	cpuMS       int
+	connections int
+	count       int
+}
+
+func (m *PluginManager) admitAssignments(
+	assignments []*pluginAssignment,
+	limits pluginEngineLimits,
+) ([]*pluginAssignment, []*pluginAssignment, engineUsage) {
+	if len(assignments) == 0 {
+		return nil, nil, engineUsage{}
+	}
+
+	sort.Slice(assignments, func(i, j int) bool {
+		return assignments[i].AssignmentID < assignments[j].AssignmentID
+	})
+
+	usage := engineUsage{}
+	admitted := make([]*pluginAssignment, 0, len(assignments))
+	rejected := make([]*pluginAssignment, 0)
+
+	for _, assignment := range assignments {
+		req := normalizeResources(assignment.Resources)
+		if !fitsLimits(usage, req, limits) {
+			m.logger.Warn().
+				Str("assignment_id", assignment.AssignmentID).
+				Int("requested_memory_mb", req.RequestedMemoryMB).
+				Int("requested_cpu_ms", req.RequestedCPUMS).
+				Int("requested_connections", req.MaxOpenConnections).
+				Msg("Plugin assignment rejected by engine limits")
+			rejected = append(rejected, assignment)
+			continue
+		}
+
+		usage.memoryMB += req.RequestedMemoryMB
+		usage.cpuMS += req.RequestedCPUMS
+		usage.connections += req.MaxOpenConnections
+		usage.count++
+		admitted = append(admitted, assignment)
+	}
+
+	return admitted, rejected, usage
+}
+
+func normalizeResources(resources pluginResources) pluginResources {
+	if resources.RequestedMemoryMB < 0 {
+		resources.RequestedMemoryMB = 0
+	}
+	if resources.RequestedCPUMS < 0 {
+		resources.RequestedCPUMS = 0
+	}
+	if resources.MaxOpenConnections < 0 {
+		resources.MaxOpenConnections = 0
+	}
+	return resources
+}
+
+func fitsLimits(usage engineUsage, req pluginResources, limits pluginEngineLimits) bool {
+	if limits.MaxMemoryMB > 0 && usage.memoryMB+req.RequestedMemoryMB > limits.MaxMemoryMB {
+		return false
+	}
+	if limits.MaxCPUMS > 0 && usage.cpuMS+req.RequestedCPUMS > limits.MaxCPUMS {
+		return false
+	}
+	if limits.MaxConcurrent > 0 && usage.count+1 > limits.MaxConcurrent {
+		return false
+	}
+	if limits.MaxOpenConnections > 0 && usage.connections+req.MaxOpenConnections > limits.MaxOpenConnections {
+		return false
+	}
+	return true
 }
 
 // Stop stops all plugin runners.
@@ -300,13 +539,24 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	if !r.manager.acquireSlot() {
+		r.manager.recordExecution(false)
+		r.manager.enqueueResult(buildPluginErrorResult(r.assignment, "admission denied: max concurrent reached"))
+		return
+	}
+	defer r.manager.releaseSlot()
+
 	if err := r.manager.execute(runCtx, r.assignment); err != nil {
+		r.manager.recordExecution(false)
 		r.manager.enqueueResult(buildPluginErrorResult(r.assignment, fmt.Sprintf("execution failed: %s", err)))
 		r.manager.logger.Warn().
 			Err(err).
 			Str("assignment_id", r.assignment.AssignmentID).
 			Msg("Plugin execution failed")
+		return
 	}
+
+	r.manager.recordExecution(true)
 }
 
 type pluginAssignment struct {
@@ -343,6 +593,27 @@ type pluginResources struct {
 	RequestedMemoryMB  int `json:"requested_memory_mb"`
 	RequestedCPUMS     int `json:"requested_cpu_ms"`
 	MaxOpenConnections int `json:"max_open_connections"`
+}
+
+type pluginEngineLimits struct {
+	MaxMemoryMB        int
+	MaxCPUMS           int
+	MaxConcurrent      int
+	MaxOpenConnections int
+}
+
+func engineLimitsFromProto(cfg *proto.PluginConfig) pluginEngineLimits {
+	if cfg == nil || cfg.EngineLimits == nil {
+		return pluginEngineLimits{}
+	}
+
+	limits := cfg.EngineLimits
+	return pluginEngineLimits{
+		MaxMemoryMB:        int(limits.MaxMemoryMb),
+		MaxCPUMS:           int(limits.MaxCpuMs),
+		MaxConcurrent:      int(limits.MaxConcurrent),
+		MaxOpenConnections: int(limits.MaxOpenConnections),
+	}
 }
 
 func newPluginAssignment(cfg *proto.PluginAssignmentConfig, log logger.Logger) *pluginAssignment {
@@ -1150,6 +1421,10 @@ func (e *pluginExecution) storeConn(conn net.Conn) uint32 {
 		return 0
 	}
 
+	if !e.manager.reserveConnection() {
+		return 0
+	}
+
 	handle := e.nextHandle
 	e.nextHandle++
 	e.conns[handle] = conn
@@ -1167,6 +1442,9 @@ func (e *pluginExecution) deleteConn(handle uint32) net.Conn {
 	defer e.mu.Unlock()
 	conn := e.conns[handle]
 	delete(e.conns, handle)
+	if conn != nil {
+		e.manager.releaseConnection()
+	}
 	return conn
 }
 
@@ -1176,6 +1454,7 @@ func (e *pluginExecution) closeAll() {
 	for handle, conn := range e.conns {
 		_ = conn.Close()
 		delete(e.conns, handle)
+		e.manager.releaseConnection()
 	}
 }
 

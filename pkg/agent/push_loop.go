@@ -355,6 +355,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentMapperTopology := p.pushMapperTopology(ctx)
 	sentSNMPMetrics := p.pushSNMPMetrics(ctx)
 	sentPluginResults := p.pushPluginResults(ctx)
+	sentPluginTelemetry := p.pushPluginTelemetry(ctx)
 
 	if len(statuses) == 0 &&
 		sysmonStatus == nil &&
@@ -364,7 +365,8 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		!sentMapperInterfaces &&
 		!sentMapperTopology &&
 		!sentSNMPMetrics &&
-		!sentPluginResults {
+		!sentPluginResults &&
+		!sentPluginTelemetry {
 		p.logger.Debug().Msg("No statuses to push")
 	}
 }
@@ -570,6 +572,65 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 	}
 
 	p.logger.Warn().Msg("Gateway did not acknowledge plugin result push")
+	return false
+}
+
+func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
+	p.server.mu.RLock()
+	pluginManager := p.server.pluginManager
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	p.server.mu.RUnlock()
+
+	if pluginManager == nil {
+		return false
+	}
+
+	snapshot := pluginManager.Snapshot()
+	if !shouldSendPluginTelemetry(snapshot) {
+		return false
+	}
+
+	payload, available := buildPluginTelemetryPayload(snapshot, agentID, partition)
+	status := &proto.GatewayServiceStatus{
+		ServiceName:  "plugin_engine",
+		Available:    available,
+		Message:      payload,
+		ServiceType:  "plugin-engine",
+		ResponseTime: 0,
+		AgentId:      agentID,
+		GatewayId:    "",
+		Partition:    partition,
+		Source:       "plugin-telemetry",
+		KvStoreId:    kvStoreID,
+	}
+
+	req := &proto.GatewayStatusRequest{
+		Services:  []*proto.GatewayServiceStatus{status},
+		GatewayId: "",
+		AgentId:   agentID,
+		Timestamp: time.Now().UnixNano(),
+		Partition: partition,
+		SourceIp:  p.getSourceIP(),
+		KvStoreId: kvStoreID,
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := p.gateway.PushStatus(pushCtx, req)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to push plugin telemetry")
+		return false
+	}
+
+	if resp.Received {
+		p.logger.Debug().Msg("Successfully pushed plugin telemetry")
+		return true
+	}
+
+	p.logger.Warn().Msg("Gateway did not acknowledge plugin telemetry")
 	return false
 }
 
@@ -1401,6 +1462,97 @@ func pluginStatusAvailable(status string) bool {
 	default:
 		return false
 	}
+}
+
+func shouldSendPluginTelemetry(snapshot PluginEngineSnapshot) bool {
+	if snapshot.AssignmentsTotal > 0 ||
+		snapshot.AssignmentsAdmitted > 0 ||
+		snapshot.ExecTotal > 0 ||
+		snapshot.Limits.MaxMemoryMB > 0 ||
+		snapshot.Limits.MaxCPUMS > 0 ||
+		snapshot.Limits.MaxConcurrent > 0 ||
+		snapshot.Limits.MaxOpenConnections > 0 {
+		return true
+	}
+	return false
+}
+
+func buildPluginTelemetryPayload(
+	snapshot PluginEngineSnapshot,
+	agentID string,
+	partition string,
+) ([]byte, bool) {
+	healthy, reason := pluginTelemetryHealth(snapshot)
+
+	payload := map[string]interface{}{
+		"schema":      "serviceradar.plugin_engine_telemetry.v1",
+		"observed_at": snapshot.ObservedAt.Format(time.RFC3339Nano),
+		"agent_id":    agentID,
+		"partition":   partition,
+		"health":      map[string]interface{}{"status": healthStatusLabel(healthy), "reason": reason},
+		"limits": map[string]interface{}{
+			"max_memory_mb":        snapshot.Limits.MaxMemoryMB,
+			"max_cpu_ms":           snapshot.Limits.MaxCPUMS,
+			"max_concurrent":       snapshot.Limits.MaxConcurrent,
+			"max_open_connections": snapshot.Limits.MaxOpenConnections,
+		},
+		"requested": map[string]interface{}{
+			"memory_mb":        snapshot.RequestedMemoryMB,
+			"cpu_ms":           snapshot.RequestedCPUMS,
+			"open_connections": snapshot.RequestedConnections,
+		},
+		"runtime": map[string]interface{}{
+			"active_executions": snapshot.ActiveExecutions,
+			"open_connections":  snapshot.OpenConnections,
+		},
+		"assignments": map[string]interface{}{
+			"total":    snapshot.AssignmentsTotal,
+			"admitted": snapshot.AssignmentsAdmitted,
+			"rejected": snapshot.AssignmentsRejected,
+		},
+		"executions": map[string]interface{}{
+			"total":           snapshot.ExecTotal,
+			"failures":        snapshot.ExecFailures,
+			"last_exec_at":    formatTimestamp(snapshot.LastExecAt),
+			"last_failure_at": formatTimestamp(snapshot.LastFailureAt),
+		},
+		"config": map[string]interface{}{
+			"last_updated_at": formatTimestamp(snapshot.LastConfigAt),
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return []byte(`{"schema":"serviceradar.plugin_engine_telemetry.v1","health":{"status":"unknown"}}`), false
+	}
+
+	return data, healthy
+}
+
+func pluginTelemetryHealth(snapshot PluginEngineSnapshot) (bool, string) {
+	if snapshot.AssignmentsRejected > 0 {
+		return false, "admission_denied"
+	}
+
+	if snapshot.ExecFailures > 0 && time.Since(snapshot.LastFailureAt) < 5*time.Minute {
+		return false, "recent_execution_failures"
+	}
+
+	return true, ""
+}
+
+func healthStatusLabel(healthy bool) string {
+	if healthy {
+		return "ok"
+	}
+	return "degraded"
+}
+
+func formatTimestamp(ts time.Time) string {
+	if ts.IsZero() {
+		return ""
+	}
+	return ts.UTC().Format(time.RFC3339Nano)
 }
 
 func (p *PushLoop) buildResultsStatusChunks(

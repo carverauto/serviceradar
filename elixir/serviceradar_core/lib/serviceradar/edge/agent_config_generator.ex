@@ -66,7 +66,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
           heartbeat_interval_sec: integer(),
           config_poll_interval_sec: integer(),
           checks: [check_config()],
-          plugins: [plugin_assignment_config()]
+          plugins: [plugin_assignment_config()],
+          plugin_engine_limits: plugin_engine_limits_config()
+        }
+
+  @type plugin_engine_limits_config :: %{
+          max_memory_mb: integer() | nil,
+          max_cpu_ms: integer() | nil,
+          max_concurrent: integer() | nil,
+          max_open_connections: integer() | nil
         }
 
   @type plugin_assignment_config :: %{
@@ -121,6 +129,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         snmp_config = load_snmp_config(agent_id)
         dusk_config = load_dusk_config(agent_id)
         plugin_assignments = load_plugin_assignments(agent_id)
+        plugin_engine_limits = load_plugin_engine_limits(agent_id)
 
         config =
           build_config(
@@ -131,7 +140,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
             sysmon_config,
             snmp_config,
             dusk_config,
-            plugin_assignments
+            plugin_assignments,
+            plugin_engine_limits
           )
 
         {:ok, config}
@@ -255,6 +265,28 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp has_approved_package?(_), do: false
 
+  defp load_plugin_engine_limits(agent_id) do
+    actor = SystemActor.system(:plugin_engine_limits)
+
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, agent} ->
+        %{
+          max_memory_mb: agent.plugin_engine_max_memory_mb,
+          max_cpu_ms: agent.plugin_engine_max_cpu_ms,
+          max_concurrent: agent.plugin_engine_max_concurrent,
+          max_open_connections: agent.plugin_engine_max_open_connections
+        }
+
+      {:error, _} ->
+        %{
+          max_memory_mb: nil,
+          max_cpu_ms: nil,
+          max_concurrent: nil,
+          max_open_connections: nil
+        }
+    end
+  end
+
   defp build_plugin_assignment_config(%PluginAssignment{} = assignment) do
     package = assignment.plugin_package
     manifest = normalize_map(package.manifest)
@@ -357,7 +389,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          sysmon_config,
          snmp_config,
          dusk_config,
-         plugin_assignments
+         plugin_assignments,
+         plugin_engine_limits
        ) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
 
@@ -375,7 +408,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         sysmon_config,
         snmp_config,
         dusk_config,
-        plugin_assignments
+        plugin_assignments,
+        plugin_engine_limits
       )
 
     config_json = Jason.encode!(full_payload)
@@ -387,6 +421,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       config_poll_interval_sec: @default_config_poll_interval_sec,
       checks: check_configs,
       plugins: plugin_assignments,
+      plugin_engine_limits: plugin_engine_limits,
       config_json: config_json,
       sysmon_config: build_sysmon_proto_config(sysmon_config),
       snmp_config: build_snmp_proto_config(snmp_config),
@@ -462,7 +497,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          sysmon_config,
          snmp_config,
          dusk_config,
-         plugin_assignments
+         plugin_assignments,
+         plugin_engine_limits
        ) do
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
@@ -476,7 +512,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         sysmon: sysmon_config,
         snmp: snmp_config,
         dusk: dusk_config,
-        plugins: sorted_plugins
+        plugins: sorted_plugins,
+        plugin_engine_limits: plugin_engine_limits
       })
 
     # Compute SHA256 hash
@@ -489,12 +526,27 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @doc """
   Converts plugin assignments to proto-compatible structs.
   """
-  @spec to_proto_plugin_config([plugin_assignment_config()]) :: Monitoring.PluginConfig.t()
-  def to_proto_plugin_config(plugin_assignments) do
+  @spec to_proto_plugin_config([plugin_assignment_config()], plugin_engine_limits_config()) ::
+          Monitoring.PluginConfig.t()
+  def to_proto_plugin_config(plugin_assignments, engine_limits \\ %{}) do
     %Monitoring.PluginConfig{
-      assignments: Enum.map(plugin_assignments, &to_proto_plugin_assignment/1)
+      assignments: Enum.map(plugin_assignments, &to_proto_plugin_assignment/1),
+      engine_limits: to_proto_plugin_engine_limits(engine_limits)
     }
   end
+
+  defp to_proto_plugin_engine_limits(engine_limits) do
+    %Monitoring.PluginEngineLimits{
+      max_memory_mb: normalize_limit(engine_limits[:max_memory_mb]),
+      max_cpu_ms: normalize_limit(engine_limits[:max_cpu_ms]),
+      max_concurrent: normalize_limit(engine_limits[:max_concurrent]),
+      max_open_connections: normalize_limit(engine_limits[:max_open_connections])
+    }
+  end
+
+  defp normalize_limit(nil), do: 0
+  defp normalize_limit(value) when is_integer(value) and value > 0, do: value
+  defp normalize_limit(_), do: 0
 
   defp to_proto_plugin_assignment(assignment) do
     %Monitoring.PluginAssignmentConfig{

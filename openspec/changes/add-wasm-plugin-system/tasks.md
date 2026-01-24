@@ -8,9 +8,9 @@
 - [x] 1.5 Extend agent config delivery (proto + gateway/core wiring) with plugin assignments
 - [x] 1.6 Embed wazero runtime in the agent and implement host function ABI
 - [x] 1.7 Implement result schema validation and mapping into `GatewayServiceStatus`
-- [ ] 1.8 Implement resource budgeting (per-agent limits + per-plugin requests + admission control)
-- [ ] 1.9 Emit agent telemetry for Wasm engine health and resource usage
-- [ ] 1.10 Extend agent-gateway/core ingestion to support `serviceradar.plugin_result.v1` without breaking existing checkers
+- [x] 1.8 Implement resource budgeting (per-agent limits + per-plugin requests + admission control)
+- [x] 1.9 Emit agent telemetry for Wasm engine health and resource usage
+- [x] 1.10 Extend agent-gateway/core ingestion to support `serviceradar.plugin_result.v1` without breaking existing checkers
 - [ ] 1.11 Add GitHub package source support (core fetch + verification + storage handoff)
 - [ ] 1.12 Add import review workflow (capability + allowlist confirmation) before distribution
 - [x] 1.13 Add UI flows for upload/import review, versioning, assignment, status visibility, capacity planning, and verification policy
