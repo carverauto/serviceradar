@@ -42,6 +42,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       |> assign(:download_url, nil)
       |> assign(:download_expires_at, nil)
       |> assign(:blob_present, nil)
+      |> assign(:upload_errors, [])
+      |> allow_upload(:wasm_blob,
+        accept: ~w(.wasm),
+        max_entries: 1,
+        max_file_size: Storage.max_upload_bytes()
+      )
 
     {:ok, socket}
   end
@@ -76,6 +82,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:assignment_form, default_assignment_form())
         |> assign(:assignments, list_assignments(package.id, scope))
         |> assign(:versions, list_versions(package.plugin_id, scope))
+        |> assign(:upload_errors, [])
         |> assign_package_urls(package, scope)
 
       {:error, :not_found} ->
@@ -113,14 +120,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   def handle_event("close_details_modal", _params, socket) do
     {:noreply,
      socket
-     |> assign(:show_details_modal, false)
-     |> assign(:selected_package, nil)
-     |> assign(:assignments, [])
-     |> assign(:assignment_form, default_assignment_form())
-     |> assign(:versions, [])
-     |> assign(:upload_url, nil)
-     |> assign(:download_url, nil)
-     |> assign(:blob_present, nil)}
+      |> assign(:show_details_modal, false)
+      |> assign(:selected_package, nil)
+      |> assign(:assignments, [])
+      |> assign(:assignment_form, default_assignment_form())
+      |> assign(:versions, [])
+      |> assign(:upload_errors, [])
+      |> assign(:upload_url, nil)
+      |> assign(:download_url, nil)
+      |> assign(:blob_present, nil)}
   end
 
   def handle_event("filter", params, socket) do
@@ -278,6 +286,53 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   def handle_event("review_change", %{"review" => params}, socket) do
     {:noreply, assign(socket, :review_form, Map.merge(socket.assigns.review_form, params))}
+  end
+
+  def handle_event("upload_wasm", _params, socket) do
+    scope = socket.assigns.current_scope
+    package = socket.assigns.selected_package
+
+    cond do
+      is_nil(package) ->
+        {:noreply, put_flash(socket, :error, "No package selected")}
+
+      socket.assigns.uploads.wasm_blob.entries == [] ->
+        {:noreply, put_flash(socket, :error, "Select a .wasm file to upload")}
+
+      true ->
+        results =
+          consume_uploaded_entries(socket, :wasm_blob, fn %{path: path}, _entry ->
+            case File.read(path) do
+              {:ok, payload} -> {:ok, payload}
+              {:error, _reason} -> {:error, :read_failed}
+            end
+          end)
+
+        case results do
+          [payload] when is_binary(payload) ->
+            case Packages.upload_blob(package, payload, scope: scope) do
+              {:ok, updated} ->
+                {:noreply,
+                 socket
+                 |> assign_package_urls(updated, scope)
+                 |> assign(:packages, list_packages(current_filters(socket), scope))
+                 |> assign(:upload_errors, [])
+                 |> put_flash(:info, "Wasm blob uploaded")}
+
+              {:error, error} ->
+                {:noreply,
+                 socket
+                 |> assign(:upload_errors, [format_error(error)])
+                 |> put_flash(:error, "Failed to upload Wasm blob")}
+            end
+
+          _ ->
+            {:noreply,
+             socket
+             |> assign(:upload_errors, ["failed to read uploaded file"])
+             |> put_flash(:error, "Failed to upload Wasm blob")}
+        end
+    end
   end
 
   def handle_event("assignment_change", %{"assignment" => params}, socket) do
@@ -837,6 +892,51 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div class="text-xs font-mono">{signature_status(@package.signature)}</div>
             </div>
 
+            <div class="rounded-xl border border-base-200 p-4 space-y-3">
+              <div class="text-sm font-semibold">Upload Wasm Blob</div>
+              <p class="text-xs text-base-content/60">
+                Upload the compiled `.wasm` binary to complete this package.
+              </p>
+
+              <.form for={%{}} phx-submit="upload_wasm" class="space-y-3">
+                <.live_file_input
+                  upload={@uploads.wasm_blob}
+                  class="file-input file-input-bordered w-full"
+                />
+
+                <%= for entry <- @uploads.wasm_blob.entries do %>
+                  <div class="flex items-center gap-2 text-xs">
+                    <.icon name="hero-document-text" class="size-4 text-primary" />
+                    <span>{entry.client_name}</span>
+                    <span class="text-base-content/50">
+                      ({Float.round(entry.client_size / 1024, 1)} KB)
+                    </span>
+                    <%= for err <- upload_errors(@uploads.wasm_blob, entry) do %>
+                      <span class="text-error text-xs">{wasm_upload_error(err)}</span>
+                    <% end %>
+                  </div>
+                <% end %>
+
+                <div class="flex justify-end">
+                  <button
+                    type="submit"
+                    class="btn btn-primary btn-sm"
+                    disabled={@uploads.wasm_blob.entries == []}
+                  >
+                    Upload Wasm
+                  </button>
+                </div>
+              </.form>
+
+              <%= if @upload_errors != [] do %>
+                <div class="rounded-lg border border-error/40 bg-error/5 p-2 text-xs text-error">
+                  <%= for error <- @upload_errors do %>
+                    <div>{error}</div>
+                  <% end %>
+                </div>
+              <% end %>
+            </div>
+
             <div class="rounded-xl border border-base-200 p-4 space-y-2">
               <div class="text-sm font-semibold">Wasm Package URLs</div>
               <div class="text-xs text-base-content/60">
@@ -1316,12 +1416,22 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp build_create_attrs(params, extra) do
+    extra =
+      case extra do
+        value when is_map(value) -> value
+        value when is_list(value) -> Map.new(value)
+        _ -> %{}
+      end
+
     source_type = normalize_source_type(params["source_type"])
-    source_repo_url = params["source_repo_url"] || manifest_source_repo_url(extra.manifest)
+    manifest = Map.get(extra, :manifest) || Map.get(extra, "manifest")
+    config_schema = Map.get(extra, :config_schema) || Map.get(extra, "config_schema")
+
+    source_repo_url = params["source_repo_url"] || manifest_source_repo_url(manifest)
 
     %{
-      manifest: extra.manifest,
-      config_schema: extra.config_schema,
+      manifest: manifest,
+      config_schema: config_schema,
       source_type: source_type,
       source_repo_url: source_repo_url,
       source_commit: params["source_commit"]
@@ -1526,6 +1636,22 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp format_hash(""), do: "—"
   defp format_hash(value) when is_binary(value), do: value
   defp format_hash(_), do: "—"
+
+  defp wasm_upload_error(:too_large) do
+    "File is too large (max #{format_bytes(Storage.max_upload_bytes())})"
+  end
+
+  defp wasm_upload_error(:not_accepted), do: "Invalid file type (only .wasm allowed)"
+  defp wasm_upload_error(:too_many_files), do: "Only one file allowed"
+  defp wasm_upload_error(:read_failed), do: "Failed to read uploaded file"
+  defp wasm_upload_error(error), do: inspect(error)
+
+  defp format_bytes(bytes) when is_integer(bytes) and bytes > 0 do
+    mb = Float.round(bytes / 1_048_576, 1)
+    "#{mb}MB"
+  end
+
+  defp format_bytes(_), do: "0MB"
 
   defp blob_status(true), do: "Stored"
   defp blob_status(false), do: "Missing"

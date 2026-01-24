@@ -135,6 +135,17 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def restage(_id, _opts), do: {:error, :invalid_attributes}
 
+  @spec upload_blob(PluginPackage.t(), binary(), keyword()) ::
+          {:ok, PluginPackage.t()} | {:error, term()}
+  def upload_blob(%PluginPackage{} = package, payload, opts \\ []) when is_binary(payload) do
+    scope = Keyword.get(opts, :scope)
+    content_hash = Storage.sha256(payload)
+
+    store_wasm_blob(package, payload, content_hash, scope)
+  end
+
+  def upload_blob(_package, _payload, _opts), do: {:error, :invalid_attributes}
+
   defp ensure_plugin(%Manifest{} = manifest, attrs, scope) do
     plugin_id = manifest.id
     source = Map.get(manifest, :source) || %{}
@@ -230,7 +241,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp store_wasm_blob(package, payload, content_hash, scope) do
-    object_key = Storage.object_key_for(package)
+    object_key = package.wasm_object_key || Storage.object_key_for(package)
 
     with :ok <- Storage.put_blob(object_key, payload) do
       package
