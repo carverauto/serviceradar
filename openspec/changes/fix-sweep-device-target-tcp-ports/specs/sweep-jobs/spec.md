@@ -38,3 +38,18 @@ The system SHALL compile sweep job configurations into the agent-consumable JSON
 - **THEN** the agent SHALL parse the `device_targets` field from the gateway payload
 - **AND** TCP port scans SHALL be generated for each device target using the profile ports
 - **AND** both ICMP and TCP targets SHALL be created when both modes are enabled
+
+#### Scenario: Profile ports are preserved for device-targeted sweeps
+- **GIVEN** a sweep group with `target_query` using `in:devices`
+- **AND** a sweep profile with non-empty TCP ports
+- **AND** the sweep group does not override ports
+- **WHEN** the sweep config is compiled
+- **THEN** the compiled `ports` list SHALL include the profile ports
+- **AND** TCP targets SHALL be generated for those ports
+
+#### Scenario: TCP mode requires ports
+- **GIVEN** a sweep group with TCP mode enabled
+- **AND** no TCP ports are configured on the group or its profile
+- **WHEN** the sweep config is compiled
+- **THEN** the system SHALL surface a warning/error in logs
+- **AND** the config SHALL NOT silently run TCP scans with an empty ports list

@@ -97,4 +97,77 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     assert sweep_payload["config_hash"] == entry.config["config_hash"]
     assert length(sweep_payload["groups"]) == 1
   end
+
+  test "inherits profile ports when group ports override is empty", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = System.unique_integer([:positive])
+    partition = "ports-inherit-#{unique_id}"
+
+    {:ok, profile} =
+      SweepProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Profile inherit #{unique_id}",
+          ports: [80, 443],
+          sweep_modes: ["icmp", "tcp"],
+          concurrency: 10,
+          timeout: "2s"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Group inherit #{unique_id}",
+          partition: partition,
+          interval: "15m",
+          profile_id: profile.id,
+          ports: [],
+          static_targets: ["10.0.9.0/24"]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, entry} = ConfigServer.get_config(:sweep, partition, agent_id)
+
+    [compiled_group] = entry.config["groups"]
+    assert compiled_group["ports"] == profile.ports
+  end
+
+  test "drops tcp modes when no ports are configured", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = System.unique_integer([:positive])
+    partition = "ports-empty-#{unique_id}"
+
+    {:ok, _group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Group no ports #{unique_id}",
+          partition: partition,
+          interval: "15m",
+          sweep_modes: ["icmp", "tcp"],
+          ports: [],
+          static_targets: ["10.0.10.0/24"]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, entry} = ConfigServer.get_config(:sweep, partition, agent_id)
+
+    [compiled_group] = entry.config["groups"]
+    refute "tcp" in compiled_group["modes"]
+  end
 end
