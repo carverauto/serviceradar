@@ -455,6 +455,7 @@ func buildMapperInterfacePayload(updates []map[string]interface{}, agentID, part
 		if update == nil {
 			continue
 		}
+
 		if update["agent_id"] == nil {
 			update["agent_id"] = agentID
 		}

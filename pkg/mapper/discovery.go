@@ -297,13 +297,14 @@ func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryP
 	results.RawData["gateway_id"] = params.GatewayID
 
 	job := &DiscoveryJob{
-		ID:         discoveryID,
-		Params:     params,
-		Results:    results,
-		Status:     results.Status, // Point to the same status
-		ctx:        jobCtx,
-		cancelFunc: cancel,
-		deviceMap:  make(map[string]*DeviceInterfaceMap),
+		ID:           discoveryID,
+		Params:       params,
+		Results:      results,
+		Status:       results.Status, // Point to the same status
+		ctx:          jobCtx,
+		cancelFunc:   cancel,
+		deviceMap:    make(map[string]*DeviceInterfaceMap),
+		interfaceMap: make(map[string]*DiscoveredInterface),
 	}
 
 	// Store the job
@@ -804,12 +805,22 @@ func (e *DiscoveryEngine) checkPhaseJobCancellation(job *DiscoveryJob, seedIP, p
 
 // finalizeJobStatus updates the job status after completion
 func (e *DiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
-	job.mu.Lock()
-	defer job.mu.Unlock()
+	var interfaces []*DiscoveredInterface
+	jobID := ""
+	jobCtx := context.Background()
 
+	job.mu.Lock()
 	if job.Status.Status == DiscoveryStatusRunning {
 		// Step 1: Deduplicate devices using the device map
 		e.deduplicateDevices(job)
+		// Step 1b: Capture merged interfaces for publishing after unlock.
+		if len(job.Results.Interfaces) > 0 {
+			interfaces = append(interfaces, job.Results.Interfaces...)
+		}
+		jobID = job.ID
+		if job.ctx != nil {
+			jobCtx = job.ctx
+		}
 
 		// Step 2: Update status
 		job.Status.Status = DiscoveryStatusCompleted
@@ -825,6 +836,12 @@ func (e *DiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
 				Int("topology_links", len(job.Results.TopologyLinks)).
 				Msg("Completed successfully")
 		}
+	}
+
+	job.mu.Unlock()
+
+	if len(interfaces) > 0 {
+		e.publishInterfaces(jobCtx, jobID, interfaces)
 	}
 }
 
@@ -1317,25 +1334,14 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 
 			job.mu.Lock()
 			e.processDevicesForSNMPTargets(job, devices, allPotentialSNMPTargets, seenMACs)
+			job.mu.Unlock()
 
 			for _, iface := range interfaces {
 				if iface.DeviceID == "" && iface.DeviceIP != "" && job.Params.AgentID != "" && job.Params.GatewayID != "" {
 					iface.DeviceID = fmt.Sprintf("%s:%s:%s",
 						job.Params.AgentID, job.Params.GatewayID, iface.DeviceIP)
 				}
-
-				job.Results.Interfaces = append(job.Results.Interfaces, iface)
-			}
-
-			job.mu.Unlock()
-
-			for _, iface := range interfaces {
-				if pubErr := e.publisher.PublishInterface(job.ctx, iface); pubErr != nil {
-					e.logger.Error().Str("job_id", job.ID).
-						Str("device_ip", iface.DeviceIP).
-						Err(pubErr).
-						Msg("Failed to publish UniFi interface")
-				}
+				e.upsertInterface(job, iface)
 			}
 		}
 	}
