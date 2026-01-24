@@ -131,13 +131,14 @@ The system MUST allow configuring a policy that requires verification for GitHub
 - **THEN** the package is rejected
 - **AND** it is not distributed to agents
 
-### Requirement: Import Review and Capability Confirmation
-The system MUST require an explicit import review step where an admin confirms requested capabilities and allowlists before a plugin is distributable.
+### Requirement: Staged Import Review and Capability Confirmation
+The system MUST stage every plugin import and require an explicit approve/deny decision with a diff view of requested vs approved capabilities and allowlists before a plugin is distributable.
 
-#### Scenario: Import requires approval
+#### Scenario: Import is staged with approve/deny
 - **GIVEN** a newly uploaded or GitHub-sourced plugin package
 - **WHEN** the package is staged for import
-- **THEN** the system presents requested capabilities and allowlists for confirmation
+- **THEN** the system presents an approve/deny decision
+- **AND** shows a diff view of requested vs approved capabilities and allowlists
 - **AND** the package remains inactive until approved
 
 #### Scenario: Capability override on import
@@ -150,6 +151,11 @@ The system MUST require an explicit import review step where an admin confirms r
 - **GIVEN** a plugin package that has not been approved
 - **WHEN** an agent config is generated
 - **THEN** the plugin is excluded from assignments
+
+#### Scenario: Denied import remains blocked
+- **GIVEN** a plugin package that was denied during import review
+- **WHEN** an admin attempts to assign the plugin to an agent
+- **THEN** the assignment is blocked
 
 ### Requirement: Core-Only GitHub Fetching
 The system MUST ensure that agents never download plugin packages directly from GitHub.
