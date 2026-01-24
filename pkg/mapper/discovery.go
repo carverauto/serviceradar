@@ -813,7 +813,9 @@ func (e *DiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
 	if job.Status.Status == DiscoveryStatusRunning {
 		// Step 1: Deduplicate devices using the device map
 		e.deduplicateDevices(job)
-		// Step 1b: Capture merged interfaces for publishing after unlock.
+		// Step 1b: Deduplicate interfaces after device IDs are reconciled
+		e.deduplicateInterfaces(job)
+		// Step 1c: Capture merged interfaces for publishing after unlock.
 		if len(job.Results.Interfaces) > 0 {
 			interfaces = append(interfaces, job.Results.Interfaces...)
 		}
