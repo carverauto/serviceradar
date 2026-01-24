@@ -100,6 +100,27 @@ defmodule ServiceRadarWebNGWeb.Router do
     # Package actions
     post "/edge-packages/:id/revoke", EdgeController, :revoke
 
+    # Plugin registry
+    get "/plugins", PluginController, :index
+    post "/plugins", PluginController, :create
+    get "/plugins/:id", PluginController, :show
+    patch "/plugins/:id", PluginController, :update
+
+    # Plugin packages
+    get "/plugin-packages", PluginPackageController, :index
+    post "/plugin-packages", PluginPackageController, :create
+    get "/plugin-packages/:id", PluginPackageController, :show
+    post "/plugin-packages/:id/approve", PluginPackageController, :approve
+    post "/plugin-packages/:id/deny", PluginPackageController, :deny
+    post "/plugin-packages/:id/revoke", PluginPackageController, :revoke
+    post "/plugin-packages/:id/restage", PluginPackageController, :restage
+
+    # Plugin assignments
+    get "/plugin-assignments", PluginAssignmentController, :index
+    post "/plugin-assignments", PluginAssignmentController, :create
+    patch "/plugin-assignments/:id", PluginAssignmentController, :update
+    delete "/plugin-assignments/:id", PluginAssignmentController, :delete
+
     # Collector package management
     get "/collectors", CollectorController, :index
     post "/collectors", CollectorController, :create

@@ -145,8 +145,14 @@ defmodule ServiceRadar.Plugins.Manifest do
 
   defp required_string(map, key, errors) do
     case fetch(map, key) do
-      value when is_binary(value) and byte_size(String.trim(value)) > 0 ->
-        {String.trim(value), errors}
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+
+        if trimmed == "" do
+          {nil, ["#{key} must be a non-empty string" | errors]}
+        else
+          {trimmed, errors}
+        end
 
       nil ->
         {nil, ["missing required field: #{key}" | errors]}
@@ -190,12 +196,15 @@ defmodule ServiceRadar.Plugins.Manifest do
     end
   end
 
-  defp validate_semver(version, errors) do
+  defp validate_semver(nil, errors), do: errors
+  defp validate_semver(version, errors) when is_binary(version) do
     case Version.parse(version) do
       {:ok, _} -> errors
       :error -> ["version must be a valid semver string" | errors]
     end
   end
+
+  defp validate_semver(_version, errors), do: errors
 
   defp validate_outputs(outputs, errors) do
     if outputs in @allowed_outputs do

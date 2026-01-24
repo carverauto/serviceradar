@@ -23,7 +23,8 @@ config :serviceradar_core,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.DuskProfiles
+    ServiceRadar.DuskProfiles,
+    ServiceRadar.Plugins
   ]
 
 # Mailer configuration
