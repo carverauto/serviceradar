@@ -818,7 +818,7 @@ mod tests {
             "expected mac normalization in SQL, got: {sql}"
         );
 
-        match binds.get(0) {
+        match binds.as_slice().first() {
             Some(BindParam::Text(value)) => assert_eq!(value, "0eea1432d278"),
             other => panic!("unexpected binds: {other:?}"),
         }
@@ -838,7 +838,7 @@ mod tests {
             "expected LIKE clause for mac filter, got: {sql}"
         );
 
-        match binds.get(0) {
+        match binds.as_slice().first() {
             Some(BindParam::Text(value)) => assert_eq!(value, "%0eea1432d278%"),
             other => panic!("unexpected binds: {other:?}"),
         }
