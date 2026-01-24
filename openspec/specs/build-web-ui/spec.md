@@ -78,35 +78,14 @@ The web-ng UI MUST provide an interface for administrators to create, view, edit
 - **GIVEN** a profile "Legacy" assigned to 5 devices
 - **WHEN** the admin attempts to delete it
 - **THEN** a confirmation dialog shows "This profile is assigned to 5 devices"
-- **AND** they must confirm reassignment to Default profile
-- **AND** upon confirmation, affected devices receive Default profile
+- **AND** they must confirm clearing those assignments
+- **AND** upon confirmation, affected devices have no direct sysmon profile assignment
 
 #### Scenario: View profile JSON preview
 - **GIVEN** an admin editing a profile
 - **WHEN** they click "Preview JSON"
 - **THEN** they see the compiled JSON that agents will receive
 - **AND** the preview updates live as they modify settings
-
-### Requirement: Default Profile Protection
-
-The system MUST provide a Default Sysmon Profile that cannot be deleted.
-
-#### Scenario: Default profile exists
-- **GIVEN** the Sysmon Profiles page
-- **THEN** a "Default" profile always exists
-- **AND** it is marked with a "System" badge
-
-#### Scenario: Cannot delete default profile
-- **GIVEN** the Default profile
-- **WHEN** an admin views its actions
-- **THEN** the "Delete" action is disabled or hidden
-- **AND** a tooltip explains "System default cannot be deleted"
-
-#### Scenario: Can modify default profile
-- **GIVEN** the Default profile
-- **WHEN** an admin clicks "Edit"
-- **THEN** they can modify settings
-- **AND** changes apply to all devices using the default
 
 ### Requirement: Profile Assignment to Devices
 
@@ -128,7 +107,8 @@ The UI MUST allow direct profile assignment to individual devices.
 - **GIVEN** a device with directly assigned profile "Database"
 - **WHEN** the admin clicks "Clear Assignment"
 - **THEN** the device no longer has a direct profile
-- **AND** it falls back to tag-based or default profile
+- **AND** it falls back to tag-based assignment when available
+- **AND** it is otherwise unassigned
 
 ### Requirement: Profile Assignment via Tags
 
@@ -150,7 +130,7 @@ The UI MUST allow assigning profiles to device tags for group-based configuratio
 #### Scenario: Remove tag assignment
 - **GIVEN** tag "production" is assigned profile "Prod Standard"
 - **WHEN** the admin removes this assignment
-- **THEN** devices with only this tag fall back to default profile
+- **THEN** devices with only this tag become unassigned
 - **AND** devices with other tag assignments use their remaining profile
 
 #### Scenario: Tag assignment priority
@@ -168,13 +148,13 @@ The UI MUST show the sysmon configuration status for devices. The UI MUST render
 - **GIVEN** the Devices list page
 - **WHEN** the admin enables the "Sysmon" column
 - **THEN** each device row shows:
-  - Profile name (or "Default")
+  - Profile name (or "Unassigned")
   - Status indicator (configured, local override, disabled)
 
 #### Scenario: Device detail sysmon section
 - **GIVEN** a device detail page
 - **THEN** a "System Monitoring" section shows:
-  - Current profile name and source (direct, tag, default)
+  - Current profile name and source (direct, tag, unassigned)
   - Configuration summary (interval, enabled metrics)
   - Local override indicator if agent is using local config
   - Last config fetch timestamp
@@ -244,7 +224,6 @@ The backend MUST implement Ash resources for sysmon profile management following
   - `disk_paths` (array of strings)
   - `process_top_n` (integer, default 10)
   - `thresholds` (embedded map)
-  - `is_default` (boolean, default false)
   - `tenant_id` (UUID, for multi-tenancy)
 
 #### Scenario: SysmonProfileAssignment resource
@@ -309,22 +288,24 @@ The device detail view SHALL show sysmon metrics panels only when the device has
 - **THEN** sysmon metrics panels are displayed
 
 ### Requirement: Sysmon metrics rendered as graphs
-The device detail view SHALL render sysmon CPU, memory, and disk metrics as graphs instead of tables.
+The device detail view SHALL render sysmon CPU, memory, and disk metrics as graphs with normalized utilization semantics.
 
 #### Scenario: Sysmon CPU metrics visualization
 - **GIVEN** a device with sysmon CPU metrics
 - **WHEN** an admin views the device detail page
-- **THEN** CPU metrics render as a graph
+- **THEN** the CPU graph shows utilization as a percentage from 0 to 100
+- **AND** the current CPU utilization value is visible in the card header
 
 #### Scenario: Sysmon memory metrics visualization
 - **GIVEN** a device with sysmon memory metrics
 - **WHEN** an admin views the device detail page
-- **THEN** memory metrics render as a graph
+- **THEN** the memory graph shows used and available memory as distinct series
 
 #### Scenario: Sysmon disk metrics visualization
 - **GIVEN** a device with sysmon disk metrics
 - **WHEN** an admin views the device detail page
-- **THEN** disk metrics render as a graph
+- **THEN** disk graphs are grouped by disk or partition (mount/device)
+- **AND** each graph shows used versus total capacity rather than per-file values
 
 ### Requirement: Suppress low-value auto visualizations
 The device detail view SHALL NOT auto-create a visualization for the dimension "type_id by modified".
@@ -333,4 +314,272 @@ The device detail view SHALL NOT auto-create a visualization for the dimension "
 - **GIVEN** an admin opens a device detail page
 - **WHEN** default visualizations are generated
 - **THEN** no visualization is created for "Categories: type_id by modified"
+
+### Requirement: Interface Row Selection
+
+The interfaces table SHALL support row selection for bulk operations.
+
+#### Scenario: Select single interface
+- **GIVEN** a user viewing the interfaces table in device details
+- **WHEN** they click the checkbox on an interface row
+- **THEN** the row is selected and highlighted
+- **AND** the bulk action toolbar becomes visible
+
+#### Scenario: Select all interfaces
+- **GIVEN** a user viewing the interfaces table
+- **WHEN** they click the select-all checkbox in the header
+- **THEN** all visible interface rows are selected
+- **AND** the bulk action toolbar shows the count of selected items
+
+#### Scenario: Deselect all interfaces
+- **GIVEN** multiple interfaces are selected
+- **WHEN** the user clicks the select-all checkbox again or clicks "Clear selection"
+- **THEN** all interfaces are deselected
+- **AND** the bulk action toolbar is hidden
+
+---
+
+### Requirement: Interface Bulk Edit
+
+The interfaces table SHALL provide bulk edit functionality for selected interfaces.
+
+#### Scenario: Bulk enable metrics collection
+- **GIVEN** multiple interfaces are selected
+- **WHEN** the user clicks "Bulk Edit" and enables "Metrics Collection"
+- **THEN** all selected interfaces have metrics collection enabled
+- **AND** the metrics indicator icon appears on those rows
+
+#### Scenario: Bulk favorite interfaces
+- **GIVEN** multiple interfaces are selected
+- **WHEN** the user clicks "Bulk Edit" and clicks "Add to Favorites"
+- **THEN** all selected interfaces are marked as favorites
+- **AND** the star icon fills in on those rows
+
+#### Scenario: Bulk apply tags
+- **GIVEN** multiple interfaces are selected
+- **WHEN** the user clicks "Bulk Edit" and adds tags
+- **THEN** the specified tags are applied to all selected interfaces
+
+---
+
+### Requirement: Interface Favorite Icon
+
+The interfaces table SHALL display a favorite/star icon column that users can click to toggle favorite status.
+
+#### Scenario: Favorite an interface
+- **GIVEN** an interface row with an unfilled star icon
+- **WHEN** the user clicks the star icon
+- **THEN** the star fills in to indicate favorited status
+- **AND** the favorite state is persisted to the backend
+
+#### Scenario: Unfavorite an interface
+- **GIVEN** an interface row with a filled star icon
+- **WHEN** the user clicks the star icon
+- **THEN** the star becomes unfilled
+- **AND** the interface is removed from favorites
+
+---
+
+### Requirement: Interface Details Screen
+
+The system SHALL provide a dedicated interface details page showing comprehensive interface information.
+
+#### Scenario: Navigate to interface details
+- **GIVEN** a user viewing the interfaces table
+- **WHEN** they click on an interface row or the details icon
+- **THEN** they navigate to `/devices/:device_id/interfaces/:interface_id`
+- **AND** the interface details page loads
+
+#### Scenario: Display interface properties
+- **GIVEN** the interface details page
+- **THEN** it SHALL display:
+  - Interface name and description
+  - Interface ID
+  - OID information
+  - Interface type (human-readable)
+  - Speed and duplex settings
+  - MAC address
+  - IP addresses
+  - Operational and admin status with colorized indicators
+
+#### Scenario: Enable metrics collection from details
+- **GIVEN** the interface details page for an interface without metrics collection
+- **WHEN** the user toggles the "Enable Metrics Collection" switch
+- **THEN** metrics collection is enabled for this interface
+- **AND** the toggle reflects the enabled state
+
+---
+
+### Requirement: Interface Metrics Collection Indicator
+
+The interfaces table SHALL display an icon indicating whether metrics collection is enabled for each interface, and the icon SHALL be clickable to navigate to interface details.
+
+#### Scenario: Metrics enabled indicator
+- **GIVEN** an interface with metrics collection enabled
+- **WHEN** the interfaces table renders
+- **THEN** a metrics/chart icon is displayed in that row
+- **AND** the icon is visually distinct (filled or colored)
+
+#### Scenario: Click metrics indicator
+- **GIVEN** an interface row with the metrics indicator icon
+- **WHEN** the user clicks the metrics icon
+- **THEN** they navigate to the interface details page
+- **AND** the metrics/graphs section is visible
+
+#### Scenario: No metrics indicator
+- **GIVEN** an interface without metrics collection enabled
+- **WHEN** the interfaces table renders
+- **THEN** the metrics indicator is either absent or shown as disabled/outline style
+
+---
+
+### Requirement: Interface Status Colorized Display
+
+The interfaces table status column SHALL display operational and admin status using colorized labels/badges that are color-blind accessible.
+
+#### Scenario: Operational up status
+- **GIVEN** an interface with operational status "up"
+- **WHEN** the interfaces table renders
+- **THEN** the status shows a green badge with "Up" text
+- **AND** includes an upward arrow or checkmark icon for color-blind accessibility
+
+#### Scenario: Operational down status
+- **GIVEN** an interface with operational status "down"
+- **WHEN** the interfaces table renders
+- **THEN** the status shows a red badge with "Down" text
+- **AND** includes a downward arrow or X icon for color-blind accessibility
+
+#### Scenario: Admin disabled status
+- **GIVEN** an interface with admin status "down" (disabled)
+- **WHEN** the interfaces table renders
+- **THEN** the status shows a gray or yellow badge with "Admin Down" text
+- **AND** includes a pause or disabled icon
+
+#### Scenario: Nil status handling
+- **GIVEN** an interface with nil/unknown status value
+- **WHEN** the interfaces table renders
+- **THEN** the status shows a neutral badge with "Unknown" text
+- **AND** does not display "nil" literally
+
+---
+
+### Requirement: Interface Type Human-Readable Mapping
+
+The interfaces table type column SHALL display human-readable interface type names instead of raw IANA ifType values.
+
+#### Scenario: Ethernet interface type
+- **GIVEN** an interface with type `ethernetCsmacd` (ifType 6)
+- **WHEN** the interfaces table renders
+- **THEN** the type column displays "Ethernet"
+
+#### Scenario: Loopback interface type
+- **GIVEN** an interface with type `softwareLoopback` (ifType 24)
+- **WHEN** the interfaces table renders
+- **THEN** the type column displays "Loopback"
+
+#### Scenario: Unknown interface type
+- **GIVEN** an interface with an unmapped ifType value
+- **WHEN** the interfaces table renders
+- **THEN** the type column displays the original value with "(Unknown)" suffix
+
+---
+
+### Requirement: Interface ID Column
+
+The interfaces table SHALL include an interface ID column.
+
+#### Scenario: Display interface ID
+- **GIVEN** the interfaces table with interface ID column enabled
+- **WHEN** the table renders
+- **THEN** each row displays the interface's unique identifier
+
+---
+
+### Requirement: Favorited Interface Metrics Visualization
+
+The device details view SHALL display metrics visualizations for favorited interfaces with metrics collection enabled, positioned above the interfaces table.
+
+#### Scenario: Display metrics for favorited interfaces
+- **GIVEN** a device with interfaces that are favorited AND have metrics collection enabled
+- **WHEN** the device details page loads the Interfaces tab
+- **THEN** a metrics visualization section appears above the interfaces table
+- **AND** displays graphs for each favorited interface's metrics
+
+#### Scenario: Auto-select visualization type
+- **GIVEN** a favorited interface with counter-type metrics (e.g., bytes in/out)
+- **WHEN** the visualization renders
+- **THEN** a line or area chart is displayed showing the metric over time
+
+#### Scenario: Gauge metric visualization
+- **GIVEN** a favorited interface with gauge-type metrics (e.g., utilization percentage)
+- **WHEN** the visualization renders
+- **THEN** a gauge or percentage chart is displayed
+
+#### Scenario: No favorited interfaces
+- **GIVEN** a device with no favorited interfaces with metrics enabled
+- **WHEN** the device details page loads the Interfaces tab
+- **THEN** the metrics visualization section is not displayed
+- **OR** shows an empty state message
+
+---
+
+### Requirement: Interface Threshold Configuration
+
+The interface details page SHALL allow users to configure thresholds on utilization metrics that generate events when exceeded.
+
+#### Scenario: Create utilization threshold
+- **GIVEN** the interface details page for an interface with metrics enabled
+- **WHEN** the user configures a threshold (e.g., "bandwidth utilization > 80%")
+- **THEN** the threshold is saved
+- **AND** the system will generate an event when the condition is met
+
+#### Scenario: Threshold generates event
+- **GIVEN** an interface with a configured threshold
+- **WHEN** the metric value exceeds the threshold
+- **THEN** an event is created in the events system
+- **AND** the event references the interface and threshold condition
+
+---
+
+### Requirement: Interface Alert Creation
+
+The interface details page SHALL allow users to create alerts on interface threshold events using the existing alert editor component.
+
+#### Scenario: Create alert from threshold
+- **GIVEN** a threshold configured on an interface
+- **WHEN** the user clicks "Create Alert" on the threshold
+- **THEN** the alert editor opens pre-populated with the threshold event source
+- **AND** the user can configure alert parameters (e.g., "exceeds threshold for 5 minutes")
+
+#### Scenario: Alert editor reuse
+- **GIVEN** the alert creation flow on interface details
+- **THEN** it SHALL use the same alert editor component as the Settings page
+- **AND** support the same alert configuration options
+
+### Requirement: Interface metrics charts render error counters
+The web UI SHALL render interface error counter charts when `in_errors` and `out_errors` are present in SRQL interface metrics responses.
+
+#### Scenario: Error counters displayed
+- **GIVEN** the interface metrics SRQL response includes `in_errors` and `out_errors`
+- **WHEN** a user views the interface metrics section
+- **THEN** the UI shows charts for inbound and outbound errors
+
+#### Scenario: Empty-state for missing error counters
+- **GIVEN** the interface metrics SRQL response includes `in_errors: null` and `out_errors: null`
+- **WHEN** a user views the interface metrics section
+- **THEN** the UI shows an empty-state message indicating error counters are not yet available
+
+### Requirement: Interface metrics timeseries charts
+The device interface metrics view SHALL render SNMP interface traffic as timeseries charts with a time axis, a rate axis, and gridlines for readability.
+
+#### Scenario: Interface traffic chart axes
+- **GIVEN** a device interface has SNMP traffic metrics available
+- **WHEN** the interface metrics charts are rendered
+- **THEN** the chart SHALL show a time-based X axis and a rate-based Y axis
+- **AND** the chart SHALL include gridlines aligned to the axes
+
+#### Scenario: Counter-based traffic rate calculation
+- **GIVEN** SNMP interface traffic metrics are stored as counters (ifIn/OutOctets or ifHCIn/OutOctets)
+- **WHEN** the interface metrics chart is rendered
+- **THEN** the chart SHALL display per-second rates computed from consecutive counter deltas
 

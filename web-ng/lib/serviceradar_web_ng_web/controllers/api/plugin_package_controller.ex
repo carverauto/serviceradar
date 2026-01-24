@@ -5,8 +5,13 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  require Ash.Query
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins
+  alias ServiceRadarWebNG.Plugins.Storage
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -77,6 +82,107 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
           end
       end
     end
+  end
+
+  def upload_url(conn, %{"id" => id} = params) do
+    with :ok <- require_authenticated(conn) do
+      scope = get_scope(conn)
+      ttl = parse_ttl_seconds(params["ttl_seconds"], Storage.upload_ttl_seconds())
+
+      with {:ok, package} <- Plugins.get_package(id, scope: scope),
+           {:ok, package} <- ensure_object_key(package, scope),
+           {token, expires_at} <- Storage.sign_token(:upload, package.id, package.wasm_object_key, ttl) do
+        json(conn, %{
+          upload_url: Storage.upload_url(package.id, token),
+          expires_at: format_datetime(expires_at),
+          object_key: package.wasm_object_key
+        })
+      end
+    end
+  end
+
+  def download_url(conn, %{"id" => id} = params) do
+    with :ok <- require_authenticated(conn) do
+      scope = get_scope(conn)
+      ttl = parse_ttl_seconds(params["ttl_seconds"], Storage.download_ttl_seconds())
+
+      with {:ok, package} <- Plugins.get_package(id, scope: scope),
+           {:ok, package} <- ensure_object_key(package, scope),
+           true <- package.wasm_object_key not in [nil, ""] do
+        {token, expires_at} =
+          Storage.sign_token(:download, package.id, package.wasm_object_key, ttl)
+
+        json(conn, %{
+          download_url: Storage.download_url(package.id, token),
+          expires_at: format_datetime(expires_at),
+          object_key: package.wasm_object_key
+        })
+      else
+        false ->
+          conn
+          |> put_status(:conflict)
+          |> json(%{error: "missing_wasm_object_key"})
+      end
+    end
+  end
+
+  def upload_blob(conn, %{"id" => id, "token" => token}) do
+    with {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:upload, token),
+         true <- token_id == id,
+         {:ok, package} <- fetch_package_for_blob(id),
+         true <- object_key == package.wasm_object_key,
+         {:ok, payload, conn} <- read_full_body(conn, Storage.max_upload_bytes()),
+         :ok <- Storage.put_blob(object_key, payload) do
+      content_hash = Storage.sha256(payload)
+      _ = update_package_hash(package, content_hash)
+      send_resp(conn, :created, "")
+    else
+      {:error, :invalid_token} -> unauthorized(conn)
+      {:error, :payload_too_large} ->
+        conn
+        |> put_status(:request_entity_too_large)
+        |> json(%{error: "payload_too_large"})
+
+      false -> unauthorized(conn)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def upload_blob(conn, _params) do
+    unauthorized(conn)
+  end
+
+  def download_blob(conn, %{"id" => id, "token" => token}) do
+    with {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:download, token),
+         true <- token_id == id,
+         {:ok, package} <- fetch_package_for_blob(id),
+         true <- object_key == package.wasm_object_key,
+         {:ok, blob} <- Storage.fetch_blob(object_key) do
+      case blob do
+        {:file, path} ->
+          conn
+          |> put_resp_content_type("application/wasm")
+          |> send_file(200, path)
+
+        {:binary, data} ->
+          conn
+          |> put_resp_content_type("application/wasm")
+          |> send_resp(200, data)
+      end
+    else
+      {:error, :invalid_token} -> unauthorized(conn)
+      false -> unauthorized(conn)
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "not_found"})
+
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def download_blob(conn, _params) do
+    unauthorized(conn)
   end
 
   def approve(conn, %{"id" => id} = params) do
@@ -214,6 +320,84 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   defp format_manifest_errors(errors) do
     Enum.map(errors, fn error -> %{message: error} end)
   end
+
+  defp ensure_object_key(package, scope) do
+    if package.wasm_object_key in [nil, ""] do
+      object_key = Storage.object_key_for(package)
+
+      package
+      |> Ash.Changeset.for_update(:update, %{wasm_object_key: object_key})
+      |> Ash.update(scope: scope)
+    else
+      {:ok, package}
+    end
+  end
+
+  defp fetch_package_for_blob(id) do
+    actor = SystemActor.system(:plugin_blob)
+
+    PluginPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, package} -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp update_package_hash(package, content_hash) do
+    actor = SystemActor.system(:plugin_blob)
+
+    package
+    |> Ash.Changeset.for_update(:update, %{content_hash: content_hash})
+    |> Ash.update(actor: actor)
+  end
+
+  defp read_full_body(conn, max_bytes) do
+    read_body(conn, length: max_bytes, read_length: 1_000_000)
+    |> case do
+      {:ok, body, conn} -> {:ok, body, conn}
+      {:more, body, conn} -> read_body_more(conn, max_bytes, body, byte_size(body))
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp read_body_more(conn, max_bytes, acc, size) do
+    if size >= max_bytes do
+      {:error, :payload_too_large}
+    else
+      read_body(conn, length: max_bytes - size, read_length: 1_000_000)
+      |> case do
+        {:ok, body, conn} -> {:ok, acc <> body, conn}
+        {:more, body, conn} -> read_body_more(conn, max_bytes, acc <> body, size + byte_size(body))
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp unauthorized(conn) do
+    conn
+    |> put_status(:unauthorized)
+    |> json(%{error: "unauthorized"})
+  end
+
+  defp parse_ttl_seconds(nil, default), do: default
+  defp parse_ttl_seconds("", default), do: default
+
+  defp parse_ttl_seconds(value, default) when is_integer(value) and value > 0 do
+    value
+  end
+
+  defp parse_ttl_seconds(value, default) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _ -> default
+    end
+  end
+
+  defp parse_ttl_seconds(_, default), do: default
 
   defp get_actor(conn) do
     case conn.assigns[:current_scope] do

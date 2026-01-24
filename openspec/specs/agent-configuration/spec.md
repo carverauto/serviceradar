@@ -25,8 +25,8 @@ The `serviceradar-agent` MUST initialize the embedded `pkg/sysmon` collector at 
 - **GIVEN** the agent is starting
 - **AND** no sysmon configuration exists (local or remote)
 - **WHEN** initialization completes
-- **THEN** the agent uses the default sysmon profile
-- **AND** basic CPU, memory, and disk monitoring is active
+- **THEN** no sysmon collector is started
+- **AND** no sysmon metrics are reported
 
 ### Requirement: Remote Configuration Fetch
 
@@ -118,7 +118,6 @@ The agent MUST resolve configuration using a defined priority order.
   - Local sysmon.json present
   - Device assigned profile "Database"
   - Device has tag "prod" with tag-assigned profile "Production"
-  - Default system profile exists
 - **WHEN** configuration is resolved
 - **THEN** local sysmon.json is used (highest priority)
 
@@ -144,28 +143,12 @@ The agent MUST resolve configuration using a defined priority order.
 - **THEN** the profile with higher priority is used
 - **AND** priority is determined by profile assignment order (most recently assigned wins)
 
-### Requirement: Default Configuration
-
-The system MUST provide a default configuration for agents with no specific profile assigned.
-
-#### Scenario: New agent with no profile
-- **GIVEN** a newly registered agent
-- **AND** no tags assigned
-- **AND** no direct profile assignment
-- **WHEN** the agent requests configuration
-- **THEN** it receives the Default Sysmon Profile
-
-#### Scenario: Default profile contents
-- **GIVEN** the Default Sysmon Profile
-- **THEN** it includes:
-  - `enabled: true`
-  - `sample_interval: 10s`
-  - `collect_cpu: true`
-  - `collect_memory: true`
-  - `collect_disk: true`
-  - `collect_network: false` (opt-in due to verbosity)
-  - `collect_processes: false` (opt-in due to resource usage)
-  - `disk_paths: ["/"]` on Linux, `["/"]` on macOS
+#### Scenario: No matching profiles
+- **GIVEN** an agent without local sysmon.json
+- **AND** device has no direct profile assignment
+- **AND** device has no matching tag assignments
+- **WHEN** configuration is resolved
+- **THEN** no sysmon profile is selected
 
 ### Requirement: Configuration Caching
 
@@ -390,4 +373,16 @@ The agent gateway MUST NOT initiate connections to agents. All communication flo
 - **WHEN** the gateway supervisor starts
 - **THEN** no AgentClient polling process is started
 - **AND** the gateway never initiates `GetStatus` calls to agents
+
+### Requirement: No Matching Profile Behavior
+
+When no sysmon profile matches a device and no local override exists, the control plane MUST return a disabled sysmon configuration and the agent MUST not collect sysmon metrics.
+
+#### Scenario: No matching profile returns disabled config
+- **GIVEN** an agent without local sysmon.json
+- **AND** no sysmon profile target query matches the device
+- **WHEN** the agent requests configuration
+- **THEN** the returned sysmon config has `enabled: false`
+- **AND** no sysmon collector is started
+- **AND** no sysmon metrics are reported
 

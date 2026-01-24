@@ -1,10 +1,10 @@
 ## 1. Implementation
 - [x] 1.1 Define plugin package schema (manifest YAML + optional config schema) and validation rules
 - [x] 1.2 Add Ash resources + migrations for plugins, packages, and agent assignments
-- [ ] 1.3 Implement storage backends (filesystem default; JetStream object store optional)
-- [ ] 1.4 Add web-ng API endpoints for upload, download (signed URL), and assignment management
+- [x] 1.3 Implement storage backends (filesystem default; JetStream object store optional)
+- [x] 1.4 Add web-ng API endpoints for upload, download (signed URL), and assignment management
 - [x] 1.4a Add admin API endpoints for plugins, packages, and agent assignments
-- [ ] 1.4b Add upload/download endpoints (signed URL) for wasm packages
+- [x] 1.4b Add upload/download endpoints (signed URL) for wasm packages
 - [ ] 1.5 Extend agent config delivery (proto + gateway/core wiring) with plugin assignments
 - [ ] 1.6 Embed wazero runtime in the agent and implement host function ABI
 - [ ] 1.7 Implement result schema validation and mapping into `GatewayServiceStatus`
@@ -14,5 +14,7 @@
 - [ ] 1.11 Add GitHub package source support (core fetch + verification + storage handoff)
 - [ ] 1.12 Add import review workflow (capability + allowlist confirmation) before distribution
 - [ ] 1.13 Add UI flows for upload/import review, versioning, assignment, status visibility, capacity planning, and verification policy
+- [x] 1.13a Add admin UI for staging, reviewing, and uploading plugin packages
+- [x] 1.13b Add admin UI to assign approved packages to agents
 - [ ] 1.14 Add tests (package validation, storage, agent runtime sandboxing, result mapping, resource budgeting, telemetry, ingestion, GitHub verification, import approval)
 - [ ] 1.15 Update docs for plugin packaging, SDK usage, and deployment configuration

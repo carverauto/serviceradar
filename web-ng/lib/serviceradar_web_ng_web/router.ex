@@ -10,168 +10,173 @@ defmodule ServiceRadarWebNGWeb.Router do
   alias ServiceRadarWebNG.Accounts.Scope
 
   pipeline :browser do
-    plug :accepts, ["html"]
-    plug :fetch_session
-    plug :fetch_live_flash
-    plug :put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root}
-    plug :protect_from_forgery
-    plug :put_secure_browser_headers
-    plug :fetch_current_scope_for_user
-    plug :set_ash_actor
+    plug(:accepts, ["html"])
+    plug(:fetch_session)
+    plug(:fetch_live_flash)
+    plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
+    plug(:protect_from_forgery)
+    plug(:put_secure_browser_headers)
+    plug(:fetch_current_scope_for_user)
+    plug(:set_ash_actor)
   end
 
   pipeline :api do
-    plug :accepts, ["json"]
+    plug(:accepts, ["json"])
   end
 
   pipeline :api_auth do
-    plug :accepts, ["json"]
-    plug :fetch_session
-    plug :protect_from_forgery
-    plug :fetch_current_scope_for_user
-    plug :require_authenticated_user
+    plug(:accepts, ["json"])
+    plug(:fetch_session)
+    plug(:protect_from_forgery)
+    plug(:fetch_current_scope_for_user)
+    plug(:require_authenticated_user)
   end
 
   # API authentication for CLI/external tools (API key or bearer token)
   pipeline :api_key_auth do
-    plug :accepts, ["json"]
-    plug ServiceRadarWebNGWeb.Plugs.ApiAuth
+    plug(:accepts, ["json"])
+    plug(ServiceRadarWebNGWeb.Plugs.ApiAuth)
   end
 
   pipeline :dev_routes do
-    plug :ensure_dev_routes_enabled
+    plug(:ensure_dev_routes_enabled)
   end
 
   pipeline :admin_basic_auth do
-    plug ServiceRadarWebNGWeb.Plugs.BasicAuth
+    plug(ServiceRadarWebNGWeb.Plugs.BasicAuth)
   end
 
   pipeline :oban_access do
-    plug :require_oban_access
+    plug(:require_oban_access)
   end
 
   # API pipeline for token-gated endpoints (no session auth required)
   pipeline :api_token_auth do
-    plug :accepts, ["json"]
+    plug(:accepts, ["json"])
   end
 
   # JSON:API pipeline for Ash resources (v2 API)
   pipeline :ash_json_api do
-    plug :accepts, ["json"]
-    plug :fetch_session
-    plug :fetch_current_scope_for_user
-    plug :set_ash_actor
-    plug ServiceRadarWebNGWeb.Plugs.ApiErrorHandler
+    plug(:accepts, ["json"])
+    plug(:fetch_session)
+    plug(:fetch_current_scope_for_user)
+    plug(:set_ash_actor)
+    plug(ServiceRadarWebNGWeb.Plugs.ApiErrorHandler)
   end
 
   scope "/", ServiceRadarWebNGWeb do
-    pipe_through :browser
+    pipe_through(:browser)
 
-    get "/", PageController, :home
+    get("/", PageController, :home)
   end
 
   # Other scopes may use custom stacks.
   scope "/api", ServiceRadarWebNG.Api do
-    pipe_through :api_auth
+    pipe_through(:api_auth)
 
-    post "/query", QueryController, :execute
-    get "/devices", DeviceController, :index
-    get "/devices/ocsf/export", DeviceController, :ocsf_export
-    get "/devices/:uid", DeviceController, :show
+    post("/query", QueryController, :execute)
+    get("/devices", DeviceController, :index)
+    get("/devices/ocsf/export", DeviceController, :ocsf_export)
+    get("/devices/:uid", DeviceController, :show)
   end
 
   # Edge onboarding admin API (API key or bearer token auth)
   scope "/api/admin", ServiceRadarWebNG.Api do
-    pipe_through :api_key_auth
+    pipe_through(:api_key_auth)
 
     # Package defaults and templates
-    get "/edge-packages/defaults", EdgeController, :defaults
-    get "/component-templates", EdgeController, :templates
+    get("/edge-packages/defaults", EdgeController, :defaults)
+    get("/component-templates", EdgeController, :templates)
 
     # Package CRUD
-    get "/edge-packages", EdgeController, :index
-    post "/edge-packages", EdgeController, :create
-    get "/edge-packages/:id", EdgeController, :show
-    delete "/edge-packages/:id", EdgeController, :delete
+    get("/edge-packages", EdgeController, :index)
+    post("/edge-packages", EdgeController, :create)
+    get("/edge-packages/:id", EdgeController, :show)
+    delete("/edge-packages/:id", EdgeController, :delete)
 
     # Package events
-    get "/edge-packages/:id/events", EdgeController, :events
+    get("/edge-packages/:id/events", EdgeController, :events)
 
     # Package actions
-    post "/edge-packages/:id/revoke", EdgeController, :revoke
+    post("/edge-packages/:id/revoke", EdgeController, :revoke)
 
     # Plugin registry
-    get "/plugins", PluginController, :index
-    post "/plugins", PluginController, :create
-    get "/plugins/:id", PluginController, :show
-    patch "/plugins/:id", PluginController, :update
+    get("/plugins", PluginController, :index)
+    post("/plugins", PluginController, :create)
+    get("/plugins/:id", PluginController, :show)
+    patch("/plugins/:id", PluginController, :update)
 
     # Plugin packages
-    get "/plugin-packages", PluginPackageController, :index
-    post "/plugin-packages", PluginPackageController, :create
-    get "/plugin-packages/:id", PluginPackageController, :show
-    post "/plugin-packages/:id/approve", PluginPackageController, :approve
-    post "/plugin-packages/:id/deny", PluginPackageController, :deny
-    post "/plugin-packages/:id/revoke", PluginPackageController, :revoke
-    post "/plugin-packages/:id/restage", PluginPackageController, :restage
+    get("/plugin-packages", PluginPackageController, :index)
+    post("/plugin-packages", PluginPackageController, :create)
+    get("/plugin-packages/:id", PluginPackageController, :show)
+    post("/plugin-packages/:id/upload-url", PluginPackageController, :upload_url)
+    post("/plugin-packages/:id/download-url", PluginPackageController, :download_url)
+    post("/plugin-packages/:id/approve", PluginPackageController, :approve)
+    post("/plugin-packages/:id/deny", PluginPackageController, :deny)
+    post("/plugin-packages/:id/revoke", PluginPackageController, :revoke)
+    post("/plugin-packages/:id/restage", PluginPackageController, :restage)
 
     # Plugin assignments
-    get "/plugin-assignments", PluginAssignmentController, :index
-    post "/plugin-assignments", PluginAssignmentController, :create
-    patch "/plugin-assignments/:id", PluginAssignmentController, :update
-    delete "/plugin-assignments/:id", PluginAssignmentController, :delete
+    get("/plugin-assignments", PluginAssignmentController, :index)
+    post("/plugin-assignments", PluginAssignmentController, :create)
+    patch("/plugin-assignments/:id", PluginAssignmentController, :update)
+    delete("/plugin-assignments/:id", PluginAssignmentController, :delete)
 
     # Collector package management
-    get "/collectors", CollectorController, :index
-    post "/collectors", CollectorController, :create
-    get "/collectors/:id", CollectorController, :show
-    post "/collectors/:id/revoke", CollectorController, :revoke
+    get("/collectors", CollectorController, :index)
+    post("/collectors", CollectorController, :create)
+    get("/collectors/:id", CollectorController, :show)
+    post("/collectors/:id/revoke", CollectorController, :revoke)
 
     # NATS account & credentials
-    get "/nats/account", CollectorController, :account_status
-    get "/nats/credentials", CollectorController, :credentials
+    get("/nats/account", CollectorController, :account_status)
+    get("/nats/credentials", CollectorController, :credentials)
   end
 
   # Edge package download - token-gated (no session auth required)
   # This allows CLI tools to download packages using only the download token
   scope "/api/admin", ServiceRadarWebNG.Api do
-    pipe_through :api_token_auth
+    pipe_through(:api_token_auth)
 
-    post "/edge-packages/:id/download", EdgeController, :download
-    post "/collectors/:id/download", CollectorController, :download
+    post("/edge-packages/:id/download", EdgeController, :download)
+    post("/collectors/:id/download", CollectorController, :download)
   end
 
   # Edge package bundle download - public endpoint with token in query param
   # Allows one-liner curl commands for zero-touch provisioning
   scope "/api", ServiceRadarWebNG.Api do
-    pipe_through :api
+    pipe_through(:api)
 
-    get "/edge-packages/:id/bundle", EdgeController, :bundle
-    get "/collectors/:id/bundle", CollectorController, :bundle
+    get("/edge-packages/:id/bundle", EdgeController, :bundle)
+    get("/collectors/:id/bundle", CollectorController, :bundle)
+    put("/plugin-packages/:id/blob", PluginPackageController, :upload_blob)
+    get("/plugin-packages/:id/blob", PluginPackageController, :download_blob)
 
     # Collector enrollment endpoint for serviceradar-cli
     # Usage: serviceradar-cli enroll --token <token>
     # Token decodes to: GET /api/enroll/:package_id?token=<secret>
-    get "/enroll/:package_id", EnrollController, :enroll
+    get("/enroll/:package_id", EnrollController, :enroll)
   end
 
   # Ash JSON:API v2 endpoints
   scope "/api/v2" do
-    pipe_through :ash_json_api
+    pipe_through(:ash_json_api)
 
-    forward "/", ServiceRadarWebNGWeb.AshJsonApiRouter
+    forward("/", ServiceRadarWebNGWeb.AshJsonApiRouter)
   end
 
   scope "/dev" do
-    pipe_through [:browser, :dev_routes]
+    pipe_through([:browser, :dev_routes])
 
-    live_dashboard "/dashboard",
+    live_dashboard("/dashboard",
       metrics: ServiceRadarWebNGWeb.Telemetry,
       additional_pages: [
         broadway: {BroadwayDashboard, pipelines: [ServiceRadar.EventWriter.Pipeline]}
       ]
+    )
 
-    forward "/mailbox", Plug.Swoosh.MailboxPreview
+    forward("/mailbox", Plug.Swoosh.MailboxPreview)
 
     # AshAdmin for Ash resource management (dev/staging only)
     ash_admin("/ash",
@@ -193,25 +198,28 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   scope "/admin", ServiceRadarWebNGWeb do
-    pipe_through [:browser, :require_authenticated_user]
+    pipe_through([:browser, :require_authenticated_user])
 
     live_session :admin,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
-      live "/jobs", Admin.JobLive.Index, :index
-      live "/jobs/:id", Admin.JobLive.Show, :show
-      live "/edge-packages", Admin.EdgePackageLive.Index, :index
-      live "/edge-packages/new", Admin.EdgePackageLive.Index, :new
-      live "/edge-packages/:id", Admin.EdgePackageLive.Index, :show
-      live "/cluster", Admin.ClusterLive.Index, :index
-      live "/collectors", Admin.CollectorLive.Index, :index
-      live "/collectors/:id", Admin.CollectorLive.Index, :show
-      live "/edge-sites", Admin.EdgeSitesLive.Index, :index
-      live "/edge-sites/new", Admin.EdgeSitesLive.Index, :new
-      live "/edge-sites/:id", Admin.EdgeSitesLive.Show, :show
+      live("/jobs", Admin.JobLive.Index, :index)
+      live("/jobs/:id", Admin.JobLive.Show, :show)
+      live("/edge-packages", Admin.EdgePackageLive.Index, :index)
+      live("/edge-packages/new", Admin.EdgePackageLive.Index, :new)
+      live("/edge-packages/:id", Admin.EdgePackageLive.Index, :show)
+      live("/plugins", Admin.PluginPackageLive.Index, :index)
+      live("/plugins/new", Admin.PluginPackageLive.Index, :new)
+      live("/plugins/:id", Admin.PluginPackageLive.Index, :show)
+      live("/cluster", Admin.ClusterLive.Index, :index)
+      live("/collectors", Admin.CollectorLive.Index, :index)
+      live("/collectors/:id", Admin.CollectorLive.Index, :show)
+      live("/edge-sites", Admin.EdgeSitesLive.Index, :index)
+      live("/edge-sites/new", Admin.EdgeSitesLive.Index, :new)
+      live("/edge-sites/:id", Admin.EdgeSitesLive.Show, :show)
     end
 
     scope "/" do
-      pipe_through [:oban_access]
+      pipe_through([:oban_access])
 
       oban_dashboard("/oban",
         oban_name: Oban,
@@ -225,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # These routes handle password and OAuth callbacks
 
   scope "/", ServiceRadarWebNGWeb do
-    pipe_through :browser
+    pipe_through(:browser)
 
     sign_out_route(AuthController, "/auth/sign-out")
 
@@ -237,106 +245,106 @@ defmodule ServiceRadarWebNGWeb.Router do
   ## Authentication routes
 
   scope "/", ServiceRadarWebNGWeb do
-    pipe_through [:browser, :require_authenticated_user]
+    pipe_through([:browser, :require_authenticated_user])
 
     # Redirect /dashboard to /analytics
-    get "/dashboard", PageController, :redirect_to_analytics
-    get "/users/settings", PageController, :redirect_to_settings_profile
+    get("/dashboard", PageController, :redirect_to_analytics)
+    get("/users/settings", PageController, :redirect_to_settings_profile)
 
     live_session :require_authenticated_user,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
-      live "/analytics", AnalyticsLive.Index, :index
-      live "/devices", DeviceLive.Index, :index
-      live "/devices/:uid", DeviceLive.Show, :show
-      live "/devices/:device_uid/interfaces/:interface_uid", InterfaceLive.Show, :show
-      live "/interfaces", InterfaceLive.Index, :index
+      live("/analytics", AnalyticsLive.Index, :index)
+      live("/devices", DeviceLive.Index, :index)
+      live("/devices/:uid", DeviceLive.Show, :show)
+      live("/devices/:device_uid/interfaces/:interface_uid", InterfaceLive.Show, :show)
+      live("/interfaces", InterfaceLive.Index, :index)
 
       # Connected agents view (instance-scoped, visible to all authenticated users)
-      live "/agents", AgentLive.Index, :index
-      live "/agents/:uid", AgentLive.Show, :show
+      live("/agents", AgentLive.Index, :index)
+      live("/agents/:uid", AgentLive.Show, :show)
 
       # Gateways
-      live "/gateways", GatewayLive.Index, :index
-      live "/gateways/:gateway_id", GatewayLive.Show, :show
-      live "/events", EventLive.Index, :index
-      live "/events/:event_id", EventLive.Show, :show
-      live "/alerts", AlertLive.Index, :index
-      live "/alerts/:alert_id", AlertLive.Show, :show
-      live "/observability", LogLive.Index, :index
-      live "/observability/metrics/:span_id", MetricLive.Show, :show
-      live "/logs", LogLive.Index, :index
-      live "/logs/:log_id", LogLive.Show, :show
-      live "/services", ServiceLive.Index, :index
-      live "/settings/profile", UserLive.Settings, :edit
-      live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
+      live("/gateways", GatewayLive.Index, :index)
+      live("/gateways/:gateway_id", GatewayLive.Show, :show)
+      live("/events", EventLive.Index, :index)
+      live("/events/:event_id", EventLive.Show, :show)
+      live("/alerts", AlertLive.Index, :index)
+      live("/alerts/:alert_id", AlertLive.Show, :show)
+      live("/observability", LogLive.Index, :index)
+      live("/observability/metrics/:span_id", MetricLive.Show, :show)
+      live("/logs", LogLive.Index, :index)
+      live("/logs/:log_id", LogLive.Show, :show)
+      live("/services", ServiceLive.Index, :index)
+      live("/settings/profile", UserLive.Settings, :edit)
+      live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
 
       # Cluster visibility for all authenticated users
-      live "/settings/cluster", Settings.ClusterLive.Index, :index
-      live "/settings/cluster/nodes/:node_name", NodeLive.Show, :show
-      live "/settings/rules", Settings.RulesLive.Index, :index
+      live("/settings/cluster", Settings.ClusterLive.Index, :index)
+      live("/settings/cluster/nodes/:node_name", NodeLive.Show, :show)
+      live("/settings/rules", Settings.RulesLive.Index, :index)
 
       # Network sweep configuration
-      live "/settings/networks", Settings.NetworksLive.Index, :index
-      live "/settings/networks/groups/new", Settings.NetworksLive.Index, :new_group
-      live "/settings/networks/groups/:id", Settings.NetworksLive.Index, :show_group
-      live "/settings/networks/groups/:id/edit", Settings.NetworksLive.Index, :edit_group
-      live "/settings/networks/profiles/new", Settings.NetworksLive.Index, :new_profile
-      live "/settings/networks/profiles/:id/edit", Settings.NetworksLive.Index, :edit_profile
-      live "/settings/networks/discovery", Settings.NetworksLive.Index, :discovery
-      live "/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job
-      live "/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job
+      live("/settings/networks", Settings.NetworksLive.Index, :index)
+      live("/settings/networks/groups/new", Settings.NetworksLive.Index, :new_group)
+      live("/settings/networks/groups/:id", Settings.NetworksLive.Index, :show_group)
+      live("/settings/networks/groups/:id/edit", Settings.NetworksLive.Index, :edit_group)
+      live("/settings/networks/profiles/new", Settings.NetworksLive.Index, :new_profile)
+      live("/settings/networks/profiles/:id/edit", Settings.NetworksLive.Index, :edit_profile)
+      live("/settings/networks/discovery", Settings.NetworksLive.Index, :discovery)
+      live("/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job)
+      live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
 
       # Integration sources configuration
-      live "/settings/networks/integrations", Settings.IntegrationsLive.Index, :index
-      live "/settings/networks/integrations/new", Settings.IntegrationsLive.Index, :new
-      live "/settings/networks/integrations/:id", Settings.IntegrationsLive.Index, :show
-      live "/settings/networks/integrations/:id/edit", Settings.IntegrationsLive.Index, :edit
+      live("/settings/networks/integrations", Settings.IntegrationsLive.Index, :index)
+      live("/settings/networks/integrations/new", Settings.IntegrationsLive.Index, :new)
+      live("/settings/networks/integrations/:id", Settings.IntegrationsLive.Index, :show)
+      live("/settings/networks/integrations/:id/edit", Settings.IntegrationsLive.Index, :edit)
 
       # Sysmon profiles configuration
-      live "/settings/sysmon", Settings.SysmonProfilesLive.Index, :index
-      live "/settings/sysmon/new", Settings.SysmonProfilesLive.Index, :new_profile
-      live "/settings/sysmon/:id/edit", Settings.SysmonProfilesLive.Index, :edit_profile
+      live("/settings/sysmon", Settings.SysmonProfilesLive.Index, :index)
+      live("/settings/sysmon/new", Settings.SysmonProfilesLive.Index, :new_profile)
+      live("/settings/sysmon/:id/edit", Settings.SysmonProfilesLive.Index, :edit_profile)
 
       # SNMP profiles configuration
-      live "/settings/snmp", Settings.SNMPProfilesLive.Index, :index
-      live "/settings/snmp/new", Settings.SNMPProfilesLive.Index, :new_profile
-      live "/settings/snmp/:id/edit", Settings.SNMPProfilesLive.Index, :edit_profile
+      live("/settings/snmp", Settings.SNMPProfilesLive.Index, :index)
+      live("/settings/snmp/new", Settings.SNMPProfilesLive.Index, :new_profile)
+      live("/settings/snmp/:id/edit", Settings.SNMPProfilesLive.Index, :edit_profile)
 
       # Dusk profiles configuration
-      live "/settings/dusk", Settings.DuskProfilesLive.Index, :index
-      live "/settings/dusk/new", Settings.DuskProfilesLive.Index, :new_profile
-      live "/settings/dusk/:id/edit", Settings.DuskProfilesLive.Index, :edit_profile
+      live("/settings/dusk", Settings.DuskProfilesLive.Index, :index)
+      live("/settings/dusk/new", Settings.DuskProfilesLive.Index, :new_profile)
+      live("/settings/dusk/:id/edit", Settings.DuskProfilesLive.Index, :edit_profile)
 
       # Agent deployment
-      live "/settings/agents/deploy", Settings.AgentsLive.Deploy, :index
+      live("/settings/agents/deploy", Settings.AgentsLive.Deploy, :index)
 
       # Zen Rule Editor - visual JDM editor for rule logic
-      live "/settings/rules/zen/new", Settings.ZenRuleEditorLive, :new
-      live "/settings/rules/zen/:id", Settings.ZenRuleEditorLive, :edit
-      live "/settings/rules/zen/clone/:clone_id", Settings.ZenRuleEditorLive, :clone
+      live("/settings/rules/zen/new", Settings.ZenRuleEditorLive, :new)
+      live("/settings/rules/zen/:id", Settings.ZenRuleEditorLive, :edit)
+      live("/settings/rules/zen/clone/:clone_id", Settings.ZenRuleEditorLive, :clone)
 
-      get "/infrastructure", PageController, :redirect_to_settings_cluster
-      get "/infrastructure/nodes/:node_name", PageController, :redirect_to_settings_cluster_node
+      get("/infrastructure", PageController, :redirect_to_settings_cluster)
+      get("/infrastructure/nodes/:node_name", PageController, :redirect_to_settings_cluster_node)
     end
 
-    post "/users/update-password", UserSessionController, :update_password
+    post("/users/update-password", UserSessionController, :update_password)
   end
 
   scope "/", ServiceRadarWebNGWeb do
-    pipe_through :browser
+    pipe_through(:browser)
 
     # AshAuthentication.Phoenix sign-in LiveView
     ash_authentication_live_session :authentication,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
-      live "/users/log-in", AuthLive.SignIn, :sign_in
+      live("/users/log-in", AuthLive.SignIn, :sign_in)
     end
   end
 
   scope "/", ServiceRadarWebNGWeb do
-    pipe_through [:browser]
+    pipe_through([:browser])
 
     # Legacy session routes (kept for logout handling)
-    delete "/users/log-out", UserSessionController, :delete
+    delete("/users/log-out", UserSessionController, :delete)
   end
 
   defp ensure_dev_routes_enabled(conn, _opts) do
