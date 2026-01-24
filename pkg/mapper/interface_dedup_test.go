@@ -98,6 +98,45 @@ func TestInterfaceDedupKeyFallsBackToDeviceIP(t *testing.T) {
 	}
 }
 
+func TestDeduplicateDevicesUsesAlternateIPsForInterfaces(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			Devices: []*DiscoveredDevice{
+				{
+					DeviceID: "dev-1",
+					IP:       "216.17.46.98",
+					Metadata: map[string]string{"alt_ip:192.168.10.1": "1"},
+				},
+			},
+			Interfaces: []*DiscoveredInterface{
+				{
+					DeviceIP: "192.168.10.1",
+					DeviceID: "dev-2",
+					IfIndex:  1,
+				},
+			},
+		},
+		deviceMap: map[string]*DeviceInterfaceMap{
+			"dev-1": {
+				DeviceID: "dev-1",
+				IPs:      map[string]struct{}{"216.17.46.98": {}},
+				MACs:     map[string]struct{}{},
+			},
+		},
+	}
+
+	engine.deduplicateDevices(job)
+
+	if len(job.Results.Interfaces) != 1 {
+		t.Fatalf("expected 1 interface, got %d", len(job.Results.Interfaces))
+	}
+
+	if job.Results.Interfaces[0].DeviceID != "dev-1" {
+		t.Fatalf("expected interface to be reassigned to dev-1, got %q", job.Results.Interfaces[0].DeviceID)
+	}
+}
+
 func containsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
