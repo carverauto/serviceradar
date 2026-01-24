@@ -36,6 +36,7 @@ ServiceRadar currently relies on fixed checkers (SNMP, ICMP, Sysmon) or external
   - Default: filesystem path configured in web-ng (Docker volume or k8s PVC).
   - Optional: NATS JetStream object store for replication/edge caching.
   - Web-ng serves packages over its API with mTLS/JWT auth; agents receive a signed download URL plus hash.
+  - Optional: GitHub repository source for plugin packages; core fetches and verifies packages before storage.
 
 - Decision: Agent config includes explicit plugin assignments.
   - `AgentConfigResponse` gains a `plugin_config` field with assignments (id, version, package ref, schedule, timeout, permissions override, config blob).
@@ -50,10 +51,8 @@ ServiceRadar currently relies on fixed checkers (SNMP, ICMP, Sysmon) or external
     - `metrics`: list of structured metrics (name, value, unit, warn, crit, min, max)
     - `labels`: key/value context
     - `observed_at`: RFC3339 timestamp
-  - Mapping to `GatewayServiceStatus`:
-    - `available = (status == OK || status == WARNING)`
-    - `message = PluginResult JSON`
-    - `response_time` computed by agent runtime
+  - Mapping to `GatewayServiceStatus` is supported for compatibility, but the preferred path is a dedicated plugin-results pipeline in gateway/core.
+  - The gateway/core layer adds a result processor that understands `serviceradar.plugin_result.v1` and preserves perfdata + metrics.
 
 - Decision: Capability-based host functions only.
   - Required functions: `get_config`, `log`, `submit_result`.
@@ -63,6 +62,7 @@ ServiceRadar currently relies on fixed checkers (SNMP, ICMP, Sysmon) or external
 - Decision: Package integrity is enforced via hash + signature.
   - Web-ng signs the package hash with a deployment key.
   - Agents verify signature before execution and cache by hash.
+  - GitHub-sourced packages may include GPG signatures; core verifies before making them available.
 
 - Decision: Resource budgeting uses a per-agent engine pool plus per-plugin requests.
   - Admins set per-agent limits (memory, CPU time window, max concurrent plugins, total connections).
@@ -76,6 +76,18 @@ ServiceRadar currently relies on fixed checkers (SNMP, ICMP, Sysmon) or external
 - Decision: Agents emit Wasm runtime telemetry via existing status pipelines.
   - The agent periodically reports engine health, resource usage, and execution stats.
   - Telemetry is mapped into `GatewayServiceStatus` with a dedicated service name/type.
+
+- Decision: Gateway/Core ingestion is extended rather than replaced.
+  - Existing checker ingestion continues unchanged.
+  - New RPCs or message envelopes may be introduced for plugin results if needed to preserve schema fidelity.
+
+- Decision: Core is the only component that pulls from GitHub.
+  - Agents never fetch packages from GitHub directly.
+  - A policy flag controls whether unverified GitHub packages are rejected or allowed.
+
+- Decision: Plugin imports require explicit capability/allowlist confirmation.
+  - Importing a package creates a staged record with declared capabilities and allowlists.
+  - Admins must approve (or override) requested capabilities/allowlists before the package is distributable.
 
 ## Risks / Trade-offs
 - Risk: Plugin output schema mismatch with existing UI expectations → Mitigation: strict schema validation and compatibility adapters in gateway/core.

@@ -12,6 +12,9 @@ ServiceRadar needs a safe, portable way for users and first-party teams to ship 
 - Add resource budgeting: per-agent engine limits configured in admin/agent settings plus per-plugin requested resources in the manifest, with admission control.
 - Add a Settings UI view for agent plugin capacity planning and resource usage tracking.
 - Add runtime telemetry: agent reports Wasm engine health, resource usage, and execution stats to the control plane.
+- Extend gateway/core ingestion to understand the new `serviceradar.plugin_result.v1` schema without breaking existing checker ingestion.
+- Support GitHub-hosted plugin packages that are fetched by core (never by agents), with optional GPG verification and a policy to reject unverified plugins.
+- Add an explicit import review flow where admins confirm requested capabilities and allowlists before a plugin becomes active.
 - Support package storage backends: filesystem (default) and NATS JetStream object storage (optional).
 - Establish integrity checks (hash + signature) and resource limits (CPU, memory, timeout).
 

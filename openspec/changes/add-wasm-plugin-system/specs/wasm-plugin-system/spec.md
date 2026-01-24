@@ -29,6 +29,12 @@ The system SHALL store plugin packages using a configured backend and expose the
 - **THEN** the package is written to the JetStream object store
 - **AND** the web-ng API serves the package by object key
 
+#### Scenario: GitHub repository source
+- **GIVEN** a plugin package is configured to be sourced from a GitHub repository
+- **WHEN** core fetches the package
+- **THEN** core stores the package in the configured backend
+- **AND** the web-ng API serves the package by reference ID
+
 ### Requirement: Plugin Assignment and Distribution
 The control plane SHALL allow assigning plugin packages to agents and SHALL deliver assignments through the agent config response.
 
@@ -88,6 +94,19 @@ Plugins MUST report results using the `serviceradar.plugin_result.v1` schema, an
 - **THEN** `GatewayServiceStatus.available` is `false`
 - **AND** the summary is preserved in the result payload
 
+### Requirement: Plugin Result Ingestion Compatibility
+The gateway/core ingestion pipeline MUST accept `serviceradar.plugin_result.v1` payloads without breaking existing checker ingestion, and it MUST preserve perfdata and structured metrics.
+
+#### Scenario: Dedicated result processor
+- **GIVEN** a plugin result payload in `serviceradar.plugin_result.v1`
+- **WHEN** the gateway forwards the payload to core
+- **THEN** core routes it through a plugin result processor that preserves perfdata and metrics
+
+#### Scenario: Legacy checker ingestion unaffected
+- **GIVEN** legacy checker statuses arriving at the gateway
+- **WHEN** plugin results are enabled
+- **THEN** the legacy ingestion path continues unchanged
+
 ### Requirement: Package Integrity Verification
 The agent MUST verify package integrity using a hash and signature before executing a plugin.
 
@@ -96,6 +115,50 @@ The agent MUST verify package integrity using a hash and signature before execut
 - **WHEN** the agent attempts to execute the plugin
 - **THEN** the agent rejects the package
 - **AND** reports an `UNKNOWN` result with an integrity error
+
+### Requirement: GitHub Source Verification Policy
+The system MUST allow configuring a policy that requires verification for GitHub-sourced plugin packages and it MUST enforce the policy in core before distribution.
+
+#### Scenario: Verified GitHub package accepted
+- **GIVEN** a GitHub-sourced plugin package with a valid GPG signature
+- **WHEN** core validates the package
+- **THEN** the package is accepted and stored for distribution
+
+#### Scenario: Unverified package rejected
+- **GIVEN** a GitHub-sourced plugin package without a valid GPG signature
+- **AND** the verification policy requires verification
+- **WHEN** core validates the package
+- **THEN** the package is rejected
+- **AND** it is not distributed to agents
+
+### Requirement: Import Review and Capability Confirmation
+The system MUST require an explicit import review step where an admin confirms requested capabilities and allowlists before a plugin is distributable.
+
+#### Scenario: Import requires approval
+- **GIVEN** a newly uploaded or GitHub-sourced plugin package
+- **WHEN** the package is staged for import
+- **THEN** the system presents requested capabilities and allowlists for confirmation
+- **AND** the package remains inactive until approved
+
+#### Scenario: Capability override on import
+- **GIVEN** a plugin requesting `http_request` and an allowlist of `api.example.com`
+- **WHEN** an admin removes `http_request` or narrows the allowlist during import
+- **THEN** the approved policy is persisted
+- **AND** the plugin executes with the approved (reduced) capabilities
+
+#### Scenario: Unapproved plugin not distributable
+- **GIVEN** a plugin package that has not been approved
+- **WHEN** an agent config is generated
+- **THEN** the plugin is excluded from assignments
+
+### Requirement: Core-Only GitHub Fetching
+The system MUST ensure that agents never download plugin packages directly from GitHub.
+
+#### Scenario: Agent receives only internal package references
+- **GIVEN** a GitHub-sourced plugin assignment
+- **WHEN** the agent fetches configuration
+- **THEN** the assignment includes an internal package reference and hash
+- **AND** no GitHub URL is provided to the agent
 
 ### Requirement: Package Caching
 The agent SHALL cache plugin packages by content hash and avoid re-downloading unchanged packages.

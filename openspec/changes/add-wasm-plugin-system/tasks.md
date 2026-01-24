@@ -8,6 +8,9 @@
 - [ ] 1.7 Implement result schema validation and mapping into `GatewayServiceStatus`
 - [ ] 1.8 Implement resource budgeting (per-agent limits + per-plugin requests + admission control)
 - [ ] 1.9 Emit agent telemetry for Wasm engine health and resource usage
-- [ ] 1.10 Add UI flows for upload, versioning, assignment, status visibility, and capacity planning
-- [ ] 1.11 Add tests (package validation, storage, agent runtime sandboxing, result mapping, resource budgeting, telemetry)
-- [ ] 1.12 Update docs for plugin packaging, SDK usage, and deployment configuration
+- [ ] 1.10 Extend agent-gateway/core ingestion to support `serviceradar.plugin_result.v1` without breaking existing checkers
+- [ ] 1.11 Add GitHub package source support (core fetch + verification + storage handoff)
+- [ ] 1.12 Add import review workflow (capability + allowlist confirmation) before distribution
+- [ ] 1.13 Add UI flows for upload/import review, versioning, assignment, status visibility, capacity planning, and verification policy
+- [ ] 1.14 Add tests (package validation, storage, agent runtime sandboxing, result mapping, resource budgeting, telemetry, ingestion, GitHub verification, import approval)
+- [ ] 1.15 Update docs for plugin packaging, SDK usage, and deployment configuration
