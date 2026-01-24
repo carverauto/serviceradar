@@ -68,16 +68,16 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `global.imageTag` | Docker image tag for all components | `latest` |
-| `ingress.enabled` | Enable ingress for web UI | `true` |
-| `ingress.host` | Hostname for ingress | `demo.serviceradar.cloud` |
-| `ingress.tls.secretName` | TLS secret name | `serviceradar-prod-tls` |
+| `ingress.enabled` | Enable ingress for web UI | `false` |
+| `ingress.host` | Hostname for ingress | `""` |
+| `ingress.tls.secretName` | TLS secret name | `""` |
 | `secrets.autoGenerate` | Auto-generate secrets | `true` |
 | `spire.enabled` | Enable SPIRE identity plane | `true` |
 | `agent.resources.limits.cpu` | Agent CPU limit | `500m` |
 
 ### Notes
 
-- Ingress TLS is on by default; adjust `ingress.host`, `ingress.tls.secretName`, or `ingress.tls.clusterIssuer` as needed for your cluster.
+- Ingress is disabled by default; set `ingress.enabled=true` and provide `ingress.host` (plus TLS settings if needed).
 - A pre-install hook auto-generates `serviceradar-secrets` (JWT/API key, admin password + bcrypt hash) unless you disable it with `--set secrets.autoGenerate=false`. If you disable it, create the secret yourself at `secrets.existingSecretName` (default `serviceradar-secrets`).
 - The chart does not generate image pull secrets; create `ghcr-io-cred` (or override `image.registryPullSecret`).
 - The SPIRE controller manager sidecar can be disabled with `--set spire.controllerManager.enabled=false` if you do not need webhook-managed entries.
