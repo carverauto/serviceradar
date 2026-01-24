@@ -188,6 +188,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # Merge sweep modes from profile and group overrides
     modes = merge_modes(profile, group)
 
+    # Guard against TCP modes without ports
+    {ports, modes} = enforce_tcp_ports(ports, modes, group)
+
     # Build settings from profile with overrides
     settings = compile_settings(profile, group)
 
@@ -396,13 +399,31 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp decode_param(_), do: {:error, :invalid_srql_param}
 
-  defp merge_ports(nil, group), do: group.ports || []
+  defp merge_ports(nil, group), do: normalize_ports_override(group.ports, [])
 
   defp merge_ports(profile, group) do
-    # Group ports override profile ports if set
-    case group.ports do
-      nil -> profile.ports || []
-      ports -> ports
+    # Group ports override profile ports if set (treat empty override as inherit)
+    normalize_ports_override(group.ports, profile.ports || [])
+  end
+
+  defp normalize_ports_override(nil, inherited), do: inherited
+  defp normalize_ports_override([], inherited), do: inherited
+  defp normalize_ports_override(ports, _inherited), do: ports
+
+  defp enforce_tcp_ports(ports, modes, group) do
+    modes = modes || []
+
+    tcp_modes = Enum.filter(modes, &(&1 in ["tcp", "tcp_connect"]))
+
+    if ports == [] and tcp_modes != [] do
+      Logger.warning(
+        "SweepCompiler: TCP mode enabled but ports empty for group #{group.name} (#{group.id}); dropping TCP modes"
+      )
+
+      filtered_modes = Enum.reject(modes, &(&1 in ["tcp", "tcp_connect"]))
+      {ports, filtered_modes}
+    else
+      {ports, modes}
     end
   end
 

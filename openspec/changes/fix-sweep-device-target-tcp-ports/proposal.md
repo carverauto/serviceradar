@@ -2,32 +2,39 @@
 
 ## Why
 
-When sweep jobs use `in:devices` targeting (device-based rather than network-based), TCP ports configured in the sweep profile are not being applied to targets. The agent logs show `configuredPorts:[]` and `tcpTargets:0` even when TCP ports 80, 443, 8080 are configured in the sweep profile. ICMP scans work correctly, but TCP port scans produce no targets.
+We merged the agent-side `device_targets` parsing change from #2425, but the issue persists. In #2477, the agent still logs `configuredPorts:[]` and `tcpTargets:0` even though the sweep profile has TCP ports configured and `globalSweepModes` includes `"tcp"`. ICMP scans run, but no TCP targets are generated.
 
-**Root Cause**: The `gatewaySweepGroup` struct in `pkg/agent/sweep_config_gateway.go` is missing the `device_targets` field. When the gateway sends sweep configuration with device-based targets, the device targets data is dropped because there's no field to receive it.
+This indicates the compiled sweep config reaching the agent is missing ports (or they are being overridden to empty), so the sweeper has nothing to scan for TCP.
 
-**GitHub Issue**: #2425
+**Updated Root Cause (hypothesis)**: The sweep compiler/config distribution path is producing an empty `ports` array for device-targeted sweeps, likely due to:
+- `ports` overrides being saved as an empty list (overriding the profile),
+- profile inheritance not being applied for device-targeted groups,
+- or compiled config omitting ports under certain merge paths.
 
-## What Changes
+**GitHub Issues**: #2425 (original), #2477 (current)
 
-### Gateway Config Parser (Go Agent)
-- Add `device_targets` field to `gatewaySweepGroup` struct
-- Update `parseGatewaySweepConfig()` to populate `SweepConfig.DeviceTargets` from gateway payload
-- Ensure TCP ports from the sweep profile are available for device-targeted sweeps
+## What Changes (Updated)
 
-### Data Flow Fix
-The fix ensures the complete data flow works:
-1. Gateway sends device targets with sweep modes via `in:devices` query
-2. Agent parses gateway config **including** `device_targets` field (currently missing)
-3. `SweepConfig.DeviceTargets` is populated with device-specific configs
-4. `generateTargets()` processes `DeviceTargets` and creates TCP targets using profile ports
-5. Result: Both ICMP and TCP targets are generated correctly
+### Sweep Config Compilation (Core)
+- Ensure `ports` are always populated when TCP modes are enabled
+- Treat empty group-level port overrides as “inherit from profile”
+- Add explicit validation/logging when TCP mode is enabled but no ports are configured
+
+### Agent Visibility / Diagnostics
+- Add logging in the sweep config pipeline (compiler + agent apply) to surface:
+  - ports count
+  - whether ports were inherited or overridden
+  - TCP mode with empty ports (error/warn)
+
+### Optional UI Guardrails (Web-NG)
+- If a sweep group inherits from a profile, avoid sending empty ports overrides
+- Surface a warning if TCP mode is selected but no ports are configured
 
 ## Impact
 
-- Affected specs: `sweep-jobs` (restores intended behavior per existing requirements)
+- Affected specs: `sweep-jobs`
 - Affected code:
-  - `pkg/agent/sweep_config_gateway.go` - Add device_targets field and parsing
-  - `pkg/agent/types.go` - Verify DeviceTargets struct compatibility
-  - `pkg/agent/sweeper.go` - Verify target generation uses device targets correctly
-  - `cmd/agent/server.go` - Verify buildSweepModelConfig passes device targets
+  - `elixir/serviceradar_core/lib/serviceradar/agent_config/compilers/sweep_compiler.ex` - Ensure ports inheritance + validation
+  - `elixir/serviceradar_core/lib/serviceradar/edge/agent_config_generator.ex` - Optional diagnostics around compiled sweep config
+  - `web-ng/lib/serviceradar_web_ng_web/live/settings/networks_live/index.ex` - Prevent empty ports overrides (if relevant)
+  - `pkg/agent/sweep_config_gateway.go` / `pkg/sweeper/sweeper.go` - Ensure TCP targets only skipped with explicit warning when ports empty
