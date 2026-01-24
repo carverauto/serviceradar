@@ -4,5 +4,5 @@
 - [x] 1.3 Add/adjust bootstrap ownership guards so Oban tables/sequences are owned by `serviceradar` when present.
 
 ## 2. Validation
-- [ ] 2.1 Verify the rendered Helm CNPG bootstrap SQL includes platform-first search_path and schema ownership.
-- [ ] 2.2 (Optional) Smoke test a fresh docker-compose CNPG init to confirm search_path and schema ownership.
+- [x] 2.1 Verify the rendered Helm CNPG bootstrap SQL includes platform-first search_path and schema ownership.
+- [x] 2.2 (Optional) Smoke test a fresh docker-compose CNPG init to confirm search_path and schema ownership.
