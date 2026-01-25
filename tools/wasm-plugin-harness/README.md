@@ -39,5 +39,7 @@ Expected result payload:
 
 ## Notes
 
+- `plugin.yaml` includes `schema_version: 1` and a `display_contract` that enables
+  the default widget set (status badge, stat card, table, markdown, sparkline).
 - The plugin uses `runtime: wasi-preview1` and the `env` host functions.
 - To test config handling, set any JSON params during assignment; the plugin only checks that config is present.
