@@ -30,6 +30,7 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 - **Real-time Monitoring**: Monitor services and infrastructure in hard-to-reach places
 - **Distributed Architecture**: Components can be installed across different hosts to suit your needs
 - **SRQL**: ServiceRadar Query Language -- intuitive key:value syntax for querying data
+- **WASM Plugin System**: Build plugins and service checks in Go or Rust, compile to WASM and run in sandboxed execution environment on serviceradar-agent with capabilities-based security model
 - **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, and Apache AGE for relational, time-series, and graph data
 - **Observability**: Collect metrics, logs and traces (OTEL, GELF, Syslog), SNMP (polling or traps), NetFlow (coming soon), RPerf (iperf3-clone), BGP (BMP collector planned), gNMI (planned)
 - **Graph Network Mapper**: Advanced discovery engine using [Apache AGE](https://age.apache.org/) to map devices, interfaces, and topology relationships via SNMP/LLDP/CDP
