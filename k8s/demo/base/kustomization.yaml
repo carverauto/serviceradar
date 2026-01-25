@@ -8,6 +8,7 @@ resources:
 - serviceradar-nats-creds.yaml
 - serviceradar-datasvc.yaml
 - serviceradar-web-ng.yaml
+- serviceradar-plugin-packages-pvc.yaml
 - serviceradar-agent.yaml
 - serviceradar-db-event-writer.yaml
 - serviceradar-zen.yaml

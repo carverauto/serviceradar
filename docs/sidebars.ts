@@ -67,7 +67,8 @@ const sidebars: SidebarsConfig = {
       items: [
         {type: 'doc', id: 'configuration', label: 'Configuration'},
         {type: 'doc', id: 'service-port-map', label: 'Service Port Map'},
-        {type: 'doc', id: 'custom-checkers', label: 'Custom Checkers'},
+        {type: 'doc', id: 'wasm-plugins', label: 'Wasm Plugin Checkers'},
+        {type: 'doc', id: 'custom-checkers', label: 'Custom Checkers (gRPC)'},
         {type: 'doc', id: 'web-ui', label: 'Web UI'},
         {type: 'doc', id: 'rule-builder', label: 'Rule Builder'},
       ],

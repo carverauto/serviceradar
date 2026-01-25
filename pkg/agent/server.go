@@ -58,6 +58,8 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 		return nil, fmt.Errorf("failed to load configurations: %w", err)
 	}
 
+	s.initPluginManager(ctx)
+
 	// Initialize embedded sysmon service
 	if err := s.initSysmonService(ctx); err != nil {
 		log.Warn().Err(err).Msg("Failed to initialize sysmon service, continuing without it")
@@ -272,6 +274,22 @@ func (s *Server) initDuskService(ctx context.Context) error {
 	return nil
 }
 
+func (s *Server) initPluginManager(ctx context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.pluginManager != nil {
+		return
+	}
+
+	cacheDir := filepath.Join(s.configDir, "plugins")
+	s.pluginManager = NewPluginManager(ctx, PluginManagerConfig{
+		CacheDir:      cacheDir,
+		LocalStoreDir: s.configDir,
+		Logger:        s.logger,
+	})
+}
+
 // GetDuskStatus returns the current dusk status if the service is running.
 func (s *Server) GetDuskStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	s.mu.RLock()
@@ -336,6 +354,10 @@ func (s *Server) Stop(_ context.Context) error {
 		if err := s.mapperService.Stop(context.Background()); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop mapper service")
 		}
+	}
+
+	if s.pluginManager != nil {
+		s.pluginManager.Stop()
 	}
 
 	for _, svc := range s.services {

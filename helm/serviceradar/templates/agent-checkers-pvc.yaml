@@ -1,0 +1,19 @@
+{{- $agentVals := default (dict) .Values.agent -}}
+{{- $agentStorage := default (dict) (get $agentVals "checkersStorage") -}}
+{{- if and ($agentStorage.enabled) (not $agentStorage.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-agent-checkers
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ default "2Gi" $agentStorage.size | quote }}
+  {{- if $agentStorage.storageClassName }}
+  storageClassName: {{ $agentStorage.storageClassName | quote }}
+  {{- end }}
+{{- end }}

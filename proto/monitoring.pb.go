@@ -1967,7 +1967,9 @@ type AgentConfigResponse struct {
 	// SNMP configuration for embedded SNMP monitoring
 	SnmpConfig *SNMPConfig `protobuf:"bytes,9,opt,name=snmp_config,json=snmpConfig,proto3" json:"snmp_config,omitempty"`
 	// Dusk blockchain node monitoring configuration
-	DuskConfig    *DuskConfig `protobuf:"bytes,10,opt,name=dusk_config,json=duskConfig,proto3" json:"dusk_config,omitempty"`
+	DuskConfig *DuskConfig `protobuf:"bytes,10,opt,name=dusk_config,json=duskConfig,proto3" json:"dusk_config,omitempty"`
+	// Wasm plugin configuration assignments
+	PluginConfig  *PluginConfig `protobuf:"bytes,11,opt,name=plugin_config,json=pluginConfig,proto3" json:"plugin_config,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2072,6 +2074,340 @@ func (x *AgentConfigResponse) GetDuskConfig() *DuskConfig {
 	return nil
 }
 
+func (x *AgentConfigResponse) GetPluginConfig() *PluginConfig {
+	if x != nil {
+		return x.PluginConfig
+	}
+	return nil
+}
+
+// PluginConfig defines plugin assignments for the agent.
+type PluginConfig struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Assignments   []*PluginAssignmentConfig `protobuf:"bytes,1,rep,name=assignments,proto3" json:"assignments,omitempty"`
+	EngineLimits  *PluginEngineLimits       `protobuf:"bytes,2,opt,name=engine_limits,json=engineLimits,proto3" json:"engine_limits,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PluginConfig) Reset() {
+	*x = PluginConfig{}
+	mi := &file_monitoring_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PluginConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PluginConfig) ProtoMessage() {}
+
+func (x *PluginConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PluginConfig.ProtoReflect.Descriptor instead.
+func (*PluginConfig) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *PluginConfig) GetAssignments() []*PluginAssignmentConfig {
+	if x != nil {
+		return x.Assignments
+	}
+	return nil
+}
+
+func (x *PluginConfig) GetEngineLimits() *PluginEngineLimits {
+	if x != nil {
+		return x.EngineLimits
+	}
+	return nil
+}
+
+// PluginEngineLimits defines per-agent engine resource limits.
+type PluginEngineLimits struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	MaxMemoryMb        int32                  `protobuf:"varint,1,opt,name=max_memory_mb,json=maxMemoryMb,proto3" json:"max_memory_mb,omitempty"`
+	MaxCpuMs           int32                  `protobuf:"varint,2,opt,name=max_cpu_ms,json=maxCpuMs,proto3" json:"max_cpu_ms,omitempty"`
+	MaxConcurrent      int32                  `protobuf:"varint,3,opt,name=max_concurrent,json=maxConcurrent,proto3" json:"max_concurrent,omitempty"`
+	MaxOpenConnections int32                  `protobuf:"varint,4,opt,name=max_open_connections,json=maxOpenConnections,proto3" json:"max_open_connections,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *PluginEngineLimits) Reset() {
+	*x = PluginEngineLimits{}
+	mi := &file_monitoring_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PluginEngineLimits) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PluginEngineLimits) ProtoMessage() {}
+
+func (x *PluginEngineLimits) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PluginEngineLimits.ProtoReflect.Descriptor instead.
+func (*PluginEngineLimits) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *PluginEngineLimits) GetMaxMemoryMb() int32 {
+	if x != nil {
+		return x.MaxMemoryMb
+	}
+	return 0
+}
+
+func (x *PluginEngineLimits) GetMaxCpuMs() int32 {
+	if x != nil {
+		return x.MaxCpuMs
+	}
+	return 0
+}
+
+func (x *PluginEngineLimits) GetMaxConcurrent() int32 {
+	if x != nil {
+		return x.MaxConcurrent
+	}
+	return 0
+}
+
+func (x *PluginEngineLimits) GetMaxOpenConnections() int32 {
+	if x != nil {
+		return x.MaxOpenConnections
+	}
+	return 0
+}
+
+// PluginAssignmentConfig defines a single plugin assignment for the agent.
+type PluginAssignmentConfig struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AssignmentId    string                 `protobuf:"bytes,1,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
+	PluginId        string                 `protobuf:"bytes,2,opt,name=plugin_id,json=pluginId,proto3" json:"plugin_id,omitempty"`
+	PackageId       string                 `protobuf:"bytes,3,opt,name=package_id,json=packageId,proto3" json:"package_id,omitempty"`
+	Version         string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	Name            string                 `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
+	Entrypoint      string                 `protobuf:"bytes,6,opt,name=entrypoint,proto3" json:"entrypoint,omitempty"`
+	Runtime         string                 `protobuf:"bytes,7,opt,name=runtime,proto3" json:"runtime,omitempty"`
+	Outputs         string                 `protobuf:"bytes,8,opt,name=outputs,proto3" json:"outputs,omitempty"`
+	Capabilities    []string               `protobuf:"bytes,9,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	ParamsJson      []byte                 `protobuf:"bytes,10,opt,name=params_json,json=paramsJson,proto3" json:"params_json,omitempty"`
+	PermissionsJson []byte                 `protobuf:"bytes,11,opt,name=permissions_json,json=permissionsJson,proto3" json:"permissions_json,omitempty"`
+	ResourcesJson   []byte                 `protobuf:"bytes,12,opt,name=resources_json,json=resourcesJson,proto3" json:"resources_json,omitempty"`
+	Enabled         bool                   `protobuf:"varint,13,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	IntervalSec     int32                  `protobuf:"varint,14,opt,name=interval_sec,json=intervalSec,proto3" json:"interval_sec,omitempty"`
+	TimeoutSec      int32                  `protobuf:"varint,15,opt,name=timeout_sec,json=timeoutSec,proto3" json:"timeout_sec,omitempty"`
+	WasmObjectKey   string                 `protobuf:"bytes,16,opt,name=wasm_object_key,json=wasmObjectKey,proto3" json:"wasm_object_key,omitempty"`
+	ContentHash     string                 `protobuf:"bytes,17,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
+	SourceType      string                 `protobuf:"bytes,18,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
+	SourceRepoUrl   string                 `protobuf:"bytes,19,opt,name=source_repo_url,json=sourceRepoUrl,proto3" json:"source_repo_url,omitempty"`
+	SourceCommit    string                 `protobuf:"bytes,20,opt,name=source_commit,json=sourceCommit,proto3" json:"source_commit,omitempty"`
+	DownloadUrl     string                 `protobuf:"bytes,21,opt,name=download_url,json=downloadUrl,proto3" json:"download_url,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PluginAssignmentConfig) Reset() {
+	*x = PluginAssignmentConfig{}
+	mi := &file_monitoring_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PluginAssignmentConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PluginAssignmentConfig) ProtoMessage() {}
+
+func (x *PluginAssignmentConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PluginAssignmentConfig.ProtoReflect.Descriptor instead.
+func (*PluginAssignmentConfig) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *PluginAssignmentConfig) GetAssignmentId() string {
+	if x != nil {
+		return x.AssignmentId
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetPluginId() string {
+	if x != nil {
+		return x.PluginId
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetPackageId() string {
+	if x != nil {
+		return x.PackageId
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetEntrypoint() string {
+	if x != nil {
+		return x.Entrypoint
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetRuntime() string {
+	if x != nil {
+		return x.Runtime
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetOutputs() string {
+	if x != nil {
+		return x.Outputs
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *PluginAssignmentConfig) GetParamsJson() []byte {
+	if x != nil {
+		return x.ParamsJson
+	}
+	return nil
+}
+
+func (x *PluginAssignmentConfig) GetPermissionsJson() []byte {
+	if x != nil {
+		return x.PermissionsJson
+	}
+	return nil
+}
+
+func (x *PluginAssignmentConfig) GetResourcesJson() []byte {
+	if x != nil {
+		return x.ResourcesJson
+	}
+	return nil
+}
+
+func (x *PluginAssignmentConfig) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *PluginAssignmentConfig) GetIntervalSec() int32 {
+	if x != nil {
+		return x.IntervalSec
+	}
+	return 0
+}
+
+func (x *PluginAssignmentConfig) GetTimeoutSec() int32 {
+	if x != nil {
+		return x.TimeoutSec
+	}
+	return 0
+}
+
+func (x *PluginAssignmentConfig) GetWasmObjectKey() string {
+	if x != nil {
+		return x.WasmObjectKey
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetContentHash() string {
+	if x != nil {
+		return x.ContentHash
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetSourceType() string {
+	if x != nil {
+		return x.SourceType
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetSourceRepoUrl() string {
+	if x != nil {
+		return x.SourceRepoUrl
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetSourceCommit() string {
+	if x != nil {
+		return x.SourceCommit
+	}
+	return ""
+}
+
+func (x *PluginAssignmentConfig) GetDownloadUrl() string {
+	if x != nil {
+		return x.DownloadUrl
+	}
+	return ""
+}
+
 // SysmonConfig defines system monitoring configuration for the embedded sysmon collector.
 type SysmonConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2107,7 +2443,7 @@ type SysmonConfig struct {
 
 func (x *SysmonConfig) Reset() {
 	*x = SysmonConfig{}
-	mi := &file_monitoring_proto_msgTypes[18]
+	mi := &file_monitoring_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2119,7 +2455,7 @@ func (x *SysmonConfig) String() string {
 func (*SysmonConfig) ProtoMessage() {}
 
 func (x *SysmonConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[18]
+	mi := &file_monitoring_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2132,7 +2468,7 @@ func (x *SysmonConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SysmonConfig.ProtoReflect.Descriptor instead.
 func (*SysmonConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{18}
+	return file_monitoring_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *SysmonConfig) GetEnabled() bool {
@@ -2248,7 +2584,7 @@ type AgentCheckConfig struct {
 
 func (x *AgentCheckConfig) Reset() {
 	*x = AgentCheckConfig{}
-	mi := &file_monitoring_proto_msgTypes[19]
+	mi := &file_monitoring_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2260,7 +2596,7 @@ func (x *AgentCheckConfig) String() string {
 func (*AgentCheckConfig) ProtoMessage() {}
 
 func (x *AgentCheckConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[19]
+	mi := &file_monitoring_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2273,7 +2609,7 @@ func (x *AgentCheckConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentCheckConfig.ProtoReflect.Descriptor instead.
 func (*AgentCheckConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{19}
+	return file_monitoring_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *AgentCheckConfig) GetCheckId() string {
@@ -2374,7 +2710,7 @@ type DuskConfig struct {
 
 func (x *DuskConfig) Reset() {
 	*x = DuskConfig{}
-	mi := &file_monitoring_proto_msgTypes[20]
+	mi := &file_monitoring_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2386,7 +2722,7 @@ func (x *DuskConfig) String() string {
 func (*DuskConfig) ProtoMessage() {}
 
 func (x *DuskConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[20]
+	mi := &file_monitoring_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2399,7 +2735,7 @@ func (x *DuskConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DuskConfig.ProtoReflect.Descriptor instead.
 func (*DuskConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{20}
+	return file_monitoring_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *DuskConfig) GetEnabled() bool {
@@ -2460,7 +2796,7 @@ type SNMPConfig struct {
 
 func (x *SNMPConfig) Reset() {
 	*x = SNMPConfig{}
-	mi := &file_monitoring_proto_msgTypes[21]
+	mi := &file_monitoring_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2472,7 +2808,7 @@ func (x *SNMPConfig) String() string {
 func (*SNMPConfig) ProtoMessage() {}
 
 func (x *SNMPConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[21]
+	mi := &file_monitoring_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2485,7 +2821,7 @@ func (x *SNMPConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPConfig.ProtoReflect.Descriptor instead.
 func (*SNMPConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{21}
+	return file_monitoring_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *SNMPConfig) GetEnabled() bool {
@@ -2540,7 +2876,7 @@ type SNMPTargetConfig struct {
 
 func (x *SNMPTargetConfig) Reset() {
 	*x = SNMPTargetConfig{}
-	mi := &file_monitoring_proto_msgTypes[22]
+	mi := &file_monitoring_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2552,7 +2888,7 @@ func (x *SNMPTargetConfig) String() string {
 func (*SNMPTargetConfig) ProtoMessage() {}
 
 func (x *SNMPTargetConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[22]
+	mi := &file_monitoring_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2565,7 +2901,7 @@ func (x *SNMPTargetConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPTargetConfig.ProtoReflect.Descriptor instead.
 func (*SNMPTargetConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{22}
+	return file_monitoring_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *SNMPTargetConfig) GetId() string {
@@ -2660,7 +2996,7 @@ type SNMPv3Auth struct {
 
 func (x *SNMPv3Auth) Reset() {
 	*x = SNMPv3Auth{}
-	mi := &file_monitoring_proto_msgTypes[23]
+	mi := &file_monitoring_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2672,7 +3008,7 @@ func (x *SNMPv3Auth) String() string {
 func (*SNMPv3Auth) ProtoMessage() {}
 
 func (x *SNMPv3Auth) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[23]
+	mi := &file_monitoring_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2685,7 +3021,7 @@ func (x *SNMPv3Auth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPv3Auth.ProtoReflect.Descriptor instead.
 func (*SNMPv3Auth) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{23}
+	return file_monitoring_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *SNMPv3Auth) GetUsername() string {
@@ -2744,7 +3080,7 @@ type SNMPOIDConfig struct {
 
 func (x *SNMPOIDConfig) Reset() {
 	*x = SNMPOIDConfig{}
-	mi := &file_monitoring_proto_msgTypes[24]
+	mi := &file_monitoring_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2756,7 +3092,7 @@ func (x *SNMPOIDConfig) String() string {
 func (*SNMPOIDConfig) ProtoMessage() {}
 
 func (x *SNMPOIDConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[24]
+	mi := &file_monitoring_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2769,7 +3105,7 @@ func (x *SNMPOIDConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPOIDConfig.ProtoReflect.Descriptor instead.
 func (*SNMPOIDConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{24}
+	return file_monitoring_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *SNMPOIDConfig) GetOid() string {
@@ -2979,7 +3315,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\"V\n" +
 	"\x12AgentConfigRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
-	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\x81\x04\n" +
+	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\xc0\x04\n" +
 	"\x13AgentConfigResponse\x12!\n" +
 	"\fnot_modified\x18\x01 \x01(\bR\vnotModified\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12)\n" +
@@ -2994,7 +3330,46 @@ const file_monitoring_proto_rawDesc = "" +
 	"snmpConfig\x127\n" +
 	"\vdusk_config\x18\n" +
 	" \x01(\v2\x16.monitoring.DuskConfigR\n" +
-	"duskConfig\"\xd5\x04\n" +
+	"duskConfig\x12=\n" +
+	"\rplugin_config\x18\v \x01(\v2\x18.monitoring.PluginConfigR\fpluginConfig\"\x99\x01\n" +
+	"\fPluginConfig\x12D\n" +
+	"\vassignments\x18\x01 \x03(\v2\".monitoring.PluginAssignmentConfigR\vassignments\x12C\n" +
+	"\rengine_limits\x18\x02 \x01(\v2\x1e.monitoring.PluginEngineLimitsR\fengineLimits\"\xaf\x01\n" +
+	"\x12PluginEngineLimits\x12\"\n" +
+	"\rmax_memory_mb\x18\x01 \x01(\x05R\vmaxMemoryMb\x12\x1c\n" +
+	"\n" +
+	"max_cpu_ms\x18\x02 \x01(\x05R\bmaxCpuMs\x12%\n" +
+	"\x0emax_concurrent\x18\x03 \x01(\x05R\rmaxConcurrent\x120\n" +
+	"\x14max_open_connections\x18\x04 \x01(\x05R\x12maxOpenConnections\"\xcc\x05\n" +
+	"\x16PluginAssignmentConfig\x12#\n" +
+	"\rassignment_id\x18\x01 \x01(\tR\fassignmentId\x12\x1b\n" +
+	"\tplugin_id\x18\x02 \x01(\tR\bpluginId\x12\x1d\n" +
+	"\n" +
+	"package_id\x18\x03 \x01(\tR\tpackageId\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\x12\x12\n" +
+	"\x04name\x18\x05 \x01(\tR\x04name\x12\x1e\n" +
+	"\n" +
+	"entrypoint\x18\x06 \x01(\tR\n" +
+	"entrypoint\x12\x18\n" +
+	"\aruntime\x18\a \x01(\tR\aruntime\x12\x18\n" +
+	"\aoutputs\x18\b \x01(\tR\aoutputs\x12\"\n" +
+	"\fcapabilities\x18\t \x03(\tR\fcapabilities\x12\x1f\n" +
+	"\vparams_json\x18\n" +
+	" \x01(\fR\n" +
+	"paramsJson\x12)\n" +
+	"\x10permissions_json\x18\v \x01(\fR\x0fpermissionsJson\x12%\n" +
+	"\x0eresources_json\x18\f \x01(\fR\rresourcesJson\x12\x18\n" +
+	"\aenabled\x18\r \x01(\bR\aenabled\x12!\n" +
+	"\finterval_sec\x18\x0e \x01(\x05R\vintervalSec\x12\x1f\n" +
+	"\vtimeout_sec\x18\x0f \x01(\x05R\n" +
+	"timeoutSec\x12&\n" +
+	"\x0fwasm_object_key\x18\x10 \x01(\tR\rwasmObjectKey\x12!\n" +
+	"\fcontent_hash\x18\x11 \x01(\tR\vcontentHash\x12\x1f\n" +
+	"\vsource_type\x18\x12 \x01(\tR\n" +
+	"sourceType\x12&\n" +
+	"\x0fsource_repo_url\x18\x13 \x01(\tR\rsourceRepoUrl\x12#\n" +
+	"\rsource_commit\x18\x14 \x01(\tR\fsourceCommit\x12!\n" +
+	"\fdownload_url\x18\x15 \x01(\tR\vdownloadUrl\"\xd5\x04\n" +
 	"\fSysmonConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12'\n" +
 	"\x0fsample_interval\x18\x02 \x01(\tR\x0esampleInterval\x12\x1f\n" +
@@ -3140,7 +3515,7 @@ func file_monitoring_proto_rawDescGZIP() []byte {
 }
 
 var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_monitoring_proto_goTypes = []any{
 	(SNMPVersion)(0),                  // 0: monitoring.SNMPVersion
 	(SNMPSecurityLevel)(0),            // 1: monitoring.SNMPSecurityLevel
@@ -3166,16 +3541,19 @@ var file_monitoring_proto_goTypes = []any{
 	(*AgentHelloResponse)(nil),        // 21: monitoring.AgentHelloResponse
 	(*AgentConfigRequest)(nil),        // 22: monitoring.AgentConfigRequest
 	(*AgentConfigResponse)(nil),       // 23: monitoring.AgentConfigResponse
-	(*SysmonConfig)(nil),              // 24: monitoring.SysmonConfig
-	(*AgentCheckConfig)(nil),          // 25: monitoring.AgentCheckConfig
-	(*DuskConfig)(nil),                // 26: monitoring.DuskConfig
-	(*SNMPConfig)(nil),                // 27: monitoring.SNMPConfig
-	(*SNMPTargetConfig)(nil),          // 28: monitoring.SNMPTargetConfig
-	(*SNMPv3Auth)(nil),                // 29: monitoring.SNMPv3Auth
-	(*SNMPOIDConfig)(nil),             // 30: monitoring.SNMPOIDConfig
-	nil,                               // 31: monitoring.AgentHelloRequest.LabelsEntry
-	nil,                               // 32: monitoring.SysmonConfig.ThresholdsEntry
-	nil,                               // 33: monitoring.AgentCheckConfig.SettingsEntry
+	(*PluginConfig)(nil),              // 24: monitoring.PluginConfig
+	(*PluginEngineLimits)(nil),        // 25: monitoring.PluginEngineLimits
+	(*PluginAssignmentConfig)(nil),    // 26: monitoring.PluginAssignmentConfig
+	(*SysmonConfig)(nil),              // 27: monitoring.SysmonConfig
+	(*AgentCheckConfig)(nil),          // 28: monitoring.AgentCheckConfig
+	(*DuskConfig)(nil),                // 29: monitoring.DuskConfig
+	(*SNMPConfig)(nil),                // 30: monitoring.SNMPConfig
+	(*SNMPTargetConfig)(nil),          // 31: monitoring.SNMPTargetConfig
+	(*SNMPv3Auth)(nil),                // 32: monitoring.SNMPv3Auth
+	(*SNMPOIDConfig)(nil),             // 33: monitoring.SNMPOIDConfig
+	nil,                               // 34: monitoring.AgentHelloRequest.LabelsEntry
+	nil,                               // 35: monitoring.SysmonConfig.ThresholdsEntry
+	nil,                               // 36: monitoring.AgentCheckConfig.SettingsEntry
 }
 var file_monitoring_proto_depIdxs = []int32{
 	14, // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
@@ -3185,40 +3563,43 @@ var file_monitoring_proto_depIdxs = []int32{
 	15, // 4: monitoring.SweepCompletionStatus.scanner_stats:type_name -> monitoring.SweepScannerStats
 	19, // 5: monitoring.GatewayStatusRequest.services:type_name -> monitoring.GatewayServiceStatus
 	19, // 6: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
-	31, // 7: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
-	25, // 8: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
-	24, // 9: monitoring.AgentConfigResponse.sysmon_config:type_name -> monitoring.SysmonConfig
-	27, // 10: monitoring.AgentConfigResponse.snmp_config:type_name -> monitoring.SNMPConfig
-	26, // 11: monitoring.AgentConfigResponse.dusk_config:type_name -> monitoring.DuskConfig
-	32, // 12: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
-	33, // 13: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
-	28, // 14: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
-	0,  // 15: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
-	29, // 16: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
-	30, // 17: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
-	1,  // 18: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
-	2,  // 19: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
-	3,  // 20: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
-	4,  // 21: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
-	7,  // 22: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
-	8,  // 23: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
-	8,  // 24: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
-	20, // 25: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
-	22, // 26: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
-	16, // 27: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
-	18, // 28: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
-	9,  // 29: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	10, // 30: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	13, // 31: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	21, // 32: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	23, // 33: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	17, // 34: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	17, // 35: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	29, // [29:36] is the sub-list for method output_type
-	22, // [22:29] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	34, // 7: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
+	28, // 8: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
+	27, // 9: monitoring.AgentConfigResponse.sysmon_config:type_name -> monitoring.SysmonConfig
+	30, // 10: monitoring.AgentConfigResponse.snmp_config:type_name -> monitoring.SNMPConfig
+	29, // 11: monitoring.AgentConfigResponse.dusk_config:type_name -> monitoring.DuskConfig
+	24, // 12: monitoring.AgentConfigResponse.plugin_config:type_name -> monitoring.PluginConfig
+	26, // 13: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
+	25, // 14: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
+	35, // 15: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
+	36, // 16: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
+	31, // 17: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
+	0,  // 18: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
+	32, // 19: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
+	33, // 20: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
+	1,  // 21: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
+	2,  // 22: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
+	3,  // 23: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
+	4,  // 24: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
+	7,  // 25: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
+	8,  // 26: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
+	8,  // 27: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
+	20, // 28: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
+	22, // 29: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
+	16, // 30: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
+	18, // 31: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
+	9,  // 32: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	10, // 33: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	13, // 34: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	21, // 35: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	23, // 36: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	17, // 37: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	17, // 38: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	32, // [32:39] is the sub-list for method output_type
+	25, // [25:32] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_monitoring_proto_init() }
@@ -3232,7 +3613,7 @@ func file_monitoring_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   28,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

@@ -1,0 +1,18 @@
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- if and ($pluginStorage.enabled) (not $pluginStorage.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-web-ng-plugins
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ default "10Gi" $pluginStorage.size | quote }}
+  {{- if $pluginStorage.storageClassName }}
+  storageClassName: {{ $pluginStorage.storageClassName | quote }}
+  {{- end }}
+{{- end }}

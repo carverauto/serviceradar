@@ -30,15 +30,24 @@ defmodule ServiceRadar.ResultsRouterTest do
     end
   end
 
+  defmodule TestPluginIngestor do
+    def ingest(payload, status) do
+      send(self(), {:plugin_ingest, payload, status})
+      :ok
+    end
+  end
+
   setup do
     previous = Application.get_env(:serviceradar_core, :sync_ingestor)
     previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
     previous_sweep = Application.get_env(:serviceradar_core, :sweep_ingestor)
     previous_sysmon = Application.get_env(:serviceradar_core, :sysmon_metrics_ingestor)
+    previous_plugin = Application.get_env(:serviceradar_core, :plugin_result_ingestor)
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
     Application.put_env(:serviceradar_core, :sweep_ingestor, TestSweepIngestor)
     Application.put_env(:serviceradar_core, :sysmon_metrics_ingestor, TestSysmonIngestor)
+    Application.put_env(:serviceradar_core, :plugin_result_ingestor, TestPluginIngestor)
 
     on_exit(fn ->
       if is_nil(previous) do
@@ -63,6 +72,12 @@ defmodule ServiceRadar.ResultsRouterTest do
         Application.delete_env(:serviceradar_core, :sysmon_metrics_ingestor)
       else
         Application.put_env(:serviceradar_core, :sysmon_metrics_ingestor, previous_sysmon)
+      end
+
+      if is_nil(previous_plugin) do
+        Application.delete_env(:serviceradar_core, :plugin_result_ingestor)
+      else
+        Application.put_env(:serviceradar_core, :plugin_result_ingestor, previous_plugin)
       end
     end)
 
@@ -177,5 +192,27 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     assert_receive {:sysmon_ingest, decoded, ^status}
     assert %{"status" => _} = decoded
+  end
+
+  test "routes plugin results payloads" do
+    payload = %{
+      "status" => "OK",
+      "summary" => "plugin ok",
+      "perfdata" => "latency=3ms",
+      "metrics" => [%{"name" => "latency_ms", "value" => 3, "unit" => "ms"}]
+    }
+
+    status = %{
+      source: "plugin-result",
+      service_type: "plugin",
+      message: Jason.encode!(payload),
+      agent_id: "agent-1",
+      gateway_id: "gateway-1"
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+
+    assert_receive {:plugin_ingest, decoded, ^status}
+    assert %{"summary" => "plugin ok"} = decoded
   end
 end

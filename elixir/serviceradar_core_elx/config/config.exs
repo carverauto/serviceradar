@@ -26,6 +26,12 @@ config :serviceradar_core,
     ServiceRadar.DuskProfiles
   ]
 
+# Plugin blob storage download configuration (used to generate signed download URLs)
+config :serviceradar_core, :plugin_storage,
+  public_url: nil,
+  signing_secret: nil,
+  download_ttl_seconds: 86_400
+
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
 
 config :ash,

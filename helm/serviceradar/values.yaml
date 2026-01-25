@@ -144,6 +144,7 @@ cnpg:
   requireClientCert: false
 webNg:
   host: ""
+  publicUrl: ""
   checkOrigin: "false"
   devRoutes: "false"
   localMailer: "false"
@@ -161,10 +162,23 @@ webNg:
     certDir: "/etc/serviceradar/certs"
     certName: "web"
     serverName: "datasvc.serviceradar"
+  pluginStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/plugin-packages"
+    existingClaim: ""
+    size: 10Gi
+    storageClassName: ""
+    downloadTtlSeconds: 86400
 agent:
   agentId: "k8s-agent"
   gatewayAddress: ""
   partitionId: "default"
+  checkersStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/checkers"
+    existingClaim: ""
+    size: 2Gi
+    storageClassName: ""
   resources:
     limits:
       cpu: 500m

@@ -47,6 +47,7 @@ defmodule ServiceRadar.Observability do
     # Metrics resources - all map to TimescaleDB hypertables with migrate?: false
     # matching Go schema exactly
     resource ServiceRadar.Observability.TimeseriesMetric
+    resource ServiceRadar.Observability.ServiceStatus
     resource ServiceRadar.Observability.CpuMetric
     resource ServiceRadar.Observability.CpuClusterMetric
     resource ServiceRadar.Observability.MemoryMetric

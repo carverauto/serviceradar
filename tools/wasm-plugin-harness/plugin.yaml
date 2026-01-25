@@ -1,0 +1,19 @@
+id: hello-wasm
+name: Hello Wasm
+version: 0.1.0
+description: TinyGo hello-world plugin for ServiceRadar
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+permissions: {}
+resources:
+  requested_memory_mb: 16
+  requested_cpu_ms: 500
+  max_open_connections: 0
+source:
+  repo_url: https://example.invalid/serviceradar/hello-wasm
+  commit: local-build

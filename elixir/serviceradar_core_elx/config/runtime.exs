@@ -154,6 +154,46 @@ if config_env() == :prod do
     status_handler_enabled:
       System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
+  plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
+
+  plugin_storage_overrides =
+    []
+    |> then(fn acc ->
+      case System.get_env("PLUGIN_STORAGE_PUBLIC_URL") do
+        nil -> acc
+        "" -> acc
+        value -> Keyword.put(acc, :public_url, value)
+      end
+    end)
+    |> then(fn acc ->
+      case System.get_env("PLUGIN_STORAGE_SIGNING_SECRET") do
+        nil -> acc
+        "" -> acc
+        value -> Keyword.put(acc, :signing_secret, value)
+      end
+    end)
+    |> then(fn acc ->
+      case System.get_env("PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS") do
+        nil ->
+          acc
+
+        "" ->
+          acc
+
+        value ->
+          case Integer.parse(value) do
+            {parsed, ""} -> Keyword.put(acc, :download_ttl_seconds, parsed)
+            _ -> acc
+          end
+      end
+    end)
+
+  if plugin_storage_overrides != [] do
+    config :serviceradar_core,
+           :plugin_storage,
+           Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
+  end
+
   platform_sync_component_id =
     System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || "platform-sync"
 

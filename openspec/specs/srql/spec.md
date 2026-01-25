@@ -166,3 +166,53 @@ The system SHALL periodically refresh sweep configs when the SRQL result set cha
 - **WHEN** the `SweepConfigRefreshWorker` runs
 - **THEN** the device is now included in the compiled target list.
 
+### Requirement: Interface error counters are projected in SRQL results
+SRQL `in:interfaces` queries SHALL project interface error counter fields (`in_errors`, `out_errors`) when present, and SHALL return nulls when the fields are not available.
+
+#### Scenario: Latest interface query includes error counters
+- **GIVEN** interface metrics contain `in_errors` and `out_errors` values
+- **WHEN** a client queries `in:interfaces device_id:"sr:<uuid>" interface_uid:"ifindex:3" latest:true limit:1`
+- **THEN** the result payload includes `in_errors` and `out_errors` with the latest values
+
+#### Scenario: Missing fields return nulls
+- **GIVEN** interface metrics do not include error counter values for an interface
+- **WHEN** a client queries `in:interfaces device_id:"sr:<uuid>" interface_uid:"ifindex:3" latest:true limit:1`
+- **THEN** the result payload includes `in_errors: null` and `out_errors: null`
+
+### Requirement: Interface MAC filters support normalization and wildcards
+The SRQL service SHALL support `mac` filters for `in:interfaces` queries with case-insensitive, separator-insensitive matching and `%` wildcard patterns.
+
+#### Scenario: Exact MAC match with mixed separators
+- **GIVEN** an interface stored with MAC address `0e:ea:14:32:d2:78`
+- **WHEN** a client sends `in:interfaces mac:0E-EA-14-32-D2-78`
+- **THEN** SRQL returns the interface in the results
+
+#### Scenario: Wildcard MAC match in interface search
+- **GIVEN** an interface stored with MAC address `0e:ea:14:32:d2:78`
+- **WHEN** a client sends `in:interfaces mac:%0e:ea:14:32:d2:78%`
+- **THEN** SRQL executes successfully and returns the interface in the results
+
+### Requirement: SRQL builder query assembly
+The SRQL builder SHALL generate a valid SRQL query string for supported entities without raising runtime errors while applying filters, sort, and limit tokens.
+
+#### Scenario: Devices default query includes sort and limit
+- **GIVEN** the SRQL builder default state for the devices entity
+- **WHEN** the builder generates the query string
+- **THEN** the query string includes `in:devices`
+- **AND** the query string includes a `sort:last_seen:desc` token
+- **AND** the query string includes a `limit:<n>` token
+
+#### Scenario: Logs default query includes sort and limit
+- **GIVEN** the SRQL builder default state for the logs entity
+- **WHEN** the builder generates the query string
+- **THEN** the query string includes `in:logs`
+- **AND** the query string includes a `sort:timestamp:desc` token
+- **AND** the query string includes a `limit:<n>` token
+
+#### Scenario: Filters preserve sort assembly
+- **GIVEN** the SRQL builder state includes a filter row
+- **WHEN** the builder generates the query string
+- **THEN** the query string includes the filter token
+- **AND** the query string includes the configured sort token
+- **AND** the query string includes the configured limit token
+

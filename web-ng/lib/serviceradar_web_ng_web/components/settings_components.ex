@@ -5,9 +5,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   use ServiceRadarWebNGWeb, :html
 
-  attr :current_path, :string, required: true
-  attr :class, :any, default: nil
-  slot :inner_block, required: true
+  attr(:current_path, :string, required: true)
+  attr(:class, :any, default: nil)
+  slot(:inner_block, required: true)
 
   def settings_shell(assigns) do
     ~H"""
@@ -19,8 +19,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     """
   end
 
-  attr :current_path, :string, required: true
-  attr :class, :any, default: nil
+  attr(:current_path, :string, required: true)
+  attr(:class, :any, default: nil)
 
   def settings_nav(assigns) do
     assigns = assign(assigns, :tabs, settings_tabs(assigns.current_path))
@@ -70,7 +70,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           String.starts_with?(path, "/admin/collectors") or
             String.starts_with?(path, "/admin/edge-sites") or
             String.starts_with?(path, "/admin/nats") or
-            String.starts_with?(path, "/admin/edge-packages")
+            String.starts_with?(path, "/admin/edge-packages") or
+            String.starts_with?(path, "/admin/plugins")
       },
       %{
         label: "Jobs",
@@ -81,8 +82,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   end
 
   # Network section sub-navigation
-  attr :current_path, :string, required: true
-  attr :class, :any, default: nil
+  attr(:current_path, :string, required: true)
+  attr(:class, :any, default: nil)
 
   def network_nav(assigns) do
     assigns = assign(assigns, :tabs, network_tabs(assigns.current_path))
@@ -125,8 +126,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   end
 
   # Agents section sub-navigation
-  attr :current_path, :string, required: true
-  attr :class, :any, default: nil
+  attr(:current_path, :string, required: true)
+  attr(:class, :any, default: nil)
 
   def agents_nav(assigns) do
     assigns = assign(assigns, :tabs, agents_tabs(assigns.current_path))
@@ -161,8 +162,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   end
 
   # Edge Ops section sub-navigation
-  attr :current_path, :string, required: true
-  attr :class, :any, default: nil
+  attr(:current_path, :string, required: true)
+  attr(:class, :any, default: nil)
 
   def edge_nav(assigns) do
     assigns = assign(assigns, :tabs, edge_tabs(assigns.current_path))
@@ -192,6 +193,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         label: "Components",
         navigate: ~p"/admin/edge-packages",
         active: String.starts_with?(path, "/admin/edge-packages")
+      },
+      %{
+        label: "Plugins",
+        navigate: ~p"/admin/plugins",
+        active: String.starts_with?(path, "/admin/plugins")
       }
     ]
   end

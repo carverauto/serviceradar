@@ -40,6 +40,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Plugins.{PluginAssignment, PluginPackage, StorageToken}
 
   # Default intervals
   @default_heartbeat_interval_sec 30
@@ -64,7 +65,40 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
           config_timestamp: integer(),
           heartbeat_interval_sec: integer(),
           config_poll_interval_sec: integer(),
-          checks: [check_config()]
+          checks: [check_config()],
+          plugins: [plugin_assignment_config()],
+          plugin_engine_limits: plugin_engine_limits_config()
+        }
+
+  @type plugin_engine_limits_config :: %{
+          max_memory_mb: integer() | nil,
+          max_cpu_ms: integer() | nil,
+          max_concurrent: integer() | nil,
+          max_open_connections: integer() | nil
+        }
+
+  @type plugin_assignment_config :: %{
+          assignment_id: String.t(),
+          plugin_id: String.t(),
+          package_id: String.t(),
+          version: String.t(),
+          name: String.t(),
+          entrypoint: String.t(),
+          runtime: String.t() | nil,
+          outputs: String.t(),
+          capabilities: [String.t()],
+          params: map(),
+          permissions: map(),
+          resources: map(),
+          enabled: boolean(),
+          interval_sec: integer(),
+          timeout_sec: integer(),
+          wasm_object_key: String.t() | nil,
+          content_hash: String.t() | nil,
+          source_type: String.t() | nil,
+          source_repo_url: String.t() | nil,
+          source_commit: String.t() | nil,
+          download_url: String.t() | nil
         }
 
   @doc """
@@ -94,6 +128,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         sysmon_config = load_sysmon_config(agent_id)
         snmp_config = load_snmp_config(agent_id)
         dusk_config = load_dusk_config(agent_id)
+        plugin_assignments = load_plugin_assignments(agent_id)
+        plugin_engine_limits = load_plugin_engine_limits(agent_id)
+        plugin_config = %{
+          assignments: plugin_assignments,
+          engine_limits: plugin_engine_limits
+        }
 
         config =
           build_config(
@@ -103,7 +143,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
             mapper_config,
             sysmon_config,
             snmp_config,
-            dusk_config
+            dusk_config,
+            plugin_config
           )
 
         {:ok, config}
@@ -202,6 +243,160 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       {:error, {:database_error, e}}
   end
 
+  defp load_plugin_assignments(agent_id) do
+    actor = SystemActor.system(:agent_config_generator)
+
+    assignments =
+      PluginAssignment
+      |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
+      |> Ash.Query.load(:plugin_package)
+      |> Ash.read!()
+
+    assignments
+    |> Enum.filter(&has_approved_package?/1)
+    |> Enum.map(&build_plugin_assignment_config/1)
+  rescue
+    e ->
+      Logger.warning("Error loading plugin assignments: #{inspect(e)}")
+      []
+  end
+
+  defp has_approved_package?(%PluginAssignment{
+         plugin_package: %PluginPackage{status: :approved}
+       } = assignment) do
+    if wasm_available?(assignment.plugin_package) do
+      true
+    else
+      Logger.warning(
+        "Skipping plugin assignment #{assignment.id}: wasm blob missing for package #{assignment.plugin_package.id}"
+      )
+
+      false
+    end
+  end
+
+  defp has_approved_package?(_), do: false
+
+  defp wasm_available?(%PluginPackage{} = package) do
+    key = package.wasm_object_key
+    is_binary(key) and String.trim(key) != ""
+  end
+
+  defp wasm_available?(_), do: false
+
+  defp load_plugin_engine_limits(agent_id) do
+    actor = SystemActor.system(:plugin_engine_limits)
+
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, agent} ->
+        %{
+          max_memory_mb: agent.plugin_engine_max_memory_mb,
+          max_cpu_ms: agent.plugin_engine_max_cpu_ms,
+          max_concurrent: agent.plugin_engine_max_concurrent,
+          max_open_connections: agent.plugin_engine_max_open_connections
+        }
+
+      {:error, _} ->
+        %{
+          max_memory_mb: nil,
+          max_cpu_ms: nil,
+          max_concurrent: nil,
+          max_open_connections: nil
+        }
+    end
+  end
+
+  defp build_plugin_assignment_config(%PluginAssignment{} = assignment) do
+    package = assignment.plugin_package
+    manifest = normalize_map(package.manifest)
+
+    %{
+      assignment_id: to_string(assignment.id),
+      plugin_id: package.plugin_id,
+      package_id: package.id,
+      version: package.version,
+      name: package.name,
+      entrypoint: package.entrypoint,
+      runtime: package.runtime,
+      outputs: package.outputs,
+      capabilities: effective_capabilities(package, manifest),
+      params: normalize_map(assignment.params),
+      permissions: effective_permissions(assignment, package, manifest),
+      resources: effective_resources(assignment, package, manifest),
+      enabled: assignment.enabled,
+      interval_sec: assignment.interval_seconds || 60,
+      timeout_sec: assignment.timeout_seconds || 10,
+      wasm_object_key: package.wasm_object_key,
+      content_hash: package.content_hash,
+      source_type: normalize_source_type(package.source_type),
+      download_url: StorageToken.download_url(package.id, package.wasm_object_key)
+    }
+  end
+
+  defp effective_capabilities(%PluginPackage{} = package, manifest) do
+    approved = package.approved_capabilities || []
+
+    if approved != [] do
+      approved
+    else
+      Map.get(manifest, "capabilities") || Map.get(manifest, :capabilities) || []
+    end
+  end
+
+  defp effective_permissions(
+         %PluginAssignment{} = assignment,
+         %PluginPackage{} = package,
+         manifest
+       ) do
+    cond do
+      map_present?(assignment.permissions_override) ->
+        assignment.permissions_override
+
+      map_present?(package.approved_permissions) ->
+        package.approved_permissions
+
+      true ->
+        Map.get(manifest, "permissions") || Map.get(manifest, :permissions) || %{}
+    end
+    |> normalize_map()
+  end
+
+  defp effective_resources(%PluginAssignment{} = assignment, %PluginPackage{} = package, manifest) do
+    cond do
+      map_present?(assignment.resources_override) ->
+        assignment.resources_override
+
+      map_present?(package.approved_resources) ->
+        package.approved_resources
+
+      true ->
+        Map.get(manifest, "resources") || Map.get(manifest, :resources) || %{}
+    end
+    |> normalize_map()
+  end
+
+  defp map_present?(map) when is_map(map), do: map_size(map) > 0
+  defp map_present?(_), do: false
+
+  defp normalize_map(nil), do: %{}
+  defp normalize_map(map) when is_map(map), do: map
+  defp normalize_map(_), do: %{}
+
+  defp normalize_source_type(nil), do: nil
+  defp normalize_source_type(source) when is_atom(source), do: Atom.to_string(source)
+  defp normalize_source_type(source) when is_binary(source), do: source
+  defp normalize_source_type(_), do: nil
+
+  defp encode_json(map) when is_map(map) do
+    if map_present?(map) do
+      Jason.encode!(map)
+    else
+      ""
+    end
+  end
+
+  defp encode_json(_), do: ""
+
   # Build the full config structure from database checks
   defp build_config(
          checks,
@@ -210,9 +405,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          mapper_config,
          sysmon_config,
          snmp_config,
-         dusk_config
+         dusk_config,
+         plugin_config
        ) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
+    plugin_assignments = Map.get(plugin_config, :assignments, [])
+    plugin_engine_limits = Map.get(plugin_config, :engine_limits, %{})
 
     # Merge sweep config into the payload
     full_payload =
@@ -222,7 +420,16 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
     # Compute version hash from checks, sync payload, sweep config, sysmon config, and dusk config
     config_version =
-      compute_version_hash(check_configs, full_payload, sysmon_config, snmp_config, dusk_config)
+      compute_version_hash(
+        check_configs,
+        full_payload,
+        sysmon_config,
+        snmp_config,
+        dusk_config,
+        plugin_assignments,
+        plugin_engine_limits
+      )
+
     config_json = Jason.encode!(full_payload)
 
     %{
@@ -231,6 +438,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       heartbeat_interval_sec: @default_heartbeat_interval_sec,
       config_poll_interval_sec: @default_config_poll_interval_sec,
       checks: check_configs,
+      plugins: plugin_assignments,
+      plugin_engine_limits: plugin_engine_limits,
       config_json: config_json,
       sysmon_config: build_sysmon_proto_config(sysmon_config),
       snmp_config: build_snmp_proto_config(snmp_config),
@@ -300,9 +509,18 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp maybe_put_device_uid(settings, _device_uid), do: settings
 
   # Compute SHA256 hash of the config for versioning
-  defp compute_version_hash(check_configs, sync_payload, sysmon_config, snmp_config, dusk_config) do
+  defp compute_version_hash(
+         check_configs,
+         sync_payload,
+         sysmon_config,
+         snmp_config,
+         dusk_config,
+         plugin_assignments,
+         plugin_engine_limits
+       ) do
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
+    sorted_plugins = Enum.sort_by(plugin_assignments, & &1.assignment_id)
 
     # Serialize deterministically for hashing (works for any Erlang term).
     bin =
@@ -311,7 +529,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         sync: sync_payload,
         sysmon: sysmon_config,
         snmp: snmp_config,
-        dusk: dusk_config
+        dusk: dusk_config,
+        plugins: sorted_plugins,
+        plugin_engine_limits: plugin_engine_limits
       })
 
     # Compute SHA256 hash
@@ -319,6 +539,57 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
     # Return as hex string with "v" prefix
     "v" <> Base.encode16(hash, case: :lower)
+  end
+
+  @doc """
+  Converts plugin assignments to proto-compatible structs.
+  """
+  @spec to_proto_plugin_config([plugin_assignment_config()], plugin_engine_limits_config()) ::
+          Monitoring.PluginConfig.t()
+  def to_proto_plugin_config(plugin_assignments, engine_limits \\ %{}) do
+    %Monitoring.PluginConfig{
+      assignments: Enum.map(plugin_assignments, &to_proto_plugin_assignment/1),
+      engine_limits: to_proto_plugin_engine_limits(engine_limits)
+    }
+  end
+
+  defp to_proto_plugin_engine_limits(engine_limits) do
+    %Monitoring.PluginEngineLimits{
+      max_memory_mb: normalize_limit(engine_limits[:max_memory_mb]),
+      max_cpu_ms: normalize_limit(engine_limits[:max_cpu_ms]),
+      max_concurrent: normalize_limit(engine_limits[:max_concurrent]),
+      max_open_connections: normalize_limit(engine_limits[:max_open_connections])
+    }
+  end
+
+  defp normalize_limit(nil), do: 0
+  defp normalize_limit(value) when is_integer(value) and value > 0, do: value
+  defp normalize_limit(_), do: 0
+
+  defp to_proto_plugin_assignment(assignment) do
+    %Monitoring.PluginAssignmentConfig{
+      assignment_id: assignment.assignment_id,
+      plugin_id: assignment.plugin_id,
+      package_id: assignment.package_id,
+      version: assignment.version,
+      name: assignment.name,
+      entrypoint: assignment.entrypoint,
+      runtime: assignment.runtime || "",
+      outputs: assignment.outputs,
+      capabilities: assignment.capabilities || [],
+      params_json: encode_json(assignment.params),
+      permissions_json: encode_json(assignment.permissions),
+      resources_json: encode_json(assignment.resources),
+      enabled: assignment.enabled,
+      interval_sec: assignment.interval_sec,
+      timeout_sec: assignment.timeout_sec,
+      wasm_object_key: assignment.wasm_object_key || "",
+      content_hash: assignment.content_hash || "",
+      source_type: assignment.source_type || "",
+      source_repo_url: Map.get(assignment, :source_repo_url, ""),
+      source_commit: Map.get(assignment, :source_commit, ""),
+      download_url: assignment.download_url || ""
+    }
   end
 
   defp load_sync_payload(agent_id) do
@@ -381,7 +652,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       "AgentConfigGenerator: loading mapper config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}"
     )
 
-    case ConfigServer.get_config(:mapper, partition, agent_id, actor: actor, device_uid: device_uid) do
+    case ConfigServer.get_config(:mapper, partition, agent_id,
+           actor: actor,
+           device_uid: device_uid
+         ) do
       {:ok, entry} ->
         entry.config
 
@@ -438,7 +712,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     actor = SystemActor.system(:sysmon_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
-    case ConfigServer.get_config(:sysmon, partition, agent_id, actor: actor, device_uid: device_uid) do
+    case ConfigServer.get_config(:sysmon, partition, agent_id,
+           actor: actor,
+           device_uid: device_uid
+         ) do
       {:ok, entry} ->
         entry.config
 
@@ -674,9 +951,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp resolve_agent_device_uid(agent_id, actor) do
     case Agent.get_by_uid(agent_id, actor: actor) do
-      {:ok, agent} -> agent.device_uid
+      {:ok, agent} ->
+        agent.device_uid
+
       {:error, reason} ->
-        Logger.debug("Agent config device lookup failed for agent #{agent_id}: #{inspect(reason)}")
+        Logger.debug(
+          "Agent config device lookup failed for agent #{agent_id}: #{inspect(reason)}"
+        )
+
         nil
     end
   end

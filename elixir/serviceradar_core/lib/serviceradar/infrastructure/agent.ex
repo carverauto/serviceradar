@@ -130,6 +130,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
       # Gateway updates agent status after connecting via gRPC
       patch :establish_connection, route: "/:id/connect"
+      patch :update
       patch :heartbeat, route: "/:id/heartbeat"
       patch :lose_connection, route: "/:id/disconnect"
       patch :degrade, route: "/:id/degrade"
@@ -302,7 +303,19 @@ defmodule ServiceRadar.Infrastructure.Agent do
     end
 
     update :update do
-      accept [:name, :capabilities, :host, :port, :policies, :metadata]
+      accept [
+        :name,
+        :capabilities,
+        :host,
+        :port,
+        :policies,
+        :metadata,
+        :plugin_engine_max_memory_mb,
+        :plugin_engine_max_cpu_ms,
+        :plugin_engine_max_concurrent,
+        :plugin_engine_max_open_connections
+      ]
+
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
@@ -624,6 +637,30 @@ defmodule ServiceRadar.Infrastructure.Agent do
       constraints one_of: [:remote, :local, :cached, :unassigned]
 
       description "Source of sysmon config: remote (from backend), local (file override), cached, or unassigned"
+    end
+
+    attribute :plugin_engine_max_memory_mb, :integer do
+      allow_nil? true
+      public? true
+      description "Max total memory (MB) for Wasm plugins on this agent"
+    end
+
+    attribute :plugin_engine_max_cpu_ms, :integer do
+      allow_nil? true
+      public? true
+      description "Max total CPU time window (ms) for Wasm plugins on this agent"
+    end
+
+    attribute :plugin_engine_max_concurrent, :integer do
+      allow_nil? true
+      public? true
+      description "Max number of concurrent Wasm plugin executions on this agent"
+    end
+
+    attribute :plugin_engine_max_open_connections, :integer do
+      allow_nil? true
+      public? true
+      description "Max total open connections for Wasm plugins on this agent"
     end
   end
 

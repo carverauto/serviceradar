@@ -1,0 +1,25 @@
+## 1. Implementation
+- [x] 1.1 Define plugin package schema (manifest YAML + optional config schema) and validation rules
+- [x] 1.2 Add Ash resources + migrations for plugins, packages, and agent assignments
+- [x] 1.3 Implement storage backends (filesystem default; JetStream object store optional)
+- [x] 1.4 Add web-ng API endpoints for upload, download (signed URL), and assignment management
+- [x] 1.4a Add admin API endpoints for plugins, packages, and agent assignments
+- [x] 1.4b Add upload/download endpoints (signed URL) for wasm packages
+- [x] 1.5 Extend agent config delivery (proto + gateway/core wiring) with plugin assignments
+- [x] 1.6 Embed wazero runtime in the agent and implement host function ABI
+- [x] 1.7 Implement result schema validation and mapping into `GatewayServiceStatus`
+- [x] 1.8 Implement resource budgeting (per-agent limits + per-plugin requests + admission control)
+- [x] 1.9 Emit agent telemetry for Wasm engine health and resource usage
+- [x] 1.10 Extend agent-gateway/core ingestion to support `serviceradar.plugin_result.v1` without breaking existing checkers
+- [x] 1.11 Add GitHub package source support (core fetch + verification + storage handoff)
+- [x] 1.12 Add import review workflow (capability + allowlist confirmation) before distribution
+- [x] 1.13 Add UI flows for upload/import review, versioning, assignment, status visibility, capacity planning, and verification policy
+- [x] 1.13a Add admin UI for staging, reviewing, and uploading plugin packages
+- [x] 1.13b Add admin UI to assign approved packages to agents
+- [x] 1.13c Add version history + integrity/status visibility to plugin review UI
+- [x] 1.13d Add capacity snapshot UI for plugin resource planning
+- [x] 1.13e Add verification policy visibility in plugin admin UI
+- [x] 1.14 Add tests (package validation, storage, agent runtime sandboxing, result mapping, resource budgeting, telemetry, ingestion, GitHub verification, import approval)
+- [x] 1.15 Update docs for plugin packaging, SDK usage, and deployment configuration
+- [x] 1.16 Generate signed download URLs in core and deliver them to agents
+- [x] 1.17 Add persistent plugin storage mounts + signing secret wiring for Helm/K8s/Docker

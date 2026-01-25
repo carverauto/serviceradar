@@ -315,7 +315,7 @@ data:
 
   agent.json: |
       {
-        "checkers_dir": "/etc/serviceradar/checkers",
+        "checkers_dir": "{{ default "/var/lib/serviceradar/checkers" (get (default dict (get $agentVals "checkersStorage")) "basePath") }}",
         "agent_id": "{{$agentID}}",
         "agent_name": "agent",
         "host_ip": "agent",

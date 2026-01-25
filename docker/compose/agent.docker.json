@@ -1,5 +1,5 @@
 {
-  "checkers_dir": "/etc/serviceradar/checkers",
+  "checkers_dir": "/var/lib/serviceradar/checkers",
   "agent_id": "docker-agent",
   "agent_name": "agent",
   "host_ip": "agent",
