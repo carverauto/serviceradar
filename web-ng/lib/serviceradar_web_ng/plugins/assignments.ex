@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
   require Ash.Query
 
   alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadarWebNG.Plugins.Packages
 
   @default_limit 100
   @max_limit 500
@@ -49,8 +50,11 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     scope = Keyword.get(opts, :scope)
     attrs = drop_nil_values(attrs)
 
+    schema = fetch_config_schema(attrs, scope)
+
     PluginAssignment
     |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.Changeset.set_context(%{config_schema: schema})
     |> create_resource(scope)
   end
 
@@ -64,8 +68,11 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     attrs = drop_nil_values(attrs)
 
     with {:ok, assignment} <- get(id, scope: scope) do
+      schema = fetch_config_schema(%{plugin_package_id: assignment.plugin_package_id}, scope)
+
       assignment
       |> Ash.Changeset.for_update(:update, attrs)
+      |> Ash.Changeset.set_context(%{config_schema: schema})
       |> update_resource(scope)
     end
   end
@@ -149,5 +156,18 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     attrs
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
+  end
+
+  defp fetch_config_schema(attrs, scope) do
+    package_id = Map.get(attrs, :plugin_package_id) || Map.get(attrs, "plugin_package_id")
+
+    if is_binary(package_id) and package_id != "" do
+      case Packages.get(package_id, scope: scope) do
+        {:ok, package} -> package.config_schema || %{}
+        _ -> %{}
+      end
+    else
+      %{}
+    end
   end
 end

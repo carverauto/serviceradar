@@ -198,6 +198,13 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp create_from_upload(attrs, scope) do
     manifest = Map.get(attrs, :manifest) || %{}
 
+    display_contract =
+      Map.get(attrs, :display_contract) ||
+        Map.get(attrs, "display_contract") ||
+        Map.get(manifest, "display_contract") ||
+        Map.get(manifest, :display_contract) ||
+        %{}
+
     with {:ok, manifest_struct} <- Manifest.from_map(manifest),
          {:ok, _plugin} <- ensure_plugin(manifest_struct, attrs, scope) do
       attrs =
@@ -209,6 +216,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         |> Map.put_new(:entrypoint, manifest_struct.entrypoint)
         |> Map.put_new(:runtime, manifest_struct.runtime)
         |> Map.put_new(:outputs, manifest_struct.outputs)
+        |> Map.put_new(:display_contract, display_contract)
 
       PluginPackage
       |> Ash.Changeset.for_create(:create, attrs)
@@ -235,6 +243,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       attrs
       |> Map.put(:manifest, import.manifest)
       |> Map.put_new(:config_schema, import.config_schema || %{})
+      |> Map.put_new(:display_contract, import.display_contract || %{})
       |> Map.put(:source_type, :github)
       |> Map.put(:source_commit, import.source_commit)
       |> Map.put(:signature, import.signature || %{})

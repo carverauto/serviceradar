@@ -9,13 +9,24 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   alias ServiceRadarWebNG.Accounts.Scope
 
+  @csp "default-src 'self'; " <>
+         "script-src 'self'; " <>
+         "style-src 'self' 'unsafe-inline'; " <>
+         "img-src 'self' data:; " <>
+         "font-src 'self' data:; " <>
+         "connect-src 'self' https: wss:; " <>
+         "frame-src 'none'; " <>
+         "object-src 'none'; " <>
+         "base-uri 'self'; " <>
+         "form-action 'self'"
+
   pipeline :browser do
     plug(:accepts, ["html"])
     plug(:fetch_session)
     plug(:fetch_live_flash)
     plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
     plug(:protect_from_forgery)
-    plug(:put_secure_browser_headers)
+    plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
   end

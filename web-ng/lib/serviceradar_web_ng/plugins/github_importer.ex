@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
 
     wasm_path = fetch_value(attrs, [:wasm_path, "wasm_path"]) || @default_wasm_path
     config_schema = fetch_value(attrs, [:config_schema, "config_schema"]) || %{}
+    display_contract = fetch_value(attrs, [:display_contract, "display_contract"]) || %{}
 
     with {:ok, repo} <- parse_repo_url(repo_url),
          {:ok, ref} <- resolve_ref(repo, commit),
@@ -36,6 +37,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
          manifest: manifest_map,
          manifest_struct: manifest_struct,
          config_schema: config_schema,
+         display_contract: display_contract,
          wasm: wasm,
          content_hash: Storage.sha256(wasm),
          signature: signature,

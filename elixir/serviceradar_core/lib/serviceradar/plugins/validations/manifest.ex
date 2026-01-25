@@ -20,9 +20,14 @@ defmodule ServiceRadar.Plugins.Validations.Manifest do
       Ash.Changeset.get_attribute(changeset, :config_schema) ||
         Map.get(changeset.data, :config_schema)
 
+    display_contract =
+      Ash.Changeset.get_attribute(changeset, :display_contract) ||
+        Map.get(changeset.data, :display_contract)
+
     errors =
       manifest_errors(manifest) ++
-        config_schema_errors(config_schema)
+        config_schema_errors(config_schema) ++
+        display_contract_errors(display_contract)
 
     case errors do
       [] ->
@@ -48,6 +53,13 @@ defmodule ServiceRadar.Plugins.Validations.Manifest do
 
   defp config_schema_errors(config_schema) do
     case Manifest.validate_config_schema(config_schema) do
+      :ok -> []
+      {:error, errs} -> errs
+    end
+  end
+
+  defp display_contract_errors(display_contract) do
+    case Manifest.validate_display_contract(display_contract) do
       :ok -> []
       {:error, errs} -> errs
     end

@@ -2,8 +2,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
+  import ServiceRadarWebNGWeb.PluginResults
 
   alias ServiceRadar.Observability.ServiceStatusPubSub
+  alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 50
@@ -21,6 +23,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      socket
      |> assign(:page_title, "Services")
      |> assign(:services, [])
+     |> assign(:selected_service, nil)
+     |> assign(:selected_details, %{})
+     |> assign(:selected_display, [])
+     |> assign(:selected_display_contract, %{})
      |> assign(:summary, %{
        total: 0,
        available: 0,
@@ -86,6 +92,39 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
   end
 
+  def handle_event("select_service", %{"index" => index}, socket) do
+    idx = parse_int(index)
+    service = Enum.at(socket.assigns.services, idx)
+
+    if is_map(service) do
+      details = parse_service_details(service)
+      contract = load_display_contract(details, socket.assigns.current_scope)
+
+      display =
+        details
+        |> extract_display_instructions()
+        |> filter_display_by_contract(contract)
+
+      {:noreply,
+       socket
+       |> assign(:selected_service, service)
+       |> assign(:selected_details, details)
+       |> assign(:selected_display, display)
+       |> assign(:selected_display_contract, contract)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("clear_service", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:selected_service, nil)
+     |> assign(:selected_details, %{})
+     |> assign(:selected_display, [])
+     |> assign(:selected_display_contract, %{})}
+  end
+
   @impl true
   def handle_info({:service_status_updated, _status}, socket) do
     {:noreply, schedule_refresh(socket)}
@@ -99,8 +138,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
     query = Map.get(assigns.srql, :query, "")
+
     has_filter =
-      is_binary(query) and Regex.match?(~r/(?:^|\s)(?:service_name|service_type|type|service):/, query)
+      is_binary(query) and
+        Regex.match?(~r/(?:^|\s)(?:service_name|service_type|type|service):/, query)
 
     assigns =
       assigns
@@ -124,6 +165,14 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
             </:header>
 
             <.services_table id="services" services={@services} />
+
+            <.service_details_panel
+              :if={@selected_service}
+              service={@selected_service}
+              details={@selected_details}
+              display={@selected_display}
+              display_contract={@selected_display_contract}
+            />
 
             <div class="mt-4 pt-4 border-t border-base-200">
               <.ui_pagination
@@ -318,6 +367,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp check_bar(assigns) do
     check_total = assigns.counts.available + assigns.counts.unavailable
+
     avail_pct =
       if check_total > 0, do: round(assigns.counts.available / check_total * 100), else: 0
 
@@ -405,7 +455,12 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
           </tr>
 
           <%= for {svc, idx} <- Enum.with_index(@services) do %>
-            <tr id={"#{@id}-row-#{idx}"} class="hover:bg-base-200/40">
+            <tr
+              id={"#{@id}-row-#{idx}"}
+              class="hover:bg-base-200/40 cursor-pointer"
+              phx-click="select_service"
+              phx-value-index={idx}
+            >
               <td class="whitespace-nowrap text-xs font-mono">
                 {format_timestamp(svc)}
               </td>
@@ -435,6 +490,52 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     """
   end
 
+  attr :service, :map, required: true
+  attr :details, :map, default: %{}
+  attr :display, :list, default: []
+  attr :display_contract, :map, default: %{}
+
+  defp service_details_panel(assigns) do
+    service_name = service_name_value(assigns.service) || "Service"
+    service_type = service_type_value(assigns.service) || "—"
+    status = Map.get(assigns.details, "status") || Map.get(assigns.service, "status")
+    summary = Map.get(assigns.details, "summary") || Map.get(assigns.service, "message")
+    schema_version = resolve_schema_version(assigns.details, assigns.display_contract)
+
+    assigns =
+      assigns
+      |> assign(:service_name, service_name)
+      |> assign(:service_type, service_type)
+      |> assign(:status, status)
+      |> assign(:summary, summary)
+      |> assign(:schema_version, schema_version)
+
+    ~H"""
+    <div class="mt-4 rounded-xl border border-base-200 bg-base-100 p-4 space-y-3">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="text-sm font-semibold">{@service_name}</div>
+          <div class="text-xs text-base-content/60">{@service_type}</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <.ui_badge size="xs" variant={status_variant(@status)}>
+            {format_status(@status)}
+          </.ui_badge>
+          <button class="btn btn-ghost btn-xs" phx-click="clear_service">Close</button>
+        </div>
+      </div>
+
+      <div :if={@summary} class="text-xs text-base-content/70">{@summary}</div>
+
+      <div :if={@schema_version} class="text-[11px] text-base-content/50">
+        UI schema version {@schema_version}
+      </div>
+
+      <.plugin_results display={@display} />
+    </div>
+    """
+  end
+
   attr :available, :any, default: nil
 
   defp status_badge(assigns) do
@@ -452,6 +553,20 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
     """
+  end
+
+  defp format_status(nil), do: "UNKNOWN"
+  defp format_status(status) when is_binary(status), do: String.upcase(status)
+  defp format_status(status), do: to_string(status)
+
+  defp status_variant(status) do
+    case String.upcase(to_string(status || "")) do
+      "OK" -> "success"
+      "WARNING" -> "warning"
+      "CRITICAL" -> "error"
+      "FAIL" -> "error"
+      _ -> "ghost"
+    end
   end
 
   defp format_timestamp(svc) do
@@ -718,6 +833,91 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   defp service_name_value(_), do: nil
+
+  defp parse_int(value) when is_integer(value), do: value
+
+  defp parse_int(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} -> int
+      _ -> -1
+    end
+  end
+
+  defp parse_int(_), do: -1
+
+  defp parse_service_details(service) do
+    details = Map.get(service, "details") || Map.get(service, :details)
+
+    cond do
+      is_map(details) -> details
+      is_binary(details) -> parse_details_json(details)
+      true -> %{}
+    end
+  end
+
+  defp parse_details_json(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, %{} = map} -> map
+      _ -> %{}
+    end
+  end
+
+  defp parse_details_json(_), do: %{}
+
+  defp extract_display_instructions(details) when is_map(details) do
+    Map.get(details, "display") ||
+      get_in(details, ["ui", "display"]) ||
+      []
+  end
+
+  defp extract_display_instructions(_), do: []
+
+  defp filter_display_by_contract(display, contract) when is_list(display) and is_map(contract) do
+    allowed = Map.get(contract, "widgets") || Map.get(contract, :widgets) || []
+
+    if is_list(allowed) and allowed != [] do
+      Enum.filter(display, fn item ->
+        widget = Map.get(item, "widget") || Map.get(item, :widget)
+        is_binary(widget) and widget in allowed
+      end)
+    else
+      display
+    end
+  end
+
+  defp filter_display_by_contract(display, _contract), do: display
+
+  defp load_display_contract(details, scope) when is_map(details) do
+    plugin_id = get_in(details, ["labels", "plugin_id"]) || get_in(details, [:labels, :plugin_id])
+
+    if is_binary(plugin_id) and plugin_id != "" do
+      Packages.list(%{"plugin_id" => plugin_id, "status" => "approved", "limit" => 1},
+        scope: scope
+      )
+      |> List.first()
+      |> case do
+        %{display_contract: contract} when is_map(contract) -> contract
+        _ -> %{}
+      end
+    else
+      %{}
+    end
+  end
+
+  defp load_display_contract(_details, _scope), do: %{}
+
+  defp resolve_schema_version(details, contract) do
+    detail_version =
+      Map.get(details, "schema_version") || get_in(details, ["display", "schema_version"])
+
+    contract_version = Map.get(contract, "schema_version") || Map.get(contract, :schema_version)
+
+    cond do
+      is_integer(detail_version) -> detail_version
+      is_integer(contract_version) -> contract_version
+      true -> nil
+    end
+  end
 
   # Extract scope from socket for Ash policy enforcement (includes actor)
   defp get_scope(socket) do

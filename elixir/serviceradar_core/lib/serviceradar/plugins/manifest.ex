@@ -19,7 +19,9 @@ defmodule ServiceRadar.Plugins.Manifest do
     :permissions,
     :resources,
     :outputs,
-    :source
+    :source,
+    :schema_version,
+    :display_contract
   ]
 
   @type t :: %__MODULE__{
@@ -33,7 +35,9 @@ defmodule ServiceRadar.Plugins.Manifest do
           permissions: map(),
           resources: map(),
           outputs: String.t(),
-          source: map()
+          source: map(),
+          schema_version: pos_integer() | nil,
+          display_contract: map()
         }
 
   @allowed_runtimes ["none", "wasi-preview1"]
@@ -86,9 +90,15 @@ defmodule ServiceRadar.Plugins.Manifest do
     errors = validate_runtime(runtime, errors)
 
     description = fetch(map, :description)
+    schema_version = fetch(map, :schema_version)
+    {schema_version, errors} = optional_positive_int(schema_version, :schema_version, errors)
     source = normalize_map(fetch(map, :source)) || %{}
+    display_contract = normalize_map(fetch(map, :display_contract)) || %{}
+    errors = display_contract_errors(display_contract) ++ errors
 
     if errors == [] do
+      schema_version = schema_version || 1
+
       {:ok,
        %__MODULE__{
          id: id,
@@ -101,7 +111,9 @@ defmodule ServiceRadar.Plugins.Manifest do
          permissions: permissions || %{},
          resources: resources,
          outputs: outputs,
-         source: source
+         source: source,
+         schema_version: schema_version,
+         display_contract: display_contract
        }}
     else
       {:error, Enum.reverse(errors)}
@@ -116,12 +128,14 @@ defmodule ServiceRadar.Plugins.Manifest do
   @spec validate_config_schema(binary() | map() | nil) :: :ok | {:error, [String.t()]}
   def validate_config_schema(nil), do: :ok
 
-  def validate_config_schema(schema) when is_map(schema), do: :ok
+  def validate_config_schema(schema) when is_map(schema) do
+    ServiceRadar.Plugins.ConfigSchema.validate_schema(schema)
+  end
 
   def validate_config_schema(schema) when is_binary(schema) do
     case Jason.decode(schema) do
       {:ok, value} when is_map(value) ->
-        :ok
+        ServiceRadar.Plugins.ConfigSchema.validate_schema(value)
 
       {:ok, _} ->
         {:error, ["config schema must be a JSON object"]}
@@ -132,6 +146,23 @@ defmodule ServiceRadar.Plugins.Manifest do
   end
 
   def validate_config_schema(_), do: {:error, ["config schema must be JSON"]}
+
+  @doc """
+  Validate an optional display contract map.
+  """
+  @spec validate_display_contract(map() | nil) :: :ok | {:error, [String.t()]}
+  def validate_display_contract(nil), do: :ok
+
+  def validate_display_contract(contract) when is_map(contract), do: :ok
+
+  def validate_display_contract(_), do: {:error, ["display contract must be a JSON object"]}
+
+  defp display_contract_errors(display_contract) do
+    case validate_display_contract(display_contract) do
+      :ok -> []
+      {:error, errs} -> errs
+    end
+  end
 
   defp parse_yaml(yaml) do
     case YamlElixir.read_from_string(yaml) do
@@ -205,6 +236,22 @@ defmodule ServiceRadar.Plugins.Manifest do
   end
 
   defp validate_semver(_version, errors), do: errors
+
+  defp optional_positive_int(nil, _key, errors), do: {nil, errors}
+
+  defp optional_positive_int(value, _key, errors) when is_integer(value) and value > 0 do
+    {value, errors}
+  end
+
+  defp optional_positive_int(value, key, errors) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} when int > 0 -> {int, errors}
+      _ -> {nil, ["#{key} must be a positive integer" | errors]}
+    end
+  end
+
+  defp optional_positive_int(_value, key, errors),
+    do: {nil, ["#{key} must be a positive integer" | errors]}
 
   defp validate_outputs(outputs, errors) do
     if outputs in @allowed_outputs do
