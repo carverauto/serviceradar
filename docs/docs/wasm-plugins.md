@@ -221,6 +221,7 @@ Wasm packages are served by the web-ng API and stored using a configurable backe
 - Configure with:
   - `PLUGIN_STORAGE_BACKEND=filesystem`
   - `PLUGIN_STORAGE_PATH=/var/lib/serviceradar/plugin-packages`
+  - `PLUGIN_STORAGE_SIGNING_SECRET` (shared with core for signed download URLs)
 
 Docker:
 
@@ -229,6 +230,12 @@ Docker:
 Kubernetes:
 
 - Mount a PVC at `/var/lib/serviceradar/plugin-packages` for the `web-ng` deployment.
+
+Core download URLs:
+
+- `PLUGIN_STORAGE_PUBLIC_URL` (base URL for web-ng, e.g. `https://staging.serviceradar.cloud`)
+- `PLUGIN_STORAGE_SIGNING_SECRET` (must match web-ng)
+- `PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS` (default 86400)
 
 ### JetStream object store
 

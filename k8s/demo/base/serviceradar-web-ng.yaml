@@ -55,6 +55,15 @@ spec:
                 secretKeyRef:
                   name: serviceradar-secrets
                   key: cloak-key
+            - name: PLUGIN_STORAGE_BACKEND
+              value: "filesystem"
+            - name: PLUGIN_STORAGE_PATH
+              value: "/var/lib/serviceradar/plugin-packages"
+            - name: PLUGIN_STORAGE_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: serviceradar-secrets
+                  key: plugin-storage-signing-secret
             - name: CNPG_HOST
               value: "cnpg-rw.$(SERVICERADAR_NAMESPACE).svc"
             - name: CNPG_PORT
@@ -85,6 +94,8 @@ spec:
             - name: cnpg-ca
               mountPath: /etc/serviceradar/cnpg
               readOnly: true
+            - name: plugin-packages
+              mountPath: /var/lib/serviceradar/plugin-packages
           resources:
             limits:
               cpu: "1"
@@ -115,6 +126,9 @@ spec:
         - name: cnpg-ca
           secret:
             secretName: cnpg-ca
+        - name: plugin-packages
+          persistentVolumeClaim:
+            claimName: serviceradar-plugin-packages
 ---
 apiVersion: v1
 kind: Service

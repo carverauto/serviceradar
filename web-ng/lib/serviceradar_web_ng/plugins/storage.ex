@@ -122,6 +122,14 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     end
   end
 
+  @spec delete_blob(String.t()) :: :ok | {:error, term()}
+  def delete_blob(object_key) do
+    case backend() do
+      :filesystem -> delete_blob_filesystem(object_key)
+      :jetstream -> delete_blob_jetstream(object_key)
+    end
+  end
+
   @spec blob_path(String.t()) :: {:ok, String.t()} | {:error, atom()}
   def blob_path(object_key) do
     case backend() do
@@ -220,6 +228,20 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
     end
   end
 
+  defp delete_blob_filesystem(object_key) do
+    case safe_path(object_key) do
+      {:ok, path} ->
+        case File.rm(path) do
+          :ok -> :ok
+          {:error, :enoent} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp fetch_blob_filesystem(object_key) do
     with {:ok, path} <- safe_path(object_key) do
       if File.exists?(path) do
@@ -257,6 +279,18 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
         {:error, reason} -> {:error, reason}
       end
     end)
+  end
+
+  defp delete_blob_jetstream(object_key) do
+    with_jetstream(fn conn ->
+      Jetstream.API.Object.delete(conn, bucket_name(), object_key)
+    end)
+    |> case do
+      :ok -> :ok
+      {:ok, _} -> :ok
+      {:error, %{"code" => 404}} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp blob_exists_filesystem(object_key) do

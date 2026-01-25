@@ -21,3 +21,5 @@
 - [x] 1.13e Add verification policy visibility in plugin admin UI
 - [x] 1.14 Add tests (package validation, storage, agent runtime sandboxing, result mapping, resource budgeting, telemetry, ingestion, GitHub verification, import approval)
 - [x] 1.15 Update docs for plugin packaging, SDK usage, and deployment configuration
+- [x] 1.16 Generate signed download URLs in core and deliver them to agents
+- [x] 1.17 Add persistent plugin storage mounts + signing secret wiring for Helm/K8s/Docker

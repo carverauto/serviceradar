@@ -149,6 +149,9 @@ services:
       - SYNC_INGESTOR_MAX_INFLIGHT=${SYNC_INGESTOR_MAX_INFLIGHT:-2}
       - SYNC_INGESTOR_QUEUE_MAX_CHUNKS=${SYNC_INGESTOR_QUEUE_MAX_CHUNKS:-10}
       - SYNC_INGESTOR_ASYNC=${SYNC_INGESTOR_ASYNC:-true}
+      - PLUGIN_STORAGE_PUBLIC_URL=${PLUGIN_STORAGE_PUBLIC_URL:-http://web-ng:4000}
+      - PLUGIN_STORAGE_SIGNING_SECRET=${PLUGIN_STORAGE_SIGNING_SECRET:-H8DPohD5rFUqGboVqCKLYXrlyofYUJk6k+XBzKEb5G8LN9brhYpNloE3UgxBQmPW}
+      - PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS=${PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS:-86400}
       - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
       - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
@@ -630,6 +633,9 @@ services:
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
       - SERVICERADAR_SECURITY_MODE=${SERVICERADAR_SECURITY_MODE:-mtls}
       - SECRET_KEY_BASE=${WEB_NG_SECRET_KEY_BASE:-H8DPohD5rFUqGboVqCKLYXrlyofYUJk6k+XBzKEb5G8LN9brhYpNloE3UgxBQmPW}
+      - PLUGIN_STORAGE_BACKEND=filesystem
+      - PLUGIN_STORAGE_PATH=/var/lib/serviceradar/plugin-packages
+      - PLUGIN_STORAGE_SIGNING_SECRET=${PLUGIN_STORAGE_SIGNING_SECRET:-H8DPohD5rFUqGboVqCKLYXrlyofYUJk6k+XBzKEb5G8LN9brhYpNloE3UgxBQmPW}
       - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
       - ADMIN_BASIC_AUTH_USERNAME=${ADMIN_BASIC_AUTH_USERNAME:-}
       - ADMIN_BASIC_AUTH_PASSWORD=${ADMIN_BASIC_AUTH_PASSWORD:-}
@@ -656,6 +662,7 @@ services:
       - admin-creds:/etc/serviceradar/admin:ro
       - ./docker/compose/ssl_dist.web.conf:/etc/serviceradar/ssl_dist.conf:ro
       - cloak-key:/etc/serviceradar/cloak:ro
+      - plugin-packages:/var/lib/serviceradar/plugin-packages
     depends_on:
       cert-permissions-fixer:
         condition: service_completed_successfully
@@ -715,6 +722,8 @@ volumes:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cloak-key"
   admin-creds:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_admin-creds"
+  plugin-packages:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_plugin-packages"
   logs:
   otel-data:
   flowgger-data:

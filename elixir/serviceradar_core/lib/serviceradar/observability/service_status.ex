@@ -33,6 +33,7 @@ defmodule ServiceRadar.Observability.ServiceStatus do
     defaults [:read]
 
     create :create do
+      primary? true
       accept [
         :timestamp,
         :gateway_id,

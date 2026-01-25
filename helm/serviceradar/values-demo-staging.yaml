@@ -25,6 +25,14 @@ ingress:
 webNg:
   devRoutes: "true"
   localMailer: "true"
+  publicUrl: "https://staging.serviceradar.cloud"
+  pluginStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/plugin-packages"
+    existingClaim: ""
+    size: 10Gi
+    storageClassName: ""
+    downloadTtlSeconds: 86400
 
 faker:
   simulation:

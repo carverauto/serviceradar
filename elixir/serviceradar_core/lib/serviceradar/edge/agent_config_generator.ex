@@ -40,7 +40,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
-  alias ServiceRadar.Plugins.{PluginAssignment, PluginPackage}
+  alias ServiceRadar.Plugins.{PluginAssignment, PluginPackage, StorageToken}
 
   # Default intervals
   @default_heartbeat_interval_sec 30
@@ -263,10 +263,26 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp has_approved_package?(%PluginAssignment{
          plugin_package: %PluginPackage{status: :approved}
-       }),
-       do: true
+       } = assignment) do
+    if wasm_available?(assignment.plugin_package) do
+      true
+    else
+      Logger.warning(
+        "Skipping plugin assignment #{assignment.id}: wasm blob missing for package #{assignment.plugin_package.id}"
+      )
+
+      false
+    end
+  end
 
   defp has_approved_package?(_), do: false
+
+  defp wasm_available?(%PluginPackage{} = package) do
+    key = package.wasm_object_key
+    is_binary(key) and String.trim(key) != ""
+  end
+
+  defp wasm_available?(_), do: false
 
   defp load_plugin_engine_limits(agent_id) do
     actor = SystemActor.system(:plugin_engine_limits)
@@ -313,7 +329,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       wasm_object_key: package.wasm_object_key,
       content_hash: package.content_hash,
       source_type: normalize_source_type(package.source_type),
-      download_url: nil
+      download_url: StorageToken.download_url(package.id, package.wasm_object_key)
     }
   end
 

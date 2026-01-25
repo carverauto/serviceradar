@@ -335,6 +335,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
+  def handle_event("wasm_upload_change", _params, socket) do
+    {:noreply, assign(socket, :upload_errors, [])}
+  end
+
   def handle_event("assignment_change", %{"assignment" => params}, socket) do
     {:noreply,
      assign(socket, :assignment_form, Map.merge(socket.assigns.assignment_form, params))}
@@ -420,13 +424,45 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   def handle_event("create_assignment", %{"assignment" => params}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, attrs} <- parse_assignment_params(params, socket.assigns.selected_package.id),
-         {:ok, _assignment} <- Assignments.create(attrs, scope: scope) do
-      {:noreply,
-       socket
-       |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
-       |> assign(:assignment_form, default_assignment_form())
-       |> put_flash(:info, "Assignment created")}
+    with {:ok, attrs} <- parse_assignment_params(params, socket.assigns.selected_package.id) do
+      case existing_assignment(socket.assigns.assignments, attrs.agent_uid) do
+        nil ->
+          case Assignments.create(attrs, scope: scope) do
+            {:ok, _assignment} ->
+              {:noreply,
+               socket
+               |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
+               |> assign(:assignment_form, default_assignment_form())
+               |> put_flash(:info, "Assignment created")}
+
+            {:error, {:invalid_json, message}} ->
+              {:noreply, socket |> put_flash(:error, message)}
+
+            {:error, error} ->
+              {:noreply, socket |> put_flash(:error, "Failed to assign: #{format_error(error)}")}
+          end
+
+        assignment ->
+          update_attrs =
+            attrs
+            |> Map.delete(:agent_uid)
+            |> Map.delete(:plugin_package_id)
+
+          case Assignments.update(assignment.id, update_attrs, scope: scope) do
+            {:ok, _assignment} ->
+              {:noreply,
+               socket
+               |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
+               |> assign(:assignment_form, default_assignment_form())
+               |> put_flash(:info, "Assignment updated")}
+
+            {:error, {:invalid_json, message}} ->
+              {:noreply, socket |> put_flash(:error, message)}
+
+            {:error, error} ->
+              {:noreply, socket |> put_flash(:error, "Failed to update assignment: #{format_error(error)}")}
+          end
+      end
     else
       {:error, {:invalid_json, message}} ->
         {:noreply, socket |> put_flash(:error, message)}
@@ -465,6 +501,51 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
       {:error, error} ->
         {:noreply, socket |> put_flash(:error, "Failed to restage: #{format_error(error)}")}
+    end
+  end
+
+  def handle_event("delete_package", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    assignments = list_assignments(id, scope)
+
+    assignment_errors =
+      assignments
+      |> Enum.map(fn assignment ->
+        case Assignments.delete(assignment.id, scope: scope) do
+          :ok -> nil
+          {:ok, _} -> nil
+          {:error, error} -> format_error(error)
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    if assignment_errors != [] do
+      {:noreply,
+       socket
+       |> put_flash(:error, "Failed to remove assignments: #{Enum.join(assignment_errors, "; ")}")}
+    else
+      package = socket.assigns.selected_package
+      _ = maybe_delete_blob(package)
+
+      case Packages.delete(id, scope: scope) do
+        {:ok, _package} ->
+          {:noreply,
+           socket
+           |> assign(:packages, list_packages(current_filters(socket), scope))
+           |> assign(:show_details_modal, false)
+           |> assign(:selected_package, nil)
+           |> assign(:assignments, [])
+           |> assign(:assignment_form, default_assignment_form())
+           |> assign(:versions, [])
+           |> assign(:upload_url, nil)
+           |> assign(:download_url, nil)
+           |> assign(:blob_present, nil)
+           |> put_flash(:info, "Package deleted")}
+
+        {:error, error} ->
+          {:noreply, socket |> put_flash(:error, "Failed to delete package: #{format_error(error)}")}
+      end
     end
   end
 
@@ -687,6 +768,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         assignment_form={@assignment_form}
         versions={@versions}
         blob_present={@blob_present}
+        uploads={@uploads}
+        upload_errors={@upload_errors}
         verification_policy={@verification_policy}
         upload_url={@upload_url}
         upload_expires_at={@upload_expires_at}
@@ -898,10 +981,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 Upload the compiled `.wasm` binary to complete this package.
               </p>
 
-              <.form for={%{}} phx-submit="upload_wasm" class="space-y-3">
+              <.form
+                for={%{}}
+                phx-change="wasm_upload_change"
+                phx-submit="upload_wasm"
+                class="space-y-3"
+              >
                 <.live_file_input
                   upload={@uploads.wasm_blob}
                   class="file-input file-input-bordered w-full"
+                  phx-change="wasm_upload_change"
                 />
 
                 <%= for entry <- @uploads.wasm_blob.entries do %>
@@ -1089,7 +1178,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 <button
                   type="submit"
                   class="btn btn-primary btn-sm"
-                  disabled={@package.status != :approved}
+                  disabled={@package.status != :approved or not blob_present?(@blob_present)}
                 >
                   Assign
                 </button>
@@ -1098,6 +1187,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <%= if @package.status != :approved do %>
               <p class="text-xs text-base-content/60">
                 Approve the package before assigning it to agents.
+              </p>
+            <% end %>
+            <%= if @package.status == :approved and not blob_present?(@blob_present) do %>
+              <p class="text-xs text-warning">
+                Upload the Wasm blob before assigning this package.
               </p>
             <% end %>
           </div>
@@ -1192,6 +1286,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 Move to Staged
               </button>
             <% end %>
+
+            <button
+              type="button"
+              class="btn btn-outline btn-error"
+              phx-click="delete_package"
+              phx-value-id={@package.id}
+              data-confirm="Delete this package and remove all assignments?"
+            >
+              Delete Package
+            </button>
 
             <button type="button" class="btn" phx-click="close_details_modal">Close</button>
           </div>
@@ -1602,6 +1706,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     "#{name} (#{agent.uid})"
   end
 
+  defp existing_assignment(assignments, agent_uid)
+       when is_list(assignments) and is_binary(agent_uid) do
+    Enum.find(assignments, fn assignment ->
+      assignment.agent_uid == agent_uid
+    end)
+  end
+
+  defp existing_assignment(_assignments, _agent_uid), do: nil
+
   defp manifest_source_repo_url(manifest) do
     source = Map.get(manifest || %{}, :source) || Map.get(manifest || %{}, "source") || %{}
     Map.get(source, :repo_url) || Map.get(source, "repo_url")
@@ -1658,6 +1771,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp blob_status(nil), do: "Unknown"
   defp blob_status(_), do: "Unknown"
 
+  defp blob_present?(true), do: true
+  defp blob_present?(_), do: false
+
   defp gpg_status(nil, nil), do: "Not verified"
   defp gpg_status(nil, key_id) when is_binary(key_id), do: "Unverified (key #{key_id})"
 
@@ -1678,6 +1794,22 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp signature_status(%{} = signature) when map_size(signature) == 0, do: "none"
   defp signature_status(%{}), do: "present"
   defp signature_status(_), do: "unknown"
+
+  defp maybe_delete_blob(nil), do: :ok
+
+  defp maybe_delete_blob(package) do
+    key =
+      case package do
+        %{wasm_object_key: value} -> value
+        _ -> nil
+      end
+
+    if is_binary(key) and String.trim(key) != "" do
+      Storage.delete_blob(key)
+    else
+      :ok
+    end
+  end
 
   defp parse_int(nil, default), do: default
   defp parse_int("", default), do: default

@@ -135,6 +135,21 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def restage(_id, _opts), do: {:error, :invalid_attributes}
 
+  @spec delete(String.t(), keyword()) :: {:ok, PluginPackage.t()} | {:error, term()}
+  def delete(id, opts \\ [])
+
+  def delete(id, opts) when is_binary(id) do
+    scope = Keyword.get(opts, :scope)
+
+    with {:ok, package} <- get(id, scope: scope) do
+      package
+      |> Ash.Changeset.for_destroy(:destroy)
+      |> destroy_resource(scope)
+    end
+  end
+
+  def delete(_id, _opts), do: {:error, :invalid_attributes}
+
   @spec upload_blob(PluginPackage.t(), binary(), keyword()) ::
           {:ok, PluginPackage.t()} | {:error, term()}
   def upload_blob(%PluginPackage{} = package, payload, opts \\ []) when is_binary(payload) do
@@ -289,6 +304,9 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   defp update_resource(changeset, nil), do: Ash.update(changeset)
   defp update_resource(changeset, scope), do: Ash.update(changeset, scope: scope)
+
+  defp destroy_resource(changeset, nil), do: Ash.destroy(changeset)
+  defp destroy_resource(changeset, scope), do: Ash.destroy(changeset, scope: scope)
 
   defp maybe_filter_plugin_id(query, filters) do
     plugin_id = Map.get(filters, :plugin_id) || Map.get(filters, "plugin_id")

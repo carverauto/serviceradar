@@ -42,6 +42,7 @@ plugin_storage_defaults = Application.get_env(:serviceradar_web_ng, :plugin_stor
 plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
 plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")
 plugin_storage_bucket = System.get_env("PLUGIN_STORAGE_BUCKET")
+plugin_storage_signing_secret = System.get_env("PLUGIN_STORAGE_SIGNING_SECRET")
 plugin_verification_defaults = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
 
 to_int = fn value ->
@@ -176,6 +177,7 @@ plugin_storage_overrides =
     System.get_env("PLUGIN_STORAGE_JS_TTL_SECONDS"),
     to_int
   )
+  |> maybe_put_env_simple.(:signing_secret, plugin_storage_signing_secret)
 
 if plugin_storage_overrides != [] do
   config :serviceradar_web_ng,

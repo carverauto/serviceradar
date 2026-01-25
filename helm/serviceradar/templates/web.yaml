@@ -3,6 +3,7 @@
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
+{{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
@@ -115,6 +116,17 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: web-ng-secret-key-base
+        {{- if $pluginStorage.enabled }}
+        - name: PLUGIN_STORAGE_BACKEND
+          value: "filesystem"
+        - name: PLUGIN_STORAGE_PATH
+          value: {{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
+        - name: PLUGIN_STORAGE_SIGNING_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: plugin-storage-signing-secret
+        {{- end }}
         - name: SERVICERADAR_API_KEY
           valueFrom:
             secretKeyRef:
@@ -186,6 +198,10 @@ spec:
         - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
+        {{- if $pluginStorage.enabled }}
+        - name: plugin-packages
+          mountPath: {{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
+        {{- end }}
         {{- if eq $datasvcSecModeLower "spiffe" }}
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
@@ -224,6 +240,11 @@ spec:
       - name: {{ $cnpgClusterName }}-ca
         secret:
           secretName: {{ $cnpgClusterName }}-ca
+      {{- if $pluginStorage.enabled }}
+      - name: plugin-packages
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-web-ng-plugins" $pluginStorage.existingClaim | quote }}
+      {{- end }}
       {{- if eq $datasvcSecModeLower "spiffe" }}
       - name: spire-agent-socket
         hostPath:
