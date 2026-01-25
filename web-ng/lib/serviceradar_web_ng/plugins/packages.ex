@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Storage
 
@@ -115,6 +116,14 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       package
       |> Ash.Changeset.for_update(:revoke, attrs)
       |> update_resource(scope)
+      |> case do
+        {:ok, updated} = result ->
+          ServiceStateRegistry.deactivate_for_package(updated)
+          result
+
+        other ->
+          other
+      end
     end
   end
 
@@ -142,9 +151,23 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     scope = Keyword.get(opts, :scope)
 
     with {:ok, package} <- get(id, scope: scope) do
-      package
-      |> Ash.Changeset.for_destroy(:destroy)
-      |> destroy_resource(scope)
+      result =
+        package
+        |> Ash.Changeset.for_destroy(:destroy)
+        |> destroy_resource(scope)
+
+      case result do
+        :ok ->
+          ServiceStateRegistry.deactivate_for_package(package)
+          :ok
+
+        {:ok, _package} = ok ->
+          ServiceStateRegistry.deactivate_for_package(package)
+          ok
+
+        other ->
+          other
+      end
     end
   end
 

@@ -4,19 +4,19 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   import ServiceRadarWebNGWeb.UIComponents
   import ServiceRadarWebNGWeb.PluginResults
 
-  alias ServiceRadar.Observability.ServiceStatusPubSub
+  alias ServiceRadar.Observability.{ServiceState, ServiceStatePubSub, ServiceStatusPubSub}
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 50
   @max_limit 200
-  @summary_limit 2000
   @refresh_debounce_ms 750
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
       ServiceStatusPubSub.subscribe()
+      ServiceStatePubSub.subscribe()
     end
 
     {:ok,
@@ -127,6 +127,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   @impl true
   def handle_info({:service_status_updated, _status}, socket) do
+    {:noreply, schedule_refresh(socket)}
+  end
+
+  def handle_info({:service_state_updated, _state}, socket) do
     {:noreply, schedule_refresh(socket)}
   end
 
@@ -246,7 +250,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
               Services
             </div>
             <div class="text-2xl font-bold">{@total}</div>
-            <div class="text-xs text-base-content/50">from {@check_count} status updates</div>
+            <div class="text-xs text-base-content/50">active services</div>
           </div>
           <div class="size-12 rounded-lg bg-base-200/50 flex items-center justify-center">
             <svg
@@ -624,6 +628,19 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     end)
   end
 
+  defp latest_state_timestamp(states) do
+    Enum.reduce(states, nil, fn
+      %ServiceState{last_observed_at: %DateTime{} = dt}, nil ->
+        dt
+
+      %ServiceState{last_observed_at: %DateTime{} = dt}, acc ->
+        if DateTime.compare(dt, acc) == :gt, do: dt, else: acc
+
+      _, acc ->
+        acc
+    end)
+  end
+
   defp format_last_updated(%DateTime{} = dt) do
     Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
   end
@@ -631,53 +648,21 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp format_last_updated(_), do: "—"
 
   defp load_summary(socket) do
-    current_query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query)
-    summary_query = summary_query_for(current_query)
     scope = get_scope(socket)
 
-    case srql_module().query(summary_query, %{limit: @summary_limit, scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        compute_summary(results)
+    case load_active_states(scope) do
+      {:ok, states} when is_list(states) ->
+        compute_state_summary(states)
 
       _ ->
         compute_summary(socket.assigns.services)
     end
   end
 
-  defp summary_query_for(nil), do: "in:services sort:timestamp:desc"
-
-  defp summary_query_for(query) when is_binary(query) do
-    trimmed = String.trim(query)
-
-    cond do
-      trimmed == "" ->
-        "in:services sort:timestamp:desc"
-
-      String.contains?(trimmed, "in:services") ->
-        trimmed
-        |> strip_tokens_for_summary()
-        |> ensure_summary_sort()
-
-      true ->
-        "in:services sort:timestamp:desc"
-    end
-  end
-
-  defp summary_query_for(_), do: "in:services sort:timestamp:desc"
-
-  defp strip_tokens_for_summary(query) do
-    query = Regex.replace(~r/(?:^|\s)limit:\S+/, query, "")
-    query = Regex.replace(~r/(?:^|\s)sort:\S+/, query, "")
-    query = Regex.replace(~r/(?:^|\s)cursor:\S+/, query, "")
-    query |> String.trim() |> String.replace(~r/\s+/, " ")
-  end
-
-  defp ensure_summary_sort(query) do
-    if Regex.match?(~r/(?:^|\s)sort:\S+/, query) do
-      query
-    else
-      "#{query} sort:timestamp:desc"
-    end
+  defp load_active_states(scope) do
+    ServiceState
+    |> Ash.Query.for_read(:active, %{})
+    |> Ash.read(scope: scope)
   end
 
   # Compute summary stats from unique service instances (deduplicated by agent + service identity)
@@ -692,6 +677,35 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   defp compute_summary(_),
+    do: %{
+      total: 0,
+      available: 0,
+      unavailable: 0,
+      by_check: %{},
+      check_count: 0,
+      last_updated: nil
+    }
+
+  defp compute_state_summary(states) when is_list(states) do
+    last_updated = latest_state_timestamp(states)
+    initial = base_summary(length(states), last_updated)
+
+    Enum.reduce(states, initial, fn state, acc ->
+      is_available = state.available == true
+      check_name = normalize_service_name(state.service_name)
+      by_check = update_by_check(acc.by_check, check_name, is_available)
+
+      %{
+        acc
+        | total: acc.total + 1,
+          available: acc.available + if(is_available, do: 1, else: 0),
+          unavailable: acc.unavailable + if(is_available, do: 0, else: 1),
+          by_check: by_check
+      }
+    end)
+  end
+
+  defp compute_state_summary(_),
     do: %{
       total: 0,
       available: 0,
@@ -791,10 +805,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     value
     |> String.replace("\\", "\\\\")
     |> String.replace("\"", "\\\"")
-  end
-
-  defp srql_module do
-    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
 
   defp normalize_available(true), do: true

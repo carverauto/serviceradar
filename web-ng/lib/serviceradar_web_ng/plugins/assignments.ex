@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
   require Ash.Query
 
   alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadarWebNG.Plugins.Packages
 
   @default_limit 100
@@ -86,9 +87,23 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     scope = Keyword.get(opts, :scope)
 
     with {:ok, assignment} <- get(id, scope: scope) do
-      assignment
-      |> Ash.Changeset.for_destroy(:destroy)
-      |> destroy_resource(scope)
+      result =
+        assignment
+        |> Ash.Changeset.for_destroy(:destroy)
+        |> destroy_resource(scope)
+
+      case result do
+        :ok ->
+          ServiceStateRegistry.deactivate_for_assignment(assignment)
+          :ok
+
+        {:ok, _assignment} = ok ->
+          ServiceStateRegistry.deactivate_for_assignment(assignment)
+          ok
+
+        other ->
+          other
+      end
     end
   end
 
