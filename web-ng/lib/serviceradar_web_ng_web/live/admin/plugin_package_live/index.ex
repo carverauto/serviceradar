@@ -471,6 +471,20 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       _ = maybe_delete_blob(package)
 
       case Packages.delete(id, scope: scope) do
+        :ok ->
+          {:noreply,
+           socket
+           |> assign(:packages, list_packages(current_filters(socket), scope))
+           |> assign(:show_details_modal, false)
+           |> assign(:selected_package, nil)
+           |> assign(:assignments, [])
+           |> assign(:assignment_form, default_assignment_form())
+           |> assign(:versions, [])
+           |> assign(:upload_url, nil)
+           |> assign(:download_url, nil)
+           |> assign(:blob_present, nil)
+           |> put_flash(:info, "Package deleted")}
+
         {:ok, _package} ->
           {:noreply,
            socket

@@ -135,7 +135,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def restage(_id, _opts), do: {:error, :invalid_attributes}
 
-  @spec delete(String.t(), keyword()) :: {:ok, PluginPackage.t()} | {:error, term()}
+  @spec delete(String.t(), keyword()) :: :ok | {:ok, PluginPackage.t()} | {:error, term()}
   def delete(id, opts \\ [])
 
   def delete(id, opts) when is_binary(id) do
