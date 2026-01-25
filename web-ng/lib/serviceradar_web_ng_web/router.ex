@@ -286,6 +286,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/logs", LogLive.Index, :index)
       live("/logs/:log_id", LogLive.Show, :show)
       live("/services", ServiceLive.Index, :index)
+      live("/services/check", ServiceLive.Show, :show)
       live("/settings/profile", UserLive.Settings, :edit)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
 

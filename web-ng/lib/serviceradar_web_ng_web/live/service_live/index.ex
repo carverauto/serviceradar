@@ -2,15 +2,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
-  import ServiceRadarWebNGWeb.PluginResults
 
   alias ServiceRadar.Observability.{ServiceState, ServiceStatePubSub, ServiceStatusPubSub}
-  alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias Phoenix.LiveView.JS
 
   @default_limit 50
   @max_limit 200
   @refresh_debounce_ms 750
+  @active_state_window_ms :timer.minutes(15)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -23,10 +23,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      socket
      |> assign(:page_title, "Services")
      |> assign(:services, [])
-     |> assign(:selected_service, nil)
-     |> assign(:selected_details, %{})
-     |> assign(:selected_display, [])
-     |> assign(:selected_display_contract, %{})
      |> assign(:summary, %{
        total: 0,
        available: 0,
@@ -92,39 +88,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
   end
 
-  def handle_event("select_service", %{"index" => index}, socket) do
-    idx = parse_int(index)
-    service = Enum.at(socket.assigns.services, idx)
-
-    if is_map(service) do
-      details = parse_service_details(service)
-      contract = load_display_contract(details, socket.assigns.current_scope)
-
-      display =
-        details
-        |> extract_display_instructions()
-        |> filter_display_by_contract(contract)
-
-      {:noreply,
-       socket
-       |> assign(:selected_service, service)
-       |> assign(:selected_details, details)
-       |> assign(:selected_display, display)
-       |> assign(:selected_display_contract, contract)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_event("clear_service", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:selected_service, nil)
-     |> assign(:selected_details, %{})
-     |> assign(:selected_display, [])
-     |> assign(:selected_display_contract, %{})}
-  end
-
   @impl true
   def handle_info({:service_status_updated, _status}, socket) do
     {:noreply, schedule_refresh(socket)}
@@ -165,18 +128,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
                 <div class="text-xs text-base-content/70">
                   Recent status checks from this page ({length(@services)} results).
                 </div>
+                <div class="text-xs text-base-content/50">
+                  Click a row to open the service check details page.
+                </div>
               </div>
             </:header>
 
             <.services_table id="services" services={@services} />
-
-            <.service_details_panel
-              :if={@selected_service}
-              service={@selected_service}
-              details={@selected_details}
-              display={@selected_display}
-              display_contract={@selected_display_contract}
-            />
 
             <div class="mt-4 pt-4 border-t border-base-200">
               <.ui_pagination
@@ -205,6 +163,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     by_check = assigns.summary.by_check
     check_count = Map.get(assigns.summary, :check_count, 0)
     last_updated = Map.get(assigns.summary, :last_updated)
+    window_minutes = div(@active_state_window_ms, 60_000)
+    active_label =
+      if window_minutes > 0 do
+        "active services (last #{window_minutes}m)"
+      else
+        "active services"
+      end
+
+    assigns = assign(assigns, :active_label, active_label)
 
     # Calculate availability percentage
     avail_pct = if total > 0, do: round(available / total * 100), else: 0
@@ -250,7 +217,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
               Services
             </div>
             <div class="text-2xl font-bold">{@total}</div>
-            <div class="text-xs text-base-content/50">active services</div>
+            <div class="text-xs text-base-content/50">{@active_label}</div>
           </div>
           <div class="size-12 rounded-lg bg-base-200/50 flex items-center justify-center">
             <svg
@@ -459,11 +426,11 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
           </tr>
 
           <%= for {svc, idx} <- Enum.with_index(@services) do %>
+            <% path = service_details_path(svc) %>
             <tr
               id={"#{@id}-row-#{idx}"}
               class="hover:bg-base-200/40 cursor-pointer"
-              phx-click="select_service"
-              phx-value-index={idx}
+              phx-click={JS.navigate(path)}
             >
               <td class="whitespace-nowrap text-xs font-mono">
                 {format_timestamp(svc)}
@@ -490,52 +457,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
           <% end %>
         </tbody>
       </table>
-    </div>
-    """
-  end
-
-  attr :service, :map, required: true
-  attr :details, :map, default: %{}
-  attr :display, :list, default: []
-  attr :display_contract, :map, default: %{}
-
-  defp service_details_panel(assigns) do
-    service_name = service_name_value(assigns.service) || "Service"
-    service_type = service_type_value(assigns.service) || "—"
-    status = Map.get(assigns.details, "status") || Map.get(assigns.service, "status")
-    summary = Map.get(assigns.details, "summary") || Map.get(assigns.service, "message")
-    schema_version = resolve_schema_version(assigns.details, assigns.display_contract)
-
-    assigns =
-      assigns
-      |> assign(:service_name, service_name)
-      |> assign(:service_type, service_type)
-      |> assign(:status, status)
-      |> assign(:summary, summary)
-      |> assign(:schema_version, schema_version)
-
-    ~H"""
-    <div class="mt-4 rounded-xl border border-base-200 bg-base-100 p-4 space-y-3">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-sm font-semibold">{@service_name}</div>
-          <div class="text-xs text-base-content/60">{@service_type}</div>
-        </div>
-        <div class="flex items-center gap-2">
-          <.ui_badge size="xs" variant={status_variant(@status)}>
-            {format_status(@status)}
-          </.ui_badge>
-          <button class="btn btn-ghost btn-xs" phx-click="clear_service">Close</button>
-        </div>
-      </div>
-
-      <div :if={@summary} class="text-xs text-base-content/70">{@summary}</div>
-
-      <div :if={@schema_version} class="text-[11px] text-base-content/50">
-        UI schema version {@schema_version}
-      </div>
-
-      <.plugin_results display={@display} />
     </div>
     """
   end
@@ -647,12 +568,65 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp format_last_updated(_), do: "—"
 
+  defp filter_recent_states(states) when is_list(states) do
+    cutoff = DateTime.add(DateTime.utc_now(), -@active_state_window_ms, :millisecond)
+
+    Enum.filter(states, fn
+      %ServiceState{last_observed_at: %DateTime{} = observed_at} ->
+        DateTime.compare(observed_at, cutoff) != :lt
+
+      _ ->
+        false
+    end)
+  end
+
+  defp filter_recent_states(_), do: []
+
+  defp filter_service_states(states) when is_list(states) do
+    Enum.reject(states, fn
+      %ServiceState{service_type: "mapper_interfaces"} -> true
+      _ -> false
+    end)
+  end
+
+  defp filter_service_states(_), do: []
+
+  defp dedupe_states(states) when is_list(states) do
+    states
+    |> Enum.filter(&match?(%ServiceState{}, &1))
+    |> Enum.sort_by(&state_sort_key/1, :desc)
+    |> Enum.reduce(%{}, fn state, acc ->
+      Map.put_new(acc, state_identity_key(state), state)
+    end)
+    |> Map.values()
+  end
+
+  defp dedupe_states(_), do: []
+
+  defp state_sort_key(%ServiceState{last_observed_at: %DateTime{} = observed_at}),
+    do: {1, DateTime.to_unix(observed_at, :nanosecond)}
+
+  defp state_sort_key(_), do: {0, 0}
+
+  defp state_identity_key(%ServiceState{} = state) do
+    agent_id = state.agent_id || ""
+    partition = state.partition || ""
+    service_type = state.service_type || ""
+    service_name = state.service_name || ""
+
+    "#{agent_id}:#{partition}:#{service_type}:#{service_name}"
+  end
+
   defp load_summary(socket) do
     scope = get_scope(socket)
 
     case load_active_states(scope) do
       {:ok, states} when is_list(states) ->
-        compute_state_summary(states)
+        states
+        |> filter_recent_states()
+        |> filter_service_states()
+        |> dedupe_states()
+        |> compute_state_summary()
 
       _ ->
         compute_summary(socket.assigns.services)
@@ -844,89 +818,23 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp service_name_value(_), do: nil
 
-  defp parse_int(value) when is_integer(value), do: value
-
-  defp parse_int(value) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {int, ""} -> int
-      _ -> -1
-    end
+  defp service_details_path(svc) do
+    ~p"/services/check?#{service_details_params(svc)}"
   end
 
-  defp parse_int(_), do: -1
+  defp service_details_params(%{} = svc) do
+    params = %{
+      "timestamp" => Map.get(svc, "timestamp"),
+      "service_name" => service_name_value(svc),
+      "service_type" => service_type_value(svc),
+      "gateway_id" => Map.get(svc, "gateway_id"),
+      "agent_id" => Map.get(svc, "agent_id"),
+      "partition" => Map.get(svc, "partition")
+    }
 
-  defp parse_service_details(service) do
-    details = Map.get(service, "details") || Map.get(service, :details)
-
-    cond do
-      is_map(details) -> details
-      is_binary(details) -> parse_details_json(details)
-      true -> %{}
-    end
-  end
-
-  defp parse_details_json(value) when is_binary(value) do
-    case Jason.decode(value) do
-      {:ok, %{} = map} -> map
-      _ -> %{}
-    end
-  end
-
-  defp parse_details_json(_), do: %{}
-
-  defp extract_display_instructions(details) when is_map(details) do
-    Map.get(details, "display") ||
-      get_in(details, ["ui", "display"]) ||
-      []
-  end
-
-  defp extract_display_instructions(_), do: []
-
-  defp filter_display_by_contract(display, contract) when is_list(display) and is_map(contract) do
-    allowed = Map.get(contract, "widgets") || Map.get(contract, :widgets) || []
-
-    if is_list(allowed) and allowed != [] do
-      Enum.filter(display, fn item ->
-        widget = Map.get(item, "widget") || Map.get(item, :widget)
-        is_binary(widget) and widget in allowed
-      end)
-    else
-      display
-    end
-  end
-
-  defp filter_display_by_contract(display, _contract), do: display
-
-  defp load_display_contract(details, scope) when is_map(details) do
-    plugin_id = get_in(details, ["labels", "plugin_id"]) || get_in(details, [:labels, :plugin_id])
-
-    if is_binary(plugin_id) and plugin_id != "" do
-      Packages.list(%{"plugin_id" => plugin_id, "status" => "approved", "limit" => 1},
-        scope: scope
-      )
-      |> List.first()
-      |> case do
-        %{display_contract: contract} when is_map(contract) -> contract
-        _ -> %{}
-      end
-    else
-      %{}
-    end
-  end
-
-  defp load_display_contract(_details, _scope), do: %{}
-
-  defp resolve_schema_version(details, contract) do
-    detail_version =
-      Map.get(details, "schema_version") || get_in(details, ["display", "schema_version"])
-
-    contract_version = Map.get(contract, "schema_version") || Map.get(contract, :schema_version)
-
-    cond do
-      is_integer(detail_version) -> detail_version
-      is_integer(contract_version) -> contract_version
-      true -> nil
-    end
+    params
+    |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+    |> Map.new()
   end
 
   # Extract scope from socket for Ash policy enforcement (includes actor)
