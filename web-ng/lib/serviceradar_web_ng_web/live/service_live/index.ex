@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
+  alias ServiceRadar.Observability.ServiceStatusPubSub
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 50
@@ -12,9 +13,14 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   @summary_limit 2000
   @gateways_default_limit 10
   @gateways_max_limit 50
+  @refresh_debounce_ms 750
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      ServiceStatusPubSub.subscribe()
+    end
+
     {:ok,
      socket
      |> assign(:page_title, "Services")
@@ -22,10 +28,11 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      |> assign(:summary, %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0})
      |> assign(:limit, @default_limit)
      |> assign(:params, %{})
-     |> assign(:gateways, [])
-     |> assign(:gateways_limit, @gateways_default_limit)
-     |> assign(:gateways_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
-     |> SRQLPage.init("services", default_limit: @default_limit)}
+      |> assign(:gateways, [])
+      |> assign(:gateways_limit, @gateways_default_limit)
+      |> assign(:gateways_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
+      |> assign(:refresh_pending, false)
+      |> SRQLPage.init("services", default_limit: @default_limit)}
   end
 
   @impl true
@@ -83,6 +90,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   def handle_event("srql_builder_remove_filter", params, socket) do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
+  end
+
+  @impl true
+  def handle_info({:service_status_updated, _status}, socket) do
+    {:noreply, schedule_refresh(socket)}
+  end
+
+  def handle_info(:refresh_services, socket) do
+    {:noreply, refresh_services(socket)}
   end
 
   @impl true
@@ -785,6 +801,35 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     unique_services = dedupe_services(services)
     initial = base_summary(length(services))
     Enum.reduce(unique_services, initial, &accumulate_service/2)
+  end
+
+  defp schedule_refresh(socket) do
+    if socket.assigns.refresh_pending do
+      socket
+    else
+      Process.send_after(self(), :refresh_services, @refresh_debounce_ms)
+      assign(socket, :refresh_pending, true)
+    end
+  end
+
+  defp refresh_services(socket) do
+    params = socket.assigns.params || %{}
+    uri = Map.get(socket.assigns, :srql, %{}) |> Map.get(:page_path) || "/services"
+
+    socket =
+      socket
+      |> SRQLPage.load_list(params, uri, :services,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+      |> assign(:params, params)
+
+    summary = load_summary(socket)
+
+    socket
+    |> assign(:summary, summary)
+    |> load_gateways(params)
+    |> assign(:refresh_pending, false)
   end
 
   defp compute_summary(_),

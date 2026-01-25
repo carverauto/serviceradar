@@ -12,6 +12,7 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Observability.IcmpMetricsIngestor
   alias ServiceRadar.Observability.PluginResultIngestor
+  alias ServiceRadar.Observability.ServiceStatusPubSub
   alias ServiceRadar.Observability.SnmpMetricsIngestor
   alias ServiceRadar.Observability.SysmonMetricsIngestor
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
@@ -40,9 +41,14 @@ defmodule ServiceRadar.ResultsRouter do
     )
 
     case process(status) do
-      :ok -> :ok
-      {:ok, _result} -> :ok
-      {:error, reason} -> Logger.warning("Results processing failed: #{inspect(reason)}")
+      :ok ->
+        ServiceStatusPubSub.broadcast_update(status)
+
+      {:ok, _result} ->
+        ServiceStatusPubSub.broadcast_update(status)
+
+      {:error, reason} ->
+        Logger.warning("Results processing failed: #{inspect(reason)}")
     end
 
     {:noreply, state}
