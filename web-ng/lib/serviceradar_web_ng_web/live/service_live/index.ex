@@ -3,16 +3,12 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   import ServiceRadarWebNGWeb.UIComponents
 
-  alias Phoenix.LiveView.JS
   alias ServiceRadar.Observability.ServiceStatusPubSub
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 50
   @max_limit 200
-  @summary_window "last_1h"
   @summary_limit 2000
-  @gateways_default_limit 10
-  @gateways_max_limit 50
   @refresh_debounce_ms 750
 
   @impl true
@@ -25,12 +21,16 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      socket
      |> assign(:page_title, "Services")
      |> assign(:services, [])
-     |> assign(:summary, %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0})
+     |> assign(:summary, %{
+       total: 0,
+       available: 0,
+       unavailable: 0,
+       by_check: %{},
+       check_count: 0,
+       last_updated: nil
+     })
      |> assign(:limit, @default_limit)
      |> assign(:params, %{})
-     |> assign(:gateways, [])
-     |> assign(:gateways_limit, @gateways_default_limit)
-     |> assign(:gateways_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
      |> assign(:refresh_pending, false)
      |> SRQLPage.init("services", default_limit: @default_limit)}
   end
@@ -45,16 +45,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       )
       |> assign(:params, params)
 
-    # Compute summary from a bounded recent window, so the "By Service Type" panel reflects more
-    # than just the current page of results (but remains scale-safe).
+    # Compute summary from the latest status per service identity (bounded by summary limit).
     summary = load_summary(socket)
 
-    socket =
-      socket
-      |> assign(:summary, summary)
-      |> load_gateways(params)
-
-    {:noreply, socket}
+    {:noreply, assign(socket, :summary, summary)}
   end
 
   @impl true
@@ -105,25 +99,18 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
     query = Map.get(assigns.srql, :query, "")
-    has_filter = is_binary(query) and Regex.match?(~r/(?:^|\s)(?:service_type|type):/, query)
-    gateways_pagination = Map.get(assigns, :gateways_pagination, %{}) || %{}
+    has_filter =
+      is_binary(query) and Regex.match?(~r/(?:^|\s)(?:service_name|service_type|type|service):/, query)
 
     assigns =
       assigns
       |> assign(:pagination, pagination)
       |> assign(:has_filter, has_filter)
-      |> assign(:gateways_pagination, gateways_pagination)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
-          <.gateways_panel
-            params={@params}
-            gateways={@gateways}
-            pagination={@gateways_pagination}
-            limit={@gateways_limit}
-          />
           <.service_summary summary={@summary} has_filter={@has_filter} />
 
           <.ui_panel>
@@ -155,253 +142,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     """
   end
 
-  attr :params, :map, default: %{}
-  attr :gateways, :list, default: []
-  attr :pagination, :map, default: %{}
-  attr :limit, :integer, default: @gateways_default_limit
-
-  defp gateways_panel(assigns) do
-    gateways = assigns.gateways || []
-    prev_cursor = Map.get(assigns.pagination, "prev_cursor")
-    next_cursor = Map.get(assigns.pagination, "next_cursor")
-
-    assigns =
-      assigns
-      |> assign(:gateways, gateways)
-      |> assign(:prev_cursor, prev_cursor)
-      |> assign(:next_cursor, next_cursor)
-      |> assign(:has_prev, is_binary(prev_cursor) and prev_cursor != "")
-      |> assign(:has_next, is_binary(next_cursor) and next_cursor != "")
-      |> assign(:showing_text, gateways_pagination_text(length(gateways)))
-
-    ~H"""
-    <.ui_panel>
-      <:header>
-        <div class="min-w-0">
-          <div class="text-sm font-semibold">Gateways</div>
-          <div class="text-xs text-base-content/70">
-            Gateways self-report and may not show up in service checks.
-          </div>
-        </div>
-        <.link
-          href={~p"/gateways"}
-          class="text-base-content/60 hover:text-primary"
-          title="View all gateways"
-        >
-          <.icon name="hero-arrow-top-right-on-square" class="size-4" />
-        </.link>
-      </:header>
-
-      <div class="overflow-x-auto">
-        <table class="table table-sm table-zebra w-full">
-          <thead>
-            <tr>
-              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-48">
-                Gateway ID
-              </th>
-              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
-                Status
-              </th>
-              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
-                Address
-              </th>
-              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
-                Last Seen
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :if={@gateways == []}>
-              <td colspan="4" class="text-sm text-base-content/60 py-6 text-center">
-                No gateways found.
-              </td>
-            </tr>
-
-            <%= for {gateway, idx} <- Enum.with_index(@gateways) do %>
-              <tr
-                id={"services-gateway-row-#{idx}"}
-                class="hover:bg-base-200/40 cursor-pointer transition-colors"
-                phx-click={JS.navigate(~p"/gateways/#{gateway_id(gateway)}")}
-              >
-                <td
-                  class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
-                  title={gateway_id(gateway)}
-                >
-                  {gateway_id(gateway)}
-                </td>
-                <td class="whitespace-nowrap text-xs">
-                  <.gateway_status_badge gateway={gateway} />
-                </td>
-                <td
-                  class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]"
-                  title={gateway_address(gateway)}
-                >
-                  {gateway_address(gateway)}
-                </td>
-                <td class="whitespace-nowrap text-xs font-mono">
-                  {gateway_last_seen(gateway)}
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="mt-3 pt-3 border-t border-base-200 flex items-center justify-between gap-4">
-        <div class="text-sm text-base-content/60">{@showing_text}</div>
-        <div class="join">
-          <.link
-            :if={@has_prev}
-            patch={gateways_page_href(@params, @limit, @prev_cursor)}
-            class="join-item btn btn-sm btn-outline"
-          >
-            <.icon name="hero-chevron-left" class="size-4" /> Previous
-          </.link>
-          <button :if={not @has_prev} class="join-item btn btn-sm btn-outline" disabled>
-            <.icon name="hero-chevron-left" class="size-4" /> Previous
-          </button>
-
-          <.link
-            :if={@has_next}
-            patch={gateways_page_href(@params, @limit, @next_cursor)}
-            class="join-item btn btn-sm btn-outline"
-          >
-            Next <.icon name="hero-chevron-right" class="size-4" />
-          </.link>
-          <button :if={not @has_next} class="join-item btn btn-sm btn-outline" disabled>
-            Next <.icon name="hero-chevron-right" class="size-4" />
-          </button>
-        </div>
-      </div>
-    </.ui_panel>
-    """
-  end
-
-  attr :gateway, :map, required: true
-
-  defp gateway_status_badge(assigns) do
-    active = Map.get(assigns.gateway, "is_active")
-
-    {label, variant} =
-      case active do
-        true -> {"Active", "success"}
-        false -> {"Inactive", "error"}
-        _ -> {"Unknown", "ghost"}
-      end
-
-    assigns = assign(assigns, :label, label) |> assign(:variant, variant)
-
-    ~H"""
-    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
-    """
-  end
-
-  defp gateway_id(%{} = gateway) do
-    Map.get(gateway, "gateway_id") || Map.get(gateway, "id") || "unknown"
-  end
-
-  defp gateway_id(_), do: "unknown"
-
-  defp gateway_address(%{} = gateway) do
-    Map.get(gateway, "address") ||
-      Map.get(gateway, "gateway_address") ||
-      Map.get(gateway, "host") ||
-      Map.get(gateway, "hostname") ||
-      Map.get(gateway, "ip") ||
-      Map.get(gateway, "ip_address") ||
-      "—"
-  end
-
-  defp gateway_address(_), do: "—"
-
-  defp gateway_last_seen(%{} = gateway) do
-    ts = Map.get(gateway, "last_seen") || Map.get(gateway, "updated_at")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> ts || "—"
-    end
-  end
-
-  defp gateway_last_seen(_), do: "—"
-
-  defp gateways_pagination_text(count) when is_integer(count) and count > 0 do
-    "Showing #{count} gateway#{if count != 1, do: "s", else: ""}"
-  end
-
-  defp gateways_pagination_text(_), do: "No gateways"
-
-  defp gateways_page_href(params, limit, cursor) do
-    base =
-      params
-      |> normalize_params()
-      |> Map.put("gateways_limit", limit)
-      |> Map.put("gateways_cursor", cursor)
-      |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-
-    qs = URI.encode_query(base)
-    if qs == "", do: "/services", else: "/services?" <> qs
-  end
-
-  defp normalize_params(%{} = params) do
-    params
-    |> Enum.reduce(%{}, fn
-      {k, v}, acc when is_atom(k) -> Map.put(acc, Atom.to_string(k), v)
-      {k, v}, acc when is_binary(k) -> Map.put(acc, k, v)
-      _, acc -> acc
-    end)
-  end
-
-  defp normalize_params(_), do: %{}
-
-  defp load_gateways(socket, params) when is_map(params) do
-    limit = parse_gateways_limit(Map.get(params, "gateways_limit"))
-    cursor = normalize_optional_string(Map.get(params, "gateways_cursor"))
-    query = "in:gateways sort:last_seen:desc limit:#{limit}"
-    scope = get_scope(socket)
-
-    case srql_module().query(query, %{cursor: cursor, limit: limit, scope: scope}) do
-      {:ok, %{"results" => results} = resp} when is_list(results) ->
-        pagination =
-          case Map.get(resp, "pagination") do
-            %{} = pag -> pag
-            _ -> %{}
-          end
-
-        socket
-        |> assign(:gateways, results)
-        |> assign(:gateways_limit, limit)
-        |> assign(:gateways_pagination, pagination)
-
-      _ ->
-        socket
-        |> assign(:gateways, [])
-        |> assign(:gateways_limit, limit)
-        |> assign(:gateways_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
-    end
-  end
-
-  defp load_gateways(socket, _), do: socket
-
-  defp parse_gateways_limit(nil), do: @gateways_default_limit
-
-  defp parse_gateways_limit(value) when is_integer(value) and value > 0,
-    do: min(value, @gateways_max_limit)
-
-  defp parse_gateways_limit(value) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {n, ""} -> parse_gateways_limit(n)
-      _ -> @gateways_default_limit
-    end
-  end
-
-  defp parse_gateways_limit(_), do: @gateways_default_limit
-
-  defp normalize_optional_string(nil), do: nil
-  defp normalize_optional_string(""), do: nil
-  defp normalize_optional_string(value) when is_binary(value), do: value
-  defp normalize_optional_string(_), do: nil
-
   attr :summary, :map, required: true
   attr :has_filter, :boolean, default: false
 
@@ -409,16 +149,17 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     total = assigns.summary.total
     available = assigns.summary.available
     unavailable = assigns.summary.unavailable
-    by_type = assigns.summary.by_type
+    by_check = assigns.summary.by_check
     check_count = Map.get(assigns.summary, :check_count, 0)
+    last_updated = Map.get(assigns.summary, :last_updated)
 
     # Calculate availability percentage
     avail_pct = if total > 0, do: round(available / total * 100), else: 0
 
     has_filter = Map.get(assigns, :has_filter, false)
 
-    max_type_total =
-      by_type
+    max_check_total =
+      by_check
       |> Map.values()
       |> Enum.map(fn counts ->
         Map.get(counts, :available, 0) + Map.get(counts, :unavailable, 0)
@@ -434,21 +175,29 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       |> assign(:available, available)
       |> assign(:unavailable, unavailable)
       |> assign(:avail_pct, avail_pct)
-      |> assign(:by_type, by_type)
+      |> assign(:by_check, by_check)
       |> assign(:check_count, check_count)
       |> assign(:has_filter, has_filter)
-      |> assign(:max_type_total, max_type_total)
+      |> assign(:max_check_total, max_check_total)
+      |> assign(:last_updated, last_updated)
 
     ~H"""
+    <div class="flex items-center justify-between text-xs text-base-content/60">
+      <div>Latest status per service</div>
+      <div :if={@last_updated}>
+        Last updated {format_last_updated(@last_updated)}
+      </div>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
         <div class="flex items-center justify-between">
           <div>
             <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">
-              Unique Services
+              Services
             </div>
             <div class="text-2xl font-bold">{@total}</div>
-            <div class="text-xs text-base-content/50">from {@check_count} checks</div>
+            <div class="text-xs text-base-content/50">from {@check_count} status updates</div>
           </div>
           <div class="size-12 rounded-lg bg-base-200/50 flex items-center justify-center">
             <svg
@@ -531,12 +280,12 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     </div>
 
     <div
-      :if={map_size(@by_type) > 0}
+      :if={map_size(@by_check) > 0}
       class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
     >
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
-          <div class="text-xs text-base-content/50 uppercase tracking-wider">By Service Type</div>
+          <div class="text-xs text-base-content/50 uppercase tracking-wider">By Check</div>
           <.link
             :if={@has_filter}
             patch={~p"/services"}
@@ -547,9 +296,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         </div>
         <div class="flex items-center gap-1">
           <.link
-            patch={
-              ~p"/services?#{%{q: "in:services available:false time:last_1h sort:timestamp:desc"}}"
-            }
+            patch={~p"/services?#{%{q: "in:services available:false sort:timestamp:desc"}}"}
             class="btn btn-ghost btn-xs text-error"
           >
             Failing Only
@@ -557,49 +304,52 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         </div>
       </div>
       <div class="space-y-2">
-        <%= for {type, counts} <- Enum.sort_by(@by_type, fn {_, c} -> -(c.available + c.unavailable) end) |> Enum.take(8) do %>
-          <.type_bar type={type} counts={counts} max_total={@max_type_total} />
+        <%= for {name, counts} <- Enum.sort_by(@by_check, fn {_, c} -> -(c.available + c.unavailable) end) |> Enum.take(8) do %>
+          <.check_bar check={name} counts={counts} max_total={@max_check_total} />
         <% end %>
       </div>
     </div>
     """
   end
 
-  attr :type, :string, required: true
+  attr :check, :string, required: true
   attr :counts, :map, required: true
   attr :max_total, :integer, required: true
 
-  defp type_bar(assigns) do
-    type_total = assigns.counts.available + assigns.counts.unavailable
-    avail_pct = if type_total > 0, do: round(assigns.counts.available / type_total * 100), else: 0
-    fail_pct = if type_total > 0, do: 100 - avail_pct, else: 0
+  defp check_bar(assigns) do
+    check_total = assigns.counts.available + assigns.counts.unavailable
+    avail_pct =
+      if check_total > 0, do: round(assigns.counts.available / check_total * 100), else: 0
+
+    fail_pct = if check_total > 0, do: 100 - avail_pct, else: 0
 
     volume_pct =
       cond do
-        type_total <= 0 -> 0
+        check_total <= 0 -> 0
         assigns.max_total <= 0 -> 100
-        true -> max(6, round(type_total / assigns.max_total * 100))
+        true -> max(6, round(check_total / assigns.max_total * 100))
       end
 
-    # Build SRQL query for this service type
-    type_query = "in:services service_type:\"#{assigns.type}\" time:last_1h sort:timestamp:desc"
+    # Build SRQL query for this check
+    check_query =
+      "in:services service_name:\"#{escape_srql_value(assigns.check)}\" sort:timestamp:desc"
 
     assigns =
       assigns
-      |> assign(:type_total, type_total)
+      |> assign(:check_total, check_total)
       |> assign(:avail_pct, avail_pct)
       |> assign(:fail_pct, fail_pct)
       |> assign(:volume_pct, volume_pct)
-      |> assign(:type_query, type_query)
+      |> assign(:check_query, check_query)
 
     ~H"""
     <.link
-      patch={~p"/services?#{%{q: @type_query}}"}
+      patch={~p"/services?#{%{q: @check_query}}"}
       class="flex items-center gap-3 p-1.5 -mx-1.5 rounded-lg hover:bg-base-200/50 transition-colors cursor-pointer group"
-      title={"Filter by #{@type}"}
+      title={"Filter by #{@check}"}
     >
-      <div class="w-28 truncate text-xs font-medium group-hover:text-primary" title={@type}>
-        {@type}
+      <div class="w-28 truncate text-xs font-medium group-hover:text-primary" title={@check}>
+        {@check}
       </div>
       <div class="flex-1 h-4 bg-base-200/50 rounded-full overflow-hidden">
         <div class="h-full rounded-full overflow-hidden" style={"width: #{@volume_pct}%"}>
@@ -614,7 +364,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         </div>
       </div>
       <div class="w-16 text-right">
-        <span class="text-xs font-mono">{@type_total}</span>
+        <span class="text-xs font-mono">{@check_total}</span>
         <span class="text-[10px] text-base-content/50 ml-1">({@fail_pct}% fail)</span>
       </div>
     </.link>
@@ -733,6 +483,38 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp parse_timestamp(_), do: :error
 
+  defp service_timestamp_sort_key(svc) do
+    case parse_timestamp(Map.get(svc, "timestamp")) do
+      {:ok, dt} -> {1, DateTime.to_unix(dt, :nanosecond)}
+      _ -> {0, 0}
+    end
+  end
+
+  defp latest_timestamp(services) do
+    Enum.reduce(services, nil, fn
+      %{} = svc, acc ->
+        case parse_timestamp(Map.get(svc, "timestamp")) do
+          {:ok, dt} ->
+            case acc do
+              nil -> dt
+              current -> if DateTime.compare(dt, current) == :gt, do: dt, else: current
+            end
+
+          _ ->
+            acc
+        end
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp format_last_updated(%DateTime{} = dt) do
+    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  end
+
+  defp format_last_updated(_), do: "—"
+
   defp load_summary(socket) do
     current_query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query)
     summary_query = summary_query_for(current_query)
@@ -747,42 +529,32 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     end
   end
 
-  defp summary_query_for(nil), do: "in:services time:#{@summary_window} sort:timestamp:desc"
+  defp summary_query_for(nil), do: "in:services sort:timestamp:desc"
 
   defp summary_query_for(query) when is_binary(query) do
     trimmed = String.trim(query)
 
     cond do
       trimmed == "" ->
-        "in:services time:#{@summary_window} sort:timestamp:desc"
+        "in:services sort:timestamp:desc"
 
       String.contains?(trimmed, "in:services") ->
         trimmed
         |> strip_tokens_for_summary()
-        |> ensure_summary_time_filter()
         |> ensure_summary_sort()
 
       true ->
-        "in:services time:#{@summary_window} sort:timestamp:desc"
+        "in:services sort:timestamp:desc"
     end
   end
 
-  defp summary_query_for(_), do: "in:services time:#{@summary_window} sort:timestamp:desc"
+  defp summary_query_for(_), do: "in:services sort:timestamp:desc"
 
   defp strip_tokens_for_summary(query) do
     query = Regex.replace(~r/(?:^|\s)limit:\S+/, query, "")
     query = Regex.replace(~r/(?:^|\s)sort:\S+/, query, "")
     query = Regex.replace(~r/(?:^|\s)cursor:\S+/, query, "")
     query |> String.trim() |> String.replace(~r/\s+/, " ")
-  end
-
-  defp ensure_summary_time_filter(query) do
-    if Regex.match?(~r/(?:^|\s)time:\S+/, query) do
-      Regex.replace(~r/(?:^|\s)time:\S+/, query, " time:#{@summary_window}")
-      |> String.trim()
-    else
-      "#{query} time:#{@summary_window}"
-    end
   end
 
   defp ensure_summary_sort(query) do
@@ -793,18 +565,26 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     end
   end
 
-  # Compute summary stats from unique service instances (deduplicated by gateway/agent + service identity)
+  # Compute summary stats from unique service instances (deduplicated by agent + service identity)
   # This prevents showing N status checks for the same service instance as "N services".
   #
   # Note: `in:services` is backed by the `service_status` table, which does NOT include `uid`.
   defp compute_summary(services) when is_list(services) do
     unique_services = dedupe_services(services)
-    initial = base_summary(length(services))
+    last_updated = latest_timestamp(services)
+    initial = base_summary(length(services), last_updated)
     Enum.reduce(unique_services, initial, &accumulate_service/2)
   end
 
   defp compute_summary(_),
-    do: %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0}
+    do: %{
+      total: 0,
+      available: 0,
+      unavailable: 0,
+      by_check: %{},
+      check_count: 0,
+      last_updated: nil
+    }
 
   defp schedule_refresh(socket) do
     if socket.assigns.refresh_pending do
@@ -831,13 +611,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
     socket
     |> assign(:summary, summary)
-    |> load_gateways(params)
     |> assign(:refresh_pending, false)
   end
 
   defp dedupe_services(services) do
     services
     |> Enum.filter(&is_map/1)
+    |> Enum.sort_by(&service_timestamp_sort_key/1, :desc)
     |> Enum.reduce(%{}, fn svc, acc ->
       Map.put_new(acc, service_identity_key(svc), svc)
     end)
@@ -845,47 +625,57 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   defp service_identity_key(svc) do
-    gateway_id = Map.get(svc, "gateway_id") || ""
     agent_id = Map.get(svc, "agent_id") || ""
+    partition = Map.get(svc, "partition") || Map.get(svc, "partition_id") || ""
     service_type = service_type_value(svc) || ""
     service_name = service_name_value(svc) || ""
 
-    "#{gateway_id}:#{agent_id}:#{service_type}:#{service_name}"
+    "#{agent_id}:#{partition}:#{service_type}:#{service_name}"
   end
 
-  defp base_summary(check_count) do
-    %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: check_count}
+  defp base_summary(check_count, last_updated) do
+    %{
+      total: 0,
+      available: 0,
+      unavailable: 0,
+      by_check: %{},
+      check_count: check_count,
+      last_updated: last_updated
+    }
   end
 
   defp accumulate_service(svc, acc) do
     is_available = normalize_available(Map.get(svc, "available")) == true
-    service_type = normalize_service_type(service_type_value(svc))
-    by_type = update_by_type(acc.by_type, service_type, is_available)
+    check_name = normalize_service_name(service_name_value(svc))
+    by_check = update_by_check(acc.by_check, check_name, is_available)
 
     %{
       acc
       | total: acc.total + 1,
         available: acc.available + if(is_available, do: 1, else: 0),
         unavailable: acc.unavailable + if(is_available, do: 0, else: 1),
-        by_type: by_type
+        by_check: by_check
     }
   end
 
-  defp normalize_service_type(nil), do: "unknown"
-  defp normalize_service_type(""), do: "unknown"
+  defp normalize_service_name(nil), do: "unknown"
+  defp normalize_service_name(""), do: "unknown"
+  defp normalize_service_name(value), do: value |> to_string() |> String.trim()
 
-  defp normalize_service_type(value) do
-    value |> to_string() |> String.trim() |> String.downcase()
-  end
-
-  defp update_by_type(by_type, service_type, is_available) do
-    Map.update(by_type, service_type, %{available: 0, unavailable: 0}, fn counts ->
+  defp update_by_check(by_check, check_name, is_available) do
+    Map.update(by_check, check_name, %{available: 0, unavailable: 0}, fn counts ->
       if is_available do
         Map.update!(counts, :available, &(&1 + 1))
       else
         Map.update!(counts, :unavailable, &(&1 + 1))
       end
     end)
+  end
+
+  defp escape_srql_value(value) when is_binary(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\"", "\\\"")
   end
 
   defp srql_module do
