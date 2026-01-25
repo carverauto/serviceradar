@@ -808,14 +808,15 @@ func (m *PluginManager) execute(ctx context.Context, assignment *pluginAssignmen
 	}
 
 	if _, err := entrypoint.Call(ctx); err != nil {
-		if isExitCodeZero(err) {
+		switch {
+		case isExitCodeZero(err):
 			// Treat a zero exit code as a clean completion (WASI proc_exit(0)).
-		} else if exec.hasSubmitted() {
+		case exec.hasSubmitted():
 			m.logger.Warn().
 				Err(err).
 				Str("assignment_id", assignment.AssignmentID).
 				Msg("Plugin exited after submitting result")
-		} else {
+		default:
 			return fmt.Errorf("entrypoint failed: %w", err)
 		}
 	}

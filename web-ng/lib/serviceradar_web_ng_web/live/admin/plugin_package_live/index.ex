@@ -120,15 +120,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   def handle_event("close_details_modal", _params, socket) do
     {:noreply,
      socket
-      |> assign(:show_details_modal, false)
-      |> assign(:selected_package, nil)
-      |> assign(:assignments, [])
-      |> assign(:assignment_form, default_assignment_form())
-      |> assign(:versions, [])
-      |> assign(:upload_errors, [])
-      |> assign(:upload_url, nil)
-      |> assign(:download_url, nil)
-      |> assign(:blob_present, nil)}
+     |> assign(:show_details_modal, false)
+     |> assign(:selected_package, nil)
+     |> assign(:assignments, [])
+     |> assign(:assignment_form, default_assignment_form())
+     |> assign(:versions, [])
+     |> assign(:upload_errors, [])
+     |> assign(:upload_url, nil)
+     |> assign(:download_url, nil)
+     |> assign(:blob_present, nil)}
   end
 
   def handle_event("filter", params, socket) do
@@ -300,38 +300,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply, put_flash(socket, :error, "Select a .wasm file to upload")}
 
       true ->
-        results =
-          consume_uploaded_entries(socket, :wasm_blob, fn %{path: path}, _entry ->
-            case File.read(path) do
-              {:ok, payload} -> {:ok, payload}
-              {:error, _reason} -> {:error, :read_failed}
-            end
-          end)
-
-        case results do
-          [payload] when is_binary(payload) ->
-            case Packages.upload_blob(package, payload, scope: scope) do
-              {:ok, updated} ->
-                {:noreply,
-                 socket
-                 |> assign_package_urls(updated, scope)
-                 |> assign(:packages, list_packages(current_filters(socket), scope))
-                 |> assign(:upload_errors, [])
-                 |> put_flash(:info, "Wasm blob uploaded")}
-
-              {:error, error} ->
-                {:noreply,
-                 socket
-                 |> assign(:upload_errors, [format_error(error)])
-                 |> put_flash(:error, "Failed to upload Wasm blob")}
-            end
-
-          _ ->
-            {:noreply,
-             socket
-             |> assign(:upload_errors, ["failed to read uploaded file"])
-             |> put_flash(:error, "Failed to upload Wasm blob")}
-        end
+        handle_wasm_upload(socket, package, scope)
     end
   end
 
@@ -424,46 +393,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   def handle_event("create_assignment", %{"assignment" => params}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, attrs} <- parse_assignment_params(params, socket.assigns.selected_package.id) do
-      case existing_assignment(socket.assigns.assignments, attrs.agent_uid) do
-        nil ->
-          case Assignments.create(attrs, scope: scope) do
-            {:ok, _assignment} ->
-              {:noreply,
-               socket
-               |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
-               |> assign(:assignment_form, default_assignment_form())
-               |> put_flash(:info, "Assignment created")}
+    case parse_assignment_params(params, socket.assigns.selected_package.id) do
+      {:ok, attrs} ->
+        handle_assignment_upsert(socket, scope, attrs)
 
-            {:error, {:invalid_json, message}} ->
-              {:noreply, socket |> put_flash(:error, message)}
-
-            {:error, error} ->
-              {:noreply, socket |> put_flash(:error, "Failed to assign: #{format_error(error)}")}
-          end
-
-        assignment ->
-          update_attrs =
-            attrs
-            |> Map.delete(:agent_uid)
-            |> Map.delete(:plugin_package_id)
-
-          case Assignments.update(assignment.id, update_attrs, scope: scope) do
-            {:ok, _assignment} ->
-              {:noreply,
-               socket
-               |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
-               |> assign(:assignment_form, default_assignment_form())
-               |> put_flash(:info, "Assignment updated")}
-
-            {:error, {:invalid_json, message}} ->
-              {:noreply, socket |> put_flash(:error, message)}
-
-            {:error, error} ->
-              {:noreply, socket |> put_flash(:error, "Failed to update assignment: #{format_error(error)}")}
-          end
-      end
-    else
       {:error, {:invalid_json, message}} ->
         {:noreply, socket |> put_flash(:error, message)}
 
@@ -544,8 +477,98 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            |> put_flash(:info, "Package deleted")}
 
         {:error, error} ->
-          {:noreply, socket |> put_flash(:error, "Failed to delete package: #{format_error(error)}")}
+          {:noreply,
+           socket |> put_flash(:error, "Failed to delete package: #{format_error(error)}")}
       end
+    end
+  end
+
+  defp handle_assignment_upsert(socket, scope, attrs) do
+    case existing_assignment(socket.assigns.assignments, attrs.agent_uid) do
+      nil ->
+        create_assignment(socket, scope, attrs)
+
+      assignment ->
+        update_assignment(socket, scope, assignment, attrs)
+    end
+  end
+
+  defp create_assignment(socket, scope, attrs) do
+    case Assignments.create(attrs, scope: scope) do
+      {:ok, _assignment} ->
+        {:noreply,
+         socket
+         |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
+         |> assign(:assignment_form, default_assignment_form())
+         |> put_flash(:info, "Assignment created")}
+
+      {:error, {:invalid_json, message}} ->
+        {:noreply, socket |> put_flash(:error, message)}
+
+      {:error, error} ->
+        {:noreply, socket |> put_flash(:error, "Failed to assign: #{format_error(error)}")}
+    end
+  end
+
+  defp update_assignment(socket, scope, assignment, attrs) do
+    update_attrs =
+      attrs
+      |> Map.delete(:agent_uid)
+      |> Map.delete(:plugin_package_id)
+
+    case Assignments.update(assignment.id, update_attrs, scope: scope) do
+      {:ok, _assignment} ->
+        {:noreply,
+         socket
+         |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
+         |> assign(:assignment_form, default_assignment_form())
+         |> put_flash(:info, "Assignment updated")}
+
+      {:error, {:invalid_json, message}} ->
+        {:noreply, socket |> put_flash(:error, message)}
+
+      {:error, error} ->
+        {:noreply,
+         socket |> put_flash(:error, "Failed to update assignment: #{format_error(error)}")}
+    end
+  end
+
+  defp handle_wasm_upload(socket, package, scope) do
+    results =
+      consume_uploaded_entries(socket, :wasm_blob, fn %{path: path}, _entry ->
+        case File.read(path) do
+          {:ok, payload} -> {:ok, payload}
+          {:error, _reason} -> {:error, :read_failed}
+        end
+      end)
+
+    case results do
+      [payload] when is_binary(payload) ->
+        upload_wasm_payload(socket, package, scope, payload)
+
+      _ ->
+        {:noreply,
+         socket
+         |> assign(:upload_errors, ["failed to read uploaded file"])
+         |> put_flash(:error, "Failed to upload Wasm blob")}
+    end
+  end
+
+  defp upload_wasm_payload(socket, package, scope, payload) do
+    case Packages.upload_blob(package, payload, scope: scope) do
+      {:ok, updated} ->
+        {:noreply,
+         socket
+         |> assign_package_urls(updated, scope)
+         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign(:upload_errors, [])
+         |> put_flash(:info, "Wasm blob uploaded")}
+
+      {:error, error} ->
+        {:noreply,
+         socket
+         |> assign(:upload_errors, [format_error(error)])
+         |> put_flash(:error, "Failed to upload Wasm blob")}
     end
   end
 

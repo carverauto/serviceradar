@@ -78,7 +78,7 @@ defmodule ServiceRadar.Plugins.StorageToken do
 
   defp normalize_string(_), do: nil
 
-  defp normalize_int(value, default) when is_integer(value) and value > 0, do: value
+  defp normalize_int(value, _default) when is_integer(value) and value > 0, do: value
 
   defp normalize_int(value, default) when is_binary(value) do
     case Integer.parse(String.trim(value)) do

@@ -45,6 +45,7 @@ go_library(
         "@com_github_tetratelabs_wazero//:wazero",
         "@com_github_tetratelabs_wazero//api",
         "@com_github_tetratelabs_wazero//imports/wasi_snapshot_preview1",
+        "@com_github_tetratelabs_wazero//sys",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",
         "@org_uber_go_mock//gomock",

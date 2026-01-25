@@ -152,7 +152,9 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   @spec upload_blob(PluginPackage.t(), binary(), keyword()) ::
           {:ok, PluginPackage.t()} | {:error, term()}
-  def upload_blob(%PluginPackage{} = package, payload, opts \\ []) when is_binary(payload) do
+  def upload_blob(package, payload, opts \\ [])
+
+  def upload_blob(%PluginPackage{} = package, payload, opts) when is_binary(payload) do
     scope = Keyword.get(opts, :scope)
     content_hash = Storage.sha256(payload)
 
