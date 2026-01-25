@@ -4,8 +4,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadar.Observability.{ServiceState, ServiceStatePubSub, ServiceStatusPubSub}
+  alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
-  alias Phoenix.LiveView.JS
 
   @default_limit 50
   @max_limit 200
@@ -34,7 +34,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      |> assign(:limit, @default_limit)
      |> assign(:params, %{})
      |> assign(:refresh_pending, false)
-     |> SRQLPage.init("services", default_limit: @default_limit)}
+     |> SRQLPage.init("services", default_limit: @default_limit)
+     |> stream(:service_cards, [])}
   end
 
   @impl true
@@ -49,8 +50,12 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
     # Compute summary from the latest status per service identity (bounded by summary limit).
     summary = load_summary(socket)
+    cards = build_service_cards(socket.assigns.services, socket.assigns.current_scope)
 
-    {:noreply, assign(socket, :summary, summary)}
+    {:noreply,
+     socket
+     |> assign(:summary, summary)
+     |> stream(:service_cards, cards, reset: true)}
   end
 
   @impl true
@@ -124,28 +129,14 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
           <.ui_panel>
             <:header>
               <div class="min-w-0">
-                <div class="text-sm font-semibold">Service Checks</div>
+                <div class="text-sm font-semibold">Active Service Checks</div>
                 <div class="text-xs text-base-content/70">
-                  Recent status checks from this page ({length(@services)} results).
-                </div>
-                <div class="text-xs text-base-content/50">
-                  Click a row to open the service check details page.
+                  Latest status per service (sorted with failures first).
                 </div>
               </div>
             </:header>
 
-            <.services_table id="services" services={@services} />
-
-            <div class="mt-4 pt-4 border-t border-base-200">
-              <.ui_pagination
-                prev_cursor={Map.get(@pagination, "prev_cursor")}
-                next_cursor={Map.get(@pagination, "next_cursor")}
-                base_path="/services"
-                query={Map.get(@srql, :query, "")}
-                limit={@limit}
-                result_count={length(@services)}
-              />
-            </div>
+            <.service_card_grid cards={@streams.service_cards} />
           </.ui_panel>
         </div>
       </div>
@@ -300,165 +291,59 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       </div>
     </div>
 
-    <div
-      :if={map_size(@by_check) > 0}
-      class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
-    >
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <div class="text-xs text-base-content/50 uppercase tracking-wider">By Check</div>
-          <.link
-            :if={@has_filter}
-            patch={~p"/services"}
-            class="text-xs text-primary hover:underline"
-          >
-            (Reset)
-          </.link>
-        </div>
-        <div class="flex items-center gap-1">
-          <.link
-            patch={~p"/services?#{%{q: "in:services available:false sort:timestamp:desc"}}"}
-            class="btn btn-ghost btn-xs text-error"
-          >
-            Failing Only
-          </.link>
-        </div>
-      </div>
-      <div class="space-y-2">
-        <%= for {name, counts} <- Enum.sort_by(@by_check, fn {_, c} -> -(c.available + c.unavailable) end) |> Enum.take(8) do %>
-          <.check_bar check={name} counts={counts} max_total={@max_check_total} />
-        <% end %>
+    """
+  end
+
+  attr :cards, :any, required: true
+
+  defp service_card_grid(assigns) do
+    ~H"""
+    <div id="service-cards" phx-update="stream" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div :for={{id, card} <- @cards} id={id}>
+        <.service_card card={card} />
       </div>
     </div>
     """
   end
 
-  attr :check, :string, required: true
-  attr :counts, :map, required: true
-  attr :max_total, :integer, required: true
+  attr :card, :map, required: true
 
-  defp check_bar(assigns) do
-    check_total = assigns.counts.available + assigns.counts.unavailable
-
-    avail_pct =
-      if check_total > 0, do: round(assigns.counts.available / check_total * 100), else: 0
-
-    fail_pct = if check_total > 0, do: 100 - avail_pct, else: 0
-
-    volume_pct =
-      cond do
-        check_total <= 0 -> 0
-        assigns.max_total <= 0 -> 100
-        true -> max(6, round(check_total / assigns.max_total * 100))
-      end
-
-    # Build SRQL query for this check
-    check_query =
-      "in:services service_name:\"#{escape_srql_value(assigns.check)}\" sort:timestamp:desc"
-
-    assigns =
-      assigns
-      |> assign(:check_total, check_total)
-      |> assign(:avail_pct, avail_pct)
-      |> assign(:fail_pct, fail_pct)
-      |> assign(:volume_pct, volume_pct)
-      |> assign(:check_query, check_query)
-
+  defp service_card(assigns) do
     ~H"""
     <.link
-      patch={~p"/services?#{%{q: @check_query}}"}
-      class="flex items-center gap-3 p-1.5 -mx-1.5 rounded-lg hover:bg-base-200/50 transition-colors cursor-pointer group"
-      title={"Filter by #{@check}"}
+      navigate={@card.path}
+      class={[
+        "group block h-full rounded-2xl border border-base-200 bg-base-100 shadow-sm",
+        "p-4 transition hover:-translate-y-0.5 hover:shadow-md"
+      ]}
     >
-      <div class="w-28 truncate text-xs font-medium group-hover:text-primary" title={@check}>
-        {@check}
-      </div>
-      <div class="flex-1 h-4 bg-base-200/50 rounded-full overflow-hidden">
-        <div class="h-full rounded-full overflow-hidden" style={"width: #{@volume_pct}%"}>
-          <div class="h-full w-full bg-success/60 relative" title={"#{@counts.available} available"}>
-            <div
-              :if={@fail_pct > 0}
-              class="absolute inset-y-0 right-0 bg-error/70"
-              style={"width: #{@fail_pct}%"}
-              title={"#{@counts.unavailable} unavailable"}
-            />
-          </div>
+      <div class="flex items-center justify-between">
+        <div class="text-[11px] uppercase tracking-wider text-base-content/50">
+          {@card.type || "Service"}
         </div>
+        <.status_badge available={@card.available} />
       </div>
-      <div class="w-16 text-right">
-        <span class="text-xs font-mono">{@check_total}</span>
-        <span class="text-[10px] text-base-content/50 ml-1">({@fail_pct}% fail)</span>
+
+      <div class="mt-2 text-lg font-semibold tracking-tight">
+        {@card.name || "Service"}
+      </div>
+
+      <div class="mt-1 text-xs text-base-content/60 line-clamp-2">
+        {@card.summary || "—"}
+      </div>
+
+      <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-base-content/50">
+        <span>{@card.timestamp || "—"}</span>
+        <span class="text-base-content/30">•</span>
+        <span>Agent {@card.agent_id || "—"}</span>
+      </div>
+
+      <div :if={@card.display != []} class="mt-4 space-y-3">
+        <%= for instruction <- @card.display do %>
+          {render_compact_widget(instruction)}
+        <% end %>
       </div>
     </.link>
-    """
-  end
-
-  attr :id, :string, required: true
-  attr :services, :list, default: []
-
-  defp services_table(assigns) do
-    ~H"""
-    <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full">
-        <thead>
-          <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
-              Time
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
-              Status
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-28">
-              Type
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
-              Service
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
-              Message
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :if={@services == []}>
-            <td colspan="5" class="text-sm text-base-content/60 py-8 text-center">
-              No services found.
-            </td>
-          </tr>
-
-          <%= for {svc, idx} <- Enum.with_index(@services) do %>
-            <% path = service_details_path(svc) %>
-            <tr
-              id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 cursor-pointer"
-              phx-click={JS.navigate(path)}
-            >
-              <td class="whitespace-nowrap text-xs font-mono">
-                {format_timestamp(svc)}
-              </td>
-              <td class="whitespace-nowrap text-xs">
-                <.status_badge available={Map.get(svc, "available")} />
-              </td>
-              <td
-                class="whitespace-nowrap text-xs truncate max-w-[8rem]"
-                title={service_type_value(svc)}
-              >
-                {service_type_value(svc) || "—"}
-              </td>
-              <td
-                class="whitespace-nowrap text-xs truncate max-w-[12rem]"
-                title={service_name_value(svc)}
-              >
-                {service_name_value(svc) || "—"}
-              </td>
-              <td class="text-xs truncate max-w-[28rem]" title={Map.get(svc, "message")}>
-                {Map.get(svc, "message") || "—"}
-              </td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
     """
   end
 
@@ -698,9 +583,11 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       |> assign(:params, params)
 
     summary = load_summary(socket)
+    cards = build_service_cards(socket.assigns.services, socket.assigns.current_scope)
 
     socket
     |> assign(:summary, summary)
+    |> stream(:service_cards, cards, reset: true)
     |> assign(:refresh_pending, false)
   end
 
@@ -828,4 +715,229 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp get_scope(socket) do
     Map.get(socket.assigns, :current_scope)
   end
+
+  defp build_service_cards(services, scope) when is_list(services) do
+    services
+    |> dedupe_services()
+    |> Enum.sort_by(&service_sort_key/1)
+    |> Enum.map(&build_service_card(&1, scope))
+  end
+
+  defp build_service_cards(_services, _scope), do: []
+
+  defp build_service_card(%{} = svc, scope) do
+    details = parse_service_details(svc)
+    display =
+      details
+      |> extract_display_instructions()
+      |> filter_display_by_contract(details, scope)
+      |> compact_display()
+
+    %{
+      id: card_dom_id(svc),
+      name: service_name_value(svc),
+      type: service_type_value(svc),
+      available: normalize_available(Map.get(svc, "available")),
+      timestamp: format_timestamp(svc),
+      summary: service_summary(svc, details),
+      path: service_details_path(svc),
+      display: display,
+      agent_id: Map.get(svc, "agent_id")
+    }
+  end
+
+  defp build_service_card(_svc, _scope), do: %{}
+
+  defp service_sort_key(svc) do
+    availability = normalize_available(Map.get(svc, "available"))
+    timestamp_key = service_timestamp_sort_key(svc)
+
+    avail_sort =
+      case availability do
+        false -> 0
+        true -> 1
+        _ -> 2
+      end
+
+    {avail_sort, -elem(timestamp_key, 1)}
+  end
+
+  defp card_dom_id(svc) when is_map(svc) do
+    identity = service_identity_key(svc)
+    hash = :erlang.phash2(identity)
+    "service-card-#{hash}"
+  end
+
+  defp card_dom_id(_), do: "service-card-unknown"
+
+  defp parse_service_details(service) do
+    details = Map.get(service, "details") || Map.get(service, :details)
+
+    cond do
+      is_map(details) -> details
+      is_binary(details) -> parse_details_json(details)
+      true -> %{}
+    end
+  end
+
+  defp parse_details_json(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, %{} = map} -> map
+      _ -> %{}
+    end
+  end
+
+  defp parse_details_json(_), do: %{}
+
+  defp extract_display_instructions(details) when is_map(details) do
+    Map.get(details, "display") ||
+      get_in(details, ["ui", "display"]) ||
+      []
+  end
+
+  defp extract_display_instructions(_), do: []
+
+  defp filter_display_by_contract(display, details, scope)
+       when is_list(display) and is_map(details) do
+    plugin_id = get_in(details, ["labels", "plugin_id"]) || get_in(details, [:labels, :plugin_id])
+
+    if is_binary(plugin_id) and plugin_id != "" do
+      contract =
+        Packages.list(%{"plugin_id" => plugin_id, "status" => "approved", "limit" => 1},
+          scope: scope
+        )
+        |> List.first()
+        |> case do
+          %{display_contract: contract} when is_map(contract) -> contract
+          _ -> %{}
+        end
+
+      apply_display_contract(display, contract)
+    else
+      display
+    end
+  end
+
+  defp filter_display_by_contract(display, _details, _scope), do: display
+
+  defp apply_display_contract(display, contract) when is_list(display) and is_map(contract) do
+    allowed = Map.get(contract, "widgets") || Map.get(contract, :widgets) || []
+
+    if is_list(allowed) and allowed != [] do
+      Enum.filter(display, fn item ->
+        widget = Map.get(item, "widget") || Map.get(item, :widget)
+        is_binary(widget) and widget in allowed
+      end)
+    else
+      display
+    end
+  end
+
+  defp apply_display_contract(display, _contract), do: display
+
+  defp compact_display(display) when is_list(display) do
+    display
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&stringify_keys/1)
+    |> Enum.filter(fn item -> Map.get(item, "widget") in ["stat_card", "sparkline"] end)
+    |> Enum.take(2)
+  end
+
+  defp compact_display(_), do: []
+
+  defp service_summary(service, details) do
+    Map.get(details, "summary") || Map.get(service, "message")
+  end
+
+  defp render_compact_widget(%{"widget" => "stat_card"} = data) do
+    label = Map.get(data, "label") || "Value"
+    value = Map.get(data, "value") || "—"
+    tone = Map.get(data, "tone") || Map.get(data, "color") || "neutral"
+    assigns = %{label: label, value: value, tone: tone}
+
+    ~H"""
+    <div class="rounded-lg border border-base-200/60 bg-base-200/40 p-3">
+      <div class="text-[11px] text-base-content/60">{@label}</div>
+      <div class={stat_value_class(@tone)}>{@value}</div>
+    </div>
+    """
+  end
+
+  defp render_compact_widget(%{"widget" => "sparkline"} = data) do
+    points = sparkline_points(Map.get(data, "data"))
+    label = Map.get(data, "label") || "Trend"
+    assigns = %{points: points, label: label}
+
+    ~H"""
+    <div class="rounded-lg border border-base-200/60 bg-base-200/40 p-3">
+      <div class="text-[11px] text-base-content/60 mb-2">{@label}</div>
+      <svg viewBox="0 0 100 32" class="w-full h-8 text-primary">
+        <polyline fill="none" stroke="currentColor" stroke-width="2" points={@points} />
+      </svg>
+    </div>
+    """
+  end
+
+  defp render_compact_widget(_), do: nil
+
+  defp sparkline_points(values) when is_list(values) and values != [] do
+    numbers =
+      values
+      |> Enum.map(&to_float/1)
+      |> Enum.reject(&is_nil/1)
+
+    case numbers do
+      [] ->
+        ""
+
+      _ ->
+        min = Enum.min(numbers)
+        max = Enum.max(numbers)
+        range = if max - min == 0, do: 1.0, else: max - min
+        step = 100 / max(Enum.count(numbers) - 1, 1)
+
+        numbers
+        |> Enum.with_index()
+        |> Enum.map_join(" ", fn {value, idx} ->
+          x = idx * step
+          y = 32 - (value - min) / range * 28 - 2
+          "#{Float.round(x, 2)},#{Float.round(y, 2)}"
+        end)
+    end
+  end
+
+  defp sparkline_points(_), do: ""
+
+  defp to_float(value) when is_float(value), do: value
+  defp to_float(value) when is_integer(value), do: value * 1.0
+
+  defp to_float(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {num, ""} -> num
+      _ -> nil
+    end
+  end
+
+  defp to_float(_), do: nil
+
+  defp stat_value_class(tone) do
+    base = "text-lg font-semibold"
+
+    case tone do
+      "success" -> [base, "text-success"]
+      "warning" -> [base, "text-warning"]
+      "error" -> [base, "text-error"]
+      "info" -> [base, "text-info"]
+      _ -> [base, "text-base-content"]
+    end
+  end
+
+  defp stringify_keys(%{} = map) do
+    map
+    |> Enum.map(fn {key, value} -> {to_string(key), stringify_keys(value)} end)
+    |> Map.new()
+  end
+
+  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
+  defp stringify_keys(value), do: value
 end
