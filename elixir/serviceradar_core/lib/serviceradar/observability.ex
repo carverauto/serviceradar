@@ -48,6 +48,7 @@ defmodule ServiceRadar.Observability do
     # matching Go schema exactly
     resource ServiceRadar.Observability.TimeseriesMetric
     resource ServiceRadar.Observability.ServiceStatus
+    resource ServiceRadar.Observability.ServiceState
     resource ServiceRadar.Observability.CpuMetric
     resource ServiceRadar.Observability.CpuClusterMetric
     resource ServiceRadar.Observability.MemoryMetric

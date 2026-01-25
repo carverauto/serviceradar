@@ -37,6 +37,8 @@ Optional fields:
 - `runtime`: `wasi-preview1` or `none`
 - `permissions`: allowlists for HTTP/TCP/UDP
 - `source`: metadata such as repo URL, commit, license
+- `schema_version`: UI schema version for config/result contracts (default `1`)
+- `display_contract`: supported result widgets (optional)
 
 Example `plugin.yaml`:
 
@@ -48,6 +50,7 @@ description: Simple HTTP health check
 entrypoint: run_check
 runtime: wasi-preview1
 outputs: serviceradar.plugin_result.v1
+schema_version: 1
 capabilities:
   - get_config
   - log
@@ -62,6 +65,14 @@ resources:
   requested_memory_mb: 64
   requested_cpu_ms: 2000
   max_open_connections: 4
+display_contract:
+  schema_version: 1
+  widgets:
+    - status_badge
+    - stat_card
+    - table
+    - markdown
+    - sparkline
 source:
   repo_url: https://github.com/acme/http-check
   commit: 0123456
@@ -84,6 +95,14 @@ Example schema:
 }
 ```
 
+Supported JSON Schema subset:
+
+- Root schema MUST be `type: object`.
+- Supported keywords: `type`, `title`, `description`, `default`, `enum`, `minimum`, `maximum`, `minLength`,
+  `maxLength`, `pattern`, `format`, `items`, `properties`, `required`, `additionalProperties`.
+- Supported formats: `uri`, `email`.
+- Array fields MUST define `items`.
+
 ## Result Schema (serviceradar.plugin_result.v1)
 
 Plugins submit results as JSON via the `submit_result` host function. The agent validates results and maps them to `GatewayServiceStatus`.
@@ -99,6 +118,9 @@ Common optional fields:
 - `metrics`: list of structured metrics
 - `labels`: map of label keys/values
 - `observed_at`: RFC3339 timestamp (added by agent if omitted)
+- `schema_version`: UI schema version for display instructions (default `1`)
+- `display`: list of UI widget instructions
+  - Each widget may include `layout: full|half` to control grid width in the Services UI.
 
 Example result payload:
 
@@ -112,7 +134,12 @@ Example result payload:
   ],
   "labels": {
     "target": "api.example.com"
-  }
+  },
+  "schema_version": 1,
+  "display": [
+    {"widget": "stat_card", "label": "Latency", "value": "42ms", "tone": "success"},
+    {"widget": "table", "data": {"Status": "200", "Region": "us-east-1"}, "layout": "full"}
+  ]
 }
 ```
 

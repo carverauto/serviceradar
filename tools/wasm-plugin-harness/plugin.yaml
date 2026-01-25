@@ -2,6 +2,7 @@ id: hello-wasm
 name: Hello Wasm
 version: 0.1.0
 description: TinyGo hello-world plugin for ServiceRadar
+schema_version: 1
 entrypoint: run_check
 runtime: wasi-preview1
 outputs: serviceradar.plugin_result.v1

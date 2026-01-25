@@ -5,8 +5,9 @@ use crate::{
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::service_status::dsl::{
         agent_id as col_agent_id, available as col_available, gateway_id as col_gateway_id,
-        message as col_message, partition as col_partition, service_name as col_service_name,
-        service_status, service_type as col_service_type, timestamp as col_timestamp,
+        message as col_message, partition as col_partition, service_id as col_service_id,
+        service_name as col_service_name, service_status, service_type as col_service_type,
+        timestamp as col_timestamp,
     },
     time::TimeRange,
 };
@@ -21,6 +22,7 @@ use diesel::QueryableByName;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
 type ServiceStatusTable = crate::schema::service_status::table;
 type ServiceStatusFromClause = FromClause<ServiceStatusTable>;
@@ -391,6 +393,19 @@ fn apply_filter<'a>(mut query: ServicesQuery<'a>, filter: &Filter) -> Result<Ser
         "service_name" | "name" => {
             query = apply_text_filter!(query, filter, col_service_name)?;
         }
+        "service_id" | "uid" => {
+            let value = filter.value.as_scalar()?;
+            let uuid = parse_uuid(value)?;
+            query = match filter.op {
+                FilterOp::Eq => query.filter(col_service_id.eq(uuid)),
+                FilterOp::NotEq => query.filter(col_service_id.ne(uuid)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "service_id filter only supports equality comparisons".into(),
+                    ))
+                }
+            };
+        }
         "service_type" | "type" => {
             query = apply_text_filter!(query, filter, col_service_type)?;
         }
@@ -455,6 +470,12 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
+        "service_id" | "uid" => {
+            let value = filter.value.as_scalar()?;
+            let uuid = parse_uuid(value)?;
+            params.push(BindParam::Uuid(uuid));
+            Ok(())
+        }
         "service_name" | "name" | "service_type" | "type" | "gateway_id" | "agent_id"
         | "partition" | "message" => collect_text_params(params, filter),
         "available" => {
@@ -521,6 +542,11 @@ fn parse_bool(raw: &str) -> Result<bool> {
             "invalid boolean value '{other}'"
         ))),
     }
+}
+
+fn parse_uuid(value: &str) -> Result<Uuid> {
+    Uuid::parse_str(value)
+        .map_err(|_| ServiceError::InvalidRequest("service_id must be a valid UUID".into()))
 }
 
 #[cfg(test)]

@@ -58,6 +58,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
         :outputs,
         :manifest,
         :config_schema,
+        :display_contract,
         :wasm_object_key,
         :content_hash,
         :signature,
@@ -80,6 +81,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
         :outputs,
         :manifest,
         :config_schema,
+        :display_contract,
         :wasm_object_key,
         :content_hash,
         :signature,
@@ -196,6 +198,12 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     end
 
     attribute :config_schema, :map do
+      allow_nil? false
+      public? true
+      default %{}
+    end
+
+    attribute :display_contract, :map do
       allow_nil? false
       public? true
       default %{}

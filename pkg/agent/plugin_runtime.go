@@ -683,7 +683,6 @@ type pluginAssignmentFingerprint struct {
 	TimeoutSec   int64                        `json:"timeout_sec"`
 	WasmObject   string                       `json:"wasm_object"`
 	ContentHash  string                       `json:"content_hash"`
-	DownloadURL  string                       `json:"download_url"`
 }
 
 type pluginPermissionsFingerprint struct {
@@ -774,7 +773,6 @@ func buildAssignmentFingerprint(assignment *pluginAssignment) pluginAssignmentFi
 		TimeoutSec:  int64(assignment.Timeout / time.Second),
 		WasmObject:  assignment.WasmObject,
 		ContentHash: assignment.ContentHash,
-		DownloadURL: assignment.DownloadURL,
 	}
 }
 
