@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   @max_limit 200
   @refresh_debounce_ms 750
   @active_state_window_ms :timer.minutes(15)
+  @default_query "in:services service_type:plugin time:last_1h sort:timestamp:desc"
 
   @impl true
   def mount(_params, _session, socket) do
@@ -40,6 +41,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
+    params = ensure_default_query(params)
+
     socket =
       socket
       |> SRQLPage.load_list(params, uri, :services,
@@ -131,7 +134,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
               <div class="min-w-0">
                 <div class="text-sm font-semibold">Active Service Checks</div>
                 <div class="text-xs text-base-content/70">
-                  Latest status per service (sorted with failures first).
+                  Latest plugin check per service (sorted with failures first).
                 </div>
               </div>
             </:header>
@@ -195,7 +198,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
     ~H"""
     <div class="flex items-center justify-between text-xs text-base-content/60">
-      <div>Latest status per service</div>
+      <div>Latest plugin check per service</div>
       <div :if={@last_updated}>
         Last updated {format_last_updated(@last_updated)}
       </div>
@@ -289,6 +292,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
           </div>
         </div>
       </div>
+    </div>
+
+    <div class="mt-2 text-xs text-base-content/50">
+      Showing {max(@check_count, @total)} plugin checks sampled.
     </div>
 
     """
@@ -456,8 +463,11 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp filter_service_states(states) when is_list(states) do
     Enum.reject(states, fn
-      %ServiceState{service_type: "mapper_interfaces"} -> true
-      _ -> false
+      %ServiceState{service_type: service_type} ->
+        service_type != "plugin"
+
+      _ ->
+        true
     end)
   end
 
@@ -501,7 +511,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         |> compute_state_summary()
 
       _ ->
-        compute_summary(socket.assigns.services)
+        compute_summary(filter_plugin_services(socket.assigns.services))
     end
   end
 
@@ -572,6 +582,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp refresh_services(socket) do
     params = socket.assigns.params || %{}
+    params = ensure_default_query(params)
     uri = Map.get(socket.assigns, :srql, %{}) |> Map.get(:page_path) || "/services"
 
     socket =
@@ -716,8 +727,20 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     Map.get(socket.assigns, :current_scope)
   end
 
+  defp ensure_default_query(params) when is_map(params) do
+    case Map.get(params, "q") do
+      nil -> Map.put(params, "q", @default_query)
+      "" -> Map.put(params, "q", @default_query)
+      value when is_binary(value) -> params
+      _ -> Map.put(params, "q", @default_query)
+    end
+  end
+
+  defp ensure_default_query(params), do: %{"q" => @default_query}
+
   defp build_service_cards(services, scope) when is_list(services) do
     services
+    |> filter_plugin_services()
     |> dedupe_services()
     |> Enum.sort_by(&service_sort_key/1)
     |> Enum.map(&build_service_card(&1, scope))
@@ -848,6 +871,14 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp service_summary(service, details) do
     Map.get(details, "summary") || Map.get(service, "message")
   end
+
+  defp filter_plugin_services(services) when is_list(services) do
+    Enum.filter(services, fn svc ->
+      service_type_value(svc) == "plugin"
+    end)
+  end
+
+  defp filter_plugin_services(_), do: []
 
   defp render_compact_widget(%{"widget" => "stat_card"} = data) do
     label = Map.get(data, "label") || "Value"

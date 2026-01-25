@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias Phoenix.LiveView.JS
 
   @default_limit 200
 
@@ -113,6 +114,14 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
               <.plugin_results display={@display} />
             </div>
+          </.ui_panel>
+
+          <.ui_panel>
+            <:header>
+              <div class="text-sm font-semibold">Service Check History</div>
+            </:header>
+
+            <.service_history_table services={@services} />
           </.ui_panel>
         </div>
       </div>
@@ -340,5 +349,121 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
       "" -> "—"
       value -> value
     end
+  end
+
+  attr :services, :list, default: []
+
+  defp service_history_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <table class="table table-sm table-zebra w-full">
+        <thead>
+          <tr>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Time
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
+              Status
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              Message
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={@services == []}>
+            <td colspan="3" class="text-sm text-base-content/60 py-6 text-center">
+              No service checks found.
+            </td>
+          </tr>
+
+          <%= for {svc, idx} <- Enum.with_index(@services) do %>
+            <% path = service_details_path(svc) %>
+            <tr
+              id={"service-history-row-#{idx}"}
+              class="hover:bg-base-200/40 cursor-pointer"
+              phx-click={JS.navigate(path)}
+            >
+              <td class="whitespace-nowrap text-xs font-mono">
+                {format_timestamp(svc)}
+              </td>
+              <td class="whitespace-nowrap text-xs">
+                <.status_badge available={Map.get(svc, "available")} />
+              </td>
+              <td class="text-xs truncate max-w-[32rem]" title={Map.get(svc, "message")}>
+                {Map.get(svc, "message") || "—"}
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr :available, :any, default: nil
+
+  defp status_badge(assigns) do
+    available = normalize_available(assigns.available)
+
+    {label, variant} =
+      case available do
+        true -> {"OK", "success"}
+        false -> {"FAIL", "error"}
+        _ -> {"—", "ghost"}
+      end
+
+    assigns = assign(assigns, :label, label) |> assign(:variant, variant)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  defp normalize_available(true), do: true
+  defp normalize_available(false), do: false
+  defp normalize_available(1), do: true
+  defp normalize_available(0), do: false
+
+  defp normalize_available(value) when is_binary(value) do
+    case String.trim(String.downcase(value)) do
+      "true" -> true
+      "t" -> true
+      "1" -> true
+      "false" -> false
+      "f" -> false
+      "0" -> false
+      _ -> nil
+    end
+  end
+
+  defp normalize_available(_), do: nil
+
+  defp format_timestamp(svc) do
+    ts = Map.get(svc, "timestamp")
+
+    case parse_datetime(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      _ -> ts || "—"
+    end
+  end
+
+  defp service_details_path(svc) do
+    ~p"/services/check?#{service_details_params(svc)}"
+  end
+
+  defp service_details_params(%{} = svc) do
+    params = %{
+      "timestamp" => Map.get(svc, "timestamp"),
+      "service_name" => service_name_value(svc),
+      "service_type" => service_type_value(svc),
+      "gateway_id" => Map.get(svc, "gateway_id"),
+      "agent_id" => Map.get(svc, "agent_id"),
+      "partition" => Map.get(svc, "partition")
+    }
+
+    params
+    |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+    |> Map.new()
   end
 end
