@@ -433,8 +433,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
               <td class="whitespace-nowrap text-xs">
                 <.status_badge available={Map.get(svc, "available")} />
               </td>
-              <td class="text-xs truncate max-w-[32rem]" title={Map.get(svc, "message")}>
-                {Map.get(svc, "message") || "—"}
+              <td class="text-xs truncate max-w-[32rem]" title={history_message(svc)}>
+                {history_message(svc)}
               </td>
             </tr>
           <% end %>
@@ -490,6 +490,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
       _ -> ts || "—"
     end
   end
+
+  defp history_message(%{} = svc) do
+    details = parse_service_details(svc)
+    service_summary(svc, details) || Map.get(svc, "message") || "—"
+  end
+
+  defp history_message(_), do: "—"
 
   defp service_details_path(svc) do
     ~p"/services/check?#{service_details_params(svc)}"
@@ -558,6 +565,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   end
 
   defp load_history(socket, query, uri, params) do
+    prev_history = socket.assigns.history
     srql_params = %{"q" => query, "limit" => Integer.to_string(@default_limit)}
 
     socket =
@@ -568,6 +576,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
       )
 
     history = socket.assigns.history
+    srql_error = get_in(socket.assigns, [:srql, :error])
+
+    history =
+      if srql_error && prev_history != [] do
+        prev_history
+      else
+        history
+      end
+
     history = maybe_expand_history(history, params, socket.assigns.current_scope)
 
     assign(socket, :history, history)
@@ -597,7 +614,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     primary
     |> Enum.concat(fallback)
     |> Enum.uniq_by(&history_key/1)
-    |> Enum.sort_by(&history_sort_key/1, {:desc, DateTime})
+    |> Enum.sort_by(&history_sort_key/1, :desc)
     |> Enum.take(@default_limit)
   end
 
@@ -611,8 +628,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   defp history_sort_key(%{} = svc) do
     case parse_datetime(Map.get(svc, "timestamp")) do
-      {:ok, dt} -> dt
-      _ -> DateTime.from_unix!(0)
+      {:ok, dt} -> DateTime.to_unix(dt, :microsecond)
+      _ -> 0
     end
   end
 
@@ -664,11 +681,14 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   end
 
   defp normalize_status_map(status) when is_map(status) do
-    status
-    |> Enum.reduce(%{}, fn {key, value}, acc ->
-      string_key = if is_atom(key), do: Atom.to_string(key), else: to_string(key)
-      Map.put(acc, string_key, normalize_status_value(value))
-    end)
+    map =
+      status
+      |> Enum.reduce(%{}, fn {key, value}, acc ->
+        string_key = if is_atom(key), do: Atom.to_string(key), else: to_string(key)
+        Map.put(acc, string_key, normalize_status_value(value))
+      end)
+
+    Map.put(map, "message", normalize_status_message(map))
   end
 
   defp normalize_status_map(status), do: %{"message" => to_string(status)}
@@ -676,6 +696,17 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   defp normalize_status_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp normalize_status_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
   defp normalize_status_value(value), do: value
+
+  defp normalize_status_message(map) when is_map(map) do
+    message = Map.get(map, "message")
+    summary = Map.get(map, "summary") || Map.get(map, "status")
+
+    cond do
+      is_binary(message) and message != "" -> message
+      is_binary(summary) and summary != "" -> summary
+      true -> "—"
+    end
+  end
 
   defp matches_current_service?(_status, nil), do: false
 
