@@ -523,6 +523,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          socket
          |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
          |> assign(:assignment_form, default_assignment_form())
+         |> assign(:show_details_modal, false)
          |> put_flash(:info, "Assignment created")}
 
       {:error, {:invalid_json, message}} ->
@@ -545,6 +546,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          socket
          |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
          |> assign(:assignment_form, default_assignment_form())
+         |> assign(:show_details_modal, false)
          |> put_flash(:info, "Assignment updated")}
 
       {:error, {:invalid_json, message}} ->
