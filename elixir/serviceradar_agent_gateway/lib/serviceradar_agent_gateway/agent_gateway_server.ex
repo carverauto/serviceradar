@@ -981,6 +981,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+
   defp find_nodes_with_process(nodes, process_name) do
     Enum.filter(nodes, fn node ->
       case :rpc.call(node, Process, :whereis, [process_name], 5_000) do

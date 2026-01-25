@@ -42,6 +42,7 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+	"github.com/tetratelabs/wazero/sys"
 )
 
 const (
@@ -807,7 +808,16 @@ func (m *PluginManager) execute(ctx context.Context, assignment *pluginAssignmen
 	}
 
 	if _, err := entrypoint.Call(ctx); err != nil {
-		return fmt.Errorf("entrypoint failed: %w", err)
+		if isExitCodeZero(err) {
+			// Treat a zero exit code as a clean completion (WASI proc_exit(0)).
+		} else if exec.hasSubmitted() {
+			m.logger.Warn().
+				Err(err).
+				Str("assignment_id", assignment.AssignmentID).
+				Msg("Plugin exited after submitting result")
+		} else {
+			return fmt.Errorf("entrypoint failed: %w", err)
+		}
 	}
 
 	if !exec.hasSubmitted() {
@@ -817,6 +827,14 @@ func (m *PluginManager) execute(ctx context.Context, assignment *pluginAssignmen
 	exec.closeAll()
 
 	return nil
+}
+
+func isExitCodeZero(err error) bool {
+	var exitErr *sys.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode() == 0
+	}
+	return false
 }
 
 func memoryPages(requestedMB int) uint32 {
