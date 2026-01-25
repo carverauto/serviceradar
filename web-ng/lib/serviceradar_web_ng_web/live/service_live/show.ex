@@ -480,17 +480,28 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   defp service_details_params(%{} = svc) do
     params = %{
-      "service_id" => Map.get(svc, "service_id") || Map.get(svc, "uid"),
-      "timestamp" => Map.get(svc, "timestamp"),
-      "service_name" => service_name_value(svc),
-      "service_type" => service_type_value(svc),
-      "gateway_id" => Map.get(svc, "gateway_id"),
-      "agent_id" => Map.get(svc, "agent_id"),
-      "partition" => Map.get(svc, "partition")
+      "service_id" => safe_param_value(Map.get(svc, "service_id") || Map.get(svc, "uid")),
+      "timestamp" => safe_param_value(Map.get(svc, "timestamp")),
+      "service_name" => safe_param_value(service_name_value(svc)),
+      "service_type" => safe_param_value(service_type_value(svc)),
+      "gateway_id" => safe_param_value(Map.get(svc, "gateway_id")),
+      "agent_id" => safe_param_value(Map.get(svc, "agent_id")),
+      "partition" => safe_param_value(Map.get(svc, "partition"))
     }
 
     params
     |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
     |> Map.new()
   end
+
+  defp safe_param_value(nil), do: nil
+
+  defp safe_param_value(value) when is_binary(value) do
+    if String.valid?(value), do: value, else: nil
+  end
+
+  defp safe_param_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp safe_param_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp safe_param_value(value) when is_integer(value) or is_float(value), do: to_string(value)
+  defp safe_param_value(value), do: value |> to_string() |> safe_param_value()
 end
