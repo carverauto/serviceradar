@@ -27,7 +27,7 @@ ServiceRadar is a distributed network monitoring system designed for infrastruct
 - **Graph Network Mapper**: Discovery engine that maps interfaces and topology relationships via SNMP/LLDP/CDP.
 - **Security**: Hardened with mTLS ([SPIFFE/spire](http://spiffe.io/)), RBAC, and SSO integration.
 
-## Wasm-Based Extensibility
+## WASM-Based Extensibility
 
 ServiceRadar replaces traditional "script-and-shell" plugins with a modern WebAssembly runtime. This provides a generation leap in security and portability:
 
