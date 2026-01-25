@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,9 +99,9 @@ type PluginManager struct {
 	runners map[string]*pluginRunner
 	results chan PluginResult
 
-	stateMu   sync.Mutex
-	states    map[string]*assignmentState
-	stateNow  func() time.Time
+	stateMu  sync.Mutex
+	states   map[string]*assignmentState
+	stateNow func() time.Time
 
 	limitsMu         sync.Mutex
 	limits           pluginEngineLimits
@@ -109,6 +110,9 @@ type PluginManager struct {
 
 	statsMu sync.Mutex
 	stats   pluginEngineStats
+
+	configMu      sync.Mutex
+	lastConfigSHA string
 }
 
 type assignmentState struct {
@@ -240,6 +244,12 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 		}
 	}
 
+	configHash := buildPluginConfigHash(limits, assignments)
+	if m.configUnchanged(configHash) {
+		m.logger.Debug().Str("config_hash", configHash).Msg("Plugin config unchanged; skipping apply")
+		return
+	}
+
 	admitted, rejected, usage := m.admitAssignments(assignments, limits)
 	m.updateConfigStats(len(assignments), len(admitted), len(rejected), usage)
 
@@ -266,6 +276,8 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 		runner.start(m.ctx)
 		m.prefetchAssignment(assignment)
 	}
+
+	m.setConfigHash(configHash)
 }
 
 func (m *PluginManager) setLimits(limits pluginEngineLimits) {
@@ -328,6 +340,18 @@ func (m *PluginManager) updateConfigStats(total, admitted, rejected int, usage e
 	m.stats.requestedCPUMS = usage.cpuMS
 	m.stats.requestedConnections = usage.connections
 	m.stats.lastConfigAt = time.Now().UTC()
+}
+
+func (m *PluginManager) configUnchanged(hash string) bool {
+	m.configMu.Lock()
+	defer m.configMu.Unlock()
+	return m.lastConfigSHA != "" && m.lastConfigSHA == hash
+}
+
+func (m *PluginManager) setConfigHash(hash string) {
+	m.configMu.Lock()
+	defer m.configMu.Unlock()
+	m.lastConfigSHA = hash
 }
 
 func (m *PluginManager) recordExecution(success bool) {
@@ -637,6 +661,37 @@ type pluginEngineLimits struct {
 	MaxOpenConnections int
 }
 
+type pluginConfigFingerprint struct {
+	Limits      pluginEngineLimits            `json:"limits"`
+	Assignments []pluginAssignmentFingerprint `json:"assignments"`
+}
+
+type pluginAssignmentFingerprint struct {
+	AssignmentID string                       `json:"assignment_id"`
+	PluginID     string                       `json:"plugin_id"`
+	PackageID    string                       `json:"package_id"`
+	Version      string                       `json:"version"`
+	Name         string                       `json:"name"`
+	Entrypoint   string                       `json:"entrypoint"`
+	Runtime      string                       `json:"runtime"`
+	Outputs      string                       `json:"outputs"`
+	Capabilities []string                     `json:"capabilities"`
+	ParamsBase64 string                       `json:"params_base64"`
+	Permissions  pluginPermissionsFingerprint `json:"permissions"`
+	Resources    pluginResources              `json:"resources"`
+	IntervalSec  int64                        `json:"interval_sec"`
+	TimeoutSec   int64                        `json:"timeout_sec"`
+	WasmObject   string                       `json:"wasm_object"`
+	ContentHash  string                       `json:"content_hash"`
+	DownloadURL  string                       `json:"download_url"`
+}
+
+type pluginPermissionsFingerprint struct {
+	AllowedDomains  []string `json:"allowed_domains"`
+	AllowedNetworks []string `json:"allowed_networks"`
+	AllowedPorts    []int    `json:"allowed_ports"`
+}
+
 func engineLimitsFromProto(cfg *proto.PluginConfig) pluginEngineLimits {
 	if cfg == nil || cfg.EngineLimits == nil {
 		return pluginEngineLimits{}
@@ -648,6 +703,78 @@ func engineLimitsFromProto(cfg *proto.PluginConfig) pluginEngineLimits {
 		MaxCPUMS:           int(limits.MaxCpuMs),
 		MaxConcurrent:      int(limits.MaxConcurrent),
 		MaxOpenConnections: int(limits.MaxOpenConnections),
+	}
+}
+
+func buildPluginConfigHash(limits pluginEngineLimits, assignments []*pluginAssignment) string {
+	fingerprint := pluginConfigFingerprint{
+		Limits:      limits,
+		Assignments: make([]pluginAssignmentFingerprint, 0, len(assignments)),
+	}
+
+	for _, assignment := range assignments {
+		if assignment == nil {
+			continue
+		}
+		fingerprint.Assignments = append(
+			fingerprint.Assignments,
+			buildAssignmentFingerprint(assignment),
+		)
+	}
+
+	sort.Slice(fingerprint.Assignments, func(i, j int) bool {
+		return fingerprint.Assignments[i].AssignmentID < fingerprint.Assignments[j].AssignmentID
+	})
+
+	data, err := json.Marshal(fingerprint)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func buildAssignmentFingerprint(assignment *pluginAssignment) pluginAssignmentFingerprint {
+	capabilities := make([]string, 0, len(assignment.Capabilities))
+	for cap := range assignment.Capabilities {
+		capabilities = append(capabilities, cap)
+	}
+	sort.Strings(capabilities)
+
+	allowedDomains := append([]string(nil), assignment.Permissions.AllowedDomains...)
+	allowedNetworks := append([]string(nil), assignment.Permissions.AllowedNetworks...)
+	allowedPorts := append([]int(nil), assignment.Permissions.AllowedPorts...)
+	sort.Strings(allowedDomains)
+	sort.Strings(allowedNetworks)
+	sort.Ints(allowedPorts)
+
+	params := ""
+	if len(assignment.ParamsJSON) > 0 {
+		params = base64.StdEncoding.EncodeToString(assignment.ParamsJSON)
+	}
+
+	return pluginAssignmentFingerprint{
+		AssignmentID: assignment.AssignmentID,
+		PluginID:     assignment.PluginID,
+		PackageID:    assignment.PackageID,
+		Version:      assignment.Version,
+		Name:         assignment.Name,
+		Entrypoint:   assignment.Entrypoint,
+		Runtime:      assignment.Runtime,
+		Outputs:      assignment.Outputs,
+		Capabilities: capabilities,
+		ParamsBase64: params,
+		Permissions: pluginPermissionsFingerprint{
+			AllowedDomains:  allowedDomains,
+			AllowedNetworks: allowedNetworks,
+			AllowedPorts:    allowedPorts,
+		},
+		Resources:   assignment.Resources,
+		IntervalSec: int64(assignment.Interval / time.Second),
+		TimeoutSec:  int64(assignment.Timeout / time.Second),
+		WasmObject:  assignment.WasmObject,
+		ContentHash: assignment.ContentHash,
+		DownloadURL: assignment.DownloadURL,
 	}
 }
 
