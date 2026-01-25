@@ -15,7 +15,7 @@ The web UI SHALL render plugin configuration forms from the stored `config_schem
 - **THEN** the UI renders input fields that match the schema definition and required fields
 
 ### Requirement: Schema validation on save
-The system SHALL validate submitted configuration values against the `config_schema` and reject invalid inputs with field-level errors.
+The system SHALL validate submitted configuration values against the `config_schema` in the Ash layer and reject invalid inputs with field-level errors.
 
 #### Scenario: Invalid input rejected
 - **WHEN** a user submits configuration values that violate the schema

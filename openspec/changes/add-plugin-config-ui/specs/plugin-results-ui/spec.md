@@ -1,11 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: Plugin result display contract
-The system SHALL accept a plugin-defined display contract that describes how to render plugin check results in the Services UI.
+The system SHALL accept a plugin-defined display contract (declared on the plugin package/version) that describes the supported result widgets and their schema version.
 
 #### Scenario: Display contract stored
 - **WHEN** a plugin package version includes a display contract
 - **THEN** the contract is stored and retrievable with that package version
+
+### Requirement: Runtime result instructions
+The system SHALL accept plugin result payloads that include runtime display instructions with data for supported widgets.
+
+#### Scenario: Dynamic widget instructions
+- **WHEN** a plugin result payload includes display instructions
+- **THEN** the Services UI renders widgets based on those instructions using the stored display contract and schema version
 
 ### Requirement: Widget instruction rendering
 The Services UI SHALL render plugin results using a registry of supported widgets driven by plugin-provided display instructions, without executing plugin-supplied HTML or JavaScript.

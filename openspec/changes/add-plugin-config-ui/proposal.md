@@ -9,6 +9,7 @@ Plugin packages need a first-class, UI-driven configuration experience so operat
 - Validate configuration values against the schema on save and surface errors in the UI.
 - Support a documented subset of JSON Schema keywords for stable, predictable UI generation.
 - Render custom result views for plugin checks on the Services page using a plugin-defined display contract.
+- Version the plugin UI schema/display contract to allow future evolution.
 
 ## Impact
 - Affected specs: plugin-configuration-ui (new), plugin-results-ui (new), build-web-ui
