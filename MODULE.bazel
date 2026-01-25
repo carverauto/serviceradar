@@ -409,6 +409,7 @@ use_repo(
     "com_github_spiffe_spire_api_sdk",
     "com_github_stretchr_testify",
     "com_github_swaggo_swag",
+    "com_github_tetratelabs_wazero",
     "io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc",
     "io_opentelemetry_go_otel",
     "io_opentelemetry_go_otel_exporters_otlp_otlplog_otlploggrpc",

@@ -23,7 +23,8 @@ config :serviceradar_core,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.DuskProfiles
+    ServiceRadar.DuskProfiles,
+    ServiceRadar.Plugins
   ]
 
 # Mailer configuration
@@ -106,6 +107,12 @@ config :serviceradar_core, Oban,
 # Cluster configuration (disabled by default)
 config :serviceradar_core,
   cluster_enabled: false
+
+# Plugin blob storage download configuration (used to generate signed download URLs)
+config :serviceradar_core, :plugin_storage,
+  public_url: nil,
+  signing_secret: nil,
+  download_ttl_seconds: 86_400
 
 config :serviceradar_core,
   run_startup_migrations: false

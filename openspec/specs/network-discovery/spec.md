@@ -32,16 +32,11 @@ The system SHALL provide a Settings → Networks → Discovery UI for managing m
 Discovery credentials (SNMP and API) MUST be stored using AshCloak encryption in CNPG and MUST be redacted in UI-facing responses.
 
 #### Scenario: Save SNMP credentials
-- **GIVEN** an admin enters SNMP credentials for a discovery job
+- **GIVEN** an admin configures SNMP discovery for a job
 - **WHEN** the job is saved
-- **THEN** the credentials SHALL be encrypted at rest via AshCloak
+- **THEN** SNMP credentials SHALL be sourced from SNMP profiles or per-device overrides (not stored on the job)
+- **AND** any stored credentials (profile/device) SHALL be encrypted at rest via AshCloak
 - **AND** API responses to the UI SHALL redact sensitive fields
-
-#### Scenario: Edit job without clobbering secrets
-- **GIVEN** an existing job with stored secrets
-- **WHEN** the admin edits non-secret fields and saves
-- **THEN** the existing secrets SHALL remain intact
-- **AND** redacted placeholders SHALL not overwrite stored values
 
 ### Requirement: Ubiquiti API discovery settings
 The system SHALL support Ubiquiti discovery settings as part of mapper discovery jobs.
@@ -63,8 +58,8 @@ Discovery jobs SHALL capture the minimum fields required for mapper execution, i
   - `interval`
   - `seeds`
   - `discovery_mode` (SNMP or API)
-  - `credentials` (references to stored secrets)
   - `assignment` (agent or partition)
+- **AND** SNMP credentials SHALL NOT be stored on the job record
 
 ### Requirement: Mapper topology ingestion and graph projection
 The system SHALL ingest mapper-discovered interfaces and topology links into CNPG and project them into an Apache AGE graph that models device/interface relationships.
@@ -79,4 +74,41 @@ The system SHALL ingest mapper-discovered interfaces and topology links into CNP
 - **WHEN** the results are ingested
 - **THEN** the AGE graph SHALL upsert nodes and edges representing device-to-device connectivity
 - **AND** repeated ingestion SHALL be idempotent (no duplicate edges)
+
+### Requirement: Mapper interface count accuracy
+Mapper interface results MUST report the count of unique interfaces after applying canonicalization and de-duplication rules.
+
+#### Scenario: De-duplicated interface count in results
+- **GIVEN** mapper discovery emits duplicate interface updates for the same device/interface key
+- **WHEN** the agent streams mapper interface results to the gateway
+- **THEN** the reported interface count SHALL equal the number of unique interfaces in the payload
+- **AND** duplicate interface updates SHALL not inflate the count
+
+### Requirement: Mapper interface de-duplication and merging
+Mapper discovery MUST consolidate interface updates to a unique interface key before publishing results, merging attributes from multiple discovery sources (SNMP/API) into a single interface record.
+
+#### Scenario: Duplicate interface from SNMP and API
+- **GIVEN** the same device/interface is discovered by both SNMP and API in a single job
+- **WHEN** mapper interface results are published
+- **THEN** the mapper SHALL emit a single interface record per unique interface key
+- **AND** the record SHALL include merged attributes from both sources
+
+#### Scenario: Repeated discovery on the same target
+- **GIVEN** a job scans the same device via multiple seed targets
+- **WHEN** mapper interface results are published
+- **THEN** duplicate interface updates SHALL be coalesced
+- **AND** interface counts SHALL reflect unique interfaces only
+
+### Requirement: Discovery credential resolution via profiles
+Mapper discovery MUST resolve SNMP credentials via SNMP profiles and per-device overrides using the shared credential resolution rules.
+
+#### Scenario: Discovery uses profile credentials
+- **GIVEN** a device matched by an SNMP profile target_query
+- **WHEN** a mapper discovery job runs against that device
+- **THEN** the job SHALL use the profile credentials for SNMP access
+
+#### Scenario: Discovery uses device overrides
+- **GIVEN** a device with a per-device SNMP credential override
+- **WHEN** a mapper discovery job runs against that device
+- **THEN** the device override SHALL take precedence over profile credentials
 

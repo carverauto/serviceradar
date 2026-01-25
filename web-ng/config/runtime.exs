@@ -38,6 +38,172 @@ if api_keys do
   end
 end
 
+plugin_storage_defaults = Application.get_env(:serviceradar_web_ng, :plugin_storage, [])
+plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
+plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")
+plugin_storage_bucket = System.get_env("PLUGIN_STORAGE_BUCKET")
+plugin_storage_signing_secret = System.get_env("PLUGIN_STORAGE_SIGNING_SECRET")
+plugin_verification_defaults = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
+
+to_int = fn value ->
+  cond do
+    is_integer(value) ->
+      value
+
+    is_binary(value) ->
+      case Integer.parse(String.trim(value)) do
+        {parsed, ""} -> parsed
+        _ -> nil
+      end
+
+    true ->
+      nil
+  end
+end
+
+to_bool = fn value ->
+  cond do
+    is_boolean(value) ->
+      value
+
+    is_binary(value) ->
+      case String.downcase(String.trim(value)) do
+        "true" -> true
+        "1" -> true
+        "yes" -> true
+        "false" -> false
+        "0" -> false
+        "no" -> false
+        _ -> nil
+      end
+
+    true ->
+      nil
+  end
+end
+
+normalize_plugin_backend = fn value ->
+  cond do
+    is_atom(value) ->
+      value
+
+    is_binary(value) ->
+      case String.downcase(String.trim(value)) do
+        "jetstream" -> :jetstream
+        "filesystem" -> :filesystem
+        _ -> :filesystem
+      end
+
+    true ->
+      :filesystem
+  end
+end
+
+normalize_js_storage = fn value ->
+  cond do
+    is_atom(value) ->
+      value
+
+    is_binary(value) ->
+      case String.downcase(String.trim(value)) do
+        "memory" -> :memory
+        "file" -> :file
+        _ -> :file
+      end
+
+    true ->
+      :file
+  end
+end
+
+maybe_put_env = fn acc, key, value, transform ->
+  cond do
+    is_nil(value) ->
+      acc
+
+    value == "" ->
+      acc
+
+    true ->
+      case transform.(value) do
+        nil -> acc
+        result -> Keyword.put(acc, key, result)
+      end
+  end
+end
+
+maybe_put_env_simple = fn acc, key, value ->
+  cond do
+    is_nil(value) -> acc
+    value == "" -> acc
+    true -> Keyword.put(acc, key, value)
+  end
+end
+
+plugin_storage_overrides =
+  []
+  |> maybe_put_env.(:backend, plugin_storage_backend, normalize_plugin_backend)
+  |> maybe_put_env_simple.(:base_path, plugin_storage_path)
+  |> maybe_put_env.(
+    :upload_ttl_seconds,
+    System.get_env("PLUGIN_STORAGE_UPLOAD_TTL_SECONDS"),
+    to_int
+  )
+  |> maybe_put_env.(
+    :download_ttl_seconds,
+    System.get_env("PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS"),
+    to_int
+  )
+  |> maybe_put_env.(:max_upload_bytes, System.get_env("PLUGIN_STORAGE_MAX_UPLOAD_BYTES"), to_int)
+  |> maybe_put_env_simple.(:jetstream_bucket, plugin_storage_bucket)
+  |> maybe_put_env.(
+    :jetstream_max_bucket_size,
+    System.get_env("PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES"),
+    to_int
+  )
+  |> maybe_put_env.(
+    :jetstream_max_chunk_size,
+    System.get_env("PLUGIN_STORAGE_JS_MAX_CHUNK_BYTES"),
+    to_int
+  )
+  |> maybe_put_env.(:jetstream_replicas, System.get_env("PLUGIN_STORAGE_JS_REPLICAS"), to_int)
+  |> maybe_put_env.(
+    :jetstream_storage,
+    System.get_env("PLUGIN_STORAGE_JS_STORAGE"),
+    normalize_js_storage
+  )
+  |> maybe_put_env.(
+    :jetstream_ttl_seconds,
+    System.get_env("PLUGIN_STORAGE_JS_TTL_SECONDS"),
+    to_int
+  )
+  |> maybe_put_env_simple.(:signing_secret, plugin_storage_signing_secret)
+
+if plugin_storage_overrides != [] do
+  config :serviceradar_web_ng,
+         :plugin_storage,
+         Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
+end
+
+plugin_verification_overrides =
+  []
+  |> maybe_put_env.(
+    :require_gpg_for_github,
+    System.get_env("PLUGIN_REQUIRE_GPG_FOR_GITHUB"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :allow_unsigned_uploads,
+    System.get_env("PLUGIN_ALLOW_UNSIGNED_UPLOADS"),
+    to_bool
+  )
+
+if plugin_verification_overrides != [] do
+  config :serviceradar_web_ng,
+         :plugin_verification,
+         Keyword.merge(plugin_verification_defaults, plugin_verification_overrides)
+end
+
 # libcluster configuration for ERTS cluster formation
 # Strategy selection: kubernetes, epmd, dns, or gossip (future)
 cluster_strategy = System.get_env("CLUSTER_STRATEGY", "epmd")

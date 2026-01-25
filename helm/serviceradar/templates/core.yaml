@@ -7,6 +7,8 @@
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $webNg := default (dict) .Values.webNg -}}
+{{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
 {{- $coreClusterSelector := default "app=serviceradar-core" $coreVals.kubernetesSelector -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $database := default (dict) $coreVals.database -}}
@@ -130,6 +132,19 @@ spec:
           value: {{ default 2 $syncIngestor.maxInflight | quote }}
         - name: SYNC_INGESTOR_QUEUE_MAX_CHUNKS
           value: {{ default 10 $syncIngestor.queueMaxChunks | quote }}
+        - name: PLUGIN_STORAGE_SIGNING_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: plugin-storage-signing-secret
+        {{- if $webNgPublicUrl }}
+        - name: PLUGIN_STORAGE_PUBLIC_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
+        {{- if $pluginStorage.downloadTtlSeconds }}
+        - name: PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS
+          value: {{ $pluginStorage.downloadTtlSeconds | quote }}
+        {{- end }}
         - name: SYNC_INGESTOR_ASYNC
           value: {{ default true $syncIngestor.async | quote }}
         - name: CNPG_HOST

@@ -1,9 +1,11 @@
 ---
-sidebar_position: 7
-title: Creating a Custom Checker Plugin
+sidebar_position: 9
+title: Custom Checkers (gRPC)
 ---
 
-# Building Custom Checkers
+# Building Custom Checkers (gRPC)
+
+ServiceRadar now supports Wasm plugin checkers for most custom integrations. If you are building a new checker, start with [Wasm Plugin Checkers](./wasm-plugins.md). The gRPC approach below remains supported for legacy or long-running collectors.
 
 ServiceRadar treats checkers as independent gRPC services that hang off an
 agent. The gateway asks the agent for status, the agent proxies the request to

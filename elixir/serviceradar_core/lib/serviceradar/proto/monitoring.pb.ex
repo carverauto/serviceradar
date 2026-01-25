@@ -342,6 +342,55 @@ defmodule Monitoring.AgentConfigResponse do
   field :sysmon_config, 8, type: Monitoring.SysmonConfig, json_name: "sysmonConfig"
   field :snmp_config, 9, type: Monitoring.SNMPConfig, json_name: "snmpConfig"
   field :dusk_config, 10, type: Monitoring.DuskConfig, json_name: "duskConfig"
+  field :plugin_config, 11, type: Monitoring.PluginConfig, json_name: "pluginConfig"
+end
+
+defmodule Monitoring.PluginConfig do
+  @moduledoc false
+
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+
+  field :assignments, 1, repeated: true, type: Monitoring.PluginAssignmentConfig
+  field :engine_limits, 2, type: Monitoring.PluginEngineLimits, json_name: "engineLimits"
+end
+
+defmodule Monitoring.PluginEngineLimits do
+  @moduledoc false
+
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+
+  field :max_memory_mb, 1, type: :int32, json_name: "maxMemoryMb"
+  field :max_cpu_ms, 2, type: :int32, json_name: "maxCpuMs"
+  field :max_concurrent, 3, type: :int32, json_name: "maxConcurrent"
+  field :max_open_connections, 4, type: :int32, json_name: "maxOpenConnections"
+end
+
+defmodule Monitoring.PluginAssignmentConfig do
+  @moduledoc false
+
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+
+  field :assignment_id, 1, type: :string, json_name: "assignmentId"
+  field :plugin_id, 2, type: :string, json_name: "pluginId"
+  field :package_id, 3, type: :string, json_name: "packageId"
+  field :version, 4, type: :string
+  field :name, 5, type: :string
+  field :entrypoint, 6, type: :string
+  field :runtime, 7, type: :string
+  field :outputs, 8, type: :string
+  field :capabilities, 9, repeated: true, type: :string
+  field :params_json, 10, type: :bytes, json_name: "paramsJson"
+  field :permissions_json, 11, type: :bytes, json_name: "permissionsJson"
+  field :resources_json, 12, type: :bytes, json_name: "resourcesJson"
+  field :enabled, 13, type: :bool
+  field :interval_sec, 14, type: :int32, json_name: "intervalSec"
+  field :timeout_sec, 15, type: :int32, json_name: "timeoutSec"
+  field :wasm_object_key, 16, type: :string, json_name: "wasmObjectKey"
+  field :content_hash, 17, type: :string, json_name: "contentHash"
+  field :source_type, 18, type: :string, json_name: "sourceType"
+  field :source_repo_url, 19, type: :string, json_name: "sourceRepoUrl"
+  field :source_commit, 20, type: :string, json_name: "sourceCommit"
+  field :download_url, 21, type: :string, json_name: "downloadUrl"
 end
 
 defmodule Monitoring.SysmonConfig.ThresholdsEntry do

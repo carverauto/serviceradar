@@ -46,7 +46,8 @@ config :serviceradar_web_ng,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.DuskProfiles
+    ServiceRadar.DuskProfiles,
+    ServiceRadar.Plugins
   ]
 
 # Also register domains for serviceradar_core OTP app (domains are defined there)
@@ -65,7 +66,8 @@ config :serviceradar_core,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.DuskProfiles
+    ServiceRadar.DuskProfiles,
+    ServiceRadar.Plugins
   ]
 
 # Ash configuration
@@ -82,6 +84,20 @@ config :ash_postgres,
   manage_migrations?: true
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
+
+config :serviceradar_web_ng, :plugin_storage,
+  backend: :filesystem,
+  base_path: "/var/lib/serviceradar/plugin-packages",
+  upload_ttl_seconds: 900,
+  download_ttl_seconds: 900,
+  max_upload_bytes: 52_428_800,
+  jetstream_bucket: "serviceradar_plugins",
+  jetstream_replicas: 1,
+  jetstream_storage: :file
+
+config :serviceradar_web_ng, :plugin_verification,
+  require_gpg_for_github: false,
+  allow_unsigned_uploads: true
 
 # Oban job processing configuration
 # web-ng only processes jobs, it does NOT schedule them

@@ -13,6 +13,14 @@ image:
 agentGateway:
   enabled: true
 
+agent:
+  checkersStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/checkers"
+    existingClaim: ""
+    size: 2Gi
+    storageClassName: ""
+
 ingress:
   enabled: true
   host: staging.serviceradar.cloud
@@ -25,6 +33,14 @@ ingress:
 webNg:
   devRoutes: "true"
   localMailer: "true"
+  publicUrl: "https://staging.serviceradar.cloud"
+  pluginStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/plugin-packages"
+    existingClaim: ""
+    size: 10Gi
+    storageClassName: ""
+    downloadTtlSeconds: 86400
 
 faker:
   simulation:

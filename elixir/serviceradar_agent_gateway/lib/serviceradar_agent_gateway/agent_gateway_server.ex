@@ -193,6 +193,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         # Convert checks to proto format
         proto_checks = ServiceRadar.Edge.AgentConfigGenerator.to_proto_checks(config.checks)
 
+        proto_plugins =
+          ServiceRadar.Edge.AgentConfigGenerator.to_proto_plugin_config(
+            config.plugins || [],
+            Map.get(config, :plugin_engine_limits, %{})
+          )
+
         config_json = Map.get(config, :config_json, <<>>)
 
         %Monitoring.AgentConfigResponse{
@@ -205,7 +211,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           config_json: config_json,
           sysmon_config: Map.get(config, :sysmon_config),
           snmp_config: Map.get(config, :snmp_config),
-          dusk_config: Map.get(config, :dusk_config)
+          dusk_config: Map.get(config, :dusk_config),
+          plugin_config: proto_plugins
         }
 
       {:ok, {:error, reason}} ->
@@ -345,11 +352,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     identity = extract_identity_from_stream(stream)
     peer_ip = get_peer_ip(stream)
 
-    {total_services, saw_final?, _stream_agent_id, _expected_idx, _pinned_total_chunks, _registered?} =
+    {total_services, saw_final?, _stream_agent_id, _expected_idx, _pinned_total_chunks,
+     _registered?} =
       Enum.reduce_while(request_stream, {0, false, nil, 0, nil, false}, fn chunk,
-                                                                        {acc, _saw_final?, stream_agent_id,
-                                                                         expected_idx, pinned_total_chunks,
-                                                                         registered?} ->
+                                                                           {acc, _saw_final?,
+                                                                            stream_agent_id,
+                                                                            expected_idx,
+                                                                            pinned_total_chunks,
+                                                                            registered?} ->
         agent_id =
           case chunk.agent_id do
             nil ->
@@ -367,12 +377,20 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
         stream_agent_id =
           case stream_agent_id do
-            nil -> agent_id
-            ^agent_id -> agent_id
-            _ -> raise GRPC.RPCError, status: :invalid_argument, message: "agent_id changed mid-stream"
+            nil ->
+              agent_id
+
+            ^agent_id ->
+              agent_id
+
+            _ ->
+              raise GRPC.RPCError,
+                status: :invalid_argument,
+                message: "agent_id changed mid-stream"
           end
 
         enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+
         services =
           chunk.services
           |> List.wrap()
@@ -384,8 +402,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         if new_total > @max_services_per_request do
           raise GRPC.RPCError,
             status: :resource_exhausted,
-            message:
-              "too many service statuses in one stream (max: #{@max_services_per_request})"
+            message: "too many service statuses in one stream (max: #{@max_services_per_request})"
         end
 
         chunk_index = chunk.chunk_index || 0
@@ -397,9 +414,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
         pinned_total_chunks =
           case pinned_total_chunks do
-            nil -> total_chunks
-            ^total_chunks -> total_chunks
-            _ -> raise GRPC.RPCError, status: :invalid_argument, message: "total_chunks changed mid-stream"
+            nil ->
+              total_chunks
+
+            ^total_chunks ->
+              total_chunks
+
+            _ ->
+              raise GRPC.RPCError,
+                status: :invalid_argument,
+                message: "total_chunks changed mid-stream"
           end
 
         if chunk_index < 0 or chunk_index >= total_chunks do
@@ -410,9 +434,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           raise GRPC.RPCError, status: :invalid_argument, message: "unexpected chunk_index"
         end
 
-        Logger.debug(
-          "Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id}"
-        )
+        Logger.debug("Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id}")
 
         partition = resolve_partition(identity, chunk.partition)
 
@@ -461,8 +483,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           end
 
           record_push_metrics(agent_id, new_total)
-          {:halt,
-           {new_total, true, stream_agent_id, expected_idx + 1, pinned_total_chunks, true}}
+          {:halt, {new_total, true, stream_agent_id, expected_idx + 1, pinned_total_chunks, true}}
         else
           {:cont,
            {new_total, false, stream_agent_id, expected_idx + 1, pinned_total_chunks, true}}
@@ -509,7 +530,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         raise GRPC.RPCError, status: :invalid_argument, message: "service_name is too long"
 
       String.contains?(service_name, ["\n", "\r", "\t"]) ->
-        raise GRPC.RPCError, status: :invalid_argument, message: "service_name contains invalid characters"
+        raise GRPC.RPCError,
+          status: :invalid_argument,
+          message: "service_name contains invalid characters"
 
       byte_size(service_type) > 64 or String.contains?(service_type, ["\n", "\r", "\t"]) ->
         raise GRPC.RPCError, status: :invalid_argument, message: "service_type is invalid"
@@ -721,9 +744,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         :ok
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to register agent #{agent_id} in registry: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to register agent #{agent_id} in registry: #{inspect(reason)}")
 
         raise GRPC.RPCError, status: :unavailable, message: "agent registry unavailable"
     end
@@ -842,7 +863,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp maybe_add_config_source(attrs, nil), do: attrs
-  defp maybe_add_config_source(attrs, config_source), do: Map.put(attrs, :config_source, config_source)
+
+  defp maybe_add_config_source(attrs, config_source),
+    do: Map.put(attrs, :config_source, config_source)
 
   defp agent_record_attrs(agent_id, partition_id, request, source_ip) do
     metadata =
@@ -958,6 +981,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+
   defp find_nodes_with_process(nodes, process_name) do
     Enum.filter(nodes, fn node ->
       case :rpc.call(node, Process, :whereis, [process_name], 5_000) do
@@ -965,7 +989,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           true
 
         {:badrpc, reason} ->
-          Logger.debug("RPC call to #{node} for #{inspect(process_name)} failed: #{inspect(reason)}")
+          Logger.debug(
+            "RPC call to #{node} for #{inspect(process_name)} failed: #{inspect(reason)}"
+          )
+
           false
 
         other ->

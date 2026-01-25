@@ -28,6 +28,24 @@ ingress:
     secretName: serviceradar-prod-tls
     clusterIssuer: carverauto-issuer
 
+webNg:
+  publicUrl: "https://demo.serviceradar.cloud"
+  pluginStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/plugin-packages"
+    existingClaim: ""
+    size: 10Gi
+    storageClassName: ""
+    downloadTtlSeconds: 86400
+
+agent:
+  checkersStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/checkers"
+    existingClaim: ""
+    size: 2Gi
+    storageClassName: ""
+
 faker:
   simulation:
     totalDevices: 50000

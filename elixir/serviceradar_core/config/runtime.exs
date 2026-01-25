@@ -187,6 +187,42 @@ if config_env() == :prod do
   config :serviceradar_core,
     sync_ingestor_queue_max_chunks: sync_ingestor_queue_max_chunks || 10
 
+  plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
+
+  plugin_storage_overrides =
+    []
+    |> then(fn acc ->
+      case System.get_env("PLUGIN_STORAGE_PUBLIC_URL") do
+        nil -> acc
+        "" -> acc
+        value -> Keyword.put(acc, :public_url, value)
+      end
+    end)
+    |> then(fn acc ->
+      case System.get_env("PLUGIN_STORAGE_SIGNING_SECRET") do
+        nil -> acc
+        "" -> acc
+        value -> Keyword.put(acc, :signing_secret, value)
+      end
+    end)
+    |> then(fn acc ->
+      case System.get_env("PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS") do
+        nil -> acc
+        "" -> acc
+        value ->
+          case Integer.parse(value) do
+            {parsed, ""} -> Keyword.put(acc, :download_ttl_seconds, parsed)
+            _ -> acc
+          end
+      end
+    end)
+
+  if plugin_storage_overrides != [] do
+    config :serviceradar_core,
+           :plugin_storage,
+           Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
+  end
+
   # Oban configuration
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,

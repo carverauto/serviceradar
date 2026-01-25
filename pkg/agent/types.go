@@ -44,6 +44,7 @@ type Server struct {
 	snmpService        *SNMPAgentService
 	duskService        *DuskService
 	mapperService      *MapperService
+	pluginManager      *PluginManager
 }
 
 // Duration represents a time duration that can be unmarshaled from JSON.

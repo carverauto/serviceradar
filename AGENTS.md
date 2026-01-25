@@ -458,6 +458,8 @@ ServiceRadar is single-deployment. Do not add multitenancy features, per-custome
 
 **CRITICAL:** All database schema changes (tables, views, indexes, materialized views, extensions) MUST be managed exclusively through Elixir migrations in `elixir/serviceradar_core/priv/repo/migrations/`.
 
+**CRITICAL:** All tables, indexes, and constraints belong in the `platform` schema. Do not create or reference objects in the `public` schema. In migrations, set `prefix: "platform"` for new tables/indexes/constraints and avoid `prefix: "public"` in references.
+
 The `db-event-writer` Go service must NEVER create database schema or run DDL statements. It is a data ingestion service only - it writes to existing tables but does not create or modify schema.
 
 This rule exists because:
