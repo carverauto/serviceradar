@@ -164,6 +164,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     check_count = Map.get(assigns.summary, :check_count, 0)
     last_updated = Map.get(assigns.summary, :last_updated)
     window_minutes = div(@active_state_window_ms, 60_000)
+
     active_label =
       if window_minutes > 0 do
         "active services (last #{window_minutes}m)"
@@ -478,20 +479,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
     """
-  end
-
-  defp format_status(nil), do: "UNKNOWN"
-  defp format_status(status) when is_binary(status), do: String.upcase(status)
-  defp format_status(status), do: to_string(status)
-
-  defp status_variant(status) do
-    case String.upcase(to_string(status || "")) do
-      "OK" -> "success"
-      "WARNING" -> "warning"
-      "CRITICAL" -> "error"
-      "FAIL" -> "error"
-      _ -> "ghost"
-    end
   end
 
   defp format_timestamp(svc) do

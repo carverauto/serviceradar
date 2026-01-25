@@ -39,7 +39,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
       |> assign(:query, query)
 
     service = pick_service(socket.assigns.services, params)
-    {details, display, contract, schema_version} = build_display(service, socket.assigns.current_scope)
+
+    {details, display, contract, schema_version} =
+      build_display(service, socket.assigns.current_scope)
 
     {:noreply,
      socket
@@ -78,13 +80,29 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
             <div :if={@service} class="space-y-4">
               <div class="flex flex-wrap gap-4 text-xs text-base-content/70">
-                <div><span class="font-semibold">Status:</span> {format_status(service_status(@service, @details))}</div>
-                <div><span class="font-semibold">Type:</span> {service_type_value(@service) || "—"}</div>
-                <div><span class="font-semibold">Service:</span> {service_name_value(@service) || "—"}</div>
-                <div><span class="font-semibold">Gateway:</span> {Map.get(@service, "gateway_id") || "—"}</div>
-                <div><span class="font-semibold">Agent:</span> {Map.get(@service, "agent_id") || "—"}</div>
-                <div><span class="font-semibold">Partition:</span> {Map.get(@service, "partition") || "—"}</div>
-                <div><span class="font-semibold">Observed:</span> {Map.get(@service, "timestamp") || "—"}</div>
+                <div>
+                  <span class="font-semibold">Status:</span> {format_status(
+                    service_status(@service, @details)
+                  )}
+                </div>
+                <div>
+                  <span class="font-semibold">Type:</span> {service_type_value(@service) || "—"}
+                </div>
+                <div>
+                  <span class="font-semibold">Service:</span> {service_name_value(@service) || "—"}
+                </div>
+                <div>
+                  <span class="font-semibold">Gateway:</span> {Map.get(@service, "gateway_id") || "—"}
+                </div>
+                <div>
+                  <span class="font-semibold">Agent:</span> {Map.get(@service, "agent_id") || "—"}
+                </div>
+                <div>
+                  <span class="font-semibold">Partition:</span> {Map.get(@service, "partition") || "—"}
+                </div>
+                <div>
+                  <span class="font-semibold">Observed:</span> {Map.get(@service, "timestamp") || "—"}
+                </div>
               </div>
 
               <div class="text-sm">{service_summary(@service, @details) || "—"}</div>
@@ -104,14 +122,17 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   defp build_query(params) do
     base = ["in:services"]
-    filters = Enum.flat_map([:service_name, :service_type, :gateway_id, :agent_id, :partition], fn key ->
-      value = Map.get(params, Atom.to_string(key))
-      if is_binary(value) and value != "" do
-        ["#{key}:\"#{escape_srql_value(value)}\""]
-      else
-        []
-      end
-    end)
+
+    filters =
+      Enum.flat_map([:service_name, :service_type, :gateway_id, :agent_id, :partition], fn key ->
+        value = Map.get(params, Atom.to_string(key))
+
+        if is_binary(value) and value != "" do
+          ["#{key}:\"#{escape_srql_value(value)}\""]
+        else
+          []
+        end
+      end)
 
     (base ++ filters ++ ["sort:timestamp:desc"] ++ ["limit:#{@default_limit}"])
     |> Enum.join(" ")
@@ -154,9 +175,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
         {:ok, dt}
 
       _ ->
-        with {int, ""} <- Integer.parse(trimmed) do
-          parse_unix_timestamp(int)
-        else
+        case Integer.parse(trimmed) do
+          {int, ""} -> parse_unix_timestamp(int)
           _ -> :error
         end
     end
@@ -171,11 +191,16 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   defp parse_unix_timestamp(value) when is_integer(value) do
     # Heuristic: 10 digits => seconds, 13+ => milliseconds/nanoseconds
     cond do
-      value <= 0 -> :error
-      value > 1_000_000_000_000_000_000 -> :error
+      value <= 0 ->
+        :error
+
+      value > 1_000_000_000_000_000_000 ->
+        :error
+
       value >= 1_000_000_000_000_000 ->
         seconds = div(value, 1_000_000_000)
         nanos = rem(value, 1_000_000_000)
+
         DateTime.from_unix(seconds, :second)
         |> case do
           {:ok, dt} -> {:ok, %{dt | microsecond: {div(nanos, 1000), 6}}}
