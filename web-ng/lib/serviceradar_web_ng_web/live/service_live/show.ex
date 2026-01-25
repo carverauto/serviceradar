@@ -6,12 +6,18 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadar.Observability.ServiceStatusPubSub
   alias Phoenix.LiveView.JS
 
   @default_limit 200
+  @refresh_debounce_ms 750
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      ServiceStatusPubSub.subscribe()
+    end
+
     {:ok,
      socket
      |> assign(:page_title, "Service Check")
@@ -21,25 +27,21 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
      |> assign(:display_contract, %{})
      |> assign(:schema_version, nil)
      |> assign(:query, "")
-     |> assign(:services, [])
+     |> assign(:history, [])
      |> assign(:limit, @default_limit)
+     |> assign(:refresh_pending, false)
      |> SRQLPage.init("services", default_limit: @default_limit, builder_available: false)}
   end
 
   @impl true
   def handle_params(params, uri, socket) do
     query = Map.get(params, "q") |> normalize_query() || build_query(params)
-    srql_params = %{"q" => query, "limit" => Integer.to_string(@default_limit)}
-
     socket =
       socket
-      |> SRQLPage.load_list(srql_params, uri, :services,
-        default_limit: @default_limit,
-        max_limit: @default_limit
-      )
       |> assign(:query, query)
+      |> load_history(query, uri, params)
 
-    service = pick_service(socket.assigns.services, params)
+    service = pick_service(socket.assigns.history, params)
 
     {details, display, contract, schema_version} =
       build_display(service, socket.assigns.current_scope)
@@ -51,6 +53,21 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
      |> assign(:display, display)
      |> assign(:display_contract, contract)
      |> assign(:schema_version, schema_version)}
+  end
+
+  @impl true
+  def handle_info({:service_status_updated, status}, socket) do
+    {:noreply,
+     if matches_current_service?(status, socket.assigns.service) do
+       socket = append_history(socket, status)
+       schedule_refresh(socket)
+     else
+       socket
+     end}
+  end
+
+  def handle_info(:refresh_service_details, socket) do
+    {:noreply, refresh_service_details(socket)}
   end
 
   @impl true
@@ -121,7 +138,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
               <div class="text-sm font-semibold">Service Check History</div>
             </:header>
 
-            <.service_history_table services={@services} />
+            <.service_history_table services={@history} />
           </.ui_panel>
         </div>
       </div>
@@ -504,4 +521,198 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   defp safe_param_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
   defp safe_param_value(value) when is_integer(value) or is_float(value), do: to_string(value)
   defp safe_param_value(value), do: value |> to_string() |> safe_param_value()
+
+  defp schedule_refresh(socket) do
+    if socket.assigns.refresh_pending do
+      socket
+    else
+      Process.send_after(self(), :refresh_service_details, @refresh_debounce_ms)
+      assign(socket, :refresh_pending, true)
+    end
+  end
+
+  defp refresh_service_details(socket) do
+    query = socket.assigns.query || build_query(%{})
+    uri = socket.assigns.srql[:page_path] || "/services/check"
+
+    socket = load_history(socket, query, uri, %{})
+
+    lookup_params =
+      case socket.assigns.service do
+        %{} = svc -> service_details_params(svc)
+        _ -> %{}
+      end
+
+    service = pick_service(socket.assigns.history, lookup_params)
+
+    {details, display, contract, schema_version} =
+      build_display(service, socket.assigns.current_scope)
+
+    socket
+    |> assign(:service, service)
+    |> assign(:details, details)
+    |> assign(:display, display)
+    |> assign(:display_contract, contract)
+    |> assign(:schema_version, schema_version)
+    |> assign(:refresh_pending, false)
+  end
+
+  defp load_history(socket, query, uri, params) do
+    srql_params = %{"q" => query, "limit" => Integer.to_string(@default_limit)}
+
+    socket =
+      socket
+      |> SRQLPage.load_list(srql_params, uri, :history,
+        default_limit: @default_limit,
+        max_limit: @default_limit
+      )
+
+    history = socket.assigns.history
+    history = maybe_expand_history(history, params, socket.assigns.current_scope)
+
+    assign(socket, :history, history)
+  end
+
+  defp maybe_expand_history(history, params, scope) do
+    query = build_history_fallback_query(params)
+
+    if query == nil do
+      history
+    else
+      fallback = fetch_history(query, scope)
+      merge_history(history, fallback)
+    end
+  end
+
+  defp fetch_history(query, scope) do
+    srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+
+    case srql_module.query(query, %{limit: @default_limit, scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) -> results
+      _ -> []
+    end
+  end
+
+  defp merge_history(primary, fallback) do
+    primary
+    |> Enum.concat(fallback)
+    |> Enum.uniq_by(&history_key/1)
+    |> Enum.sort_by(&history_sort_key/1, {:desc, DateTime})
+    |> Enum.take(@default_limit)
+  end
+
+  defp history_key(%{} = svc) do
+    {
+      Map.get(svc, "timestamp"),
+      Map.get(svc, "gateway_id"),
+      service_name_value(svc)
+    }
+  end
+
+  defp history_sort_key(%{} = svc) do
+    case parse_datetime(Map.get(svc, "timestamp")) do
+      {:ok, dt} -> dt
+      _ -> DateTime.from_unix!(0)
+    end
+  end
+
+  defp build_history_fallback_query(params) do
+    # If the caller provided an explicit SRQL query, don't override it.
+    if Map.has_key?(params, "q") do
+      nil
+    else
+      service_id = Map.get(params, "service_id") || Map.get(params, "uid")
+
+      if is_binary(service_id) and service_id != "" do
+        nil
+      else
+        filters =
+          []
+          |> maybe_add_filter("gateway_id", Map.get(params, "gateway_id"))
+          |> maybe_add_filter("service_name", Map.get(params, "service_name"))
+
+        if filters == [] do
+          nil
+        else
+          (["in:services" | filters] ++ ["sort:timestamp:desc", "limit:#{@default_limit}"])
+          |> Enum.join(" ")
+        end
+      end
+    end
+  end
+
+  defp maybe_add_filter(filters, _key, nil), do: filters
+  defp maybe_add_filter(filters, _key, ""), do: filters
+
+  defp maybe_add_filter(filters, key, value) do
+    filters ++ ["#{key}:\"#{escape_srql_value(value)}\""]
+  end
+
+  defp append_history(socket, status) do
+    history = socket.assigns.history
+    normalized = normalize_status_map(status)
+    key = history_key(normalized)
+
+    history =
+      if Enum.any?(history, &(history_key(&1) == key)) do
+        history
+      else
+        [normalized | history] |> Enum.take(@default_limit)
+      end
+
+    assign(socket, :history, history)
+  end
+
+  defp normalize_status_map(status) when is_map(status) do
+    status
+    |> Enum.reduce(%{}, fn {key, value}, acc ->
+      string_key = if is_atom(key), do: Atom.to_string(key), else: to_string(key)
+      Map.put(acc, string_key, normalize_status_value(value))
+    end)
+  end
+
+  defp normalize_status_map(status), do: %{"message" => to_string(status)}
+
+  defp normalize_status_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp normalize_status_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp normalize_status_value(value), do: value
+
+  defp matches_current_service?(_status, nil), do: false
+
+  defp matches_current_service?(status, service) when is_map(status) and is_map(service) do
+    service_id_match?(status, service) || identity_match?(status, service)
+  end
+
+  defp matches_current_service?(_status, _service), do: false
+
+  defp fetch_status_value(status, key) when is_map(status) do
+    Map.get(status, key) || Map.get(status, Atom.to_string(key))
+  end
+
+  defp service_id_match?(status, service) do
+    status_service_id = fetch_status_value(status, :service_id)
+    service_id = Map.get(service, "service_id") || Map.get(service, "uid")
+
+    if is_binary(status_service_id) and status_service_id != "" and
+         is_binary(service_id) and service_id != "" do
+      status_service_id == service_id
+    else
+      false
+    end
+  end
+
+  defp identity_match?(status, service) do
+    fetch_status_value(status, :service_name) == service_name_value(service) and
+      fetch_status_value(status, :service_type) == service_type_value(service) and
+      fetch_status_value(status, :gateway_id) == Map.get(service, "gateway_id") and
+      fetch_status_value(status, :agent_id) == Map.get(service, "agent_id") and
+      normalize_partition(fetch_status_value(status, :partition), status) ==
+        normalize_partition(Map.get(service, "partition"), service)
+  end
+
+  defp normalize_partition(value, status_or_service) do
+    value ||
+      fetch_status_value(status_or_service, :partition_id) ||
+      "default"
+  end
 end
