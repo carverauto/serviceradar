@@ -297,7 +297,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     <div class="mt-2 text-xs text-base-content/50">
       Showing {max(@check_count, @total)} plugin checks sampled.
     </div>
-
     """
   end
 
@@ -305,7 +304,11 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp service_card_grid(assigns) do
     ~H"""
-    <div id="service-cards" phx-update="stream" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div
+      id="service-cards"
+      phx-update="stream"
+      class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+    >
       <div :for={{id, card} <- @cards} id={id}>
         <.service_card card={card} />
       </div>
@@ -660,12 +663,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     end)
   end
 
-  defp escape_srql_value(value) when is_binary(value) do
-    value
-    |> String.replace("\\", "\\\\")
-    |> String.replace("\"", "\\\"")
-  end
-
   defp normalize_available(true), do: true
   defp normalize_available(false), do: false
   defp normalize_available(1), do: true
@@ -736,7 +733,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     end
   end
 
-  defp ensure_default_query(params), do: %{"q" => @default_query}
+  defp ensure_default_query(_params), do: %{"q" => @default_query}
 
   defp build_service_cards(services, scope) when is_list(services) do
     services
@@ -750,6 +747,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp build_service_card(%{} = svc, scope) do
     details = parse_service_details(svc)
+
     display =
       details
       |> extract_display_instructions()
