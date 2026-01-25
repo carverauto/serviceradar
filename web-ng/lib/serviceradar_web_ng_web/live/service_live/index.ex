@@ -28,11 +28,11 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      |> assign(:summary, %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0})
      |> assign(:limit, @default_limit)
      |> assign(:params, %{})
-      |> assign(:gateways, [])
-      |> assign(:gateways_limit, @gateways_default_limit)
-      |> assign(:gateways_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
-      |> assign(:refresh_pending, false)
-      |> SRQLPage.init("services", default_limit: @default_limit)}
+     |> assign(:gateways, [])
+     |> assign(:gateways_limit, @gateways_default_limit)
+     |> assign(:gateways_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
+     |> assign(:refresh_pending, false)
+     |> SRQLPage.init("services", default_limit: @default_limit)}
   end
 
   @impl true
@@ -803,6 +803,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     Enum.reduce(unique_services, initial, &accumulate_service/2)
   end
 
+  defp compute_summary(_),
+    do: %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0}
+
   defp schedule_refresh(socket) do
     if socket.assigns.refresh_pending do
       socket
@@ -831,9 +834,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     |> load_gateways(params)
     |> assign(:refresh_pending, false)
   end
-
-  defp compute_summary(_),
-    do: %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0}
 
   defp dedupe_services(services) do
     services
