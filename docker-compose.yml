@@ -368,6 +368,7 @@ services:
     volumes:
       - ./docker/compose/agent.mtls.json:/etc/serviceradar/agent.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - agent-checkers:/var/lib/serviceradar/checkers
       - ./logs:/var/log/serviceradar
     environment:
       - CONFIG_PATH=/etc/serviceradar/agent.json
@@ -710,6 +711,8 @@ services:
     restart: unless-stopped
 
 volumes:
+  agent-checkers:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_agent-checkers"
   cert-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data"
   cnpg-data:

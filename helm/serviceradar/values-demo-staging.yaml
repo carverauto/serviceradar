@@ -13,6 +13,14 @@ image:
 agentGateway:
   enabled: true
 
+agent:
+  checkersStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/checkers"
+    existingClaim: ""
+    size: 2Gi
+    storageClassName: ""
+
 ingress:
   enabled: true
   host: staging.serviceradar.cloud

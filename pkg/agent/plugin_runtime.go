@@ -53,6 +53,7 @@ const (
 	pluginMaxWasmBytes       = 64 * 1024 * 1024
 	pluginMaxHTTPBodyBytes   = 2 * 1024 * 1024
 	pluginDefaultHTTPTimeout = 15 * time.Second
+	pluginWarmupGrace        = 2 * time.Minute
 )
 
 const (
@@ -97,6 +98,10 @@ type PluginManager struct {
 	runners map[string]*pluginRunner
 	results chan PluginResult
 
+	stateMu   sync.Mutex
+	states    map[string]*assignmentState
+	stateNow  func() time.Time
+
 	limitsMu         sync.Mutex
 	limits           pluginEngineLimits
 	concurrentActive int
@@ -104,6 +109,11 @@ type PluginManager struct {
 
 	statsMu sync.Mutex
 	stats   pluginEngineStats
+}
+
+type assignmentState struct {
+	firstSeen time.Time
+	ready     bool
 }
 
 // PluginResult captures a raw plugin result payload.
@@ -203,6 +213,8 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		cancel:        cancel,
 		runners:       make(map[string]*pluginRunner),
 		results:       make(chan PluginResult, 1024),
+		states:        make(map[string]*assignmentState),
+		stateNow:      time.Now,
 	}
 }
 
@@ -231,6 +243,8 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 	admitted, rejected, usage := m.admitAssignments(assignments, limits)
 	m.updateConfigStats(len(assignments), len(admitted), len(rejected), usage)
 
+	m.refreshAssignmentStates(admitted)
+
 	m.mu.Lock()
 	prev := m.runners
 	m.runners = make(map[string]*pluginRunner)
@@ -250,6 +264,7 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 		m.runners[assignment.AssignmentID] = runner
 		m.mu.Unlock()
 		runner.start(m.ctx)
+		m.prefetchAssignment(assignment)
 	}
 }
 
@@ -548,7 +563,25 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 	}
 	defer r.manager.releaseSlot()
 
-	if err := r.manager.execute(runCtx, r.assignment); err != nil {
+	wasm, err := r.manager.loadWasm(runCtx, r.assignment)
+	if err != nil {
+		if r.manager.shouldSkipWarmup(r.assignment) {
+			r.manager.logger.Info().
+				Err(err).
+				Str("assignment_id", r.assignment.AssignmentID).
+				Msg("Plugin wasm not ready; deferring execution")
+			return
+		}
+		r.manager.recordExecution(false)
+		r.manager.enqueueResult(buildPluginErrorResult(r.assignment, fmt.Sprintf("execution failed: %s", err)))
+		r.manager.logger.Warn().
+			Err(err).
+			Str("assignment_id", r.assignment.AssignmentID).
+			Msg("Plugin execution failed")
+		return
+	}
+
+	if err := r.manager.executeWithWasm(runCtx, r.assignment, wasm); err != nil {
 		r.manager.recordExecution(false)
 		r.manager.enqueueResult(buildPluginErrorResult(r.assignment, fmt.Sprintf("execution failed: %s", err)))
 		r.manager.logger.Warn().
@@ -764,12 +797,7 @@ func (p *pluginPermissions) allowsAddress(addr netip.Addr) bool {
 	return false
 }
 
-func (m *PluginManager) execute(ctx context.Context, assignment *pluginAssignment) error {
-	wasm, err := m.loadWasm(ctx, assignment)
-	if err != nil {
-		return err
-	}
-
+func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginAssignment, wasm []byte) error {
 	memPages := memoryPages(assignment.Resources.RequestedMemoryMB)
 	runtimeCfg := wazero.NewRuntimeConfig()
 	if memPages > 0 {
@@ -861,6 +889,7 @@ func (m *PluginManager) loadWasm(ctx context.Context, assignment *pluginAssignme
 	if cachePath != "" {
 		if data, err := os.ReadFile(cachePath); err == nil {
 			if err := verifyContentHash(data, assignment.ContentHash); err == nil {
+				m.markAssignmentReady(assignment.AssignmentID)
 				return data, nil
 			}
 			_ = os.Remove(cachePath)
@@ -876,6 +905,7 @@ func (m *PluginManager) loadWasm(ctx context.Context, assignment *pluginAssignme
 			return nil, err
 		}
 		m.persistCache(cachePath, data)
+		m.markAssignmentReady(assignment.AssignmentID)
 		return data, nil
 	}
 
@@ -886,12 +916,97 @@ func (m *PluginManager) loadWasm(ctx context.Context, assignment *pluginAssignme
 					return nil, err
 				}
 				m.persistCache(cachePath, data)
+				m.markAssignmentReady(assignment.AssignmentID)
 				return data, nil
 			}
 		}
 	}
 
 	return nil, errPluginWasmUnavailable
+}
+
+func (m *PluginManager) refreshAssignmentStates(assignments []*pluginAssignment) {
+	now := m.stateNow()
+	states := make(map[string]*assignmentState, len(assignments))
+
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+
+	for _, assignment := range assignments {
+		state := m.states[assignment.AssignmentID]
+		if state == nil {
+			state = &assignmentState{firstSeen: now}
+		}
+		if !state.ready && m.cacheExists(assignment) {
+			state.ready = true
+		}
+		states[assignment.AssignmentID] = state
+	}
+
+	m.states = states
+}
+
+func (m *PluginManager) cacheExists(assignment *pluginAssignment) bool {
+	cachePath := m.cachePath(assignment)
+	if cachePath == "" {
+		return false
+	}
+	_, err := os.Stat(cachePath)
+	return err == nil
+}
+
+func (m *PluginManager) markAssignmentReady(assignmentID string) {
+	if assignmentID == "" {
+		return
+	}
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	state := m.states[assignmentID]
+	if state == nil {
+		state = &assignmentState{firstSeen: m.stateNow()}
+		m.states[assignmentID] = state
+	}
+	state.ready = true
+}
+
+func (m *PluginManager) assignmentState(assignmentID string) *assignmentState {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	state := m.states[assignmentID]
+	if state == nil {
+		state = &assignmentState{firstSeen: m.stateNow()}
+		m.states[assignmentID] = state
+	}
+	return state
+}
+
+func (m *PluginManager) shouldSkipWarmup(assignment *pluginAssignment) bool {
+	state := m.assignmentState(assignment.AssignmentID)
+	if state.ready {
+		return false
+	}
+	return time.Since(state.firstSeen) < pluginWarmupGrace
+}
+
+func (m *PluginManager) prefetchAssignment(assignment *pluginAssignment) {
+	if assignment == nil || assignment.DownloadURL == "" {
+		return
+	}
+
+	if state := m.assignmentState(assignment.AssignmentID); state.ready {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(m.ctx, pluginDefaultHTTPTimeout*2)
+		defer cancel()
+		if _, err := m.loadWasm(ctx, assignment); err != nil && !errors.Is(err, errPluginWasmUnavailable) {
+			m.logger.Warn().
+				Err(err).
+				Str("assignment_id", assignment.AssignmentID).
+				Msg("Plugin wasm prefetch failed")
+		}
+	}()
 }
 
 func (m *PluginManager) cachePath(assignment *pluginAssignment) string {

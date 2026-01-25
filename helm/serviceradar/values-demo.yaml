@@ -38,6 +38,14 @@ webNg:
     storageClassName: ""
     downloadTtlSeconds: 86400
 
+agent:
+  checkersStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/checkers"
+    existingClaim: ""
+    size: 2Gi
+    storageClassName: ""
+
 faker:
   simulation:
     totalDevices: 50000

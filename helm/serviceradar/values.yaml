@@ -173,6 +173,12 @@ agent:
   agentId: "k8s-agent"
   gatewayAddress: ""
   partitionId: "default"
+  checkersStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/checkers"
+    existingClaim: ""
+    size: 2Gi
+    storageClassName: ""
   resources:
     limits:
       cpu: 500m
