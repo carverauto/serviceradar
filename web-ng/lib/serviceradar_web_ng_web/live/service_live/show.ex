@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   @impl true
   def handle_params(params, uri, socket) do
-    query = build_query(params)
+    query = Map.get(params, "q") |> normalize_query() || build_query(params)
     srql_params = %{"q" => query, "limit" => Integer.to_string(@default_limit)}
 
     socket =
@@ -132,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   defp build_query(params) do
     base = ["in:services"]
     filters = build_filters(params)
+    filters = if filters == [], do: ["service_type:plugin"], else: filters
 
     (base ++ filters ++ ["sort:timestamp:desc"] ++ ["limit:#{@default_limit}"])
     |> Enum.join(" ")
@@ -161,6 +162,16 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
       []
     end
   end
+
+  defp normalize_query(nil), do: nil
+  defp normalize_query(""), do: nil
+
+  defp normalize_query(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_query(_), do: nil
 
   defp escape_srql_value(value) do
     value
