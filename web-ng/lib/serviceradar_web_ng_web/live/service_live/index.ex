@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   @max_limit 200
   @refresh_debounce_ms 750
   @active_state_window_ms :timer.minutes(15)
-  @default_query "in:services service_type:plugin time:last_1h sort:timestamp:desc"
+  @default_query "in:services time:last_1h sort:timestamp:desc limit:500"
 
   @impl true
   def mount(_params, _session, socket) do
@@ -616,12 +616,18 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   defp service_identity_key(svc) do
-    agent_id = Map.get(svc, "agent_id") || ""
-    partition = Map.get(svc, "partition") || Map.get(svc, "partition_id") || ""
-    service_type = service_type_value(svc) || ""
-    service_name = service_name_value(svc) || ""
+    service_id = Map.get(svc, "service_id") || Map.get(svc, "uid")
 
-    "#{agent_id}:#{partition}:#{service_type}:#{service_name}"
+    if is_binary(service_id) and service_id != "" do
+      service_id
+    else
+      agent_id = Map.get(svc, "agent_id") || ""
+      partition = Map.get(svc, "partition") || Map.get(svc, "partition_id") || ""
+      service_type = service_type_value(svc) || ""
+      service_name = service_name_value(svc) || ""
+
+      "#{agent_id}:#{partition}:#{service_type}:#{service_name}"
+    end
   end
 
   defp base_summary(check_count, last_updated) do
@@ -706,6 +712,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp service_details_params(%{} = svc) do
     params = %{
+      "service_id" => Map.get(svc, "service_id") || Map.get(svc, "uid"),
       "timestamp" => Map.get(svc, "timestamp"),
       "service_name" => service_name_value(svc),
       "service_type" => service_type_value(svc),

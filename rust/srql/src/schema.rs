@@ -163,6 +163,7 @@ diesel::table! {
         timestamp -> Timestamptz,
         gateway_id -> Text,
         agent_id -> Nullable<Text>,
+        service_id -> Nullable<Uuid>,
         service_name -> Text,
         service_type -> Nullable<Text>,
         available -> Bool,

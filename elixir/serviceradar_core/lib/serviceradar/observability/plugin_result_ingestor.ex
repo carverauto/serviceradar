@@ -8,7 +8,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.Observability.{ServiceStatus, TimeseriesMetric}
+  alias ServiceRadar.Observability.{ServiceIdentity, ServiceStatus, TimeseriesMetric}
 
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) do
@@ -105,16 +105,30 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp build_status_row(payload, status, observed_at, created_at, summary, available) do
+    gateway_id = resolve_gateway_id(status)
+    service_name = resolve_service_name(status)
+    service_type = resolve_service_type(status)
+    partition = status[:partition] || "default"
+    service_id =
+      ServiceIdentity.service_id(%{
+        agent_id: status[:agent_id],
+        gateway_id: gateway_id,
+        partition: partition,
+        service_type: service_type,
+        service_name: service_name
+      })
+
     %{
       timestamp: observed_at,
-      gateway_id: resolve_gateway_id(status),
+      gateway_id: gateway_id,
       agent_id: status[:agent_id],
-      service_name: resolve_service_name(status),
-      service_type: resolve_service_type(status),
+      service_id: service_id,
+      service_name: service_name,
+      service_type: service_type,
       available: available,
       message: summary,
       details: FieldParser.encode_json(payload),
-      partition: status[:partition],
+      partition: partition,
       created_at: created_at
     }
   end

@@ -131,20 +131,35 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   defp build_query(params) do
     base = ["in:services"]
-
-    filters =
-      Enum.flat_map([:service_name, :service_type, :gateway_id, :agent_id, :partition], fn key ->
-        value = Map.get(params, Atom.to_string(key))
-
-        if is_binary(value) and value != "" do
-          ["#{key}:\"#{escape_srql_value(value)}\""]
-        else
-          []
-        end
-      end)
+    filters = build_filters(params)
 
     (base ++ filters ++ ["sort:timestamp:desc"] ++ ["limit:#{@default_limit}"])
     |> Enum.join(" ")
+  end
+
+  defp build_filters(params) do
+    service_id = Map.get(params, "service_id") || Map.get(params, "uid")
+
+    if is_binary(service_id) and service_id != "" do
+      ["service_id:\"#{escape_srql_value(service_id)}\""]
+    else
+      build_identity_filters(params)
+    end
+  end
+
+  defp build_identity_filters(params) do
+    [:service_name, :service_type, :gateway_id, :agent_id, :partition]
+    |> Enum.flat_map(&filter_param(params, &1))
+  end
+
+  defp filter_param(params, key) do
+    value = Map.get(params, Atom.to_string(key))
+
+    if is_binary(value) and value != "" do
+      ["#{key}:\"#{escape_srql_value(value)}\""]
+    else
+      []
+    end
   end
 
   defp escape_srql_value(value) do
@@ -454,6 +469,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   defp service_details_params(%{} = svc) do
     params = %{
+      "service_id" => Map.get(svc, "service_id") || Map.get(svc, "uid"),
       "timestamp" => Map.get(svc, "timestamp"),
       "service_name" => service_name_value(svc),
       "service_type" => service_type_value(svc),

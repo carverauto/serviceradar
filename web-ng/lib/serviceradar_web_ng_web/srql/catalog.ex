@@ -104,6 +104,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_filter_field: "service_type",
       filter_fields: [
         "uid",
+        "service_id",
         "gateway_id",
         "service_type",
         "service_status",
