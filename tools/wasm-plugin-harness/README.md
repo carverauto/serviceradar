@@ -7,6 +7,7 @@ This harness builds a minimal TinyGo Wasm plugin that submits a simple OK result
 - `main.go`: TinyGo plugin source
 - `plugin.yaml`: manifest for import
 - `config.schema.json`: optional config schema
+- `display_contract.json`: optional display contract (UI widgets)
 - `build.sh`: builds `dist/plugin.wasm`
 
 ## Build
@@ -28,7 +29,8 @@ Output:
 2. Navigate to Admin -> Plugins -> Upload.
 3. Upload `plugin.yaml` as the manifest.
 4. Upload `config.schema.json` (optional).
-5. Upload `dist/plugin.wasm` as the Wasm blob.
+5. Upload `display_contract.json` (optional).
+6. Upload `dist/plugin.wasm` as the Wasm blob.
 6. Approve the package (capabilities: get_config, log, submit_result).
 7. Assign it to an agent.
 
@@ -39,5 +41,7 @@ Expected result payload:
 
 ## Notes
 
+- `display_contract.json` enables the default widget set (status badge, stat card,
+  table, markdown, sparkline).
 - The plugin uses `runtime: wasi-preview1` and the `env` host functions.
 - To test config handling, set any JSON params during assignment; the plugin only checks that config is present.

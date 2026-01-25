@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Storage
 
@@ -115,6 +116,14 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       package
       |> Ash.Changeset.for_update(:revoke, attrs)
       |> update_resource(scope)
+      |> case do
+        {:ok, updated} = result ->
+          ServiceStateRegistry.deactivate_for_package(updated)
+          result
+
+        other ->
+          other
+      end
     end
   end
 
@@ -135,16 +144,30 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   def restage(_id, _opts), do: {:error, :invalid_attributes}
 
-  @spec delete(String.t(), keyword()) :: {:ok, PluginPackage.t()} | {:error, term()}
+  @spec delete(String.t(), keyword()) :: :ok | {:ok, PluginPackage.t()} | {:error, term()}
   def delete(id, opts \\ [])
 
   def delete(id, opts) when is_binary(id) do
     scope = Keyword.get(opts, :scope)
 
     with {:ok, package} <- get(id, scope: scope) do
-      package
-      |> Ash.Changeset.for_destroy(:destroy)
-      |> destroy_resource(scope)
+      result =
+        package
+        |> Ash.Changeset.for_destroy(:destroy)
+        |> destroy_resource(scope)
+
+      case result do
+        :ok ->
+          ServiceStateRegistry.deactivate_for_package(package)
+          :ok
+
+        {:ok, _package} = ok ->
+          ServiceStateRegistry.deactivate_for_package(package)
+          ok
+
+        other ->
+          other
+      end
     end
   end
 
@@ -198,6 +221,13 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp create_from_upload(attrs, scope) do
     manifest = Map.get(attrs, :manifest) || %{}
 
+    display_contract =
+      Map.get(attrs, :display_contract) ||
+        Map.get(attrs, "display_contract") ||
+        Map.get(manifest, "display_contract") ||
+        Map.get(manifest, :display_contract) ||
+        %{}
+
     with {:ok, manifest_struct} <- Manifest.from_map(manifest),
          {:ok, _plugin} <- ensure_plugin(manifest_struct, attrs, scope) do
       attrs =
@@ -209,6 +239,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         |> Map.put_new(:entrypoint, manifest_struct.entrypoint)
         |> Map.put_new(:runtime, manifest_struct.runtime)
         |> Map.put_new(:outputs, manifest_struct.outputs)
+        |> Map.put_new(:display_contract, display_contract)
 
       PluginPackage
       |> Ash.Changeset.for_create(:create, attrs)
@@ -235,6 +266,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       attrs
       |> Map.put(:manifest, import.manifest)
       |> Map.put_new(:config_schema, import.config_schema || %{})
+      |> Map.put_new(:display_contract, import.display_contract || %{})
       |> Map.put(:source_type, :github)
       |> Map.put(:source_commit, import.source_commit)
       |> Map.put(:signature, import.signature || %{})

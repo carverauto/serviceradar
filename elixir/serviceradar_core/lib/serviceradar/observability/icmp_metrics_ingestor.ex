@@ -43,7 +43,11 @@ defmodule ServiceRadar.Observability.IcmpMetricsIngestor do
              actor: actor,
              domain: ServiceRadar.Observability,
              return_records?: false,
-             return_errors?: true
+             return_errors?: true,
+             stop_on_error?: false,
+             upsert?: true,
+             upsert_identity: :unique_timeseries_metric,
+             upsert_fields: []
            ) do
         %Ash.BulkResult{status: :success} -> :ok
         %Ash.BulkResult{status: :error, errors: errors} = result ->

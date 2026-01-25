@@ -355,6 +355,7 @@ pub struct ServiceStatusRow {
     pub timestamp: DateTime<Utc>,
     pub gateway_id: String,
     pub agent_id: Option<String>,
+    pub service_id: Option<Uuid>,
     pub service_name: String,
     pub service_type: Option<String>,
     pub available: bool,
@@ -366,12 +367,17 @@ pub struct ServiceStatusRow {
 
 impl ServiceStatusRow {
     pub fn into_json(self) -> serde_json::Value {
+        let service_id = self.service_id.map(|id| id.to_string());
+        let uid = service_id.clone();
+
         serde_json::json!({
             "timestamp": self.timestamp,
             "last_seen": self.timestamp,
             "created_at": self.created_at,
             "gateway_id": self.gateway_id,
             "agent_id": self.agent_id,
+            "service_id": service_id,
+            "uid": uid,
             "service_name": self.service_name,
             "service_type": self.service_type,
             "name": self.service_name,

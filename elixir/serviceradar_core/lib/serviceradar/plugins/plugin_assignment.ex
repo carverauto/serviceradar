@@ -33,7 +33,9 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
         :resources_override
       ]
 
+      change ServiceRadar.Plugins.Changes.ApplyConfigDefaults
       validate ServiceRadar.Plugins.Validations.PackageApproved
+      validate ServiceRadar.Plugins.Validations.AssignmentParams
     end
 
     update :update do
@@ -45,6 +47,9 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
         :permissions_override,
         :resources_override
       ]
+
+      change ServiceRadar.Plugins.Changes.ApplyConfigDefaults
+      validate ServiceRadar.Plugins.Validations.AssignmentParams
     end
   end
 

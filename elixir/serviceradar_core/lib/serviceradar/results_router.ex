@@ -12,6 +12,7 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Observability.IcmpMetricsIngestor
   alias ServiceRadar.Observability.PluginResultIngestor
+  alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatusPubSub
   alias ServiceRadar.Observability.SnmpMetricsIngestor
   alias ServiceRadar.Observability.SysmonMetricsIngestor
@@ -42,9 +43,11 @@ defmodule ServiceRadar.ResultsRouter do
 
     case process(status) do
       :ok ->
+        ServiceStateRegistry.upsert_from_status(status)
         ServiceStatusPubSub.broadcast_update(status)
 
       {:ok, _result} ->
+        ServiceStateRegistry.upsert_from_status(status)
         ServiceStatusPubSub.broadcast_update(status)
 
       {:error, reason} ->

@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.SettingsComponents
+  import ServiceRadarWebNGWeb.PluginConfigForm
 
   require Ash.Query
 
@@ -168,13 +169,17 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
     case source_type do
       :github ->
-        with {:ok, config_schema} <- parse_optional_json_map(params["config_schema_json"]),
+        with {:ok, config_schema} <-
+               parse_optional_json_map(params["config_schema_json"], "Config schema"),
+             {:ok, display_contract} <-
+               parse_optional_json_map(params["display_contract_json"], "Display contract"),
              attrs <-
                %{
                  source_type: :github,
                  source_repo_url: params["source_repo_url"],
                  source_commit: params["source_commit"],
-                 config_schema: config_schema
+                 config_schema: config_schema,
+                 display_contract: display_contract
                },
              {:ok, package} <- Packages.create(attrs, scope: scope) do
           {:noreply,
@@ -236,11 +241,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
       _ ->
         with {:ok, manifest} <- parse_manifest(params["manifest_yaml"]),
-             {:ok, config_schema} <- parse_optional_json_map(params["config_schema_json"]),
+             {:ok, config_schema} <-
+               parse_optional_json_map(params["config_schema_json"], "Config schema"),
+             {:ok, display_contract} <-
+               parse_optional_json_map(params["display_contract_json"], "Display contract"),
              attrs <-
                build_create_attrs(params,
                  manifest: manifest,
-                 config_schema: config_schema
+                 config_schema: config_schema,
+                 display_contract: display_contract
                ),
              {:ok, package} <- Packages.create(attrs, scope: scope) do
           {:noreply,
@@ -462,6 +471,20 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       _ = maybe_delete_blob(package)
 
       case Packages.delete(id, scope: scope) do
+        :ok ->
+          {:noreply,
+           socket
+           |> assign(:packages, list_packages(current_filters(socket), scope))
+           |> assign(:show_details_modal, false)
+           |> assign(:selected_package, nil)
+           |> assign(:assignments, [])
+           |> assign(:assignment_form, default_assignment_form())
+           |> assign(:versions, [])
+           |> assign(:upload_url, nil)
+           |> assign(:download_url, nil)
+           |> assign(:blob_present, nil)
+           |> put_flash(:info, "Package deleted")}
+
         {:ok, _package} ->
           {:noreply,
            socket
@@ -500,6 +523,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          socket
          |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
          |> assign(:assignment_form, default_assignment_form())
+         |> assign(:show_details_modal, false)
          |> put_flash(:info, "Assignment created")}
 
       {:error, {:invalid_json, message}} ->
@@ -522,6 +546,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          socket
          |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
          |> assign(:assignment_form, default_assignment_form())
+         |> assign(:show_details_modal, false)
          |> put_flash(:info, "Assignment updated")}
 
       {:error, {:invalid_json, message}} ->
@@ -855,6 +880,17 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             ><%= @create_form["config_schema_json"] %></textarea>
           </div>
 
+          <div>
+            <label class="label">
+              <span class="label-text">Display Contract (JSON, optional)</span>
+            </label>
+            <textarea
+              name="create[display_contract_json]"
+              class="textarea textarea-bordered w-full font-mono text-xs min-h-[140px]"
+              placeholder='{"schema_version":1,"widgets":["status_badge","stat_card","table","markdown","sparkline"]}'
+            ><%= @create_form["display_contract_json"] %></textarea>
+          </div>
+
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="label">
@@ -983,6 +1019,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div class="text-sm font-semibold">Config Schema</div>
               <pre class="mt-2 bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-48">
     <%= format_json_value(@package.config_schema) %>
+    </pre>
+            </div>
+
+            <div class="rounded-xl border border-base-200 p-4">
+              <div class="text-sm font-semibold">Display Contract</div>
+              <pre class="mt-2 bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-48">
+    <%= format_json_value(@package.display_contract) %>
     </pre>
             </div>
 
@@ -1168,16 +1211,50 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   />
                 </div>
               </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label class="label">
-                    <span class="label-text">Params (JSON)</span>
-                  </label>
-                  <textarea
-                    name="assignment[params]"
-                    class="textarea textarea-bordered w-full font-mono text-xs min-h-[80px]"
-                  ><%= @assignment_form["params"] %></textarea>
+              <%= if config_schema_present?(@package.config_schema) do %>
+                <div class="rounded-lg border border-base-200/70 bg-base-100/60 p-3 space-y-3">
+                  <div class="text-xs font-semibold text-base-content/70">Configuration</div>
+                  <.plugin_config_fields
+                    schema={@package.config_schema}
+                    params={assignment_params_map(@assignment_form)}
+                    base_name="assignment[params]"
+                  />
                 </div>
+
+                <details class="rounded-lg border border-base-200/70 bg-base-100/60 p-3">
+                  <summary class="cursor-pointer text-xs font-semibold text-base-content/70">
+                    Raw Params (JSON)
+                  </summary>
+                  <div class="mt-3">
+                    <textarea
+                      name="assignment[params]"
+                      class="textarea textarea-bordered w-full font-mono text-xs min-h-[80px]"
+                    ><%= assignment_params_raw(@assignment_form) %></textarea>
+                  </div>
+                </details>
+              <% else %>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label class="label">
+                      <span class="label-text">Params (JSON)</span>
+                    </label>
+                    <textarea
+                      name="assignment[params]"
+                      class="textarea textarea-bordered w-full font-mono text-xs min-h-[80px]"
+                    ><%= assignment_params_raw(@assignment_form) %></textarea>
+                  </div>
+                  <div>
+                    <label class="label">
+                      <span class="label-text">Permissions Override (JSON)</span>
+                    </label>
+                    <textarea
+                      name="assignment[permissions_override]"
+                      class="textarea textarea-bordered w-full font-mono text-xs min-h-[80px]"
+                    ><%= @assignment_form["permissions_override"] %></textarea>
+                  </div>
+                </div>
+              <% end %>
+              <%= if config_schema_present?(@package.config_schema) do %>
                 <div>
                   <label class="label">
                     <span class="label-text">Permissions Override (JSON)</span>
@@ -1187,7 +1264,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     class="textarea textarea-bordered w-full font-mono text-xs min-h-[80px]"
                   ><%= @assignment_form["permissions_override"] %></textarea>
                 </div>
-              </div>
+              <% end %>
               <div>
                 <label class="label">
                   <span class="label-text">Resources Override (JSON)</span>
@@ -1553,12 +1630,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     source_type = normalize_source_type(params["source_type"])
     manifest = Map.get(extra, :manifest) || Map.get(extra, "manifest")
     config_schema = Map.get(extra, :config_schema) || Map.get(extra, "config_schema")
+    display_contract = Map.get(extra, :display_contract) || Map.get(extra, "display_contract")
 
     source_repo_url = params["source_repo_url"] || manifest_source_repo_url(manifest)
 
     %{
       manifest: manifest,
       config_schema: config_schema,
+      display_contract: display_contract,
       source_type: source_type,
       source_repo_url: source_repo_url,
       source_commit: params["source_commit"]
@@ -1581,10 +1660,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp parse_manifest(_), do: {:error, :invalid_manifest_yaml}
 
-  defp parse_optional_json_map(nil), do: {:ok, %{}}
-  defp parse_optional_json_map(""), do: {:ok, %{}}
+  defp parse_optional_json_map(json, label) do
+    parse_optional_json_map_impl(json, label)
+  end
 
-  defp parse_optional_json_map(json) when is_binary(json) do
+  defp parse_optional_json_map_impl(nil, _label), do: {:ok, %{}}
+  defp parse_optional_json_map_impl("", _label), do: {:ok, %{}}
+
+  defp parse_optional_json_map_impl(%{} = value, _label), do: {:ok, value}
+
+  defp parse_optional_json_map_impl(json, label) when is_binary(json) do
     trimmed = String.trim(json)
 
     if trimmed == "" do
@@ -1592,13 +1677,64 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     else
       case Jason.decode(trimmed) do
         {:ok, value} when is_map(value) -> {:ok, value}
-        {:ok, _} -> {:error, {:invalid_json, "Config schema must be a JSON object"}}
+        {:ok, _} -> {:error, {:invalid_json, "#{label} must be a JSON object"}}
         {:error, reason} -> {:error, {:invalid_json, Exception.message(reason)}}
       end
     end
   end
 
-  defp parse_optional_json_map(_), do: {:error, {:invalid_json, "Config schema must be JSON"}}
+  defp parse_optional_json_map_impl(_value, label),
+    do: {:error, {:invalid_json, "#{label} must be JSON"}}
+
+  defp config_schema_present?(schema) when is_map(schema) do
+    schema = stringify_keys(schema)
+    properties = Map.get(schema, "properties", %{})
+    map_size(properties) > 0
+  end
+
+  defp config_schema_present?(_), do: false
+
+  defp assignment_params_map(form) when is_map(form) do
+    params = Map.get(form, "params", %{})
+
+    cond do
+      is_map(params) -> stringify_keys(params)
+      is_binary(params) -> parse_json_string(params)
+      true -> %{}
+    end
+  end
+
+  defp assignment_params_map(_), do: %{}
+
+  defp assignment_params_raw(form) when is_map(form) do
+    params = Map.get(form, "params", "")
+
+    cond do
+      is_binary(params) -> params
+      is_map(params) -> Jason.encode!(params)
+      true -> ""
+    end
+  end
+
+  defp assignment_params_raw(_), do: ""
+
+  defp parse_json_string(value) when is_binary(value) do
+    case Jason.decode(String.trim(value)) do
+      {:ok, %{} = map} -> map
+      _ -> %{}
+    end
+  end
+
+  defp parse_json_string(_), do: %{}
+
+  defp stringify_keys(%{} = map) do
+    map
+    |> Enum.map(fn {key, value} -> {to_string(key), stringify_keys(value)} end)
+    |> Map.new()
+  end
+
+  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
+  defp stringify_keys(value), do: value
 
   defp parse_assignment_params(params, package_id) do
     agent_uid = params["agent_uid"]
@@ -1608,9 +1744,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     with true <-
            (is_binary(agent_uid) and String.trim(agent_uid) != "") ||
              {:error, "agent_uid required"},
-         {:ok, parsed_params} <- parse_optional_json_map(params["params"]),
-         {:ok, permissions_override} <- parse_optional_json_map(params["permissions_override"]),
-         {:ok, resources_override} <- parse_optional_json_map(params["resources_override"]) do
+         {:ok, parsed_params} <- parse_optional_json_map(params["params"], "Params"),
+         {:ok, permissions_override} <-
+           parse_optional_json_map(params["permissions_override"], "Permissions override"),
+         {:ok, resources_override} <-
+           parse_optional_json_map(params["resources_override"], "Resources override") do
       {:ok,
        %{
          agent_uid: String.trim(agent_uid),
@@ -1631,8 +1769,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp parse_review_params(params) do
     approved_capabilities = parse_list(params["approved_capabilities"])
 
-    with {:ok, approved_permissions} <- parse_optional_json_map(params["approved_permissions"]),
-         {:ok, approved_resources} <- parse_optional_json_map(params["approved_resources"]) do
+    with {:ok, approved_permissions} <-
+           parse_optional_json_map(params["approved_permissions"], "Approved permissions"),
+         {:ok, approved_resources} <-
+           parse_optional_json_map(params["approved_resources"], "Approved resources") do
       {:ok,
        %{
          approved_capabilities: approved_capabilities,
@@ -1674,6 +1814,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     %{
       "manifest_yaml" => "",
       "config_schema_json" => "",
+      "display_contract_json" => "",
       "source_type" => "upload",
       "source_repo_url" => "",
       "source_commit" => ""

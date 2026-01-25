@@ -38,6 +38,7 @@ defmodule ServiceRadar.Observability.ServiceStatus do
         :timestamp,
         :gateway_id,
         :agent_id,
+        :service_id,
         :service_name,
         :service_type,
         :available,
@@ -79,6 +80,11 @@ defmodule ServiceRadar.Observability.ServiceStatus do
       allow_nil? false
       public? true
       description "Service name"
+    end
+
+    attribute :service_id, :uuid do
+      public? true
+      description "Stable service identity UUID"
     end
 
     attribute :agent_id, :string do

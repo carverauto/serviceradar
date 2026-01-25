@@ -21,6 +21,8 @@ defmodule ServiceRadar.Plugins.ManifestTest do
       "max_open_connections" => 8
     },
     "outputs" => "serviceradar.plugin_result.v1",
+    "schema_version" => 1,
+    "display_contract" => %{"schema_version" => 1, "widgets" => ["stat_card"]},
     "source" => %{
       "repo_url" => "https://github.com/example/http-checker",
       "commit" => "abc123",
@@ -34,6 +36,7 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert manifest.runtime == "wasi-preview1"
     assert manifest.outputs == "serviceradar.plugin_result.v1"
     assert manifest.resources.requested_memory_mb == 32
+    assert manifest.schema_version == 1
   end
 
   test "missing required fields return errors" do
@@ -98,5 +101,11 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     schema = ~S(["bad"])
     assert {:error, errors} = Manifest.validate_config_schema(schema)
     assert "config schema must be a JSON object" in errors
+  end
+
+  test "config schema validation rejects unsupported keys" do
+    schema = %{"type" => "object", "properties" => %{"url" => %{"type" => "string", "foo" => "bar"}}}
+    assert {:error, errors} = Manifest.validate_config_schema(schema)
+    assert Enum.any?(errors, &String.contains?(&1, "unsupported keys"))
   end
 end
