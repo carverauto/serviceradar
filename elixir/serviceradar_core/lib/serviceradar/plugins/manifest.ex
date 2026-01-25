@@ -122,6 +122,8 @@ defmodule ServiceRadar.Plugins.Manifest do
 
   def from_map(_), do: {:error, ["manifest must be a map"]}
 
+  alias ServiceRadar.Plugins.ConfigSchema
+
   @doc """
   Validate an optional JSON config schema bundled with the plugin.
   """
@@ -129,13 +131,13 @@ defmodule ServiceRadar.Plugins.Manifest do
   def validate_config_schema(nil), do: :ok
 
   def validate_config_schema(schema) when is_map(schema) do
-    ServiceRadar.Plugins.ConfigSchema.validate_schema(schema)
+    ConfigSchema.validate_schema(schema)
   end
 
   def validate_config_schema(schema) when is_binary(schema) do
     case Jason.decode(schema) do
       {:ok, value} when is_map(value) ->
-        ServiceRadar.Plugins.ConfigSchema.validate_schema(value)
+        ConfigSchema.validate_schema(value)
 
       {:ok, _} ->
         {:error, ["config schema must be a JSON object"]}

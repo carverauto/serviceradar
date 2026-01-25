@@ -114,16 +114,14 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
     Enum.reduce(properties, errors, fn {key, prop_schema}, acc ->
       prop_path = "#{path}.#{key}"
 
-      cond do
-        not is_map(prop_schema) ->
-          ["#{prop_path} must be an object" | acc]
-
-        true ->
-          acc
-          |> then(&validate_keys(prop_schema, @allowed_property_keys, prop_path, &1))
-          |> then(&validate_property_type(&1, prop_schema, prop_path))
-          |> then(&validate_property_constraints(&1, prop_schema, prop_path))
-          |> then(&validate_nested_properties(&1, prop_schema, prop_path))
+      if is_map(prop_schema) do
+        acc
+        |> then(&validate_keys(prop_schema, @allowed_property_keys, prop_path, &1))
+        |> then(&validate_property_type(&1, prop_schema, prop_path))
+        |> then(&validate_property_constraints(&1, prop_schema, prop_path))
+        |> then(&validate_nested_properties(&1, prop_schema, prop_path))
+      else
+        ["#{prop_path} must be an object" | acc]
       end
     end)
   end
@@ -242,27 +240,32 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
 
   defp normalize_for_schema(%{"type" => "object"} = schema, params) when is_map(params) do
     properties = Map.get(schema, "properties", %{})
-
-    params_with_defaults =
-      Enum.reduce(properties, params, fn {key, prop_schema}, acc ->
-        acc =
-          if Map.has_key?(acc, key) do
-            Map.put(acc, key, normalize_value(prop_schema, Map.get(acc, key)))
-          else
-            case Map.get(prop_schema, "default") do
-              nil -> acc
-              default -> Map.put(acc, key, default)
-            end
-          end
-
-        acc
-      end)
-
-    {params_with_defaults, schema}
+    {normalize_object_params(properties, params), schema}
   end
 
   defp normalize_for_schema(_schema, params) when is_map(params), do: {params, nil}
   defp normalize_for_schema(_schema, _params), do: {%{}, nil}
+
+  defp normalize_object_params(properties, params) do
+    Enum.reduce(properties, params, fn {key, prop_schema}, acc ->
+      normalize_object_param(acc, key, prop_schema)
+    end)
+  end
+
+  defp normalize_object_param(acc, key, prop_schema) do
+    if Map.has_key?(acc, key) do
+      Map.put(acc, key, normalize_value(prop_schema, Map.get(acc, key)))
+    else
+      maybe_put_default(acc, key, prop_schema)
+    end
+  end
+
+  defp maybe_put_default(acc, key, prop_schema) do
+    case Map.get(prop_schema, "default") do
+      nil -> acc
+      default -> Map.put(acc, key, default)
+    end
+  end
 
   defp normalize_value(%{"type" => "string"}, value) when is_binary(value), do: value
   defp normalize_value(%{"type" => "string"}, value), do: to_string(value)

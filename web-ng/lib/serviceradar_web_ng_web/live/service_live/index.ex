@@ -610,22 +610,22 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   defp latest_timestamp(services) do
-    Enum.reduce(services, nil, fn
-      %{} = svc, acc ->
-        case parse_timestamp(Map.get(svc, "timestamp")) do
-          {:ok, dt} ->
-            case acc do
-              nil -> dt
-              current -> if DateTime.compare(dt, current) == :gt, do: dt, else: current
-            end
+    Enum.reduce(services, nil, &latest_timestamp_for_service/2)
+  end
 
-          _ ->
-            acc
-        end
+  defp latest_timestamp_for_service(%{} = svc, acc) do
+    case parse_timestamp(Map.get(svc, "timestamp")) do
+      {:ok, dt} -> max_datetime(dt, acc)
+      _ -> acc
+    end
+  end
 
-      _, acc ->
-        acc
-    end)
+  defp latest_timestamp_for_service(_, acc), do: acc
+
+  defp max_datetime(dt, nil), do: dt
+
+  defp max_datetime(dt, current) do
+    if DateTime.compare(dt, current) == :gt, do: dt, else: current
   end
 
   defp latest_state_timestamp(states) do

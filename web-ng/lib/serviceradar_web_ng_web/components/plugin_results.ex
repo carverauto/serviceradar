@@ -210,12 +210,11 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
 
         numbers
         |> Enum.with_index()
-        |> Enum.map(fn {value, idx} ->
+        |> Enum.map_join(" ", fn {value, idx} ->
           x = idx * step
           y = 32 - (value - min) / range * 28 - 2
           "#{Float.round(x, 2)},#{Float.round(y, 2)}"
         end)
-        |> Enum.join(" ")
     end
   end
 

@@ -129,6 +129,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   end
 
   defp build_attrs_from_status(status) do
+    message = normalize_message(fetch(status, :message))
+
     %{
       agent_id: normalize_string(fetch(status, :agent_id), "unknown"),
       gateway_id: normalize_string(fetch(status, :gateway_id), "unknown"),
@@ -136,7 +138,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       service_type: normalize_string(fetch(status, :service_type), "unknown"),
       service_name: normalize_string(fetch(status, :service_name), "unknown"),
       available: normalize_available(fetch(status, :available)),
-      message: normalize_message(fetch(status, :message)),
+      message: normalize_message_value(message),
       details: nil,
       last_observed_at: resolve_observed_at(status),
       state: "active"
@@ -163,19 +165,52 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   defp normalize_message(message) when is_binary(message) do
     case Jason.decode(message) do
       {:ok, decoded} when is_map(decoded) ->
-        decoded["summary"] || decoded["message"] || decoded["status"] || String.slice(message, 0, 2048)
+        decoded["summary"] || decoded["message"] || decoded["status"] || slice_message(message)
 
       _ ->
-        String.slice(message, 0, 2048)
+        slice_message(message)
     end
+  end
+
+  defp normalize_message(message) when is_map(message) do
+    summary =
+      Map.get(message, "summary") ||
+        Map.get(message, :summary) ||
+        Map.get(message, "message") ||
+        Map.get(message, :message) ||
+        Map.get(message, "status") ||
+        Map.get(message, :status)
+
+    if is_binary(summary) do
+      slice_message(summary)
+    else
+      slice_message(FieldParser.encode_json(message))
+    end
+  end
+
+  defp normalize_message(message) when is_list(message) do
+    slice_message(FieldParser.encode_json(message))
   end
 
   defp normalize_message(_), do: nil
 
+  defp slice_message(nil), do: nil
+  defp slice_message(message) when is_binary(message), do: String.slice(message, 0, 2048)
+
+  defp normalize_message_value(value) when is_binary(value) or is_nil(value), do: value
+
+  defp normalize_message_value(value) do
+    FieldParser.encode_json(value) || inspect(value)
+  end
+
   defp resolve_observed_at(status) do
-    fetch(status, :agent_timestamp) || fetch(status, :timestamp) || fetch(status, :observed_at)
-    |> FieldParser.parse_timestamp()
-    |> DateTime.truncate(:microsecond)
+    raw =
+      fetch(status, :agent_timestamp) || fetch(status, :timestamp) || fetch(status, :observed_at)
+
+    case FieldParser.parse_timestamp(raw) do
+      %DateTime{} = dt -> DateTime.truncate(dt, :microsecond)
+      _ -> DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    end
   rescue
     _ -> DateTime.utc_now() |> DateTime.truncate(:microsecond)
   end

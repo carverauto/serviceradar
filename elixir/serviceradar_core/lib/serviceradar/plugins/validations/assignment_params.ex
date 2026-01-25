@@ -23,27 +23,15 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
 
     schema_from_context = Map.get(changeset.context, :config_schema)
 
-    cond do
-      is_map(schema_from_context) and map_size(schema_from_context) > 0 ->
-        case ConfigSchema.validate_params(schema_from_context, params) do
-          :ok -> :ok
-          {:error, errors} -> {:error, field: :params, message: Enum.join(errors, "; ")}
-        end
+    with {:ok, schema} <- resolve_schema(schema_from_context, package_id),
+         :ok <- validate_params(schema, params) do
+      :ok
+    else
+      {:error, {:invalid_params, errors}} ->
+        {:error, field: :params, message: Enum.join(errors, "; ")}
 
-      true ->
-        case load_schema(package_id) do
-          {:ok, %{} = schema} when map_size(schema) > 0 ->
-            case ConfigSchema.validate_params(schema, params) do
-              :ok -> :ok
-              {:error, errors} -> {:error, field: :params, message: Enum.join(errors, "; ")}
-            end
-
-          {:ok, _} ->
-            :ok
-
-          {:error, _} ->
-            {:error, field: :plugin_package_id, message: "plugin package lookup failed"}
-        end
+      {:error, :package_lookup} ->
+        {:error, field: :plugin_package_id, message: "plugin package lookup failed"}
     end
   end
 
@@ -62,4 +50,25 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
       {:error, error} -> {:error, error}
     end
   end
+
+  defp resolve_schema(schema_from_context, _package_id)
+       when is_map(schema_from_context) and map_size(schema_from_context) > 0 do
+    {:ok, schema_from_context}
+  end
+
+  defp resolve_schema(_schema_from_context, package_id) do
+    case load_schema(package_id) do
+      {:ok, schema} -> {:ok, schema || %{}}
+      {:error, _} -> {:error, :package_lookup}
+    end
+  end
+
+  defp validate_params(schema, params) when is_map(schema) and map_size(schema) > 0 do
+    case ConfigSchema.validate_params(schema, params) do
+      :ok -> :ok
+      {:error, errors} -> {:error, {:invalid_params, errors}}
+    end
+  end
+
+  defp validate_params(_schema, _params), do: :ok
 end
