@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   alias Phoenix.LiveView.JS
 
   @default_limit 200
+  @history_per_page 20
   @refresh_debounce_ms 750
 
   @impl true
@@ -28,6 +29,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
      |> assign(:schema_version, nil)
      |> assign(:query, "")
      |> assign(:history, [])
+     |> assign(:history_page, 1)
+     |> assign(:history_per_page, @history_per_page)
      |> assign(:limit, @default_limit)
      |> assign(:refresh_pending, false)
      |> SRQLPage.init("services", default_limit: @default_limit, builder_available: false)}
@@ -39,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     socket =
       socket
       |> assign(:query, query)
+      |> assign(:history_page, 1)
       |> load_history(query, uri, params)
 
     service = pick_service(socket.assigns.history, params)
@@ -68,6 +72,12 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   def handle_info(:refresh_service_details, socket) do
     {:noreply, refresh_service_details(socket)}
+  end
+
+  @impl true
+  def handle_event("history_page", %{"page" => page}, socket) do
+    page = String.to_integer(page)
+    {:noreply, assign(socket, :history_page, page)}
   end
 
   @impl true
@@ -138,7 +148,11 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
               <div class="text-sm font-semibold">Service Check History</div>
             </:header>
 
-            <.service_history_table services={@history} />
+            <.service_history_table
+              services={@history}
+              page={@history_page}
+              per_page={@history_per_page}
+            />
           </.ui_panel>
         </div>
       </div>
@@ -395,8 +409,23 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   end
 
   attr :services, :list, default: []
+  attr :page, :integer, default: 1
+  attr :per_page, :integer, default: 20
 
   defp service_history_table(assigns) do
+    total = length(assigns.services)
+    total_pages = max(1, ceil(total / assigns.per_page))
+    page = min(assigns.page, total_pages)
+    start_idx = (page - 1) * assigns.per_page
+    page_services = Enum.slice(assigns.services, start_idx, assigns.per_page)
+
+    assigns =
+      assigns
+      |> assign(:page_services, page_services)
+      |> assign(:total, total)
+      |> assign(:total_pages, total_pages)
+      |> assign(:current_page, page)
+
     ~H"""
     <div class="overflow-x-auto">
       <table class="table table-sm table-zebra w-full">
@@ -414,13 +443,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
           </tr>
         </thead>
         <tbody>
-          <tr :if={@services == []}>
+          <tr :if={@page_services == []}>
             <td colspan="3" class="text-sm text-base-content/60 py-6 text-center">
               No service checks found.
             </td>
           </tr>
 
-          <%= for {svc, idx} <- Enum.with_index(@services) do %>
+          <%= for {svc, idx} <- Enum.with_index(@page_services) do %>
             <% path = service_details_path(svc) %>
             <tr
               id={"service-history-row-#{idx}"}
@@ -440,6 +469,33 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
           <% end %>
         </tbody>
       </table>
+
+      <div :if={@total_pages > 1} class="flex items-center justify-between mt-4 px-2">
+        <div class="text-xs text-base-content/60">
+          Showing {(@current_page - 1) * @per_page + 1}-{min(@current_page * @per_page, @total)} of {@total}
+        </div>
+        <div class="join">
+          <button
+            class="join-item btn btn-xs"
+            disabled={@current_page <= 1}
+            phx-click="history_page"
+            phx-value-page={@current_page - 1}
+          >
+            Prev
+          </button>
+          <span class="join-item btn btn-xs btn-disabled">
+            {@current_page} / {@total_pages}
+          </span>
+          <button
+            class="join-item btn btn-xs"
+            disabled={@current_page >= @total_pages}
+            phx-click="history_page"
+            phx-value-page={@current_page + 1}
+          >
+            Next
+          </button>
+        </div>
+      </div>
     </div>
     """
   end
