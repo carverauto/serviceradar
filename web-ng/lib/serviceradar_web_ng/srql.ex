@@ -207,6 +207,7 @@ defmodule ServiceRadarWebNG.SRQL do
   defp normalize_value(%Date{} = value), do: Date.to_iso8601(value)
   defp normalize_value(%Time{} = value), do: Time.to_iso8601(value)
   defp normalize_value(%Decimal{} = value), do: Decimal.to_string(value)
+
   defp normalize_value(value) when is_binary(value) do
     if String.valid?(value) do
       value
@@ -217,6 +218,7 @@ defmodule ServiceRadarWebNG.SRQL do
       end
     end
   end
+
   defp normalize_value(value), do: value
 
   defp decode_params(params) when is_list(params) do

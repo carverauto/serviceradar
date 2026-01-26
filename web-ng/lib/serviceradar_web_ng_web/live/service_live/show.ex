@@ -40,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   @impl true
   def handle_params(params, uri, socket) do
     query = Map.get(params, "q") |> normalize_query() || build_query(params)
+
     socket =
       socket
       |> assign(:query, query)
@@ -640,7 +641,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
     params =
       case socket.assigns.history_params do
-        %{} = stored when map_size(stored) > 0 -> stored
+        %{} = stored when map_size(stored) > 0 ->
+          stored
+
         _ ->
           case socket.assigns.service do
             %{} = svc -> service_details_params(svc)
@@ -757,13 +760,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
         |> Enum.join(" ")
       end
     end
-  end
-
-  defp maybe_add_filter(filters, _key, nil), do: filters
-  defp maybe_add_filter(filters, _key, ""), do: filters
-
-  defp maybe_add_filter(filters, key, value) do
-    filters ++ ["#{key}:\"#{escape_srql_value(value)}\""]
   end
 
   defp append_history(socket, status) do
