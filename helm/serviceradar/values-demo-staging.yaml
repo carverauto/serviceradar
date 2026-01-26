@@ -14,6 +14,9 @@ agentGateway:
   enabled: true
 
 agent:
+  pushInterval: "30s"
+  statusDebounceInterval: "30s"
+  statusHeartbeatInterval: "5m"
   checkersStorage:
     enabled: true
     basePath: "/var/lib/serviceradar/checkers"

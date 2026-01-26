@@ -101,32 +101,34 @@ type snmpMetricResult struct {
 
 // PushLoop manages the periodic pushing of agent status to the gateway.
 type PushLoop struct {
-	server              *Server
-	gateway             *agentgateway.GatewayClient
-	interval            time.Duration
-	logger              logger.Logger
-	done                chan struct{}
-	stopCh              chan struct{}
-	stopOnce            sync.Once
-	doneOnce            sync.Once
-	configVersion       string        // Current config version for polling
-	configPollInterval  time.Duration // How often to poll for config updates
-	enrolled            bool          // Whether we've successfully enrolled
-	started             bool          // Whether Start has been invoked
-	enrollMu            sync.Mutex
-	enrollInFlight      bool
-	sweepResultsSeq     string
-	icmpChecks          map[string]*icmpCheckConfig
-	icmpLastRun         map[string]time.Time
-	icmpMu              sync.RWMutex
-	sysmonLastSent      time.Time
-	sysmonMu            sync.RWMutex
-	snmpLastSent        map[string]time.Time
-	snmpMu              sync.RWMutex
-	statusDebounce      time.Duration
-	statusHeartbeat     time.Duration
-	lastStatusPush      time.Time
-	lastStatusSignature string
+	server                    *Server
+	gateway                   *agentgateway.GatewayClient
+	interval                  time.Duration
+	logger                    logger.Logger
+	done                      chan struct{}
+	stopCh                    chan struct{}
+	stopOnce                  sync.Once
+	doneOnce                  sync.Once
+	configVersion             string        // Current config version for polling
+	configPollInterval        time.Duration // How often to poll for config updates
+	enrolled                  bool          // Whether we've successfully enrolled
+	started                   bool          // Whether Start has been invoked
+	enrollMu                  sync.Mutex
+	enrollInFlight            bool
+	sweepResultsSeq           string
+	icmpChecks                map[string]*icmpCheckConfig
+	icmpLastRun               map[string]time.Time
+	icmpMu                    sync.RWMutex
+	sysmonLastSent            time.Time
+	sysmonMu                  sync.RWMutex
+	snmpLastSent              map[string]time.Time
+	snmpMu                    sync.RWMutex
+	statusDebounce            time.Duration
+	statusHeartbeat           time.Duration
+	statusDebounceConfigured  bool
+	statusHeartbeatConfigured bool
+	lastStatusPush            time.Time
+	lastStatusSignature       string
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -159,30 +161,34 @@ func (p *PushLoop) getStatusHeartbeatInterval() time.Duration {
 	return p.statusHeartbeat
 }
 
+func (p *PushLoop) isStatusDebounceConfigured() bool {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.statusDebounceConfigured
+}
+
+func (p *PushLoop) isStatusHeartbeatConfigured() bool {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.statusHeartbeatConfigured
+}
+
 func (p *PushLoop) setStatusDebounceInterval(d time.Duration) {
-	debounce, heartbeat := clampStatusIntervals(d, p.getStatusHeartbeatInterval(), p.getInterval())
-	p.stateMu.Lock()
-	p.statusDebounce = debounce
-	p.statusHeartbeat = heartbeat
-	p.stateMu.Unlock()
+	p.setStatusIntervals(d, p.getStatusHeartbeatInterval(), false, false)
 }
 
 func (p *PushLoop) setStatusHeartbeatInterval(d time.Duration) {
-	debounce, heartbeat := clampStatusIntervals(p.getStatusDebounceInterval(), d, p.getInterval())
-	p.stateMu.Lock()
-	p.statusDebounce = debounce
-	p.statusHeartbeat = heartbeat
-	p.stateMu.Unlock()
+	p.setStatusIntervals(p.getStatusDebounceInterval(), d, false, false)
 }
 
 // SetStatusDebounceInterval updates the minimum interval between unchanged status pushes.
 func (p *PushLoop) SetStatusDebounceInterval(d time.Duration) {
-	p.setStatusDebounceInterval(d)
+	p.setStatusIntervals(d, p.getStatusHeartbeatInterval(), true, false)
 }
 
 // SetStatusHeartbeatInterval updates the maximum interval between status pushes (heartbeat).
 func (p *PushLoop) SetStatusHeartbeatInterval(d time.Duration) {
-	p.setStatusHeartbeatInterval(d)
+	p.setStatusIntervals(p.getStatusDebounceInterval(), d, false, true)
 }
 
 func (p *PushLoop) getConfigPollInterval() time.Duration {
@@ -206,6 +212,25 @@ func (p *PushLoop) setConfigVersion(v string) {
 func (p *PushLoop) setConfigPollInterval(d time.Duration) {
 	p.stateMu.Lock()
 	p.configPollInterval = d
+	p.stateMu.Unlock()
+}
+
+func (p *PushLoop) setStatusIntervals(
+	debounce time.Duration,
+	heartbeat time.Duration,
+	markDebounceConfigured bool,
+	markHeartbeatConfigured bool,
+) {
+	debounce, heartbeat = clampStatusIntervals(debounce, heartbeat, p.getInterval())
+	p.stateMu.Lock()
+	p.statusDebounce = debounce
+	p.statusHeartbeat = heartbeat
+	if markDebounceConfigured {
+		p.statusDebounceConfigured = true
+	}
+	if markHeartbeatConfigured {
+		p.statusHeartbeatConfigured = true
+	}
 	p.stateMu.Unlock()
 }
 
@@ -2131,6 +2156,12 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 		if newInterval != p.getInterval() {
 			p.setInterval(newInterval)
 			p.logger.Info().Dur("interval", newInterval).Msg("Updated push interval from gateway")
+			if !p.isStatusDebounceConfigured() {
+				p.setStatusDebounceInterval(newInterval)
+			}
+		}
+		if !p.isStatusHeartbeatConfigured() {
+			p.setStatusHeartbeatInterval(newInterval)
 		}
 	}
 
@@ -2255,6 +2286,12 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		if newInterval != p.getInterval() {
 			p.setInterval(newInterval)
 			p.logger.Info().Dur("interval", newInterval).Msg("Updated push interval from config")
+			if !p.isStatusDebounceConfigured() {
+				p.setStatusDebounceInterval(newInterval)
+			}
+		}
+		if !p.isStatusHeartbeatConfigured() {
+			p.setStatusHeartbeatInterval(newInterval)
 		}
 	}
 
