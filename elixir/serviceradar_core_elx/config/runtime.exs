@@ -114,7 +114,11 @@ config :serviceradar_core, :spiffe,
 
 if config_env() == :prod do
   cloak_key =
-    System.get_env("CLOAK_KEY") ||
+    case System.get_env("CLOAK_KEY") do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end ||
       case System.get_env("CLOAK_KEY_FILE") do
         nil ->
           nil

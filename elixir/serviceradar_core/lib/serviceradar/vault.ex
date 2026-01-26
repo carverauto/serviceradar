@@ -45,9 +45,9 @@ defmodule ServiceRadar.Vault do
   defp decode_key! do
     # Development-only fallback key (NOT for production use)
     key_base64 =
-      System.get_env("CLOAK_KEY") ||
+      get_env_nonempty("CLOAK_KEY") ||
         read_key_file(System.get_env("CLOAK_KEY_FILE")) ||
-        Application.get_env(:serviceradar_core, :cloak_key) ||
+        normalize_key(Application.get_env(:serviceradar_core, :cloak_key)) ||
         dev_fallback_key()
 
     case Base.decode64(key_base64) do
@@ -97,4 +97,22 @@ defmodule ServiceRadar.Vault do
         """
     end
   end
+
+  defp get_env_nonempty(key) do
+    case System.get_env(key) do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp normalize_key(value) when is_binary(value) do
+    if String.trim(value) == "" do
+      nil
+    else
+      value
+    end
+  end
+
+  defp normalize_key(_), do: nil
 end

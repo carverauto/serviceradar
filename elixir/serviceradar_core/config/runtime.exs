@@ -6,7 +6,11 @@ import Config
 if config_env() == :prod do
   # AshCloak encryption key (required for PII encryption)
   cloak_key =
-    System.get_env("CLOAK_KEY") ||
+    case System.get_env("CLOAK_KEY") do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end ||
       case System.get_env("CLOAK_KEY_FILE") do
         nil ->
           nil
