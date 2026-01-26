@@ -11,6 +11,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   require Logger
 
+  @migrations_complete_marker "/tmp/serviceradar_migrations_complete"
+
   def child_spec(_opts) do
     %{
       id: __MODULE__,
@@ -28,6 +30,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   @spec run!(keyword()) :: :ok
   def run!(opts \\ []) do
     if migrations_enabled?() do
+      clear_migrations_marker()
       migrations_fn = Keyword.get(opts, :migrations, &run_migrations!/0)
 
       Logger.info("[StartupMigrations] Running migrations")
@@ -44,6 +47,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         validate_oban_schema!()
       end
     end
+
+    write_migrations_marker()
 
     :ok
   end
@@ -117,6 +122,21 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   defp ensure_platform_schema! do
     if repo_enabled?() do
       ServiceRadar.Repo.query!("CREATE SCHEMA IF NOT EXISTS platform")
+    end
+  end
+
+  defp clear_migrations_marker do
+    case File.rm(@migrations_complete_marker) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} -> Logger.warning("Failed to clear migrations marker: #{inspect(reason)}")
+    end
+  end
+
+  defp write_migrations_marker do
+    case File.write(@migrations_complete_marker, "#{DateTime.utc_now()}\n") do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("Failed to write migrations marker: #{inspect(reason)}")
     end
   end
 

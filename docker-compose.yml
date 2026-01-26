@@ -37,6 +37,12 @@ services:
       - "hba_file=/etc/serviceradar/pg_hba.conf"
       - "-c"
       - "ident_file=/etc/serviceradar/pg_ident.conf"
+      - "-c"
+      - "checkpoint_timeout=15min"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "max_wal_size=1GB"
     environment:
       - POSTGRES_USER=${CNPG_USERNAME:-serviceradar}
       - POSTGRES_PASSWORD=${CNPG_PASSWORD:-serviceradar}
@@ -137,6 +143,8 @@ services:
       - POOL_SIZE=${POOL_SIZE:-40}
       - DATABASE_QUEUE_TARGET_MS=${DATABASE_QUEUE_TARGET_MS:-2000}
       - DATABASE_QUEUE_INTERVAL_MS=${DATABASE_QUEUE_INTERVAL_MS:-2000}
+      - DATABASE_TIMEOUT_MS=${DATABASE_TIMEOUT_MS:-120000}
+      - DATABASE_POOL_TIMEOUT_MS=${DATABASE_POOL_TIMEOUT_MS:-120000}
       - SYNC_INGESTOR_BATCH_CONCURRENCY=${SYNC_INGESTOR_BATCH_CONCURRENCY:-2}
       - SYNC_INGESTOR_COALESCE_MS=${SYNC_INGESTOR_COALESCE_MS:-250}
       - SYNC_INGESTOR_MAX_INFLIGHT=${SYNC_INGESTOR_MAX_INFLIGHT:-2}
@@ -182,7 +190,11 @@ services:
       nats:
         condition: service_started
     healthcheck:
-      test: ["CMD", "/app/bin/serviceradar_core_elx", "pid"]
+      test:
+        [
+          "CMD-SHELL",
+          "test -f /tmp/serviceradar_migrations_complete && /app/bin/serviceradar_core_elx pid"
+        ]
       interval: 30s
       timeout: 15s
       retries: 5

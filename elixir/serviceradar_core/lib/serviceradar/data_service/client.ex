@@ -64,7 +64,7 @@ defmodule ServiceRadar.DataService.Client do
   """
   @spec put(String.t(), binary(), keyword()) :: :ok | {:error, term()}
   def put(key, value, opts \\ []) do
-    GenServer.call(__MODULE__, {:put, key, value, opts}, opts[:timeout] || @default_timeout)
+    safe_call({:put, key, value, opts}, opts[:timeout] || @default_timeout)
   end
 
   @doc """
@@ -72,7 +72,7 @@ defmodule ServiceRadar.DataService.Client do
   """
   @spec get(String.t(), keyword()) :: {:ok, binary()} | {:error, :not_found | term()}
   def get(key, opts \\ []) do
-    GenServer.call(__MODULE__, {:get, key, opts}, opts[:timeout] || @default_timeout)
+    safe_call({:get, key, opts}, opts[:timeout] || @default_timeout)
   end
 
   @doc """
@@ -81,11 +81,7 @@ defmodule ServiceRadar.DataService.Client do
   @spec get_with_revision(String.t(), keyword()) ::
           {:ok, binary(), non_neg_integer()} | {:error, :not_found | term()}
   def get_with_revision(key, opts \\ []) do
-    GenServer.call(
-      __MODULE__,
-      {:get_with_revision, key, opts},
-      opts[:timeout] || @default_timeout
-    )
+    safe_call({:get_with_revision, key, opts}, opts[:timeout] || @default_timeout)
   end
 
   @doc """
@@ -93,7 +89,7 @@ defmodule ServiceRadar.DataService.Client do
   """
   @spec delete(String.t(), keyword()) :: :ok | {:error, term()}
   def delete(key, opts \\ []) do
-    GenServer.call(__MODULE__, {:delete, key, opts}, opts[:timeout] || @default_timeout)
+    safe_call({:delete, key, opts}, opts[:timeout] || @default_timeout)
   end
 
   @doc """
@@ -101,7 +97,7 @@ defmodule ServiceRadar.DataService.Client do
   """
   @spec list_keys(String.t(), keyword()) :: {:ok, [String.t()]} | {:error, term()}
   def list_keys(prefix, opts \\ []) do
-    GenServer.call(__MODULE__, {:list_keys, prefix, opts}, opts[:timeout] || @default_timeout)
+    safe_call({:list_keys, prefix, opts}, opts[:timeout] || @default_timeout)
   end
 
   @doc """
@@ -109,7 +105,22 @@ defmodule ServiceRadar.DataService.Client do
   """
   @spec put_many([{String.t(), binary()}], keyword()) :: :ok | {:error, term()}
   def put_many(entries, opts \\ []) do
-    GenServer.call(__MODULE__, {:put_many, entries, opts}, opts[:timeout] || @default_timeout)
+    safe_call({:put_many, entries, opts}, opts[:timeout] || @default_timeout)
+  end
+
+  defp safe_call(msg, timeout) do
+    try do
+      GenServer.call(__MODULE__, msg, timeout)
+    catch
+      :exit, {:timeout, _} ->
+        {:error, :timeout}
+
+      :exit, {:noproc, _} ->
+        {:error, :not_started}
+
+      :exit, reason ->
+        {:error, {:call_failed, reason}}
+    end
   end
 
   # Server callbacks
@@ -120,6 +131,7 @@ defmodule ServiceRadar.DataService.Client do
 
     state = %{
       channel: nil,
+      channel_ref: nil,
       config: config,
       reconnecting: false,
       backoff:
@@ -155,12 +167,10 @@ defmodule ServiceRadar.DataService.Client do
     Logger.info("Connected to datasvc at #{state.config.host}:#{state.config.port}")
 
     {:noreply,
-     %{
-       state
-       | channel: channel,
-         reconnecting: false,
-         backoff: ServiceRadar.Backoff.reset(state.backoff)
-     }}
+     state
+     |> set_channel(channel)
+     |> Map.put(:reconnecting, false)
+     |> Map.put(:backoff, ServiceRadar.Backoff.reset(state.backoff))}
   end
 
   def handle_info({:connect_result, {:error, reason}}, state) do
@@ -170,6 +180,12 @@ defmodule ServiceRadar.DataService.Client do
 
   def handle_info({:DOWN, ref, :process, pid, reason}, %{connect_task: {pid, ref}} = state) do
     state = clear_connect_task(state)
+    {:noreply, schedule_reconnect(state, reason)}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{channel_ref: ref} = state) do
+    Logger.warning("Datasvc gRPC connection down: #{inspect(reason)}")
+    state = clear_channel(state)
     {:noreply, schedule_reconnect(state, reason)}
   end
 
@@ -504,6 +520,25 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   defp ensure_connected(state), do: {:ok, state}
+
+  defp set_channel(state, channel) do
+    state
+    |> clear_channel()
+    |> Map.put(:channel, channel)
+    |> Map.put(:channel_ref, monitor_channel(channel))
+  end
+
+  defp clear_channel(%{channel_ref: nil} = state), do: %{state | channel: nil}
+
+  defp clear_channel(%{channel_ref: ref} = state) do
+    Process.demonitor(ref, [:flush])
+    %{state | channel: nil, channel_ref: nil}
+  end
+
+  defp monitor_channel(channel) do
+    conn_pid = channel.adapter_payload.conn_pid
+    Process.monitor(conn_pid)
+  end
 
   defp do_put(channel, key, value, opts) do
     timeout = opts[:timeout] || @default_timeout
