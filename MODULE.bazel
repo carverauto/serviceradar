@@ -20,6 +20,11 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
+# NOTE: rules_multirun uses Python, which causes issues with `bazel run` when
+# using remote execution from a different host platform (e.g., macOS -> Linux RBE).
+# See: https://github.com/keith/rules_multirun/issues/43
+# A Go port exists (PR #57) but isn't ready for use yet.
+# Workaround: Push images from CI (Linux) or use scripts/push_all_images.sh
 bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
 bazel_dep(name = "rules_shell", version = "0.4.1", repo_name = "rules_shell")
 bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
