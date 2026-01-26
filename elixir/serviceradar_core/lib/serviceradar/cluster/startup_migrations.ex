@@ -32,8 +32,16 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
       Logger.info("[StartupMigrations] Running migrations")
       migrations_fn.()
+
+      # Validate Oban tables exist in correct schema after migrations
+      validate_oban_schema!()
     else
       Logger.debug("[StartupMigrations] Startup migrations disabled; skipping")
+
+      # Even if migrations are disabled, validate Oban schema if Oban is enabled
+      if oban_enabled?() do
+        validate_oban_schema!()
+      end
     end
 
     :ok
@@ -57,5 +65,25 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   defp repo_enabled? do
     Application.get_env(:serviceradar_core, :repo_enabled, true) &&
       Process.whereis(ServiceRadar.Repo)
+  end
+
+  defp oban_enabled? do
+    Application.get_env(:serviceradar_core, :oban_enabled, true) &&
+      Application.get_env(:serviceradar_core, Oban) not in [nil, false]
+  end
+
+  defp validate_oban_schema! do
+    if repo_enabled?() do
+      Logger.info("[StartupMigrations] Validating Oban schema")
+
+      case ServiceRadar.Oban.SchemaValidator.validate() do
+        :ok ->
+          :ok
+
+        {:error, msg} ->
+          Logger.error("[StartupMigrations] Oban schema validation failed: #{msg}")
+          raise RuntimeError, "Oban schema validation failed - see logs for details"
+      end
+    end
   end
 end

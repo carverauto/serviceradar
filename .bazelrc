@@ -40,7 +40,8 @@ build --repo_env=OPENSSL_NO_VENDOR=
 build --repo_env=OPENSSL_NO_PKG_CONFIG=
 build --repo_env=RULES_ERLANG_SKIP_SYSTEM=1
 build --repo_env=RULES_ELIXIR_SKIP_SYSTEM=1
-build --repo_env=RULES_PYTHON_LOCAL_PYTHON=/usr/bin/python3
+# Use hermetic Python toolchain from rules_python extension (MODULE.bazel)
+# instead of system Python for cross-platform compatibility with remote cache
 # Avoid GitHub fallback for Go module fetches in repo rules.
 build --repo_env=GOPROXY=https://proxy.golang.org
 build --repo_env=NEXT_SKIP_TURBO=1
@@ -116,12 +117,15 @@ build:ci --strategy=CopyDirectory=local
 test:ci --test_tag_filters=-manual --test_output=errors
 
 # Remote execution profile settings shared by CI and --config=remote.
+# NOTE: `bazel run` targets (like push_all) will fail locally on macOS when
+# using remote execution because host tools (Python, jq) are built for Linux.
+# Use `./scripts/push_all_images.sh` for local pushing, or push from CI.
 build:remote_base --remote_executor=grpcs://remote.buildbuddy.io
-build:remote_base --host_platform=//build/rbe:rbe_platform
-build:remote_base --platforms=//build/rbe:rbe_platform
+build:remote_base --host_platform=//:rbe_platform
+build:remote_base --platforms=//:rbe_platform
 build:remote_base --crosstool_top=@buildbuddy_toolchain//:toolchain
 build:remote_base --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
-build:remote_base --extra_execution_platforms=//build/rbe:rbe_platform
+build:remote_base --extra_execution_platforms=//:rbe_platform
 # Note: EL9 platform with ZFS support is available via --config=el9
 # Do NOT add EL9 to extra_execution_platforms here, as it causes glibc mismatches
 # for other targets. Use --config=el9 explicitly for ZFS builds.
