@@ -481,3 +481,91 @@ When you're done executing code, try to compile the code, and check the logs or 
 ## Tools
 
 Tidewave MCP tools are optional and may not always be available. Use them when present for deeper inspection, but proceed without them when unavailable.
+
+## CNPG Database Access (Kubernetes demo-staging)
+
+Use this section when you need to directly access the CNPG PostgreSQL database in the demo-staging Kubernetes namespace for debugging or data inspection.
+
+### 1. Expose CNPG Service Externally
+
+Patch the CNPG service to use NodePort for external access:
+
+```bash
+kubectl patch svc cnpg-staging-rw -n demo-staging -p '{"spec":{"type":"NodePort","ports":[{"port":5432,"nodePort":30432}]}}'
+```
+
+Or create a dedicated NodePort service:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: cnpg-staging-external
+  namespace: demo-staging
+spec:
+  type: NodePort
+  selector:
+    cnpg.io/cluster: cnpg-staging
+    cnpg.io/instanceRole: primary
+  ports:
+    - port: 5432
+      targetPort: 5432
+      nodePort: 30432
+EOF
+```
+
+### 2. Get Database Credentials
+
+```bash
+# Get the serviceradar user password
+kubectl get secret serviceradar-db-credentials -n demo-staging -o jsonpath='{.data.password}' | base64 -d
+
+# Or get the postgres superuser password
+kubectl get secret cnpg-staging-superuser -n demo-staging -o jsonpath='{.data.password}' | base64 -d
+```
+
+### 3. Connect via psql
+
+```bash
+# Using serviceradar user (has search_path=platform, ag_catalog)
+PGPASSWORD=$(kubectl get secret serviceradar-db-credentials -n demo-staging -o jsonpath='{.data.password}' | base64 -d) \
+  psql -h <node-ip> -p 30432 -U serviceradar -d serviceradar
+
+# Using postgres superuser
+PGPASSWORD=$(kubectl get secret cnpg-staging-superuser -n demo-staging -o jsonpath='{.data.password}' | base64 -d) \
+  psql -h <node-ip> -p 30432 -U postgres -d serviceradar
+```
+
+Replace `<node-ip>` with your Kubernetes node IP (e.g., `localhost` if running locally).
+
+### 4. Alternative: kubectl exec into CNPG Pod
+
+For quick one-off queries without exposing the service:
+
+```bash
+kubectl exec -it cnpg-staging-1 -n demo-staging -- psql -U serviceradar -d serviceradar
+```
+
+### 5. Common Queries
+
+```sql
+-- Check service_status table (uses platform schema via search_path)
+SELECT COUNT(*) FROM service_status;
+
+-- Query specific service history
+SELECT timestamp, service_name, available, message
+FROM service_status
+WHERE service_name = 'Hello Wasm'
+ORDER BY timestamp DESC
+LIMIT 20;
+
+-- Check schema search_path
+SHOW search_path;
+```
+
+### Notes
+
+- The `serviceradar` user has `search_path=platform, ag_catalog` set, so tables in the `platform` schema are accessed without prefix.
+- For production debugging, prefer `kubectl exec` over exposing the service externally.
+- Remember to clean up NodePort services when done: `kubectl delete svc cnpg-staging-external -n demo-staging`
