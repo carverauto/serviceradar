@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
      |> assign(:history, [])
      |> assign(:history_page, 1)
      |> assign(:history_per_page, @history_per_page)
+     |> assign(:history_params, %{})
      |> assign(:limit, @default_limit)
      |> assign(:refresh_pending, false)
      |> SRQLPage.init("services", default_limit: @default_limit, builder_available: false)}
@@ -43,6 +44,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
       socket
       |> assign(:query, query)
       |> assign(:history_page, 1)
+      |> assign(:history_params, params)
       |> load_history(query, uri, params)
 
     service = pick_service(socket.assigns.history, params)
@@ -181,6 +183,20 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   defp build_identity_filters(params) do
     [:service_name, :service_type, :gateway_id, :agent_id, :partition]
+    |> Enum.flat_map(&filter_param(params, &1))
+  end
+
+  defp build_history_fallback_filters(params) do
+    agent_id = Map.get(params, "agent_id")
+
+    keys =
+      if is_binary(agent_id) and agent_id != "" do
+        [:service_name, :service_type, :agent_id, :partition]
+      else
+        [:service_name, :service_type, :gateway_id, :partition]
+      end
+
+    keys
     |> Enum.flat_map(&filter_param(params, &1))
   end
 
@@ -549,10 +565,34 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   defp history_message(%{} = svc) do
     details = parse_service_details(svc)
-    service_summary(svc, details) || Map.get(svc, "message") || "—"
+    message = service_summary(svc, details) || Map.get(svc, "message")
+    normalize_history_message(message) || "—"
   end
 
   defp history_message(_), do: "—"
+
+  defp normalize_history_message(nil), do: nil
+
+  defp normalize_history_message(message) when is_binary(message) do
+    trimmed = String.trim(message)
+
+    cond do
+      trimmed == "" ->
+        nil
+
+      String.starts_with?(trimmed, "{") ->
+        case Jason.decode(trimmed) do
+          {:ok, %{"summary" => summary}} when is_binary(summary) and summary != "" -> summary
+          {:ok, %{"message" => inner}} when is_binary(inner) and inner != "" -> inner
+          _ -> message
+        end
+
+      true ->
+        message
+    end
+  end
+
+  defp normalize_history_message(message), do: to_string(message)
 
   defp service_details_path(svc) do
     ~p"/services/check?#{service_details_params(svc)}"
@@ -598,7 +638,17 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     query = socket.assigns.query || build_query(%{})
     uri = socket.assigns.srql[:page_path] || "/services/check"
 
-    socket = load_history(socket, query, uri, %{})
+    params =
+      case socket.assigns.history_params do
+        %{} = stored when map_size(stored) > 0 -> stored
+        _ ->
+          case socket.assigns.service do
+            %{} = svc -> service_details_params(svc)
+            _ -> %{}
+          end
+      end
+
+    socket = load_history(socket, query, uri, params)
 
     lookup_params =
       case socket.assigns.service do
@@ -698,7 +748,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     if Map.has_key?(params, "q") do
       nil
     else
-      filters = build_identity_filters(params)
+      filters = build_history_fallback_filters(params)
 
       if filters == [] do
         nil
