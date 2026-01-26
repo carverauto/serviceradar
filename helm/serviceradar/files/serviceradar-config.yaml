@@ -321,7 +321,9 @@ data:
         "host_ip": "agent",
         "partition": "{{$agentPartition}}",
         "gateway_addr": "{{$gatewayAddress}}",
-        "push_interval": "30s",
+        "push_interval": "{{ default "30s" $agentVals.pushInterval }}",
+        "status_debounce_interval": "{{ default "30s" $agentVals.statusDebounceInterval }}",
+        "status_heartbeat_interval": "{{ default "5m" $agentVals.statusHeartbeatInterval }}",
         "kv_address": "serviceradar-datasvc:50057",
         "kv_security": {
           "mode": "spiffe",

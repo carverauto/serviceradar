@@ -170,23 +170,12 @@ The system SHALL store risk and compliance status:
 ---
 
 ### Requirement: OCSF Network Interfaces Array
+The system SHALL treat `ocsf_devices.network_interfaces` as a non-canonical cache and SHALL NOT depend on it for interface presentation.
 
-The system SHALL store network interfaces as a JSONB `network_interfaces` array where each element contains:
-- `mac` (TEXT): Interface MAC address
-- `ip` (TEXT): Interface IP address
-- `hostname` (TEXT): Interface hostname
-- `name` (TEXT): Interface name (e.g., "eth0", "ens192")
-- `uid` (TEXT): Interface unique identifier
-- `type` (TEXT): Interface type name
-- `type_id` (INTEGER): OCSF interface type enum
-
-#### Scenario: Multi-homed server
-- **GIVEN** a server with two network interfaces discovered via SNMP
-- **WHEN** the device is processed by DIRE
-- **THEN** `network_interfaces` SHALL contain an array with two interface objects
-- **AND** each interface SHALL have `mac`, `ip`, and `name` populated
-
----
+#### Scenario: Interface presentation uses SRQL
+- **GIVEN** a device with interface observations stored in the time-series table
+- **WHEN** the device details UI requests interfaces
+- **THEN** the UI SHALL query SRQL `in:interfaces` and NOT rely on `ocsf_devices.network_interfaces`
 
 ### Requirement: OCSF Device Export
 
@@ -392,4 +381,76 @@ The system SHALL allow per-device SNMP credential overrides that supersede profi
 - **GIVEN** a device with a stored SNMP credential override
 - **WHEN** SNMP polling config is generated
 - **THEN** the override SHALL be used for that device
+
+### Requirement: Device Dashboard Stats Cards
+
+The system SHALL display summary statistics cards above the devices table on the devices dashboard page.
+
+The stats cards section SHALL include:
+- Total Devices card: Shows total device count
+- Available Devices card: Shows available count with success styling
+- Unavailable Devices card: Shows unavailable count with error styling when > 0
+- Device Types card: Shows breakdown of device types (top 5)
+- Top Vendors card: Shows breakdown by vendor (top 5)
+
+#### Scenario: Stats cards display on page load
+- **GIVEN** a user navigates to the devices dashboard
+- **WHEN** the page loads
+- **THEN** stats cards SHALL be displayed above the devices table
+- **AND** cards SHALL show current statistics via SRQL queries
+
+#### Scenario: Stats cards show loading state
+- **GIVEN** a user navigates to the devices dashboard
+- **WHEN** statistics are being fetched
+- **THEN** stats cards SHALL display skeleton placeholders
+
+#### Scenario: Unavailable devices highlighted
+- **GIVEN** there are unavailable devices in the inventory
+- **WHEN** the stats cards are displayed
+- **THEN** the Unavailable Devices card SHALL use error styling (red tone)
+- **AND** the count SHALL be prominently displayed
+
+#### Scenario: Stats cards are clickable filters
+- **GIVEN** the stats cards are displayed
+- **WHEN** a user clicks on the "Unavailable Devices" card
+- **THEN** the devices table SHALL filter to show only unavailable devices
+
+#### Scenario: Stats loaded via parallel SRQL queries
+- **GIVEN** the devices dashboard is loading
+- **WHEN** stats are fetched
+- **THEN** multiple SRQL queries SHALL execute in parallel
+- **AND** each card SHALL load independently
+
+### Requirement: Interface Observations Time-Series
+The system SHALL store interface observations in a single time-series table covering routers and servers.
+
+Interface observations SHALL include at minimum:
+- `timestamp` (TIMESTAMPTZ) - observation time
+- `device_id` (TEXT) - canonical device UID
+- `device_ip` (TEXT) - device IP at observation time
+- `if_index` (INTEGER, nullable) - interface index (SNMP ifIndex)
+- `if_name` (TEXT, nullable)
+- `if_descr` (TEXT, nullable)
+- `if_alias` (TEXT, nullable)
+- `if_type` (INTEGER, nullable) - numeric interface type identifier
+- `if_type_name` (TEXT, nullable) - human-readable type (e.g., ethernetCsmacd)
+- `interface_kind` (TEXT, nullable) - classification (physical, virtual, loopback, tunnel, bridge, etc.)
+- `mac` (TEXT, nullable)
+- `ip_addresses` (TEXT[] or JSON array)
+- `speed_bps` (BIGINT, nullable)
+- `mtu` (INTEGER, nullable)
+- `admin_status` (INTEGER, nullable)
+- `oper_status` (INTEGER, nullable)
+- `duplex` (TEXT, nullable)
+- `metadata` (JSONB, optional)
+
+#### Scenario: Router interface observation
+- **GIVEN** a router discovered by SNMP with `ifType`, speed, and MAC
+- **WHEN** mapper publishes interface results
+- **THEN** the time-series table SHALL store the observation with type fields, MAC, IPs, and speed
+
+#### Scenario: Server interface observation
+- **GIVEN** a Linux server with `eth0` and loopback interfaces
+- **WHEN** mapper/sysmon publishes interface results
+- **THEN** the time-series table SHALL store both interfaces with `interface_kind` set appropriately
 

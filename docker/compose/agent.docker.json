@@ -6,6 +6,8 @@
   "partition": "default",
   "gateway_addr": "agent-gateway:50052",
   "push_interval": "30s",
+  "status_debounce_interval": "30s",
+  "status_heartbeat_interval": "5m",
   "gateway_security": {
     "mode": "spiffe",
     "cert_dir": "/etc/serviceradar/certs",
