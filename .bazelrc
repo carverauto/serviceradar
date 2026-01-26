@@ -121,11 +121,11 @@ test:ci --test_tag_filters=-manual --test_output=errors
 # using remote execution because host tools (Python, jq) are built for Linux.
 # Use `./scripts/push_all_images.sh` for local pushing, or push from CI.
 build:remote_base --remote_executor=grpcs://remote.buildbuddy.io
-build:remote_base --host_platform=//:rbe_platform
-build:remote_base --platforms=//:rbe_platform
+build:remote_base --host_platform=//build/rbe:rbe_platform
+build:remote_base --platforms=//build/rbe:rbe_platform
 build:remote_base --crosstool_top=@buildbuddy_toolchain//:toolchain
 build:remote_base --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
-build:remote_base --extra_execution_platforms=//:rbe_platform
+build:remote_base --extra_execution_platforms=//build/rbe:rbe_platform
 # Note: EL9 platform with ZFS support is available via --config=el9
 # Do NOT add EL9 to extra_execution_platforms here, as it causes glibc mismatches
 # for other targets. Use --config=el9 explicitly for ZFS builds.
