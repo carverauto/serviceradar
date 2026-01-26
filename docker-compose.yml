@@ -98,8 +98,6 @@ services:
   cloak-keygen:
     image: alpine:3.20
     container_name: serviceradar-cloak-keygen
-    environment:
-      - CLOAK_KEY=${CLOAK_KEY:-}
     volumes:
       - cloak-key:/etc/serviceradar/cloak
     command: >
@@ -107,11 +105,7 @@ services:
       mkdir -p /etc/serviceradar/cloak;
       if [ ! -f /etc/serviceradar/cloak/cloak.key ]; then
         umask 077;
-        if [ -n "${CLOAK_KEY:-}" ]; then
-          printf "%s" "${CLOAK_KEY}" > /etc/serviceradar/cloak/cloak.key;
-        else
-          head -c 32 /dev/urandom | base64 | tr -d "\n" > /etc/serviceradar/cloak/cloak.key;
-        fi;
+        head -c 32 /dev/urandom | base64 | tr -d "\n" > /etc/serviceradar/cloak/cloak.key;
         echo "Generated CLOAK_KEY";
       else
         echo "CLOAK_KEY already present";
