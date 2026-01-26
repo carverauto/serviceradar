@@ -1,6 +1,6 @@
 ## ADDED Requirements
 ### Requirement: CLOAK_KEY bootstrapping for deployments
-The platform SHALL provision a base64-encoded 32-byte `CLOAK_KEY` for core-elx and web-ng across Docker Compose, Helm, and Kubernetes manifest installs. Deployments SHALL generate the key when missing/empty/invalid and SHALL preserve valid operator-supplied keys.
+The platform SHALL provision a base64-encoded 32-byte `CLOAK_KEY` for core-elx and web-ng across Docker Compose, Helm, and Kubernetes manifest installs. Deployments SHALL generate the key only when it is missing and SHALL fail fast when an existing key is empty or invalid. Valid operator-supplied keys MUST be preserved.
 
 #### Scenario: Docker Compose boot without CLOAK_KEY
 - **GIVEN** `docker compose up -d` is run without `CLOAK_KEY` set
@@ -14,10 +14,10 @@ The platform SHALL provision a base64-encoded 32-byte `CLOAK_KEY` for core-elx a
 - **THEN** `serviceradar-secrets` contains `cloak-key` with a valid base64-encoded 32-byte key
 - **AND** core-elx and web-ng receive `CLOAK_KEY` from the secret
 
-#### Scenario: Kubernetes manifest install with placeholder or invalid key
-- **GIVEN** a Kubernetes manifest install includes a missing, empty, or invalid `cloak-key`
+#### Scenario: Kubernetes manifest install with invalid key
+- **GIVEN** a Kubernetes manifest install includes an empty or invalid `cloak-key`
 - **WHEN** the secret generator job runs
-- **THEN** it replaces the value with a valid base64-encoded 32-byte key
+- **THEN** the job fails fast and reports the invalid key
 
 #### Scenario: Operator supplies an explicit CLOAK_KEY
 - **GIVEN** an operator provides a valid base64-encoded 32-byte `cloak-key`

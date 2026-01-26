@@ -5,8 +5,8 @@ Issue #2511 shows Docker Compose setting `CLOAK_KEY` to a blank string, which ca
 
 ## What Changes
 - Ensure Docker Compose deployments never prefer an empty `CLOAK_KEY` over the generated file-based key.
-- Ensure Helm installations generate/validate `cloak-key` in `serviceradar-secrets` and wire it to core/web.
-- Ensure Kubernetes manifest installs (demo/base) generate/validate `cloak-key` the same way.
+- Ensure Helm installations validate `cloak-key` in `serviceradar-secrets`, generate it when missing, and fail fast on invalid values.
+- Ensure Kubernetes manifest installs (demo/base) validate `cloak-key`, generate it when missing, and fail fast on invalid values.
 - Document how to override and persist `CLOAK_KEY` across upgrades.
 
 ## Impact

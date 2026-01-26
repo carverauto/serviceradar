@@ -156,8 +156,9 @@ Key persistence by environment:
   `CLOAK_KEY` values are treated as missing so the file-based key is used.
 - Helm/Kubernetes: store the key in the `serviceradar-secrets` Secret under `cloak-key`,
   or set `secrets.cloakKey` in `helm/serviceradar/values.yaml` to seed it. The secret
-  generator validates `cloak-key` and regenerates it if missing/empty/invalid. Override
-  values must be base64-encoded 32-byte keys.
+  generator validates `cloak-key` and fails fast if an existing key is invalid; it only
+  generates a key when the secret is missing. A valid `secrets.cloakKey` override can be
+  used to replace an invalid key. Override values must be base64-encoded 32-byte keys.
 
 ### CLOAK_KEY bootstrapping smoke checks
 
