@@ -108,8 +108,8 @@ build: ## Build the full workspace with Bazel (remote)
 	@bazel build --config=remote //...
 
 .PHONY: push_all
-push_all: ## Build and push all OCI images to GHCR via Bazel
-	@bazel run --config=remote --stamp //docker/images:push_all
+push_all: ## Build and push all OCI images to GHCR (CI only - see help)
+	@./scripts/push_all_images.sh
 
 .PHONY: check-dev-image-tags
 check-dev-image-tags: ## Verify dev image tag defaults (latest + APP_TAG fallbacks)

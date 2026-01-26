@@ -125,8 +125,29 @@ register_toolchains(
     "@remotejdk11_macos_aarch64//:all",
 )
 
-# --- Python toolchain for rules_pkg on macOS -------------------
-register_toolchains("//build/python_toolchain:py3_toolchain")
+# --- Python toolchain (hermetic for all platforms) -------------------
+# Configure hermetic Python toolchains for consistent behavior across
+# local builds and remote cache. This prevents architecture mismatches
+# when rules_multirun pulls cached artifacts.
+#
+# IMPORTANT: Register host toolchains FIRST so they take precedence for
+# host-transitioned targets like rules_multirun (which use cfg="host").
+# See: https://github.com/bazelbuild/bazel/issues/5309
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    is_default = True,
+    python_version = "3.11",
+)
+use_repo(python, "python_3_11", "python_versions")
+
+register_toolchains(
+    # Host toolchains first - ensures local Python is used for `bazel run`
+    # targets that use cfg="host" transitions (like rules_multirun)
+    "//build/python_toolchain:py3_toolchain",        # macOS ARM64
+    "//build/python_toolchain:py3_toolchain_x86_64", # macOS x86_64
+    # Hermetic toolchains for cross-platform builds and remote execution
+    "@python_versions//3.11:all",
+)
 
 # --- RPM & package Toolchain  ----------------------------------
 
