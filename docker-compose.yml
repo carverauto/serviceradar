@@ -99,7 +99,7 @@ services:
     image: alpine:3.20
     container_name: serviceradar-cloak-keygen
     environment:
-      - CLOAK_KEY=${CLOAK_KEY:-MBkLP+XL4htJEQ2Tyi+g+E6Jru4eLd4r9hT4dxcOIeg=}
+      - CLOAK_KEY=${CLOAK_KEY:-}
     volumes:
       - cloak-key:/etc/serviceradar/cloak
     command: >
