@@ -647,13 +647,17 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   end
 
   defp maybe_expand_history(history, params, scope) do
-    query = build_history_fallback_query(params)
-
-    if query == nil do
+    if length(history) >= @default_limit do
       history
     else
-      fallback = fetch_history(query, scope)
-      merge_history(history, fallback)
+      query = build_history_fallback_query(params)
+
+      if query == nil do
+        history
+      else
+        fallback = fetch_history(query, scope)
+        merge_history(history, fallback)
+      end
     end
   end
 
@@ -694,22 +698,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     if Map.has_key?(params, "q") do
       nil
     else
-      service_id = Map.get(params, "service_id") || Map.get(params, "uid")
+      filters = build_identity_filters(params)
 
-      if is_binary(service_id) and service_id != "" do
+      if filters == [] do
         nil
       else
-        filters =
-          []
-          |> maybe_add_filter("gateway_id", Map.get(params, "gateway_id"))
-          |> maybe_add_filter("service_name", Map.get(params, "service_name"))
-
-        if filters == [] do
-          nil
-        else
-          (["in:services" | filters] ++ ["sort:timestamp:desc", "limit:#{@default_limit}"])
-          |> Enum.join(" ")
-        end
+        (["in:services" | filters] ++ ["sort:timestamp:desc", "limit:#{@default_limit}"])
+        |> Enum.join(" ")
       end
     end
   end
