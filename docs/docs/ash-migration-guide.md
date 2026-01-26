@@ -152,9 +152,33 @@ Key persistence by environment:
 
 - Docker Compose: a `cloak-key` volume is created and seeded once. The key is stored at
   `/etc/serviceradar/cloak/cloak.key` and read via `CLOAK_KEY_FILE`.
-  Set `CLOAK_KEY` in `.env` before first boot if you need a specific key.
+  Set `CLOAK_KEY` in `.env` before first boot if you need a specific key. Empty
+  `CLOAK_KEY` values are treated as missing so the file-based key is used.
 - Helm/Kubernetes: store the key in the `serviceradar-secrets` Secret under `cloak-key`,
-  or set `secrets.cloakKey` in `helm/serviceradar/values.yaml` to seed it.
+  or set `secrets.cloakKey` in `helm/serviceradar/values.yaml` to seed it. The secret
+  generator validates `cloak-key` and regenerates it if missing/empty/invalid. Override
+  values must be base64-encoded 32-byte keys.
+
+### CLOAK_KEY bootstrapping smoke checks
+
+Generate a key if needed:
+
+```bash
+head -c 32 /dev/urandom | base64
+```
+
+Docker Compose (file-based key):
+
+```bash
+docker compose up -d cloak-keygen
+docker exec serviceradar-core-elx-mtls cat /etc/serviceradar/cloak/cloak.key | base64 -d | wc -c
+```
+
+Helm/Kubernetes (secret data -> key -> bytes):
+
+```bash
+kubectl get secret serviceradar-secrets -o jsonpath='{.data.cloak-key}' | base64 -d | base64 -d | wc -c
+```
 
 Validation (detect wrong/missing key):
 
