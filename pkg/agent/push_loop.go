@@ -479,11 +479,6 @@ type statusSignatureEntry struct {
 	messageHash string
 }
 
-var statusSignatureScrubKeys = map[string]struct{}{
-	"response_time":    {},
-	"response_time_ns": {},
-}
-
 func buildStatusSignature(statuses []*proto.GatewayServiceStatus) string {
 	entries := make([]statusSignatureEntry, 0, len(statuses))
 	for _, status := range statuses {
@@ -577,7 +572,7 @@ func scrubVolatileFields(value interface{}) {
 	switch typed := value.(type) {
 	case map[string]interface{}:
 		for key, entry := range typed {
-			if _, ok := statusSignatureScrubKeys[key]; ok {
+			if isStatusSignatureScrubKey(key) {
 				delete(typed, key)
 				continue
 			}
@@ -587,6 +582,15 @@ func scrubVolatileFields(value interface{}) {
 		for _, entry := range typed {
 			scrubVolatileFields(entry)
 		}
+	}
+}
+
+func isStatusSignatureScrubKey(key string) bool {
+	switch key {
+	case "response_time", "response_time_ns":
+		return true
+	default:
+		return false
 	}
 }
 
