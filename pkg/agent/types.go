@@ -80,9 +80,11 @@ type ServerConfig struct {
 	Logging     *logger.Config         `json:"logging,omitempty" hot:"reload"`
 
 	// Gateway configuration for push-based architecture
-	GatewayAddr     string                 `json:"gateway_addr,omitempty"`     // Address of the agent-gateway to push status to
-	GatewaySecurity *models.SecurityConfig `json:"gateway_security,omitempty"` // Security config for gateway connection
-	PushInterval    Duration               `json:"push_interval,omitempty"`    // How often to push status (default: 30s)
+	GatewayAddr             string                 `json:"gateway_addr,omitempty"`              // Address of the agent-gateway to push status to
+	GatewaySecurity         *models.SecurityConfig `json:"gateway_security,omitempty"`          // Security config for gateway connection
+	PushInterval            Duration               `json:"push_interval,omitempty"`             // How often to run the push loop (default: 30s)
+	StatusDebounceInterval  Duration               `json:"status_debounce_interval,omitempty"`  // Minimum interval between unchanged status pushes
+	StatusHeartbeatInterval Duration               `json:"status_heartbeat_interval,omitempty"` // Maximum interval between status pushes (heartbeat)
 }
 
 // ServiceError represents an error that occurred in a specific service.

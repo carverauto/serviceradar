@@ -322,6 +322,8 @@ data:
         "partition": "{{$agentPartition}}",
         "gateway_addr": "{{$gatewayAddress}}",
         "push_interval": "30s",
+        "status_debounce_interval": "30s",
+        "status_heartbeat_interval": "5m",
         "kv_address": "serviceradar-datasvc:50057",
         "kv_security": {
           "mode": "spiffe",

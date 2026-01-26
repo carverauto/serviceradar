@@ -20,10 +20,14 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,28 +101,32 @@ type snmpMetricResult struct {
 
 // PushLoop manages the periodic pushing of agent status to the gateway.
 type PushLoop struct {
-	server             *Server
-	gateway            *agentgateway.GatewayClient
-	interval           time.Duration
-	logger             logger.Logger
-	done               chan struct{}
-	stopCh             chan struct{}
-	stopOnce           sync.Once
-	doneOnce           sync.Once
-	configVersion      string        // Current config version for polling
-	configPollInterval time.Duration // How often to poll for config updates
-	enrolled           bool          // Whether we've successfully enrolled
-	started            bool          // Whether Start has been invoked
-	enrollMu           sync.Mutex
-	enrollInFlight     bool
-	sweepResultsSeq    string
-	icmpChecks         map[string]*icmpCheckConfig
-	icmpLastRun        map[string]time.Time
-	icmpMu             sync.RWMutex
-	sysmonLastSent     time.Time
-	sysmonMu           sync.RWMutex
-	snmpLastSent       map[string]time.Time
-	snmpMu             sync.RWMutex
+	server              *Server
+	gateway             *agentgateway.GatewayClient
+	interval            time.Duration
+	logger              logger.Logger
+	done                chan struct{}
+	stopCh              chan struct{}
+	stopOnce            sync.Once
+	doneOnce            sync.Once
+	configVersion       string        // Current config version for polling
+	configPollInterval  time.Duration // How often to poll for config updates
+	enrolled            bool          // Whether we've successfully enrolled
+	started             bool          // Whether Start has been invoked
+	enrollMu            sync.Mutex
+	enrollInFlight      bool
+	sweepResultsSeq     string
+	icmpChecks          map[string]*icmpCheckConfig
+	icmpLastRun         map[string]time.Time
+	icmpMu              sync.RWMutex
+	sysmonLastSent      time.Time
+	sysmonMu            sync.RWMutex
+	snmpLastSent        map[string]time.Time
+	snmpMu              sync.RWMutex
+	statusDebounce      time.Duration
+	statusHeartbeat     time.Duration
+	lastStatusPush      time.Time
+	lastStatusSignature string
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -137,6 +145,44 @@ func (p *PushLoop) setInterval(d time.Duration) {
 	p.stateMu.Lock()
 	p.interval = d
 	p.stateMu.Unlock()
+}
+
+func (p *PushLoop) getStatusDebounceInterval() time.Duration {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.statusDebounce
+}
+
+func (p *PushLoop) getStatusHeartbeatInterval() time.Duration {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.statusHeartbeat
+}
+
+func (p *PushLoop) setStatusDebounceInterval(d time.Duration) {
+	debounce, heartbeat := clampStatusIntervals(d, p.getStatusHeartbeatInterval(), p.getInterval())
+	p.stateMu.Lock()
+	p.statusDebounce = debounce
+	p.statusHeartbeat = heartbeat
+	p.stateMu.Unlock()
+}
+
+func (p *PushLoop) setStatusHeartbeatInterval(d time.Duration) {
+	debounce, heartbeat := clampStatusIntervals(p.getStatusDebounceInterval(), d, p.getInterval())
+	p.stateMu.Lock()
+	p.statusDebounce = debounce
+	p.statusHeartbeat = heartbeat
+	p.stateMu.Unlock()
+}
+
+// SetStatusDebounceInterval updates the minimum interval between unchanged status pushes.
+func (p *PushLoop) SetStatusDebounceInterval(d time.Duration) {
+	p.setStatusDebounceInterval(d)
+}
+
+// SetStatusHeartbeatInterval updates the maximum interval between status pushes (heartbeat).
+func (p *PushLoop) SetStatusHeartbeatInterval(d time.Duration) {
+	p.setStatusHeartbeatInterval(d)
 }
 
 func (p *PushLoop) getConfigPollInterval() time.Duration {
@@ -163,6 +209,22 @@ func (p *PushLoop) setConfigPollInterval(d time.Duration) {
 	p.stateMu.Unlock()
 }
 
+func clampStatusIntervals(debounce, heartbeat, fallbackDebounce time.Duration) (time.Duration, time.Duration) {
+	if debounce <= 0 {
+		debounce = fallbackDebounce
+	}
+	if debounce <= 0 {
+		debounce = defaultPushInterval
+	}
+	if heartbeat <= 0 {
+		heartbeat = defaultStatusHeartbeatInterval
+	}
+	if heartbeat < debounce {
+		heartbeat = debounce
+	}
+	return debounce, heartbeat
+}
+
 func (p *PushLoop) isEnrolled() bool {
 	p.stateMu.RLock()
 	defer p.stateMu.RUnlock()
@@ -187,12 +249,26 @@ func (p *PushLoop) setSweepResultsSequence(seq string) {
 	p.stateMu.Unlock()
 }
 
+func (p *PushLoop) getStatusTrackingState() (string, time.Time) {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.lastStatusSignature, p.lastStatusPush
+}
+
+func (p *PushLoop) recordStatusPush(signature string, at time.Time) {
+	p.stateMu.Lock()
+	p.lastStatusSignature = signature
+	p.lastStatusPush = at
+	p.stateMu.Unlock()
+}
+
 // Default intervals
 const (
-	defaultPushInterval       = 30 * time.Second
-	defaultConfigPollInterval = 60 * time.Second
-	defaultEnrollRetryDelay   = 2 * time.Second
-	maxEnrollRetryDelay       = 30 * time.Second
+	defaultPushInterval            = 30 * time.Second
+	defaultConfigPollInterval      = 60 * time.Second
+	defaultEnrollRetryDelay        = 2 * time.Second
+	maxEnrollRetryDelay            = 30 * time.Second
+	defaultStatusHeartbeatInterval = 5 * time.Minute
 )
 
 // NewPushLoop creates a new push loop.
@@ -200,6 +276,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	if interval <= 0 {
 		interval = defaultPushInterval
 	}
+	debounce, heartbeat := clampStatusIntervals(interval, defaultStatusHeartbeatInterval, interval)
 
 	return &PushLoop{
 		server:             server,
@@ -212,6 +289,8 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		icmpChecks:         make(map[string]*icmpCheckConfig),
 		icmpLastRun:        make(map[string]time.Time),
 		snmpLastSent:       make(map[string]time.Time),
+		statusDebounce:     debounce,
+		statusHeartbeat:    heartbeat,
 	}
 }
 
@@ -320,6 +399,255 @@ func (p *PushLoop) attemptConnectionAndEnrollment(ctx context.Context) {
 	p.enroll(ctx)
 }
 
+type statusPushReason string
+
+const (
+	statusPushReasonInitial   statusPushReason = "initial"
+	statusPushReasonChange    statusPushReason = "change"
+	statusPushReasonHeartbeat statusPushReason = "heartbeat"
+)
+
+type statusPushDecision struct {
+	shouldPush bool
+	reason     statusPushReason
+	signature  string
+}
+
+// evaluateStatusPush decides whether to push regular statuses based on change detection and heartbeat.
+func (p *PushLoop) evaluateStatusPush(statuses []*proto.GatewayServiceStatus, now time.Time) statusPushDecision {
+	if len(statuses) == 0 {
+		return statusPushDecision{}
+	}
+
+	signature := buildStatusSignature(statuses)
+	lastSignature, lastPush := p.getStatusTrackingState()
+
+	if lastSignature == "" {
+		return statusPushDecision{shouldPush: true, reason: statusPushReasonInitial, signature: signature}
+	}
+
+	if signature != lastSignature {
+		return statusPushDecision{shouldPush: true, reason: statusPushReasonChange, signature: signature}
+	}
+
+	debounce := p.getStatusDebounceInterval()
+	if debounce > 0 && now.Sub(lastPush) < debounce {
+		return statusPushDecision{}
+	}
+
+	heartbeat := p.getStatusHeartbeatInterval()
+	if heartbeat <= 0 {
+		heartbeat = defaultStatusHeartbeatInterval
+	}
+	if now.Sub(lastPush) >= heartbeat {
+		return statusPushDecision{shouldPush: true, reason: statusPushReasonHeartbeat, signature: signature}
+	}
+
+	return statusPushDecision{}
+}
+
+type statusSignatureEntry struct {
+	serviceName string
+	serviceType string
+	source      string
+	available   bool
+	messageHash string
+}
+
+var statusSignatureScrubKeys = map[string]struct{}{
+	"response_time":    {},
+	"response_time_ns": {},
+}
+
+func buildStatusSignature(statuses []*proto.GatewayServiceStatus) string {
+	entries := make([]statusSignatureEntry, 0, len(statuses))
+	for _, status := range statuses {
+		if status == nil {
+			continue
+		}
+		entries = append(entries, statusSignatureEntry{
+			serviceName: status.ServiceName,
+			serviceType: status.ServiceType,
+			source:      status.Source,
+			available:   status.Available,
+			messageHash: hashStatusMessage(status.Message),
+		})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].serviceName != entries[j].serviceName {
+			return entries[i].serviceName < entries[j].serviceName
+		}
+		if entries[i].serviceType != entries[j].serviceType {
+			return entries[i].serviceType < entries[j].serviceType
+		}
+		if entries[i].source != entries[j].source {
+			return entries[i].source < entries[j].source
+		}
+		if entries[i].available != entries[j].available {
+			return !entries[i].available && entries[j].available
+		}
+		return entries[i].messageHash < entries[j].messageHash
+	})
+
+	hasher := sha256.New()
+	for _, entry := range entries {
+		hasher.Write([]byte(entry.serviceName))
+		hasher.Write([]byte{0})
+		hasher.Write([]byte(entry.serviceType))
+		hasher.Write([]byte{0})
+		hasher.Write([]byte(entry.source))
+		hasher.Write([]byte{0})
+		if entry.available {
+			hasher.Write([]byte{1})
+		} else {
+			hasher.Write([]byte{0})
+		}
+		hasher.Write([]byte{0})
+		hasher.Write([]byte(entry.messageHash))
+		hasher.Write([]byte{0})
+	}
+
+	return base64.StdEncoding.EncodeToString(hasher.Sum(nil))
+}
+
+func hashStatusMessage(message []byte) string {
+	if len(message) == 0 {
+		return ""
+	}
+
+	raw := bytes.TrimSpace(message)
+	if len(raw) == 0 {
+		return ""
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+
+	var payload interface{}
+	if err := dec.Decode(&payload); err != nil {
+		return hashBytes(raw)
+	}
+	if err := dec.Decode(&struct{}{}); err == nil {
+		return hashBytes(raw)
+	} else if !errors.Is(err, io.EOF) {
+		return hashBytes(raw)
+	}
+
+	scrubVolatileFields(payload)
+	canonical, err := marshalCanonicalJSON(payload)
+	if err != nil {
+		return hashBytes(raw)
+	}
+
+	return hashBytes(canonical)
+}
+
+func hashBytes(data []byte) string {
+	sum := sha256.Sum256(data)
+	return base64.StdEncoding.EncodeToString(sum[:])
+}
+
+func scrubVolatileFields(value interface{}) {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		for key, entry := range typed {
+			if _, ok := statusSignatureScrubKeys[key]; ok {
+				delete(typed, key)
+				continue
+			}
+			scrubVolatileFields(entry)
+		}
+	case []interface{}:
+		for _, entry := range typed {
+			scrubVolatileFields(entry)
+		}
+	}
+}
+
+func marshalCanonicalJSON(value interface{}) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := writeCanonicalJSON(&buf, value); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func writeCanonicalJSON(buf *bytes.Buffer, value interface{}) error {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+
+		buf.WriteByte('{')
+		for i, key := range keys {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			keyBytes, err := json.Marshal(key)
+			if err != nil {
+				return err
+			}
+			buf.Write(keyBytes)
+			buf.WriteByte(':')
+			if err := writeCanonicalJSON(buf, typed[key]); err != nil {
+				return err
+			}
+		}
+		buf.WriteByte('}')
+		return nil
+	case []interface{}:
+		buf.WriteByte('[')
+		for i, entry := range typed {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			if err := writeCanonicalJSON(buf, entry); err != nil {
+				return err
+			}
+		}
+		buf.WriteByte(']')
+		return nil
+	case json.Number:
+		buf.WriteString(typed.String())
+		return nil
+	case string:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return err
+		}
+		buf.Write(encoded)
+		return nil
+	case bool:
+		if typed {
+			buf.WriteString("true")
+		} else {
+			buf.WriteString("false")
+		}
+		return nil
+	case nil:
+		buf.WriteString("null")
+		return nil
+	case float64:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return err
+		}
+		buf.Write(encoded)
+		return nil
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return err
+		}
+		buf.Write(encoded)
+		return nil
+	}
+}
+
 // pushStatus collects status from all services and pushes to the gateway.
 func (p *PushLoop) pushStatus(ctx context.Context) {
 	// Ensure we're connected
@@ -344,7 +672,15 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 
 	// Push regular statuses via PushStatus
 	if len(statuses) > 0 {
-		p.pushRegularStatuses(ctx, statuses)
+		now := time.Now()
+		decision := p.evaluateStatusPush(statuses, now)
+		if decision.shouldPush {
+			if p.pushRegularStatuses(ctx, statuses, decision.reason) {
+				p.recordStatusPush(decision.signature, now)
+			}
+		} else {
+			p.logger.Debug().Msg("Status unchanged; skipping status push")
+		}
 	}
 
 	// Push sysmon via StreamStatus (it can have large payloads with all processes)
@@ -376,7 +712,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 }
 
 // pushRegularStatuses sends non-sysmon statuses via PushStatus.
-func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.GatewayServiceStatus) {
+func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.GatewayServiceStatus, reason statusPushReason) bool {
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
@@ -396,14 +732,23 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	resp, err := p.gateway.PushStatus(ctx, req)
 	if err != nil {
 		p.logger.Error().Err(err).Int("status_count", len(statuses)).Msg("Failed to push status to gateway")
-		return
+		return false
 	}
 
 	if resp.Received {
-		p.logger.Info().Int("status_count", len(statuses)).Msg("Successfully pushed status to gateway")
-	} else {
-		p.logger.Warn().Msg("Gateway did not acknowledge status push")
+		logEvent := p.logger.Info()
+		if reason == statusPushReasonHeartbeat {
+			logEvent = p.logger.Debug()
+		}
+		logEvent.
+			Int("status_count", len(statuses)).
+			Str("reason", string(reason)).
+			Msg("Pushed status to gateway")
+		return true
 	}
+
+	p.logger.Warn().Msg("Gateway did not acknowledge status push")
+	return false
 }
 
 // pushSysmonStatus sends sysmon metrics via StreamStatus for large payloads.
