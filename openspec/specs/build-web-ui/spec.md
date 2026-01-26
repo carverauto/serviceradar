@@ -583,3 +583,30 @@ The device interface metrics view SHALL render SNMP interface traffic as timeser
 - **WHEN** the interface metrics chart is rendered
 - **THEN** the chart SHALL display per-second rates computed from consecutive counter deltas
 
+### Requirement: Device details interface tab uses SRQL
+The device details UI SHALL fetch interfaces via SRQL `in:interfaces` and only display the Interfaces tab when SRQL returns interface rows.
+
+#### Scenario: Interfaces tab visible
+- **GIVEN** SRQL returns interface observations for the device
+- **WHEN** the device details page loads
+- **THEN** the Interfaces tab is visible and renders the SRQL interface rows
+
+#### Scenario: Interfaces tab hidden
+- **GIVEN** SRQL returns no interface observations for the device
+- **WHEN** the device details page loads
+- **THEN** the Interfaces tab is hidden
+
+### Requirement: Device Detail Shows IP Aliases
+The web-ng device detail page SHALL display IP alias records for the device, including alias state and last-seen metadata.
+
+#### Scenario: Device detail displays alias table
+- **GIVEN** a device with IP aliases recorded by DIRE
+- **WHEN** an admin views the device detail page
+- **THEN** the page SHALL list alias IPs with state, last seen time, and sighting count
+
+#### Scenario: Hide stale aliases by default
+- **GIVEN** a device with confirmed and stale alias records
+- **WHEN** the device detail page loads
+- **THEN** stale or archived aliases SHALL be hidden by default
+- **AND** the user may toggle to show them
+

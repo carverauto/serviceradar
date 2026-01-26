@@ -172,6 +172,12 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 		}
 	}
 	pushLoop := agent.NewPushLoop(server, gatewayClient, interval, log)
+	if cfg.StatusDebounceInterval > 0 {
+		pushLoop.SetStatusDebounceInterval(time.Duration(cfg.StatusDebounceInterval))
+	}
+	if cfg.StatusHeartbeatInterval > 0 {
+		pushLoop.SetStatusHeartbeatInterval(time.Duration(cfg.StatusHeartbeatInterval))
+	}
 
 	// Create a cancellable context for the push loop
 	pushCtx, cancel := context.WithCancel(ctx)

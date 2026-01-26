@@ -250,6 +250,9 @@ data:
         "agent_name": "agent",
         "host_ip": "agent",
         "partition": "default",
+        "push_interval": "30s",
+        "status_debounce_interval": "30s",
+        "status_heartbeat_interval": "5m",
         "kv_address": "serviceradar-datasvc:50057",
         "kv_security": {
           "mode": "spiffe",
