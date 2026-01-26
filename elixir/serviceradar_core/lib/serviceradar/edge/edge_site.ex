@@ -43,6 +43,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
   postgres do
     table "edge_sites"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   state_machine do

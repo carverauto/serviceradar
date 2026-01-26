@@ -66,6 +66,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
   postgres do
     table "sysmon_profiles"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   actions do

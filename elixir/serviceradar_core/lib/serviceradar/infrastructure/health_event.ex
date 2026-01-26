@@ -57,6 +57,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   postgres do
     table "health_events"
     repo ServiceRadar.Repo
+    schema "platform"
 
     custom_indexes do
       index [:entity_type, :entity_id, :recorded_at]

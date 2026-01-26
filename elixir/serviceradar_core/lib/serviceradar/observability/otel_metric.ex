@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.OtelMetric do
   postgres do
     table "otel_metrics"
     repo ServiceRadar.Repo
+    schema "platform"
     # Don't generate migrations - table is managed by raw SQL migration
     # that creates TimescaleDB hypertable with composite primary key
     migrate? false

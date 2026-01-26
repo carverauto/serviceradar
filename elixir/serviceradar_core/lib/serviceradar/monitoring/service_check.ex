@@ -30,6 +30,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   postgres do
     table "service_checks"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   json_api do

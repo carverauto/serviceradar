@@ -35,6 +35,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   postgres do
     table "polling_schedules"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   oban do

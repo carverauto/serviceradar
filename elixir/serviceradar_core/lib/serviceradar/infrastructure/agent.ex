@@ -112,6 +112,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
   postgres do
     table "ocsf_agents"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   json_api do

@@ -33,6 +33,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       Logger.info("[StartupMigrations] Running migrations")
       migrations_fn.()
 
+      validate_public_schema!()
       # Validate Oban tables exist in correct schema after migrations
       validate_oban_schema!()
     else
@@ -48,12 +49,15 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   defp run_migrations! do
-    # Run Ecto migrations for the current schema (determined by search_path)
+    ensure_platform_schema!()
+    sync_platform_schema_migrations!()
+
     Ecto.Migrator.run(
       ServiceRadar.Repo,
       Application.app_dir(:serviceradar_core, "priv/repo/migrations"),
       :up,
-      all: true
+      all: true,
+      prefix: "platform"
     )
   end
 
@@ -84,6 +88,58 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
           Logger.error("[StartupMigrations] Oban schema validation failed: #{msg}")
           raise RuntimeError, "Oban schema validation failed - see logs for details"
       end
+    end
+  end
+
+  defp validate_public_schema! do
+    if repo_enabled?() do
+      Logger.info("[StartupMigrations] Validating public schema is empty")
+
+      %{rows: rows} =
+        ServiceRadar.Repo.query!(
+          "SELECT tablename FROM pg_tables\n" <>
+            "WHERE schemaname = 'public'\n" <>
+            "AND tableowner = current_user\n" <>
+            "AND tablename <> 'schema_migrations'"
+        )
+
+      case rows do
+        [] ->
+          :ok
+
+        _ ->
+          tables = Enum.map_join(rows, ", ", fn [name] -> name end)
+          raise RuntimeError, "public schema has ServiceRadar tables: #{tables}"
+      end
+    end
+  end
+
+  defp ensure_platform_schema! do
+    if repo_enabled?() do
+      ServiceRadar.Repo.query!("CREATE SCHEMA IF NOT EXISTS platform")
+    end
+  end
+
+  defp sync_platform_schema_migrations! do
+    if repo_enabled?() do
+      if table_exists?("public.schema_migrations") do
+        ServiceRadar.Repo.query!(
+          "CREATE TABLE IF NOT EXISTS platform.schema_migrations (LIKE public.schema_migrations INCLUDING ALL)"
+        )
+
+        ServiceRadar.Repo.query!(
+          "INSERT INTO platform.schema_migrations (version, inserted_at)\n" <>
+            "SELECT version, inserted_at FROM public.schema_migrations\n" <>
+            "ON CONFLICT (version) DO NOTHING"
+        )
+      end
+    end
+  end
+
+  defp table_exists?(qualified_table) do
+    case ServiceRadar.Repo.query!("SELECT to_regclass($1)", [qualified_table]) do
+      %{rows: [[nil]]} -> false
+      %{rows: [[_]]} -> true
     end
   end
 end

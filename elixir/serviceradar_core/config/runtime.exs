@@ -86,12 +86,14 @@ if config_env() == :prod do
   end
 
   pool_size = parse_int.(System.get_env("POOL_SIZE") || "10") || 10
+  search_path = System.get_env("CNPG_SEARCH_PATH", "platform, ag_catalog")
 
   repo_opts = [
     url: database_url,
     ssl: ssl_opts,
     socket_options: maybe_ipv6,
-    pool_size: pool_size
+    pool_size: pool_size,
+    parameters: [search_path: search_path]
   ]
 
   queue_target =

@@ -26,6 +26,7 @@ defmodule ServiceRadar.Identity.User do
   postgres do
     table "ng_users"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   authentication do

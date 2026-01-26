@@ -15,6 +15,7 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
   postgres do
     table "timeseries_metrics"
     repo ServiceRadar.Repo
+    schema "platform"
     # Don't generate migrations - table is managed by raw SQL migration
     # that creates TimescaleDB hypertable matching Go schema
     migrate? false

@@ -11,9 +11,10 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceMetricGroups do
       IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'interface_settings'
+        AND table_schema = '#{prefix()}'
         AND column_name = 'metric_groups'
       ) THEN
-        ALTER TABLE interface_settings
+        ALTER TABLE #{prefix()}.interface_settings
         ADD COLUMN metric_groups jsonb NOT NULL DEFAULT '[]'::jsonb;
       END IF;
     END $$;

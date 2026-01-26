@@ -14,6 +14,7 @@ defmodule ServiceRadar.Observability.ZenRule do
   postgres do
     table "zen_rules"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   code_interface do

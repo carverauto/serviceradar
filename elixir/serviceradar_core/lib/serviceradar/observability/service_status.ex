@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.ServiceStatus do
   postgres do
     table "service_status"
     repo ServiceRadar.Repo
+    schema "platform"
     migrate? false
   end
 

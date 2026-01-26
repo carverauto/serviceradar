@@ -62,6 +62,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
   postgres do
     table "snmp_oid_templates"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   actions do

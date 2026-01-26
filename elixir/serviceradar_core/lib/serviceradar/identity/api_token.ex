@@ -28,6 +28,7 @@ defmodule ServiceRadar.Identity.ApiToken do
   postgres do
     table "api_tokens"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   code_interface do

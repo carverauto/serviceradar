@@ -15,6 +15,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
   postgres do
     table "plugin_packages"
     repo ServiceRadar.Repo
+    schema "platform"
 
     references do
       reference :plugin, on_delete: :delete

@@ -31,6 +31,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   postgres do
     table "edge_onboarding_packages"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   state_machine do

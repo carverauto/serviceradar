@@ -38,6 +38,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   postgres do
     table "sweep_groups"
     repo ServiceRadar.Repo
+    schema "platform"
 
     custom_indexes do
       index [:partition], name: "sweep_groups_partition_idx"

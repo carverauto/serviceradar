@@ -14,6 +14,7 @@ defmodule ServiceRadar.Identity.Token do
   postgres do
     table "user_tokens"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   actions do
