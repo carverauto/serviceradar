@@ -20,6 +20,11 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
+# NOTE: rules_multirun uses Python, which causes issues with `bazel run` when
+# using remote execution from a different host platform (e.g., macOS -> Linux RBE).
+# See: https://github.com/keith/rules_multirun/issues/43
+# A Go port exists (PR #57) but isn't ready for use yet.
+# Workaround: Push images from CI (Linux) or use scripts/push_all_images.sh
 bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
 bazel_dep(name = "rules_shell", version = "0.4.1", repo_name = "rules_shell")
 bazel_dep(name = "bazel_skylib", version = "1.8.1", repo_name = "bazel_skylib")
@@ -125,8 +130,29 @@ register_toolchains(
     "@remotejdk11_macos_aarch64//:all",
 )
 
-# --- Python toolchain for rules_pkg on macOS -------------------
-register_toolchains("//build/python_toolchain:py3_toolchain")
+# --- Python toolchain (hermetic for all platforms) -------------------
+# Configure hermetic Python toolchains for consistent behavior across
+# local builds and remote cache. This prevents architecture mismatches
+# when rules_multirun pulls cached artifacts.
+#
+# IMPORTANT: Register host toolchains FIRST so they take precedence for
+# host-transitioned targets like rules_multirun (which use cfg="host").
+# See: https://github.com/bazelbuild/bazel/issues/5309
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    is_default = True,
+    python_version = "3.11",
+)
+use_repo(python, "python_3_11", "python_versions")
+
+register_toolchains(
+    # Host toolchains first - ensures local Python is used for `bazel run`
+    # targets that use cfg="host" transitions (like rules_multirun)
+    "//build/python_toolchain:py3_toolchain",        # macOS ARM64
+    "//build/python_toolchain:py3_toolchain_x86_64", # macOS x86_64
+    # Hermetic toolchains for cross-platform builds and remote execution
+    "@python_versions//3.11:all",
+)
 
 # --- RPM & package Toolchain  ----------------------------------
 
