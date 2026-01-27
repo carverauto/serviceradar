@@ -42,7 +42,7 @@ ServiceRadar replaces traditional "script-and-shell" plugins with a modern WebAs
 | **Isolation** | **Hardware Sandbox** | None (OS Process) | None (User Session) |
 | **Dependencies** | **Zero** (Static Binaries) | High (Local Libs/Python) | High (.NET/Runtimes) |
 | **Security** | Capability-based (Proxy) | Sudo/Root access | Local Admin / WMI |
-| **Portability** | Cross-platform Wasm | Script-specific | Windows-centric |
+| **Portability** | Cross-platform WASM | Script-specific | Windows-centric |
 | **Auditability** | Every network call logged | Invisible to Agent | Opaque |
 
 **Why WASM?** Plugins are "FS-less" by default. They cannot access the host filesystem or raw sockets. Instead, they use a **Network Bridge** where the Agent proxies specific HTTP/TCP calls based on admin-approved allowlists.
