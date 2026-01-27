@@ -616,8 +616,8 @@ genrule(
     name = "agent_gateway_openssl_rootfs_amd64",
     srcs = [
         ":agent_gateway_release_rootfs_amd64",
-        "@ubuntu_openssl_amd64_deb//file",
-        "@ubuntu_libssl3t64_amd64_deb//file",
+        "@debian_openssl_amd64_deb//file",
+        "@debian_libssl3_amd64_deb//file",
     ],
     outs = ["agent_gateway_openssl_rootfs_amd64.tar"],
     tools = ["//docker/images:overlay_deb_packages.py"],
@@ -629,8 +629,8 @@ rm -rf "$${ROOT}"
 mkdir -p "$${ROOT}"
 tar -xzf "$${TAR}" -C "$${ROOT}"
 python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT}" \\
-  "$(location @ubuntu_openssl_amd64_deb//file)" \\
-  "$(location @ubuntu_libssl3t64_amd64_deb//file)"
+  "$(location @debian_openssl_amd64_deb//file)" \\
+  "$(location @debian_libssl3_amd64_deb//file)"
 tar -czf "$@" -C "$${ROOT}" .
 """,
 )

@@ -861,18 +861,18 @@ http_file(
 )
 
 http_file(
-    name = "ubuntu_openssl_amd64_deb",
-    sha256 = "9c79333ab21bce0fb8dd92304cd76b3b1c427b0f2fedc897257fb5cced37c39e",
+    name = "debian_openssl_amd64_deb",
+    sha256 = "405385cc86a4dc3ad084fe7f9ec38f0583a4ae75695e7719d244e675687fe728",
     urls = [
-        "https://archive.ubuntu.com/ubuntu/pool/main/o/openssl/openssl_3.0.13-0ubuntu3_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/o/openssl/openssl_3.0.18-1~deb12u1_amd64.deb",
     ],
 )
 
 http_file(
-    name = "ubuntu_libssl3t64_amd64_deb",
-    sha256 = "6cde53feabd28f26586a4db2ffb9fc84e7b0598aee15b33bee907b6392a92d24",
+    name = "debian_libssl3_amd64_deb",
+    sha256 = "4eaee9db5a113b991a72eefe41965400a1efc97a560678edb5ddd978ccc8b083",
     urls = [
-        "https://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl3t64_3.0.13-0ubuntu3_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.18-1~deb12u1_amd64.deb",
     ],
 )
 
