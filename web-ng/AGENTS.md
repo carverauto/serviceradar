@@ -312,9 +312,7 @@ sudo chown $USER /tmp/sr-certs/db-client-key.pem
 Get the database credentials from the running container:
 
 ```bash
-docker inspect serviceradar-cnpg-mtls | grep -A10 '"Env"'
-# Look for POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
-# Default: username=serviceradar, password=serviceradar, database=serviceradar
+APP_PASSWORD=$(docker compose exec -T cnpg cat /etc/serviceradar/cnpg/serviceradar-password)
 ```
 
 ### 3. Run Tests with Full Configuration
@@ -324,7 +322,7 @@ env SERVICERADAR_REQUIRE_DB_TESTS=1 \
   TEST_CNPG_PORT=5455 \
   TEST_CNPG_DATABASE=serviceradar \
   TEST_CNPG_USERNAME=serviceradar \
-  TEST_CNPG_PASSWORD=serviceradar \
+  TEST_CNPG_PASSWORD="${APP_PASSWORD}" \
   CNPG_SSL_MODE=verify-ca \
   CNPG_CA_FILE=/tmp/sr-certs/root.pem \
   CNPG_CERT_FILE=/tmp/sr-certs/db-client.pem \
@@ -340,7 +338,7 @@ env SERVICERADAR_REQUIRE_DB_TESTS=1 \
 | `TEST_CNPG_PORT` | `5432` | PostgreSQL port (Docker uses `5455`) |
 | `TEST_CNPG_DATABASE` | `serviceradar` | Database name |
 | `TEST_CNPG_USERNAME` | `postgres` | Database username |
-| `TEST_CNPG_PASSWORD` | `postgres` | Database password |
+| `TEST_CNPG_PASSWORD` | (unset) | Database password (read from `cnpg-credentials` volume in Docker Compose) |
 | `CNPG_SSL_MODE` | `disable` | Set to `verify-ca` for TLS |
 | `CNPG_CA_FILE` | (unset) | Path to CA certificate |
 | `CNPG_CERT_FILE` | (unset) | Path to client certificate |

@@ -25,8 +25,8 @@ impl Encoder for PassthroughEncoder {
         // Only push messages where the raw message is specified
         if let Some(msg) = record.full_msg {
             // First, if specified, prepend a header
-            if self.header_time_format.is_some() {
-                let ts = match build_prepend_ts(self.header_time_format.as_ref().unwrap()) {
+            if let Some(header_time_format) = &self.header_time_format {
+                let ts = match build_prepend_ts(header_time_format) {
                     Ok(ts) => ts,
                     Err(_) => {
                         return Err(

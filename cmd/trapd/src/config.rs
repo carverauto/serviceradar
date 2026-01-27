@@ -52,11 +52,13 @@ impl SecurityConfig {
     pub fn resolve_path(&self, path: &str) -> PathBuf {
         let trimmed = path.trim();
         let p = Path::new(trimmed);
-        if p.is_absolute() || self.cert_dir.is_none() {
-            p.to_path_buf()
-        } else {
-            Path::new(self.cert_dir.as_ref().unwrap()).join(p)
+        if p.is_absolute() {
+            return p.to_path_buf();
         }
+
+        self.cert_dir
+            .as_deref()
+            .map_or_else(|| p.to_path_buf(), |cert_dir| Path::new(cert_dir).join(p))
     }
 
     pub fn client_ca_path(&self) -> Option<PathBuf> {

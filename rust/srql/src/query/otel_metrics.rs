@@ -378,7 +378,8 @@ fn build_stats_query(plan: &QueryPlan) -> Result<Option<MetricsStatsSql>> {
     }
 
     let mut sql = String::from("SELECT ");
-    if let Some(group_field) = stats.group_field {
+    let group_field = stats.group_field;
+    if let Some(group_field) = group_field {
         let column = group_field.column();
         sql.push_str(&format!(
             "jsonb_build_object('{}', {column}, '{}', COUNT(*)) AS payload",
@@ -397,8 +398,8 @@ fn build_stats_query(plan: &QueryPlan) -> Result<Option<MetricsStatsSql>> {
         sql.push_str(&clauses.join(" AND "));
     }
 
-    if stats.group_field.is_some() {
-        let column = stats.group_field.unwrap().column();
+    if let Some(group_field) = group_field {
+        let column = group_field.column();
         sql.push_str(&format!("\nGROUP BY {column}"));
         let order_sql = build_stats_order_clause(plan, stats.alias.as_str(), column);
         sql.push_str(&order_sql);

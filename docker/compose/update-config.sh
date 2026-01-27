@@ -41,6 +41,10 @@ CNPG_USERNAME="${CNPG_USERNAME:-serviceradar}"
 CNPG_PASSWORD="${CNPG_PASSWORD:-serviceradar}"
 CNPG_SSL_MODE="${CNPG_SSL_MODE:-verify-full}"
 
+if [ -n "${CNPG_PASSWORD_FILE:-}" ] && [ -f "${CNPG_PASSWORD_FILE}" ]; then
+    CNPG_PASSWORD="$(tr -d '\r\n' < "${CNPG_PASSWORD_FILE}")"
+fi
+
 # Backwards-compatible fallbacks (deprecated names used by older compose files).
 if [ -z "$EDGE_DEFAULT_CHECKER_ENDPOINT" ] && [ -n "${SYSMON_VM_ADDRESS:-}" ]; then
     EDGE_DEFAULT_CHECKER_ENDPOINT="$SYSMON_VM_ADDRESS"

@@ -4,13 +4,19 @@
 {{- $existingSpire := (lookup "v1" "Secret" $ns ($pg.secretName | default "spire-db-credentials")) }}
 {{- $existingSuper := (lookup "v1" "Secret" $ns "cnpg-superuser") }}
 {{- $spireUser := default "spire" $pg.username }}
-{{- $spirePass := default "changeme" $pg.password }}
+{{- $spirePass := default "" $pg.password }}
 {{- if and $existingSpire $existingSpire.data.password }}
   {{- $spirePass = (b64dec $existingSpire.data.password) }}
 {{- end }}
-{{- $superPass := default "changeme" $pg.password }}
+{{- if eq $spirePass "" }}
+  {{- $spirePass = randAlphaNum 32 }}
+{{- end }}
+{{- $superPass := default "" $pg.password }}
 {{- if and $existingSuper $existingSuper.data.password }}
   {{- $superPass = (b64dec $existingSuper.data.password) }}
+{{- end }}
+{{- if eq $superPass "" }}
+  {{- $superPass = randAlphaNum 32 }}
 {{- end }}
 {{- $cnpg := default (dict) .Values.cnpg }}
 {{- $clientCASecret := default "" $cnpg.clientCASecret }}

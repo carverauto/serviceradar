@@ -27,6 +27,10 @@ CNPG_USERNAME="${CNPG_USERNAME:-serviceradar}"
 CNPG_PASSWORD="${CNPG_PASSWORD:-}"
 CNPG_SSL_MODE="${CNPG_SSL_MODE:-verify-full}"
 
+if [ -z "$CNPG_PASSWORD" ] && [ -n "${CNPG_PASSWORD_FILE:-}" ] && [ -f "${CNPG_PASSWORD_FILE}" ]; then
+  CNPG_PASSWORD="$(tr -d '\r\n' < "${CNPG_PASSWORD_FILE}")"
+fi
+
 if [ -z "$CNPG_PASSWORD" ]; then
   echo "Error: CNPG_PASSWORD is required (set in .env or env)" >&2
   exit 1

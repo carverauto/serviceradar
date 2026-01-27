@@ -29,8 +29,8 @@ impl Encoder for RFC3164Encoder {
         let mut res = String::new();
 
         // First, if specified, prepend a header
-        if self.header_time_format.is_some() {
-            let ts = match build_prepend_ts(self.header_time_format.as_ref().unwrap()) {
+        if let Some(header_time_format) = &self.header_time_format {
+            let ts = match build_prepend_ts(header_time_format) {
                 Ok(ts) => ts,
                 Err(_) => {
                     return Err("Failed to format date when building prepend timestamp for header while encoding RFC3164")
@@ -40,9 +40,8 @@ impl Encoder for RFC3164Encoder {
         }
 
         // If a priority is specified, add it
-        if record.facility.is_some() && record.severity.is_some() {
-            let npri: u8 =
-                ((record.facility.unwrap() << 3) & 0xF8) + (record.severity.unwrap() & 0x7);
+        if let (Some(facility), Some(severity)) = (record.facility, record.severity) {
+            let npri: u8 = ((facility << 3) & 0xF8) + (severity & 0x7);
             res.push_str(&format!("<{npri}>"));
         }
 

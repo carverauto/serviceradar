@@ -209,7 +209,21 @@ if config_env() == :prod do
   cnpg_port = String.to_integer(System.get_env("CNPG_PORT", "5432"))
   cnpg_database = System.get_env("CNPG_DATABASE", "serviceradar")
   cnpg_username = System.get_env("CNPG_USERNAME", "serviceradar")
-  cnpg_password = System.get_env("CNPG_PASSWORD", "serviceradar")
+  cnpg_password =
+    case System.get_env("CNPG_PASSWORD_FILE") do
+      nil ->
+        System.get_env("CNPG_PASSWORD", "serviceradar")
+
+      path ->
+        case File.read(path) do
+          {:ok, value} ->
+            value = String.trim(value)
+            if value == "", do: System.get_env("CNPG_PASSWORD", "serviceradar"), else: value
+
+          {:error, _} ->
+            System.get_env("CNPG_PASSWORD", "serviceradar")
+        end
+    end
 
   cnpg_ssl_mode = System.get_env("CNPG_SSL_MODE", "disable")
   cnpg_ssl_enabled = cnpg_ssl_mode != "disable"

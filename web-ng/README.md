@@ -32,7 +32,7 @@ export CNPG_HOST=192.168.2.134
 export CNPG_PORT=5455
 export CNPG_DATABASE=serviceradar
 export CNPG_USERNAME=serviceradar
-export CNPG_PASSWORD=serviceradar
+export CNPG_PASSWORD=$(docker compose exec -T cnpg cat /etc/serviceradar/cnpg/serviceradar-password)
 export CNPG_SSL_MODE=verify-full
 export CNPG_CERT_DIR=/path/to/private/serviceradar-certs
 mix graph.ready

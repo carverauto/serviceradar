@@ -27,11 +27,14 @@ Access ServiceRadar at http://localhost (Caddy). Log in with `root@localhost` an
 ### Kubernetes / Helm
 
 ```bash
-helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
-  --version 1.0.75 \
-  -n serviceradar --create-namespace \
-  --set global.imageTag="v1.0.75"
+helm upgrade --install serviceradar helm/serviceradar \
+  -n serviceradar --create-namespace
 ```
+
+Helm upgrades reuse existing CNPG secrets (`cnpg-superuser`, `serviceradar-db-credentials`,
+`spire-db-credentials`) and will not rotate passwords automatically. To move off
+legacy/static credentials, update or delete those secrets before running the
+upgrade so Helm can generate new random values.
 
 ## Edge Deployment
 
