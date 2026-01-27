@@ -128,7 +128,7 @@ spec:
 
 ## Documentation
 
-For detailed guides on setup, security, and Wasm SDK usage, visit:
+For detailed guides on setup, security, and WASM SDK usage, visit:
 **[https://docs.serviceradar.cloud](https://docs.serviceradar.cloud)**
 
 ## Contributing
