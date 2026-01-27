@@ -215,6 +215,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
            |> put_flash(:error, "Failed to create package")}
 
         {:error, error} ->
+          Logger.error("[EdgePackage] create failed: #{inspect(error)}")
           error_msg = format_error(error)
 
           {:noreply,
@@ -1122,8 +1123,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     Enum.map_join(errors, ", ", &format_error/1)
   end
 
+  defp format_error(%Ash.Error.Forbidden{}), do: "Not authorized to create packages."
+  defp format_error(%Ash.Error.NotFound{}), do: "Package or related data not found."
+  defp format_error(%Ash.Error.Unknown{}), do: "Unknown error"
+
+  defp format_error(%{__exception__: true} = error), do: Exception.message(error)
   defp format_error(%{message: message}), do: message
   defp format_error(error) when is_binary(error), do: error
   defp format_error(error) when is_atom(error), do: to_string(error)
-  defp format_error(_), do: "Unknown error"
+  defp format_error(error), do: inspect(error)
 end
