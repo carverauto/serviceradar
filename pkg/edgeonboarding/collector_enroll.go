@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -346,12 +347,18 @@ func defaultIfEmpty(value, fallback string) string {
 }
 
 func safeBundlePath(root, name string) (string, error) {
-	cleaned := filepath.Clean(filepath.Join(root, name))
-	if cleaned == root {
-		return cleaned, nil
+	cleaned := path.Clean(name)
+	if cleaned == "." {
+		cleaned = ""
 	}
-	if strings.HasPrefix(cleaned, root+string(os.PathSeparator)) {
-		return cleaned, nil
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.HasPrefix(cleaned, "/") {
+		return "", ErrCollectorBundleIncomplete
 	}
+
+	target := filepath.Join(root, filepath.FromSlash(cleaned))
+	if target == root || strings.HasPrefix(target, root+string(os.PathSeparator)) {
+		return target, nil
+	}
+
 	return "", ErrCollectorBundleIncomplete
 }
