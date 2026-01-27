@@ -50,6 +50,13 @@ natsCreds:
 checkerTemplates:
   # KV-backed checker template seeding is deprecated; leave disabled.
   enabled: false
+zenRulesBootstrap:
+  # Bootstrap zen rules into NATS KV on install/upgrade.
+  # This ensures zen can load rules immediately after deployment.
+  enabled: true
+  # Force reinstall rules even if they already exist in KV.
+  # Use this to recover from corrupted rules.
+  forceReinstall: false
 core:
   # KV watch/reload is no longer supported for service configuration.
   configWatchEnabled: false
