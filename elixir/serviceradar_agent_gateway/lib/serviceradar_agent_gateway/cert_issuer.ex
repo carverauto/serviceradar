@@ -69,10 +69,12 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     key_path = Path.join(temp_dir, "component-key.pem")
     csr_path = Path.join(temp_dir, "component.csr")
     cert_path = Path.join(temp_dir, "component.pem")
+    serial_path = Path.join(temp_dir, "ca.srl")
 
     try do
       with :ok <- run_openssl(["genrsa", "-out", key_path, "4096"]),
            :ok <- run_openssl(["req", "-new", "-key", key_path, "-out", csr_path, "-subj", "/CN=#{cn}"]),
+           :ok <- ensure_serial(serial_path),
            :ok <-
              run_openssl([
                "x509",
@@ -83,7 +85,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
                ca_cert,
                "-CAkey",
                ca_key,
-               "-CAcreateserial",
+               "-CAserial",
+               serial_path,
                "-out",
                cert_path,
                "-days",
@@ -123,6 +126,13 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     else
       Logger.error("[CertIssuer] openssl failed: #{output}")
       {:error, :openssl_failed}
+    end
+  end
+
+  defp ensure_serial(path) do
+    case File.exists?(path) do
+      true -> :ok
+      false -> File.write(path, "01\n")
     end
   end
 
