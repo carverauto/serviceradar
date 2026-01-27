@@ -389,6 +389,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         security_mode={@security_mode}
         selected_component_type={@selected_component_type}
         checker_templates={@checker_templates}
+        partition_value={@partition_value}
+        host_ip_value={@host_ip_value}
       />
 
       <.details_modal
