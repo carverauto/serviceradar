@@ -3,10 +3,13 @@ package edgeonboarding
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 )
+
+var errParseCAFile = errors.New("parse CA file")
 
 // BuildHTTPClient returns a client configured for optional TLS overrides.
 func BuildHTTPClient(caFile string, insecure bool) (*http.Client, error) {
@@ -25,7 +28,7 @@ func BuildHTTPClient(caFile string, insecure bool) (*http.Client, error) {
 		}
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(caPEM) {
-			return nil, fmt.Errorf("parse CA file: %s", caFile)
+			return nil, fmt.Errorf("%w: %s", errParseCAFile, caFile)
 		}
 		tlsConfig.RootCAs = pool
 	}

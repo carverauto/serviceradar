@@ -571,7 +571,6 @@ if config_env() == :prod do
     config :serviceradar_web_ng, :core_address, String.trim(core_address)
   end
 
-
   # Control Plane JWT configuration
   # Used to validate JWTs issued by the SaaS Control Plane.
   # In OSS/single-deployment setups, this can be left unconfigured.

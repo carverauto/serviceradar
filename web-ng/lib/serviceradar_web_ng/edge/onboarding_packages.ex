@@ -157,8 +157,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
     component_id = Map.get(attrs, :component_id)
     partition_id = Map.get(attrs, :site) || "default"
 
-    with true <- is_binary(gateway_id) and gateway_id != "" or {:error, :gateway_unavailable},
-         true <- is_binary(component_id) and component_id != "" or {:error, :invalid_identity},
+    with true <- (is_binary(gateway_id) and gateway_id != "") or {:error, :gateway_unavailable},
+         true <- (is_binary(component_id) and component_id != "") or {:error, :invalid_identity},
          {:ok, bundle} <-
            GatewayCertificateIssuer.issue_agent_bundle(
              gateway_id,

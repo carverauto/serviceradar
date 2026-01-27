@@ -15,6 +15,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadarWebNGWeb.GatewayHelpers
 
+  require Logger
+
   @impl true
   def mount(_params, _session, socket) do
     security_mode = OnboardingPackages.configured_security_mode()

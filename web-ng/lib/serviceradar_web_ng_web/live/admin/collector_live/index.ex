@@ -855,11 +855,13 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     # We'll regenerate the full token with the real package_id after creation
     secret = EnrollmentToken.generate_secret()
     temp_package_id = "placeholder"
+
     {_temp_token, token_hash, ^secret} =
       EnrollmentToken.generate(temp_package_id,
         secret: secret,
         config_filename: collector_config_filename(collector_type)
       )
+
     token_expires_at = EnrollmentToken.expiry_datetime()
 
     attrs = %{
@@ -884,6 +886,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             secret: secret,
             config_filename: collector_config_filename(collector_type)
           )
+
         {:ok, package, final_token}
 
       {:error, error} ->
