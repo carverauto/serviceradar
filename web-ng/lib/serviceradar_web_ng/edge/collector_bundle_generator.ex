@@ -50,7 +50,6 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     * `tls_key_pem` - The decrypted TLS private key
     * `opts` - Additional options:
       * `:nats_url` - NATS server URL (default: from config)
-      * `:core_address` - Core service address (default: from config)
 
   ## Returns
 
@@ -130,7 +129,6 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   defp generate_flowgger_config(package, opts) do
     nats_url = get_nats_url(package, opts)
-    core_address = Keyword.get(opts, :core_address, default_core_address())
     site = package.site || "default"
 
     # Apply any config overrides
@@ -168,13 +166,11 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     cert_file = "/etc/serviceradar/certs/collector.pem"
     key_file = "/etc/serviceradar/certs/collector-key.pem"
     ca_file = "/etc/serviceradar/certs/ca-chain.pem"
-    core_address = "#{core_address}"
     """
   end
 
   defp generate_otel_config(package, opts) do
     nats_url = get_nats_url(package, opts)
-    core_address = Keyword.get(opts, :core_address, default_core_address())
     site = package.site || "default"
 
     # Apply any config overrides
@@ -207,13 +203,11 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     cert_file = "/etc/serviceradar/certs/collector.pem"
     key_file = "/etc/serviceradar/certs/collector-key.pem"
     ca_file = "/etc/serviceradar/certs/ca-chain.pem"
-    core_address = "#{core_address}"
     """
   end
 
   defp generate_trapd_config(package, opts) do
     nats_url = get_nats_url(package, opts)
-    core_address = Keyword.get(opts, :core_address, default_core_address())
     site = package.site || "default"
 
     # Apply any config overrides
@@ -241,8 +235,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
         "cert_file" => "/etc/serviceradar/certs/collector.pem",
         "key_file" => "/etc/serviceradar/certs/collector-key.pem",
         "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
-      },
-      "core_address" => core_address
+      }
     }
 
     Jason.encode!(config, pretty: true)
@@ -250,7 +243,6 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   defp generate_netflow_config(package, opts) do
     nats_url = get_nats_url(package, opts)
-    core_address = Keyword.get(opts, :core_address, default_core_address())
     site = package.site || "default"
 
     # Apply any config overrides
@@ -278,8 +270,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
         "cert_file" => "/etc/serviceradar/certs/collector.pem",
         "key_file" => "/etc/serviceradar/certs/collector-key.pem",
         "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
-      },
-      "core_address" => core_address
+      }
     }
 
     Jason.encode!(config, pretty: true)
@@ -336,7 +327,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     systemctl stop "$SERVICE_NAME" || true
 
     echo "Creating directories..."
-    mkdir -p "$CERTS_DIR" "$CREDS_DIR" "$CONFIG_DIR/config"
+    mkdir -p "$CERTS_DIR" "$CREDS_DIR" "$CONFIG_DIR"
 
     echo "Installing credentials..."
     cp "$SCRIPT_DIR/creds/nats.creds" "$CREDS_DIR/"
@@ -350,8 +341,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     chmod 600 "$CERTS_DIR/collector-key.pem"
 
     echo "Installing configuration..."
-    cp "$SCRIPT_DIR/config/#{config_file}" "$CONFIG_DIR/config/"
-    chmod 644 "$CONFIG_DIR/config/#{config_file}"
+    cp "$SCRIPT_DIR/config/#{config_file}" "$CONFIG_DIR/"
+    chmod 644 "$CONFIG_DIR/#{config_file}"
 
     # Set ownership
     if id -u serviceradar &>/dev/null; then
@@ -409,7 +400,13 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     ## Quick Start
 
-    Run the update script to install credentials and configuration:
+    Prefer the enrollment command from the UI (token required):
+
+    ```bash
+    /usr/local/bin/serviceradar-cli enroll --token <token>
+    ```
+
+    If you already downloaded this bundle, run the update script:
 
     ```bash
     sudo ./update.sh
@@ -522,10 +519,6 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   defp default_nats_url do
     Application.get_env(:serviceradar_web_ng, :nats_url, "nats://nats:4222")
-  end
-
-  defp default_core_address do
-    Application.get_env(:serviceradar_web_ng, :core_address, "core-elx:50052")
   end
 
   @doc """

@@ -9,6 +9,7 @@ BuildRequires:  libcap-devel
 BuildRequires:  gcc
 Requires:       systemd
 Requires:       libcap
+Requires:       serviceradar-cli
 %{?systemd_requires}
 
 %description

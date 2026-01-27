@@ -607,7 +607,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
     enroll_cmd =
       if component_type == "agent" and is_binary(onboarding_token) do
-        "/usr/local/bin/serviceradar-agent -enroll -token #{onboarding_token}"
+        "/usr/local/bin/serviceradar-cli enroll --token #{onboarding_token}"
       else
         nil
       end

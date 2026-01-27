@@ -77,7 +77,8 @@
     "conffiles": [],
     "deb": {
       "depends": [
-        "systemd"
+        "systemd",
+        "serviceradar-cli"
       ],
       "dockerfile": null
     },
@@ -203,7 +204,8 @@
     "rpm": {
       "depends": [
         "systemd",
-        "libcap"
+        "libcap",
+        "serviceradar-cli"
       ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
@@ -504,7 +506,8 @@
     "custom_steps": [],
     "deb": {
       "depends": [
-        "systemd"
+        "systemd",
+        "serviceradar-cli"
       ],
       "dockerfile": "cmd/flowgger/Dockerfile"
     },
@@ -521,7 +524,8 @@
     "priority": "optional",
     "rpm": {
       "depends": [
-        "systemd"
+        "systemd",
+        "serviceradar-cli"
       ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.rust.flowgger",
       "release": "1"
@@ -553,7 +557,8 @@
     "custom_steps": [],
     "deb": {
       "depends": [
-        "systemd"
+        "systemd",
+        "serviceradar-cli"
       ],
       "dockerfile": "cmd/trapd/Dockerfile"
     },
@@ -570,7 +575,8 @@
     "priority": "optional",
     "rpm": {
       "depends": [
-        "systemd"
+        "systemd",
+        "serviceradar-cli"
       ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.rust.trapd",
       "release": "1"
@@ -632,7 +638,9 @@
       }
     ],
     "deb": {
-      "depends": [],
+      "depends": [
+        "serviceradar-cli"
+      ],
       "dockerfile": "cmd/otel/Dockerfile"
     },
     "description": "ServiceRadar OTEL Collector",
@@ -648,7 +656,8 @@
     "priority": "optional",
     "rpm": {
       "depends": [
-        "systemd"
+        "systemd",
+        "serviceradar-cli"
       ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.rust.otel",
       "release": "1"

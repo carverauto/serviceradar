@@ -164,10 +164,11 @@ defmodule ServiceRadarWebNGWeb.Router do
     put("/plugin-packages/:id/blob", PluginPackageController, :upload_blob)
     get("/plugin-packages/:id/blob", PluginPackageController, :download_blob)
 
-    # Collector enrollment endpoint for serviceradar-cli
-    # Usage: serviceradar-cli enroll --token <token>
-    # Token decodes to: GET /api/enroll/:package_id?token=<secret>
-    get("/enroll/:package_id", EnrollController, :enroll)
+    # Legacy collector enrollment endpoint (bundle download is preferred)
+    # Token decodes to: GET /api/enroll/collector/:package_id?token=<secret>
+    get("/enroll/collector/:package_id", CollectorEnrollController, :enroll)
+    # Legacy collector enrollment path
+    get("/enroll/:package_id", CollectorEnrollController, :enroll)
   end
 
   # Ash JSON:API v2 endpoints

@@ -63,6 +63,8 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
 		return cli.RunGenerateJWTKeysCmd(cfg)
 	case "spire-join-token":
 		return cli.RunSpireJoinToken(cfg)
+	case "enroll":
+		return cli.RunEnroll(cfg)
 	case "edge-package-download":
 		return cli.RunEdgePackageDownload(cfg)
 	case "edge-package-revoke":

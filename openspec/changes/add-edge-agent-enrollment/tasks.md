@@ -1,6 +1,6 @@
 ## 1. Implementation
-- [ ] 1.1 Add serviceradar-agent enrollment flags (--enroll, --token, optional --gateway-endpoint/--host-ip overrides) and bootstrap flow.
-- [ ] 1.2 Implement token decode + package download for agents, writing agent.json and certs with safe, atomic file updates.
+- [ ] 1.1 Add serviceradar-cli enrollment command that accepts an edgepkg token and dispatches agent/collector enroll flows.
+- [ ] 1.2 Implement token decode + package download for agents via serviceradar-cli, writing agent.json and certs with safe, atomic file updates.
 - [ ] 1.3 Extend core/web-ng edge package generation to include agent_id, partition, gateway endpoint, and host IP placeholders for agent packages.
 - [ ] 1.4 Prompt for optional host IP in the agent package UI and persist it in package metadata.
 - [ ] 1.5 Replace SaaS hardcoded base URLs/endpoints with deployment-local defaults and configuration.
@@ -8,7 +8,8 @@
 - [ ] 1.7 Move plugins UI under Settings → Agents and remove Edge Ops components navigation.
 - [ ] 1.8 Update Deploy Agents page copy to reflect agent enrollment token flow and remove edge site agent guidance.
 - [ ] 1.9 For agent packages, present enroll-only install instructions (no Docker/systemd config copy).
-- [ ] 1.10 Remove legacy Go edge onboarding hooks from non-edge binaries (datasvc, netflow, db-event-writer, faker).
+- [ ] 1.10 Remove per-binary enrollment flags from serviceradar-agent and collectors in favor of serviceradar-cli.
 - [ ] 1.11 Expose agent-gateway edge gRPC port in Docker Compose (opt-in) and Helm (configurable Service type/port) for external agents.
 - [ ] 1.12 Add/adjust tests for token parsing, package payloads, and web-ng edge package form rendering.
 - [ ] 1.13 Update docs/runbooks to cover agent enrollment CLI and gateway endpoint configuration.
+- [ ] 1.14 Migrate collector enrollment to serviceradar-cli (bundle download + install) and remove the Rust collector-enroll crate.

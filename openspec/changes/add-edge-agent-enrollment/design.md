@@ -1,9 +1,9 @@
 ## Context
-Edge onboarding currently targets checkers and assumes operators manually construct agent configs. The agent binary lacks an enrollment flow and the admin edge package UI is broken, so onboarding packages cannot be used end-to-end. Deployments also do not reliably expose a public gateway endpoint, preventing edge agents from connecting after installation.
+Edge onboarding currently targets checkers and assumes operators manually construct agent configs. Enrollment logic is duplicated across multiple binaries, and the admin edge package UI is broken, so onboarding packages cannot be used end-to-end. Deployments also do not reliably expose a public gateway endpoint, preventing edge agents from connecting after installation.
 
 ## Goals / Non-Goals
 - Goals:
-  - Provide a first-class serviceradar-agent enrollment flow using edgepkg tokens.
+  - Provide a single serviceradar-cli enrollment flow using edgepkg tokens for agents and collectors.
   - Ensure onboarding packages embed gateway endpoint + agent identity details.
   - Make edge onboarding UI reliable and consistent across entry points.
   - Allow Compose and Helm deployments to expose gateway endpoints for edge agents.
@@ -14,8 +14,8 @@ Edge onboarding currently targets checkers and assumes operators manually constr
 ## Decisions
 - Decision: Keep `edgepkg-v1` as the token format and add optional fields for agent onboarding metadata when needed.
   - Rationale: avoids breaking existing token parsing while enabling agent-specific payloads.
-- Decision: Agent enrollment writes bootstrap config (`agent.json`) and certs atomically to standard paths and does not require serviceradar-cli.
-  - Rationale: aligns with sysmon checker onboarding and reduces operator steps.
+- Decision: Enrollment is centralized in serviceradar-cli and used by both agents and collectors.
+  - Rationale: reduces duplicated logic and keeps one enrollment code path to maintain.
 - Decision: Gateway endpoint is sourced from operator configuration (UI or env) and shipped inside the package payload; tokens may optionally include an override.
   - Rationale: the token should remain minimal but the agent still receives the endpoint reliably.
 - Decision: Agent package UI captures an optional host IP, and enrollment auto-detects when blank.

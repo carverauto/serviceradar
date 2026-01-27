@@ -535,13 +535,13 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                       type="button"
                       class="btn btn-xs btn-ghost"
                       phx-click="copy_token"
-                      phx-value-token={"serviceradar-cli enroll --token #{@download_token}"}
+                      phx-value-token={"/usr/local/bin/serviceradar-cli enroll --token #{@download_token}"}
                     >
                       <.icon name="hero-clipboard-document" class="size-3" /> Copy
                     </button>
                   </div>
                   <code class="font-mono text-xs break-all bg-base-300 p-2 rounded block">
-                    serviceradar-cli enroll --token {@download_token}
+                    /usr/local/bin/serviceradar-cli enroll --token {@download_token}
                   </code>
                 </div>
               </div>
@@ -855,7 +855,11 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     # We'll regenerate the full token with the real package_id after creation
     secret = EnrollmentToken.generate_secret()
     temp_package_id = "placeholder"
-    {_temp_token, token_hash, ^secret} = EnrollmentToken.generate(temp_package_id, secret: secret)
+    {_temp_token, token_hash, ^secret} =
+      EnrollmentToken.generate(temp_package_id,
+        secret: secret,
+        config_filename: collector_config_filename(collector_type)
+      )
     token_expires_at = EnrollmentToken.expiry_datetime()
 
     attrs = %{
@@ -875,7 +879,11 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     case Ash.create(changeset, actor: actor) do
       {:ok, package} ->
         # Generate the final enrollment token with actual package ID and SAME secret
-        {final_token, ^token_hash, ^secret} = EnrollmentToken.generate(package.id, secret: secret)
+        {final_token, ^token_hash, ^secret} =
+          EnrollmentToken.generate(package.id,
+            secret: secret,
+            config_filename: collector_config_filename(collector_type)
+          )
         {:ok, package, final_token}
 
       {:error, error} ->
@@ -919,6 +927,12 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   defp format_datetime(%DateTime{} = dt) do
     Calendar.strftime(dt, "%Y-%m-%d %H:%M")
   end
+
+  defp collector_config_filename("flowgger"), do: "flowgger.toml"
+  defp collector_config_filename("otel"), do: "otel.toml"
+  defp collector_config_filename("trapd"), do: "trapd.json"
+  defp collector_config_filename("netflow"), do: "netflow.json"
+  defp collector_config_filename(_), do: ""
 
   defp format_datetime(%NaiveDateTime{} = dt) do
     dt

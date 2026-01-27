@@ -734,7 +734,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     set -e
 
     echo "Enrolling ServiceRadar agent..."
-    /usr/local/bin/serviceradar-agent -enroll -token "#{token}"
+    /usr/local/bin/serviceradar-cli enroll --token "#{token}"
 
     echo ""
     echo "Enrollment complete."
@@ -749,7 +749,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     Enroll the agent with the onboarding token (no config edits required):
 
     ```bash
-    /usr/local/bin/serviceradar-agent -enroll -token #{token}
+    /usr/local/bin/serviceradar-cli enroll --token #{token}
     ```
     """
   end

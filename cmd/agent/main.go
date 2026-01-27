@@ -33,7 +33,6 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/agent"
 	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
-	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
@@ -59,28 +58,10 @@ func main() {
 func run() error {
 	// Parse command line flags
 	configPath := flag.String("config", "/etc/serviceradar/agent.json", "Path to agent config file")
-	enroll := flag.Bool("enroll", false, "Enroll agent using edge onboarding token")
-	token := flag.String("token", "", "Edge onboarding token (edgepkg-v1:...)")
-	coreHost := flag.String("host", "", "Core API host for enrollment (e.g., https://core.example.com)")
-	hostIP := flag.String("host-ip", "", "Override detected host IP for agent enrollment")
 	flag.Parse()
 
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
-
-	if *enroll {
-		return edgeonboarding.EnrollAgentFromToken(ctx, edgeonboarding.EnrollOptions{
-			Token:         *token,
-			CoreHost:      *coreHost,
-			HostIP:        *hostIP,
-			ConfigPath:    *configPath,
-			CertDir:       "",
-			HTTPClient:    nil,
-			Logf:          log.Printf,
-			Errorf:        log.Printf,
-			SkipOverwrite: false,
-		})
-	}
 
 	// Load configuration from file (no KV dependency)
 	cfg, err := loadConfig(*configPath)

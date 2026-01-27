@@ -35,13 +35,13 @@ For agent packages, the component configuration file SHALL include the gateway e
 - **AND** the host_ip field is a placeholder that the enrollment flow replaces
 
 ## ADDED Requirements
-### Requirement: Agent enrollment command
-The serviceradar-agent CLI SHALL support an enrollment mode that accepts an edgepkg token, downloads the onboarding package, and writes the agent bootstrap configuration and mTLS assets to standard locations.
+### Requirement: Enrollment command
+The serviceradar-cli SHALL support an enrollment mode that accepts an edgepkg token, downloads the onboarding package, and writes the bootstrap configuration and mTLS assets to standard locations.
 
 #### Scenario: Agent enrolls from token
 - **GIVEN** an operator has an edgepkg token for an agent package
-- **WHEN** they run `serviceradar-agent --enroll --token <edgepkg>`
-- **THEN** the agent downloads the package from the core API
+- **WHEN** they run `serviceradar-cli enroll --token <edgepkg>`
+- **THEN** the CLI downloads the package from the core API
 - **AND** writes certificates to the configured cert directory
 - **AND** writes agent.json with gateway endpoint, agent_id, and partition
 
@@ -69,6 +69,15 @@ The edge onboarding UI SHALL prompt for an optional host IP when creating an age
 - **WHEN** enrollment is attempted
 - **THEN** the agent returns an actionable error
 - **AND** no existing config or certs are overwritten
+
+### Requirement: Collector enrollment command
+Collector services SHALL be enrolled via `serviceradar-cli enroll --token <token>` which downloads the collector bundle and installs credentials and configuration without manual edits.
+
+#### Scenario: Collector enrolls from token
+- **GIVEN** an operator has a collector enrollment token
+- **WHEN** they run `serviceradar-cli enroll --token <token>`
+- **THEN** the CLI downloads the collector bundle
+- **AND** writes NATS credentials and collector config to standard locations
 
 ### Requirement: Edge onboarding UI flow is stable
 The edge onboarding package creation UI SHALL render without runtime errors and SHALL provide a consistent flow from both admin and settings entry points.

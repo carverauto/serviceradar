@@ -1,15 +1,17 @@
-defmodule ServiceRadarWebNG.Api.EnrollController do
+defmodule ServiceRadarWebNG.Api.CollectorEnrollController do
   @moduledoc """
-  Public API controller for collector enrollment.
+  Legacy API controller for collector enrollment.
 
-  This endpoint is called by `serviceradar-cli enroll --token <token>` to retrieve
-  the collector's NATS credentials and configuration.
+  This endpoint is retained for backward compatibility. New collector enrollment
+  downloads the bundle from `/api/collectors/:id/bundle` using the same token.
 
   The enrollment flow:
-  1. CLI decodes the self-contained token to get API URL and secret
-  2. CLI calls `GET /api/enroll/:package_id?token=<secret>`
+  1. Collector decodes the self-contained token to get API URL and secret
+  2. Legacy clients call `GET /api/enroll/collector/:package_id?token=<secret>`
   3. API validates the token and returns enrollment data
   4. CLI writes files to `/etc/serviceradar/` and restarts the service
+
+  Legacy route: `/api/enroll/:package_id` (kept for backward compatibility).
   """
 
   use ServiceRadarWebNGWeb, :controller
@@ -22,7 +24,7 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   alias ServiceRadarWebNG.Edge.EnrollmentToken
 
   @doc """
-  GET /api/enroll/:package_id
+  GET /api/enroll/collector/:package_id
 
   Enrolls a collector by returning its NATS credentials and configuration.
 
