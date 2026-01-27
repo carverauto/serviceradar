@@ -36,14 +36,14 @@ docker run -p 8080:8080 serviceradar-faker
 
 ## Running with Docker Compose
 
-The faker service is included in the main docker-compose.yml:
+The faker service is defined in `docker-compose.dev.yml` (dev-only stack):
 
 ```bash
-# Start just the faker service
-docker-compose up faker
+# Start faker with the dev compose file
+docker compose -f docker-compose.dev.yml up faker
 
-# Or start the entire stack
-docker-compose up
+# Or start all dev services
+docker compose -f docker-compose.dev.yml up
 ```
 
 ## API Endpoints
