@@ -204,8 +204,7 @@
     "rpm": {
       "depends": [
         "systemd",
-        "libcap",
-        "serviceradar-cli"
+        "libcap"
       ],
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"

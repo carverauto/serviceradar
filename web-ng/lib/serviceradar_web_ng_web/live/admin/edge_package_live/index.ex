@@ -10,13 +10,16 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingEvents
-  alias ServiceRadarWebNG.Edge.ComponentTemplates
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadar.GatewayRegistry
+  alias ServiceRadarWebNGWeb.GatewayHelpers
 
   @impl true
   def mount(_params, _session, socket) do
     security_mode = OnboardingPackages.configured_security_mode()
+
+    {gateway_options, default_gateway_id} = load_gateway_state()
 
     socket =
       socket
@@ -30,13 +33,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:creating, false)
       |> assign(:create_form, build_create_form(security_mode))
       |> assign(:filter_status, nil)
-      |> assign(:filter_component_type, nil)
       |> assign(:security_mode, security_mode)
-      |> assign(:selected_component_type, "gateway")
-      |> assign(:checker_templates, [])
+      |> assign(:selected_component_type, "agent")
       |> assign(:partition_value, "default")
       |> assign(:host_ip_value, "")
-      |> load_templates(security_mode)
+      |> assign(:gateway_options, gateway_options)
+      |> assign(:default_gateway_id, default_gateway_id)
 
     {:ok, socket}
   end
@@ -75,18 +77,24 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   def handle_event("open_create_modal", _params, socket) do
     security_mode = socket.assigns.security_mode
 
+    {gateway_options, default_gateway_id} = load_gateway_state()
+
     {:noreply,
      socket
      |> assign(:show_create_modal, true)
      |> assign(:create_form, build_create_form(security_mode))
      |> assign(:created_tokens, nil)
-     |> assign(:selected_component_type, "gateway")
+     |> assign(:selected_component_type, "agent")
      |> assign(:partition_value, "default")
-     |> assign(:host_ip_value, "")}
+     |> assign(:host_ip_value, "")
+     |> assign(:gateway_options, gateway_options)
+     |> assign(:default_gateway_id, default_gateway_id)}
   end
 
   def handle_event("close_create_modal", _params, socket) do
     security_mode = socket.assigns.security_mode
+
+    {gateway_options, default_gateway_id} = load_gateway_state()
 
     {:noreply,
      socket
@@ -94,7 +102,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      |> assign(:create_form, build_create_form(security_mode))
      |> assign(:created_tokens, nil)
      |> assign(:partition_value, "default")
-     |> assign(:host_ip_value, "")}
+     |> assign(:host_ip_value, "")
+     |> assign(:gateway_options, gateway_options)
+     |> assign(:default_gateway_id, default_gateway_id)}
   end
 
   def handle_event("close_details_modal", _params, socket) do
@@ -106,7 +116,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   def handle_event("validate_create", %{"form" => params}, socket) do
-    component_type = params["component_type"] || "gateway"
+    params = ensure_gateway_id(params, socket.assigns.default_gateway_id)
+    component_type = params["component_type"] || "agent"
     partition = params["partition"] || socket.assigns.partition_value
     host_ip = params["host_ip"] || socket.assigns.host_ip_value
 
@@ -123,6 +134,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   def handle_event("create_package", %{"form" => params}, socket) do
+    params = ensure_gateway_id(params, socket.assigns.default_gateway_id)
     form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
 
     if form.valid? do
@@ -231,15 +243,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     end
   end
 
-  def handle_event("filter", %{"status" => status, "component_type" => type}, socket) do
+  def handle_event("filter", %{"status" => status}, socket) do
     filters = %{limit: 50}
     filters = if status != "", do: Map.put(filters, :status, [status]), else: filters
-    filters = if type != "", do: Map.put(filters, :component_type, [type]), else: filters
 
     {:noreply,
      socket
      |> assign(:filter_status, if(status == "", do: nil, else: status))
-     |> assign(:filter_component_type, if(type == "", do: nil, else: type))
      |> assign(:packages, OnboardingPackages.list(filters))}
   end
 
@@ -262,7 +272,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Edge Onboarding</h1>
             <p class="text-sm text-base-content/60">
-              Manage edge component onboarding packages for gateways, agents, checkers, and sync.
+              Manage edge component onboarding packages for agents.
             </p>
           </div>
           <.ui_button variant="primary" size="sm" phx-click="open_create_modal">
@@ -289,21 +299,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 <option value="delivered" selected={@filter_status == "delivered"}>Delivered</option>
                 <option value="activated" selected={@filter_status == "activated"}>Activated</option>
                 <option value="revoked" selected={@filter_status == "revoked"}>Revoked</option>
-              </select>
-              <select
-                name="component_type"
-                class="select select-sm select-bordered"
-                phx-change="filter"
-              >
-                <option value="">All Types</option>
-                <option value="gateway" selected={@filter_component_type == "gateway"}>
-                  Gateway
-                </option>
-                <option value="agent" selected={@filter_component_type == "agent"}>Agent</option>
-                <option value="checker" selected={@filter_component_type == "checker"}>
-                  Checker
-                </option>
-                <option value="sync" selected={@filter_component_type == "sync"}>Sync</option>
               </select>
             </div>
           </:header>
@@ -388,9 +383,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         creating={@creating}
         security_mode={@security_mode}
         selected_component_type={@selected_component_type}
-        checker_templates={@checker_templates}
         partition_value={@partition_value}
         host_ip_value={@host_ip_value}
+        gateway_options={@gateway_options}
+        default_gateway_id={@default_gateway_id}
       />
 
       <.details_modal
@@ -465,67 +461,30 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 A descriptive name for this component. Used to generate the component ID.
               </p>
 
-              <.input
-                field={@form[:component_type]}
-                type="select"
-                label="Component Type"
-                value={@selected_component_type}
-                options={[
-                  {"Gateway", :gateway},
-                  {"Agent", :agent},
-                  {"Checker", :checker},
-                  {"Sync", :sync}
-                ]}
-              />
+              <.input field={@form[:component_type]} type="hidden" value={@selected_component_type} />
+              <div class="text-sm text-base-content/70">
+                <span class="font-medium text-base-content">Component Type:</span>
+                <span class="ml-1 text-base-content">Agent</span>
+              </div>
 
-              <%= if @selected_component_type in ["agent", "checker"] do %>
+              <%= if @selected_component_type == "agent" do %>
                 <.input
                   field={@form[:gateway_id]}
-                  type="text"
+                  type="select"
                   label="Parent Gateway ID"
-                  placeholder="Enter the gateway ID this component reports to"
+                  options={@gateway_options}
+                  prompt="Select a gateway..."
+                  disabled={@gateway_options == []}
+                  value={@default_gateway_id}
                 />
                 <p class="text-xs text-base-content/60 -mt-2 ml-1">
-                  <%= if @selected_component_type == "agent" do %>
-                    The gateway that will manage this agent.
-                  <% else %>
-                    The gateway that will run this checker.
-                  <% end %>
+                  The gateway that will manage this agent.
                 </p>
-              <% end %>
-
-              <%= if @selected_component_type == "checker" do %>
-                <.input
-                  field={@form[:checker_kind]}
-                  type={if @checker_templates != [], do: "select", else: "text"}
-                  label="Checker Kind"
-                  options={
-                    if @checker_templates != [],
-                      do:
-                        [{"Select checker template...", ""}] ++
-                          Enum.map(@checker_templates, &{&1.kind, &1.kind}) ++
-                          [{"Custom (enter below)", "_custom"}],
-                      else: nil
-                  }
-                  placeholder="e.g., sysmon, snmp, rperf-checker"
-                />
-
-                <div class="form-control">
-                  <label class="label">
-                    <span class="label-text">Checker Config (JSON, optional)</span>
-                  </label>
-                  <textarea
-                    name={@form[:checker_config_json].name}
-                    class="textarea textarea-bordered w-full font-mono text-sm"
-                    rows="4"
-                    placeholder='{"interval": 30, "timeout": 10}'
-                  ><%= Phoenix.HTML.Form.input_value(@form, :checker_config_json) |> format_json_value() %></textarea>
-                  <label class="label">
-                    <span class="label-text-alt text-base-content/60">
-                      Custom configuration JSON for the checker
-                    </span>
-                  </label>
-                </div>
+                <%= if @gateway_options == [] do %>
+                  <p class="text-xs text-warning -mt-1 ml-1">
+                    No gateways registered yet. Start a gateway before creating an agent package.
+                  </p>
+                <% end %>
               <% end %>
 
               <div class="collapse collapse-arrow bg-base-200 rounded-lg">
@@ -885,25 +844,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             </div>
           <% end %>
 
-          <%= if @package.checker_kind do %>
-            <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">
-                Checker Kind
-              </div>
-              <div class="text-sm">{@package.checker_kind}</div>
-            </div>
-          <% end %>
-
-          <%= if @package.checker_config_json && @package.checker_config_json != %{} do %>
-            <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">
-                Checker Config
-              </div>
-              <code class="text-xs font-mono bg-base-200 p-2 rounded block whitespace-pre-wrap">
-                {Jason.encode!(@package.checker_config_json, pretty: true)}
-              </code>
-            </div>
-          <% end %>
+          <%# Checker details removed: checkers no longer supported %>
 
           <%= if @package.notes do %>
             <div>
@@ -1029,47 +970,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       domain: ServiceRadar.Edge,
       transform_params: fn _form, params, _action ->
         # Convert component_type string to atom if needed (allowlist prevents DoS via atom exhaustion)
-        params =
-          case params["component_type"] do
-            type when type in ["gateway", "agent", "checker", "sync"] ->
-              Map.put(params, "component_type", String.to_existing_atom(type))
-
-            _ ->
-              params
-          end
+        params = Map.put(params, "component_type", :agent)
 
         # Set security mode from environment config
         params = Map.put(params, "security_mode", security_mode)
 
-        # Parse checker_config_json if present
-        case params["checker_config_json"] do
-          json when is_binary(json) and json != "" ->
-            case Jason.decode(json) do
-              {:ok, config} -> Map.put(params, "checker_config_json", config)
-              {:error, _} -> params
-            end
-
-          _ ->
-            params
-        end
+        params
       end
     )
-  end
-
-  defp format_json_value(nil), do: ""
-  defp format_json_value(""), do: ""
-  defp format_json_value(value) when is_map(value), do: Jason.encode!(value, pretty: true)
-  defp format_json_value(value) when is_binary(value), do: value
-
-  # Load templates for checkers
-  defp load_templates(socket, security_mode) do
-    checker_templates =
-      case ComponentTemplates.list("checker", security_mode) do
-        {:ok, templates} -> templates
-        {:error, _} -> []
-      end
-
-    assign(socket, :checker_templates, checker_templates)
   end
 
   defp get_actor(socket) do
@@ -1080,7 +988,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp build_package_attrs_from_form(params, security_mode) do
-    component_type = params["component_type"] || "gateway"
+    component_type = params["component_type"] || "agent"
     label = params["label"] || ""
     component_id = generate_component_id(label, component_type)
     metadata_json = build_metadata_json(component_type, params)
@@ -1093,8 +1001,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       security_mode: security_mode,
       notes: params["notes"],
       parent_id: params["parent_id"],
-      checker_kind: params["checker_kind"],
-      checker_config_json: parse_checker_config(params["checker_config_json"]),
       metadata_json: metadata_json
     }
     |> add_parent_type(component_type)
@@ -1119,19 +1025,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     "#{component_type}-#{:os.system_time(:millisecond)}"
   end
 
-  defp parse_checker_config(nil), do: %{}
-  defp parse_checker_config(""), do: %{}
-  defp parse_checker_config(config) when is_map(config), do: config
-
-  defp parse_checker_config(json) when is_binary(json) do
-    case Jason.decode(json) do
-      {:ok, config} -> config
-      {:error, _} -> %{}
-    end
-  end
-
   defp add_parent_type(attrs, "agent"), do: Map.put(attrs, :parent_type, "gateway")
-  defp add_parent_type(attrs, "checker"), do: Map.put(attrs, :parent_type, "agent")
   defp add_parent_type(attrs, _), do: attrs
 
   defp build_metadata_json("agent", params) do
@@ -1157,12 +1051,38 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp encode_metadata(metadata) when map_size(metadata) == 0, do: nil
   defp encode_metadata(metadata), do: Jason.encode!(metadata)
 
-  defp component_type_from_params(%{"component_type" => type})
-       when type in ["gateway", "agent", "checker", "sync"] do
-    type
+  defp component_type_from_params(_params), do: "agent"
+
+  defp ensure_gateway_id(params, nil), do: params
+
+  defp ensure_gateway_id(params, default_gateway_id) do
+    case params["gateway_id"] do
+      value when is_binary(value) and value != "" ->
+        params
+
+      _ ->
+        Map.put(params, "gateway_id", default_gateway_id)
+    end
   end
 
-  defp component_type_from_params(_params), do: "gateway"
+  defp load_gateway_options do
+    gateways =
+      try do
+        GatewayRegistry.all_gateways()
+      rescue
+        _ -> []
+      end
+
+    GatewayHelpers.gateway_options(gateways)
+  end
+
+  defp default_gateway_id([{_label, id}]), do: id
+  defp default_gateway_id(_), do: nil
+
+  defp load_gateway_state do
+    options = load_gateway_options()
+    {options, default_gateway_id(options)}
+  end
 
   defp format_error(%Ash.Error.Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_error/1)
