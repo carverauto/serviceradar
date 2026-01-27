@@ -57,11 +57,15 @@ pub struct SecurityConfig {
 impl SecurityConfig {
     pub fn resolve_path(&self, path: &str) -> PathBuf {
         let trimmed = path.trim();
-        if Path::new(trimmed).is_absolute() || self.cert_dir.is_none() {
-            PathBuf::from(trimmed)
-        } else {
-            PathBuf::from(self.cert_dir.as_ref().unwrap()).join(trimmed)
+        if Path::new(trimmed).is_absolute() {
+            return PathBuf::from(trimmed);
         }
+
+        self.cert_dir
+            .as_deref()
+            .map_or_else(|| PathBuf::from(trimmed), |cert_dir| {
+                PathBuf::from(cert_dir).join(trimmed)
+            })
     }
 }
 

@@ -2,10 +2,9 @@ namespace: demo
 
 # Global settings that apply across all services
 global:
-  # Override all ServiceRadar image tags at once. When set, this takes precedence
-  # over individual image.tags.* values. Use for releases (e.g., "v1.0.70").
-  # Leave empty to use individual tags below.
-  imageTag: ""
+  # Override all ServiceRadar image tags at once. Defaults to "latest" so
+  # published charts track the latest image tags without manual updates.
+  imageTag: "latest"
   # Image pull policy: IfNotPresent (default), Always (for staging/mutable tags), Never
   imagePullPolicy: IfNotPresent
 
@@ -13,7 +12,6 @@ image:
   registryPullSecret: ghcr-io-cred
   tags:
     # Default tag for ServiceRadar images. Use global.imageTag to override all at once.
-    # For production, set global.imageTag to a specific version (e.g., "v1.0.71").
     appTag: &appTag "latest"
     core: *appTag
     webNg: *appTag
@@ -143,6 +141,8 @@ cnpg:
     # search_path is set automatically based on cnpg.schema
     search_path: ""
   credentialsSecret: serviceradar-db-credentials
+  # Helm reuses existing secrets and does not rotate CNPG credentials on upgrade.
+  # Delete/recreate cnpg-superuser or serviceradar-db-credentials to rotate.
   sslmode: verify-full
   certDir: /etc/serviceradar/certs
   caFile: /etc/serviceradar/cnpg/ca.crt
@@ -329,7 +329,9 @@ spire:
     storageSize: 100Gi
     secretName: spire-db-credentials
     username: spire
-    password: changeme
+    password: ""
+    # If blank, Helm generates a random password and stores it in spire-db-credentials.
+    # Existing secrets are reused; delete the secret to rotate.
     image: ghcr.io/carverauto/serviceradar-cnpg
     imageTag: ""
     imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3@sha256:882fdd3f4905342a6ffa347ee988840eafa4f8e8b234a26e6e8cb72ec71b8eb8

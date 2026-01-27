@@ -49,6 +49,18 @@ docker compose pull
 docker compose up -d --force-recreate
 ```
 
+If you already have a CNPG data volume from a previous install, note that the
+stack now stores database credentials in the `cnpg-credentials` volume to avoid
+shipping static passwords. Seed the credentials once before restarting:
+
+```bash
+docker compose run --rm \
+  -e CNPG_PASSWORD=<app-password> \
+  -e CNPG_SUPERUSER_PASSWORD=<postgres-password> \
+  -e CNPG_SPIRE_PASSWORD=<spire-password> \
+  db-credentials
+```
+
 ## Certificates and TLS
 
 The stack auto-generates mTLS certificates on first boot. Certificates live in the `cert-data` volume and are mounted into each service as needed.

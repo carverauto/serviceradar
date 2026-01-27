@@ -305,7 +305,8 @@ docker-compose logs core
 
 Verify CNPG is reachable:
 ```bash
-psql "postgres://serviceradar:<password>@cnpg-rw:5432/serviceradar?sslmode=verify-full" -c "SELECT 1;"
+APP_PASSWORD=$(cat /etc/serviceradar/cnpg/serviceradar-password)
+psql "postgres://serviceradar:${APP_PASSWORD}@cnpg-rw:5432/serviceradar?sslmode=verify-full" -c "SELECT 1;"
 ```
 
 ### Configuration not loading
