@@ -3,7 +3,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   import Ecto.Query
   alias ServiceRadarWebNG.Repo
-  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Logger
 
@@ -15,15 +14,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   @impl true
   def mount(_params, _session, socket) do
     srql = %{
-      enabled: true,
-      query: "",
-      draft: "",
-      loading: false,
-      builder_available: true,
-      builder_open: false,
-      builder_supported: true,
-      builder_sync: true,
-      builder: %{},
+      enabled: false,
       page_path: "/analytics"
     }
 
@@ -60,44 +51,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_event("srql_change", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
-  end
-
-  def handle_event("srql_submit", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/analytics")}
-  end
-
-  def handle_event("srql_builder_toggle", _params, socket) do
-    entity = get_in(socket.assigns, [:srql, :builder, "entity"]) || "devices"
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: entity)}
-  end
-
-  def handle_event("srql_builder_change", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
-  end
-
-  def handle_event("srql_builder_apply", _params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
-  end
-
-  def handle_event("srql_builder_run", _params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/analytics")}
-  end
-
-  def handle_event("srql_builder_add_filter", params, socket) do
-    entity = get_in(socket.assigns, [:srql, :builder, "entity"]) || "devices"
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: entity)}
-  end
-
-  def handle_event("srql_builder_remove_filter", params, socket) do
-    entity = get_in(socket.assigns, [:srql, :builder, "entity"]) || "devices"
-
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: entity)}
-  end
-
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   defp schedule_refresh do
