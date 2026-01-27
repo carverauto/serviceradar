@@ -21,12 +21,14 @@ mkdir -p %{buildroot}/etc/serviceradar/checkers/sweep
 mkdir -p %{buildroot}/lib/systemd/system
 
 install -m 755 %{_builddir}/serviceradar-agent %{buildroot}/usr/local/bin/
+install -m 755 %{_builddir}/serviceradar-cli %{buildroot}/usr/local/bin/
 install -m 644 %{_sourcedir}/packaging/agent/systemd/serviceradar-agent.service %{buildroot}/lib/systemd/system/
 install -m 644 %{_sourcedir}/packaging/agent/config/agent.json %{buildroot}/etc/serviceradar/
 install -m 644 %{_sourcedir}/packaging/agent/config/checkers/sweep/sweep.json %{buildroot}/etc/serviceradar/checkers/sweep/
 
 %files
 %attr(0755, root, root) /usr/local/bin/serviceradar-agent
+%attr(0755, root, root) /usr/local/bin/serviceradar-cli
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/agent.json
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/checkers/sweep/sweep.json
 %attr(0644, root, root) /lib/systemd/system/serviceradar-agent.service

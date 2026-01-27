@@ -46,6 +46,11 @@ TCP (SYN) settings: `sweep.tcp`
 - ringReaders: number of AF_PACKET ring readers (default 0 = auto).
 - ringPollTimeoutMs: poll timeout per reader (ms, default 0 = auto).
 
+Key values: edge gateway address
+- `webNg.gatewayAddress`: Optional external gateway address for edge agents (`host:port`).
+  - If unset, the chart derives it from `ingress.host` (port 50052).
+  - If neither is set, it falls back to the in-cluster service name.
+
 ICMP settings: `sweep.icmp`
 - highPerf: enable raw-socket ICMP where permitted (default true).
 - rateLimit: global ICMP pps limit (default 5000).

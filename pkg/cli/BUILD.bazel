@@ -6,6 +6,7 @@ go_library(
         "checker.go",
         "cli.go",
         "edge_onboarding.go",
+        "enroll.go",
         "errors.go",
         "flags.go",
         "help.go",

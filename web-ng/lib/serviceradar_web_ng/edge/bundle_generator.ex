@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   """
 
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadarWebNG.Edge.OnboardingToken
 
   @doc """
   Creates a tarball bundle for the given package and certificate data.
@@ -42,7 +43,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   The generated config contains only minimal bootstrap settings:
   - `agent_id` - Component identifier used for gateway enrollment
-  - `gateway_addr` - SaaS gateway endpoint
+  - `gateway_addr` - Gateway endpoint
   - `gateway_security` - mTLS credentials
 
   All monitoring configuration (checks, schedules, etc.) is delivered
@@ -67,7 +68,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
       {"#{package_dir}/config/config.yaml", config_yaml},
       {"#{package_dir}/config/config.json", config_json},
       {"#{package_dir}/install.sh", generate_install_script(package, opts)},
-      {"#{package_dir}/README.md", generate_readme(package)}
+      {"#{package_dir}/README.md", generate_readme(package, opts)}
       | generate_kubernetes_files(
           package_dir,
           package,
@@ -180,10 +181,16 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp generate_config_json(package, _join_token, opts) do
-    gateway_addr = Keyword.get(opts, :gateway_addr, default_gateway_addr())
     component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
+    metadata = metadata_map(package)
+
+    gateway_addr =
+      Keyword.get(opts, :gateway_addr, Map.get(metadata, "gateway_addr", default_gateway_addr()))
+
     cert_dir = "/etc/serviceradar/certs"
+    partition = Map.get(metadata, "partition", "default")
+    host_ip = Map.get(metadata, "host_ip", "PLACEHOLDER_HOST_IP")
 
     gateway_security = %{
       "mode" => "mtls",
@@ -204,174 +211,190 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
       "gateway_security" => gateway_security
     }
 
+    config =
+      if component_type == "agent" do
+        config
+        |> Map.put("partition", partition)
+        |> Map.put("host_ip", host_ip)
+      else
+        config
+      end
+
     Jason.encode!(config, pretty: true)
   end
 
-  defp generate_install_script(package, _opts) do
+  defp generate_install_script(package, opts) do
     component_type = effective_component_type(package.component_type)
+    enrollment_token = onboarding_token(package, opts)
 
-    """
-    #!/bin/bash
-    # ServiceRadar Edge Component Installer
-    # Component: #{component_type}
-    # Package ID: #{package.id}
-    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    if component_type == "agent" and is_binary(enrollment_token) do
+      return_agent_enroll_script(package, enrollment_token)
+    else
+      """
+      #!/bin/bash
+      # ServiceRadar Edge Component Installer
+      # Component: #{component_type}
+      # Package ID: #{package.id}
+      # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
 
-    set -e
+      set -e
 
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    COMPONENT_TYPE="#{component_type}"
-    INSTALL_DIR="/opt/serviceradar"
-    CONFIG_DIR="/etc/serviceradar"
-    CERT_DIR="$CONFIG_DIR/certs"
+      SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      COMPONENT_TYPE="#{component_type}"
+      INSTALL_DIR="/opt/serviceradar"
+      CONFIG_DIR="/etc/serviceradar"
+      CERT_DIR="$CONFIG_DIR/certs"
 
-    echo "ServiceRadar Edge Component Installer"
-    echo "======================================"
-    echo "Component Type: $COMPONENT_TYPE"
-    echo ""
+      echo "ServiceRadar Edge Component Installer"
+      echo "======================================"
+      echo "Component Type: $COMPONENT_TYPE"
+      echo ""
 
-    # Detect platform
-    detect_platform() {
-        if command -v docker &> /dev/null && docker info &> /dev/null; then
-            echo "docker"
-        elif command -v podman &> /dev/null; then
-            echo "podman"
-        elif systemctl --version &> /dev/null 2>&1; then
-            echo "systemd"
-        else
-            echo "manual"
-        fi
-    }
+      # Detect platform
+      detect_platform() {
+          if command -v docker &> /dev/null && docker info &> /dev/null; then
+              echo "docker"
+          elif command -v podman &> /dev/null; then
+              echo "podman"
+          elif systemctl --version &> /dev/null 2>&1; then
+              echo "systemd"
+          else
+              echo "manual"
+          fi
+      }
 
-    PLATFORM=$(detect_platform)
-    echo "Detected platform: $PLATFORM"
-    echo ""
+      PLATFORM=$(detect_platform)
+      echo "Detected platform: $PLATFORM"
+      echo ""
 
-    install_docker() {
-        echo "Installing via Docker..."
+      install_docker() {
+          echo "Installing via Docker..."
 
-        # Create directories
-        mkdir -p "$CONFIG_DIR" "$CERT_DIR"
+          # Create directories
+          mkdir -p "$CONFIG_DIR" "$CERT_DIR"
 
-        # Copy certificates
-        cp "$SCRIPT_DIR/certs/"* "$CERT_DIR/"
-        chmod 600 "$CERT_DIR/component-key.pem"
-        chmod 644 "$CERT_DIR/component.pem" "$CERT_DIR/ca-chain.pem"
+          # Copy certificates
+          cp "$SCRIPT_DIR/certs/"* "$CERT_DIR/"
+          chmod 600 "$CERT_DIR/component-key.pem"
+          chmod 644 "$CERT_DIR/component.pem" "$CERT_DIR/ca-chain.pem"
 
-        # Copy config
-        cp "$SCRIPT_DIR/config/config.yaml" "$CONFIG_DIR/"
+          # Copy config
+          cp "$SCRIPT_DIR/config/config.yaml" "$CONFIG_DIR/"
 
-        # Run container
-        docker run -d \\
-            --name "serviceradar-$COMPONENT_TYPE" \\
-            --restart unless-stopped \\
-            -v "$CERT_DIR:/etc/serviceradar/certs:ro" \\
-            -v "$CONFIG_DIR:/etc/serviceradar/config:ro" \\
-            "ghcr.io/carverauto/serviceradar-$COMPONENT_TYPE:latest"
+          # Run container
+          docker run -d \\
+              --name "serviceradar-$COMPONENT_TYPE" \\
+              --restart unless-stopped \\
+              -v "$CERT_DIR:/etc/serviceradar/certs:ro" \\
+              -v "$CONFIG_DIR:/etc/serviceradar/config:ro" \\
+              "ghcr.io/carverauto/serviceradar-$COMPONENT_TYPE:latest"
 
-        echo ""
-        echo "Container started. Check status with:"
-        echo "  docker logs serviceradar-$COMPONENT_TYPE"
-    }
+          echo ""
+          echo "Container started. Check status with:"
+          echo "  docker logs serviceradar-$COMPONENT_TYPE"
+      }
 
-    install_systemd() {
-        echo "Installing via systemd..."
+      install_systemd() {
+          echo "Installing via systemd..."
 
-        # Create directories
-        sudo mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$CERT_DIR"
+          # Create directories
+          sudo mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$CERT_DIR"
 
-        # Copy certificates
-        sudo cp "$SCRIPT_DIR/certs/"* "$CERT_DIR/"
-        sudo chmod 600 "$CERT_DIR/component-key.pem"
-        sudo chmod 644 "$CERT_DIR/component.pem" "$CERT_DIR/ca-chain.pem"
+          # Copy certificates
+          sudo cp "$SCRIPT_DIR/certs/"* "$CERT_DIR/"
+          sudo chmod 600 "$CERT_DIR/component-key.pem"
+          sudo chmod 644 "$CERT_DIR/component.pem" "$CERT_DIR/ca-chain.pem"
 
-        # Copy config
-        sudo cp "$SCRIPT_DIR/config/config.yaml" "$CONFIG_DIR/"
+          # Copy config
+          sudo cp "$SCRIPT_DIR/config/config.yaml" "$CONFIG_DIR/"
 
-        # Download binary if not present
-        if [ ! -f "$INSTALL_DIR/serviceradar-$COMPONENT_TYPE" ]; then
-            echo "Binary not found. Please download serviceradar-$COMPONENT_TYPE to $INSTALL_DIR/"
-            echo "Or use Docker installation instead."
-            exit 1
-        fi
+          # Download binary if not present
+          if [ ! -f "$INSTALL_DIR/serviceradar-$COMPONENT_TYPE" ]; then
+              echo "Binary not found. Please download serviceradar-$COMPONENT_TYPE to $INSTALL_DIR/"
+              echo "Or use Docker installation instead."
+              exit 1
+          fi
 
-        # Create systemd service
-        cat << EOF | sudo tee "/etc/systemd/system/serviceradar-$COMPONENT_TYPE.service"
-    [Unit]
-    Description=ServiceRadar $COMPONENT_TYPE
-    After=network.target
+          # Create systemd service
+          cat << EOF | sudo tee "/etc/systemd/system/serviceradar-$COMPONENT_TYPE.service"
+      [Unit]
+      Description=ServiceRadar $COMPONENT_TYPE
+      After=network.target
 
-    [Service]
-    Type=simple
-    ExecStart=$INSTALL_DIR/serviceradar-$COMPONENT_TYPE --config $CONFIG_DIR/config.yaml
-    Restart=always
-    RestartSec=5
-    User=serviceradar
+      [Service]
+      Type=simple
+      ExecStart=$INSTALL_DIR/serviceradar-$COMPONENT_TYPE --config $CONFIG_DIR/config.yaml
+      Restart=always
+      RestartSec=5
+      User=serviceradar
 
-    [Install]
-    WantedBy=multi-user.target
-    EOF
+      [Install]
+      WantedBy=multi-user.target
+      EOF
 
-        # Create user if needed
-        if ! id -u serviceradar &>/dev/null; then
-            sudo useradd -r -s /bin/false serviceradar
-        fi
+          # Create user if needed
+          if ! id -u serviceradar &>/dev/null; then
+              sudo useradd -r -s /bin/false serviceradar
+          fi
 
-        # Set permissions
-        sudo chown -R serviceradar:serviceradar "$CONFIG_DIR" "$CERT_DIR"
+          # Set permissions
+          sudo chown -R serviceradar:serviceradar "$CONFIG_DIR" "$CERT_DIR"
 
-        # Enable and start service
-        sudo systemctl daemon-reload
-        sudo systemctl enable "serviceradar-$COMPONENT_TYPE"
-        sudo systemctl start "serviceradar-$COMPONENT_TYPE"
+          # Enable and start service
+          sudo systemctl daemon-reload
+          sudo systemctl enable "serviceradar-$COMPONENT_TYPE"
+          sudo systemctl start "serviceradar-$COMPONENT_TYPE"
 
-        echo ""
-        echo "Service started. Check status with:"
-        echo "  sudo systemctl status serviceradar-$COMPONENT_TYPE"
-    }
+          echo ""
+          echo "Service started. Check status with:"
+          echo "  sudo systemctl status serviceradar-$COMPONENT_TYPE"
+      }
 
-    show_manual_instructions() {
-        echo ""
-        echo "Manual Installation"
-        echo "==================="
-        echo ""
-        echo "1. Copy certificates to $CERT_DIR/"
-        echo "   cp $SCRIPT_DIR/certs/* $CERT_DIR/"
-        echo ""
-        echo "2. Copy config to $CONFIG_DIR/"
-        echo "   cp $SCRIPT_DIR/config/config.yaml $CONFIG_DIR/"
-        echo ""
-        echo "3. Download and run the serviceradar-$COMPONENT_TYPE binary"
-        echo "   serviceradar-$COMPONENT_TYPE --config $CONFIG_DIR/config.yaml"
-        echo ""
-    }
+      show_manual_instructions() {
+          echo ""
+          echo "Manual Installation"
+          echo "==================="
+          echo ""
+          echo "1. Copy certificates to $CERT_DIR/"
+          echo "   cp $SCRIPT_DIR/certs/* $CERT_DIR/"
+          echo ""
+          echo "2. Copy config to $CONFIG_DIR/"
+          echo "   cp $SCRIPT_DIR/config/config.yaml $CONFIG_DIR/"
+          echo ""
+          echo "3. Download and run the serviceradar-$COMPONENT_TYPE binary"
+          echo "   serviceradar-$COMPONENT_TYPE --config $CONFIG_DIR/config.yaml"
+          echo ""
+      }
 
-    # Main installation logic
-    case "$PLATFORM" in
-        docker|podman)
-            install_docker
-            ;;
-        systemd)
-            read -p "Install as systemd service? (y/n) " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                install_systemd
-            else
-                show_manual_instructions
-            fi
-            ;;
-        *)
-            show_manual_instructions
-            ;;
-    esac
+      # Main installation logic
+      case "$PLATFORM" in
+          docker|podman)
+              install_docker
+              ;;
+          systemd)
+              read -p "Install as systemd service? (y/n) " -n 1 -r
+              echo
+              if [[ $REPLY =~ ^[Yy]$ ]]; then
+                  install_systemd
+              else
+                  show_manual_instructions
+              fi
+              ;;
+          *)
+              show_manual_instructions
+              ;;
+      esac
 
-    echo ""
-    echo "Installation complete!"
-    """
+      echo ""
+      echo "Installation complete!"
+      """
+      |> String.trim()
+    end
   end
 
-  defp generate_readme(package) do
+  defp generate_readme(package, opts) do
     component_type = effective_component_type(package.component_type)
+    enrollment_token = onboarding_token(package, opts)
 
     """
     # ServiceRadar Edge Package
@@ -396,43 +419,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     - Sweep configurations
     - Deployment-specific settings
 
-    ## Quick Start
-
-    ### Docker (Recommended)
-
-    ```bash
-    ./install.sh
-    ```
-
-    Or manually:
-
-    ```bash
-    docker run -d --name serviceradar-#{component_type} \\
-      -v $(pwd)/certs:/etc/serviceradar/certs:ro \\
-      -v $(pwd)/config:/etc/serviceradar/config:ro \\
-      ghcr.io/carverauto/serviceradar-#{component_type}:latest
-    ```
-
-    ### systemd
-
-    ```bash
-    sudo ./install.sh
-    ```
-
-    ### Kubernetes
-
-    ```bash
-    kubectl apply -k kubernetes/
-    ```
-
-    Or apply individual manifests:
-
-    ```bash
-    kubectl apply -f kubernetes/namespace.yaml
-    kubectl apply -f kubernetes/secret.yaml
-    kubectl apply -f kubernetes/configmap.yaml
-    kubectl apply -f kubernetes/deployment.yaml
-    ```
+    #{quick_start_section(component_type, enrollment_token)}
 
     ## Contents
 
@@ -716,12 +703,108 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp default_base_url do
-    Application.get_env(:serviceradar_web_ng, :base_url, "https://app.serviceradar.cloud")
+    ServiceRadarWebNGWeb.Endpoint.url()
   end
 
   defp default_gateway_addr do
-    Application.get_env(:serviceradar_web_ng, :gateway_addr, "gateway.serviceradar.cloud:50052")
+    Application.get_env(:serviceradar_web_ng, :gateway_addr, "agent-gateway:50052")
   end
+
+  defp onboarding_token(package, opts) do
+    download_token = Keyword.get(opts, :download_token)
+    base_url = Keyword.get(opts, :base_url, default_base_url())
+
+    if is_binary(download_token) and download_token != "" do
+      case OnboardingToken.encode(package.id, download_token, base_url) do
+        {:ok, token} -> token
+        _ -> nil
+      end
+    else
+      nil
+    end
+  end
+
+  defp return_agent_enroll_script(package, token) do
+    """
+    #!/bin/bash
+    # ServiceRadar Agent Enrollment
+    # Package ID: #{package.id}
+    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+
+    set -e
+
+    echo "Enrolling ServiceRadar agent..."
+    /usr/local/bin/serviceradar-cli enroll --token "#{token}"
+
+    echo ""
+    echo "Enrollment complete."
+    """
+    |> String.trim()
+  end
+
+  defp quick_start_section("agent", token) when is_binary(token) do
+    """
+    ## Quick Start
+
+    Enroll the agent with the onboarding token (no config edits required):
+
+    ```bash
+    /usr/local/bin/serviceradar-cli enroll --token #{token}
+    ```
+    """
+  end
+
+  defp quick_start_section(component_type, _token) do
+    """
+    ## Quick Start
+
+    ### Docker (Recommended)
+
+    ```bash
+    ./install.sh
+    ```
+
+    Or manually:
+
+    ```bash
+    docker run -d --name serviceradar-#{component_type} \\
+      -v $(pwd)/certs:/etc/serviceradar/certs:ro \\
+      -v $(pwd)/config:/etc/serviceradar/config:ro \\
+      ghcr.io/carverauto/serviceradar-#{component_type}:latest
+    ```
+
+    ### systemd
+
+    ```bash
+    sudo ./install.sh
+    ```
+
+    ### Kubernetes
+
+    ```bash
+    kubectl apply -k kubernetes/
+    ```
+
+    Or apply individual manifests:
+
+    ```bash
+    kubectl apply -f kubernetes/namespace.yaml
+    kubectl apply -f kubernetes/secret.yaml
+    kubectl apply -f kubernetes/configmap.yaml
+    kubectl apply -f kubernetes/deployment.yaml
+    ```
+    """
+  end
+
+  defp metadata_map(%OnboardingPackage{metadata_json: metadata_json})
+       when is_binary(metadata_json) and metadata_json != "" do
+    case Jason.decode(metadata_json) do
+      {:ok, metadata} when is_map(metadata) -> metadata
+      _ -> %{}
+    end
+  end
+
+  defp metadata_map(_), do: %{}
 
   defp gateway_server_name(gateway_addr) when is_binary(gateway_addr) do
     case String.split(gateway_addr, ":") do

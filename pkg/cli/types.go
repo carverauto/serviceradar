@@ -15,7 +15,7 @@ type CmdConfig struct {
 	ConfigFile      string
 	AdminHash       string
 	DBPasswordFile  string
-	GatewayFile      string
+	GatewayFile     string
 	Action          string
 	Agent           string
 	ServiceType     string
@@ -60,7 +60,7 @@ type CmdConfig struct {
 	EdgePackageComponentType   string
 	EdgePackageParentType      string
 	EdgePackageParentID        string
-	EdgePackageGatewayID        string
+	EdgePackageGatewayID       string
 	EdgePackageSite            string
 	EdgePackageSelectors       []string
 	EdgePackageMetadata        string
@@ -75,36 +75,47 @@ type CmdConfig struct {
 	EdgePackageTypes           []string
 	EdgePackageComponentFilter string
 	EdgePackageParentFilter    string
-	EdgePackageGatewayFilter    string
+	EdgePackageGatewayFilter   string
 	EdgeOutputFormat           string
 	EdgePackageReissueToken    bool
 	EdgeJoinTTLSeconds         int
 	EdgeDownloadTTLSeconds     int
+	EnrollToken                string
+	EnrollCoreURL              string
+	EnrollHostIP               string
+	EnrollConfigPath           string
+	EnrollConfigDir            string
+	EnrollConfigFile           string
+	EnrollCertDir              string
+	EnrollCredsDir             string
+	EnrollForce                bool
+	EnrollInsecure             bool
+	EnrollCAFile               string
 	// NATS bootstrap configuration
-	NATSBootstrapToken    string
-	NATSOutputDir         string
-	NATSOperatorName      string
-	NATSImportSeed        string
-	NATSVerifyMode        bool
-	NATSConfigPath        string
-	NATSNoSystemAccount   bool
-	NATSJetStream         bool
-	NATSJetStreamDir      string
-	NATSTLSCert           string
-	NATSTLSKey            string
-	NATSTLSCA             string
-	NATSNoTLS             bool
-	NATSOutputFormat      string
-	NATSBootstrapExpires  string
-	NATSLocalBootstrap    bool
-	NATSWriteSystemCreds  bool
-	NATSWritePlatform     bool
-	NATSPlatformAccount   string
-	NATSPlatformUser      string
-	NATSSystemUser        string
-	NATSAccountLimit      int
-	AdminNatsAction       string
-	AdminCommand          string
+	NATSBootstrapToken   string
+	NATSOutputDir        string
+	NATSOperatorName     string
+	NATSImportSeed       string
+	NATSVerifyMode       bool
+	NATSConfigPath       string
+	NATSNoSystemAccount  bool
+	NATSJetStream        bool
+	NATSJetStreamDir     string
+	NATSTLSCert          string
+	NATSTLSKey           string
+	NATSTLSCA            string
+	NATSNoTLS            bool
+	NATSOutputFormat     string
+	NATSBootstrapExpires string
+	NATSLocalBootstrap   bool
+	NATSWriteSystemCreds bool
+	NATSWritePlatform    bool
+	NATSPlatformAccount  string
+	NATSPlatformUser     string
+	NATSSystemUser       string
+	NATSAccountLimit     int
+	AdminNatsAction      string
+	AdminCommand         string
 }
 
 // logStyles defines styles for logging messages
@@ -130,7 +141,7 @@ type GatewayConfig struct {
 	CoreAddress  string                 `json:"core_address"`
 	ListenAddr   string                 `json:"listen_addr"`
 	PollInterval string                 `json:"poll_interval"`
-	GatewayID     string                 `json:"gateway_id"`
+	GatewayID    string                 `json:"gateway_id"`
 	Partition    string                 `json:"partition"`
 	ServiceName  string                 `json:"service_name"`
 	ServiceType  string                 `json:"service_type"`

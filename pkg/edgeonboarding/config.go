@@ -201,9 +201,9 @@ func (b *Bootstrapper) generateGatewayConfig(ctx context.Context, metadata map[s
 }
 
 // generateAgentConfig generates configuration for an agent service.
-// Per the SaaS connectivity spec, the bootstrap config is minimal:
+// Per the edge connectivity spec, the bootstrap config is minimal:
 // - agent_id: Agent identifier
-// - gateway_addr: SaaS gateway endpoint
+// - gateway_addr: Gateway endpoint
 // - gateway_security: mTLS configuration
 // All monitoring configuration is delivered via GetConfig after connection.
 func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[string]interface{}) error {
@@ -223,7 +223,7 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 	certDir := filepath.Join(b.cfg.StoragePath, "certs")
 	serverName := gatewayServerName(gatewayEndpoint, metadata)
 
-	// Generate minimal agent config JSON per SaaS connectivity spec
+	// Generate minimal agent config JSON per edge connectivity spec
 	config := map[string]interface{}{
 		// Agent identity
 		"agent_id": b.pkg.ComponentID,

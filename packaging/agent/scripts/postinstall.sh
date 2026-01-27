@@ -20,7 +20,9 @@ mkdir -p /var/lib/serviceradar
 mkdir -p /etc/serviceradar/checkers/sweep
 
 # Set permissions
-chown serviceradar:serviceradar /etc/serviceradar/agent.json
+if [ -f /etc/serviceradar/agent.json ]; then
+    chown serviceradar:serviceradar /etc/serviceradar/agent.json
+fi
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
 chmod 755 /etc/serviceradar/
 
@@ -36,10 +38,17 @@ fi
 # Reload systemd and manage service
 systemctl daemon-reload
 systemctl enable serviceradar-agent
-systemctl restart serviceradar-agent || {
-    echo "Failed to start serviceradar-agent service. Check logs with: journalctl -xeu serviceradar-agent"
-    exit 1
-}
+if [ -f /etc/serviceradar/agent.json ] && \
+   [ -f /etc/serviceradar/certs/component.pem ] && \
+   [ -f /etc/serviceradar/certs/component-key.pem ] && \
+   [ -f /etc/serviceradar/certs/ca-chain.pem ]; then
+    systemctl restart serviceradar-agent || {
+        echo "Failed to start serviceradar-agent service. Check logs with: journalctl -xeu serviceradar-agent"
+        exit 1
+    }
+else
+    echo "Skipping serviceradar-agent start: enrollment assets not found. Run serviceradar-cli enroll, then: systemctl restart serviceradar-agent"
+fi
 
 # Set required capability for ICMP scanning
 setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent

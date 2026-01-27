@@ -51,7 +51,7 @@ const DEFAULT_WORKLOAD_SOCKET: &str = "unix:/run/spire/sockets/agent.sock";
 struct Cli {
     /// Path to configuration file
     #[arg(short, long, env = "TRAPD_CONFIG")]
-    config: String,
+    config: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -73,10 +73,14 @@ async fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let cli = Cli::parse();
+    let config_path = cli
+        .config
+        .clone()
+        .unwrap_or_else(|| "/etc/serviceradar/trapd.json".to_string());
     let pinned_path = config_bootstrap::pinned_path_from_env();
     let mut bootstrap = Bootstrap::new(BootstrapOptions {
         service_name: "trapd".to_string(),
-        config_path: cli.config.clone(),
+        config_path: config_path.clone(),
         format: ConfigFormat::Json,
         pinned_path: pinned_path.clone(),
     })

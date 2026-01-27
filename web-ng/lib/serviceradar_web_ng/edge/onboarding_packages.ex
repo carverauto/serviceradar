@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadarWebNG.Edge.GatewayCertificateIssuer
+  alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
 
   @type filter :: %{
           optional(:status) => [String.t()],
@@ -93,7 +95,15 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
           | {:error, Ash.Error.t()}
   def create(attrs, opts \\ []) do
     opts = build_opts(opts)
-    AshPackages.create(attrs, opts)
+
+    case AshPackages.create(attrs, opts) do
+      {:ok, %{package: package} = result} ->
+        EdgePubSub.broadcast_package_created(package)
+        {:ok, result}
+
+      other ->
+        other
+    end
   end
 
   @doc """
@@ -142,7 +152,42 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
           {:ok, map()} | {:error, term()}
   def create_with_platform_cert(attrs, opts \\ []) do
     opts = build_opts(opts)
-    AshPackages.create_with_platform_cert(attrs, opts)
+
+    case AshPackages.create_with_platform_cert(attrs, opts) do
+      {:ok, %{package: package} = result} ->
+        EdgePubSub.broadcast_package_created(package)
+        {:ok, result}
+
+      other ->
+        other
+    end
+  end
+
+  @doc """
+  Creates an agent onboarding package using a gateway-issued mTLS bundle.
+  """
+  @spec create_with_gateway_cert(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def create_with_gateway_cert(attrs, opts \\ []) do
+    opts = build_opts(opts)
+
+    gateway_id = Map.get(attrs, :gateway_id)
+    component_id = Map.get(attrs, :component_id)
+    partition_id = Map.get(attrs, :site) || "default"
+
+    with true <- (is_binary(gateway_id) and gateway_id != "") or {:error, :gateway_unavailable},
+         true <- (is_binary(component_id) and component_id != "") or {:error, :invalid_identity},
+         {:ok, bundle} <-
+           GatewayCertificateIssuer.issue_agent_bundle(
+             gateway_id,
+             component_id,
+             partition_id,
+             opts
+           ),
+         {:ok, result} = ok <-
+           AshPackages.create_with_bundle(attrs, bundle.bundle_pem, bundle, opts) do
+      EdgePubSub.broadcast_package_created(result.package)
+      ok
+    end
   end
 
   @doc """
@@ -165,7 +210,15 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
           | {:error, atom()}
   def deliver(package_id, download_token, opts \\ []) do
     opts = build_opts(opts)
-    AshPackages.deliver(package_id, download_token, opts)
+
+    case AshPackages.deliver(package_id, download_token, opts) do
+      {:ok, %{package: package} = result} ->
+        EdgePubSub.broadcast_package_updated(package)
+        {:ok, result}
+
+      other ->
+        other
+    end
   end
 
   @doc """
@@ -174,7 +227,15 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @spec revoke(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, atom()}
   def revoke(package_id, opts \\ []) do
     opts = build_opts(opts)
-    AshPackages.revoke(package_id, opts)
+
+    case AshPackages.revoke(package_id, opts) do
+      {:ok, package} ->
+        EdgePubSub.broadcast_package_updated(package)
+        {:ok, package}
+
+      other ->
+        other
+    end
   end
 
   @doc """
@@ -183,7 +244,15 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @spec delete(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, atom()}
   def delete(package_id, opts \\ []) do
     opts = build_opts(opts)
-    AshPackages.delete(package_id, opts)
+
+    case AshPackages.delete(package_id, opts) do
+      {:ok, package} ->
+        EdgePubSub.broadcast_package_deleted(package)
+        {:ok, package}
+
+      other ->
+        other
+    end
   end
 
   @doc """

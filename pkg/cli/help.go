@@ -12,6 +12,7 @@ Usage:
   serviceradar generate-tls [options]
   serviceradar generate-jwt-keys [options]
   serviceradar spire-join-token [options]
+  serviceradar enroll [options]
 
 Commands:
   (default)        Generate bcrypt hash from password
@@ -20,6 +21,7 @@ Commands:
   generate-tls     Generate mTLS certificates for ServiceRadar services
   generate-jwt-keys Generate RS256 keypair and update core.json
   spire-join-token  Request a join token from Core and optionally register a downstream entry
+  enroll           Enroll an edge agent or collector using an onboarding token
   edge package create  Issue a new onboarding package and emit the structured token
   edge package list    List onboarding packages with optional filters
   edge package show    Display detailed information for a package
@@ -107,6 +109,19 @@ Options for spire-join-token:
   -dns-name value         Downstream DNS name (repeatable)
   -federates-with value   Downstream federated trust domain (repeatable)
   -output string          Write the response JSON to the given file path
+
+Options for enroll:
+  -token string           Enrollment token (edgepkg-v1 or collector token)
+  -core-url string        Core API base URL (fallback if token omits base URL)
+  -host-ip string         Override detected host IP (agent enrollment only)
+  -config string          Agent config path (default /etc/serviceradar/agent.json)
+  -config-dir string      Collector config directory (default /etc/serviceradar)
+  -config-file string     Collector config filename override
+  -cert-dir string        Certificate directory (default /etc/serviceradar/certs)
+  -creds-dir string       Collector credentials directory (default /etc/serviceradar/creds)
+  -force                  Overwrite existing config/certs during enrollment
+  -insecure               Skip TLS verification for bundle download (default true)
+  -ca-file string         CA bundle path for verifying the core API TLS cert
 
 Options for edge-package-download:
   -core-url string        Core API base URL (default http://localhost:8090)

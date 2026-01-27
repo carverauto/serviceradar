@@ -30,70 +30,39 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
 
   describe "create modal" do
     test "opens create modal", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages")
-
-      html =
-        lv
-        |> element("button", "New Package")
-        |> render_click()
+      {:ok, _lv, html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
 
       assert html =~ "Create Edge Package"
       assert html =~ "Zero-touch provisioning"
     end
 
     test "validates form on change", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages")
+      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
 
-      # Open modal
-      lv |> element("button", "New Package") |> render_click()
-
-      # Validate with component type change
       html =
         lv
-        |> form("#create_package_form", form: %{component_type: "checker"})
+        |> form("#create_package_form", form: %{label: "test-agent"})
         |> render_change()
 
-      # Should show checker-specific fields
-      assert html =~ "Checker Kind"
+      assert html =~ "Partition"
     end
 
-    test "shows gateway_id only for agents and checkers", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages")
+    test "shows gateway_id for agent packages", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
 
-      # Open modal
-      lv |> element("button", "New Package") |> render_click()
-
-      # Default is gateway - should not show gateway_id
       html = render(lv)
-      refute html =~ "Parent Gateway ID"
-
-      # Change to agent - should show gateway_id
-      html =
-        lv
-        |> form("#create_package_form", form: %{component_type: "agent"})
-        |> render_change()
-
       assert html =~ "Parent Gateway ID"
     end
 
     test "has advanced options collapse", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages")
-
-      # Open modal
-      html =
-        lv
-        |> element("button", "New Package")
-        |> render_click()
+      {:ok, _lv, html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
 
       assert html =~ "Advanced options"
       assert html =~ "Security Mode"
     end
 
     test "closes modal on cancel", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages")
-
-      # Open modal
-      lv |> element("button", "New Package") |> render_click()
+      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
 
       # Click cancel
       html =
@@ -107,18 +76,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
 
   describe "package creation flow" do
     test "creates a package and shows success", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages")
-
-      # Open modal
-      lv |> element("button", "New Package") |> render_click()
+      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
 
       # Submit form
       result =
         lv
         |> form("#create_package_form",
           form: %{
-            label: "test-new-gateway",
-            component_type: "gateway"
+            label: "test-new-agent"
           }
         )
         |> render_submit()

@@ -124,13 +124,26 @@ metadata:
   name: serviceradar-agent-gateway
   labels:
     app.kubernetes.io/part-of: serviceradar
+  {{- with $gateway.service.annotations }}
+  {{- if ne (len .) 0 }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
 spec:
   selector:
     app: serviceradar-agent-gateway
+  type: {{ default "ClusterIP" $gateway.service.type }}
+  {{- if and (eq (default "ClusterIP" $gateway.service.type) "LoadBalancer") $gateway.service.loadBalancerIP }}
+  loadBalancerIP: {{ $gateway.service.loadBalancerIP | quote }}
+  {{- end }}
   ports:
   - name: grpc
     port: {{ default 50052 $gateway.service.port }}
     targetPort: grpc
+    {{- with $gateway.service.nodePort }}
+    nodePort: {{ . }}
+    {{- end }}
 ---
 apiVersion: v1
 kind: Service

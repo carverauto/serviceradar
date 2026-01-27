@@ -10,17 +10,17 @@ Environment="CONFIG_SOURCE=file"
 Environment="KV_ADDRESS=127.0.0.1:50057"
 Environment="KV_SEC_MODE=mtls"
 Environment="KV_CERT_DIR=/etc/serviceradar/certs"
-Environment="KV_CERT_FILE=/etc/serviceradar/certs/agent.pem"
-Environment="KV_KEY_FILE=/etc/serviceradar/certs/agent-key.pem"
-Environment="KV_CA_FILE=/etc/serviceradar/certs/root.pem"
+Environment="KV_CERT_FILE=/etc/serviceradar/certs/component.pem"
+Environment="KV_KEY_FILE=/etc/serviceradar/certs/component-key.pem"
+Environment="KV_CA_FILE=/etc/serviceradar/certs/ca-chain.pem"
 EnvironmentFile=-/etc/serviceradar/kv-overrides.env
 Restart=always
 RestartSec=10
 LimitNPROC=512
 LimitNOFILE=65535
 
-StandardOutput=append:/var/log/serviceradar/agent.log
-StandardError=append:/var/log/serviceradar/agent-error.log
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

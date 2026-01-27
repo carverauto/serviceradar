@@ -49,6 +49,11 @@ PACKAGES = {
         },
         "files": [
             {
+                "src": "//cmd/cli:cli",
+                "dest": "/usr/local/bin/serviceradar-cli",
+                "mode": "0755",
+            },
+            {
                 "src": "config/agent.json",
                 "dest": "/etc/serviceradar/agent.json",
                 "mode": "0644",
@@ -430,7 +435,7 @@ PACKAGES = {
         "rpm_requires": [],
         "binary": {
             "target": "//cmd/cli:cli",
-            "dest": "/usr/local/bin/serviceradar",
+            "dest": "/usr/local/bin/serviceradar-cli",
         },
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",

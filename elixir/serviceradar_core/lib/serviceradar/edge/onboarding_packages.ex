@@ -529,6 +529,38 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     end
   end
 
+  @doc """
+  Creates a package with a provided certificate bundle.
+
+  Use this when certificates are issued by an external system (e.g., agent-gateway).
+  """
+  @spec create_with_bundle(map(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def create_with_bundle(attrs, bundle_pem, cert_data, opts \\ [])
+      when is_binary(bundle_pem) and is_map(cert_data) do
+    actor = Keyword.get(opts, :actor)
+    authorize? = Keyword.get(opts, :authorize?, true)
+
+    with {:ok, result} <- create(attrs, opts),
+         bundle_ciphertext <- Crypto.encrypt(bundle_pem),
+         {:ok, updated} <-
+           result.package
+           |> Ash.Changeset.for_update(
+             :update_tokens,
+             %{
+               bundle_ciphertext: bundle_ciphertext,
+               downstream_spiffe_id: Map.get(cert_data, :spiffe_id) || Map.get(cert_data, "spiffe_id")
+             },
+             actor: actor,
+             authorize?: authorize?
+           )
+           |> Ash.update() do
+      {:ok,
+       result
+       |> Map.put(:package, updated)
+       |> Map.put(:certificate_data, cert_data)}
+    end
+  end
+
   defp build_certificate_bundle(cert_data) do
     """
     # Component Certificate

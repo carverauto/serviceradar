@@ -675,25 +675,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       component_type when is_atom(component_type) ->
         {identity, component_type}
 
+      nil ->
+        Logger.warning("Component type missing from client certificate: component_id=#{component_id}")
+        raise GRPC.RPCError, status: :permission_denied, message: "component_type missing"
+
       _ ->
-        case core_call(AgentGatewaySync, :component_type_for_component_id, [component_id]) do
-          {:error, :core_unavailable} ->
-            raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
-
-          {:ok, {:ok, component_type}} when is_atom(component_type) ->
-            {Map.put(identity, :component_type, component_type), component_type}
-
-          {:ok, {:error, :not_found}} ->
-            Logger.warning("Component type not found for component_id=#{component_id}")
-            raise GRPC.RPCError, status: :permission_denied, message: "component not enrolled"
-
-          {:ok, {:error, reason}} ->
-            Logger.warning(
-              "Component type lookup failed for component_id=#{component_id}: #{inspect(reason)}"
-            )
-
-            raise GRPC.RPCError, status: :unavailable, message: "component type lookup failed"
-        end
+        Logger.warning("Invalid component type in client certificate: component_id=#{component_id}")
+        raise GRPC.RPCError, status: :permission_denied, message: "invalid component_type"
     end
   end
 

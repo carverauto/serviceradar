@@ -39,9 +39,11 @@ mkdir -p lib/systemd/system
 
 echo "Building Go binary..."
 
-# Build Go binary
+# Build Go binaries
 cd "${BASE_DIR}/cmd/agent"
 GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/bin/serviceradar-agent"
+cd "${BASE_DIR}/cmd/cli"
+GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/bin/serviceradar-cli"
 cd "${BASE_DIR}"
 
 echo "Preparing ServiceRadar Agent package files..."

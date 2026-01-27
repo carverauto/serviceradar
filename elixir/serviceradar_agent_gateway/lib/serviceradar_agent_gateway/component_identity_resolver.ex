@@ -98,22 +98,34 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
   # Extract component_type from SPIFFE URI in certificate extensions
   # Format: spiffe://serviceradar.local/<component_type>/<partition_id>/<component_id>
   defp extract_component_type({:OTPCertificate, tbs_cert, _, _}) do
-    extensions = elem(tbs_cert, 10) || []
+    extensions =
+      case elem(tbs_cert, 10) do
+        :asn1_NOVALUE -> []
+        nil -> []
+        value -> value
+      end
 
-    san_extension =
-      Enum.find(extensions, fn
-        {:Extension, {2, 5, 29, 17}, _, _} -> true
-        _ -> false
-      end)
+    if !is_list(extensions) do
+      Logger.warning("Unexpected certificate extensions value: #{inspect(extensions)}")
+      return_nil()
+    else
+      san_extension =
+        Enum.find(extensions, fn
+          {:Extension, {2, 5, 29, 17}, _, _} -> true
+          _ -> false
+        end)
 
-    case san_extension do
-      {:Extension, _, _, san_values} ->
-        extract_component_type_from_san(san_values)
+      case san_extension do
+        {:Extension, _, _, san_values} ->
+          extract_component_type_from_san(san_values)
 
-      _ ->
-        nil
+        _ ->
+          nil
+      end
     end
   end
+
+  defp return_nil, do: nil
 
   defp extract_component_type_from_san(san_values) when is_list(san_values) do
     Enum.find_value(san_values, fn
