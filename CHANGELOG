@@ -9,6 +9,7 @@ Compose stack reliability and schema hygiene improvements.
 - flowgger and trapd are enabled in the default compose stack; faker moved to the dev profile only.
 - discovered_interfaces timestamps are migrated to `timestamptz` to eliminate Timescale warnings.
 - Oban schema validation and startup migration checks refactored for clearer diagnostics.
+- CNPG credentials are now generated and persisted (no more static defaults); existing installs must seed/rotate secrets on upgrade.
 
 # ServiceRadar v1.0.82
 

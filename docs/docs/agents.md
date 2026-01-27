@@ -128,6 +128,20 @@ the CNPG-backed API surface end-to-end. The helper:
 
 Pass `NAMESPACE=<ns>` to target a different environment.
 
+## CNPG Credential Rotation (Helm Upgrades)
+
+Helm upgrades reuse existing CNPG secrets and will not rotate passwords
+automatically. To move off legacy/static credentials, update or delete the
+secrets before upgrading so new values are generated and persisted.
+
+```bash
+kubectl -n demo delete secret cnpg-superuser serviceradar-db-credentials spire-db-credentials
+helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values.yaml --atomic
+```
+
+If you need explicit values instead of random generation, create the secrets
+first and then run the upgrade.
+
 ## Armis Faker Service
 
 - Deployment: `serviceradar-faker` (`k8s/demo/base/serviceradar-faker.yaml`).

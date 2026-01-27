@@ -13,3 +13,10 @@ Default database credentials and public bindings increase risk in both Docker Co
 ## Impact
 - Affected specs: `cnpg`, `docker-compose-stack`
 - Affected code: `helm/serviceradar/templates/spire-postgres.yaml`, `helm/serviceradar/values.yaml`, `docker-compose.yml`, `docker/compose/cnpg-init.sql`, Docker Compose helper scripts and docs
+
+## Completed Work
+- Implemented Docker Compose credential bootstrap (volume-backed) and file-based CNPG password wiring.
+- Defaulted CNPG port binding to loopback and documented explicit opt-in for public access.
+- Updated Helm CNPG secret generation to avoid static defaults and preserve existing secrets.
+- Added documentation for upgrade/rotation steps and Compose credential seeding.
+- Updated runtime configs to support `CNPG_PASSWORD_FILE`.
