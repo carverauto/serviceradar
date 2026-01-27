@@ -1,3 +1,15 @@
+# ServiceRadar v1.0.83
+
+Compose stack reliability and schema hygiene improvements.
+
+## Whats New
+
+**1.0.83**
+- Docker Compose core-elx healthcheck now tolerates long migrations to avoid cascading startup failures.
+- flowgger and trapd are enabled in the default compose stack; faker moved to the dev profile only.
+- discovered_interfaces timestamps are migrated to `timestamptz` to eliminate Timescale warnings.
+- Oban schema validation and startup migration checks refactored for clearer diagnostics.
+
 # ServiceRadar v1.0.82
 
 Release workflow fixes and packaging reliability improvements.
