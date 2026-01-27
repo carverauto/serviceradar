@@ -20,12 +20,17 @@ func RunEnroll(cfg *CmdConfig) error {
 	}
 
 	if strings.HasPrefix(token, "edgepkg-v1:") {
+		client, err := edgeonboarding.BuildHTTPClient(cfg.EnrollCAFile, cfg.EnrollInsecure)
+		if err != nil {
+			return err
+		}
 		opts := edgeonboarding.EnrollOptions{
 			Token:         token,
 			CoreHost:      cfg.EnrollCoreURL,
 			HostIP:        cfg.EnrollHostIP,
 			ConfigPath:    cfg.EnrollConfigPath,
 			CertDir:       cfg.EnrollCertDir,
+			HTTPClient:    client,
 			SkipOverwrite: !cfg.EnrollForce,
 			Logf:          logf,
 		}
@@ -33,6 +38,10 @@ func RunEnroll(cfg *CmdConfig) error {
 		return edgeonboarding.EnrollAgentFromToken(context.Background(), opts)
 	}
 
+	client, err := edgeonboarding.BuildHTTPClient(cfg.EnrollCAFile, cfg.EnrollInsecure)
+	if err != nil {
+		return err
+	}
 	opts := edgeonboarding.CollectorEnrollOptions{
 		Token:         token,
 		BaseURL:       cfg.EnrollCoreURL,
@@ -40,6 +49,7 @@ func RunEnroll(cfg *CmdConfig) error {
 		ConfigFile:    cfg.EnrollConfigFile,
 		CertsDir:      cfg.EnrollCertDir,
 		CredsDir:      cfg.EnrollCredsDir,
+		HTTPClient:    client,
 		SkipOverwrite: !cfg.EnrollForce,
 		Logf:          logf,
 	}

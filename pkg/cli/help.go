@@ -120,6 +120,8 @@ Options for enroll:
   -cert-dir string        Certificate directory (default /etc/serviceradar/certs)
   -creds-dir string       Collector credentials directory (default /etc/serviceradar/creds)
   -force                  Overwrite existing config/certs during enrollment
+  -insecure               Skip TLS verification for bundle download (default true)
+  -ca-file string         CA bundle path for verifying the core API TLS cert
 
 Options for edge-package-download:
   -core-url string        Core API base URL (default http://localhost:8090)

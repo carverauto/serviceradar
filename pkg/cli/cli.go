@@ -568,6 +568,8 @@ func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	certDir := fs.String("cert-dir", "/etc/serviceradar/certs", "Certificate directory")
 	credsDir := fs.String("creds-dir", "/etc/serviceradar/creds", "Collector credentials directory")
 	force := fs.Bool("force", false, "Overwrite existing config/certs during enrollment")
+	insecure := fs.Bool("insecure", true, "Skip TLS verification for bundle download")
+	caFile := fs.String("ca-file", "", "CA bundle path for verifying the core API TLS cert")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parsing enroll flags: %w", err)
@@ -582,6 +584,8 @@ func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.EnrollCertDir = *certDir
 	cfg.EnrollCredsDir = *credsDir
 	cfg.EnrollForce = *force
+	cfg.EnrollInsecure = *insecure
+	cfg.EnrollCAFile = *caFile
 
 	return nil
 }
