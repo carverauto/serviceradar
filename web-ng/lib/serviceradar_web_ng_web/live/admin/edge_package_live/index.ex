@@ -1124,7 +1124,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp format_error(%Ash.Error.Forbidden{}), do: "Not authorized to create packages."
-  defp format_error(%Ash.Error.NotFound{}), do: "Package or related data not found."
   defp format_error(%Ash.Error.Unknown{}), do: "Unknown error"
 
   defp format_error(%{__exception__: true} = error), do: Exception.message(error)
