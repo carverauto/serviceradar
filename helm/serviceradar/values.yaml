@@ -157,6 +157,9 @@ webNg:
   checkOrigin: "false"
   devRoutes: "false"
   localMailer: "false"
+  gatewayAddress: ""
+  natsUrl: ""
+  coreAddress: ""
   clusterEnabled: "true"
   clusterStrategy: "dns"
   clusterDnsQuery: ""
@@ -212,6 +215,10 @@ agentGateway:
   kubernetesNodeBasename: "serviceradar_agent_gateway"
   service:
     port: 50052
+    type: ClusterIP
+    nodePort: null
+    loadBalancerIP: ""
+    annotations: {}
   resources:
     limits:
       cpu: "1"

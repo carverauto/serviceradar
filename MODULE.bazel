@@ -860,6 +860,22 @@ http_file(
     ],
 )
 
+http_file(
+    name = "debian_openssl_amd64_deb",
+    sha256 = "405385cc86a4dc3ad084fe7f9ec38f0583a4ae75695e7719d244e675687fe728",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/o/openssl/openssl_3.0.18-1~deb12u1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libssl3_amd64_deb",
+    sha256 = "4eaee9db5a113b991a72eefe41965400a1efc97a560678edb5ddd978ccc8b083",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.18-1~deb12u1_amd64.deb",
+    ],
+)
+
 http_archive(
     name = "crane_linux_amd64",
     build_file_content = """

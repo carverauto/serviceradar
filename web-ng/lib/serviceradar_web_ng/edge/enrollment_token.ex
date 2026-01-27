@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   - `p` - Package ID
   - `t` - Secret token (hashed version stored in DB)
   - `e` - Expiry timestamp (Unix seconds)
+  - `f` - Optional config filename hint
 
   ## Usage Flow
 
@@ -16,9 +17,8 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   2. System generates an enrollment token with embedded URL and secret
   3. Customer installs the collector binary from package repo
   4. Customer runs: `serviceradar-cli enroll --token <token>`
-  5. CLI decodes token, calls `GET {url}/api/enroll/{package_id}?token={secret}`
-  6. API returns NATS creds, config, and optional TLS certs
-  7. CLI writes files to `/etc/serviceradar/` and starts the service
+  5. CLI decodes token, downloads the bundle from `/api/collectors/:id/bundle`
+  6. CLI writes creds/certs/config to `/etc/serviceradar/`
 
   ## Security
 
@@ -41,6 +41,7 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   def generate(package_id, opts \\ []) do
     base_url = Keyword.get(opts, :base_url, default_base_url())
     expiry_hours = Keyword.get(opts, :expiry_hours, @default_expiry_hours)
+    config_filename = Keyword.get(opts, :config_filename)
 
     # Generate a secure random secret (or use provided one)
     secret = Keyword.get(opts, :secret) || generate_secret()
@@ -56,6 +57,13 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
       "t" => secret,
       "e" => expiry
     }
+
+    payload =
+      if is_binary(config_filename) and String.trim(config_filename) != "" do
+        Map.put(payload, "f", String.trim(config_filename))
+      else
+        payload
+      end
 
     # Encode as JSON then base64
     token_string =
@@ -117,8 +125,11 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   Generates a CLI command for the given token.
   """
   @spec cli_command(String.t()) :: String.t()
-  def cli_command(token) do
-    "serviceradar-cli enroll --token #{token}"
+  def cli_command(token), do: cli_command(token, "collector")
+
+  @spec cli_command(String.t(), String.t()) :: String.t()
+  def cli_command(token, _service_name) do
+    "/usr/local/bin/serviceradar-cli enroll --token #{token}"
   end
 
   @doc """
@@ -156,6 +167,6 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   end
 
   defp default_base_url do
-    Application.get_env(:serviceradar_web_ng, :base_url, "https://api.serviceradar.cloud")
+    ServiceRadarWebNGWeb.Endpoint.url()
   end
 end

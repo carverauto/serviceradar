@@ -553,6 +553,43 @@ func (EdgePackageTokenHandler) Parse(args []string, cfg *CmdConfig) error {
 	return nil
 }
 
+// EnrollHandler handles flags for the enroll command.
+type EnrollHandler struct{}
+
+// Parse reads flags for the enroll subcommand.
+func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
+	token := fs.String("token", "", "Enrollment token (edgepkg-v1 or collector token)")
+	coreURL := fs.String("core-url", "", "Core API base URL (fallback if token omits base URL)")
+	hostIP := fs.String("host-ip", "", "Override detected host IP (agent enrollment only)")
+	configPath := fs.String("config", "/etc/serviceradar/agent.json", "Agent config path")
+	configDir := fs.String("config-dir", "/etc/serviceradar", "Collector config directory")
+	configFile := fs.String("config-file", "", "Collector config filename override")
+	certDir := fs.String("cert-dir", "/etc/serviceradar/certs", "Certificate directory")
+	credsDir := fs.String("creds-dir", "/etc/serviceradar/creds", "Collector credentials directory")
+	force := fs.Bool("force", false, "Overwrite existing config/certs instead of backing them up")
+	insecure := fs.Bool("insecure", true, "Skip TLS verification for bundle download")
+	caFile := fs.String("ca-file", "", "CA bundle path for verifying the core API TLS cert")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parsing enroll flags: %w", err)
+	}
+
+	cfg.EnrollToken = *token
+	cfg.EnrollCoreURL = *coreURL
+	cfg.EnrollHostIP = *hostIP
+	cfg.EnrollConfigPath = *configPath
+	cfg.EnrollConfigDir = *configDir
+	cfg.EnrollConfigFile = *configFile
+	cfg.EnrollCertDir = *certDir
+	cfg.EnrollCredsDir = *credsDir
+	cfg.EnrollForce = *force
+	cfg.EnrollInsecure = *insecure
+	cfg.EnrollCAFile = *caFile
+
+	return nil
+}
+
 // EdgeHandler handles multi-level `edge ...` commands.
 type EdgeHandler struct{}
 
@@ -861,10 +898,11 @@ func ParseFlags() (*CmdConfig, error) {
 	// Define subcommands and their handlers
 	subcommands := map[string]SubcommandHandler{
 		"update-config":         UpdateConfigHandler{},
-		"update-gateway":         UpdateGatewayHandler{},
+		"update-gateway":        UpdateGatewayHandler{},
 		"generate-tls":          GenerateTLSHandler{},
 		"generate-jwt-keys":     GenerateJWTKeysHandler{},
 		"spire-join-token":      SpireJoinTokenHandler{},
+		"enroll":                EnrollHandler{},
 		"edge-package-download": EdgePackageDownloadHandler{},
 		"edge-package-revoke":   EdgePackageRevokeHandler{},
 		"edge-package-token":    EdgePackageTokenHandler{},

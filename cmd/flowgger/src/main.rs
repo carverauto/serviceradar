@@ -44,7 +44,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .get_one::<String>("config_file")
         .map(|s| s.as_ref())
         .unwrap_or(DEFAULT_CONFIG_FILE);
-
     let pinned_path = config_bootstrap::pinned_path_from_env();
     let mut bootstrap = Bootstrap::new(BootstrapOptions {
         service_name: "flowgger".to_string(),

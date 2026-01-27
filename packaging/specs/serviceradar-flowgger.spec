@@ -7,6 +7,7 @@ License:        Proprietary
 BuildRequires:  systemd-rpm-macros
 Requires:       systemd
 Requires:       serviceradar-flowgger
+Requires:       serviceradar-cli
 %{?systemd_requires}
 
 %description

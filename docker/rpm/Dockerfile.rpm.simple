@@ -53,6 +53,10 @@ RUN mkdir -p /build-out && \
         find . -name "main.go" | grep -E "checkers|${COMPONENT}" && \
         exit 1; \
     fi && \
+    if [ "${COMPONENT}" = "agent" ]; then \
+        echo "Building serviceradar-cli for agent package" && \
+        GOOS=linux GOARCH=amd64 go build -v -o "/build-out/serviceradar-cli" "./cmd/cli"; \
+    fi && \
     echo "Build completed successfully" && \
     ls -la /build-out
 

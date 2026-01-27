@@ -58,7 +58,7 @@ type Config struct {
 	Token string
 
 	// GatewayEndpoint is the agent-gateway gRPC endpoint (required for SaaS mode)
-	// Format: "host:port" e.g., "gateway.serviceradar.cloud:50051"
+	// Format: "host:port" e.g., "agent-gateway:50052"
 	// This is the only required endpoint - all config is delivered via GetConfig.
 	GatewayEndpoint string
 
@@ -71,7 +71,7 @@ type Config struct {
 	// Format: "host:port" e.g., "23.138.124.23:50057"
 	KVEndpoint string
 
-	// CoreAPIURL is the HTTP(S) endpoint for the Core API (e.g., https://demo.serviceradar.cloud)
+	// CoreAPIURL is the HTTP(S) endpoint for the Core API (e.g., https://serviceradar.local)
 	// If empty, the token payload or environment variables may provide it.
 	CoreAPIURL string
 

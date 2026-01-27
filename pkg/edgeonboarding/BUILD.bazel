@@ -3,11 +3,13 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 go_library(
     name = "edgeonboarding",
     srcs = [
+        "agent_enroll.go",
         "bootstrap.go",
+        "collector_enroll.go",
         "config.go",
         "deployment.go",
         "download.go",
-        "integration.go",
+        "http_client.go",
         "nats_config.go",
         "token.go",
         "spire.go",
@@ -15,6 +17,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/pkg/edgeonboarding",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/edgeonboarding/mtls",
         "//pkg/logger",
         "//pkg/models",
     ],

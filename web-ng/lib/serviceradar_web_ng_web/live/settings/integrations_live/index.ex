@@ -435,13 +435,6 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             >
               <.icon name="hero-plus" class="size-4" /> New Source
             </.ui_button>
-            <.ui_button
-              variant="outline"
-              size="sm"
-              navigate={~p"/admin/edge-packages/new?component_type=agent"}
-            >
-              <.icon name="hero-link" class="size-4" /> Add Edge Agent
-            </.ui_button>
             <%= if not @sync_agent_available do %>
               <p class="text-xs text-base-content/60">
                 Register an agent before adding integrations.

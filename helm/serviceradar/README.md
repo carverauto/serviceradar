@@ -74,6 +74,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `secrets.autoGenerate` | Auto-generate secrets | `true` |
 | `spire.enabled` | Enable SPIRE identity plane | `true` |
 | `agent.resources.limits.cpu` | Agent CPU limit | `500m` |
+| `webNg.gatewayAddress` | External gateway address for edge agents (host:port). Defaults to `ingress.host:50052` when set. | `""` |
 
 ### Notes
 

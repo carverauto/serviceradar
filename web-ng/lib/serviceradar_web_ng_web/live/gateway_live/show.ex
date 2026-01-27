@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
+  alias ServiceRadarWebNGWeb.GatewayHelpers
 
   require Logger
 
@@ -50,8 +51,14 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
     # Convert Horde data to display format
     horde_gateway =
       if live_gateway do
+        gateway_id =
+          case GatewayHelpers.extract_gateway_id(live_gateway) do
+            "" -> "unknown"
+            id -> id
+          end
+
         %{
-          "gateway_id" => extract_gateway_id(live_gateway),
+          "gateway_id" => gateway_id,
           "node" => format_node(live_gateway[:node]),
           "status" => to_string(live_gateway[:status] || :unknown),
           "partition_id" => live_gateway[:partition_id],
@@ -106,11 +113,6 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
   defp match_gateway_id?(key, gateway_id) when is_binary(key), do: key == gateway_id
   defp match_gateway_id?(key, gateway_id) when is_atom(key), do: to_string(key) == gateway_id
   defp match_gateway_id?(_, _), do: false
-
-  defp extract_gateway_id(%{gateway_id: id}) when not is_nil(id), do: id
-  defp extract_gateway_id(%{key: {_partition, node}}) when is_atom(node), do: to_string(node)
-  defp extract_gateway_id(%{key: key}) when is_binary(key), do: key
-  defp extract_gateway_id(_), do: "unknown"
 
   defp fetch_node_info(nil), do: nil
 

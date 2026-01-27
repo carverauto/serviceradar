@@ -164,10 +164,11 @@ defmodule ServiceRadarWebNGWeb.Router do
     put("/plugin-packages/:id/blob", PluginPackageController, :upload_blob)
     get("/plugin-packages/:id/blob", PluginPackageController, :download_blob)
 
-    # Collector enrollment endpoint for serviceradar-cli
-    # Usage: serviceradar-cli enroll --token <token>
-    # Token decodes to: GET /api/enroll/:package_id?token=<secret>
-    get("/enroll/:package_id", EnrollController, :enroll)
+    # Legacy collector enrollment endpoint (bundle download is preferred)
+    # Token decodes to: GET /api/enroll/collector/:package_id?token=<secret>
+    get("/enroll/collector/:package_id", CollectorEnrollController, :enroll)
+    # Legacy collector enrollment path
+    get("/enroll/:package_id", CollectorEnrollController, :enroll)
   end
 
   # Ash JSON:API v2 endpoints
@@ -329,6 +330,9 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       # Agent deployment
       live("/settings/agents/deploy", Settings.AgentsLive.Deploy, :index)
+      live("/settings/agents/plugins", Admin.PluginPackageLive.Index, :index)
+      live("/settings/agents/plugins/new", Admin.PluginPackageLive.Index, :new)
+      live("/settings/agents/plugins/:id", Admin.PluginPackageLive.Index, :show)
 
       # Zen Rule Editor - visual JDM editor for rule logic
       live("/settings/rules/zen/new", Settings.ZenRuleEditorLive, :new)
