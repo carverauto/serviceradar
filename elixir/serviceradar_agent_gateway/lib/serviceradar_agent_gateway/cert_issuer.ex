@@ -29,11 +29,16 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp normalize_component_type(type) when is_atom(type), do: type
 
   defp normalize_component_type(type) when is_binary(type) do
-    case String.trim(type) do
-      "" -> :agent
-      value -> String.to_existing_atom(value)
-    rescue
-      _ -> :agent
+    value = String.trim(type)
+
+    if value == "" do
+      :agent
+    else
+      try do
+        String.to_existing_atom(value)
+      rescue
+        ArgumentError -> :agent
+      end
     end
   end
 
