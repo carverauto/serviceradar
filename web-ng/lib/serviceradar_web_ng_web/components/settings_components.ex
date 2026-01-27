@@ -69,9 +69,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active:
           String.starts_with?(path, "/admin/collectors") or
             String.starts_with?(path, "/admin/edge-sites") or
-            String.starts_with?(path, "/admin/nats") or
-            String.starts_with?(path, "/admin/edge-packages") or
-            String.starts_with?(path, "/admin/plugins")
+            String.starts_with?(path, "/admin/nats")
       },
       %{
         label: "Jobs",
@@ -157,6 +155,13 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         label: "Deploy",
         navigate: ~p"/settings/agents/deploy",
         active: String.starts_with?(path, "/settings/agents/deploy")
+      },
+      %{
+        label: "Plugins",
+        navigate: ~p"/settings/agents/plugins",
+        active:
+          String.starts_with?(path, "/settings/agents/plugins") or
+            String.starts_with?(path, "/admin/plugins")
       }
     ]
   end
@@ -188,16 +193,6 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         label: "Data Collectors",
         navigate: ~p"/admin/collectors",
         active: String.starts_with?(path, "/admin/collectors")
-      },
-      %{
-        label: "Components",
-        navigate: ~p"/admin/edge-packages",
-        active: String.starts_with?(path, "/admin/edge-packages")
-      },
-      %{
-        label: "Plugins",
-        navigate: ~p"/admin/plugins",
-        active: String.starts_with?(path, "/admin/plugins")
       }
     ]
   end

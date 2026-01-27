@@ -373,7 +373,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
       <.create_modal
         :if={@show_create_modal}
-        form={@create_form}
+        form={to_form(@create_form)}
         created_tokens={@created_tokens}
         creating={@creating}
         security_mode={@security_mode}

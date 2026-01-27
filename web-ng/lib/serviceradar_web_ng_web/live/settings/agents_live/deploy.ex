@@ -38,64 +38,51 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
             <div>
               <h1 class="text-2xl font-semibold text-base-content">Deploy Agent</h1>
               <p class="text-sm text-base-content/60">
-                Deploy new monitoring agents to your infrastructure.
+                Enroll new monitoring agents with an edge onboarding token.
               </p>
             </div>
           </div>
 
           <.ui_panel>
             <:header>
-              <div class="text-sm font-semibold">Deploy New Agent</div>
+              <div class="text-sm font-semibold">Enroll Agent</div>
             </:header>
             <div class="p-6 space-y-6">
               <p class="text-base-content/70">
-                Deploy monitoring agents to collect system metrics, run health checks,
-                and integrate with your infrastructure.
+                Agents connect directly to the agent-gateway over gRPC with mTLS. Use an
+                onboarding package to enroll the agent and write its bootstrap config.
               </p>
 
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="card bg-base-200/50 p-4 space-y-3">
-                  <div class="flex items-center gap-2">
-                    <.icon name="hero-server" class="size-5 text-primary" />
-                    <h3 class="font-semibold">Standard Agent</h3>
-                  </div>
-                  <p class="text-sm text-base-content/70">
-                    Deploy a gateway with embedded agent for standalone monitoring.
-                    Best for servers that connect directly to the cloud.
-                  </p>
-                  <.link navigate={~p"/admin/edge-packages"}>
-                    <.ui_button variant="primary" size="sm" class="w-full">
-                      <.icon name="hero-plus" class="size-4" /> Create Agent Package
-                    </.ui_button>
-                  </.link>
+              <div class="card bg-base-200/50 p-4 space-y-3">
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-server" class="size-5 text-primary" />
+                  <h3 class="font-semibold">Agent Package</h3>
                 </div>
-
-                <div class="card bg-base-200/50 p-4 space-y-3">
-                  <div class="flex items-center gap-2">
-                    <.icon name="hero-building-office" class="size-5 text-secondary" />
-                    <h3 class="font-semibold">Edge Site Agent</h3>
-                  </div>
-                  <p class="text-sm text-base-content/70">
-                    Deploy agents that connect through a local NATS leaf server.
-                    Best for remote sites with many agents.
-                  </p>
-                  <.link navigate={~p"/admin/edge-sites"}>
-                    <.ui_button variant="outline" size="sm" class="w-full">
-                      <.icon name="hero-globe-alt" class="size-4" /> Manage Edge Sites
-                    </.ui_button>
-                  </.link>
-                </div>
+                <p class="text-sm text-base-content/70">
+                  Generate an onboarding package for a new agent. The token installs mTLS
+                  credentials and points the agent at the gateway endpoint.
+                </p>
+                <.link navigate={~p"/admin/edge-packages/new?component_type=agent"}>
+                  <.ui_button variant="primary" size="sm" class="w-full">
+                    <.icon name="hero-plus" class="size-4" /> Create Agent Package
+                  </.ui_button>
+                </.link>
               </div>
 
               <div class="divider"></div>
 
               <h3 class="font-medium text-base-content">Deployment Steps</h3>
               <ol class="list-decimal list-inside space-y-2 text-sm text-base-content/70">
-                <li>Create a component package (Gateway type includes embedded agent)</li>
-                <li>Copy the one-liner install command or download the bundle</li>
-                <li>Run the installer on your target host</li>
-                <li>The agent will register automatically with TLS certificates</li>
-                <li>Configure Sysmon profiles to target the new agent</li>
+                <li>Create an agent onboarding package</li>
+                <li>Copy the edgepkg token from the success modal</li>
+                <li>
+                  Run
+                  <code class="rounded bg-base-200 px-2 py-1 text-xs font-mono">
+                    /usr/local/bin/serviceradar-agent -enroll -token &lt;token&gt;
+                  </code>
+                  on the target host
+                </li>
+                <li>Confirm the agent appears in the Agents inventory</li>
               </ol>
 
               <div class="flex items-center gap-2 text-xs text-base-content/50">

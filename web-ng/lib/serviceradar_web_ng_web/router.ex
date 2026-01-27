@@ -329,6 +329,9 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       # Agent deployment
       live("/settings/agents/deploy", Settings.AgentsLive.Deploy, :index)
+      live("/settings/agents/plugins", Admin.PluginPackageLive.Index, :index)
+      live("/settings/agents/plugins/new", Admin.PluginPackageLive.Index, :new)
+      live("/settings/agents/plugins/:id", Admin.PluginPackageLive.Index, :show)
 
       # Zen Rule Editor - visual JDM editor for rule logic
       live("/settings/rules/zen/new", Settings.ZenRuleEditorLive, :new)

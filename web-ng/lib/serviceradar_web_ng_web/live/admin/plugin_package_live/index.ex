@@ -23,6 +23,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     socket =
       socket
       |> assign(:page_title, "Plugins")
+      |> assign(:current_path, nil)
+      |> assign(:plugins_base_path, "/admin/plugins")
       |> assign(:packages, list_packages(%{}, scope))
       |> assign(:filter_status, nil)
       |> assign(:filter_source_type, nil)
@@ -54,7 +56,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   @impl true
-  def handle_params(params, _url, socket) do
+  def handle_params(params, url, socket) do
+    base_path = plugins_base_path_from_url(url)
+
+    socket =
+      socket
+      |> assign(:current_path, current_path_from_url(url))
+      |> assign(:plugins_base_path, base_path)
+
     {:noreply, apply_action(socket, socket.assigns.live_action, params)}
   end
 
@@ -89,12 +98,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, :not_found} ->
         socket
         |> put_flash(:error, "Package not found")
-        |> push_navigate(to: ~p"/admin/plugins")
+        |> push_navigate(to: plugins_index_path(socket))
 
       {:error, _error} ->
         socket
         |> put_flash(:error, "Failed to load package")
-        |> push_navigate(to: ~p"/admin/plugins")
+        |> push_navigate(to: plugins_index_path(socket))
     end
   end
 
@@ -189,7 +198,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            |> assign(:create_form, default_create_form())
            |> assign(:create_errors, [])
            |> put_flash(:info, "Plugin package staged")
-           |> push_navigate(to: ~p"/admin/plugins/#{package.id}")}
+           |> push_navigate(to: plugins_show_path(socket, package.id))}
         else
           {:error, :missing_repo_url} ->
             {:noreply,
@@ -259,7 +268,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            |> assign(:create_form, default_create_form())
            |> assign(:create_errors, [])
            |> put_flash(:info, "Plugin package staged")
-           |> push_navigate(to: ~p"/admin/plugins/#{package.id}")}
+           |> push_navigate(to: plugins_show_path(socket, package.id))}
         else
           {:error, {:invalid_manifest, errors}} ->
             {:noreply,
@@ -601,9 +610,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path="/admin/plugins">
-        <.settings_nav current_path="/admin/plugins" />
-        <.edge_nav current_path="/admin/plugins" class="mt-2" />
+      <.settings_shell current_path={@current_path || @plugins_base_path}>
+        <.settings_nav current_path={@current_path || @plugins_base_path} />
+        <%= if @plugins_base_path == "/settings/agents/plugins" do %>
+          <.agents_nav current_path={@current_path || @plugins_base_path} class="mt-2" />
+        <% else %>
+          <.edge_nav current_path={@current_path || @plugins_base_path} class="mt-2" />
+        <% end %>
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -786,7 +799,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                           <.ui_button
                             variant="ghost"
                             size="xs"
-                            navigate={~p"/admin/plugins/#{package.id}"}
+                            navigate={plugins_show_path(@plugins_base_path, package.id)}
                           >
                             View
                           </.ui_button>
@@ -1123,7 +1136,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                           <.ui_badge size="xs" variant="ghost" class="ml-2">current</.ui_badge>
                         <% end %>
                       </div>
-                      <.link navigate={~p"/admin/plugins/#{version.id}"} class="link link-primary">
+                      <.link
+                        navigate={plugins_show_path(@plugins_base_path, version.id)}
+                        class="link link-primary"
+                      >
                         View
                       </.link>
                     </div>
@@ -1482,6 +1498,37 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     }
 
     {rows, totals}
+  end
+
+  defp current_path_from_url(nil), do: nil
+
+  defp current_path_from_url(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{path: path} when is_binary(path) -> path
+      _ -> nil
+    end
+  end
+
+  defp plugins_base_path_from_url(url) do
+    path = current_path_from_url(url) || ""
+
+    if String.starts_with?(path, "/settings/agents/plugins") do
+      "/settings/agents/plugins"
+    else
+      "/admin/plugins"
+    end
+  end
+
+  defp plugins_index_path(socket) do
+    socket.assigns[:plugins_base_path] || "/admin/plugins"
+  end
+
+  defp plugins_show_path(socket, id) when is_map(socket) do
+    plugins_index_path(socket) <> "/#{id}"
+  end
+
+  defp plugins_show_path(base_path, id) when is_binary(base_path) do
+    base_path <> "/#{id}"
   end
 
   defp plugin_verification_policy do
