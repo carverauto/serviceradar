@@ -24,7 +24,7 @@ Issue 2485 highlights static database passwords (notably `postgres` = `changeme`
 
 ## Migration Plan
 1. For Helm installs, existing secrets are reused; new installs get random passwords.
-2. For Docker Compose, new bootstrap writes passwords to the volume; existing `.env` overrides still take precedence if provided.
+2. For Docker Compose, new bootstrap writes passwords to the volume. Existing installs must seed credentials explicitly (via env or pre-created files) before starting; no legacy defaults are assumed.
 3. Document recovery/rotation steps (delete secret/volume to regenerate, plus explicit service restarts).
 
 ## Open Questions
