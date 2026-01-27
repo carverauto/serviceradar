@@ -29,7 +29,6 @@ import (
 	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/datasvc"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/nats/accounts"
 	"github.com/carverauto/serviceradar/proto"
 )
