@@ -395,30 +395,6 @@ services:
           - agent.serviceradar
     restart: unless-stopped
 
-  faker:
-    image: ghcr.io/carverauto/serviceradar-faker:${APP_TAG:-latest}
-    container_name: serviceradar-faker-mtls
-    profiles:
-      - dev
-    hostname: faker
-    ports:
-      - "8081:8080"
-    volumes:
-      - ./logs:/var/log/serviceradar
-    environment:
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 8080 || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    networks:
-      serviceradar-net:
-        aliases:
-          - faker.serviceradar
-    restart: unless-stopped
-
   agent-gateway:
     image: ghcr.io/carverauto/serviceradar-agent-gateway:${APP_TAG:-latest}
     container_name: serviceradar-agent-gateway-mtls

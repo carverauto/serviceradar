@@ -85,6 +85,29 @@ services:
       - full  # Only start when using --profile full
     restart: unless-stopped
 
+  # Faker service - generates fake data for development/testing
+  faker:
+    image: ghcr.io/carverauto/serviceradar-faker:${APP_TAG:-latest}
+    container_name: serviceradar-faker-mtls
+    hostname: faker
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./logs:/var/log/serviceradar
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8080 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      serviceradar-net:
+        aliases:
+          - faker.serviceradar
+    restart: unless-stopped
+
 networks:
   serviceradar-net:
     driver: bridge
