@@ -54,11 +54,10 @@ Get ServiceRadar running in under 5 minutes:
 ```bash
 git clone https://github.com/carverauto/serviceradar.git
 cd serviceradar
-cp .env.example .env
 docker compose up -d
 
 # Get your admin password
-docker compose logs config-updater | grep "Password:"
+docker compose logs config-updater
 ```
 
 **Access:** http://localhost (login: `root@localhost`)
