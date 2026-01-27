@@ -139,6 +139,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       |> extract_metrics()
       |> Enum.map(&build_metric_row(&1, payload, status, observed_at, created_at))
       |> Enum.reject(&is_nil/1)
+      |> dedupe_timeseries_rows()
 
     if Enum.empty?(rows) do
       :ok
@@ -196,6 +197,15 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp build_metric_row(_metric, _payload, _status, _observed_at, _created_at), do: nil
+
+  defp dedupe_timeseries_rows(rows) do
+    rows
+    |> Enum.reduce(%{}, fn row, acc ->
+      key = {row[:timestamp], row[:gateway_id], row[:metric_name]}
+      Map.put(acc, key, row)
+    end)
+    |> Map.values()
+  end
 
   defp build_tags(payload) do
     payload
