@@ -69,11 +69,13 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     key_path = Path.join(temp_dir, "component-key.pem")
     csr_path = Path.join(temp_dir, "component.csr")
     cert_path = Path.join(temp_dir, "component.pem")
+    ext_path = Path.join(temp_dir, "component.ext")
     serial_path = Path.join(temp_dir, "ca.srl")
 
     try do
       with :ok <- run_openssl(["genrsa", "-out", key_path, "4096"]),
            :ok <- run_openssl(["req", "-new", "-key", key_path, "-out", csr_path, "-subj", "/CN=#{cn}"]),
+           :ok <- write_extfile(ext_path, component_type, partition_id, component_id, cn),
            :ok <- ensure_serial(serial_path),
            :ok <-
              run_openssl([
@@ -89,6 +91,10 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
                serial_path,
                "-out",
                cert_path,
+               "-extfile",
+               ext_path,
+               "-extensions",
+               "v3_req",
                "-days",
                Integer.to_string(validity_days),
                "-sha256"
@@ -151,5 +157,23 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
   defp build_spiffe_id(component_type, partition_id, component_id) do
     "spiffe://serviceradar.local/#{component_type}/#{partition_id}/#{component_id}"
+  end
+
+  defp write_extfile(path, component_type, partition_id, component_id, cn) do
+    spiffe_id = build_spiffe_id(component_type, partition_id, component_id)
+
+    contents = """
+    [ v3_req ]
+    subjectAltName = @alt_names
+
+    [ alt_names ]
+    URI.1 = #{spiffe_id}
+    DNS.1 = #{cn}
+    """
+
+    case File.write(path, contents) do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 end

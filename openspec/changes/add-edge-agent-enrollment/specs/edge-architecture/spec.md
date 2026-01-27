@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 ### Requirement: Helm deploys agent-gateway with edge mTLS
-Helm installs SHALL deploy serviceradar-agent-gateway when enabled in values. The workload SHALL serve edge-facing gRPC over tenant-issued mTLS certificates. The gateway SHALL NOT use SPIFFE identities. Deployments that disable the gateway SHALL not render gateway workloads. Helm values SHALL allow the gateway Service to be exposed externally (LoadBalancer or NodePort) for edge agents when required.
+Helm installs SHALL deploy serviceradar-agent-gateway when enabled in values. The workload SHALL serve edge-facing gRPC over tenant-issued mTLS certificates. The gateway SHALL NOT depend on SPIFFE/SPIRE runtime sockets or workload APIs, but it SHALL require a URI SAN on client certificates to assert component_type. Deployments that disable the gateway SHALL not render gateway workloads. Helm values SHALL allow the gateway Service to be exposed externally (LoadBalancer or NodePort) for edge agents when required.
 
 #### Scenario: Agent-gateway is deployed by Helm
 - **GIVEN** a Helm install with agent-gateway enabled
@@ -13,6 +13,11 @@ Helm installs SHALL deploy serviceradar-agent-gateway when enabled in values. Th
 - **WHEN** the pod specification is inspected
 - **THEN** the SPIRE agent socket is not mounted
 - **AND** the gateway serves edge gRPC using tenant-issued mTLS only
+
+#### Scenario: Missing URI SAN is rejected
+- **GIVEN** an agent connects without a URI SAN component_type
+- **WHEN** the gateway processes the enrollment request
+- **THEN** the request is rejected with a permission error
 
 #### Scenario: Gateway disabled removes workloads
 - **GIVEN** a Helm install with agent-gateway disabled

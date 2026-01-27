@@ -12,8 +12,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding/mtls"
 )
@@ -92,10 +95,22 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 
 	if opts.SkipOverwrite {
 		if fileExists(opts.ConfigPath) {
-			return fmt.Errorf("%w: %s", ErrConfigAlreadyExists, opts.ConfigPath)
+			backupPath, err := backupFile(opts.ConfigPath)
+			if err != nil {
+				return err
+			}
+			if opts.Logf != nil && backupPath != "" {
+				opts.Logf("Existing agent config backed up to %s", backupPath)
+			}
 		}
 		if anyCertExists(certDir) {
-			return fmt.Errorf("%w: %s", ErrCertsAlreadyExist, certDir)
+			backupDir, err := backupDirectory(certDir)
+			if err != nil {
+				return err
+			}
+			if opts.Logf != nil && backupDir != "" {
+				opts.Logf("Existing agent certs backed up to %s", backupDir)
+			}
 		}
 	}
 
@@ -115,6 +130,14 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	}
 	if err := writeFileAtomic(filepath.Join(certDir, "ca-chain.pem"), bundle.CAChain, 0644); err != nil {
 		return fmt.Errorf("write CA chain: %w", err)
+	}
+
+	if err := chownAgentAssets(opts.ConfigPath, certDir, opts.Logf); err != nil {
+		return err
+	}
+
+	if err := restartAgentService(opts.Logf); err != nil {
+		return err
 	}
 
 	if opts.Logf != nil {
@@ -335,4 +358,135 @@ func anyCertExists(certDir string) bool {
 	}
 
 	return false
+}
+
+func backupFile(path string) (string, error) {
+	backup := backupName(path)
+	if backup == "" {
+		return "", nil
+	}
+	if err := os.Rename(path, backup); err != nil {
+		return "", fmt.Errorf("backup file %s: %w", path, err)
+	}
+	return backup, nil
+}
+
+func backupDirectory(path string) (string, error) {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("stat dir %s: %w", path, err)
+	}
+	backup := backupName(path)
+	if backup == "" {
+		return "", nil
+	}
+	if err := os.Rename(path, backup); err != nil {
+		return "", fmt.Errorf("backup dir %s: %w", path, err)
+	}
+	return backup, nil
+}
+
+func backupName(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	ts := time.Now().UTC().Format("20060102-150405")
+	return fmt.Sprintf("%s.bak.%s", path, ts)
+}
+
+func chownAgentAssets(configPath, certDir string, logf func(string, ...interface{})) error {
+	if os.Geteuid() != 0 {
+		return nil
+	}
+
+	uid, gid, ok, err := lookupUserIDs("serviceradar")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if logf != nil {
+			logf("serviceradar user not found; skipping ownership update")
+		}
+		return nil
+	}
+
+	paths := []string{
+		configPath,
+		certDir,
+		filepath.Join(certDir, "component.pem"),
+		filepath.Join(certDir, "component-key.pem"),
+		filepath.Join(certDir, "ca-chain.pem"),
+	}
+
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("stat %s: %w", path, err)
+		}
+		if err := os.Chown(path, uid, gid); err != nil {
+			return fmt.Errorf("chown %s: %w", path, err)
+		}
+	}
+
+	if logf != nil {
+		logf("Updated ownership for agent config/certs to serviceradar")
+	}
+
+	return nil
+}
+
+func lookupUserIDs(name string) (int, int, bool, error) {
+	data, err := os.ReadFile("/etc/passwd")
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("read /etc/passwd: %w", err)
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, ":")
+		if len(fields) < 4 || fields[0] != name {
+			continue
+		}
+		uid, err := strconv.Atoi(fields[2])
+		if err != nil {
+			return 0, 0, false, fmt.Errorf("parse uid for %s: %w", name, err)
+		}
+		gid, err := strconv.Atoi(fields[3])
+		if err != nil {
+			return 0, 0, false, fmt.Errorf("parse gid for %s: %w", name, err)
+		}
+		return uid, gid, true, nil
+	}
+
+	return 0, 0, false, nil
+}
+
+func restartAgentService(logf func(string, ...interface{})) error {
+	if _, err := exec.LookPath("systemctl"); err != nil {
+		if logf != nil {
+			logf("systemctl not found; skipping agent restart")
+		}
+		return nil
+	}
+
+	cmd := exec.Command("systemctl", "restart", "serviceradar-agent")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("restart serviceradar-agent: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	if logf != nil {
+		logf("Restarted serviceradar-agent")
+	}
+
+	return nil
 }

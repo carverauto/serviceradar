@@ -46,6 +46,8 @@ The serviceradar-cli SHALL support an enrollment mode that accepts an edgepkg to
 - **THEN** the CLI downloads the package from the core API
 - **AND** writes certificates to the configured cert directory
 - **AND** writes agent.json with gateway endpoint, agent_id, and partition
+- **AND** backs up any existing agent.json and certs before overwriting
+- **AND** restarts the serviceradar-agent service after enrollment
 
 #### Scenario: Host IP placeholder is resolved
 - **GIVEN** an agent enrollment package with host_ip placeholder

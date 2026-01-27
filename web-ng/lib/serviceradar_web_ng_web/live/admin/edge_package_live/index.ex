@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.BundleGenerator
+  alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadarWebNGWeb.GatewayHelpers
@@ -43,6 +44,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:gateway_options, gateway_options)
       |> assign(:default_gateway_id, default_gateway_id)
       |> assign(:base_url, base_url)
+
+    if connected?(socket) do
+      EdgePubSub.subscribe_packages()
+    end
 
     {:ok, socket}
   end
@@ -146,13 +151,22 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
     if form.valid? do
       # Show loading state while creating package and generating certificates
-      socket = assign(socket, :creating, true)
+      base_url = Map.get(socket.assigns, :base_url) || request_base_url(socket)
+
+      socket =
+        socket
+        |> assign(:creating, true)
+        |> assign(:base_url, base_url)
 
       # Extract validated form data
       actor = get_actor(socket)
       attrs = build_package_attrs_from_form(params, socket.assigns.security_mode)
 
       # Issue certificates via the selected agent-gateway
+      Logger.info(
+        "[EdgePackage] create: base_url=#{base_url} component_type=#{params["component_type"] || "agent"}"
+      )
+
       result =
         OnboardingPackages.create_with_gateway_cert(attrs,
           actor: actor
@@ -296,6 +310,43 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      socket
      |> push_event("clipboard", %{text: token})
      |> put_flash(:info, "Token copied to clipboard")}
+  end
+
+  @impl true
+  def handle_info({:edge_package_created, _package}, socket) do
+    {:noreply, refresh_packages(socket)}
+  end
+
+  def handle_info({:edge_package_updated, package}, socket) do
+    socket = refresh_packages(socket)
+
+    socket =
+      if (socket.assigns.show_details_modal and
+            socket.assigns.selected_package) &&
+           socket.assigns.selected_package.id == package.id do
+        assign(socket, :selected_package, package)
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:edge_package_deleted, package}, socket) do
+    socket = refresh_packages(socket)
+
+    socket =
+      if (socket.assigns.show_details_modal and
+            socket.assigns.selected_package) &&
+           socket.assigns.selected_package.id == package.id do
+        socket
+        |> assign(:show_details_modal, false)
+        |> assign(:selected_package, nil)
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -465,7 +516,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           </div>
         <% else %>
           <%= if @created_tokens do %>
-            <.success_content created_tokens={@created_tokens} base_url={@base_url} />
+            <.success_content
+              created_tokens={@created_tokens}
+              base_url={Map.get(assigns, :base_url) || base_url()}
+            />
           <% else %>
             <h3 class="text-lg font-bold">Create Edge Package</h3>
             <p class="py-2 text-sm text-base-content/70">
@@ -608,7 +662,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
     enroll_cmd =
       if component_type == "agent" and is_binary(onboarding_token) do
-        "/usr/local/bin/serviceradar-cli enroll --token #{onboarding_token}"
+        "sudo /usr/local/bin/serviceradar-cli enroll --token #{onboarding_token}"
       else
         nil
       end
@@ -654,7 +708,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         <div class="divider">Enroll Agent</div>
         <div class="space-y-3">
           <p class="text-sm text-base-content/70">
-            Run this command on the target host to enroll the agent. No manual config edits required.
+            Run this command on the target host to enroll the agent. Uses sudo to write
+            <code class="bg-base-200 px-1 rounded text-xs">/etc/serviceradar</code>
+            and restart the agent.
           </p>
           <p class="text-xs text-base-content/50">
             The gateway address is derived from your deployment host by default.
@@ -666,6 +722,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
               class="btn btn-sm btn-ghost absolute top-2 right-2"
               phx-click="copy_token"
               phx-value-token={@enroll_cmd}
+              title="Copy enroll command"
             >
               <.icon name="hero-clipboard" class="size-4" />
             </button>
@@ -830,6 +887,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     else
       socket
     end
+  end
+
+  defp refresh_packages(socket) do
+    assign(socket, :packages, OnboardingPackages.list(%{limit: 50}))
   end
 
   defp cert_cn(%{spiffe_id: spiffe_id}) when is_binary(spiffe_id) do

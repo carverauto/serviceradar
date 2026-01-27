@@ -567,7 +567,7 @@ func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	configFile := fs.String("config-file", "", "Collector config filename override")
 	certDir := fs.String("cert-dir", "/etc/serviceradar/certs", "Certificate directory")
 	credsDir := fs.String("creds-dir", "/etc/serviceradar/creds", "Collector credentials directory")
-	force := fs.Bool("force", false, "Overwrite existing config/certs during enrollment")
+	force := fs.Bool("force", false, "Overwrite existing config/certs instead of backing them up")
 	insecure := fs.Bool("insecure", true, "Skip TLS verification for bundle download")
 	caFile := fs.String("ca-file", "", "CA bundle path for verifying the core API TLS cert")
 
