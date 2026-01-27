@@ -14,6 +14,7 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
   postgres do
     table "agent_config_templates"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   actions do

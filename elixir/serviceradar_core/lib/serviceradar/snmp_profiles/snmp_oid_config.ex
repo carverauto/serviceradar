@@ -50,6 +50,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
   postgres do
     table "snmp_oid_configs"
     repo ServiceRadar.Repo
+    schema "platform"
 
     references do
       reference :snmp_target, on_delete: :delete

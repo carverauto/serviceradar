@@ -9,12 +9,15 @@
   "status_debounce_interval": "30s",
   "status_heartbeat_interval": "5m",
   "gateway_security": {
-    "mode": "spiffe",
+    "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "trust_domain": "carverauto.dev",
-    "server_spiffe_id": "spiffe://carverauto.dev/services/agent-gateway",
-    "workload_socket": "unix:///run/spire/sockets/agent.sock",
-    "role": "client"
+    "server_name": "agent-gateway.serviceradar",
+    "role": "agent",
+    "tls": {
+      "cert_file": "components/docker-agent-default-chain.pem",
+      "key_file": "components/docker-agent-default-key.pem",
+      "ca_file": "root.pem"
+    }
   },
   "logging": {
     "level": "info",

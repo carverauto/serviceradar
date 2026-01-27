@@ -299,71 +299,108 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
     maybe_create_hypertable("otel_metrics_hourly_stats", "bucket")
 
     # Create indexes for common query patterns
-    execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events (event_timestamp DESC)")
-    execute("CREATE INDEX IF NOT EXISTS idx_events_source ON events (source)")
-    execute("CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity)")
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON #{prefix()}.events (event_timestamp DESC)"
+    )
 
-    execute("CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs (timestamp DESC)")
-    execute("CREATE INDEX IF NOT EXISTS idx_logs_service ON logs (service_name)")
-    execute("CREATE INDEX IF NOT EXISTS idx_logs_severity ON logs (severity_text)")
-    execute("CREATE INDEX IF NOT EXISTS idx_logs_trace_id ON logs (trace_id) WHERE trace_id IS NOT NULL")
+    execute("CREATE INDEX IF NOT EXISTS idx_events_source ON #{prefix()}.events (source)")
+    execute("CREATE INDEX IF NOT EXISTS idx_events_severity ON #{prefix()}.events (severity)")
 
-    execute("CREATE INDEX IF NOT EXISTS idx_service_status_timestamp ON service_status (timestamp DESC)")
-    execute("CREATE INDEX IF NOT EXISTS idx_service_status_gateway ON service_status (gateway_id)")
+    execute("CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON #{prefix()}.logs (timestamp DESC)")
+    execute("CREATE INDEX IF NOT EXISTS idx_logs_service ON #{prefix()}.logs (service_name)")
+    execute("CREATE INDEX IF NOT EXISTS idx_logs_severity ON #{prefix()}.logs (severity_text)")
 
-    execute("CREATE INDEX IF NOT EXISTS idx_otel_traces_timestamp ON otel_traces (timestamp DESC)")
-    execute("CREATE INDEX IF NOT EXISTS idx_otel_traces_trace_id ON otel_traces (trace_id)")
-    execute("CREATE INDEX IF NOT EXISTS idx_otel_traces_service ON otel_traces (service_name)")
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_logs_trace_id ON #{prefix()}.logs (trace_id) WHERE trace_id IS NOT NULL"
+    )
 
-    execute("CREATE INDEX IF NOT EXISTS idx_otel_metrics_timestamp ON otel_metrics (timestamp DESC)")
-    execute("CREATE INDEX IF NOT EXISTS idx_otel_metrics_service ON otel_metrics (service_name)")
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_service_status_timestamp ON #{prefix()}.service_status (timestamp DESC)"
+    )
 
-    execute("CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_timestamp ON timeseries_metrics (timestamp DESC)")
-    execute("CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_name ON timeseries_metrics (metric_name)")
-    execute("CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_device ON timeseries_metrics (device_id) WHERE device_id IS NOT NULL")
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_service_status_gateway ON #{prefix()}.service_status (gateway_id)"
+    )
 
-    execute("CREATE INDEX IF NOT EXISTS idx_device_updates_device ON device_updates (device_id)")
-    execute("CREATE INDEX IF NOT EXISTS idx_device_updates_timestamp ON device_updates (observed_at DESC)")
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_otel_traces_timestamp ON #{prefix()}.otel_traces (timestamp DESC)"
+    )
 
-    execute("CREATE INDEX IF NOT EXISTS idx_otel_metrics_hourly_stats_bucket ON otel_metrics_hourly_stats (bucket DESC)")
+    execute("CREATE INDEX IF NOT EXISTS idx_otel_traces_trace_id ON #{prefix()}.otel_traces (trace_id)")
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_otel_traces_service ON #{prefix()}.otel_traces (service_name)"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_otel_metrics_timestamp ON #{prefix()}.otel_metrics (timestamp DESC)"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_otel_metrics_service ON #{prefix()}.otel_metrics (service_name)"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_timestamp ON #{prefix()}.timeseries_metrics (timestamp DESC)"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_name ON #{prefix()}.timeseries_metrics (metric_name)"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_device ON #{prefix()}.timeseries_metrics (device_id) WHERE device_id IS NOT NULL"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_device_updates_device ON #{prefix()}.device_updates (device_id)"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_device_updates_timestamp ON #{prefix()}.device_updates (observed_at DESC)"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_otel_metrics_hourly_stats_bucket ON #{prefix()}.otel_metrics_hourly_stats (bucket DESC)"
+    )
   end
 
   def down do
     # Drop indexes first
-    execute("DROP INDEX IF EXISTS idx_otel_metrics_hourly_stats_bucket")
-    execute("DROP INDEX IF EXISTS idx_device_updates_timestamp")
-    execute("DROP INDEX IF EXISTS idx_device_updates_device")
-    execute("DROP INDEX IF EXISTS idx_timeseries_metrics_device")
-    execute("DROP INDEX IF EXISTS idx_timeseries_metrics_name")
-    execute("DROP INDEX IF EXISTS idx_timeseries_metrics_timestamp")
-    execute("DROP INDEX IF EXISTS idx_otel_metrics_service")
-    execute("DROP INDEX IF EXISTS idx_otel_metrics_timestamp")
-    execute("DROP INDEX IF EXISTS idx_otel_traces_service")
-    execute("DROP INDEX IF EXISTS idx_otel_traces_trace_id")
-    execute("DROP INDEX IF EXISTS idx_otel_traces_timestamp")
-    execute("DROP INDEX IF EXISTS idx_service_status_gateway")
-    execute("DROP INDEX IF EXISTS idx_service_status_timestamp")
-    execute("DROP INDEX IF EXISTS idx_logs_trace_id")
-    execute("DROP INDEX IF EXISTS idx_logs_severity")
-    execute("DROP INDEX IF EXISTS idx_logs_service")
-    execute("DROP INDEX IF EXISTS idx_logs_timestamp")
-    execute("DROP INDEX IF EXISTS idx_events_severity")
-    execute("DROP INDEX IF EXISTS idx_events_source")
-    execute("DROP INDEX IF EXISTS idx_events_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_metrics_hourly_stats_bucket")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_device_updates_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_device_updates_device")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_timeseries_metrics_device")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_timeseries_metrics_name")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_timeseries_metrics_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_metrics_service")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_metrics_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_traces_service")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_traces_trace_id")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_traces_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_service_status_gateway")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_service_status_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_logs_trace_id")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_logs_severity")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_logs_service")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_logs_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_events_severity")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_events_source")
+    execute("DROP INDEX IF EXISTS #{prefix()}.idx_events_timestamp")
 
     # Drop tables (note: if they're hypertables, this works correctly)
-    execute("DROP TABLE IF EXISTS otel_metrics_hourly_stats")
-    execute("DROP TABLE IF EXISTS device_updates")
-    execute("DROP TABLE IF EXISTS process_metrics")
-    execute("DROP TABLE IF EXISTS memory_metrics")
-    execute("DROP TABLE IF EXISTS disk_metrics")
-    execute("DROP TABLE IF EXISTS cpu_metrics")
-    execute("DROP TABLE IF EXISTS timeseries_metrics")
-    execute("DROP TABLE IF EXISTS otel_metrics")
-    execute("DROP TABLE IF EXISTS otel_traces")
-    execute("DROP TABLE IF EXISTS service_status")
-    execute("DROP TABLE IF EXISTS logs")
-    execute("DROP TABLE IF EXISTS events")
+    execute("DROP TABLE IF EXISTS #{prefix()}.otel_metrics_hourly_stats")
+    execute("DROP TABLE IF EXISTS #{prefix()}.device_updates")
+    execute("DROP TABLE IF EXISTS #{prefix()}.process_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix()}.memory_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix()}.disk_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix()}.cpu_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix()}.timeseries_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix()}.otel_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix()}.otel_traces")
+    execute("DROP TABLE IF EXISTS #{prefix()}.service_status")
+    execute("DROP TABLE IF EXISTS #{prefix()}.logs")
+    execute("DROP TABLE IF EXISTS #{prefix()}.events")
   end
 
   # Helper to conditionally create hypertable (idempotent)
@@ -378,8 +415,14 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
         IF NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_name = '#{table_name}'
+          AND hypertable_schema = '#{prefix()}'
         ) THEN
-          PERFORM create_hypertable('#{table_name}', '#{time_column}', migrate_data => true, if_not_exists => true);
+          PERFORM public.create_hypertable(
+            '#{prefix()}.#{table_name}'::regclass,
+            '#{time_column}',
+            migrate_data => true,
+            if_not_exists => true
+          );
           RAISE NOTICE 'Created hypertable for #{table_name}';
         END IF;
       END IF;
@@ -398,8 +441,12 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
     DO $$
     BEGIN
       -- Only change ownership if table exists and current user is not already owner
-      IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = '#{table_name}') THEN
-        EXECUTE format('ALTER TABLE %I OWNER TO CURRENT_USER', '#{table_name}');
+      IF EXISTS (
+        SELECT 1 FROM pg_tables
+        WHERE tablename = '#{table_name}'
+        AND schemaname = '#{prefix()}'
+      ) THEN
+        EXECUTE format('ALTER TABLE %I.%I OWNER TO CURRENT_USER', '#{prefix()}', '#{table_name}');
       END IF;
     EXCEPTION
       WHEN others THEN

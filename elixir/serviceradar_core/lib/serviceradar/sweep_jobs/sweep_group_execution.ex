@@ -37,6 +37,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
   postgres do
     table "sweep_group_executions"
     repo ServiceRadar.Repo
+    schema "platform"
 
     custom_indexes do
       index [:sweep_group_id, :started_at],

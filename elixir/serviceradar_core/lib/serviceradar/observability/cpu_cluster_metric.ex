@@ -15,6 +15,7 @@ defmodule ServiceRadar.Observability.CpuClusterMetric do
   postgres do
     table "cpu_cluster_metrics"
     repo ServiceRadar.Repo
+    schema "platform"
     migrate? false
   end
 

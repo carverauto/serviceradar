@@ -136,27 +136,25 @@ defmodule ServiceRadar.Oban.SchemaValidator do
     """
 
     location_hint =
-      cond do
-        Enum.any?(diagnosis.public) ->
-          """
+      if Enum.any?(diagnosis.public) do
+        """
 
-          Found Oban tables in public schema: #{Enum.join(diagnosis.public, ", ")}
-          The application expected tables in the '#{@oban_schema}' schema.
+        Found Oban tables in public schema: #{Enum.join(diagnosis.public, ", ")}
+        The application expected tables in the '#{@oban_schema}' schema.
 
-          To fix, run the following SQL:
-            -- Copy tables from public to platform schema
-            CREATE TABLE IF NOT EXISTS #{@oban_schema}.oban_jobs (LIKE public.oban_jobs INCLUDING ALL);
-            CREATE TABLE IF NOT EXISTS #{@oban_schema}.oban_peers (LIKE public.oban_peers INCLUDING ALL);
-          """
+        To fix, run the following SQL:
+          -- Copy tables from public to platform schema
+          CREATE TABLE IF NOT EXISTS #{@oban_schema}.oban_jobs (LIKE public.oban_jobs INCLUDING ALL);
+          CREATE TABLE IF NOT EXISTS #{@oban_schema}.oban_peers (LIKE public.oban_peers INCLUDING ALL);
+        """
+      else
+        """
 
-        true ->
-          """
+        No Oban tables found in any schema.
 
-          No Oban tables found in any schema.
-
-          To fix, ensure migrations run with SERVICERADAR_CORE_RUN_MIGRATIONS=true
-          or manually run: mix ash.migrate
-          """
+        To fix, ensure migrations run with SERVICERADAR_CORE_RUN_MIGRATIONS=true
+        or manually run: mix ash.migrate
+        """
       end
 
     base_msg <> location_hint

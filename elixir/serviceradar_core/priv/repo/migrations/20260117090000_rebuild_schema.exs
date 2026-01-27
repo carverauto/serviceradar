@@ -1570,13 +1570,11 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              name: "stateful_alert_rules_unique_name_index"
            )
 
-    # Use current schema (from search_path) - no explicit prefix needed
-    Oban.Migrations.up()
+    Oban.Migrations.up(prefix: prefix())
   end
 
   def down do
-    # Use current schema (from search_path) - no explicit prefix needed
-    Oban.Migrations.down()
+    Oban.Migrations.down(prefix: prefix())
 
     drop_if_exists unique_index(:stateful_alert_rules, [:name],
                      name: "stateful_alert_rules_unique_name_index"

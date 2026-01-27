@@ -11,6 +11,7 @@ defmodule ServiceRadar.Plugins.Plugin do
   postgres do
     table "plugins"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   actions do

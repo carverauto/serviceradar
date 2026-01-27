@@ -11,6 +11,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   require Logger
 
+  @migrations_complete_marker "/tmp/serviceradar_migrations_complete"
+
   def child_spec(_opts) do
     %{
       id: __MODULE__,
@@ -28,11 +30,13 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   @spec run!(keyword()) :: :ok
   def run!(opts \\ []) do
     if migrations_enabled?() do
+      clear_migrations_marker()
       migrations_fn = Keyword.get(opts, :migrations, &run_migrations!/0)
 
       Logger.info("[StartupMigrations] Running migrations")
       migrations_fn.()
 
+      validate_public_schema!()
       # Validate Oban tables exist in correct schema after migrations
       validate_oban_schema!()
     else
@@ -44,16 +48,21 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       end
     end
 
+    write_migrations_marker()
+
     :ok
   end
 
   defp run_migrations! do
-    # Run Ecto migrations for the current schema (determined by search_path)
+    ensure_platform_schema!()
+    sync_platform_schema_migrations!()
+
     Ecto.Migrator.run(
       ServiceRadar.Repo,
       Application.app_dir(:serviceradar_core, "priv/repo/migrations"),
       :up,
-      all: true
+      all: true,
+      prefix: "platform"
     )
   end
 
@@ -84,6 +93,77 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
           Logger.error("[StartupMigrations] Oban schema validation failed: #{msg}")
           raise RuntimeError, "Oban schema validation failed - see logs for details"
       end
+    end
+  end
+
+  defp validate_public_schema! do
+    if repo_enabled?() do
+      Logger.info("[StartupMigrations] Validating public schema is empty")
+      rows = public_tables_for_current_user()
+      raise_if_public_tables!(rows)
+    end
+  end
+
+  defp public_tables_for_current_user do
+    %{rows: rows} =
+      ServiceRadar.Repo.query!(
+        "SELECT tablename FROM pg_tables\n" <>
+          "WHERE schemaname = 'public'\n" <>
+          "AND tableowner = current_user\n" <>
+          "AND tablename <> 'schema_migrations'"
+      )
+
+    rows
+  end
+
+  defp raise_if_public_tables!([]), do: :ok
+
+  defp raise_if_public_tables!(rows) do
+    tables = Enum.map_join(rows, ", ", fn [name] -> name end)
+    raise RuntimeError, "public schema has ServiceRadar tables: #{tables}"
+  end
+
+  defp ensure_platform_schema! do
+    if repo_enabled?() do
+      ServiceRadar.Repo.query!("CREATE SCHEMA IF NOT EXISTS platform")
+    end
+  end
+
+  defp clear_migrations_marker do
+    case File.rm(@migrations_complete_marker) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} -> Logger.warning("Failed to clear migrations marker: #{inspect(reason)}")
+    end
+  end
+
+  defp write_migrations_marker do
+    case File.write(@migrations_complete_marker, "#{DateTime.utc_now()}\n") do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("Failed to write migrations marker: #{inspect(reason)}")
+    end
+  end
+
+  defp sync_platform_schema_migrations! do
+    if repo_enabled?() do
+      if table_exists?("public.schema_migrations") do
+        ServiceRadar.Repo.query!(
+          "CREATE TABLE IF NOT EXISTS platform.schema_migrations (LIKE public.schema_migrations INCLUDING ALL)"
+        )
+
+        ServiceRadar.Repo.query!(
+          "INSERT INTO platform.schema_migrations (version, inserted_at)\n" <>
+            "SELECT version, inserted_at FROM public.schema_migrations\n" <>
+            "ON CONFLICT (version) DO NOTHING"
+        )
+      end
+    end
+  end
+
+  defp table_exists?(qualified_table) do
+    case ServiceRadar.Repo.query!("SELECT to_regclass($1)", [qualified_table]) do
+      %{rows: [[nil]]} -> false
+      %{rows: [[_]]} -> true
     end
   end
 end

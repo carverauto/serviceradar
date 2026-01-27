@@ -64,6 +64,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   postgres do
     table "snmp_profiles"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   actions do

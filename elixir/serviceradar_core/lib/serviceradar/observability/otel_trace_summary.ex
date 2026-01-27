@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   postgres do
     table "otel_trace_summaries"
     repo ServiceRadar.Repo
+    schema "platform"
     # Don't generate migrations - this is a materialized view managed by raw SQL
     migrate? false
   end

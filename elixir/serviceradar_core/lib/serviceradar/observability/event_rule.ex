@@ -15,6 +15,7 @@ defmodule ServiceRadar.Observability.EventRule do
   postgres do
     table "event_rules"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   code_interface do

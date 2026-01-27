@@ -35,6 +35,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
   postgres do
     table "device_alias_states"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   state_machine do

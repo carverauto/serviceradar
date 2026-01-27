@@ -12,6 +12,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperUnifiController do
   postgres do
     table "mapper_unifi_controllers"
     repo ServiceRadar.Repo
+    schema "platform"
 
     custom_indexes do
       index [:mapper_job_id], name: "mapper_unifi_controllers_job_idx"

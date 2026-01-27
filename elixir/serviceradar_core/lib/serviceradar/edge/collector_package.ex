@@ -40,6 +40,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   postgres do
     table "collector_packages"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   state_machine do

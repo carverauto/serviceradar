@@ -11,6 +11,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyLink do
   postgres do
     table "mapper_topology_links"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   actions do
