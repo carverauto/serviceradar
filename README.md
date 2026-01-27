@@ -121,7 +121,7 @@ spec:
 
 ## Architecture
 
-1. **Agent**: Lightweight Go service on monitored hosts; manages Wasm execution and local collection.
+1. **Agent**: Lightweight Go service on monitored hosts; manages WASM execution and local collection.
 2. **Agent-Gateway**: Ingestion point that receives gRPC streams from edge agents.
 3. **Core (core-elx)**: Control plane (Elixir/Phoenix) for orchestration, APIs, and alerts.
 4. **Web UI (web-ng)**: Real-time LiveView dashboard for configuration and visualization.
