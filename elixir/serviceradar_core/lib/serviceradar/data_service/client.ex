@@ -120,18 +120,16 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   defp safe_call(msg, timeout) do
-    try do
-      GenServer.call(__MODULE__, msg, timeout)
-    catch
-      :exit, {:timeout, _} ->
-        {:error, :timeout}
+    GenServer.call(__MODULE__, msg, timeout)
+  catch
+    :exit, {:timeout, _} ->
+      {:error, :timeout}
 
-      :exit, {:noproc, _} ->
-        {:error, :not_started}
+    :exit, {:noproc, _} ->
+      {:error, :not_started}
 
-      :exit, reason ->
-        {:error, {:call_failed, reason}}
-    end
+    :exit, reason ->
+      {:error, {:call_failed, reason}}
   end
 
   # Server callbacks

@@ -99,24 +99,28 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   defp validate_public_schema! do
     if repo_enabled?() do
       Logger.info("[StartupMigrations] Validating public schema is empty")
-
-      %{rows: rows} =
-        ServiceRadar.Repo.query!(
-          "SELECT tablename FROM pg_tables\n" <>
-            "WHERE schemaname = 'public'\n" <>
-            "AND tableowner = current_user\n" <>
-            "AND tablename <> 'schema_migrations'"
-        )
-
-      case rows do
-        [] ->
-          :ok
-
-        _ ->
-          tables = Enum.map_join(rows, ", ", fn [name] -> name end)
-          raise RuntimeError, "public schema has ServiceRadar tables: #{tables}"
-      end
+      rows = public_tables_for_current_user()
+      raise_if_public_tables!(rows)
     end
+  end
+
+  defp public_tables_for_current_user do
+    %{rows: rows} =
+      ServiceRadar.Repo.query!(
+        "SELECT tablename FROM pg_tables\n" <>
+          "WHERE schemaname = 'public'\n" <>
+          "AND tableowner = current_user\n" <>
+          "AND tablename <> 'schema_migrations'"
+      )
+
+    rows
+  end
+
+  defp raise_if_public_tables!([]), do: :ok
+
+  defp raise_if_public_tables!(rows) do
+    tables = Enum.map_join(rows, ", ", fn [name] -> name end)
+    raise RuntimeError, "public schema has ServiceRadar tables: #{tables}"
   end
 
   defp ensure_platform_schema! do
