@@ -240,6 +240,10 @@ func extractCollectorBundle(data []byte) (string, error) {
 		if hdr == nil {
 			continue
 		}
+		if invalidArchivePath(hdr.Name) {
+			_ = os.RemoveAll(tempDir)
+			return "", ErrCollectorBundleIncomplete
+		}
 
 		target, err := safeBundlePath(tempDir, hdr.Name)
 		if err != nil {
@@ -361,4 +365,18 @@ func safeBundlePath(root, name string) (string, error) {
 	}
 
 	return "", ErrCollectorBundleIncomplete
+}
+
+func invalidArchivePath(name string) bool {
+	cleaned := path.Clean(name)
+	if cleaned == "." {
+		cleaned = ""
+	}
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.HasPrefix(cleaned, "/") {
+		return true
+	}
+	if strings.Contains(cleaned, "..") {
+		return true
+	}
+	return false
 }
