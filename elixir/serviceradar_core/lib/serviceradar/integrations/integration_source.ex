@@ -31,6 +31,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   postgres do
     table "integration_sources"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   state_machine do

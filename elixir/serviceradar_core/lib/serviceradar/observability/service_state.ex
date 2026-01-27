@@ -11,6 +11,7 @@ defmodule ServiceRadar.Observability.ServiceState do
   postgres do
     table "service_state"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   actions do

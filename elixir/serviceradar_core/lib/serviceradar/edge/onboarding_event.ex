@@ -22,6 +22,7 @@ defmodule ServiceRadar.Edge.OnboardingEvent do
   postgres do
     table "edge_onboarding_events"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   code_interface do

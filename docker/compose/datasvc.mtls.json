@@ -10,7 +10,6 @@
     "system_account_public_key_file": "/etc/serviceradar/creds/system_account.pub",
     "system_account_creds_file": "/etc/serviceradar/creds/system.creds",
     "allowed_client_identities": [
-      "spiffe://carverauto.dev/services/core",
       "CN=core.serviceradar,O=ServiceRadar"
     ]
   },

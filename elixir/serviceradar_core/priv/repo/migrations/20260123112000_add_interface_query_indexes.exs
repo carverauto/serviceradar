@@ -14,7 +14,7 @@ defmodule ServiceRadar.Repo.Migrations.AddInterfaceQueryIndexes do
   end
 
   def down do
-    execute("DROP INDEX IF EXISTS idx_discovered_interfaces_device_uid_time")
-    execute("DROP INDEX IF EXISTS idx_timeseries_metrics_device_if_metric_time")
+    execute("DROP INDEX IF EXISTS platform.idx_discovered_interfaces_device_uid_time")
+    execute("DROP INDEX IF EXISTS platform.idx_timeseries_metrics_device_if_metric_time")
   end
 end

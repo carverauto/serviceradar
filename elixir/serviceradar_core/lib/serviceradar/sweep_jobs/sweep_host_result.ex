@@ -38,6 +38,7 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
   postgres do
     table "sweep_host_results"
     repo ServiceRadar.Repo
+    schema "platform"
 
     custom_indexes do
       index [:execution_id],

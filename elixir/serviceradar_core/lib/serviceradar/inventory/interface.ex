@@ -22,6 +22,7 @@ defmodule ServiceRadar.Inventory.Interface do
   postgres do
     table "discovered_interfaces"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   json_api do

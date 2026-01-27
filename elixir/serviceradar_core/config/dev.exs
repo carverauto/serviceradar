@@ -4,6 +4,7 @@ import Config
 # Host applications should override this with their actual connection details
 # If DATABASE_URL is set, use it; otherwise use defaults
 database_url = System.get_env("DATABASE_URL")
+search_path = System.get_env("CNPG_SEARCH_PATH", "platform, ag_catalog")
 
 if database_url do
   # Support SSL options via environment
@@ -38,7 +39,8 @@ if database_url do
     ssl: ssl_opts,
     stacktrace: true,
     show_sensitive_data_on_connection_error: true,
-    pool_size: 10
+    pool_size: 10,
+    parameters: [search_path: search_path]
 else
   config :serviceradar_core, ServiceRadar.Repo,
     username: "postgres",
@@ -47,7 +49,8 @@ else
     database: "serviceradar_dev",
     stacktrace: true,
     show_sensitive_data_on_connection_error: true,
-    pool_size: 10
+    pool_size: 10,
+    parameters: [search_path: search_path]
 end
 
 # Enable cluster in dev for testing

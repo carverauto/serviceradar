@@ -34,6 +34,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
   postgres do
     table "device_identifiers"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   code_interface do

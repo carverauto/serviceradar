@@ -84,6 +84,7 @@ defmodule ServiceRadar.Application do
 
         # GRPC client supervisor (required for DataService.Client)
         grpc_client_supervisor_child(),
+        datasvc_client_child(),
 
         # NATS JetStream connection supervisor (fault-tolerant with auto-reconnect)
         nats_connection_child(),
@@ -117,6 +118,9 @@ defmodule ServiceRadar.Application do
 
         # Zen rule defaults for deployment onboarding
         zen_rule_seeder_child(),
+
+        # Zen rule reconciliation to datasvc KV
+        zen_rule_sync_child(),
 
         # Log promotion and stateful alert rule defaults
         rule_seeder_child(),
@@ -254,9 +258,7 @@ defmodule ServiceRadar.Application do
           # Agent config cache (ETS-based)
           ServiceRadar.AgentConfig.ConfigCache,
           # Agent config server (compilation orchestration)
-          ServiceRadar.AgentConfig.ConfigServer,
-          # DataService client for KV operations (used to push config to Go/Rust services)
-          datasvc_client_child()
+          ServiceRadar.AgentConfig.ConfigServer
         ]
     else
       []
@@ -306,6 +308,14 @@ defmodule ServiceRadar.Application do
   defp zen_rule_seeder_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.Observability.ZenRuleSeeder
+    else
+      nil
+    end
+  end
+
+  defp zen_rule_sync_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Observability.ZenRuleSync
     else
       nil
     end

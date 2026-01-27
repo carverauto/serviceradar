@@ -38,6 +38,7 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
   postgres do
     table "sweep_profiles"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   actions do

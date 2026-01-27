@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.InterfaceClassificationRule do
   postgres do
     table "interface_classification_rules"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   json_api do

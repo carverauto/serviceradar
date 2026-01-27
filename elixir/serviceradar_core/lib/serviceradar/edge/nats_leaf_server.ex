@@ -45,6 +45,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   postgres do
     table "nats_leaf_servers"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   state_machine do

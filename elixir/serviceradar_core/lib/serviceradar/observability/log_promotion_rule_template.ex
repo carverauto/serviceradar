@@ -11,6 +11,7 @@ defmodule ServiceRadar.Observability.LogPromotionRuleTemplate do
   postgres do
     table "log_promotion_rule_templates"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   code_interface do

@@ -61,6 +61,8 @@ core:
     poolSize: 40
     queueTargetMs: 2000
     queueIntervalMs: 2000
+    timeoutMs: 120000
+    poolTimeoutMs: 120000
   syncIngestor:
     batchConcurrency: 2
     coalesceMs: 250

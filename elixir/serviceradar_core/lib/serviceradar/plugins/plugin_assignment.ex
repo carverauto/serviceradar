@@ -11,6 +11,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   postgres do
     table "plugin_assignments"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   actions do

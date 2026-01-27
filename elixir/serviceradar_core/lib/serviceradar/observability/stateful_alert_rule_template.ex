@@ -11,6 +11,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleTemplate do
   postgres do
     table "stateful_alert_rule_templates"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   code_interface do

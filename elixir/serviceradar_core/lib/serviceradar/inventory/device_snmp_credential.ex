@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
   postgres do
     table "device_snmp_credentials"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   code_interface do

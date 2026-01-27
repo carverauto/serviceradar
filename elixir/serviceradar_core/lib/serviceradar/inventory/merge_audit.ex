@@ -22,6 +22,7 @@ defmodule ServiceRadar.Inventory.MergeAudit do
   postgres do
     table "merge_audit"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   code_interface do

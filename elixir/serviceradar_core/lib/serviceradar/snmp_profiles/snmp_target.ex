@@ -53,6 +53,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
   postgres do
     table "snmp_targets"
     repo ServiceRadar.Repo
+    schema "platform"
 
     references do
       reference :snmp_profile, on_delete: :delete

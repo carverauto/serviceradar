@@ -14,6 +14,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
   postgres do
     table "mapper_jobs"
     repo ServiceRadar.Repo
+    schema "platform"
 
     custom_indexes do
       index [:partition], name: "mapper_jobs_partition_idx"

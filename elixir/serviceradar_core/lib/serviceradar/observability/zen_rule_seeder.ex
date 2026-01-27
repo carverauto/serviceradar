@@ -42,7 +42,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
   defp seed_rules do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:zen_rule_seeder)
-    opts = [actor: actor]
+    opts = [actor: actor, context: %{skip_zen_sync: true}]
 
     ensure_defaults(default_zen_rules(), opts)
 

@@ -42,6 +42,7 @@ defmodule ServiceRadar.Monitoring.Alert do
   postgres do
     table "alerts"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   json_api do

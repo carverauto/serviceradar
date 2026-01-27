@@ -14,6 +14,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
   postgres do
     table "agent_config_instances"
     repo ServiceRadar.Repo
+    schema "platform"
 
     custom_indexes do
       index [:config_type, :partition],

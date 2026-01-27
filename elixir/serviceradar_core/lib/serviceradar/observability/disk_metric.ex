@@ -15,6 +15,7 @@ defmodule ServiceRadar.Observability.DiskMetric do
   postgres do
     table "disk_metrics"
     repo ServiceRadar.Repo
+    schema "platform"
     # Don't generate migrations - table is managed by raw SQL migration
     # that creates TimescaleDB hypertable matching Go schema
     migrate? false

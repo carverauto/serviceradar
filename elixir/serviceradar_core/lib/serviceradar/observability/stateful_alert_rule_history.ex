@@ -14,6 +14,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
   postgres do
     table "stateful_alert_rule_history"
     repo ServiceRadar.Repo
+    schema "platform"
     migrate? false
   end
 

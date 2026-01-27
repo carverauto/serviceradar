@@ -13,6 +13,7 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
   postgres do
     table "agent_config_versions"
     repo ServiceRadar.Repo
+    schema "platform"
 
     custom_indexes do
       index [:config_instance_id, :version],

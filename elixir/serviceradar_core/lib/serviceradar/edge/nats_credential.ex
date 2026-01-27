@@ -37,6 +37,7 @@ defmodule ServiceRadar.Edge.NatsCredential do
   postgres do
     table "nats_credentials"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   state_machine do

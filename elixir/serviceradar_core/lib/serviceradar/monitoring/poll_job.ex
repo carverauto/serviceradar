@@ -46,6 +46,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
   postgres do
     table "poll_jobs"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   json_api do

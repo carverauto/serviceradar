@@ -31,6 +31,7 @@ defmodule ServiceRadar.Inventory.DeviceGroup do
   postgres do
     table "device_groups"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   json_api do

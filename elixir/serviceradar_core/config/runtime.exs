@@ -86,12 +86,30 @@ if config_env() == :prod do
   end
 
   pool_size = parse_int.(System.get_env("POOL_SIZE") || "10") || 10
+  search_path = System.get_env("CNPG_SEARCH_PATH", "platform, ag_catalog")
+
+  database_timeout =
+    System.get_env("DATABASE_TIMEOUT_MS")
+    |> case do
+      nil -> nil
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  database_pool_timeout =
+    System.get_env("DATABASE_POOL_TIMEOUT_MS")
+    |> case do
+      nil -> nil
+      "" -> nil
+      value -> parse_int.(value)
+    end
 
   repo_opts = [
     url: database_url,
     ssl: ssl_opts,
     socket_options: maybe_ipv6,
-    pool_size: pool_size
+    pool_size: pool_size,
+    parameters: [search_path: search_path]
   ]
 
   queue_target =
@@ -117,6 +135,12 @@ if config_env() == :prod do
     end)
     |> then(fn opts ->
       if queue_interval, do: Keyword.put(opts, :queue_interval, queue_interval), else: opts
+    end)
+    |> then(fn opts ->
+      if database_timeout, do: Keyword.put(opts, :timeout, database_timeout), else: opts
+    end)
+    |> then(fn opts ->
+      if database_pool_timeout, do: Keyword.put(opts, :pool_timeout, database_pool_timeout), else: opts
     end)
 
   config :serviceradar_core, ServiceRadar.Repo, repo_opts

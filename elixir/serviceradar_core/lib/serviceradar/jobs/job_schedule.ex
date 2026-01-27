@@ -34,6 +34,7 @@ defmodule ServiceRadar.Jobs.JobSchedule do
   postgres do
     table "ng_job_schedules"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   oban do

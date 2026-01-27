@@ -55,6 +55,7 @@ defmodule ServiceRadar.DuskProfiles.DuskProfile do
   postgres do
     table "dusk_profiles"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   actions do

@@ -47,6 +47,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
   postgres do
     table "gateways"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   json_api do

@@ -37,6 +37,7 @@ defmodule ServiceRadar.Inventory.Device do
   postgres do
     table "ocsf_devices"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   json_api do

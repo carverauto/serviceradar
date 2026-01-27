@@ -7,7 +7,7 @@ defmodule ServiceRadar.Repo.Migrations.EnsureDiscoveredInterfacesHypertable do
     DECLARE
       table_ident text;
     BEGIN
-      table_ident := format('%I.%I', current_schema(), 'discovered_interfaces');
+      table_ident := format('%I.%I', '#{prefix()}', 'discovered_interfaces');
 
       EXECUTE format(
         'SELECT public.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
@@ -30,7 +30,7 @@ defmodule ServiceRadar.Repo.Migrations.EnsureDiscoveredInterfacesHypertable do
     DECLARE
       table_ident text;
     BEGIN
-      table_ident := format('%I.%I', current_schema(), 'discovered_interfaces');
+      table_ident := format('%I.%I', '#{prefix()}', 'discovered_interfaces');
 
       EXECUTE format(
         'SELECT public.remove_retention_policy(%L::regclass, if_exists => true)',

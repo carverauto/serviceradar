@@ -22,6 +22,7 @@ defmodule ServiceRadar.Infrastructure.Partition do
   postgres do
     table "partitions"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   code_interface do

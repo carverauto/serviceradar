@@ -124,6 +124,10 @@ spec:
           value: {{ default 2000 $database.queueTargetMs | quote }}
         - name: DATABASE_QUEUE_INTERVAL_MS
           value: {{ default 2000 $database.queueIntervalMs | quote }}
+        - name: DATABASE_TIMEOUT_MS
+          value: {{ default 120000 $database.timeoutMs | quote }}
+        - name: DATABASE_POOL_TIMEOUT_MS
+          value: {{ default 120000 $database.poolTimeoutMs | quote }}
         - name: SYNC_INGESTOR_BATCH_CONCURRENCY
           value: {{ default 2 $syncIngestor.batchConcurrency | quote }}
         - name: SYNC_INGESTOR_COALESCE_MS
@@ -239,8 +243,9 @@ spec:
         readinessProbe:
           exec:
             command:
-              - /app/bin/serviceradar_core_elx
-              - pid
+              - /bin/sh
+              - -c
+              - test -f /tmp/serviceradar_migrations_complete && /app/bin/serviceradar_core_elx pid
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5

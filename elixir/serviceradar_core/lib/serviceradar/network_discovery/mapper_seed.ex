@@ -11,6 +11,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperSeed do
   postgres do
     table "mapper_job_seeds"
     repo ServiceRadar.Repo
+    schema "platform"
 
     custom_indexes do
       index [:mapper_job_id], name: "mapper_job_seeds_job_idx"

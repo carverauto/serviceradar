@@ -28,6 +28,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
   postgres do
     table "checkers"
     repo ServiceRadar.Repo
+    schema "platform"
   end
 
   state_machine do

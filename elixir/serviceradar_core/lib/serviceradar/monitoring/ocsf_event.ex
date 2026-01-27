@@ -14,6 +14,7 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
   postgres do
     table "ocsf_events"
     repo ServiceRadar.Repo
+    schema "platform"
     migrate? false
   end
 
