@@ -5,8 +5,11 @@ serviceradar-agent currently lacks a CLI enrollment flow for edge onboarding pac
 
 ## What Changes
 - Add serviceradar-agent enrollment flags to accept an edgepkg token, download the package, and write agent bootstrap config and certificates.
-- Include agent identity (agent_id, partition), gateway endpoint, and host IP resolution in edge onboarding packages for agents.
-- Fix the edge onboarding UI flows so /admin/edge-packages and settings/agents/deploy both render a working package creation flow.
+- Include agent identity (agent_id, partition), gateway endpoint, and host IP resolution in edge onboarding packages for agents, with UI prompts for optional host IP.
+- Consolidate edge onboarding UI entry points so Settings → Agents → Deploy is the primary flow and remove redundant Edge Ops navigation.
+- Move plugin management under Settings → Agents and remove the Edge Ops components tab.
+- Remove legacy Go edge onboarding hooks from non-edge binaries to avoid dead code paths.
+- Replace SaaS hardcoded base URLs/endpoints with deployment-local defaults and configuration.
 - Allow operators to configure and expose an externally reachable agent-gateway endpoint in Docker Compose and Helm, and surface that endpoint in onboarding packages.
 
 ## Impact

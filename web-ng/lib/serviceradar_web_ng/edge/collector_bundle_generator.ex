@@ -30,11 +30,11 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   ## Edge Site Integration
 
   When a collector is assigned to an edge site (via `edge_site_id`), the generated
-  configuration uses the local NATS leaf URL instead of the SaaS cluster URL. This
+  configuration uses the local NATS leaf URL instead of the upstream NATS URL. This
   enables:
   - Low-latency local message delivery
   - WAN resilience (collectors buffer locally when upstream is down)
-  - Simplified network topology (only leaf -> SaaS connection needed)
+  - Simplified network topology (only leaf -> upstream connection needed)
   """
 
   alias ServiceRadar.Edge.CollectorPackage
@@ -466,7 +466,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     ### Benefits
 
-    - **Low latency**: Messages are delivered locally before forwarding to SaaS
+    - **Low latency**: Messages are delivered locally before forwarding upstream
     - **WAN resilience**: Local buffering when upstream connection is down
     - **Simplified networking**: Only the leaf server needs outbound connectivity
     """
@@ -517,15 +517,15 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   defp default_base_url do
-    Application.get_env(:serviceradar_web_ng, :base_url, "https://app.serviceradar.cloud")
+    ServiceRadarWebNGWeb.Endpoint.url()
   end
 
   defp default_nats_url do
-    Application.get_env(:serviceradar_web_ng, :nats_url, "nats://nats.serviceradar.cloud:4222")
+    Application.get_env(:serviceradar_web_ng, :nats_url, "nats://nats:4222")
   end
 
   defp default_core_address do
-    Application.get_env(:serviceradar_web_ng, :core_address, "core.serviceradar.cloud:50051")
+    Application.get_env(:serviceradar_web_ng, :core_address, "core-elx:50052")
   end
 
   @doc """
@@ -534,7 +534,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   Priority order:
   1. Explicit :nats_url in opts
   2. Edge site's nats_leaf_url (if package is assigned to an edge site)
-  3. Default SaaS NATS URL from config
+  3. Default NATS URL from config
 
   The edge site relationship must be preloaded on the package for option 2 to work.
   """
@@ -549,7 +549,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       edge_site_nats_url(package) != nil ->
         edge_site_nats_url(package)
 
-      # Fall back to SaaS NATS URL
+      # Fall back to default NATS URL
       true ->
         default_nats_url()
     end

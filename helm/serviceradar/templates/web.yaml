@@ -20,6 +20,18 @@
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $gatewayVals := default (dict) .Values.agentGateway -}}
+{{- $gatewayServiceName := "serviceradar-agent-gateway" -}}
+{{- $gatewayServicePort := default 50052 $gatewayVals.service.port -}}
+{{- $gatewayAddress := "" -}}
+{{- if $webNg.gatewayAddress -}}
+{{- $gatewayAddress = $webNg.gatewayAddress -}}
+{{- else if $webHost -}}
+{{- $gatewayAddress = printf "%s:%v" $webHost $gatewayServicePort -}}
+{{- else -}}
+{{- $gatewayAddress = printf "%s:%v" $gatewayServiceName $gatewayServicePort -}}
+{{- end -}}
+{{- $natsUrl := default "tls://serviceradar-nats:4222" $webNg.natsUrl -}}
+{{- $coreAddress := default (include "serviceradar.coreAddress" .) $webNg.coreAddress -}}
 {{- $gatewayClusterNodeBasename := default "serviceradar_agent_gateway" $gatewayVals.kubernetesNodeBasename -}}
 {{- $webClusterNodeBasename := default "serviceradar_web_ng" $webNg.kubernetesNodeBasename -}}
 {{- $webClusterStrategy := default "dns" $webNg.clusterStrategy -}}
@@ -79,6 +91,12 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: admin-password
+        - name: SERVICERADAR_GATEWAY_ADDR
+          value: {{ $gatewayAddress | quote }}
+        - name: NATS_URL
+          value: {{ $natsUrl | quote }}
+        - name: CORE_ADDRESS
+          value: {{ $coreAddress | quote }}
         - name: CLUSTER_ENABLED
           value: {{ default "true" $webNg.clusterEnabled | quote }}
         - name: CLUSTER_STRATEGY

@@ -208,8 +208,7 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   end
 
   defp generate_config(package) do
-    nats_url =
-      Application.get_env(:serviceradar_web_ng, :nats_url, "nats://nats.serviceradar.cloud:4222")
+    nats_url = Application.get_env(:serviceradar_web_ng, :nats_url, "nats://nats:4222")
 
     config = %{
       "collector_id" => package.id,

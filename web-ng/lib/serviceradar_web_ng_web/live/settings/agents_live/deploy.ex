@@ -85,6 +85,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
                 <li>Confirm the agent appears in the Agents inventory</li>
               </ol>
 
+              <p class="text-xs text-base-content/50">
+                The gateway address is derived from your deployment host by default. In Helm installs,
+                set your ingress host and the gateway address will follow it automatically.
+              </p>
+
               <div class="flex items-center gap-2 text-xs text-base-content/50">
                 <.icon name="hero-document-arrow-down" class="size-4" />
                 <.link

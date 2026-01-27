@@ -307,7 +307,9 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
            deliver_package(id, download_token, source_ip, nil),
          {:ok, tarball} <-
            wrap_bundle_error(
-             BundleGenerator.create_tarball(package, bundle_pem || "", join_token)
+             BundleGenerator.create_tarball(package, bundle_pem || "", join_token,
+               download_token: download_token
+             )
            ) do
       filename = BundleGenerator.bundle_filename(package)
       {:ok, tarball, filename}

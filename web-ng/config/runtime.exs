@@ -553,6 +553,24 @@ if config_env() == :prod do
   config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
   config :serviceradar_web_ng, :base_url, "https://#{host}"
 
+  gateway_addr = System.get_env("SERVICERADAR_GATEWAY_ADDR")
+
+  if is_binary(gateway_addr) and String.trim(gateway_addr) != "" do
+    config :serviceradar_web_ng, :gateway_addr, String.trim(gateway_addr)
+  end
+
+  nats_url = System.get_env("NATS_URL") || System.get_env("SERVICERADAR_NATS_URL")
+
+  if is_binary(nats_url) and String.trim(nats_url) != "" do
+    config :serviceradar_web_ng, :nats_url, String.trim(nats_url)
+  end
+
+  core_address = System.get_env("CORE_ADDRESS") || System.get_env("SERVICERADAR_CORE_ADDRESS")
+
+  if is_binary(core_address) and String.trim(core_address) != "" do
+    config :serviceradar_web_ng, :core_address, String.trim(core_address)
+  end
+
   # Control Plane JWT configuration
   # Used to validate JWTs issued by the SaaS Control Plane.
   # In OSS/single-deployment setups, this can be left unconfigured.

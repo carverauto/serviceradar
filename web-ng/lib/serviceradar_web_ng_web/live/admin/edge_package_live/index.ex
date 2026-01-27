@@ -34,6 +34,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:security_mode, security_mode)
       |> assign(:selected_component_type, "gateway")
       |> assign(:checker_templates, [])
+      |> assign(:partition_value, "default")
+      |> assign(:host_ip_value, "")
       |> load_templates(security_mode)
 
     {:ok, socket}
@@ -78,7 +80,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      |> assign(:show_create_modal, true)
      |> assign(:create_form, build_create_form(security_mode))
      |> assign(:created_tokens, nil)
-     |> assign(:selected_component_type, "gateway")}
+     |> assign(:selected_component_type, "gateway")
+     |> assign(:partition_value, "default")
+     |> assign(:host_ip_value, "")}
   end
 
   def handle_event("close_create_modal", _params, socket) do
@@ -88,7 +92,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      socket
      |> assign(:show_create_modal, false)
      |> assign(:create_form, build_create_form(security_mode))
-     |> assign(:created_tokens, nil)}
+     |> assign(:created_tokens, nil)
+     |> assign(:partition_value, "default")
+     |> assign(:host_ip_value, "")}
   end
 
   def handle_event("close_details_modal", _params, socket) do
@@ -101,6 +107,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   def handle_event("validate_create", %{"form" => params}, socket) do
     component_type = params["component_type"] || "gateway"
+    partition = params["partition"] || socket.assigns.partition_value
+    host_ip = params["host_ip"] || socket.assigns.host_ip_value
 
     form =
       socket.assigns.create_form
@@ -109,7 +117,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     {:noreply,
      socket
      |> assign(:create_form, form)
-     |> assign(:selected_component_type, component_type)}
+     |> assign(:selected_component_type, component_type)
+     |> assign(:partition_value, partition)
+     |> assign(:host_ip_value, host_ip)}
   end
 
   def handle_event("create_package", %{"form" => params}, socket) do
@@ -522,6 +532,28 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                   Advanced options
                 </div>
                 <div class="collapse-content space-y-4">
+                  <%= if @selected_component_type == "agent" do %>
+                    <.input
+                      name="partition"
+                      label="Partition"
+                      value={@partition_value}
+                      placeholder="default"
+                    />
+                    <p class="text-xs text-base-content/60 -mt-2 ml-1">
+                      Partition identifier for the agent (default: default).
+                    </p>
+
+                    <.input
+                      name="host_ip"
+                      label="Host IP (Optional)"
+                      value={@host_ip_value}
+                      placeholder="Leave blank to auto-detect during enrollment"
+                    />
+                    <p class="text-xs text-base-content/60 -mt-2 ml-1">
+                      Optional static host IP for the agent. If blank, enrollment auto-detects.
+                    </p>
+                  <% end %>
+
                   <.input
                     field={@form[:notes]}
                     type="textarea"
@@ -564,9 +596,35 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     package = assigns.created_tokens.package
     download_token = assigns.created_tokens.download_token
     certificate_data = Map.get(assigns.created_tokens, :certificate_data)
+    component_type = to_string(package.component_type)
+    base_url = base_url()
 
-    docker_cmd = BundleGenerator.docker_install_command(package, download_token)
-    systemd_cmd = BundleGenerator.systemd_install_command(package, download_token)
+    onboarding_token =
+      case ServiceRadarWebNG.Edge.encode_onboarding_token(package.id, download_token, base_url) do
+        {:ok, token} -> token
+        _ -> nil
+      end
+
+    enroll_cmd =
+      if component_type == "agent" and is_binary(onboarding_token) do
+        "/usr/local/bin/serviceradar-agent -enroll -token #{onboarding_token}"
+      else
+        nil
+      end
+
+    docker_cmd =
+      if component_type == "agent" do
+        nil
+      else
+        BundleGenerator.docker_install_command(package, download_token)
+      end
+
+    systemd_cmd =
+      if component_type == "agent" do
+        nil
+      else
+        BundleGenerator.systemd_install_command(package, download_token)
+      end
 
     assigns =
       assigns
@@ -575,6 +633,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:certificate_data, certificate_data)
       |> assign(:docker_cmd, docker_cmd)
       |> assign(:systemd_cmd, systemd_cmd)
+      |> assign(:onboarding_token, onboarding_token)
+      |> assign(:enroll_cmd, enroll_cmd)
+      |> assign(:component_type, component_type)
 
     ~H"""
     <div class="space-y-6">
@@ -588,45 +649,68 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         </p>
       </div>
 
-      <div class="divider">Quick Install</div>
-
-      <div class="tabs tabs-boxed">
-        <input type="radio" name="install_tabs" class="tab" aria-label="Docker" checked />
-        <div class="tab-content bg-base-100 border-base-300 rounded-box p-4 mt-2">
-          <p class="text-sm text-base-content/70 mb-3">
-            Run this command on your target server to install via Docker:
+      <%= if @component_type == "agent" do %>
+        <div class="divider">Enroll Agent</div>
+        <div class="space-y-3">
+          <p class="text-sm text-base-content/70">
+            Run this command on the target host to enroll the agent. No manual config edits required.
+          </p>
+          <p class="text-xs text-base-content/50">
+            The gateway address is derived from your deployment host by default.
           </p>
           <div class="relative">
-            <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@docker_cmd}</code></pre>
+            <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@enroll_cmd}</code></pre>
             <button
               type="button"
               class="btn btn-sm btn-ghost absolute top-2 right-2"
               phx-click="copy_token"
-              phx-value-token={@docker_cmd}
+              phx-value-token={@enroll_cmd}
             >
               <.icon name="hero-clipboard" class="size-4" />
             </button>
           </div>
         </div>
+      <% else %>
+        <div class="divider">Quick Install</div>
 
-        <input type="radio" name="install_tabs" class="tab" aria-label="systemd" />
-        <div class="tab-content bg-base-100 border-base-300 rounded-box p-4 mt-2">
-          <p class="text-sm text-base-content/70 mb-3">
-            Run this command on your target server to install via systemd:
-          </p>
-          <div class="relative">
-            <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@systemd_cmd}</code></pre>
-            <button
-              type="button"
-              class="btn btn-sm btn-ghost absolute top-2 right-2"
-              phx-click="copy_token"
-              phx-value-token={@systemd_cmd}
-            >
-              <.icon name="hero-clipboard" class="size-4" />
-            </button>
+        <div class="tabs tabs-boxed">
+          <input type="radio" name="install_tabs" class="tab" aria-label="Docker" checked />
+          <div class="tab-content bg-base-100 border-base-300 rounded-box p-4 mt-2">
+            <p class="text-sm text-base-content/70 mb-3">
+              Run this command on your target server to install via Docker:
+            </p>
+            <div class="relative">
+              <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@docker_cmd}</code></pre>
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost absolute top-2 right-2"
+                phx-click="copy_token"
+                phx-value-token={@docker_cmd}
+              >
+                <.icon name="hero-clipboard" class="size-4" />
+              </button>
+            </div>
+          </div>
+
+          <input type="radio" name="install_tabs" class="tab" aria-label="systemd" />
+          <div class="tab-content bg-base-100 border-base-300 rounded-box p-4 mt-2">
+            <p class="text-sm text-base-content/70 mb-3">
+              Run this command on your target server to install via systemd:
+            </p>
+            <div class="relative">
+              <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@systemd_cmd}</code></pre>
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost absolute top-2 right-2"
+                phx-click="copy_token"
+                phx-value-token={@systemd_cmd}
+              >
+                <.icon name="hero-clipboard" class="size-4" />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      <% end %>
 
       <div class="divider">Package Details</div>
 
@@ -651,27 +735,29 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         <% end %>
       </div>
 
-      <div class="collapse collapse-arrow bg-base-200">
-        <input type="checkbox" />
-        <div class="collapse-title text-sm font-medium">
-          Show download token (for manual setup)
-        </div>
-        <div class="collapse-content">
-          <div class="flex items-center gap-2">
-            <code class="flex-1 text-xs font-mono break-all bg-base-100 p-2 rounded">
-              {@download_token}
-            </code>
-            <button
-              type="button"
-              class="btn btn-sm btn-ghost"
-              phx-click="copy_token"
-              phx-value-token={@download_token}
-            >
-              <.icon name="hero-clipboard" class="size-4" />
-            </button>
+      <%= if is_binary(@onboarding_token) do %>
+        <div class="collapse collapse-arrow bg-base-200">
+          <input type="checkbox" />
+          <div class="collapse-title text-sm font-medium">
+            Show onboarding token (edgepkg-v1)
+          </div>
+          <div class="collapse-content">
+            <div class="flex items-center gap-2">
+              <code class="flex-1 text-xs font-mono break-all bg-base-100 p-2 rounded">
+                {@onboarding_token}
+              </code>
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost"
+                phx-click="copy_token"
+                phx-value-token={@onboarding_token}
+              >
+                <.icon name="hero-clipboard" class="size-4" />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      <% end %>
 
       <div class="alert alert-info text-sm">
         <.icon name="hero-information-circle" class="size-5" />
@@ -711,6 +797,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   defp format_expiry(%NaiveDateTime{} = dt) do
     dt |> DateTime.from_naive!("Etc/UTC") |> format_expiry()
+  end
+
+  defp base_url do
+    ServiceRadarWebNGWeb.Endpoint.url()
   end
 
   defp cert_cn(%{spiffe_id: spiffe_id}) when is_binary(spiffe_id) do
@@ -991,6 +1081,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     component_type = params["component_type"] || "gateway"
     label = params["label"] || ""
     component_id = generate_component_id(label, component_type)
+    metadata_json = build_metadata_json(component_type, params)
 
     %{
       label: label,
@@ -1001,7 +1092,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       notes: params["notes"],
       parent_id: params["parent_id"],
       checker_kind: params["checker_kind"],
-      checker_config_json: parse_checker_config(params["checker_config_json"])
+      checker_config_json: parse_checker_config(params["checker_config_json"]),
+      metadata_json: metadata_json
     }
     |> add_parent_type(component_type)
   end
@@ -1039,6 +1131,29 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp add_parent_type(attrs, "agent"), do: Map.put(attrs, :parent_type, "gateway")
   defp add_parent_type(attrs, "checker"), do: Map.put(attrs, :parent_type, "agent")
   defp add_parent_type(attrs, _), do: attrs
+
+  defp build_metadata_json("agent", params) do
+    host_ip =
+      case params["host_ip"] do
+        value when is_binary(value) and value != "" -> value
+        _ -> "PLACEHOLDER_HOST_IP"
+      end
+
+    metadata =
+      %{}
+      |> maybe_put("partition", params["partition"])
+      |> Map.put("host_ip", host_ip)
+
+    encode_metadata(metadata)
+  end
+
+  defp build_metadata_json(_, _params), do: nil
+
+  defp maybe_put(metadata, _key, value) when value in [nil, ""], do: metadata
+  defp maybe_put(metadata, key, value), do: Map.put(metadata, key, value)
+
+  defp encode_metadata(metadata) when map_size(metadata) == 0, do: nil
+  defp encode_metadata(metadata), do: Jason.encode!(metadata)
 
   defp component_type_from_params(%{"component_type" => type})
        when type in ["gateway", "agent", "checker", "sync"] do

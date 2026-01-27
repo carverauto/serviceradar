@@ -18,6 +18,10 @@ Edge onboarding currently targets checkers and assumes operators manually constr
   - Rationale: aligns with sysmon checker onboarding and reduces operator steps.
 - Decision: Gateway endpoint is sourced from operator configuration (UI or env) and shipped inside the package payload; tokens may optionally include an override.
   - Rationale: the token should remain minimal but the agent still receives the endpoint reliably.
+- Decision: Agent package UI captures an optional host IP, and enrollment auto-detects when blank.
+  - Rationale: keeps zero-touch defaults while supporting NAT or pinned host addressing.
+- Decision: Base URLs and endpoints default to deployment-local values (Endpoint.url, internal service names) instead of SaaS constants.
+  - Rationale: OSS/on-prem installs should work without SaaS-specific defaults.
 
 ## Risks / Trade-offs
 - Exposing gateway endpoints in Compose/Helm may require additional security guidance (firewalling, TLS expectations).
@@ -29,5 +33,4 @@ Edge onboarding currently targets checkers and assumes operators manually constr
 3. Update deployments to expose gateway endpoint and document required configuration.
 
 ## Open Questions
-- Should host_ip be derived from the agent host (preferred) or a user-supplied override when NAT is involved?
 - Should the gateway endpoint be stored in a dedicated settings resource or derived from ingress/service status?

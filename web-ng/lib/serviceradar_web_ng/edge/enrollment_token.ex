@@ -156,6 +156,6 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   end
 
   defp default_base_url do
-    Application.get_env(:serviceradar_web_ng, :base_url, "https://api.serviceradar.cloud")
+    ServiceRadarWebNGWeb.Endpoint.url()
   end
 end

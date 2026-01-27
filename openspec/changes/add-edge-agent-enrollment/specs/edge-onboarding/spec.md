@@ -8,7 +8,7 @@ The bundle SHALL include:
 2. Component private key (PEM format)
 3. CA chain certificate (for trust verification)
 4. Component configuration file
-5. Platform-detecting installation script
+5. Installation script (enroll-only for agents, platform-detecting for other components)
 
 For agent packages, the component configuration file SHALL include the gateway endpoint, agent_id, partition, and a host_ip placeholder value that is replaced during enrollment.
 
@@ -25,8 +25,8 @@ For agent packages, the component configuration file SHALL include the gateway e
 - **GIVEN** a bundle is downloaded
 - **WHEN** the admin inspects the bundle contents
 - **THEN** the bundle contains an install.sh script
-- **AND** the script detects available platforms (Docker, systemd)
-- **AND** the script provides usage instructions if manual install is required
+- **AND** agent bundles provide an enroll-only script
+- **AND** non-agent bundles detect available platforms (Docker, systemd)
 
 #### Scenario: Agent bundle includes bootstrap config
 - **GIVEN** an agent onboarding package is created
@@ -51,6 +51,19 @@ The serviceradar-agent CLI SHALL support an enrollment mode that accepts an edge
 - **THEN** the placeholder is replaced with a detected host IP or an explicit CLI override
 - **AND** the resolved host_ip is stored in agent.json
 
+### Requirement: Agent package UI captures optional host IP
+The edge onboarding UI SHALL prompt for an optional host IP when creating an agent package and persist that value in the package metadata.
+
+#### Scenario: Optional host IP is provided
+- **GIVEN** an admin is creating an agent package
+- **WHEN** they enter a host IP value
+- **THEN** the package metadata stores the host IP value
+
+#### Scenario: Optional host IP is omitted
+- **GIVEN** an admin is creating an agent package
+- **WHEN** they leave host IP blank
+- **THEN** the package metadata stores a host IP placeholder
+
 #### Scenario: Invalid token does not overwrite config
 - **GIVEN** an invalid or expired token
 - **WHEN** enrollment is attempted
@@ -71,3 +84,17 @@ The edge onboarding package creation UI SHALL render without runtime errors and 
 - **WHEN** they open the edge onboarding flow
 - **THEN** the same package creation form is rendered
 - **AND** submissions create a package successfully
+
+### Requirement: Edge onboarding entry points are consolidated
+The Settings UI SHALL present a single primary entry point for agent onboarding under Settings → Agents → Deploy and SHALL remove redundant Edge Ops navigation for components.
+
+#### Scenario: Settings deploy is the primary entry point
+- **GIVEN** an admin navigates to Settings → Agents → Deploy
+- **WHEN** they click Create Agent Package
+- **THEN** the flow navigates directly to the agent package creation form
+- **AND** no secondary Edge Ops navigation is required
+
+#### Scenario: Edge Ops navigation omits components
+- **GIVEN** an admin is viewing the Edge Ops navigation
+- **WHEN** the tabs are rendered
+- **THEN** no Components tab is displayed
