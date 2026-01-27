@@ -100,15 +100,18 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
     {gateway_options, default_gateway_id} = load_gateway_state()
 
-    {:noreply,
-     socket
-     |> assign(:show_create_modal, false)
-     |> assign(:create_form, build_create_form(security_mode))
-     |> assign(:created_tokens, nil)
-     |> assign(:partition_value, "default")
-     |> assign(:host_ip_value, "")
-     |> assign(:gateway_options, gateway_options)
-     |> assign(:default_gateway_id, default_gateway_id)}
+    socket =
+      socket
+      |> assign(:show_create_modal, false)
+      |> assign(:create_form, build_create_form(security_mode))
+      |> assign(:created_tokens, nil)
+      |> assign(:partition_value, "default")
+      |> assign(:host_ip_value, "")
+      |> assign(:gateway_options, gateway_options)
+      |> assign(:default_gateway_id, default_gateway_id)
+      |> maybe_return_to_index()
+
+    {:noreply, socket}
   end
 
   def handle_event("close_details_modal", _params, socket) do
@@ -310,9 +313,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
               Manage edge component onboarding packages for agents.
             </p>
           </div>
-          <.ui_button variant="primary" size="sm" phx-click="open_create_modal">
-            <.icon name="hero-plus" class="size-4" /> New Package
-          </.ui_button>
+          <.link navigate={~p"/admin/edge-packages/new?component_type=agent"}>
+            <.ui_button variant="primary" size="sm">
+              <.icon name="hero-plus" class="size-4" /> New Package
+            </.ui_button>
+          </.link>
         </div>
 
         <.ui_panel>
@@ -593,7 +598,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     download_token = assigns.created_tokens.download_token
     certificate_data = Map.get(assigns.created_tokens, :certificate_data)
     component_type = to_string(package.component_type)
-    base_url = assigns.base_url || base_url()
+    base_url = Map.get(assigns, :base_url) || base_url()
 
     onboarding_token =
       case ServiceRadarWebNG.Edge.encode_onboarding_token(package.id, download_token, base_url) do
@@ -818,6 +823,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp normalize_port(%URI{scheme: "http", port: 80} = uri), do: %{uri | port: nil}
   defp normalize_port(%URI{scheme: "https", port: 443} = uri), do: %{uri | port: nil}
   defp normalize_port(uri), do: uri
+
+  defp maybe_return_to_index(socket) do
+    if socket.assigns.live_action == :new do
+      push_patch(socket, to: ~p"/admin/edge-packages")
+    else
+      socket
+    end
+  end
 
   defp cert_cn(%{spiffe_id: spiffe_id}) when is_binary(spiffe_id) do
     # Extract component info from SPIFFE ID
