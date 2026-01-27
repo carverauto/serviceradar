@@ -62,6 +62,63 @@ docker compose logs config-updater
 
 **Access:** http://localhost (login: `root@localhost`)
 
+## Kubernetes / Helm Deployment
+
+ServiceRadar provides an official Helm chart for Kubernetes deployments, published to GHCR as an OCI artifact.
+
+```bash
+# Inspect chart metadata and default values
+helm show chart oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.75
+helm show values oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.75 > values.yaml
+
+# Install a pinned release (recommended)
+helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
+  --version 1.0.75 \
+  -n serviceradar --create-namespace \
+  --set global.imageTag="v1.0.75"
+
+# Track mutable images (staging/dev): pulls :latest and forces re-pull
+helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
+  --version 1.0.75 \
+  -n serviceradar --create-namespace \
+  --set global.imageTag="latest" \
+  --set global.imagePullPolicy="Always"
+```
+
+Note: if you omit `global.imageTag`, the chart defaults to `latest`. Set `global.imagePullPolicy=Always` when you want to pick up new pushes on restart.
+
+Docker Compose notes:
+- Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.0.78`).
+- Set `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env` to default to the dev overlay without `-f`.
+
+**Chart URL:** `oci://ghcr.io/carverauto/charts/serviceradar`
+
+Notes:
+- Chart versions are like `1.0.75`; ServiceRadar image tags are like `v1.0.75`.
+- If your cluster requires registry credentials, set `image.registryPullSecret` (default `ghcr-io-cred`).
+
+For ArgoCD deployments, use `ghcr.io/carverauto/charts` as the repository URL (without the `oci://` prefix):
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: serviceradar
+  namespace: argocd
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: serviceradar
+  source:
+    repoURL: ghcr.io/carverauto/charts
+    chart: serviceradar
+    targetRevision: "1.0.75"
+    helm:
+      values: |
+        global:
+          imageTag: "v1.0.75"
+```
+
 ## Architecture
 
 1. **Agent**: Lightweight Go service on monitored hosts; manages Wasm execution and local collection.
