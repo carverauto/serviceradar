@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.84
+
+Credential hardening and Helm quality-of-life updates.
+
+## Whats New
+
+**1.0.84**
+- CNPG credentials are now generated and persisted (no static defaults); existing installs must seed/rotate secrets on upgrade.
+- Docker Compose now stores CNPG credentials in a dedicated volume and keeps CNPG port binding loopback by default.
+- Helm defaults now target latest ServiceRadar images to reduce manual tag churn.
+
 # ServiceRadar v1.0.83
 
 Compose stack reliability and schema hygiene improvements.
