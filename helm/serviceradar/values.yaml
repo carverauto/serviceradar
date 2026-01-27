@@ -2,10 +2,9 @@ namespace: demo
 
 # Global settings that apply across all services
 global:
-  # Override all ServiceRadar image tags at once. When set, this takes precedence
-  # over individual image.tags.* values. Use for releases (e.g., "v1.0.70").
-  # Leave empty to use individual tags below.
-  imageTag: ""
+  # Override all ServiceRadar image tags at once. Defaults to "latest" so
+  # published charts track the latest image tags without manual updates.
+  imageTag: "latest"
   # Image pull policy: IfNotPresent (default), Always (for staging/mutable tags), Never
   imagePullPolicy: IfNotPresent
 
@@ -13,7 +12,6 @@ image:
   registryPullSecret: ghcr-io-cred
   tags:
     # Default tag for ServiceRadar images. Use global.imageTag to override all at once.
-    # For production, set global.imageTag to a specific version (e.g., "v1.0.71").
     appTag: &appTag "latest"
     core: *appTag
     webNg: *appTag
