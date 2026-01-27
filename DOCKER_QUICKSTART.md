@@ -83,6 +83,19 @@ All values have sensible defaults, so the `.env` file is optional.
 
 Note: CNPG binds to loopback by default. Set `CNPG_PUBLIC_BIND=0.0.0.0` in `.env` if you need LAN access.
 
+If you already have a CNPG data volume from a previous install, note that we
+now store randomly generated DB credentials in a dedicated volume instead of
+shipping static defaults. Seed the `cnpg-credentials` volume once before
+starting:
+
+```bash
+docker compose run --rm \
+  -e CNPG_PASSWORD=<app-password> \
+  -e CNPG_SUPERUSER_PASSWORD=<postgres-password> \
+  -e CNPG_SPIRE_PASSWORD=<spire-password> \
+  db-credentials
+```
+
 ## What's Running?
 
 - **cert-generator**: One-time container that generates mTLS certificates
