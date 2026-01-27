@@ -197,7 +197,8 @@ services:
         ]
       interval: 30s
       timeout: 15s
-      retries: 5
+      retries: 10
+      start_period: 300s
       start_period: 60s
     networks:
       - serviceradar-net
