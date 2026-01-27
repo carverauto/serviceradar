@@ -218,6 +218,6 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
   defp datasvc_available? do
     Application.get_env(:serviceradar_core, :datasvc_enabled, true) &&
-      is_pid(Process.whereis(ServiceRadar.DataService.Client))
+      ServiceRadar.DataService.Client.connected?()
   end
 end

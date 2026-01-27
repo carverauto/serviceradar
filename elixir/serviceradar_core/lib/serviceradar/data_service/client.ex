@@ -68,6 +68,17 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   @doc """
+  Returns true if the datasvc channel is connected and alive.
+  """
+  @spec connected?() :: boolean()
+  def connected? do
+    case safe_call(:connected?, 1_000) do
+      true -> true
+      _ -> false
+    end
+  end
+
+  @doc """
   Get a value from the KV store.
   """
   @spec get(String.t(), keyword()) :: {:ok, binary()} | {:error, :not_found | term()}
@@ -184,9 +195,21 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{channel_ref: ref} = state) do
-    Logger.warning("Datasvc gRPC connection down: #{inspect(reason)}")
     state = clear_channel(state)
-    {:noreply, schedule_reconnect(state, reason)}
+
+    case reason do
+      :normal ->
+        Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
+        {:noreply, %{state | reconnecting: false}}
+
+      :shutdown ->
+        Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
+        {:noreply, %{state | reconnecting: false}}
+
+      _ ->
+        Logger.warning("Datasvc gRPC connection down: #{inspect(reason)}")
+        {:noreply, schedule_reconnect(state, reason)}
+    end
   end
 
   def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
@@ -200,8 +223,20 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   def handle_info({:gun_down, _pid, _protocol, reason, _streams}, state) do
-    state = %{state | channel: nil}
-    {:noreply, schedule_reconnect(state, reason)}
+    state = clear_channel(state)
+
+    case reason do
+      :normal ->
+        Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
+        {:noreply, %{state | reconnecting: false}}
+
+      :shutdown ->
+        Logger.debug("Datasvc gRPC connection closed: #{inspect(reason)}")
+        {:noreply, %{state | reconnecting: false}}
+
+      _ ->
+        {:noreply, schedule_reconnect(state, reason)}
+    end
   end
 
   # Handle gun connection up
@@ -232,8 +267,8 @@ defmodule ServiceRadar.DataService.Client do
         result = do_put(state.channel, key, value, opts)
         {:reply, result, state}
 
-      {:error, _reason} = error ->
-        {:reply, error, state}
+      {:error, reason, new_state} ->
+        {:reply, {:error, reason}, new_state}
     end
   end
 
@@ -243,8 +278,8 @@ defmodule ServiceRadar.DataService.Client do
         result = do_get(state.channel, key, opts)
         {:reply, result, state}
 
-      {:error, _reason} = error ->
-        {:reply, error, state}
+      {:error, reason, new_state} ->
+        {:reply, {:error, reason}, new_state}
     end
   end
 
@@ -254,8 +289,8 @@ defmodule ServiceRadar.DataService.Client do
         result = do_get_with_revision(state.channel, key, opts)
         {:reply, result, state}
 
-      {:error, _reason} = error ->
-        {:reply, error, state}
+      {:error, reason, new_state} ->
+        {:reply, {:error, reason}, new_state}
     end
   end
 
@@ -265,8 +300,8 @@ defmodule ServiceRadar.DataService.Client do
         result = do_delete(state.channel, key, opts)
         {:reply, result, state}
 
-      {:error, _reason} = error ->
-        {:reply, error, state}
+      {:error, reason, new_state} ->
+        {:reply, {:error, reason}, new_state}
     end
   end
 
@@ -276,8 +311,8 @@ defmodule ServiceRadar.DataService.Client do
         result = do_list_keys(state.channel, prefix, opts)
         {:reply, result, state}
 
-      {:error, _reason} = error ->
-        {:reply, error, state}
+      {:error, reason, new_state} ->
+        {:reply, {:error, reason}, new_state}
     end
   end
 
@@ -287,8 +322,8 @@ defmodule ServiceRadar.DataService.Client do
         result = do_put_many(state.channel, entries, opts)
         {:reply, result, state}
 
-      {:error, _reason} = error ->
-        {:reply, error, state}
+      {:error, reason, new_state} ->
+        {:reply, {:error, reason}, new_state}
     end
   end
 
@@ -297,9 +332,13 @@ defmodule ServiceRadar.DataService.Client do
       {:ok, state} ->
         {:reply, {:ok, state.channel}, state}
 
-      {:error, _reason} = error ->
-        {:reply, error, state}
+      {:error, reason, new_state} ->
+        {:reply, {:error, reason}, new_state}
     end
+  end
+
+  def handle_call(:connected?, _from, state) do
+    {:reply, channel_alive?(state), state}
   end
 
   # Private helpers
@@ -418,7 +457,7 @@ defmodule ServiceRadar.DataService.Client do
 
         case ServiceRadar.SPIFFE.client_ssl_opts(cert_dir: spiffe_cert_dir) do
           {:ok, ssl_opts} ->
-            Logger.info("Connecting to datasvc with SPIFFE mTLS")
+          Logger.debug("Connecting to datasvc with SPIFFE mTLS")
             {:ok, [cred: GRPC.Credential.new(ssl: ssl_opts)]}
 
           {:error, reason} ->
@@ -435,7 +474,7 @@ defmodule ServiceRadar.DataService.Client do
           key_file = Path.join(cert_dir, "#{cert_name}-key.pem")
           ca_file = Path.join(cert_dir, "root.pem")
 
-          Logger.info("Connecting to datasvc with mTLS: cert=#{cert_file}")
+          Logger.debug("Connecting to datasvc with mTLS: cert=#{cert_file}")
 
           ssl_opts = [
             cacertfile: String.to_charlist(ca_file),
@@ -516,10 +555,20 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   defp ensure_connected(%{channel: nil} = state) do
-    {:error, {:not_connected, state}}
+    {:error, :not_connected, maybe_start_connect(state)}
   end
 
   defp ensure_connected(state), do: {:ok, state}
+
+  defp channel_alive?(%{channel: nil}), do: false
+
+  defp channel_alive?(%{channel: channel}) do
+    conn_pid = channel.adapter_payload.conn_pid
+    Process.alive?(conn_pid)
+  end
+
+  defp maybe_start_connect(%{connect_task: nil} = state), do: start_connect_task(state)
+  defp maybe_start_connect(state), do: state
 
   defp set_channel(state, channel) do
     state

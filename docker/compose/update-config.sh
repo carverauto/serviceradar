@@ -181,8 +181,8 @@ EOF
 )
 fi
 
-# Ensure core security configuration matches the desired mode (default: SPIFFE)
-CORE_SECURITY_MODE="${CORE_SECURITY_MODE:-spiffe}"
+# Ensure core security configuration matches the desired mode (default: mTLS for Docker)
+CORE_SECURITY_MODE="${CORE_SECURITY_MODE:-mtls}"
 SPIRE_TRUST_DOMAIN_DEFAULT="${SPIRE_TRUST_DOMAIN:-carverauto.dev}"
 CORE_TRUST_DOMAIN="${CORE_TRUST_DOMAIN:-$SPIRE_TRUST_DOMAIN_DEFAULT}"
 DEFAULT_AGENT_SOCKET="${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}"
