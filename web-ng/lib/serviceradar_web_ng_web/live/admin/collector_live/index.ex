@@ -924,6 +924,12 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   defp format_datetime(nil), do: "-"
 
+  defp format_datetime(%NaiveDateTime{} = dt) do
+    dt
+    |> DateTime.from_naive!("Etc/UTC")
+    |> format_datetime()
+  end
+
   defp format_datetime(%DateTime{} = dt) do
     Calendar.strftime(dt, "%Y-%m-%d %H:%M")
   end
@@ -933,10 +939,4 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   defp collector_config_filename("trapd"), do: "trapd.json"
   defp collector_config_filename("netflow"), do: "netflow.json"
   defp collector_config_filename(_), do: ""
-
-  defp format_datetime(%NaiveDateTime{} = dt) do
-    dt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> format_datetime()
-  end
 end

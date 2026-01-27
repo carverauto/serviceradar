@@ -876,7 +876,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             </div>
           <% end %>
 
-          <%# Checker details removed: checkers no longer supported %>
+          <%!-- Checker details removed: checkers no longer supported --%>
 
           <%= if @package.notes do %>
             <div>

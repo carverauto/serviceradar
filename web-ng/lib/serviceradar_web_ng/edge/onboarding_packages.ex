@@ -166,8 +166,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
              partition_id,
              opts
            ),
-         {:ok, result} <- AshPackages.create_with_bundle(attrs, bundle.bundle_pem, bundle, opts) do
-      {:ok, result}
+         {:ok, _result} = ok <-
+           AshPackages.create_with_bundle(attrs, bundle.bundle_pem, bundle, opts) do
+      ok
     end
   end
 

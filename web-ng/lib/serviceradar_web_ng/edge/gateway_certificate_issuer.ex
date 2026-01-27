@@ -16,8 +16,8 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
   def issue_agent_bundle(gateway_id, component_id, partition_id, opts)
       when is_binary(gateway_id) and is_binary(component_id) and is_binary(partition_id) do
     with {:ok, node} <- lookup_gateway_node(gateway_id),
-         {:ok, bundle} <- rpc_issue(node, component_id, partition_id, opts) do
-      {:ok, bundle}
+         {:ok, _bundle} = ok <- rpc_issue(node, component_id, partition_id, opts) do
+      ok
     end
   end
 
