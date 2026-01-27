@@ -329,7 +329,7 @@ spire:
     storageSize: 100Gi
     secretName: spire-db-credentials
     username: spire
-    password: changeme
+    password: ""
     image: ghcr.io/carverauto/serviceradar-cnpg
     imageTag: ""
     imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3@sha256:882fdd3f4905342a6ffa347ee988840eafa4f8e8b234a26e6e8cb72ec71b8eb8

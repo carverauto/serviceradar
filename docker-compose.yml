@@ -14,11 +14,24 @@ services:
     networks:
       - serviceradar-net
 
+  db-credentials:
+    image: alpine:3.20
+    container_name: serviceradar-db-credentials
+    volumes:
+      - cnpg-credentials:/etc/serviceradar/cnpg
+      - ./docker/compose/bootstrap-db-credentials.sh:/bootstrap-db-credentials.sh:ro
+    command: sh -c "apk add --no-cache openssl && sh /bootstrap-db-credentials.sh"
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   cnpg:
     image: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3
     container_name: serviceradar-cnpg-mtls
     user: "0:0"
     depends_on:
+      db-credentials:
+        condition: service_completed_successfully
       cert-generator:
         condition: service_completed_successfully
     command:
@@ -44,16 +57,17 @@ services:
       - "-c"
       - "max_wal_size=1GB"
     environment:
-      - POSTGRES_USER=${CNPG_USERNAME:-serviceradar}
-      - POSTGRES_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - POSTGRES_USER=${CNPG_SUPERUSER:-postgres}
+      - POSTGRES_PASSWORD_FILE=/etc/serviceradar/cnpg/superuser-password
       - POSTGRES_DB=${CNPG_DATABASE:-serviceradar}
       - TS_TUNE=false
     ports:
-      - "${CNPG_PUBLIC_BIND:-0.0.0.0}:${CNPG_PUBLIC_PORT:-5455}:5432"
+      - "${CNPG_PUBLIC_BIND:-127.0.0.1}:${CNPG_PUBLIC_PORT:-5455}:5432"
     volumes:
       - cnpg-data:/var/lib/postgresql/data
-      - ./docker/compose/cnpg-init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+      - ./docker/compose/cnpg-init.sh:/docker-entrypoint-initdb.d/001-init.sh:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
       - ./docker/compose/pg_hba.conf:/etc/serviceradar/pg_hba.conf:ro
       - ./docker/compose/pg_ident.conf:/etc/serviceradar/pg_ident.conf:ro
     healthcheck:
@@ -157,7 +171,7 @@ services:
       - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
-      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - CNPG_PASSWORD_FILE=/etc/serviceradar/cnpg/serviceradar-password
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
       - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
       - CNPG_CERT_DIR=/etc/serviceradar/certs
@@ -179,6 +193,7 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
       - cloak-key:/etc/serviceradar/cloak:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
       - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
     depends_on:
       cert-permissions-fixer:
@@ -554,6 +569,7 @@ services:
     volumes:
       - ./docker/compose/db-event-writer.mtls.json:/etc/serviceradar/templates/db-event-writer.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
       - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - db-event-writer-data:/var/lib/serviceradar
       - db-event-writer-config:/etc/serviceradar/consumers
@@ -566,7 +582,7 @@ services:
       - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
-      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - CNPG_PASSWORD_FILE=/etc/serviceradar/cnpg/serviceradar-password
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
       - CNPG_CERT_DIR=/etc/serviceradar/certs
       - CNPG_CA_FILE=/etc/serviceradar/certs/root.pem
@@ -623,7 +639,7 @@ services:
       - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
-      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - CNPG_PASSWORD_FILE=/etc/serviceradar/cnpg/serviceradar-password
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
       - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
       - CNPG_CERT_DIR=/etc/serviceradar/certs
@@ -642,6 +658,7 @@ services:
       - admin-creds:/etc/serviceradar/admin:ro
       - ./docker/compose/ssl_dist.web.conf:/etc/serviceradar/ssl_dist.conf:ro
       - cloak-key:/etc/serviceradar/cloak:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
       - plugin-packages:/var/lib/serviceradar/plugin-packages
     depends_on:
       cert-permissions-fixer:
@@ -694,6 +711,8 @@ volumes:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_agent-checkers"
   cert-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data"
+  cnpg-credentials:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-credentials"
   cnpg-data:
   datasvc-data:
   nats-data:
