@@ -184,7 +184,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
     metadata = metadata_map(package)
-    gateway_addr = Keyword.get(opts, :gateway_addr, Map.get(metadata, "gateway_addr", default_gateway_addr()))
+
+    gateway_addr =
+      Keyword.get(opts, :gateway_addr, Map.get(metadata, "gateway_addr", default_gateway_addr()))
+
     cert_dir = "/etc/serviceradar/certs"
     partition = Map.get(metadata, "partition", "default")
     host_ip = Map.get(metadata, "host_ip", "PLACEHOLDER_HOST_IP")
