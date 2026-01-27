@@ -282,8 +282,9 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   """
   def bundle(conn, %{"id" => id, "token" => download_token}) when byte_size(download_token) > 0 do
     source_ip = get_client_ip(conn)
+    base_url = request_base_url(conn)
 
-    case bundle_with_token(id, download_token, source_ip) do
+    case bundle_with_token(id, download_token, source_ip, base_url) do
       {:ok, tarball, filename} ->
         conn
         |> put_resp_content_type("application/gzip")
@@ -301,14 +302,16 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     |> json(%{error: "token query parameter is required"})
   end
 
-  defp bundle_with_token(id, download_token, source_ip) do
-    with {:ok, _package} <- find_package(id),
-         {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} <-
-           deliver_package(id, download_token, source_ip, nil),
+  defp bundle_with_token(id, download_token, source_ip, base_url) do
+    opts = [actor: nil, source_ip: source_ip]
+
+    with {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} <-
+           OnboardingPackages.deliver(id, download_token, opts),
          {:ok, tarball} <-
            wrap_bundle_error(
              BundleGenerator.create_tarball(package, bundle_pem || "", join_token,
-               download_token: download_token
+               download_token: download_token,
+               base_url: base_url
              )
            ) do
       filename = BundleGenerator.bundle_filename(package)
@@ -318,6 +321,21 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
       {:error, reason, _} -> {:error, reason}
       {:error, reason, _, _} -> {:error, reason}
     end
+  end
+
+  defp request_base_url(conn) do
+    scheme = to_string(conn.scheme || :http)
+    host = conn.host
+
+    port =
+      case {conn.scheme, conn.port} do
+        {:http, 80} -> nil
+        {:https, 443} -> nil
+        _ -> conn.port
+      end
+
+    %URI{scheme: scheme, host: host, port: port}
+    |> URI.to_string()
   end
 
   defp wrap_bundle_error({:ok, tarball}), do: {:ok, tarball}

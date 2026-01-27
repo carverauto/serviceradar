@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     security_mode = OnboardingPackages.configured_security_mode()
 
     {gateway_options, default_gateway_id} = load_gateway_state()
+    base_url = request_base_url(socket)
 
     socket =
       socket
@@ -41,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:host_ip_value, "")
       |> assign(:gateway_options, gateway_options)
       |> assign(:default_gateway_id, default_gateway_id)
+      |> assign(:base_url, base_url)
 
     {:ok, socket}
   end
@@ -458,7 +460,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           </div>
         <% else %>
           <%= if @created_tokens do %>
-            <.success_content created_tokens={@created_tokens} />
+            <.success_content created_tokens={@created_tokens} base_url={@base_url} />
           <% else %>
             <h3 class="text-lg font-bold">Create Edge Package</h3>
             <p class="py-2 text-sm text-base-content/70">
@@ -591,7 +593,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     download_token = assigns.created_tokens.download_token
     certificate_data = Map.get(assigns.created_tokens, :certificate_data)
     component_type = to_string(package.component_type)
-    base_url = base_url()
+    base_url = assigns.base_url || base_url()
 
     onboarding_token =
       case ServiceRadarWebNG.Edge.encode_onboarding_token(package.id, download_token, base_url) do
@@ -796,6 +798,26 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp base_url do
     ServiceRadarWebNGWeb.Endpoint.url()
   end
+
+  defp request_base_url(socket) do
+    case Phoenix.LiveView.get_connect_info(socket, :uri) do
+      %URI{} = uri ->
+        uri
+        |> Map.put(:path, nil)
+        |> Map.put(:query, nil)
+        |> Map.put(:fragment, nil)
+        |> Map.put(:userinfo, nil)
+        |> normalize_port()
+        |> URI.to_string()
+
+      _ ->
+        base_url()
+    end
+  end
+
+  defp normalize_port(%URI{scheme: "http", port: 80} = uri), do: %{uri | port: nil}
+  defp normalize_port(%URI{scheme: "https", port: 443} = uri), do: %{uri | port: nil}
+  defp normalize_port(uri), do: uri
 
   defp cert_cn(%{spiffe_id: spiffe_id}) when is_binary(spiffe_id) do
     # Extract component info from SPIFFE ID
