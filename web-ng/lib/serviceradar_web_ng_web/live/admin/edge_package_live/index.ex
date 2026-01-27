@@ -215,7 +215,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
            |> put_flash(:error, "Failed to create package")}
 
         {:error, error} ->
-          Logger.error("[EdgePackage] create failed: #{inspect(error)}")
+          Logger.error("[EdgePackage] create failed: #{inspect(error)}", [])
           error_msg = format_error(error)
 
           {:noreply,
@@ -1014,9 +1014,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp get_actor(socket) do
-    case socket.assigns.current_scope.user do
-      nil -> "system"
-      user -> user.email
+    case socket.assigns[:current_scope] do
+      %{user: user} when not is_nil(user) -> user
+      _ -> nil
     end
   end
 
