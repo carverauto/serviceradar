@@ -18,6 +18,15 @@ import (
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding/mtls"
 )
 
+var (
+	ErrBundleDownloadFailed = errors.New("bundle download failed")
+	ErrConfigAlreadyExists  = errors.New("config already exists")
+	ErrCertsAlreadyExist    = errors.New("certs already exist")
+	ErrBundleMissingConfig  = errors.New("bundle missing config.json")
+	ErrBundleMissingCerts   = errors.New("bundle missing certificate files")
+	ErrCoreAPIHostRequired  = errors.New("core API host is required")
+)
+
 // EnrollOptions controls the agent enrollment workflow.
 type EnrollOptions struct {
 	Token         string
@@ -68,7 +77,7 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("bundle download failed (%s): %s", resp.Status, strings.TrimSpace(string(body)))
+		return fmt.Errorf("%w (%s): %s", ErrBundleDownloadFailed, resp.Status, strings.TrimSpace(string(body)))
 	}
 
 	bundle, err := extractBundle(resp.Body)
@@ -83,10 +92,10 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 
 	if opts.SkipOverwrite {
 		if fileExists(opts.ConfigPath) {
-			return fmt.Errorf("config already exists at %s", opts.ConfigPath)
+			return fmt.Errorf("%w: %s", ErrConfigAlreadyExists, opts.ConfigPath)
 		}
 		if anyCertExists(certDir) {
-			return fmt.Errorf("certs already exist under %s", certDir)
+			return fmt.Errorf("%w: %s", ErrCertsAlreadyExist, certDir)
 		}
 	}
 
@@ -163,10 +172,10 @@ func extractBundle(reader io.Reader) (*bundlePayload, error) {
 	}
 
 	if len(payload.ConfigJSON) == 0 {
-		return nil, errors.New("bundle missing config.json")
+		return nil, ErrBundleMissingConfig
 	}
 	if len(payload.ComponentCert) == 0 || len(payload.ComponentKey) == 0 || len(payload.CAChain) == 0 {
-		return nil, errors.New("bundle missing certificate files")
+		return nil, ErrBundleMissingCerts
 	}
 
 	return payload, nil
@@ -295,7 +304,7 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 func normalizeCoreURL(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return "", errors.New("core API host is required")
+		return "", ErrCoreAPIHostRequired
 	}
 	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
 		return trimmed, nil
