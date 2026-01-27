@@ -37,7 +37,7 @@ ServiceRadar is a distributed network monitoring system designed for infrastruct
 
 ServiceRadar replaces traditional "script-and-shell" plugins with a modern WebAssembly runtime. This provides a generation leap in security and portability:
 
-| Feature | ServiceRadar (Wasm) | Traditional NMS (Nagios/Zabbix) | Enterprise (SolarWinds) |
+| Feature | ServiceRadar (WASM) | Traditional NMS (Nagios/Zabbix) | Enterprise (SolarWinds) |
 | :--- | :--- | :--- | :--- |
 | **Isolation** | **Hardware Sandbox** | None (OS Process) | None (User Session) |
 | **Dependencies** | **Zero** (Static Binaries) | High (Local Libs/Python) | High (.NET/Runtimes) |
