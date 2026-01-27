@@ -1,3 +1,15 @@
+# ServiceRadar v1.0.85
+
+Edge onboarding reliability and packaging fixes.
+
+## Whats New
+
+**1.0.85**
+- Edge onboarding now uses gateway-issued certs with URI SAN enforcement; missing SANs are rejected.
+- Agent enrollment CLI now backs up existing config/certs, fixes ownership, and restarts the agent automatically.
+- Edge package UI copy actions, live package status updates, and enroll command guidance improved.
+- Agent systemd unit now logs to journald and starts only after enrollment assets exist.
+
 # ServiceRadar v1.0.84
 
 Credential hardening and Helm quality-of-life updates.
