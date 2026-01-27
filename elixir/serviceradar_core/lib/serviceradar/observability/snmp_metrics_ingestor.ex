@@ -36,6 +36,7 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
       |> normalize_results()
       |> Enum.map(&build_metric_row(&1, status, actor, created_at))
       |> Enum.reject(&is_nil/1)
+      |> dedupe_timeseries_rows()
 
     if rows == [] do
       :ok
@@ -134,6 +135,15 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
   end
 
   defp build_metric_row(_result, _status, _actor, _created_at), do: nil
+
+  defp dedupe_timeseries_rows(rows) do
+    rows
+    |> Enum.reduce(%{}, fn row, acc ->
+      key = {row[:timestamp], row[:gateway_id], row[:metric_name]}
+      Map.put(acc, key, row)
+    end)
+    |> Map.values()
+  end
 
   defp resolve_device_id(nil, _status, _actor), do: nil
   defp resolve_device_id("", _status, _actor), do: nil
