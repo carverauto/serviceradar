@@ -56,7 +56,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active:
           String.starts_with?(path, "/settings/sysmon") or
             String.starts_with?(path, "/settings/agents") or
-            String.starts_with?(path, "/settings/dusk")
+            String.starts_with?(path, "/settings/dusk") or
+            String.starts_with?(path, "/admin/edge-packages")
       },
       %{
         label: "Events",
@@ -154,7 +155,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       %{
         label: "Deploy",
         navigate: ~p"/settings/agents/deploy",
-        active: String.starts_with?(path, "/settings/agents/deploy")
+        active:
+          String.starts_with?(path, "/settings/agents/deploy") or
+            String.starts_with?(path, "/admin/edge-packages")
       },
       %{
         label: "Plugins",

@@ -34,7 +34,7 @@ For agent packages, the certificate bundle SHALL be issued by the agent-gateway 
 - **WHEN** the bundle is downloaded
 - **THEN** the config includes gateway endpoint, agent_id, and partition values
 - **AND** the host_ip field is a placeholder that the enrollment flow replaces
- - **AND** the mTLS bundle is signed by the agent-gateway CA
+- **AND** the mTLS bundle is signed by the agent-gateway CA
 
 ## ADDED Requirements
 ### Requirement: Enrollment command
@@ -99,6 +99,17 @@ The edge onboarding package creation UI SHALL render without runtime errors and 
 ### Requirement: Edge onboarding entry points are consolidated
 The Settings UI SHALL present a single primary entry point for agent onboarding under Settings → Agents → Deploy and SHALL remove redundant Edge Ops navigation for components.
 
+#### Scenario: Settings deploy is the primary entry point
+- **GIVEN** an admin navigates to Settings → Agents → Deploy
+- **WHEN** they click Create Agent Package
+- **THEN** the flow navigates directly to the agent package creation form
+- **AND** no secondary Edge Ops navigation is required
+
+#### Scenario: Edge Ops navigation omits components
+- **GIVEN** an admin is viewing the Edge Ops navigation
+- **WHEN** the tabs are rendered
+- **THEN** no Components tab is displayed
+
 ### Requirement: Gateway-issued mTLS bundles
 Web-ng SHALL request agent mTLS bundles from the agent-gateway during package creation and SHALL NOT rely on SPIFFE/SPIRE for edge agent issuance.
 
@@ -112,14 +123,3 @@ Web-ng SHALL request agent mTLS bundles from the agent-gateway during package cr
 - **GIVEN** an agent onboarding package is requested
 - **WHEN** the agent-gateway is unavailable
 - **THEN** the package creation fails with a certificate issuance error
-
-#### Scenario: Settings deploy is the primary entry point
-- **GIVEN** an admin navigates to Settings → Agents → Deploy
-- **WHEN** they click Create Agent Package
-- **THEN** the flow navigates directly to the agent package creation form
-- **AND** no secondary Edge Ops navigation is required
-
-#### Scenario: Edge Ops navigation omits components
-- **GIVEN** an admin is viewing the Edge Ops navigation
-- **WHEN** the tabs are rendered
-- **THEN** no Components tab is displayed

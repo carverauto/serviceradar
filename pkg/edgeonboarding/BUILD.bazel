@@ -9,6 +9,7 @@ go_library(
         "config.go",
         "deployment.go",
         "download.go",
+        "http_client.go",
         "nats_config.go",
         "token.go",
         "spire.go",

@@ -62,11 +62,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
                   Generate an onboarding package for a new agent. The token installs mTLS
                   credentials and points the agent at the gateway endpoint.
                 </p>
-                <.link navigate={~p"/admin/edge-packages/new?component_type=agent"}>
-                  <.ui_button variant="primary" size="sm" class="w-full">
-                    <.icon name="hero-plus" class="size-4" /> Create Agent Package
-                  </.ui_button>
-                </.link>
+                <div class="flex flex-col gap-2">
+                  <.link navigate={~p"/admin/edge-packages/new?component_type=agent"}>
+                    <.ui_button variant="primary" size="sm" class="w-full">
+                      <.icon name="hero-plus" class="size-4" /> Create Agent Package
+                    </.ui_button>
+                  </.link>
+                  <.link navigate={~p"/admin/edge-packages"}>
+                    <.ui_button variant="ghost" size="sm" class="w-full">
+                      View existing packages
+                    </.ui_button>
+                  </.link>
+                </div>
               </div>
 
               <div class="divider"></div>

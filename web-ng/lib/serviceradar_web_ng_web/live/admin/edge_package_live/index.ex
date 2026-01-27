@@ -232,8 +232,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   def handle_event("revoke_package", %{"id" => id}, socket) do
-    user = socket.assigns.current_scope.user
-    actor = if user, do: user.email, else: "system"
+    actor = get_actor(socket)
 
     case OnboardingPackages.revoke(id,
            actor: actor,
@@ -256,8 +255,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   def handle_event("delete_package", %{"id" => id}, socket) do
-    user = socket.assigns.current_scope.user
-    actor = if user, do: user.email, else: "system"
+    actor = get_actor(socket)
 
     case OnboardingPackages.delete(id,
            actor: actor,
@@ -299,7 +297,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/admin/edge-packages">
         <.settings_nav current_path="/admin/edge-packages" />
-        <.edge_nav current_path="/admin/edge-packages" class="mt-2" />
+        <.agents_nav current_path="/admin/edge-packages" class="mt-2" />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
