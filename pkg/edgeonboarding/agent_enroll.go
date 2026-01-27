@@ -136,7 +136,7 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 		return err
 	}
 
-	if err := restartAgentService(opts.Logf); err != nil {
+	if err := restartAgentService(ctx, opts.Logf); err != nil {
 		return err
 	}
 
@@ -470,7 +470,7 @@ func lookupUserIDs(name string) (int, int, bool, error) {
 	return 0, 0, false, nil
 }
 
-func restartAgentService(logf func(string, ...interface{})) error {
+func restartAgentService(ctx context.Context, logf func(string, ...interface{})) error {
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		if logf != nil {
 			logf("systemctl not found; skipping agent restart")
@@ -478,7 +478,7 @@ func restartAgentService(logf func(string, ...interface{})) error {
 		return nil
 	}
 
-	cmd := exec.Command("systemctl", "restart", "serviceradar-agent")
+	cmd := exec.CommandContext(ctx, "systemctl", "restart", "serviceradar-agent")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("restart serviceradar-agent: %w: %s", err, strings.TrimSpace(string(output)))
