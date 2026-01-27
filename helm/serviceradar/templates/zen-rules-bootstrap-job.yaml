@@ -1,0 +1,155 @@
+{{- if .Values.zenRulesBootstrap.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "serviceradar-zen-rules-bootstrap-%s" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    app: serviceradar-zen-rules-bootstrap
+    app.kubernetes.io/part-of: serviceradar
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: serviceradar-zen-rules-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.spire.zenServiceAccount | default "serviceradar-zen" }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        - name: wait-for-nats
+          image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          command: ["/usr/local/bin/wait-for-port"]
+          args:
+            - "--host"
+            - "serviceradar-nats"
+            - "--port"
+            - "4222"
+            - "--attempts"
+            - "30"
+            - "--interval"
+            - "2s"
+          resources:
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+      containers:
+        - name: zen-rules-bootstrap
+          image: ghcr.io/carverauto/serviceradar-zen:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "zen") }}
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+
+              RULES_DIR="/etc/serviceradar/rules"
+              CONFIG_PATH="/etc/serviceradar/zen.json"
+              FORCE_REINSTALL="{{ .Values.zenRulesBootstrap.forceReinstall }}"
+
+              echo "Starting Zen rules bootstrap..."
+              echo "Force reinstall: ${FORCE_REINSTALL}"
+
+              install_rule() {
+                local file="$1"
+                local subject="$2"
+                local key="$3"
+
+                if [ ! -f "$file" ]; then
+                  echo "Warning: Rule file $file not found, skipping"
+                  return 0
+                fi
+
+                echo "Installing rule: $key for subject: $subject"
+                if /usr/local/bin/zen-put-rule \
+                    --config "$CONFIG_PATH" \
+                    --file "$file" \
+                    --subject "$subject" \
+                    --key "$key"; then
+                  echo "✓ Rule $key installed successfully"
+                else
+                  echo "✗ Failed to install rule $key"
+                  return 1
+                fi
+              }
+
+              # Install default rules
+              # Rule: strip_full_message -> logs.syslog
+              install_rule "${RULES_DIR}/strip_full_message.json" "logs.syslog" "strip_full_message"
+
+              # Rule: cef_severity -> logs.syslog
+              install_rule "${RULES_DIR}/cef_severity.json" "logs.syslog" "cef_severity"
+
+              # Rule: snmp_severity -> logs.snmp
+              install_rule "${RULES_DIR}/snmp_severity.json" "logs.snmp" "snmp_severity"
+
+              # Rule: passthrough -> logs.otel
+              install_rule "${RULES_DIR}/passthrough.json" "logs.otel" "passthrough"
+
+              echo "✅ Zen rules bootstrap completed successfully"
+          env:
+            - name: CONFIG_PATH
+              value: "/etc/serviceradar/zen.json"
+            - name: NATS_URL
+              value: "tls://serviceradar-nats:4222"
+            - name: KV_URL
+              value: "serviceradar-datasvc:50057"
+            - name: NATS_TLS
+              value: "true"
+            - name: USE_TLS
+              value: "true"
+            - name: RUST_LOG
+              value: "info"
+          {{- include "serviceradar.kvEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: zen-rules
+              mountPath: /etc/serviceradar/rules
+              readOnly: true
+            - name: serviceradar-config
+              mountPath: /etc/serviceradar
+            - name: cert-data
+              mountPath: /etc/serviceradar/certs
+              readOnly: true
+            {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+            - name: nats-creds
+              mountPath: /etc/serviceradar/creds
+              readOnly: true
+            {{- end }}
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+          resources:
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+      volumes:
+        - name: zen-rules
+          configMap:
+            name: serviceradar-zen-rules
+        - name: serviceradar-config
+          configMap:
+            name: serviceradar-config
+        - name: cert-data
+          persistentVolumeClaim:
+            claimName: serviceradar-cert-data
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+        - name: nats-creds
+          secret:
+            secretName: serviceradar-nats-creds
+        {{- end }}
+        - name: spire-agent-socket
+          hostPath:
+            path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+            type: DirectoryOrCreate
+{{- end }}
