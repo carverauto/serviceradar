@@ -94,7 +94,7 @@ Docker Compose notes:
 **Chart URL:** `oci://ghcr.io/carverauto/charts/serviceradar`
 
 Notes:
-- Chart versions are like `1.0.84`; ServiceRadar image tags are like `v1.0.84`.
+- [Chart](https://github.com/carverauto/serviceradar/blob/staging/helm/serviceradar/Chart.yaml) versions are like `1.0.84`; ServiceRadar image tags are like `v1.0.84`.
 - If your cluster requires registry credentials, set `image.registryPullSecret` (default `ghcr-io-cred`).
 
 For ArgoCD deployments, use `ghcr.io/carverauto/charts` as the repository URL (without the `oci://` prefix):
