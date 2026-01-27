@@ -11,6 +11,7 @@ The bundle SHALL include:
 5. Installation script (enroll-only for agents, platform-detecting for other components)
 
 For agent packages, the component configuration file SHALL include the gateway endpoint, agent_id, partition, and a host_ip placeholder value that is replaced during enrollment.
+For agent packages, the certificate bundle SHALL be issued by the agent-gateway and returned to web-ng during package creation.
 
 #### Scenario: Download bundle as archive
 
@@ -33,6 +34,7 @@ For agent packages, the component configuration file SHALL include the gateway e
 - **WHEN** the bundle is downloaded
 - **THEN** the config includes gateway endpoint, agent_id, and partition values
 - **AND** the host_ip field is a placeholder that the enrollment flow replaces
+ - **AND** the mTLS bundle is signed by the agent-gateway CA
 
 ## ADDED Requirements
 ### Requirement: Enrollment command
@@ -96,6 +98,20 @@ The edge onboarding package creation UI SHALL render without runtime errors and 
 
 ### Requirement: Edge onboarding entry points are consolidated
 The Settings UI SHALL present a single primary entry point for agent onboarding under Settings → Agents → Deploy and SHALL remove redundant Edge Ops navigation for components.
+
+### Requirement: Gateway-issued mTLS bundles
+Web-ng SHALL request agent mTLS bundles from the agent-gateway during package creation and SHALL NOT rely on SPIFFE/SPIRE for edge agent issuance.
+
+#### Scenario: Package creation requests gateway-issued certs
+- **GIVEN** an admin creates an agent onboarding package
+- **WHEN** the package is issued
+- **THEN** web-ng requests an mTLS bundle from the agent-gateway
+- **AND** the returned bundle is stored with the package tokens
+
+#### Scenario: Gateway issuance is required
+- **GIVEN** an agent onboarding package is requested
+- **WHEN** the agent-gateway is unavailable
+- **THEN** the package creation fails with a certificate issuance error
 
 #### Scenario: Settings deploy is the primary entry point
 - **GIVEN** an admin navigates to Settings → Agents → Deploy

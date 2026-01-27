@@ -145,10 +145,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       actor = get_actor(socket)
       attrs = build_package_attrs_from_form(params, socket.assigns.security_mode)
 
-      # Use create_with_platform_cert for automatic certificate generation
-      # This will auto-generate the platform CA if it doesn't exist
+      # Issue certificates via the selected agent-gateway
       result =
-        OnboardingPackages.create_with_platform_cert(attrs,
+        OnboardingPackages.create_with_gateway_cert(attrs,
           actor: actor
         )
 
@@ -162,16 +161,49 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
            |> assign(:created_tokens, package_result)
            |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
            |> assign(:create_form, build_create_form(security_mode))
-           |> put_flash(:info, "Package created with certificates")}
+           |> put_flash(:info, "Package created with gateway-issued certificates")}
 
-        {:error, :ca_generation_failed} ->
+        {:error, :gateway_unavailable} ->
           {:noreply,
            socket
            |> assign(:creating, false)
            |> put_flash(
              :error,
-             "Failed to generate certificate authority. Please try again."
+             "Agent gateway is unavailable. Ensure a gateway is online and try again."
            )}
+
+        {:error, :ca_not_available} ->
+          {:noreply,
+           socket
+           |> assign(:creating, false)
+           |> put_flash(
+             :error,
+             "Gateway CA is not available. Ensure root-key.pem is mounted on the gateway."
+           )}
+
+        {:error, :certificate_issue_failed} ->
+          {:noreply,
+           socket
+           |> assign(:creating, false)
+           |> put_flash(
+             :error,
+             "Gateway failed to issue certificates. Check gateway logs and try again."
+           )}
+
+        {:error, :openssl_failed} ->
+          {:noreply,
+           socket
+           |> assign(:creating, false)
+           |> put_flash(
+             :error,
+             "Certificate generation failed on the gateway (openssl error)."
+           )}
+
+        {:error, :invalid_identity} ->
+          {:noreply,
+           socket
+           |> assign(:creating, false)
+           |> put_flash(:error, "Missing gateway or component identity for package creation.")}
 
         {:error, %Ash.Error.Invalid{} = error} ->
           form = AshPhoenix.Form.add_error(form, error)
@@ -992,12 +1024,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     label = params["label"] || ""
     component_id = generate_component_id(label, component_type)
     metadata_json = build_metadata_json(component_type, params)
+    partition_id = params["partition"] || "default"
 
     %{
       label: label,
       component_id: component_id,
       component_type: component_type,
       gateway_id: params["gateway_id"],
+      site: if(component_type == "agent", do: partition_id, else: nil),
       security_mode: security_mode,
       notes: params["notes"],
       parent_id: params["parent_id"],

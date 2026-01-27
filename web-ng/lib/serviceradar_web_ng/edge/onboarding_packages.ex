@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadarWebNG.Edge.GatewayCertificateIssuer
 
   @type filter :: %{
           optional(:status) => [String.t()],
@@ -143,6 +144,31 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   def create_with_platform_cert(attrs, opts \\ []) do
     opts = build_opts(opts)
     AshPackages.create_with_platform_cert(attrs, opts)
+  end
+
+  @doc """
+  Creates an agent onboarding package using a gateway-issued mTLS bundle.
+  """
+  @spec create_with_gateway_cert(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def create_with_gateway_cert(attrs, opts \\ []) do
+    opts = build_opts(opts)
+
+    gateway_id = Map.get(attrs, :gateway_id)
+    component_id = Map.get(attrs, :component_id)
+    partition_id = Map.get(attrs, :site) || "default"
+
+    with true <- is_binary(gateway_id) and gateway_id != "" or {:error, :gateway_unavailable},
+         true <- is_binary(component_id) and component_id != "" or {:error, :invalid_identity},
+         {:ok, bundle} <-
+           GatewayCertificateIssuer.issue_agent_bundle(
+             gateway_id,
+             component_id,
+             partition_id,
+             opts
+           ),
+         {:ok, result} <- AshPackages.create_with_bundle(attrs, bundle.bundle_pem, bundle, opts) do
+      {:ok, result}
+    end
   end
 
   @doc """
