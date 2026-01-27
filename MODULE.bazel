@@ -860,6 +860,22 @@ http_file(
     ],
 )
 
+http_file(
+    name = "ubuntu_openssl_amd64_deb",
+    sha256 = "9c79333ab21bce0fb8dd92304cd76b3b1c427b0f2fedc897257fb5cced37c39e",
+    urls = [
+        "https://archive.ubuntu.com/ubuntu/pool/main/o/openssl/openssl_3.0.13-0ubuntu3_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_libssl3t64_amd64_deb",
+    sha256 = "6cde53feabd28f26586a4db2ffb9fc84e7b0598aee15b33bee907b6392a92d24",
+    urls = [
+        "https://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl3t64_3.0.13-0ubuntu3_amd64.deb",
+    ],
+)
+
 http_archive(
     name = "crane_linux_amd64",
     build_file_content = """
