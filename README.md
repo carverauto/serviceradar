@@ -83,6 +83,10 @@ helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar
   -n serviceradar --create-namespace \
   --set global.imageTag="latest" \
   --set global.imagePullPolicy="Always"
+
+# Get password for 'root@localhost' user created by helm install
+ kubectl get secret serviceradar-secrets -n demo \
+    -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 
 Note: if you omit `global.imageTag`, the chart defaults to `latest`. Set `global.imagePullPolicy=Always` when you want to pick up new pushes on restart.
