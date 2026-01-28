@@ -143,7 +143,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
     [
       %{
-        label: "Sysmon",
+        label: "Host Health",
         navigate: ~p"/settings/sysmon",
         active: String.starts_with?(path, "/settings/sysmon")
       },

@@ -188,7 +188,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               Capabilities
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
-              Sysmon
+              Host Health
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
               Connected
@@ -310,7 +310,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               Capabilities
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
-              Sysmon
+              Host Health
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
               Last Seen
@@ -368,7 +368,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     """
   end
 
-  # Sysmon status badge component
+  # Host Health status badge component
   attr :capabilities, :list, default: []
 
   defp sysmon_status_badge(assigns) do
@@ -383,7 +383,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     assigns = assign(assigns, :has_sysmon, has_sysmon)
 
     ~H"""
-    <div :if={@has_sysmon} class="flex items-center gap-1" title="Sysmon metrics enabled">
+    <div :if={@has_sysmon} class="flex items-center gap-1" title="Host Health metrics enabled">
       <.icon name="hero-cpu-chip" class="size-4 text-success" />
     </div>
     <span :if={not @has_sysmon} class="text-base-content/40">—</span>
