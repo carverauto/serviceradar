@@ -1584,15 +1584,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         :if={@has_sysmon and is_binary(@device_path)}
         navigate={@device_path}
         class="tooltip inline-flex hover:opacity-90"
-        data-tip="Sysmon metrics available (last 24h)"
-        aria-label="View device details (Sysmon metrics available)"
+        data-tip="Host Health metrics available (last 24h)"
+        aria-label="View device details (Host Health metrics available)"
       >
         <.icon name="hero-cpu-chip" class="size-4 text-success" />
       </.link>
       <span
         :if={@has_sysmon and not is_binary(@device_path)}
         class="tooltip"
-        data-tip="Sysmon metrics available (last 24h)"
+        data-tip="Host Health metrics available (last 24h)"
       >
         <.icon name="hero-cpu-chip" class="size-4 text-success" />
       </span>

@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   LiveView for managing sysmon profiles configuration.
 
   Provides UI for:
-  - Sysmon Profiles: Admin-managed monitoring configuration profiles with SRQL targeting
+  - Host Health Profiles: Admin-managed monitoring configuration profiles with SRQL targeting
   """
   use ServiceRadarWebNGWeb, :live_view
 
@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
     socket =
       socket
-      |> assign(:page_title, "Sysmon Profiles")
+      |> assign(:page_title, "Host Health Profiles")
       |> assign(:profiles, load_profiles(scope))
       |> assign(:selected_profile, nil)
       |> assign(:show_form, nil)
@@ -43,7 +43,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
   defp apply_action(socket, :index, _params) do
     socket
-    |> assign(:page_title, "Sysmon Profiles")
+    |> assign(:page_title, "Host Health Profiles")
     |> assign(:show_form, nil)
     |> assign(:ash_form, nil)
     |> assign(:form, nil)
@@ -60,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       Form.for_create(SysmonProfile, :create, domain: ServiceRadar.SysmonProfiles, scope: scope)
 
     socket
-    |> assign(:page_title, "New Sysmon Profile")
+    |> assign(:page_title, "New Host Health Profile")
     |> assign(:show_form, :new_profile)
     |> assign(:ash_form, ash_form)
     |> assign(:form, to_form(ash_form))
@@ -370,7 +370,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       <:header>
         <div class="flex items-center justify-between w-full">
           <div>
-            <div class="text-sm font-semibold">Sysmon Profiles</div>
+            <div class="text-sm font-semibold">Host Health Profiles</div>
             <p class="text-xs text-base-content/60">
               {length(@profiles)} profile(s) configured
             </p>
@@ -516,7 +516,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       <:header>
         <div class="text-sm font-semibold">
           {if @show_form == :new_profile,
-            do: "New Sysmon Profile",
+            do: "New Host Health Profile",
             else: "Edit #{@selected_profile.name}"}
         </div>
       </:header>
