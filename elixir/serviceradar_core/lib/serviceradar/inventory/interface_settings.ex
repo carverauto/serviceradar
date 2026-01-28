@@ -67,6 +67,8 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :threshold_severity,
         :tags
       ]
+
+      change ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig
     end
 
     update :update do
@@ -85,6 +87,8 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
         :threshold_severity,
         :tags
       ]
+
+      change ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig
     end
 
     create :upsert do
@@ -113,6 +117,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
 
       change set_attribute(:device_id, arg(:device_id))
       change set_attribute(:interface_uid, arg(:interface_uid))
+      change ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig
       change ServiceRadar.Inventory.Changes.ScheduleThresholdEvaluator
       change ServiceRadar.Inventory.Changes.SyncMetricEventRules
       change ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig
@@ -138,6 +143,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
       description "Enable or disable metrics collection"
       argument :enabled, :boolean, allow_nil?: false
       change set_attribute(:metrics_enabled, arg(:enabled))
+      change ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig
     end
 
     update :set_tags do

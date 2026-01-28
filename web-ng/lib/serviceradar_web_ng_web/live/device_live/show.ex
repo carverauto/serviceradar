@@ -153,11 +153,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {network_interfaces, interfaces_error} = load_interfaces(srql_module, uid, scope)
 
     # Load interface settings (favorites, metrics enabled)
-    favorited_interfaces = load_interface_settings(scope, uid)
+    interface_settings = load_interface_settings(scope, uid)
+    favorited_interfaces = interface_settings.favorited
+    metrics_enabled_interfaces = interface_settings.metrics_enabled
 
     # Load interface metrics for favorited interfaces
     interface_metrics =
-      load_interface_metrics(srql_module, uid, favorited_interfaces, network_interfaces, scope)
+      load_interface_metrics(
+        srql_module,
+        uid,
+        favorited_interfaces,
+        metrics_enabled_interfaces,
+        network_interfaces,
+        scope
+      )
+
+    network_interfaces = apply_interface_settings(network_interfaces, interface_settings.by_uid)
 
     device_snmp_credential = load_device_snmp_credential(scope, uid)
 
@@ -650,22 +661,67 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_interface_settings(_scope, nil), do: MapSet.new()
+  defp load_interface_settings(_scope, nil), do: empty_interface_settings()
 
   defp load_interface_settings(scope, device_uid) do
     case InterfaceSettings.list_by_device(device_uid, scope: scope) do
       {:ok, settings} ->
-        settings
-        |> Enum.filter(& &1.favorited)
-        |> Enum.map(& &1.interface_uid)
-        |> MapSet.new()
+        by_uid = Map.new(settings, &{&1.interface_uid, &1})
+
+        favorited =
+          settings
+          |> Enum.filter(& &1.favorited)
+          |> Enum.map(& &1.interface_uid)
+          |> MapSet.new()
+
+        metrics_enabled =
+          settings
+          |> Enum.filter(&metrics_enabled_setting?/1)
+          |> Enum.map(& &1.interface_uid)
+          |> MapSet.new()
+
+        %{favorited: favorited, metrics_enabled: metrics_enabled, by_uid: by_uid}
 
       {:error, _reason} ->
-        MapSet.new()
+        empty_interface_settings()
     end
   end
 
-  defp load_interface_metrics(_srql_module, _device_uid, favorited, _interfaces, _scope)
+  defp empty_interface_settings do
+    %{favorited: MapSet.new(), metrics_enabled: MapSet.new(), by_uid: %{}}
+  end
+
+  defp metrics_enabled_setting?(setting) do
+    setting.metrics_enabled == true and is_list(setting.metrics_selected) and
+      setting.metrics_selected != []
+  end
+
+  defp apply_interface_settings(interfaces, settings_by_uid) when is_list(interfaces) do
+    Enum.map(interfaces, fn iface ->
+      uid = Map.get(iface, "interface_uid")
+
+      case Map.get(settings_by_uid, uid) do
+        nil ->
+          iface
+
+        setting ->
+          iface
+          |> Map.put("metrics_enabled", metrics_enabled_setting?(setting))
+          |> Map.put("favorited", setting.favorited)
+      end
+    end)
+  end
+
+  defp apply_interface_settings(interfaces, _settings_by_uid), do: interfaces
+
+  defp load_interface_metrics(
+         _srql_module,
+         _device_uid,
+         favorited,
+         _metrics_enabled,
+         _interfaces,
+         _scope
+       )
        when map_size(favorited) == 0 do
     %{
       has_favorited: false,
@@ -675,14 +731,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     }
   end
 
-  defp load_interface_metrics(srql_module, device_uid, favorited_uids, interfaces, scope) do
+  defp load_interface_metrics(
+         srql_module,
+         device_uid,
+         favorited_uids,
+         metrics_enabled_uids,
+         interfaces,
+         scope
+       ) do
+    total_favorited = MapSet.size(favorited_uids)
+    enabled_favorited_uids = MapSet.intersection(favorited_uids, metrics_enabled_uids)
+
+    if map_size(enabled_favorited_uids) == 0 do
+      %{
+        has_favorited: total_favorited > 0,
+        panels: [],
+        error: nil,
+        favorited_count: total_favorited,
+        message: "Metrics collection is disabled for favorited interfaces."
+      }
+    else
+      build_favorited_interface_metrics(
+        srql_module,
+        device_uid,
+        enabled_favorited_uids,
+        interfaces,
+        scope,
+        total_favorited
+      )
+    end
+  end
+
+  defp build_favorited_interface_metrics(
+         srql_module,
+         device_uid,
+         enabled_favorited_uids,
+         interfaces,
+         scope,
+         total_favorited
+       ) do
     # Get the favorited interfaces with their if_index, name, and speed
     favorited_interfaces =
       interfaces
       |> Enum.filter(fn iface ->
         uid = Map.get(iface, "interface_uid")
 
-        is_binary(uid) and MapSet.member?(favorited_uids, uid) and
+        is_binary(uid) and MapSet.member?(enabled_favorited_uids, uid) and
           is_integer(Map.get(iface, "if_index"))
       end)
       |> Enum.map(fn iface ->
@@ -701,10 +795,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     if favorited_interfaces == [] do
       %{
-        has_favorited: true,
+        has_favorited: total_favorited > 0,
         panels: [],
         error: nil,
-        favorited_count: MapSet.size(favorited_uids),
+        favorited_count: total_favorited,
         message: "No interface metrics available. Favorited interfaces may not have SNMP indices."
       }
     else
@@ -718,26 +812,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       cond do
         all_panels != [] ->
           %{
-            has_favorited: true,
+            has_favorited: total_favorited > 0,
             panels: all_panels,
             error: nil,
-            favorited_count: MapSet.size(favorited_uids)
+            favorited_count: total_favorited
           }
 
         errors != [] ->
           %{
-            has_favorited: true,
+            has_favorited: total_favorited > 0,
             panels: [],
             error: "Failed to load metrics: #{Enum.join(Enum.uniq(errors), "; ")}",
-            favorited_count: MapSet.size(favorited_uids)
+            favorited_count: total_favorited
           }
 
         true ->
           %{
-            has_favorited: true,
+            has_favorited: total_favorited > 0,
             panels: [],
             error: nil,
-            favorited_count: MapSet.size(favorited_uids),
+            favorited_count: total_favorited,
             message:
               "No metrics data available yet. Ensure SNMP polling is configured for this device."
           }
