@@ -585,7 +585,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 </h2>
                 <div class="divide-y divide-base-200">
                   <% selected_metrics = settings_list_value(@settings, :metrics_selected) %>
-                  <% metrics_enabled = settings_value(@settings, :metrics_enabled) and selected_metrics != [] %>
+                  <% metrics_enabled =
+                    settings_value(@settings, :metrics_enabled) and selected_metrics != [] %>
                   <% available_metrics = Map.get(@interface, "available_metrics") %>
                   <div class="py-3">
                     <div class="flex items-start justify-between gap-4">
