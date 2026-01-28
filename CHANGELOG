@@ -1,3 +1,16 @@
+# ServiceRadar v1.0.86
+
+Docker startup reliability and TLS infrastructure improvements.
+
+## Whats New
+
+**1.0.86**
+- Fixed Postgrex type compilation for Bazel builds (removed defmodule wrapper around Postgrex.Types.define/3).
+- Startup migrations now sync Ecto schema_migrations to Ash ash_schema_migrations, fixing 503 errors after DB migrations complete.
+- Wildcard TLS certificate infrastructure added for serviceradar.cloud subdomains, avoiding Let's Encrypt rate limits on namespace recreation.
+- Helm ingress template now supports default SSL cert fallback when secretName is empty.
+- Startup migrations refactored to satisfy Credo complexity rules.
+
 # ServiceRadar v1.0.85
 
 Edge onboarding reliability and packaging fixes.
