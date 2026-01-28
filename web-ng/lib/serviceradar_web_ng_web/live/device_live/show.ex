@@ -744,72 +744,90 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         message: "Metrics collection is disabled for favorited interfaces."
       }
     else
-      # Get the favorited interfaces with their if_index, name, and speed
-      favorited_interfaces =
-        interfaces
-        |> Enum.filter(fn iface ->
-          uid = Map.get(iface, "interface_uid")
+      build_favorited_interface_metrics(
+        srql_module,
+        device_uid,
+        enabled_favorited_uids,
+        interfaces,
+        scope,
+        total_favorited
+      )
+    end
+  end
 
-          is_binary(uid) and MapSet.member?(enabled_favorited_uids, uid) and
-            is_integer(Map.get(iface, "if_index"))
-        end)
-        |> Enum.map(fn iface ->
-          # Get interface speed for proper graph scaling (bps -> bytes per second)
-          if_speed_bps = Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
-          if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8, else: nil
+  defp build_favorited_interface_metrics(
+         srql_module,
+         device_uid,
+         enabled_favorited_uids,
+         interfaces,
+         scope,
+         total_favorited
+       ) do
+    # Get the favorited interfaces with their if_index, name, and speed
+    favorited_interfaces =
+      interfaces
+      |> Enum.filter(fn iface ->
+        uid = Map.get(iface, "interface_uid")
 
-          %{
-            if_index: Map.get(iface, "if_index"),
-            name:
-              Map.get(iface, "if_name") || Map.get(iface, "if_descr") ||
-                "Interface #{Map.get(iface, "if_index")}",
-            max_speed_bytes_per_sec: if_speed_bytes_per_sec
-          }
-        end)
+        is_binary(uid) and MapSet.member?(enabled_favorited_uids, uid) and
+          is_integer(Map.get(iface, "if_index"))
+      end)
+      |> Enum.map(fn iface ->
+        # Get interface speed for proper graph scaling (bps -> bytes per second)
+        if_speed_bps = Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
+        if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8, else: nil
 
-      if favorited_interfaces == [] do
         %{
-          has_favorited: total_favorited > 0,
-          panels: [],
-          error: nil,
-          favorited_count: total_favorited,
-          message: "No interface metrics available. Favorited interfaces may not have SNMP indices."
+          if_index: Map.get(iface, "if_index"),
+          name:
+            Map.get(iface, "if_name") || Map.get(iface, "if_descr") ||
+              "Interface #{Map.get(iface, "if_index")}",
+          max_speed_bytes_per_sec: if_speed_bytes_per_sec
         }
-      else
-        # Query SNMP metrics for each favorited interface separately and build panels per interface
-        # Use agg:max to pull the latest counter values per bucket; rate deltas are calculated in UI
-        {all_panels, errors} =
-          Enum.reduce(favorited_interfaces, {[], []}, fn fav_iface, {panels_acc, errs} ->
-            query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs)
-          end)
+      end)
 
-        cond do
-          all_panels != [] ->
-            %{
-              has_favorited: total_favorited > 0,
-              panels: all_panels,
-              error: nil,
-              favorited_count: total_favorited
-            }
+    if favorited_interfaces == [] do
+      %{
+        has_favorited: total_favorited > 0,
+        panels: [],
+        error: nil,
+        favorited_count: total_favorited,
+        message: "No interface metrics available. Favorited interfaces may not have SNMP indices."
+      }
+    else
+      # Query SNMP metrics for each favorited interface separately and build panels per interface
+      # Use agg:max to pull the latest counter values per bucket; rate deltas are calculated in UI
+      {all_panels, errors} =
+        Enum.reduce(favorited_interfaces, {[], []}, fn fav_iface, {panels_acc, errs} ->
+          query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs)
+        end)
 
-          errors != [] ->
-            %{
-              has_favorited: total_favorited > 0,
-              panels: [],
-              error: "Failed to load metrics: #{Enum.join(Enum.uniq(errors), "; ")}",
-              favorited_count: total_favorited
-            }
+      cond do
+        all_panels != [] ->
+          %{
+            has_favorited: total_favorited > 0,
+            panels: all_panels,
+            error: nil,
+            favorited_count: total_favorited
+          }
 
-          true ->
-            %{
-              has_favorited: total_favorited > 0,
-              panels: [],
-              error: nil,
-              favorited_count: total_favorited,
-              message:
-                "No metrics data available yet. Ensure SNMP polling is configured for this device."
-            }
-        end
+        errors != [] ->
+          %{
+            has_favorited: total_favorited > 0,
+            panels: [],
+            error: "Failed to load metrics: #{Enum.join(Enum.uniq(errors), "; ")}",
+            favorited_count: total_favorited
+          }
+
+        true ->
+          %{
+            has_favorited: total_favorited > 0,
+            panels: [],
+            error: nil,
+            favorited_count: total_favorited,
+            message:
+              "No metrics data available yet. Ensure SNMP polling is configured for this device."
+          }
       end
     end
   end
