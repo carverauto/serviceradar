@@ -57,6 +57,41 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
     {:ok, init_editor(socket, scope, nil, :create)}
   end
 
+  @impl true
+  def handle_params(params, _uri, socket) do
+    scope = socket.assigns.current_scope
+
+    case socket.assigns.live_action do
+      :edit ->
+        case find_rule(scope, params["id"]) do
+          nil ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "Rule not found")
+             |> push_navigate(to: ~p"/settings/rules?tab=logs")}
+
+          rule ->
+            {:noreply, init_editor(socket, scope, rule, :edit)}
+        end
+
+      :clone ->
+        case find_rule(scope, params["clone_id"]) do
+          nil ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "Rule not found")
+             |> push_navigate(to: ~p"/settings/rules?tab=logs")}
+
+          rule ->
+            cloned = %{rule | id: nil, name: "#{rule.name} (copy)"}
+            {:noreply, init_editor(socket, scope, cloned, :create)}
+        end
+
+      :new ->
+        {:noreply, init_editor(socket, scope, nil, :create)}
+    end
+  end
+
   defp init_editor(socket, scope, rule, mode) do
     # Get JDM definition: prefer user-authored, fall back to compiled, then default
     jdm_definition =
