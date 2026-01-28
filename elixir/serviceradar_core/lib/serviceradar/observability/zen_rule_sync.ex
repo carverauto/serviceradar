@@ -120,8 +120,12 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   # ============================================================================
 
   defp do_reconcile(state) do
-    if repo_enabled?() && datasvc_available?() do
-      reconcile_rules(state)
+    if repo_enabled?() do
+      if datasvc_available?() do
+        reconcile_rules(state)
+      else
+        Logger.warning("Zen rule reconcile skipped: datasvc unavailable")
+      end
     end
   end
 
@@ -130,43 +134,110 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
     case Ash.read(query, state.ash_opts) do
       {:ok, rules} ->
-        Enum.each(rules, &sync_rule_with_logging(&1, state))
+        rules
+        |> Enum.map(&sync_rule_result(&1, state))
+        |> log_reconcile_results()
 
       {:error, reason} ->
         Logger.warning("Failed to load zen rules", reason: inspect(reason))
     end
   end
 
-  defp sync_rule_with_logging(rule, state) do
+  defp sync_rule_result(rule, state) do
     case sync_rule_with_actor(rule, state) do
       {:ok, _} ->
-        :ok
+        {:ok, rule}
 
       {:error, reason} ->
-        Logger.warning("Zen rule reconcile failed",
-          rule_id: rule.id,
-          reason: inspect(reason)
-        )
-
-        :ok
+        {:error, reason, rule}
 
       unexpected ->
-        Logger.warning("Zen rule reconcile returned unexpected result",
-          rule_id: rule.id,
-          result: inspect(unexpected)
-        )
-
-        :ok
+        {:error, {:unexpected_result, unexpected}, rule}
     end
   rescue
     error ->
-      Logger.error("Zen rule reconcile crashed",
-        rule_id: rule.id,
-        error: Exception.format(:error, error, __STACKTRACE__)
-      )
-
-      :ok
+      {:error, {:crash, Exception.message(error)}, rule}
   end
+
+  @doc false
+  @spec log_reconcile_results(list()) :: :ok
+  def log_reconcile_results(results) do
+    {success_count, transient_errors, actionable_errors} = categorize_results(results)
+
+    Enum.each(actionable_errors, fn {reason, rule} ->
+      formatted = format_reason(reason)
+
+      Logger.warning(
+        "Zen rule reconcile failed for rule #{rule.id} (#{rule.name}): #{formatted}",
+        rule_id: rule.id,
+        rule_name: rule.name,
+        reason: formatted
+      )
+    end)
+
+    total = length(results)
+    transient_count = length(transient_errors)
+    actionable_count = length(actionable_errors)
+
+    cond do
+      actionable_count > 0 ->
+        Logger.warning(
+          "Zen rule reconcile summary: total=#{total} success=#{success_count} failed=#{actionable_count} transient_failed=#{transient_count}"
+        )
+
+      transient_count > 0 ->
+        reasons =
+          transient_errors
+          |> Enum.map(fn {reason, _rule} -> format_reason(reason) end)
+          |> Enum.uniq()
+          |> Enum.join(", ")
+
+        Logger.warning(
+          "Zen rule reconcile skipped due to transient datasvc error: count=#{transient_count} reason=#{reasons}"
+        )
+
+      true ->
+        :ok
+    end
+
+    :ok
+  end
+
+  defp categorize_results(results) do
+    Enum.reduce(results, {0, [], []}, &reduce_result/2)
+  end
+
+  defp reduce_result({:ok, _rule}, {success, transient, actionable}) do
+    {success + 1, transient, actionable}
+  end
+
+  defp reduce_result({:error, reason, rule}, {success, transient, actionable}) do
+    if transient_error?(reason) do
+      {success, [{reason, rule} | transient], actionable}
+    else
+      {success, transient, [{reason, rule} | actionable]}
+    end
+  end
+
+  defp transient_error?(reason) do
+    case reason do
+      :datasvc_unavailable -> true
+      :not_connected -> true
+      :not_started -> true
+      :timeout -> true
+      {:call_failed, _} -> true
+      %GRPC.RPCError{status: status} when status in [:unavailable, :deadline_exceeded, :cancelled] ->
+        true
+      _ ->
+        false
+    end
+  end
+
+  defp format_reason(%GRPC.RPCError{} = error), do: GRPC.RPCError.message(error)
+  defp format_reason({:json_encode_failed, message}), do: "json_encode_failed: #{message}"
+  defp format_reason({:unexpected_result, result}), do: "unexpected_result: #{inspect(result)}"
+  defp format_reason({:crash, message}), do: "crash: #{message}"
+  defp format_reason(reason), do: inspect(reason)
 
   # Internal sync with opts from GenServer state
   defp sync_rule_with_actor(%ZenRule{} = rule, state) do
