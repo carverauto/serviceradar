@@ -79,6 +79,10 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       prefix: "platform"
     )
 
+    # Sync to ash_schema_migrations after migrations complete.
+    # Ash Framework uses this table to track migrations via Repo config.
+    sync_ash_schema_migrations!()
+
     ensure_platform_ownership!(app_user)
     ensure_database_search_path!(app_user, app_database(), search_path())
     ensure_ag_catalog_privileges!(app_user)
@@ -366,7 +370,28 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
             "ON CONFLICT (version) DO NOTHING"
         )
       end
+
+      # Ash Framework uses ash_schema_migrations as the migration source.
+      # Sync from schema_migrations to ensure both tables stay in sync.
+      sync_ash_schema_migrations!()
     end
+  end
+
+  defp sync_ash_schema_migrations! do
+    # Create ash_schema_migrations if it doesn't exist
+    ServiceRadar.Repo.query!("""
+    CREATE TABLE IF NOT EXISTS platform.ash_schema_migrations (
+      version bigint NOT NULL PRIMARY KEY,
+      inserted_at timestamp(0) without time zone
+    )
+    """)
+
+    # Sync any migrations from schema_migrations that aren't in ash_schema_migrations
+    ServiceRadar.Repo.query!("""
+    INSERT INTO platform.ash_schema_migrations (version, inserted_at)
+    SELECT version, inserted_at FROM platform.schema_migrations
+    ON CONFLICT (version) DO NOTHING
+    """)
   end
 
   defp table_exists?(qualified_table) do
