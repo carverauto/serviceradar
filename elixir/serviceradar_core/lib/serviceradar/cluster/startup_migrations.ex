@@ -290,33 +290,44 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
             "AND c.relkind IN ('r', 'S', 'v', 'm')"
         ).rows
 
-      Enum.each(objects, fn [oid, name, kind] ->
-        statement =
-          case kind do
-            "r" -> "ALTER TABLE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
-            "S" ->
-              if sequence_owned_by_table?(oid) do
-                nil
-              else
-                "ALTER SEQUENCE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
-              end
-            "v" -> "ALTER VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
-            "m" -> "ALTER MATERIALIZED VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
-            _ -> nil
-          end
-
-        if statement do
-          try do
-            ServiceRadar.Repo.query!(statement)
-          rescue
-            error ->
-              Logger.warning(
-                "[StartupMigrations] Skipping ownership update for #{name}: #{Exception.message(error)}"
-              )
-          end
-        end
-      end)
+      Enum.each(objects, &update_object_ownership(&1, app_user))
     end
+  end
+
+  defp update_object_ownership([oid, name, kind], app_user) do
+    case ownership_statement(oid, name, kind, app_user) do
+      nil -> :ok
+      statement -> execute_ownership_update(statement, name)
+    end
+  end
+
+  defp ownership_statement(_oid, name, "r", app_user) do
+    "ALTER TABLE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+  end
+
+  defp ownership_statement(oid, name, "S", app_user) do
+    if sequence_owned_by_table?(oid),
+      do: nil,
+      else: "ALTER SEQUENCE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+  end
+
+  defp ownership_statement(_oid, name, "v", app_user) do
+    "ALTER VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+  end
+
+  defp ownership_statement(_oid, name, "m", app_user) do
+    "ALTER MATERIALIZED VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+  end
+
+  defp ownership_statement(_oid, _name, _kind, _app_user), do: nil
+
+  defp execute_ownership_update(statement, name) do
+    ServiceRadar.Repo.query!(statement)
+  rescue
+    error ->
+      Logger.warning(
+        "[StartupMigrations] Skipping ownership update for #{name}: #{Exception.message(error)}"
+      )
   end
 
   defp sequence_owned_by_table?(sequence_oid) do
