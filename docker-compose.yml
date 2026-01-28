@@ -259,7 +259,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "test -f ${SERVICERADAR_MIGRATIONS_MARKER_PATH:-/tmp/serviceradar_migrations_complete} && /app/bin/serviceradar_core_elx pid"
+          "test -f /var/lib/serviceradar/migrations/complete && /app/bin/serviceradar_core_elx pid"
         ]
       interval: 30s
       timeout: 15s
