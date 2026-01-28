@@ -119,9 +119,9 @@ defmodule ServiceRadarWebNGWeb.Layouts do
         <.flash_group flash={@flash} />
       </div>
 
-      <div :if={@signed_in?} class="drawer-side z-30">
+      <div :if={@signed_in?} class="drawer-side z-30 overflow-visible">
         <label for="sr-sidebar" class="drawer-overlay" aria-label="Close navigation"></label>
-        <aside class="w-48 bg-base-100 border-r border-base-200 min-h-full flex flex-col">
+        <aside class="w-48 bg-base-100 border-r border-base-200 min-h-full flex flex-col overflow-visible">
           <div class="p-3">
             <.link href={~p"/"} class="flex items-center gap-2 mb-4">
               <img
