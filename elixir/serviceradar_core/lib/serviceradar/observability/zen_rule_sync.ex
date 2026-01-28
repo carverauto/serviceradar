@@ -204,19 +204,19 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   end
 
   defp categorize_results(results) do
-    Enum.reduce(results, {0, [], []}, fn result, {success, transient, actionable} ->
-      case result do
-        {:ok, _rule} ->
-          {success + 1, transient, actionable}
+    Enum.reduce(results, {0, [], []}, &reduce_result/2)
+  end
 
-        {:error, reason, rule} ->
-          if transient_error?(reason) do
-            {success, [{reason, rule} | transient], actionable}
-          else
-            {success, transient, [{reason, rule} | actionable]}
-          end
-      end
-    end)
+  defp reduce_result({:ok, _rule}, {success, transient, actionable}) do
+    {success + 1, transient, actionable}
+  end
+
+  defp reduce_result({:error, reason, rule}, {success, transient, actionable}) do
+    if transient_error?(reason) do
+      {success, [{reason, rule} | transient], actionable}
+    else
+      {success, transient, [{reason, rule} | actionable]}
+    end
   end
 
   defp transient_error?(reason) do
