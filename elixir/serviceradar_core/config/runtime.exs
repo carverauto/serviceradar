@@ -86,7 +86,7 @@ if config_env() == :prod do
   end
 
   pool_size = parse_int.(System.get_env("POOL_SIZE") || "10") || 10
-  search_path = System.get_env("CNPG_SEARCH_PATH", "platform, ag_catalog")
+  search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
 
   database_timeout =
     System.get_env("DATABASE_TIMEOUT_MS")
@@ -109,7 +109,8 @@ if config_env() == :prod do
     ssl: ssl_opts,
     socket_options: maybe_ipv6,
     pool_size: pool_size,
-    parameters: [search_path: search_path]
+    parameters: [search_path: search_path],
+    types: ServiceRadar.PostgresTypes
   ]
 
   queue_target =

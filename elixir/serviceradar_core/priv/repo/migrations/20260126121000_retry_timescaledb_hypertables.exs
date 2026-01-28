@@ -4,8 +4,16 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
   def up do
     execute("""
     DO $$
+    DECLARE
+      ts_schema text;
     BEGIN
-      IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+      SELECT n.nspname
+      INTO ts_schema
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'timescaledb';
+
+      IF ts_schema IS NOT NULL THEN
         -- Core time-series tables
         IF EXISTS (
           SELECT 1 FROM pg_tables
@@ -14,7 +22,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'events'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.events'::regclass, 'event_timestamp', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.events',
+            'event_timestamp'
+          );
         END IF;
 
         IF EXISTS (
@@ -24,7 +37,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'logs'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.logs'::regclass, 'timestamp', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.logs',
+            'timestamp'
+          );
         END IF;
 
         IF EXISTS (
@@ -34,7 +52,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'service_status'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.service_status'::regclass, 'timestamp', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.service_status',
+            'timestamp'
+          );
         END IF;
 
         IF EXISTS (
@@ -44,7 +67,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'otel_traces'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.otel_traces'::regclass, 'timestamp', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.otel_traces',
+            'timestamp'
+          );
         END IF;
 
         IF EXISTS (
@@ -54,7 +82,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'otel_metrics'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.otel_metrics'::regclass, 'timestamp', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.otel_metrics',
+            'timestamp'
+          );
         END IF;
 
         IF EXISTS (
@@ -64,7 +97,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'timeseries_metrics'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.timeseries_metrics'::regclass, 'timestamp', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.timeseries_metrics',
+            'timestamp'
+          );
         END IF;
 
         IF EXISTS (
@@ -74,7 +112,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'cpu_metrics'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.cpu_metrics'::regclass, 'timestamp', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.cpu_metrics',
+            'timestamp'
+          );
         END IF;
 
         IF EXISTS (
@@ -84,7 +127,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'disk_metrics'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.disk_metrics'::regclass, 'timestamp', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.disk_metrics',
+            'timestamp'
+          );
         END IF;
 
         IF EXISTS (
@@ -94,7 +142,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'memory_metrics'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.memory_metrics'::regclass, 'timestamp', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.memory_metrics',
+            'timestamp'
+          );
         END IF;
 
         IF EXISTS (
@@ -104,7 +157,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'process_metrics'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.process_metrics'::regclass, 'timestamp', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.process_metrics',
+            'timestamp'
+          );
         END IF;
 
         IF EXISTS (
@@ -114,7 +172,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'device_updates'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.device_updates'::regclass, 'observed_at', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.device_updates',
+            'observed_at'
+          );
         END IF;
 
         IF EXISTS (
@@ -124,7 +187,12 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'otel_metrics_hourly_stats'
         ) THEN
-          PERFORM public.create_hypertable('#{prefix()}.otel_metrics_hourly_stats'::regclass, 'bucket', migrate_data => true, if_not_exists => true);
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.otel_metrics_hourly_stats',
+            'bucket'
+          );
         END IF;
 
         -- Interface observations retention policy (3 days)
@@ -136,13 +204,18 @@ defmodule ServiceRadar.Repo.Migrations.RetryTimescaledbHypertables do
             SELECT 1 FROM timescaledb_information.hypertables
             WHERE hypertable_schema = '#{prefix()}' AND hypertable_name = 'discovered_interfaces'
           ) THEN
-            PERFORM public.create_hypertable('#{prefix()}.discovered_interfaces'::regclass, 'timestamp', migrate_data => true, if_not_exists => true);
+            EXECUTE format(
+              'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+              ts_schema,
+              '#{prefix()}.discovered_interfaces',
+              'timestamp'
+            );
           END IF;
 
-          PERFORM public.add_retention_policy(
-            '#{prefix()}.discovered_interfaces'::regclass,
-            INTERVAL '3 days',
-            if_not_exists => true
+          EXECUTE format(
+            'SELECT %I.add_retention_policy(%L::regclass, INTERVAL ''3 days'', if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.discovered_interfaces'
           );
         END IF;
       END IF;

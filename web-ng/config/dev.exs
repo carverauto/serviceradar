@@ -68,7 +68,9 @@ config :serviceradar_core, ServiceRadar.Repo,
   ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  pool_size: 10,
+  parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
+  types: ServiceRadar.PostgresTypes
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

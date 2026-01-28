@@ -221,6 +221,39 @@ patch_file(
         ("  defp cal_json_name(props), do: %FieldProps{props | json_name: props.name}\\n", "  defp cal_json_name(%FieldProps{} = props), do: %FieldProps{props | json_name: props.name}\\n"),
     ],
 )
+
+# Patch delta_crdt warnings/errors under Elixir 1.19.
+patch_file(
+    Path("deps/delta_crdt/lib/delta_crdt.ex"),
+    [
+        ("Logger.warn(", "Logger.warning("),
+    ],
+)
+patch_file(
+    Path("deps/delta_crdt/lib/delta_crdt/aw_lww_map.ex"),
+    [
+        ("Logger.warn(", "Logger.warning("),
+    ],
+)
+def patch_delta_crdt_causal(path):
+    if not path.exists():
+        return
+    text = path.read_text()
+    original = text
+    target = "%DeltaCrdt.CausalCrdt.Diff{diff | continuation: truncate(continuation, state.max_sync_size)}"
+    if target in text:
+        replacement = (
+            "diff = case diff do\\n"
+            "      %DeltaCrdt.CausalCrdt.Diff{} = diff -> diff\\n"
+            "      _ -> diff\\n"
+            "    end\\n"
+            "    %DeltaCrdt.CausalCrdt.Diff{diff | continuation: truncate(continuation, state.max_sync_size)}"
+        )
+        text = text.replace(target, replacement)
+    if text != original:
+        path.write_text(text)
+
+patch_delta_crdt_causal(Path("deps/delta_crdt/lib/delta_crdt/causal_crdt.ex"))
 PY
 """
     # Note: We use a placeholder and manual replacement instead of .format()

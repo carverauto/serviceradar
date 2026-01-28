@@ -12,7 +12,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   require Logger
 
   @default_marker_path "/tmp/serviceradar_migrations_complete"
-  @default_search_path "platform, ag_catalog"
+  @default_search_path "platform, public, ag_catalog"
   @default_app_user "serviceradar"
 
   def child_spec(_opts) do

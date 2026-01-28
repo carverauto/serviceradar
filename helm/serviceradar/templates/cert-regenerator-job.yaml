@@ -1,3 +1,6 @@
+{{- $certs := default dict .Values.certs -}}
+{{- $regenerator := default dict (get $certs "regenerator") -}}
+{{- if (default false (get $regenerator "enabled")) }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -42,3 +45,4 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+{{- end }}

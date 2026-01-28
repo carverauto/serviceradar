@@ -45,6 +45,10 @@ natsCreds:
   platform: ""
   system: ""
   operator: ""
+certs:
+  regenerator:
+    # Disable by default to avoid unexpected cert rotation.
+    enabled: false
 checkerTemplates:
   # KV-backed checker template seeding is deprecated; leave disabled.
   enabled: false

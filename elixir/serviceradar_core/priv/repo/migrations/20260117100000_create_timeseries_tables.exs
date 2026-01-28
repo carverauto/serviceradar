@@ -408,20 +408,28 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
     # Check if TimescaleDB is available and table is not already a hypertable
     execute("""
     DO $$
+    DECLARE
+      ts_schema text;
     BEGIN
+      SELECT n.nspname
+      INTO ts_schema
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'timescaledb';
+
       -- Only try if TimescaleDB extension exists
-      IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+      IF ts_schema IS NOT NULL THEN
         -- Only convert if not already a hypertable
         IF NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_name = '#{table_name}'
           AND hypertable_schema = '#{prefix()}'
         ) THEN
-          PERFORM create_hypertable(
-            '#{prefix()}.#{table_name}'::regclass,
-            '#{time_column}',
-            migrate_data => true,
-            if_not_exists => true
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.#{table_name}',
+            '#{time_column}'
           );
           RAISE NOTICE 'Created hypertable for #{table_name}';
         END IF;
