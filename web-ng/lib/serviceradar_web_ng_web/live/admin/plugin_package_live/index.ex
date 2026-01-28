@@ -836,6 +836,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         upload_expires_at={@upload_expires_at}
         download_url={@download_url}
         download_expires_at={@download_expires_at}
+        plugins_base_path={@plugins_base_path}
       />
     </Layouts.app>
     """
