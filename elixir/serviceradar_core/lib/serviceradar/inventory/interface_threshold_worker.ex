@@ -88,7 +88,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         limit: 1
       )
 
-    ServiceRadar.Repo.exists?(query)
+    ServiceRadar.Repo.exists?(query, prefix: ObanSupport.prefix())
   end
 
   @impl Oban.Worker

@@ -255,6 +255,7 @@ if config_env() == :prod do
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
+    prefix: System.get_env("OBAN_SCHEMA", "platform"),
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),

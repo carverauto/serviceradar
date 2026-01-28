@@ -74,7 +74,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
         limit: 1
       )
 
-    Repo.exists?(query)
+    Repo.exists?(query, prefix: ObanSupport.prefix())
   end
 
   @impl Oban.Worker

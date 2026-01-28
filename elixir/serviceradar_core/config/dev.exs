@@ -63,6 +63,7 @@ config :serviceradar_core,
 config :serviceradar_core, Oban,
   engine: Oban.Engines.Basic,
   repo: ServiceRadar.Repo,
+  prefix: "platform",
   queues: [default: 10, alerts: 5, sweeps: 20, edge: 10, nats_accounts: 3],
   plugins: [
     Oban.Plugins.Pruner,

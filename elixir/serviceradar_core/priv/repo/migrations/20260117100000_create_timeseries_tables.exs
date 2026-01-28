@@ -417,7 +417,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
           WHERE hypertable_name = '#{table_name}'
           AND hypertable_schema = '#{prefix()}'
         ) THEN
-          PERFORM public.create_hypertable(
+          PERFORM create_hypertable(
             '#{prefix()}.#{table_name}'::regclass,
             '#{time_column}',
             migrate_data => true,

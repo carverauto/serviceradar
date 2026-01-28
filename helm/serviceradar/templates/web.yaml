@@ -99,7 +99,7 @@ spec:
         {{- end }}
         args:
         - |
-          set -euo pipefail
+          set -eu
           export PGPASSWORD="${CNPG_PASSWORD}"
           export PGSSLMODE="${CNPG_SSL_MODE:-disable}"
           if [ -n "${CNPG_CA_FILE:-}" ]; then

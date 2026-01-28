@@ -117,44 +117,7 @@ spec:
               key: cloak-key
         args:
         - |
-          set -euo pipefail
-
-          app_user="${CNPG_APP_USER:-serviceradar}"
-          app_pass="${CNPG_APP_PASSWORD:-}"
-          app_db="${CNPG_DATABASE:-serviceradar}"
-
-          if [ -z "${CNPG_PASSWORD:-}" ]; then
-            echo "CNPG superuser password missing" >&2
-            exit 1
-          fi
-          if [ -z "${app_pass}" ]; then
-            echo "CNPG app password missing" >&2
-            exit 1
-          fi
-
-          export PGPASSWORD="${CNPG_PASSWORD}"
-          export PGSSLMODE="${CNPG_SSL_MODE:-disable}"
-          if [ -n "${CNPG_CA_FILE:-}" ]; then
-            export PGSSLROOTCERT="${CNPG_CA_FILE}"
-          fi
-          if [ -n "${CNPG_CERT_FILE:-}" ] && [ -n "${CNPG_KEY_FILE:-}" ]; then
-            export PGSSLCERT="${CNPG_CERT_FILE}"
-            export PGSSLKEY="${CNPG_KEY_FILE}"
-          fi
-
-          psql -h "${CNPG_HOST}" -U "${CNPG_USERNAME}" -d postgres -v ON_ERROR_STOP=1 \
-            -v app_user="${app_user}" -v app_pass="${app_pass}" -v app_db="${app_db}" <<'EOSQL'
-          SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_pass')
-          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_user');
-          \gexec
-
-          SELECT format('CREATE DATABASE %I OWNER %I', :'app_db', :'app_user')
-          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'app_db');
-          \gexec
-
-          ALTER DATABASE :"app_db" OWNER TO :"app_user";
-          EOSQL
-
+          set -eu
           exec /app/bin/serviceradar_core_elx start
         volumeMounts:
         - name: cert-data

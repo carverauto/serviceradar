@@ -67,6 +67,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     bootstrap_app_role!(app_user, app_password)
     ensure_platform_schema!(app_user)
     sync_platform_schema_migrations!()
+    set_session_search_path!(search_path())
 
     Ecto.Migrator.run(
       ServiceRadar.Repo,
@@ -88,7 +89,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   defp repo_enabled? do
     Application.get_env(:serviceradar_core, :repo_enabled, true) &&
-      Process.whereis(ServiceRadar.Repo)
+      Process.whereis(ServiceRadar.Repo) != nil
   end
 
   defp oban_enabled? do
@@ -142,6 +143,12 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     if repo_enabled?() do
       ServiceRadar.Repo.query!("CREATE SCHEMA IF NOT EXISTS platform")
       ServiceRadar.Repo.query!("ALTER SCHEMA platform OWNER TO #{quote_ident(app_user)}")
+    end
+  end
+
+  defp set_session_search_path!(path) do
+    if repo_enabled?() do
+      ServiceRadar.Repo.query!("SET search_path TO #{path}")
     end
   end
 
