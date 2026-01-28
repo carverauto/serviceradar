@@ -10,10 +10,10 @@ The CNPG Docker Compose deployment MUST reach a healthy state on a clean `docker
 
 ## ADDED Requirements
 ### Requirement: Helm/Kubernetes bootstrap uses migration runner
-Kubernetes/Helm deployments MUST run Ash migrations through a privileged migration runner (Job or init container) using a dedicated secret, and MUST NOT rely on CNPG init SQL for ServiceRadar schema/bootstrap.
+Kubernetes/Helm deployments MUST run Ash migrations through a privileged migration runner (Job or init container) using a dedicated secret, MUST ensure the application database exists before migrations run, and MUST NOT rely on CNPG init SQL for ServiceRadar schema/bootstrap.
 
 #### Scenario: Helm deployment bootstraps schema
 - **GIVEN** a Helm install on a clean cluster
 - **WHEN** the CNPG cluster becomes ready
-- **THEN** a migration runner executes Ash migrations using the privileged role
+- **THEN** a migration runner ensures the ServiceRadar database exists and executes Ash migrations using the privileged role
 - **AND** core/web-ng start only after the migration runner completes

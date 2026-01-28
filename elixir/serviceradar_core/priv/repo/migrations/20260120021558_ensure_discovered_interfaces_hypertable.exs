@@ -9,16 +9,24 @@ defmodule ServiceRadar.Repo.Migrations.EnsureDiscoveredInterfacesHypertable do
     BEGIN
       table_ident := format('%I.%I', '#{prefix()}', 'discovered_interfaces');
 
-      EXECUTE format(
-        'SELECT create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
-        table_ident,
-        'timestamp'
-      );
+      IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')
+         AND EXISTS (
+           SELECT 1
+           FROM pg_tables
+           WHERE schemaname = '#{prefix()}'
+             AND tablename = 'discovered_interfaces'
+         ) THEN
+        EXECUTE format(
+          'SELECT public.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+          table_ident,
+          'timestamp'
+        );
 
-      EXECUTE format(
-        'SELECT add_retention_policy(%L::regclass, INTERVAL ''3 days'', if_not_exists => true)',
-        table_ident
-      );
+        EXECUTE format(
+          'SELECT public.add_retention_policy(%L::regclass, INTERVAL ''3 days'', if_not_exists => true)',
+          table_ident
+        );
+      END IF;
     END
     $$;
     """)
@@ -32,10 +40,12 @@ defmodule ServiceRadar.Repo.Migrations.EnsureDiscoveredInterfacesHypertable do
     BEGIN
       table_ident := format('%I.%I', '#{prefix()}', 'discovered_interfaces');
 
-      EXECUTE format(
-        'SELECT remove_retention_policy(%L::regclass, if_exists => true)',
-        table_ident
-      );
+      IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+        EXECUTE format(
+          'SELECT public.remove_retention_policy(%L::regclass, if_exists => true)',
+          table_ident
+        );
+      END IF;
     END
     $$;
     """)

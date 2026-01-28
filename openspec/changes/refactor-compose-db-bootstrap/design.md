@@ -14,6 +14,7 @@ Docker Compose currently bootstraps CNPG using init scripts that create roles, d
 ## Decisions
 - Decision: Use a dedicated migration runner in Docker Compose (one-shot core-elx service) and a core init container in Kubernetes to run migrations with a privileged role, then start app services with the app role. This avoids adding another standalone Job in k8s.
 - Decision: Remove ServiceRadar-specific SQL from CNPG init scripts; rely on migrations for extensions/schema and runtime bootstrap for role/search_path grants.
+- Decision: Ensure the migration runner creates the ServiceRadar application database if it is missing, without touching the SPIRE database, before running migrations.
 - Decision: Store privileged credentials in a dedicated secret/volume and scope access to the migration runner only (compose volume + k8s secret).
 
 ## Alternatives Considered

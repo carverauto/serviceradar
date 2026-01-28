@@ -6,6 +6,7 @@ The Docker Compose stack currently relies on CNPG init scripts to create Service
 ## What Changes
 - Introduce a privileged migration path in Docker Compose and Kubernetes (migration runner or privileged connection) so Ash migrations can create required roles, schema, and extensions.
 - Remove ServiceRadar-specific SQL from CNPG init scripts in the Docker Compose stack (and avoid duplicating it in Helm/K8s init hooks).
+- Ensure the privileged migration phase creates the ServiceRadar application database if it does not already exist, without touching the SPIRE database.
 - Keep application services running with the least-privilege database role; privileged access is limited to the migration phase.
 - Update compose ordering/healthchecks and k8s deployment ordering so migrations complete before core/web-ng start.
 

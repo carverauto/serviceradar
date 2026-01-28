@@ -61,6 +61,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   defp run_migrations! do
+    ensure_app_database_exists!(app_database())
+
     app_user = app_user()
     app_password = app_password!()
 
@@ -277,27 +279,55 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
       objects =
         ServiceRadar.Repo.query!(
-          "SELECT c.relname, c.relkind\n" <>
+          "SELECT c.oid, c.relname, c.relkind\n" <>
             "FROM pg_class c\n" <>
             "JOIN pg_namespace n ON n.oid = c.relnamespace\n" <>
             "WHERE n.nspname = 'platform'\n" <>
             "AND c.relkind IN ('r', 'S', 'v', 'm')"
         ).rows
 
-      Enum.each(objects, fn [name, kind] ->
+      Enum.each(objects, fn [oid, name, kind] ->
         statement =
           case kind do
             "r" -> "ALTER TABLE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
-            "S" -> "ALTER SEQUENCE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+            "S" ->
+              if sequence_owned_by_table?(oid) do
+                nil
+              else
+                "ALTER SEQUENCE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+              end
             "v" -> "ALTER VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
             "m" -> "ALTER MATERIALIZED VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
             _ -> nil
           end
 
         if statement do
-          ServiceRadar.Repo.query!(statement)
+          try do
+            ServiceRadar.Repo.query!(statement)
+          rescue
+            error ->
+              Logger.warning(
+                "[StartupMigrations] Skipping ownership update for #{name}: #{Exception.message(error)}"
+              )
+          end
         end
       end)
+    end
+  end
+
+  defp sequence_owned_by_table?(sequence_oid) do
+    case ServiceRadar.Repo.query!(
+           "SELECT 1\n" <>
+             "FROM pg_depend d\n" <>
+             "JOIN pg_class c ON c.oid = d.refobjid\n" <>
+             "WHERE d.objid = $1\n" <>
+             "AND d.deptype = 'a'\n" <>
+             "AND c.relkind = 'r'\n" <>
+             "LIMIT 1",
+           [sequence_oid]
+         ) do
+      %{rows: []} -> false
+      _ -> true
     end
   end
 
@@ -343,6 +373,131 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     case ServiceRadar.Repo.query!("SELECT to_regclass($1)", [qualified_table]) do
       %{rows: [[nil]]} -> false
       %{rows: [[_]]} -> true
+    end
+  end
+
+  defp ensure_app_database_exists!(database) do
+    admin_database = System.get_env("CNPG_ADMIN_DATABASE", "postgres")
+    {admin_user, admin_password} = admin_credentials!()
+    attempts = parse_int(System.get_env("SERVICERADAR_DB_BOOTSTRAP_ATTEMPTS"), 30)
+    delay_ms = parse_int(System.get_env("SERVICERADAR_DB_BOOTSTRAP_DELAY_MS"), 2000)
+
+    with_retry(attempts, delay_ms, fn ->
+      opts = [
+        hostname: System.get_env("CNPG_HOST", "localhost"),
+        port: parse_int(System.get_env("CNPG_PORT"), 5432),
+        username: admin_user,
+        password: admin_password,
+        database: admin_database,
+        ssl: admin_ssl_opts()
+      ]
+
+      case Postgrex.start_link(opts) do
+        {:ok, conn} ->
+          try do
+            %{rows: rows} =
+              Postgrex.query!(conn, "SELECT 1 FROM pg_database WHERE datname = $1", [database])
+
+            if rows == [] do
+              Logger.info("[StartupMigrations] Creating database #{database}")
+              Postgrex.query!(conn, "CREATE DATABASE #{quote_ident(database)}")
+            else
+              Logger.info("[StartupMigrations] Database #{database} already exists; skipping")
+            end
+
+            :ok
+          rescue
+            e in [DBConnection.ConnectionError, Postgrex.Error] ->
+              {:retry, e}
+          after
+            GenServer.stop(conn)
+          end
+
+        {:error, reason} ->
+          {:retry, reason}
+      end
+    end)
+  end
+
+  defp admin_credentials! do
+    admin_user = System.get_env("CNPG_USERNAME")
+
+    admin_password =
+      read_password_file(System.get_env("CNPG_PASSWORD_FILE")) ||
+        System.get_env("CNPG_PASSWORD")
+
+    cond do
+      admin_user not in [nil, ""] and admin_password not in [nil, ""] ->
+        {admin_user, admin_password}
+
+      admin_user in [nil, ""] and admin_password not in [nil, ""] ->
+        {app_user(), admin_password}
+
+      true ->
+        Logger.warning("[StartupMigrations] CNPG superuser credentials missing; falling back to app credentials")
+        {app_user(), app_password!()}
+    end
+  end
+
+  defp admin_ssl_opts do
+    case System.get_env("CNPG_SSL_MODE", "require") do
+      "disable" ->
+        false
+
+      mode ->
+        verify =
+          if mode in ["verify-full", "verify-ca"],
+            do: :verify_peer,
+            else: :verify_none
+
+        opts =
+          [verify: verify]
+          |> maybe_put(:cacertfile, System.get_env("CNPG_CA_FILE"))
+          |> maybe_put(:certfile, System.get_env("CNPG_CERT_FILE"))
+          |> maybe_put(:keyfile, System.get_env("CNPG_KEY_FILE"))
+          |> maybe_put(
+            :server_name_indication,
+            System.get_env("CNPG_TLS_SERVER_NAME") |> to_sni()
+          )
+
+        if opts == [], do: true, else: opts
+    end
+  end
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, _key, ""), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp to_sni(nil), do: nil
+  defp to_sni(""), do: nil
+  defp to_sni(value), do: String.to_charlist(value)
+
+  defp parse_int(nil, default), do: default
+  defp parse_int("", default), do: default
+
+  defp parse_int(value, default) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> default
+    end
+  end
+
+  defp with_retry(attempts, delay_ms, fun) when attempts > 0 do
+    case fun.() do
+      :ok ->
+        :ok
+
+      {:retry, reason} ->
+        if attempts == 1 do
+          raise RuntimeError, "failed to connect to admin database: #{inspect(reason)}"
+        else
+          Logger.warning(
+            "[StartupMigrations] Admin DB not ready; retrying in #{delay_ms}ms (#{attempts - 1} left)"
+          )
+
+          Process.sleep(delay_ms)
+          with_retry(attempts - 1, delay_ms, fun)
+        end
     end
   end
 end

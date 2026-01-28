@@ -78,7 +78,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "set -e; cp /etc/serviceradar/certs/db-superuser-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; PGPASSWORD=$(cat /etc/serviceradar/cnpg/superuser-password) PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-superuser.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U ${CNPG_SUPERUSER:-postgres} -d ${CNPG_DATABASE:-serviceradar}"
+          "set -e; cp /etc/serviceradar/certs/db-superuser-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; PGPASSWORD=$(cat /etc/serviceradar/cnpg/superuser-password) PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-superuser.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U ${CNPG_SUPERUSER:-postgres} -d ${CNPG_ADMIN_DATABASE:-postgres}"
         ]
       interval: 10s
       timeout: 5s

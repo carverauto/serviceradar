@@ -1,9 +1,10 @@
 ## 1. Implementation
 - [x] 1.1 Decide migration runner approach (compose one-shot + core init container) and document in design.md
 - [ ] 1.2 Add privileged migration configuration to Docker Compose (credentials + runner)
-- [ ] 1.3 Remove ServiceRadar-specific SQL from compose CNPG init scripts
+- [x] 1.3 Remove ServiceRadar-specific SQL from compose CNPG init scripts
 - [ ] 1.4 Update docker-compose.yml and any overlays that include CNPG services
 - [ ] 1.5 Add privileged migration configuration to Helm/Kubernetes (secret + Job/init container)
+- [x] 1.5.1 Ensure migration runner creates the ServiceRadar database if missing before migrations run
 - [ ] 1.6 Update Helm values/manifests to gate core/web-ng on migration completion
 - [ ] 1.7 Ensure core/web-ng/datasvc use least-privilege app role in compose and k8s
 - [ ] 1.8 Update docs/runbooks for compose + k8s boot expectations
