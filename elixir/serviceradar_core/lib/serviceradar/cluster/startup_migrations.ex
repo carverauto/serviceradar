@@ -11,7 +11,9 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   require Logger
 
-  @migrations_complete_marker "/tmp/serviceradar_migrations_complete"
+  @default_marker_path "/tmp/serviceradar_migrations_complete"
+  @default_search_path "platform, ag_catalog"
+  @default_app_user "serviceradar"
 
   def child_spec(_opts) do
     %{
@@ -50,11 +52,20 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
     write_migrations_marker()
 
+    if migration_only?() do
+      Logger.info("[StartupMigrations] Migration-only mode enabled; shutting down")
+      System.stop(0)
+    end
+
     :ok
   end
 
   defp run_migrations! do
-    ensure_platform_schema!()
+    app_user = app_user()
+    app_password = app_password!()
+
+    bootstrap_app_role!(app_user, app_password)
+    ensure_platform_schema!(app_user)
     sync_platform_schema_migrations!()
 
     Ecto.Migrator.run(
@@ -64,6 +75,10 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       all: true,
       prefix: "platform"
     )
+
+    ensure_platform_ownership!(app_user)
+    ensure_database_search_path!(app_user, app_database(), search_path())
+    ensure_ag_catalog_privileges!(app_user)
   end
 
   defp migrations_enabled? do
@@ -123,14 +138,15 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     raise RuntimeError, "public schema has ServiceRadar tables: #{tables}"
   end
 
-  defp ensure_platform_schema! do
+  defp ensure_platform_schema!(app_user) do
     if repo_enabled?() do
       ServiceRadar.Repo.query!("CREATE SCHEMA IF NOT EXISTS platform")
+      ServiceRadar.Repo.query!("ALTER SCHEMA platform OWNER TO #{quote_ident(app_user)}")
     end
   end
 
   defp clear_migrations_marker do
-    case File.rm(@migrations_complete_marker) do
+    case File.rm(migrations_marker_path()) do
       :ok -> :ok
       {:error, :enoent} -> :ok
       {:error, reason} -> Logger.warning("Failed to clear migrations marker: #{inspect(reason)}")
@@ -138,10 +154,166 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   defp write_migrations_marker do
-    case File.write(@migrations_complete_marker, "#{DateTime.utc_now()}\n") do
+    case File.write(migrations_marker_path(), "#{DateTime.utc_now()}\n") do
       :ok -> :ok
       {:error, reason} -> Logger.warning("Failed to write migrations marker: #{inspect(reason)}")
     end
+  end
+
+  defp migrations_marker_path do
+    System.get_env("SERVICERADAR_MIGRATIONS_MARKER_PATH", @default_marker_path)
+  end
+
+  defp migration_only? do
+    System.get_env("SERVICERADAR_MIGRATION_ONLY", "false") in ~w(true 1 yes)
+  end
+
+  defp app_user do
+    System.get_env("CNPG_APP_USER") ||
+      sanitize_app_user(System.get_env("CNPG_USERNAME")) ||
+      @default_app_user
+  end
+
+  defp sanitize_app_user(nil), do: nil
+  defp sanitize_app_user(""), do: nil
+  defp sanitize_app_user("postgres"), do: nil
+  defp sanitize_app_user(value), do: value
+
+  defp app_database do
+    System.get_env("CNPG_DATABASE", "serviceradar")
+  end
+
+  defp search_path do
+    System.get_env("CNPG_SEARCH_PATH", @default_search_path)
+  end
+
+  defp app_password! do
+    password =
+      read_password_file(System.get_env("CNPG_APP_PASSWORD_FILE")) ||
+        read_password_file(System.get_env("CNPG_PASSWORD_FILE")) ||
+        System.get_env("CNPG_APP_PASSWORD") ||
+        System.get_env("CNPG_PASSWORD")
+
+    if password in [nil, ""] do
+      raise RuntimeError, "missing CNPG app password (CNPG_APP_PASSWORD[_FILE] or CNPG_PASSWORD[_FILE])"
+    end
+
+    password
+  end
+
+  defp read_password_file(nil), do: nil
+
+  defp read_password_file(path) do
+    case File.read(path) do
+      {:ok, value} ->
+        value = String.trim(value)
+        if value == "", do: nil, else: value
+
+      {:error, _} ->
+        nil
+    end
+  end
+
+  defp bootstrap_app_role!(app_user, app_password) do
+    if repo_enabled?() do
+      if role_exists?(app_user) do
+        ServiceRadar.Repo.query!(
+          "ALTER ROLE #{quote_ident(app_user)} WITH PASSWORD #{quote_literal(app_password)}"
+        )
+      else
+        ServiceRadar.Repo.query!(
+          "CREATE ROLE #{quote_ident(app_user)} LOGIN PASSWORD #{quote_literal(app_password)}"
+        )
+      end
+
+      ServiceRadar.Repo.query!(
+        "ALTER DATABASE #{quote_ident(app_database())} OWNER TO #{quote_ident(app_user)}"
+      )
+    end
+  end
+
+  defp ensure_database_search_path!(app_user, database, search_path) do
+    if repo_enabled?() do
+      ServiceRadar.Repo.query!(
+        "ALTER DATABASE #{quote_ident(database)} SET search_path TO #{quote_literal(search_path)}"
+      )
+
+      ServiceRadar.Repo.query!(
+        "ALTER ROLE #{quote_ident(app_user)} SET search_path TO #{quote_literal(search_path)}"
+      )
+    end
+  end
+
+  defp ensure_ag_catalog_privileges!(app_user) do
+    if repo_enabled?() and schema_exists?("ag_catalog") do
+      ServiceRadar.Repo.query!(
+        "GRANT USAGE ON SCHEMA ag_catalog TO #{quote_ident(app_user)}"
+      )
+
+      ServiceRadar.Repo.query!(
+        "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}"
+      )
+
+      ServiceRadar.Repo.query!(
+        "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}"
+      )
+
+      ServiceRadar.Repo.query!(
+        "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO #{quote_ident(app_user)}"
+      )
+    end
+  end
+
+  defp ensure_platform_ownership!(app_user) do
+    if repo_enabled?() do
+      ServiceRadar.Repo.query!("ALTER SCHEMA platform OWNER TO #{quote_ident(app_user)}")
+
+      objects =
+        ServiceRadar.Repo.query!(
+          "SELECT c.relname, c.relkind\n" <>
+            "FROM pg_class c\n" <>
+            "JOIN pg_namespace n ON n.oid = c.relnamespace\n" <>
+            "WHERE n.nspname = 'platform'\n" <>
+            "AND c.relkind IN ('r', 'S', 'v', 'm')"
+        ).rows
+
+      Enum.each(objects, fn [name, kind] ->
+        statement =
+          case kind do
+            "r" -> "ALTER TABLE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+            "S" -> "ALTER SEQUENCE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+            "v" -> "ALTER VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+            "m" -> "ALTER MATERIALIZED VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+            _ -> nil
+          end
+
+        if statement do
+          ServiceRadar.Repo.query!(statement)
+        end
+      end)
+    end
+  end
+
+  defp role_exists?(role_name) do
+    case ServiceRadar.Repo.query!("SELECT 1 FROM pg_roles WHERE rolname = $1", [role_name]) do
+      %{rows: []} -> false
+      _ -> true
+    end
+  end
+
+  defp schema_exists?(schema_name) do
+    case ServiceRadar.Repo.query!("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schema_name]) do
+      %{rows: []} -> false
+      _ -> true
+    end
+  end
+
+  defp quote_ident(value) do
+    ~s("#{String.replace(value, "\"", "\"\"")}")
+  end
+
+  defp quote_literal(value) do
+    "'#{String.replace(value, "'", "''")}'"
   end
 
   defp sync_platform_schema_migrations! do

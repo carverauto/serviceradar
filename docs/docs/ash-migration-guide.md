@@ -90,8 +90,11 @@ Run migrations:
 mix ash.migrate
 ```
 
-If you rely on core-elx startup migrations, `ServiceRadar.Cluster.StartupMigrations`
-will run the configured migration path when `SERVICERADAR_CORE_RUN_MIGRATIONS=true`.
+If you rely on core-elx startup migrations, the migration runner (Helm init
+container or compose one-shot) invokes `ServiceRadar.Cluster.StartupMigrations`
+with `SERVICERADAR_CORE_RUN_MIGRATIONS=true`. You can still set the env var on
+the core container to force it to run migrations, but the default path is the
+dedicated migration runner.
 
 ### Data Migrations
 

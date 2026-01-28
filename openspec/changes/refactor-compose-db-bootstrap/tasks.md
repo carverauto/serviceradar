@@ -1,5 +1,5 @@
 ## 1. Implementation
-- [ ] 1.1 Decide migration runner approach (one-shot container vs core-elx flag) and document in design.md
+- [x] 1.1 Decide migration runner approach (compose one-shot + core init container) and document in design.md
 - [ ] 1.2 Add privileged migration configuration to Docker Compose (credentials + runner)
 - [ ] 1.3 Remove ServiceRadar-specific SQL from compose CNPG init scripts
 - [ ] 1.4 Update docker-compose.yml and any overlays that include CNPG services

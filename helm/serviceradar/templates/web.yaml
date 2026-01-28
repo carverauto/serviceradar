@@ -18,6 +18,8 @@
 {{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
 {{- $webNgSA := default "serviceradar-web-ng" .Values.spire.webNgServiceAccount -}}
 {{- $coreVals := default (dict) .Values.core -}}
+{{- $migrationVals := default (dict) $coreVals.migrations -}}
+{{- $migrationsEnabled := default true $migrationVals.enabled -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $gatewayVals := default (dict) .Values.agentGateway -}}
 {{- $gatewayServiceName := "serviceradar-agent-gateway" -}}
@@ -62,6 +64,70 @@ spec:
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ $webNgSA }}
+      {{- if $migrationsEnabled }}
+      initContainers:
+      - name: wait-migrations
+        image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        env:
+        - name: CNPG_HOST
+          value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
+        - name: CNPG_PORT
+          value: {{ default 5432 $cnpg.port | quote }}
+        - name: CNPG_DATABASE
+          value: {{ default "serviceradar" $cnpg.database | quote }}
+        - name: CNPG_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: username
+        - name: CNPG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: password
+        - name: CNPG_SSL_MODE
+          value: {{ default "verify-full" $cnpg.sslmode | quote }}
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        {{- if $cnpg.requireClientCert }}
+        - name: CNPG_CERT_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
+        - name: CNPG_KEY_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+        {{- end }}
+        args:
+        - |
+          set -euo pipefail
+          export PGPASSWORD="${CNPG_PASSWORD}"
+          export PGSSLMODE="${CNPG_SSL_MODE:-disable}"
+          if [ -n "${CNPG_CA_FILE:-}" ]; then
+            export PGSSLROOTCERT="${CNPG_CA_FILE}"
+          fi
+          if [ -n "${CNPG_CERT_FILE:-}" ] && [ -n "${CNPG_KEY_FILE:-}" ]; then
+            export PGSSLCERT="${CNPG_CERT_FILE}"
+            export PGSSLKEY="${CNPG_KEY_FILE}"
+          fi
+          echo "Waiting for platform schema migrations..."
+          for i in $(seq 1 120); do
+            if psql -h "${CNPG_HOST}" -U "${CNPG_USERNAME}" -d "${CNPG_DATABASE}" -c "SELECT 1 FROM platform.schema_migrations LIMIT 1" >/dev/null 2>&1; then
+              echo "Migrations detected."
+              exit 0
+            fi
+            echo "Waiting for migrations... ($i/120)"
+            sleep 2
+          done
+          echo "Timed out waiting for migrations." >&2
+          exit 1
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: {{ $cnpgClusterName }}-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
+      {{- end }}
       containers:
       - name: web-ng
         image: ghcr.io/carverauto/serviceradar-web-ng:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "webNg") }}

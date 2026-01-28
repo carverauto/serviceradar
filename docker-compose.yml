@@ -70,7 +70,6 @@ services:
       - "${CNPG_PUBLIC_BIND:-127.0.0.1}:${CNPG_PUBLIC_PORT:-5455}:5432"
     volumes:
       - cnpg-data:/var/lib/postgresql/data
-      - ./docker/compose/cnpg-init.sh:/docker-entrypoint-initdb.d/001-init.sh:ro
       - cert-data:/etc/serviceradar/certs:ro
       - cnpg-credentials:/etc/serviceradar/cnpg:ro
       - ./docker/compose/pg_hba.conf:/etc/serviceradar/pg_hba.conf:ro
@@ -79,7 +78,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "set -e; cp /etc/serviceradar/certs/db-client-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; PGPASSWORD=$(cat /etc/serviceradar/cnpg/serviceradar-password) PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-client.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar}"
+          "set -e; cp /etc/serviceradar/certs/db-superuser-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; PGPASSWORD=$(cat /etc/serviceradar/cnpg/superuser-password) PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-superuser.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U ${CNPG_SUPERUSER:-postgres} -d ${CNPG_DATABASE:-serviceradar}"
         ]
       interval: 10s
       timeout: 5s
@@ -91,41 +90,6 @@ services:
           - cnpg
           - cnpg-rw
     restart: unless-stopped
-
-  cnpg-password-sync:
-    image: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3
-    container_name: serviceradar-cnpg-password-sync
-    user: "0:0"
-    depends_on:
-      cnpg:
-        condition: service_healthy
-      db-credentials:
-        condition: service_completed_successfully
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-    environment:
-      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
-      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
-      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
-      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - cnpg-credentials:/etc/serviceradar/cnpg:ro
-    command: >
-      sh -c 'set -e;
-      cp /etc/serviceradar/certs/db-client-key.pem /tmp/pg_sync.key;
-      chmod 600 /tmp/pg_sync.key;
-      PGPASSWORD="$$(cat /etc/serviceradar/cnpg/serviceradar-password)" \
-      PGSSLMODE=verify-full \
-      PGSSLROOTCERT=/etc/serviceradar/certs/root.pem \
-      PGSSLCERT=/etc/serviceradar/certs/db-client.pem \
-      PGSSLKEY=/tmp/pg_sync.key \
-      psql -h "$${CNPG_HOST}" -U "$${CNPG_USERNAME}" -d "$${CNPG_DATABASE}" \
-        -c "ALTER ROLE $${CNPG_USERNAME} WITH PASSWORD '\''$$(cat /etc/serviceradar/cnpg/serviceradar-password)'\'';";
-      echo "CNPG app password synced."'
-    restart: "no"
-    networks:
-      - serviceradar-net
 
   cert-permissions-fixer:
     image: alpine:3.20
@@ -174,6 +138,49 @@ services:
     networks:
       - serviceradar-net
 
+  core-elx-migrations:
+    image: ghcr.io/carverauto/serviceradar-core-elx:${APP_TAG:-latest}
+    container_name: serviceradar-core-elx-migrations
+    hostname: core-elx-migrations
+    environment:
+      - CLUSTER_ENABLED=false
+      - SERVICERADAR_CORE_REPO_ENABLED=true
+      - SERVICERADAR_CORE_OBAN_ENABLED=false
+      - SERVICERADAR_CORE_RUN_MIGRATIONS=true
+      - SERVICERADAR_MIGRATION_ONLY=true
+      - SERVICERADAR_MIGRATIONS_MARKER_PATH=/var/lib/serviceradar/migrations/complete
+      - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME=${CNPG_SUPERUSER:-postgres}
+      - CNPG_PASSWORD_FILE=/etc/serviceradar/cnpg/superuser-password
+      - CNPG_APP_USER=${CNPG_APP_USER:-serviceradar}
+      - CNPG_APP_PASSWORD_FILE=/etc/serviceradar/cnpg/serviceradar-password
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - CNPG_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-superuser.pem
+      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-superuser-key.pem
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - cloak-key:/etc/serviceradar/cloak:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
+      - migrations-data:/var/lib/serviceradar/migrations
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      cloak-keygen:
+        condition: service_completed_successfully
+      db-credentials:
+        condition: service_completed_successfully
+      cnpg:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   core-elx:
     image: ghcr.io/carverauto/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-mtls
@@ -191,7 +198,8 @@ services:
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
       - SERVICERADAR_CORE_OBAN_ENABLED=${SERVICERADAR_CORE_OBAN_ENABLED:-true}
       - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
-      - SERVICERADAR_CORE_RUN_MIGRATIONS=${SERVICERADAR_CORE_RUN_MIGRATIONS:-true}
+      - SERVICERADAR_CORE_RUN_MIGRATIONS=${SERVICERADAR_CORE_RUN_MIGRATIONS:-false}
+      - SERVICERADAR_MIGRATIONS_MARKER_PATH=/var/lib/serviceradar/migrations/complete
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-false}
       - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
       - POOL_SIZE=${POOL_SIZE:-40}
@@ -235,22 +243,23 @@ services:
       - cloak-key:/etc/serviceradar/cloak:ro
       - cnpg-credentials:/etc/serviceradar/cnpg:ro
       - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
+      - migrations-data:/var/lib/serviceradar/migrations
     depends_on:
       cert-permissions-fixer:
         condition: service_completed_successfully
       cloak-keygen:
         condition: service_completed_successfully
+      core-elx-migrations:
+        condition: service_completed_successfully
       cnpg:
         condition: service_healthy
-      cnpg-password-sync:
-        condition: service_completed_successfully
       nats:
         condition: service_started
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "test -f /tmp/serviceradar_migrations_complete && /app/bin/serviceradar_core_elx pid"
+          "test -f ${SERVICERADAR_MIGRATIONS_MARKER_PATH:-/tmp/serviceradar_migrations_complete} && /app/bin/serviceradar_core_elx pid"
         ]
       interval: 30s
       timeout: 15s
@@ -639,7 +648,7 @@ services:
         condition: service_started
       cnpg:
         condition: service_healthy
-      cnpg-password-sync:
+      core-elx-migrations:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wait-for-port --host 127.0.0.1 --port 50041 --attempts 1 --interval 1s --quiet"]
@@ -718,7 +727,7 @@ services:
         condition: service_completed_successfully
       cnpg:
         condition: service_healthy
-      cnpg-password-sync:
+      core-elx-migrations:
         condition: service_completed_successfully
       core-elx:
         condition: service_healthy
@@ -774,6 +783,8 @@ volumes:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cloak-key"
   admin-creds:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_admin-creds"
+  migrations-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_migrations-data"
   plugin-packages:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_plugin-packages"
   logs:

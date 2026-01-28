@@ -12,8 +12,8 @@ Docker Compose currently bootstraps CNPG using init scripts that create roles, d
   - Broad database privilege redesign beyond compose bootstrap.
 
 ## Decisions
-- Decision: Use a dedicated migration runner (compose one-shot + k8s Job or init container) to execute Ash migrations with a privileged role, then start application services with the app role.
-- Decision: Keep CNPG init scripts for base database creation only (or remove entirely if compose can fully rely on migrations).
+- Decision: Use a dedicated migration runner in Docker Compose (one-shot core-elx service) and a core init container in Kubernetes to run migrations with a privileged role, then start app services with the app role. This avoids adding another standalone Job in k8s.
+- Decision: Remove ServiceRadar-specific SQL from CNPG init scripts; rely on migrations for extensions/schema and runtime bootstrap for role/search_path grants.
 - Decision: Store privileged credentials in a dedicated secret/volume and scope access to the migration runner only (compose volume + k8s secret).
 
 ## Alternatives Considered
@@ -33,6 +33,4 @@ Docker Compose currently bootstraps CNPG using init scripts that create roles, d
 6. Verify Helm/k8s boot completes with migrations and healthy services.
 
 ## Open Questions
-- Should the migration runner live in core-elx (flagged by env) or be a separate one-shot container?
 - What minimal privileges are needed for migration role (extensions + schema ownership)?
-- In k8s, is a Job acceptable or should core/web-ng wait on an init container?
