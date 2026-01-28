@@ -25,8 +25,8 @@
     "output": "stdout",
     "time_format": "",
     "otel": {
-      "enabled": true,
-      "endpoint": "127.0.0.1:4317",
+      "enabled": false,
+      "endpoint": "",
       "service_name": "serviceradar-agent",
       "batch_timeout": "5s",
       "insecure": false,
