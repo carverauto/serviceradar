@@ -30,8 +30,11 @@ ingress:
   className: nginx
   tls:
     enabled: true
-    secretName: serviceradar-prod-tls
-    clusterIssuer: carverauto-issuer
+    # Use the wildcard cert from ingress-nginx namespace via default SSL cert.
+    # Do NOT set clusterIssuer - it triggers cert-manager which hits rate limits
+    # when namespaces are frequently recreated.
+    secretName: ""
+    clusterIssuer: ""
 
 webNg:
   devRoutes: "true"
