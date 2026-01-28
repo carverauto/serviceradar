@@ -22,6 +22,7 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.StatefulAlertRuleState
   alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.ObanSupport
 
   import Ash.Expr
   import Ecto.Query, only: [from: 2]
@@ -58,7 +59,7 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
         limit: 1
       )
 
-    Repo.exists?(query)
+    Repo.exists?(query, prefix: ObanSupport.prefix())
   end
 
   @impl Oban.Worker

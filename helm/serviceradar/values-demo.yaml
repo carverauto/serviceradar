@@ -1,42 +1,17 @@
-# Demo (Production) Environment Values
+# Demo Environment Values
 # Consumed by ArgoCD via Helm `valueFiles`.
 
 namespace: demo
 
 global:
-  imagePullPolicy: IfNotPresent
+  imageTag: "latest"
+  imagePullPolicy: Always
 
 image:
   registryPullSecret: ghcr-io-cred
 
-ingress:
+agentGateway:
   enabled: true
-  host: demo.serviceradar.cloud
-  className: nginx
-  annotations:
-    metallb.universe.tf/allow-shared-ip: "true"
-    metallb.universe.tf/address-pool: k3s-pool
-    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
-    nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
-    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
-    nginx.ingress.kubernetes.io/proxy-busy-buffers-size: "256k"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
-  tls:
-    enabled: true
-    secretName: serviceradar-prod-tls
-    clusterIssuer: carverauto-issuer
-
-webNg:
-  publicUrl: "https://demo.serviceradar.cloud"
-  pluginStorage:
-    enabled: true
-    basePath: "/var/lib/serviceradar/plugin-packages"
-    existingClaim: ""
-    size: 10Gi
-    storageClassName: ""
-    downloadTtlSeconds: 86400
 
 agent:
   pushInterval: "30s"
@@ -49,9 +24,33 @@ agent:
     size: 2Gi
     storageClassName: ""
 
+ingress:
+  enabled: true
+  host: demo.serviceradar.cloud
+  className: nginx
+  tls:
+    enabled: true
+    # Use the wildcard cert from ingress-nginx namespace via default SSL cert.
+    # Do NOT set clusterIssuer - it triggers cert-manager which hits rate limits
+    # when namespaces are frequently recreated.
+    secretName: ""
+    clusterIssuer: ""
+
+webNg:
+  devRoutes: "true"
+  localMailer: "true"
+  publicUrl: "https://demo.serviceradar.cloud"
+  pluginStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/plugin-packages"
+    existingClaim: ""
+    size: 10Gi
+    storageClassName: ""
+    downloadTtlSeconds: 86400
+
 faker:
   simulation:
-    totalDevices: 50000
+    totalDevices: 1000
     ipShuffle:
       enabled: true
       interval: "10m"
@@ -60,10 +59,13 @@ faker:
       allowExpansion: false
       poolHeadroomPercent: 0
 
-cnpg:
-  clientCASecret: serviceradar-cnpg-client-ca
-  clientCAFromCerts: true
-  requireClientCert: true
+# Temporarily disabled client CA for initial testing - there's a circular dependency
+# where CNPG needs the client CA secret, but the job that creates it
+# runs post-install and needs CNPG to be running first.
+# cnpg:
+#   clientCASecret: serviceradar-cnpg-client-ca
+#   clientCAFromCerts: true
+#   requireClientCert: true
 
 spire:
   enabled: true
@@ -73,7 +75,7 @@ spire:
     enabled: true
     clusterName: cnpg
     instances: 3
-    storageSize: 100Gi
+    storageSize: 10Gi
 
 flowgger:
   externalService:

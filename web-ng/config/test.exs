@@ -79,7 +79,9 @@ config :serviceradar_core, ServiceRadar.Repo,
       (System.get_env("MIX_TEST_PARTITION") || ""),
   ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  pool_size: System.schedulers_online() * 2,
+  parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
+  types: ServiceRadar.PostgresTypes
 
 config :serviceradar_core,
   datasvc_enabled: false,

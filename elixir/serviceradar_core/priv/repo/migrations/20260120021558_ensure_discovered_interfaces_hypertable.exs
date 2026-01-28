@@ -6,19 +6,42 @@ defmodule ServiceRadar.Repo.Migrations.EnsureDiscoveredInterfacesHypertable do
     DO $$
     DECLARE
       table_ident text;
+      ts_schema text;
     BEGIN
       table_ident := format('%I.%I', '#{prefix()}', 'discovered_interfaces');
+      SELECT n.nspname
+      INTO ts_schema
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'timescaledb';
 
-      EXECUTE format(
-        'SELECT public.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
-        table_ident,
-        'timestamp'
-      );
+      IF ts_schema IS NOT NULL
+         AND EXISTS (
+           SELECT 1
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+           WHERE p.proname = 'create_hypertable'
+             AND n.nspname = ts_schema
+         )
+         AND EXISTS (
+           SELECT 1
+           FROM pg_tables
+           WHERE schemaname = '#{prefix()}'
+             AND tablename = 'discovered_interfaces'
+         ) THEN
+        EXECUTE format(
+          'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+          ts_schema,
+          table_ident,
+          'timestamp'
+        );
 
-      EXECUTE format(
-        'SELECT public.add_retention_policy(%L::regclass, INTERVAL ''3 days'', if_not_exists => true)',
-        table_ident
-      );
+        EXECUTE format(
+          'SELECT %I.add_retention_policy(%L::regclass, INTERVAL ''3 days'', if_not_exists => true)',
+          ts_schema,
+          table_ident
+        );
+      END IF;
     END
     $$;
     """)
@@ -29,13 +52,22 @@ defmodule ServiceRadar.Repo.Migrations.EnsureDiscoveredInterfacesHypertable do
     DO $$
     DECLARE
       table_ident text;
+      ts_schema text;
     BEGIN
       table_ident := format('%I.%I', '#{prefix()}', 'discovered_interfaces');
+      SELECT n.nspname
+      INTO ts_schema
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'timescaledb';
 
-      EXECUTE format(
-        'SELECT public.remove_retention_policy(%L::regclass, if_exists => true)',
-        table_ident
-      );
+      IF ts_schema IS NOT NULL THEN
+        EXECUTE format(
+          'SELECT %I.remove_retention_policy(%L::regclass, if_exists => true)',
+          ts_schema,
+          table_ident
+        );
+      END IF;
     END
     $$;
     """)

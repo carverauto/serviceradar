@@ -38,30 +38,6 @@
   {{- $imageTag := default "latest" $pg.imageTag }}
   {{- $imageName = printf "%s:%s" $imageRepo $imageTag }}
 {{- end }}
-{{- $baseSQL := default (list "CREATE EXTENSION IF NOT EXISTS timescaledb;" "CREATE EXTENSION IF NOT EXISTS age;") $pg.extensionsSQL }}
-{{- $appSchema := default "platform" $cnpg.schema -}}
-{{- $serviceradarSQL := list
-  (printf "CREATE ROLE serviceradar WITH LOGIN PASSWORD '%s';" $appPass)
-  "CREATE DATABASE serviceradar OWNER serviceradar;"
-  "CREATE EXTENSION IF NOT EXISTS dblink;"
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS timescaledb');")
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS age');")
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS pg_trgm');")
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS pgcrypto');")
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements');")
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE SCHEMA IF NOT EXISTS %s AUTHORIZATION serviceradar');" $appSchema)
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'GRANT ALL ON SCHEMA %s TO serviceradar');" $appSchema)
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'ALTER DATABASE serviceradar SET search_path TO %s,ag_catalog');" $appSchema)
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'ALTER ROLE serviceradar SET search_path TO %s,ag_catalog');" $appSchema)
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'ALTER TABLE IF EXISTS %s.oban_jobs OWNER TO serviceradar');" $appSchema)
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'ALTER TABLE IF EXISTS %s.oban_peers OWNER TO serviceradar');" $appSchema)
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'ALTER SEQUENCE IF EXISTS %s.oban_jobs_id_seq OWNER TO serviceradar');" $appSchema)
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'GRANT USAGE ON SCHEMA ag_catalog TO serviceradar');")
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO serviceradar');")
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO serviceradar');")
-  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO serviceradar');")
-}}
-{{- $postInitSQL := concat $baseSQL $serviceradarSQL }}
 {{- $sharedPreload := $pg.sharedPreloadLibraries }}
 {{- if not $sharedPreload }}
   {{- $sharedPreload = list "timescaledb" "age" }}
@@ -144,12 +120,6 @@ spec:
       owner: {{ default "spire" $pg.username }}
       secret:
         name: {{ $pg.secretName }}
-      {{- if $postInitSQL }}
-      postInitApplicationSQL:
-        {{- range $stmt := $postInitSQL }}
-        - {{ $stmt | quote }}
-        {{- end }}
-      {{- end }}
   postgresql:
     {{- if $sharedPreload }}
     shared_preload_libraries:

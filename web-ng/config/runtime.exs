@@ -505,7 +505,9 @@ if config_env() == :prod do
     url: repo_url,
     ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
-    socket_options: maybe_ipv6
+    socket_options: maybe_ipv6,
+    parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
+    types: ServiceRadar.PostgresTypes
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

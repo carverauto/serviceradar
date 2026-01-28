@@ -28,7 +28,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
   def up do
     # Create events table (CloudEvents-style activity log)
     execute("""
-    CREATE TABLE IF NOT EXISTS events (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.events (
       event_timestamp TIMESTAMPTZ NOT NULL,
       specversion     TEXT,
       id              TEXT        NOT NULL,
@@ -50,7 +50,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create logs table (OpenTelemetry logs)
     execute("""
-    CREATE TABLE IF NOT EXISTS logs (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.logs (
       timestamp           TIMESTAMPTZ NOT NULL,
       id                  UUID        NOT NULL DEFAULT gen_random_uuid(),
       trace_id            TEXT,
@@ -72,7 +72,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create service_status table
     execute("""
-    CREATE TABLE IF NOT EXISTS service_status (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.service_status (
       timestamp    TIMESTAMPTZ NOT NULL,
       gateway_id   TEXT        NOT NULL,
       agent_id     TEXT,
@@ -89,7 +89,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create otel_traces table (OpenTelemetry traces/spans)
     execute("""
-    CREATE TABLE IF NOT EXISTS otel_traces (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.otel_traces (
       timestamp            TIMESTAMPTZ NOT NULL,
       trace_id             TEXT,
       span_id              TEXT        NOT NULL,
@@ -116,7 +116,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create otel_metrics table (OpenTelemetry metrics derived from traces)
     execute("""
-    CREATE TABLE IF NOT EXISTS otel_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.otel_metrics (
       timestamp        TIMESTAMPTZ NOT NULL,
       trace_id         TEXT,
       span_id          TEXT,
@@ -143,7 +143,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create timeseries_metrics table (generic time-series metrics)
     execute("""
-    CREATE TABLE IF NOT EXISTS timeseries_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.timeseries_metrics (
       timestamp        TIMESTAMPTZ NOT NULL,
       gateway_id       TEXT        NOT NULL,
       agent_id         TEXT,
@@ -166,7 +166,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create cpu_metrics table
     execute("""
-    CREATE TABLE IF NOT EXISTS cpu_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.cpu_metrics (
       timestamp     TIMESTAMPTZ NOT NULL,
       gateway_id    TEXT        NOT NULL,
       agent_id      TEXT,
@@ -185,7 +185,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create disk_metrics table
     execute("""
-    CREATE TABLE IF NOT EXISTS disk_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.disk_metrics (
       timestamp       TIMESTAMPTZ NOT NULL,
       gateway_id      TEXT        NOT NULL DEFAULT '',
       agent_id        TEXT,
@@ -205,7 +205,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create memory_metrics table
     execute("""
-    CREATE TABLE IF NOT EXISTS memory_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.memory_metrics (
       timestamp       TIMESTAMPTZ NOT NULL,
       gateway_id      TEXT        NOT NULL DEFAULT '',
       agent_id        TEXT,
@@ -223,7 +223,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create process_metrics table
     execute("""
-    CREATE TABLE IF NOT EXISTS process_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.process_metrics (
       timestamp    TIMESTAMPTZ NOT NULL,
       gateway_id   TEXT        NOT NULL DEFAULT '',
       agent_id     TEXT,
@@ -243,7 +243,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create device_updates table (device history log)
     execute("""
-    CREATE TABLE IF NOT EXISTS device_updates (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.device_updates (
       observed_at      TIMESTAMPTZ NOT NULL,
       agent_id         TEXT        NOT NULL DEFAULT '',
       gateway_id       TEXT        NOT NULL DEFAULT '',
@@ -262,7 +262,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create otel_metrics_hourly_stats table (pre-computed hourly stats for analytics)
     execute("""
-    CREATE TABLE IF NOT EXISTS otel_metrics_hourly_stats (
+    CREATE TABLE IF NOT EXISTS #{prefix()}.otel_metrics_hourly_stats (
       bucket           TIMESTAMPTZ NOT NULL,
       service_name     TEXT        NOT NULL DEFAULT '',
       total_count      BIGINT      NOT NULL DEFAULT 0,
@@ -408,20 +408,28 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
     # Check if TimescaleDB is available and table is not already a hypertable
     execute("""
     DO $$
+    DECLARE
+      ts_schema text;
     BEGIN
+      SELECT n.nspname
+      INTO ts_schema
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'timescaledb';
+
       -- Only try if TimescaleDB extension exists
-      IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+      IF ts_schema IS NOT NULL THEN
         -- Only convert if not already a hypertable
         IF NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_name = '#{table_name}'
           AND hypertable_schema = '#{prefix()}'
         ) THEN
-          PERFORM public.create_hypertable(
-            '#{prefix()}.#{table_name}'::regclass,
-            '#{time_column}',
-            migrate_data => true,
-            if_not_exists => true
+          EXECUTE format(
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            ts_schema,
+            '#{prefix()}.#{table_name}',
+            '#{time_column}'
           );
           RAISE NOTICE 'Created hypertable for #{table_name}';
         END IF;

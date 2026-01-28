@@ -27,6 +27,7 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
 - ✅ Pull/Build Docker images  
 - ✅ Start the ServiceRadar core stack (CNPG, NATS, web-ng, core-elx, agent-gateway)
 - ✅ Set up networking and persistent volumes
+ - ✅ Run the core-elx migration runner to bootstrap schema/extensions
 
 ## Alternative Commands
 
@@ -100,5 +101,6 @@ docker compose run --rm \
 
 - **cert-generator**: One-time container that generates mTLS certificates
 - **core-elx**: ServiceRadar control plane and business logic
+- **core-elx-migrations**: One-shot migration runner (exits after schema bootstrap)
 
 For full documentation, see [README-Docker.md](README-Docker.md).

@@ -60,7 +60,9 @@ upgrade the database:
 
 ServiceRadar schema is owned by Ash migrations in
 `elixir/serviceradar_core/priv/repo/migrations/`. In cluster deployments,
-core-elx applies them on startup when `SERVICERADAR_CORE_RUN_MIGRATIONS=true`.
+the core migration runner applies them (Helm init container or the
+`core-elx-migrations` one-shot service in Docker Compose). The main core
+container keeps `SERVICERADAR_CORE_RUN_MIGRATIONS=false` by default.
 
 To run migrations manually from the repo:
 
@@ -74,10 +76,9 @@ a remote CNPG instance or a port-forwarded database.
 
 ## Enabling TimescaleDB + AGE in the serviceradar database
 
-The CNPG image already bundles both extensions; you just need to enable them in
-every database that stores ServiceRadar data. Run the following SQL after
-connecting to the serviceradar database (adjust the username if you minted a
-service-specific role):
+The CNPG image already bundles both extensions; migrations enable them in the
+serviceradar database. If you're verifying a fresh bootstrap, you can still
+check directly:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS timescaledb;
@@ -107,7 +108,9 @@ Expected output:
 (2 rows)
 ```
 
-Repeat the same sequence in any non-demo cluster (Helm or customer deployments)
+Repeat the same sequence in any non-demo cluster (Helm or customer deployments).
+If the extensions are missing, rerun the migration runner or run
+`mix ash.migrate` against the superuser connection.
 as part of the CNPG bootstrap so the serviceradar schema and future AGE work
 share the same extension surface.
 
@@ -400,7 +403,7 @@ What the script does:
 - Deletes PVCs labeled `cnpg.io/cluster=cnpg` so the next apply provisions clean volumes
 - Reapplies `k8s/demo/base/spire` to recreate the CNPG cluster and SPIRE dependencies
 - Waits for `cnpg-{0,1,2}` to become Ready and confirms the custom `serviceradar-cnpg` image is running
-- Relies on core-elx startup migrations (`SERVICERADAR_CORE_RUN_MIGRATIONS=true`) to seed the schema
+- Relies on the core migration runner (Helm init container or compose one-shot) to seed the schema
 - Restarts `serviceradar-core`, `serviceradar-agent`, and the writers so they reconnect to the new database
 
 After the reset:

@@ -51,5 +51,6 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
   plug Plug.MethodOverride
   plug Plug.Head
   plug Plug.Session, @session_options
+  plug ServiceRadarWebNGWeb.Plugs.RequireMigrations
   plug ServiceRadarWebNGWeb.Router
 end

@@ -38,11 +38,11 @@ the Docker Compose stack up on a freshly rebooted dev host.
    ```
    docker compose logs -f cnpg | rg -i 'ready|extension'
    ```
-3. Once CNPG is healthy, core finishes the migrations on the next attempt and
-   the login endpoint starts returning 200s. No manual restarts are required,
-   but you can confirm with:
+3. Once CNPG is healthy, the `core-elx-migrations` one-shot finishes and the
+   login endpoint starts returning 200s. No manual restarts are required, but
+   you can confirm with:
    ```
-   docker compose logs core --tail 20
+   docker compose logs core-elx-migrations --tail 20
    docker compose logs web-ng  --tail 20
    ```
 4. If the data directory was removed, run `mix ash.migrate` from
