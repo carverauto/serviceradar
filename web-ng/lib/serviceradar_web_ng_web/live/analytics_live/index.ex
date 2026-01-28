@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import Ecto.Query
+  alias Phoenix.LiveView.JS
   alias ServiceRadarWebNG.Repo
 
   require Logger
@@ -1689,7 +1690,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     assigns = assign(assigns, :pct, pct)
 
     ~H"""
-    <tr class="hover:bg-base-200/50 cursor-pointer" onclick={"window.location.href='#{@href}'"}>
+    <tr
+      class="hover:bg-base-200/50 cursor-pointer"
+      tabindex="0"
+      role="link"
+      phx-click={JS.navigate(@href)}
+    >
       <td class={severity_text_class(@color)}>{@label}</td>
       <td class={["text-center font-bold", severity_text_class(@color)]}>{format_number(@count)}</td>
       <td class={["text-center text-xs", severity_text_class(@color)]}>{@pct}%</td>
