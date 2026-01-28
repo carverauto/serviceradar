@@ -397,12 +397,15 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     )
     """)
 
-    # Sync any migrations from schema_migrations that aren't in ash_schema_migrations
-    ServiceRadar.Repo.query!("""
-    INSERT INTO platform.ash_schema_migrations (version, inserted_at)
-    SELECT version, inserted_at FROM platform.schema_migrations
-    ON CONFLICT (version) DO NOTHING
-    """)
+    # Sync any migrations from schema_migrations that aren't in ash_schema_migrations.
+    # Only sync if platform.schema_migrations exists (it won't on fresh installs before migrations run).
+    if table_exists?("platform.schema_migrations") do
+      ServiceRadar.Repo.query!("""
+      INSERT INTO platform.ash_schema_migrations (version, inserted_at)
+      SELECT version, inserted_at FROM platform.schema_migrations
+      ON CONFLICT (version) DO NOTHING
+      """)
+    end
   end
 
   defp table_exists?(qualified_table) do
