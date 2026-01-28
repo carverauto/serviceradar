@@ -1361,6 +1361,20 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   attr :compact, :boolean, default: false
 
   defp combined_chart_card(assigns) do
+    series_tooltip_data =
+      (assigns.data.series || [])
+      |> Enum.map(fn series ->
+        %{
+          label: series.series,
+          color: series.stroke,
+          unit: unit_to_string(series.unit),
+          points: series.point_data
+        }
+      end)
+      |> Jason.encode!()
+
+    assigns = assign(assigns, :series_tooltip_data, series_tooltip_data)
+
     ~H"""
     <div
       id={"combined-chart-#{@id}"}
@@ -1369,6 +1383,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         @compact && "p-3",
         not @compact && "p-4"
       ]}
+      phx-hook="TimeseriesCombinedChart"
+      data-series={@series_tooltip_data}
     >
       <!-- Header with title and legend -->
       <div class="flex items-center justify-between gap-3 mb-2">
@@ -1475,6 +1491,19 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             />
           <% end %>
         </svg>
+        
+    <!-- Hover tooltip - populated by JS -->
+        <div
+          class="absolute hidden pointer-events-none bg-base-300 text-base-content text-xs px-2 py-1 rounded shadow-lg z-10 font-mono whitespace-normal"
+          data-tooltip
+        >
+        </div>
+        <!-- Hover line -->
+        <div
+          class="absolute hidden pointer-events-none w-px bg-base-content/30 top-0 bottom-0"
+          data-hover-line
+        >
+        </div>
       </div>
       
     <!-- Stats footer -->
