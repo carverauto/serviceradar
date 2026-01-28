@@ -459,8 +459,6 @@ services:
   otel:
     image: ghcr.io/carverauto/serviceradar-otel:${APP_TAG:-latest}
     container_name: serviceradar-otel-mtls
-    profiles:
-      - legacy
     ports:
       - "4317:4317"
     volumes:
