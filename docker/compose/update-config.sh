@@ -87,17 +87,22 @@ fi
 
 # Generate admin password bcrypt hash if it doesn't exist
 if [ ! -f "$CERT_DIR/admin-password-hash" ]; then
-    echo "Generating admin password bcrypt hash..."
-    # Generate a random password
-    ADMIN_PASSWORD=$(random_base64 12)
-    echo "$ADMIN_PASSWORD" > "$CERT_DIR/admin-password"
-    
+    if [ -f "$CERT_DIR/admin-password" ]; then
+        echo "Generating bcrypt hash from existing admin password..."
+        ADMIN_PASSWORD=$(cat "$CERT_DIR/admin-password")
+    else
+        echo "Generating admin password bcrypt hash..."
+        ADMIN_PASSWORD=$(random_base64 12)
+        echo "$ADMIN_PASSWORD" > "$CERT_DIR/admin-password"
+        echo "✅ Generated admin password: $ADMIN_PASSWORD"
+        echo "✅ Admin password saved to: $CERT_DIR/admin-password"
+    fi
+
     # Generate bcrypt hash using serviceradar-cli
     ADMIN_PASSWORD_HASH=$(echo "$ADMIN_PASSWORD" | serviceradar-cli)
     echo "$ADMIN_PASSWORD_HASH" > "$CERT_DIR/admin-password-hash"
-    echo "✅ Generated admin password: $ADMIN_PASSWORD"
     echo "✅ Generated bcrypt hash for admin password using serviceradar-cli"
-    
+
     # Also write the password to the standard location for user reference
     echo "$ADMIN_PASSWORD" > "$CERT_DIR/password.txt"
     echo "✅ Admin password saved to: $CERT_DIR/password.txt"

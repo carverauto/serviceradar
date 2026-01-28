@@ -59,7 +59,7 @@ defmodule ServiceRadar.Repo.Migrations.UpdateInterfaceObservations do
           WHERE hypertable_name = 'discovered_interfaces'
           AND hypertable_schema = '#{prefix()}'
         ) THEN
-          PERFORM public.create_hypertable(
+          PERFORM create_hypertable(
             '#{prefix()}.discovered_interfaces'::regclass,
             'timestamp',
             migrate_data => true,
@@ -67,7 +67,7 @@ defmodule ServiceRadar.Repo.Migrations.UpdateInterfaceObservations do
           );
         END IF;
 
-        PERFORM public.add_retention_policy(
+        PERFORM add_retention_policy(
           '#{prefix()}.discovered_interfaces'::regclass,
           INTERVAL '3 days',
           if_not_exists => true

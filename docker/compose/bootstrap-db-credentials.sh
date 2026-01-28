@@ -19,10 +19,11 @@ write_if_missing() {
   value="$2"
   if [ -s "$target" ]; then
     echo "Password already present at $target; skipping"
+    chmod "${CNPG_CRED_MODE:-0644}" "$target"
     return
   fi
   printf "%s" "$value" > "$target"
-  chmod 0600 "$target"
+  chmod "${CNPG_CRED_MODE:-0644}" "$target"
   echo "Wrote password to $target"
 }
 
@@ -33,11 +34,12 @@ write_if_changed() {
     current="$(cat "$target")"
     if [ "$current" = "$value" ]; then
       echo "Password already matches at $target; skipping"
+      chmod "${CNPG_CRED_MODE:-0644}" "$target"
       return
     fi
   fi
   printf "%s" "$value" > "$target"
-  chmod 0600 "$target"
+  chmod "${CNPG_CRED_MODE:-0644}" "$target"
   echo "Synced password to $target"
 }
 

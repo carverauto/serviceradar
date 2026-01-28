@@ -1,0 +1,16 @@
+# Wildcard certificate for *.serviceradar.cloud
+# Stored in ingress-nginx namespace so it persists across application namespace lifecycle
+# This avoids Let's Encrypt rate limits when namespaces are recreated
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: serviceradar-wildcard-tls
+  namespace: ingress-nginx
+spec:
+  secretName: serviceradar-wildcard-tls
+  issuerRef:
+    name: carverauto-issuer
+    kind: ClusterIssuer
+  dnsNames:
+    - "*.serviceradar.cloud"
+    - "serviceradar.cloud"
