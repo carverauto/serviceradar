@@ -79,7 +79,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "set -e; cp /etc/serviceradar/certs/db-client-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-client.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar}"
+          "set -e; cp /etc/serviceradar/certs/db-client-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; PGPASSWORD=$(cat /etc/serviceradar/cnpg/superuser-password) PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-client.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U ${CNPG_SUPERUSER:-postgres} -d postgres"
         ]
       interval: 10s
       timeout: 5s
@@ -91,6 +91,43 @@ services:
           - cnpg
           - cnpg-rw
     restart: unless-stopped
+
+  cnpg-password-sync:
+    image: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3
+    container_name: serviceradar-cnpg-password-sync
+    user: "0:0"
+    depends_on:
+      cnpg:
+        condition: service_healthy
+      db-credentials:
+        condition: service_completed_successfully
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+    environment:
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
+      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
+      - CNPG_SUPERUSER=${CNPG_SUPERUSER:-postgres}
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
+    command: >
+      sh -c 'set -e;
+      app_pass="$(cat /etc/serviceradar/cnpg/serviceradar-password)";
+      super_pass="$(cat /etc/serviceradar/cnpg/superuser-password)";
+      cp /etc/serviceradar/certs/db-client-key.pem /tmp/pg_sync.key;
+      chmod 600 /tmp/pg_sync.key;
+      export PGPASSWORD="$super_pass";
+      export PGSSLMODE=verify-full;
+      export PGSSLROOTCERT=/etc/serviceradar/certs/root.pem;
+      export PGSSLCERT=/etc/serviceradar/certs/db-client.pem;
+      export PGSSLKEY=/tmp/pg_sync.key;
+      psql -h "$${CNPG_HOST}" -U "$${CNPG_SUPERUSER}" -d postgres \
+        -c "ALTER ROLE $${CNPG_USERNAME} WITH PASSWORD '\''$${app_pass}'\'';";
+      echo "CNPG app password synced."'
+    restart: "no"
+    networks:
+      - serviceradar-net
 
   cert-permissions-fixer:
     image: alpine:3.20
@@ -207,6 +244,8 @@ services:
         condition: service_completed_successfully
       cnpg:
         condition: service_healthy
+      cnpg-password-sync:
+        condition: service_completed_successfully
       nats:
         condition: service_started
     healthcheck:
@@ -602,6 +641,8 @@ services:
         condition: service_started
       cnpg:
         condition: service_healthy
+      cnpg-password-sync:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wait-for-port --host 127.0.0.1 --port 50041 --attempts 1 --interval 1s --quiet"]
       interval: 30s
@@ -679,6 +720,8 @@ services:
         condition: service_completed_successfully
       cnpg:
         condition: service_healthy
+      cnpg-password-sync:
+        condition: service_completed_successfully
       core-elx:
         condition: service_healthy
     healthcheck:
