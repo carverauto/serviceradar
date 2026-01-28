@@ -79,7 +79,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "set -e; cp /etc/serviceradar/certs/db-client-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; PGPASSWORD=$(cat /etc/serviceradar/cnpg/superuser-password) PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-client.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U ${CNPG_SUPERUSER:-postgres} -d postgres"
+          "set -e; cp /etc/serviceradar/certs/db-client-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; PGPASSWORD=$(cat /etc/serviceradar/cnpg/serviceradar-password) PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-client.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar}"
         ]
       interval: 10s
       timeout: 5s
@@ -106,8 +106,8 @@ services:
     environment:
       - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
       - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
-      - CNPG_SUPERUSER=${CNPG_SUPERUSER:-postgres}
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - cnpg-credentials:/etc/serviceradar/cnpg:ro
@@ -115,12 +115,12 @@ services:
       sh -c 'set -e;
       cp /etc/serviceradar/certs/db-client-key.pem /tmp/pg_sync.key;
       chmod 600 /tmp/pg_sync.key;
-      PGPASSWORD="$$(cat /etc/serviceradar/cnpg/superuser-password)" \
+      PGPASSWORD="$$(cat /etc/serviceradar/cnpg/serviceradar-password)" \
       PGSSLMODE=verify-full \
       PGSSLROOTCERT=/etc/serviceradar/certs/root.pem \
       PGSSLCERT=/etc/serviceradar/certs/db-client.pem \
       PGSSLKEY=/tmp/pg_sync.key \
-      psql -h "$${CNPG_HOST}" -U "$${CNPG_SUPERUSER}" -d postgres \
+      psql -h "$${CNPG_HOST}" -U "$${CNPG_USERNAME}" -d "$${CNPG_DATABASE}" \
         -c "ALTER ROLE $${CNPG_USERNAME} WITH PASSWORD '\''$$(cat /etc/serviceradar/cnpg/serviceradar-password)'\'';";
       echo "CNPG app password synced."'
     restart: "no"

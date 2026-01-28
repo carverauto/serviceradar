@@ -41,42 +41,32 @@ psql -v ON_ERROR_STOP=1 \
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 CREATE EXTENSION IF NOT EXISTS age;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'spire_user') THEN
-    EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', :'spire_user', :'spire_pass');
-  END IF;
-END
-$$;
+SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'spire_user', :'spire_pass')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'spire_user');
+\gexec
 
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_user') THEN
-    EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_pass');
-  END IF;
-END
-$$;
+SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_pass')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_user');
+\gexec
 
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'serviceradar') THEN
-    EXECUTE 'CREATE DATABASE serviceradar OWNER ' || quote_ident(:'app_user');
-  END IF;
-END
-$$;
+SELECT format('CREATE DATABASE %I OWNER %I', 'serviceradar', :'app_user')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'serviceradar');
+\gexec
 
 ALTER DATABASE serviceradar OWNER TO :"app_user";
 CREATE SCHEMA IF NOT EXISTS platform AUTHORIZATION :"app_user";
 ALTER DATABASE serviceradar SET search_path TO platform, ag_catalog;
 ALTER ROLE :"app_user" SET search_path TO platform, ag_catalog;
 
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'platform') THEN
-    EXECUTE 'ALTER TABLE IF EXISTS platform.oban_jobs OWNER TO ' || quote_ident(:'app_user');
-    EXECUTE 'ALTER TABLE IF EXISTS platform.oban_peers OWNER TO ' || quote_ident(:'app_user');
-    EXECUTE 'ALTER SEQUENCE IF EXISTS platform.oban_jobs_id_seq OWNER TO ' || quote_ident(:'app_user');
-  END IF;
-END
-$$;
+SELECT format('ALTER TABLE IF EXISTS platform.oban_jobs OWNER TO %I', :'app_user')
+FROM pg_namespace WHERE nspname = 'platform';
+\gexec
+
+SELECT format('ALTER TABLE IF EXISTS platform.oban_peers OWNER TO %I', :'app_user')
+FROM pg_namespace WHERE nspname = 'platform';
+\gexec
+
+SELECT format('ALTER SEQUENCE IF EXISTS platform.oban_jobs_id_seq OWNER TO %I', :'app_user')
+FROM pg_namespace WHERE nspname = 'platform';
+\gexec
 EOSQL
