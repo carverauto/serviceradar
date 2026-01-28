@@ -117,7 +117,7 @@ services:
       super_pass="$(cat /etc/serviceradar/cnpg/superuser-password)";
       cp /etc/serviceradar/certs/db-client-key.pem /tmp/pg_sync.key;
       chmod 600 /tmp/pg_sync.key;
-      export PGPASSWORD="$super_pass";
+      export PGPASSWORD="$${super_pass}";
       export PGSSLMODE=verify-full;
       export PGSSLROOTCERT=/etc/serviceradar/certs/root.pem;
       export PGSSLCERT=/etc/serviceradar/certs/db-client.pem;
