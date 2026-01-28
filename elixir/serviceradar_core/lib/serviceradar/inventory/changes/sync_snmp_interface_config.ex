@@ -28,7 +28,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   defp sync(%InterfaceSettings{} = settings) do
     actor = SystemActor.system(:snmp_interface_config_sync)
     opts = [actor: actor]
-    selected = normalize_selected(settings.metrics_selected)
+    selected = normalize_selected(settings.metrics_selected, settings.metrics_enabled)
 
     result =
       if selected == [] do
@@ -327,7 +327,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   defp valid_target_name?(_), do: false
 
   defp sync_target_oids(settings, interface, target, opts) do
-    selected = normalize_selected(settings.metrics_selected)
+    selected = normalize_selected(settings.metrics_selected, settings.metrics_enabled)
     metrics = normalize_metrics(interface.available_metrics)
 
     desired =
@@ -351,13 +351,13 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
     end)
   end
 
-  defp normalize_selected(metrics) when is_list(metrics) do
+  defp normalize_selected(metrics, true) when is_list(metrics) do
     metrics
     |> Enum.map(&normalize_metric_name/1)
     |> Enum.uniq()
   end
 
-  defp normalize_selected(_), do: []
+  defp normalize_selected(_metrics, _enabled), do: []
 
   defp normalize_metrics(metrics) when is_list(metrics) do
     metrics

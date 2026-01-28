@@ -171,7 +171,22 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
       case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
         {:ok, updated_settings} ->
-          {:noreply, assign(socket, :settings, updated_settings)}
+          srql_module =
+            Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+
+          metrics =
+            load_interface_metrics(
+              srql_module,
+              device_uid,
+              socket.assigns.interface,
+              updated_settings,
+              scope
+            )
+
+          {:noreply,
+           socket
+           |> assign(:settings, updated_settings)
+           |> assign(:metrics, metrics)}
 
         {:error, _reason} ->
           {:noreply, put_flash(socket, :error, "Failed to update metric selection")}
@@ -570,7 +585,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 </h2>
                 <div class="divide-y divide-base-200">
                   <% selected_metrics = settings_list_value(@settings, :metrics_selected) %>
-                  <% metrics_enabled = selected_metrics != [] %>
+                  <% metrics_enabled = settings_value(@settings, :metrics_enabled) and selected_metrics != [] %>
                   <% available_metrics = Map.get(@interface, "available_metrics") %>
                   <div class="py-3">
                     <div class="flex items-start justify-between gap-4">
@@ -1405,37 +1420,43 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   end
 
   defp load_interface_metrics(srql_module, device_uid, interface, settings, scope) do
+    metrics_enabled = settings_value(settings, :metrics_enabled)
+    selected_metrics = settings_list_value(settings, :metrics_selected)
     if_index = Map.get(interface, "if_index")
 
-    if is_nil(if_index) do
-      %{panels: [], error: nil, message: "Interface has no if_index for SNMP metrics"}
+    if not metrics_enabled or selected_metrics == [] do
+      %{panels: [], error: nil, message: "Metrics collection is disabled for this interface."}
     else
-      # Use agg:max to pull the latest counter values per bucket.
-      # Rate deltas are calculated client-side for SNMP counter metrics.
-      query =
-        "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-          "time:last_24h bucket:5m agg:max series:metric_name limit:#{@snmp_metrics_limit}"
+      if is_nil(if_index) do
+        %{panels: [], error: nil, message: "Interface has no if_index for SNMP metrics"}
+      else
+        # Use agg:max to pull the latest counter values per bucket.
+        # Rate deltas are calculated client-side for SNMP counter metrics.
+        query =
+          "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
+            "time:last_24h bucket:5m agg:max series:metric_name limit:#{@snmp_metrics_limit}"
 
-      # Get interface speed for proper graph scaling (bps -> bytes per second)
-      if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")
-      if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8, else: nil
+        # Get interface speed for proper graph scaling (bps -> bytes per second)
+        if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")
+        if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8, else: nil
 
-      # Get user-defined metric groups for composite charts
-      metric_groups = settings_list_value(settings, :metric_groups)
+        # Get user-defined metric groups for composite charts
+        metric_groups = settings_list_value(settings, :metric_groups)
 
-      case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
-          panels = build_metrics_panels(response, if_speed_bytes_per_sec, metric_groups)
-          %{panels: panels, error: nil, message: nil}
+        case srql_module.query(query, %{scope: scope}) do
+          {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
+            panels = build_metrics_panels(response, if_speed_bytes_per_sec, metric_groups)
+            %{panels: panels, error: nil, message: nil}
 
-        {:ok, %{"results" => []}} ->
-          %{panels: [], error: nil, message: "No metrics data available yet"}
+          {:ok, %{"results" => []}} ->
+            %{panels: [], error: nil, message: "No metrics data available yet"}
 
-        {:error, reason} ->
-          %{panels: [], error: "Failed to load metrics: #{inspect(reason)}", message: nil}
+          {:error, reason} ->
+            %{panels: [], error: "Failed to load metrics: #{inspect(reason)}", message: nil}
 
-        _ ->
-          %{panels: [], error: nil, message: nil}
+          _ ->
+            %{panels: [], error: nil, message: nil}
+        end
       end
     end
   end

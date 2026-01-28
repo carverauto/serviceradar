@@ -35,7 +35,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
           if_oper_status: 1,
           if_admin_status: 1,
           speed_bps: 1_000_000_000,
-          if_index: 1
+          if_index: 1,
+          available_metrics: [
+            %{"name" => "ifInOctets", "category" => "traffic"},
+            %{"name" => "ifOutOctets", "category" => "traffic"},
+            %{"name" => "ifInErrors", "category" => "errors"}
+          ]
         }
       ])
 
@@ -87,14 +92,13 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
     } do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
 
-      # Find and click metrics toggle
+      # Find and click a metric toggle
       view
-      |> element("[phx-click=toggle_metrics]")
+      |> element("button[phx-click=toggle_metric]")
       |> render_click()
 
-      # Should update the toggle state
       html = render(view)
-      assert html =~ "Metrics Collection"
+      assert html =~ "Collecting" or html =~ "Enabled"
     end
   end
 
