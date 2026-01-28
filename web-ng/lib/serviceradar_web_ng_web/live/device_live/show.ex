@@ -4282,7 +4282,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <div class="flex items-center gap-2">
           <.icon name="hero-cog-6-tooth" class="size-4 text-primary" />
-          <span class="text-sm font-semibold">Sysmon Profile</span>
+          <span class="text-sm font-semibold">Host Health Profile</span>
         </div>
         <.source_badge source={@source} />
       </div>
