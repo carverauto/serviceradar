@@ -297,52 +297,106 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   defp ensure_ag_catalog_privileges!(app_user) do
     if repo_enabled?() and schema_exists?("ag_catalog") do
-      ServiceRadar.Repo.query!(
-        "GRANT USAGE ON SCHEMA ag_catalog TO #{quote_ident(app_user)}"
-      )
+      # AGE privileges must be granted by superuser since the schemas may be owned by postgres.
+      # Use admin connection for all AGE-related grants.
+      with_admin_connection(fn conn ->
+        Postgrex.query!(conn, "GRANT USAGE ON SCHEMA ag_catalog TO #{quote_ident(app_user)}", [])
 
-      ServiceRadar.Repo.query!(
-        "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}"
-      )
+        Postgrex.query!(
+          conn,
+          "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
+          []
+        )
 
-      ServiceRadar.Repo.query!(
-        "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}"
-      )
+        Postgrex.query!(
+          conn,
+          "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
+          []
+        )
 
-      ServiceRadar.Repo.query!(
-        "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO #{quote_ident(app_user)}"
-      )
+        Postgrex.query!(
+          conn,
+          "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO #{quote_ident(app_user)}",
+          []
+        )
 
-      # Also grant privileges on the AGE graph schema (named 'serviceradar').
-      # AGE creates a schema for each graph to store vertex/edge labels.
-      ensure_age_graph_privileges!(app_user, "serviceradar")
+        # Also grant privileges on the AGE graph schema (named 'serviceradar').
+        # AGE creates a schema for each graph to store vertex/edge labels.
+        ensure_age_graph_privileges!(conn, app_user, "serviceradar")
+      end)
     end
   end
 
-  # Grant privileges on an AGE graph schema.
+  # Grant privileges on an AGE graph schema using an admin connection.
   # AGE creates a schema with the same name as the graph to store vertex/edge tables.
-  defp ensure_age_graph_privileges!(app_user, graph_name) do
-    if schema_exists?(graph_name) do
-      ServiceRadar.Repo.query!(
-        "GRANT USAGE ON SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}"
-      )
+  # The schema is owned by whoever ran create_graph(), which may be postgres superuser.
+  defp ensure_age_graph_privileges!(conn, app_user, graph_name) do
+    # Check if schema exists using the admin connection
+    case Postgrex.query!(conn, "SELECT 1 FROM pg_namespace WHERE nspname = $1", [graph_name]) do
+      %{rows: []} ->
+        Logger.debug("[StartupMigrations] AGE graph schema #{graph_name} does not exist; skipping privileges")
 
-      ServiceRadar.Repo.query!(
-        "GRANT ALL ON ALL TABLES IN SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}"
-      )
+      _ ->
+        Logger.info("[StartupMigrations] Granting privileges on AGE graph schema #{graph_name}")
 
-      ServiceRadar.Repo.query!(
-        "GRANT ALL ON ALL SEQUENCES IN SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}"
-      )
+        Postgrex.query!(
+          conn,
+          "GRANT USAGE ON SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}",
+          []
+        )
 
-      # Set default privileges for future objects created in this graph
-      ServiceRadar.Repo.query!(
-        "ALTER DEFAULT PRIVILEGES IN SCHEMA #{quote_ident(graph_name)} GRANT ALL ON TABLES TO #{quote_ident(app_user)}"
-      )
+        Postgrex.query!(
+          conn,
+          "GRANT ALL ON ALL TABLES IN SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}",
+          []
+        )
 
-      ServiceRadar.Repo.query!(
-        "ALTER DEFAULT PRIVILEGES IN SCHEMA #{quote_ident(graph_name)} GRANT ALL ON SEQUENCES TO #{quote_ident(app_user)}"
-      )
+        Postgrex.query!(
+          conn,
+          "GRANT ALL ON ALL SEQUENCES IN SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}",
+          []
+        )
+
+        # Set default privileges for future objects created in this graph
+        Postgrex.query!(
+          conn,
+          "ALTER DEFAULT PRIVILEGES IN SCHEMA #{quote_ident(graph_name)} GRANT ALL ON TABLES TO #{quote_ident(app_user)}",
+          []
+        )
+
+        Postgrex.query!(
+          conn,
+          "ALTER DEFAULT PRIVILEGES IN SCHEMA #{quote_ident(graph_name)} GRANT ALL ON SEQUENCES TO #{quote_ident(app_user)}",
+          []
+        )
+    end
+  end
+
+  # Execute a function with a temporary admin (superuser) database connection.
+  # Used for operations that require elevated privileges (e.g., granting on schemas owned by postgres).
+  defp with_admin_connection(fun) do
+    {admin_user, admin_password} = admin_credentials!()
+
+    opts = [
+      hostname: System.get_env("CNPG_HOST", "localhost"),
+      port: parse_int(System.get_env("CNPG_PORT"), 5432),
+      username: admin_user,
+      password: admin_password,
+      database: app_database(),
+      ssl: admin_ssl_opts()
+    ]
+
+    case Postgrex.start_link(opts) do
+      {:ok, conn} ->
+        try do
+          fun.(conn)
+        after
+          GenServer.stop(conn)
+        end
+
+      {:error, reason} ->
+        Logger.error("[StartupMigrations] Failed to connect as admin for AGE privileges: #{inspect(reason)}")
+        raise RuntimeError, "Failed to connect as admin: #{inspect(reason)}"
     end
   end
 
