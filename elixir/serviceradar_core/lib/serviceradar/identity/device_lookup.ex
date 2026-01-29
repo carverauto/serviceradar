@@ -99,11 +99,18 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   Optimized for sweep result processing - looks up canonical identities
   for a list of IPs in bulk.
+
+  ## Options
+
+  - `:use_cache` - Whether to use identity cache (default: true)
+  - `:actor` - Actor for authorization context
+  - `:include_detected` - Also check detected aliases as fallback (default: false)
   """
   @spec batch_lookup_by_ip([String.t()], keyword()) :: %{String.t() => canonical_record()}
   def batch_lookup_by_ip(ips, opts \\ []) when is_list(ips) do
     use_cache = Keyword.get(opts, :use_cache, true)
     actor = Keyword.get(opts, :actor)
+    include_detected = Keyword.get(opts, :include_detected, false)
 
     unique_ips =
       ips
@@ -114,6 +121,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     if Enum.empty?(unique_ips) do
       %{}
     else
+      # First lookup confirmed/updated aliases
       alias_results = lookup_aliases_by_ip(unique_ips, opts)
       remaining_ips = unique_ips -- Map.keys(alias_results)
 
@@ -123,10 +131,52 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       cache_db_results(alias_results, use_cache)
       cache_db_results(db_results, use_cache)
 
-      cache_hits
-      |> Map.merge(alias_results, fn _key, _cached, alias_record -> alias_record end)
-      |> Map.merge(db_results, fn _key, existing, _db_record -> existing end)
+      primary_results =
+        cache_hits
+        |> Map.merge(alias_results, fn _key, _cached, alias_record -> alias_record end)
+        |> Map.merge(db_results, fn _key, existing, _db_record -> existing end)
+
+      # If include_detected is true, check detected aliases for remaining IPs
+      if include_detected do
+        still_unknown = unique_ips -- Map.keys(primary_results)
+        detected_results = lookup_detected_aliases_by_ip(still_unknown, opts)
+        Map.merge(primary_results, detected_results)
+      else
+        primary_results
+      end
     end
+  end
+
+  @doc """
+  Lookup detected (not yet confirmed) aliases for a list of IPs.
+
+  Used as fallback when no confirmed alias or device exists.
+  Returns both the device record and the alias state for potential confirmation.
+  """
+  @spec lookup_detected_aliases_by_ip([String.t()], keyword()) ::
+          %{String.t() => {canonical_record(), DeviceAliasState.t()}}
+  def lookup_detected_aliases_by_ip([], _opts), do: %{}
+
+  def lookup_detected_aliases_by_ip(ips, opts) do
+    actor = Keyword.get(opts, :actor)
+    partition = Keyword.get(opts, :partition)
+    query_opts = if actor, do: [actor: actor], else: []
+
+    case read_detected_alias_states(ips, partition, query_opts) do
+      {:ok, []} ->
+        %{}
+
+      {:ok, aliases} ->
+        devices = load_alias_devices(aliases, query_opts)
+        build_detected_alias_map(devices, aliases)
+
+      {:error, _} ->
+        %{}
+    end
+  rescue
+    e ->
+      Logger.warning("Detected alias lookup failed: #{inspect(e)}")
+      %{}
   end
 
   defp fetch_cache_hits(unique_ips, true), do: IdentityCache.get_batch(unique_ips)
@@ -412,6 +462,36 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     )
     |> maybe_filter_alias_partition(partition)
     |> Ash.read(query_opts)
+  end
+
+  defp read_detected_alias_states(ips, partition, query_opts) do
+    DeviceAliasState
+    |> Ash.Query.filter(
+      alias_type == :ip and alias_value in ^ips and state == :detected
+    )
+    |> maybe_filter_alias_partition(partition)
+    # Prefer aliases with more sightings (closer to confirmation)
+    |> Ash.Query.sort(sighting_count: :desc, first_seen_at: :asc)
+    |> Ash.read(query_opts)
+  end
+
+  defp build_detected_alias_map(devices, aliases) do
+    # Group by IP value, take the first (highest sighting_count, earliest first_seen)
+    aliases
+    |> Enum.group_by(& &1.alias_value)
+    |> Enum.reduce(%{}, fn {ip, ip_aliases}, acc ->
+      # Take the alias with most sightings
+      best_alias = List.first(ip_aliases)
+
+      case Map.get(devices, best_alias.device_id) do
+        nil ->
+          acc
+
+        device ->
+          record = build_record_from_device(device)
+          Map.put(acc, ip, {record, best_alias})
+      end
+    end)
   end
 
   defp load_alias_devices(aliases, query_opts) do
