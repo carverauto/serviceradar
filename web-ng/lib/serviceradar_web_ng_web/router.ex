@@ -1,6 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Router do
   use ServiceRadarWebNGWeb, :router
-  use AshAuthentication.Phoenix.Router
   import AshAdmin.Router
 
   import Oban.Web.Router
@@ -241,20 +240,50 @@ defmodule ServiceRadarWebNGWeb.Router do
     end
   end
 
-  ## AshAuthentication routes
-  # These routes handle password and OAuth callbacks
+  ## OAuth2 Token Endpoint
+  # Client credentials grant for API access
 
-  scope "/", ServiceRadarWebNGWeb do
-    pipe_through(:browser)
+  scope "/oauth", ServiceRadarWebNGWeb do
+    pipe_through(:api)
 
-    sign_out_route(AuthController, "/auth/sign-out")
-
-    reset_route(path: "/auth/password-reset", auth_routes_prefix: "/auth")
-
-    auth_routes(AuthController, ServiceRadar.Identity.User, path: "/auth")
+    post("/token", OAuthController, :token)
   end
 
   ## Authentication routes
+  # Password login, logout, and password reset
+
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through(:browser)
+
+    # Password login
+    post("/sign-in", AuthController, :create)
+
+    # Sign out
+    get("/sign-out", AuthController, :delete)
+    delete("/sign-out", AuthController, :delete)
+
+    # Password reset
+    post("/password-reset", AuthController, :request_reset)
+    get("/password-reset/:token", AuthController, :show_reset_form)
+    put("/password-reset/:token", AuthController, :reset_password)
+
+    # Registration (if enabled)
+    post("/register", AuthController, :register)
+
+    # OIDC SSO
+    get("/oidc", OIDCController, :request)
+    get("/oidc/callback", OIDCController, :callback)
+
+    # Local admin backdoor (for use when proxy/SSO auth is primary)
+    post("/local/sign-in", AuthController, :local_sign_in)
+
+    # SAML SSO
+    get("/saml", SAMLController, :request)
+    post("/saml/consume", SAMLController, :consume)
+    get("/saml/metadata", SAMLController, :metadata)
+  end
+
+  ## Authenticated routes
 
   scope "/", ServiceRadarWebNGWeb do
     pipe_through([:browser, :require_authenticated_user])
@@ -289,12 +318,16 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/services", ServiceLive.Index, :index)
       live("/services/check", ServiceLive.Show, :show)
       live("/settings/profile", UserLive.Settings, :edit)
+      live("/settings/api-credentials", UserLive.ApiCredentials, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
 
       # Cluster visibility for all authenticated users
       live("/settings/cluster", Settings.ClusterLive.Index, :index)
       live("/settings/cluster/nodes/:node_name", NodeLive.Show, :show)
       live("/settings/rules", Settings.RulesLive.Index, :index)
+
+      # Authentication settings (admin only - enforced by resource policies)
+      live("/settings/authentication", Settings.AuthenticationLive, :index)
 
       # Network sweep configuration
       live("/settings/networks", Settings.NetworksLive.Index, :index)
@@ -346,13 +379,14 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/users/update-password", UserSessionController, :update_password)
   end
 
+  # Public authentication pages (login, register)
   scope "/", ServiceRadarWebNGWeb do
     pipe_through(:browser)
 
-    # AshAuthentication.Phoenix sign-in LiveView
-    ash_authentication_live_session :authentication,
+    live_session :authentication,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live("/users/log-in", AuthLive.SignIn, :sign_in)
+      live("/auth/local", AuthLive.LocalSignIn, :local_sign_in)
     end
   end
 

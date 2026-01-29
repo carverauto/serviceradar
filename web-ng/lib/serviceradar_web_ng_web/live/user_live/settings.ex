@@ -175,8 +175,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
 
     case AshPhoenix.Form.submit(ash_form, params: user_params) do
       {:ok, _updated_user} ->
-        # Note: AshAuthentication's confirmation add-on handles email verification
-        # For now, show a success message
+        # Email verification could use Guardian tokens in the future
         info = "Email updated successfully."
         {:noreply, socket |> put_flash(:info, info)}
 

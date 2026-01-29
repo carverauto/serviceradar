@@ -83,6 +83,23 @@ config :ash,
 config :ash_postgres,
   manage_migrations?: true
 
+# Guardian JWT configuration
+# Secret key is loaded from runtime.exs (TOKEN_SIGNING_SECRET or SECRET_KEY_BASE)
+config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
+  issuer: "serviceradar",
+  # Secret loaded in runtime.exs
+  secret_key: nil,
+  # Token lifetimes
+  ttl: {1, :hour},
+  token_ttl: %{
+    "access" => {1, :hour},
+    "refresh" => {30, :days},
+    "api" => {1, :hour}
+  },
+  allowed_algos: ["HS256"],
+  verify_module: Guardian.JWT,
+  allowed_drift: 60_000
+
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
 config :serviceradar_web_ng, :plugin_storage,
@@ -181,7 +198,24 @@ config :phoenix_react_server, Phoenix.React,
 # Configure Elixir's Logger
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id, :event_type, :severity]
+  metadata: [
+    :request_id,
+    :event_type,
+    :severity,
+    # Auth-related metadata
+    :user_id,
+    :email,
+    :method,
+    :timestamp,
+    :token_type,
+    :jti,
+    :reason,
+    :type,
+    :path,
+    :remote_ip,
+    :ip,
+    :user_agent
+  ]
 
 # Pin Rustler temp dir to an explicitly writable path when provided by the build system
 config :rustler, :tmp_dir, System.get_env("RUSTLER_TMPDIR") || System.tmp_dir!()

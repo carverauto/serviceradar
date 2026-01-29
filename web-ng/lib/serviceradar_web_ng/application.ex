@@ -12,11 +12,6 @@ defmodule ServiceRadarWebNG.Application do
     # Auto-start distributed Erlang if not already running and cluster is enabled
     maybe_start_distribution()
 
-    # Force load ServiceRadarWebNGWeb early to ensure atoms like :current_user exist
-    # in the atom table before AshAuthentication.Phoenix.LiveSession uses them.
-    # See: AshAuthentication.Phoenix.LiveSession.generate_session/3 line 236
-    _ = ServiceRadarWebNGWeb.__ash_auth_atoms__()
-
     # Build children list, conditionally adding PubSub if not already running
     # (serviceradar_core may have already started these)
     base_children =
@@ -44,12 +39,19 @@ defmodule ServiceRadarWebNG.Application do
     # If we add simpler React components that benefit from SSR, enable Phoenix.React here.
     # react_children = [Phoenix.React]
 
+    # Auth configuration cache, rate limiter, and token revocation (must start after PubSub)
+    auth_children = [
+      ServiceRadarWebNGWeb.Auth.ConfigCache,
+      ServiceRadarWebNGWeb.Auth.RateLimiter,
+      ServiceRadarWebNGWeb.Auth.TokenRevocation
+    ]
+
     endpoint_children = [
       # Start to serve requests, typically the last entry
       ServiceRadarWebNGWeb.Endpoint
     ]
 
-    children = base_children ++ pubsub_children ++ endpoint_children
+    children = base_children ++ pubsub_children ++ auth_children ++ endpoint_children
 
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()
