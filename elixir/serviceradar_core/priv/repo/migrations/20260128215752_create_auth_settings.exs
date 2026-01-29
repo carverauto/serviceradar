@@ -20,7 +20,8 @@ defmodule ServiceRadar.Repo.Migrations.CreateAuthSettings do
 
       # OIDC Configuration
       add :oidc_client_id, :string
-      add :oidc_client_secret_encrypted, :binary  # AshCloak encrypted
+      # AshCloak adds 'encrypted_' prefix to storage column
+      add :encrypted_oidc_client_secret_encrypted, :binary
       add :oidc_discovery_url, :string
       add :oidc_scopes, :string, default: "openid email profile"
 
@@ -28,7 +29,10 @@ defmodule ServiceRadar.Repo.Migrations.CreateAuthSettings do
       add :saml_idp_metadata_url, :string
       add :saml_idp_metadata_xml, :text
       add :saml_sp_entity_id, :string
-      add :saml_private_key_encrypted, :binary  # AshCloak encrypted
+      # AshCloak adds 'encrypted_' prefix to storage column
+      add :encrypted_saml_private_key_encrypted, :binary
+      # Pinned certificate fingerprints for additional security
+      add :saml_pinned_cert_fingerprints, {:array, :string}, default: []
 
       # Proxy JWT Configuration (for Kong/gateway)
       add :jwt_public_key_pem, :text
