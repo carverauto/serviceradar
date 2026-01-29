@@ -38,7 +38,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.DeviceLookup
+  alias ServiceRadar.Identity.{DeviceAliasState, DeviceLookup}
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.{SweepGroupExecution, SweepHostResult, SweepPubSub}
@@ -250,7 +250,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # Step 1: Extract all IPs for bulk device lookup
     ips = Enum.map(results, &extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    # Step 2: Batch lookup existing devices by IP
+    # Step 2: Batch lookup existing devices by IP (confirmed aliases only)
     # DB connection's search_path determines the schema
     device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor)
 
@@ -258,25 +258,42 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     known_ips = Map.keys(device_map)
     unknown_ips = ips -- known_ips
 
-    # Step 4: Create device records for unknown hosts
-    created_devices = create_unknown_devices(unknown_ips, results)
+    # Step 4: Check detected aliases for unknown IPs (fallback before creating new devices)
+    detected_alias_map = DeviceLookup.lookup_detected_aliases_by_ip(unknown_ips, actor: actor)
+    detected_ips = Map.keys(detected_alias_map)
 
-    # Step 5: Merge known and created devices
-    all_devices = Map.merge(device_map, created_devices)
+    # Step 4a: Confirm detected aliases that matched sweep results
+    confirm_detected_aliases(detected_alias_map, execution_id, actor)
 
-    # Step 6: Build host result records
+    # Step 4b: Extract device records from detected aliases
+    detected_device_map =
+      Enum.map(detected_alias_map, fn {ip, {record, _alias}} -> {ip, record} end)
+      |> Map.new()
+
+    # Step 5: Create device records for truly unknown hosts (no device, no alias)
+    truly_unknown_ips = unknown_ips -- detected_ips
+    created_devices = create_unknown_devices(truly_unknown_ips, results, actor)
+
+    # Step 6: Merge all device sources
+    all_devices =
+      device_map
+      |> Map.merge(detected_device_map)
+      |> Map.merge(created_devices)
+
+    # Step 7: Build host result records
     {host_results, stats} = build_host_results(results, execution_id, all_devices)
 
-    # Step 7: Bulk insert host results
+    # Step 8: Bulk insert host results
     case bulk_insert_host_results(host_results) do
       :ok ->
-        # Step 8: Update device availability
+        # Step 9: Update device availability
         update_device_availability(results, all_devices)
 
         final_stats =
           stats
           |> Map.put(:devices_created, length(Map.keys(created_devices)))
-          |> Map.put(:devices_updated, length(known_ips))
+          |> Map.put(:devices_updated, length(known_ips) + length(detected_ips))
+          |> Map.put(:aliases_confirmed, length(detected_ips))
 
         {:ok, final_stats}
 
@@ -285,13 +302,31 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
+  defp confirm_detected_aliases(detected_alias_map, execution_id, actor) do
+    Enum.each(detected_alias_map, fn {ip, {_record, alias_state}} ->
+      metadata = %{"sweep_execution_id" => execution_id, "sweep_ip" => ip}
+
+      case DeviceAliasState.confirm_from_sweep(alias_state, %{metadata: metadata}, actor: actor) do
+        {:ok, _confirmed} ->
+          Logger.debug(
+            "SweepResultsIngestor: Confirmed detected alias #{ip} for device #{alias_state.device_id}"
+          )
+
+        {:error, reason} ->
+          Logger.warning(
+            "SweepResultsIngestor: Failed to confirm alias #{ip}: #{inspect(reason)}"
+          )
+      end
+    end)
+  end
+
   defp extract_ip(result) do
     result["host_ip"] || result["hostIp"] || result["ip"]
   end
 
-  defp create_unknown_devices([], _results), do: %{}
+  defp create_unknown_devices([], _results, _actor), do: %{}
 
-  defp create_unknown_devices(unknown_ips, results) do
+  defp create_unknown_devices(unknown_ips, results, actor) do
     # Build lookup of result data by IP
     result_by_ip =
       results
@@ -302,7 +337,43 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
     device_records = build_unknown_device_records(unknown_ips, result_by_ip, timestamp)
-    insert_unknown_device_records(device_records, timestamp)
+    created = insert_unknown_device_records(device_records, timestamp)
+
+    # Create IP aliases for newly created devices so future discoveries can correlate
+    create_aliases_for_new_devices(created, actor)
+
+    created
+  end
+
+  defp create_aliases_for_new_devices(created_devices, actor) do
+    Enum.each(created_devices, fn {ip, record} ->
+      device_id = record.canonical_device_id
+
+      case DeviceAliasState.create_detected(
+             %{
+               device_id: device_id,
+               partition: "default",
+               alias_type: :ip,
+               alias_value: ip,
+               metadata: %{"source" => "sweep_discovery"}
+             },
+             actor: actor
+           ) do
+        {:ok, _alias} ->
+          Logger.debug("SweepResultsIngestor: Created IP alias #{ip} for device #{device_id}")
+
+        {:error, %Ash.Error.Invalid{} = err} ->
+          # Check if it's a uniqueness constraint violation (alias already exists)
+          if Enum.any?(err.errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)) do
+            Logger.debug("SweepResultsIngestor: Alias #{ip} already exists, skipping")
+          else
+            Logger.warning("SweepResultsIngestor: Failed to create alias #{ip}: #{inspect(err)}")
+          end
+
+        {:error, reason} ->
+          Logger.warning("SweepResultsIngestor: Failed to create alias #{ip}: #{inspect(reason)}")
+      end
+    end)
   end
 
   defp generate_device_uid(ip) do
@@ -835,7 +906,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_available: stats1.hosts_available + stats2.hosts_available,
       hosts_failed: stats1.hosts_failed + stats2.hosts_failed,
       devices_updated: stats1.devices_updated + Map.get(stats2, :devices_updated, 0),
-      devices_created: stats1.devices_created + Map.get(stats2, :devices_created, 0)
+      devices_created: stats1.devices_created + Map.get(stats2, :devices_created, 0),
+      aliases_confirmed: Map.get(stats1, :aliases_confirmed, 0) + Map.get(stats2, :aliases_confirmed, 0)
     }
   end
 
