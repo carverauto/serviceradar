@@ -276,6 +276,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             <div class="text-xs mt-1">Add this to your IdP's allowed redirect URIs.</div>
           </div>
         </div>
+
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            phx-click="test_oidc"
+            class="btn btn-outline btn-sm"
+            disabled={!@form[:oidc_discovery_url].value || @form[:oidc_discovery_url].value == ""}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Test Configuration
+          </button>
+          <span class="text-xs text-base-content/60">Verify the discovery URL is accessible</span>
+        </div>
       </div>
     </.ui_panel>
     """
@@ -380,6 +395,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               <li>Signed assertions required</li>
             </ul>
           </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            phx-click="test_saml"
+            class="btn btn-outline btn-sm"
+            disabled={(!@form[:saml_idp_metadata_url].value || @form[:saml_idp_metadata_url].value == "") && (!@form[:saml_idp_metadata_xml].value || @form[:saml_idp_metadata_xml].value == "")}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Test Configuration
+          </button>
+          <span class="text-xs text-base-content/60">Verify the IdP metadata is valid</span>
         </div>
       </div>
     </.ui_panel>
@@ -588,23 +618,113 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     # Build the update params
     update_params = build_update_params(params)
 
-    case update_settings(settings, update_params, user) do
-      {:ok, updated_settings} ->
-        # Invalidate the config cache
-        ConfigCache.invalidate()
+    # Validate configuration if SSO is being enabled
+    case validate_before_enable(params, update_params) do
+      :ok ->
+        case update_settings(settings, update_params, user) do
+          {:ok, updated_settings} ->
+            # Invalidate the config cache
+            ConfigCache.invalidate()
 
+            {:noreply,
+             socket
+             |> assign(:settings, updated_settings)
+             |> assign(:form, to_form(settings_to_form_data(updated_settings), as: :settings))
+             |> put_flash(:info, "Authentication settings saved successfully.")}
+
+          {:error, error} ->
+            Logger.error("Failed to save auth settings: #{inspect(error)}")
+
+            {:noreply,
+             socket
+             |> put_flash(:error, "Failed to save settings. Please check your configuration.")}
+        end
+
+      {:error, message} ->
         {:noreply,
          socket
-         |> assign(:settings, updated_settings)
-         |> assign(:form, to_form(settings_to_form_data(updated_settings), as: :settings))
-         |> put_flash(:info, "Authentication settings saved successfully.")}
+         |> put_flash(:error, message)}
+    end
+  end
 
-      {:error, error} ->
-        Logger.error("Failed to save auth settings: #{inspect(error)}")
+  # Validate OIDC/SAML configuration before enabling
+  defp validate_before_enable(params, update_params) do
+    is_enabling = params["is_enabled"] == "true"
+    mode = update_params[:mode]
+    provider_type = update_params[:provider_type]
 
-        {:noreply,
-         socket
-         |> put_flash(:error, "Failed to save settings. Please check your configuration.")}
+    cond do
+      # Only validate when enabling SSO
+      not is_enabling ->
+        :ok
+
+      mode != :active_sso ->
+        :ok
+
+      provider_type == :oidc ->
+        validate_oidc_config(params)
+
+      provider_type == :saml ->
+        validate_saml_config(params)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_oidc_config(params) do
+    discovery_url = params["oidc_discovery_url"]
+    client_id = params["oidc_client_id"]
+
+    cond do
+      is_nil(discovery_url) or discovery_url == "" ->
+        {:error, "OIDC Discovery URL is required to enable SSO."}
+
+      is_nil(client_id) or client_id == "" ->
+        {:error, "OIDC Client ID is required to enable SSO."}
+
+      true ->
+        # Validate the discovery URL is accessible
+        case test_oidc_discovery(discovery_url) do
+          {:ok, _} ->
+            :ok
+
+          {:error, reason} ->
+            {:error, "OIDC configuration validation failed: #{reason}. Please verify your settings and try again."}
+        end
+    end
+  end
+
+  defp validate_saml_config(params) do
+    metadata_url = params["saml_idp_metadata_url"]
+    metadata_xml = params["saml_idp_metadata_xml"]
+
+    cond do
+      (is_nil(metadata_url) or metadata_url == "") and (is_nil(metadata_xml) or metadata_xml == "") ->
+        {:error, "SAML IdP metadata (URL or XML) is required to enable SSO."}
+
+      metadata_url && metadata_url != "" ->
+        # Validate the metadata URL is accessible
+        case test_saml_metadata_url(metadata_url) do
+          {:ok, _} ->
+            :ok
+
+          {:error, reason} ->
+            {:error, "SAML metadata validation failed: #{reason}. Please verify your settings and try again."}
+        end
+
+      metadata_xml && metadata_xml != "" ->
+        # Validate the metadata XML is valid
+        case test_saml_metadata_xml(metadata_xml) do
+          {:ok, _} ->
+            :ok
+
+          {:error, reason} ->
+            {:error, "SAML metadata XML validation failed: #{reason}"}
+        end
+
+      true ->
+        :ok
     end
   end
 
@@ -616,6 +736,162 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
      socket
      |> assign(:form, to_form(form_data, as: :settings))
      |> put_flash(:info, "Form reset to saved values.")}
+  end
+
+  def handle_event("test_oidc", _params, socket) do
+    discovery_url = socket.assigns.form.source["oidc_discovery_url"]
+
+    if discovery_url && discovery_url != "" do
+      case test_oidc_discovery(discovery_url) do
+        {:ok, endpoints} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "OIDC configuration valid. Found endpoints: #{Enum.join(endpoints, ", ")}")}
+
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "OIDC configuration test failed: #{reason}")}
+      end
+    else
+      {:noreply,
+       socket
+       |> put_flash(:error, "Please enter a discovery URL first.")}
+    end
+  end
+
+  def handle_event("test_saml", _params, socket) do
+    metadata_url = socket.assigns.form.source["saml_idp_metadata_url"]
+    metadata_xml = socket.assigns.form.source["saml_idp_metadata_xml"]
+
+    cond do
+      metadata_url && metadata_url != "" ->
+        case test_saml_metadata_url(metadata_url) do
+          {:ok, entity_id} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "SAML metadata valid. IdP Entity ID: #{entity_id}")}
+
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "SAML metadata test failed: #{reason}")}
+        end
+
+      metadata_xml && metadata_xml != "" ->
+        case test_saml_metadata_xml(metadata_xml) do
+          {:ok, entity_id} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "SAML metadata XML valid. IdP Entity ID: #{entity_id}")}
+
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "SAML metadata XML invalid: #{reason}")}
+        end
+
+      true ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Please enter a metadata URL or paste metadata XML first.")}
+    end
+  end
+
+  defp test_oidc_discovery(url) do
+    case Req.get(url, receive_timeout: 10_000) do
+      {:ok, %{status: 200, body: body}} when is_map(body) ->
+        # Check for required OIDC endpoints
+        required = ["authorization_endpoint", "token_endpoint", "issuer"]
+        found = Enum.filter(required, &Map.has_key?(body, &1))
+
+        if length(found) == length(required) do
+          {:ok, found}
+        else
+          missing = required -- found
+          {:error, "Missing required endpoints: #{Enum.join(missing, ", ")}"}
+        end
+
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        # Try to parse as JSON
+        case Jason.decode(body) do
+          {:ok, parsed} ->
+            test_oidc_discovery_body(parsed)
+
+          {:error, _} ->
+            {:error, "Response is not valid JSON"}
+        end
+
+      {:ok, %{status: status}} ->
+        {:error, "HTTP #{status} response"}
+
+      {:error, %{reason: reason}} ->
+        {:error, "Connection failed: #{inspect(reason)}"}
+
+      {:error, reason} ->
+        {:error, "Request failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp test_oidc_discovery_body(body) when is_map(body) do
+    required = ["authorization_endpoint", "token_endpoint", "issuer"]
+    found = Enum.filter(required, &Map.has_key?(body, &1))
+
+    if length(found) == length(required) do
+      {:ok, found}
+    else
+      missing = required -- found
+      {:error, "Missing required endpoints: #{Enum.join(missing, ", ")}"}
+    end
+  end
+
+  defp test_saml_metadata_url(url) do
+    case Req.get(url, receive_timeout: 10_000) do
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        test_saml_metadata_xml(body)
+
+      {:ok, %{status: status}} ->
+        {:error, "HTTP #{status} response"}
+
+      {:error, %{reason: reason}} ->
+        {:error, "Connection failed: #{inspect(reason)}"}
+
+      {:error, reason} ->
+        {:error, "Request failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp test_saml_metadata_xml(xml) do
+    try do
+      import SweetXml
+
+      # Try to extract entity ID
+      entity_id =
+        xml
+        |> xpath(
+          ~x"//md:EntityDescriptor/@entityID"s,
+          namespace_conformant: true,
+          namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
+        )
+
+      # Fallback without namespace
+      entity_id =
+        if entity_id == "" do
+          xpath(xml, ~x"//EntityDescriptor/@entityID"s)
+        else
+          entity_id
+        end
+
+      if entity_id != "" do
+        {:ok, entity_id}
+      else
+        {:error, "Could not find EntityDescriptor with entityID"}
+      end
+    rescue
+      e ->
+        Logger.error("SAML metadata parse error: #{inspect(e)}")
+        {:error, "Failed to parse XML metadata"}
+    end
   end
 
   defp load_or_create_settings(user) do

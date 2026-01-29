@@ -30,17 +30,70 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNGWeb.Auth.Hooks
+  alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.Auth.SAMLStrategy
   alias ServiceRadarWebNGWeb.UserAuth
 
+  plug :fetch_session
+  plug :check_rate_limit when action == :consume
+
+  # Rate limit: 20 attempts per minute per IP for ACS callbacks
+  @callback_rate_limit 20
+  @callback_rate_window 60
+
+  defp check_rate_limit(conn, _opts) do
+    client_ip = get_client_ip(conn)
+
+    case RateLimiter.check_rate_limit("saml_consume", client_ip,
+           limit: @callback_rate_limit,
+           window_seconds: @callback_rate_window
+         ) do
+      :ok ->
+        # Record the attempt
+        RateLimiter.record_attempt("saml_consume", client_ip)
+        conn
+
+      {:error, retry_after} ->
+        Logger.warning("SAML ACS rate limited for IP: #{client_ip}")
+
+        conn
+        |> put_resp_header("retry-after", to_string(retry_after))
+        |> put_flash(:error, "Too many authentication attempts. Please wait #{retry_after} seconds.")
+        |> redirect(to: ~p"/users/log-in")
+        |> halt()
+    end
+  end
+
+  defp get_client_ip(conn) do
+    # Check for forwarded IP headers (proxy/load balancer)
+    forwarded_for =
+      conn
+      |> get_req_header("x-forwarded-for")
+      |> List.first()
+
+    if forwarded_for do
+      forwarded_for |> String.split(",") |> List.first() |> String.trim()
+    else
+      conn.remote_ip |> :inet.ntoa() |> to_string()
+    end
+  end
+
   @doc """
   Initiates SAML authentication by redirecting to the IdP.
+
+  Generates a CSRF token stored in session and passed via RelayState
+  to prevent cross-site request forgery attacks.
   """
   def request(conn, _params) do
     if SAMLStrategy.enabled?() do
-      case get_saml_request_url() do
+      # Generate CSRF token for RelayState
+      csrf_token = generate_csrf_token()
+
+      case get_saml_request_url(csrf_token) do
         {:ok, url} ->
-          redirect(conn, external: url)
+          conn
+          |> put_session(:saml_csrf_token, csrf_token)
+          |> redirect(external: url)
 
         {:error, reason} ->
           Logger.error("Failed to initiate SAML auth: #{inspect(reason)}")
@@ -56,31 +109,81 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     end
   end
 
+  defp generate_csrf_token do
+    :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+  end
+
   @doc """
   Assertion Consumer Service (ACS) endpoint.
 
   Receives and validates SAML assertions from the IdP.
+  Validates CSRF token from RelayState before processing.
   """
   def consume(conn, params) do
     saml_response = params["SAMLResponse"]
     relay_state = params["RelayState"]
+    stored_csrf_token = get_session(conn, :saml_csrf_token)
 
-    if saml_response do
-      case validate_saml_response(saml_response) do
-        {:ok, assertion} ->
-          handle_successful_assertion(conn, assertion, relay_state)
+    # Clear CSRF token from session
+    conn = delete_session(conn, :saml_csrf_token)
 
-        {:error, reason} ->
-          Logger.warning("SAML assertion validation failed: #{inspect(reason)}")
+    # Parse RelayState to extract CSRF token and return URL
+    {csrf_token, return_to} = parse_relay_state(relay_state)
 
-          conn
-          |> put_flash(:error, "Authentication failed. Please try again.")
-          |> redirect(to: ~p"/users/log-in")
-      end
-    else
-      conn
-      |> put_flash(:error, "No SAML response received.")
-      |> redirect(to: ~p"/users/log-in")
+    cond do
+      # Validate CSRF token
+      stored_csrf_token && csrf_token != stored_csrf_token ->
+        Logger.warning("SAML CSRF token mismatch")
+
+        Hooks.on_auth_failed(:csrf_validation_failed, %{
+          method: :saml,
+          ip: get_client_ip(conn)
+        })
+
+        conn
+        |> put_flash(:error, "Authentication failed: invalid request. Please try again.")
+        |> redirect(to: ~p"/users/log-in")
+
+      !saml_response ->
+        Hooks.on_auth_failed(:no_saml_response, %{
+          method: :saml,
+          ip: get_client_ip(conn)
+        })
+
+        conn
+        |> put_flash(:error, "No SAML response received.")
+        |> redirect(to: ~p"/users/log-in")
+
+      true ->
+        case validate_saml_response(saml_response) do
+          {:ok, assertion} ->
+            handle_successful_assertion(conn, assertion, return_to)
+
+          {:error, reason} ->
+            Logger.warning("SAML assertion validation failed: #{inspect(reason)}")
+
+            Hooks.on_auth_failed(reason, %{
+              method: :saml,
+              ip: get_client_ip(conn),
+              user_agent: get_req_header(conn, "user-agent") |> List.first()
+            })
+
+            conn
+            |> put_flash(:error, "Authentication failed. Please try again.")
+            |> redirect(to: ~p"/users/log-in")
+        end
+    end
+  end
+
+  # Parse RelayState to extract CSRF token and optional return URL
+  # Format: "csrf_token" or "csrf_token|return_url"
+  defp parse_relay_state(nil), do: {nil, nil}
+  defp parse_relay_state(""), do: {nil, nil}
+
+  defp parse_relay_state(relay_state) do
+    case String.split(relay_state, "|", parts: 2) do
+      [token, return_url] -> {token, return_url}
+      [token] -> {token, nil}
     end
   end
 
@@ -99,7 +202,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
   # Private functions
 
-  defp get_saml_request_url do
+  defp get_saml_request_url(csrf_token) do
     case SAMLStrategy.get_config() do
       {:ok, config} ->
         # Build AuthnRequest URL
@@ -114,7 +217,13 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
                 # Build the AuthnRequest
                 authn_request = build_authn_request(sp_entity_id, acs_url)
                 encoded_request = Base.encode64(authn_request)
-                url = "#{sso_url}?SAMLRequest=#{URI.encode(encoded_request)}"
+
+                # Include CSRF token in RelayState
+                relay_state = csrf_token
+
+                url =
+                  "#{sso_url}?SAMLRequest=#{URI.encode(encoded_request)}&RelayState=#{URI.encode(relay_state)}"
+
                 {:ok, url}
 
               error ->
@@ -225,8 +334,15 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       {:ok, config} ->
         case get_idp_certificates(config) do
           {:ok, certs} when certs != [] ->
-            # Use esaml's signature validation
-            validate_signature_with_certs(xml, certs)
+            # Check certificate pinning if configured
+            case validate_certificate_pinning(certs, config) do
+              :ok ->
+                # Use esaml's signature validation
+                validate_signature_with_certs(xml, certs)
+
+              {:error, reason} ->
+                {:error, reason}
+            end
 
           {:ok, []} ->
             Logger.warning("No IdP certificates found for signature validation")
@@ -236,6 +352,93 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # Validate that at least one certificate matches pinned fingerprints
+  defp validate_certificate_pinning(certs, config) do
+    pinned_fingerprints = Map.get(config, :pinned_cert_fingerprints, [])
+
+    if Enum.empty?(pinned_fingerprints) do
+      # No pinning configured, allow any valid cert
+      :ok
+    else
+      # Compute fingerprints of current certificates
+      current_fingerprints =
+        certs
+        |> Enum.map(&compute_cert_fingerprint/1)
+        |> Enum.filter(&(&1 != nil))
+
+      # Check if any current cert matches a pinned fingerprint
+      matching =
+        Enum.any?(current_fingerprints, fn fp ->
+          Enum.member?(pinned_fingerprints, fp)
+        end)
+
+      if matching do
+        :ok
+      else
+        Logger.error("SAML certificate pinning validation failed - no matching certificates")
+        {:error, :certificate_pinning_failed}
+      end
+    end
+  end
+
+  @doc """
+  Compute SHA256 fingerprint of a certificate in DER format.
+  Returns the fingerprint as a hex string with colons (e.g., "AB:CD:EF:...")
+  """
+  def compute_cert_fingerprint(cert) do
+    try do
+      # If it's an Erlang certificate record, encode to DER
+      der =
+        case cert do
+          {:Certificate, _, _, _} ->
+            :public_key.der_encode(:Certificate, cert)
+
+          binary when is_binary(binary) ->
+            binary
+
+          _ ->
+            nil
+        end
+
+      if der do
+        :crypto.hash(:sha256, der)
+        |> Base.encode16(case: :upper)
+        |> String.graphemes()
+        |> Enum.chunk_every(2)
+        |> Enum.join(":")
+      else
+        nil
+      end
+    rescue
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Extract and compute fingerprints for all certificates in IdP metadata.
+  Used by the admin UI to display available certificates for pinning.
+  """
+  def get_idp_certificate_fingerprints do
+    case SAMLStrategy.get_config() do
+      {:ok, config} ->
+        case get_idp_certificates(config) do
+          {:ok, certs} ->
+            fingerprints =
+              certs
+              |> Enum.map(&compute_cert_fingerprint/1)
+              |> Enum.filter(&(&1 != nil))
+
+            {:ok, fingerprints}
+
+          error ->
+            error
+        end
+
+      error ->
+        error
     end
   end
 
@@ -583,6 +786,12 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
       {:error, reason} ->
         Logger.error("Failed to provision SAML user: #{inspect(reason)}")
+
+        Hooks.on_auth_failed(:user_provisioning_failed, %{
+          method: :saml,
+          reason: reason,
+          ip: get_client_ip(conn)
+        })
 
         conn
         |> put_flash(:error, "Failed to complete authentication.")

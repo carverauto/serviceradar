@@ -99,7 +99,8 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
             "email" => "email",
             "name" => "name",
             "sub" => "sub"
-          }
+          },
+          pinned_cert_fingerprints: settings.saml_pinned_cert_fingerprints || []
         }
 
         {:ok, config}

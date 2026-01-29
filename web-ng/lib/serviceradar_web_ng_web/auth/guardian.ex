@@ -14,6 +14,11 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   - "refresh" - Token refresh grants
   - "api" - Client credentials tokens
 
+  ## Token Revocation
+
+  Tokens can be revoked via `ServiceRadarWebNGWeb.Auth.TokenRevocation`.
+  Revoked tokens are rejected during verification even if not expired.
+
   ## Integration with Permit
 
   The `build_claims/3` callback provides an extension point for adding
@@ -25,6 +30,7 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNGWeb.Auth.Hooks
+  alias ServiceRadarWebNGWeb.Auth.TokenRevocation
 
   @access_token_ttl {1, :hour}
   @refresh_token_ttl {30, :days}
@@ -106,24 +112,47 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   Performs additional validation:
   - Checks token type matches expected type (if specified)
   - Validates scopes for API tokens
+  - Checks if token has been revoked
+  - Checks if all user tokens have been revoked
   """
   @impl Guardian
   def verify_claims(claims, opts) do
     expected_type = Keyword.get(opts, :token_type)
 
-    cond do
-      # If no expected type specified, allow any
-      is_nil(expected_type) ->
-        {:ok, claims}
-
-      # Verify token type matches
-      Map.get(claims, "typ") == expected_type ->
-        {:ok, claims}
-
-      true ->
-        {:error, :invalid_token_type}
+    with :ok <- verify_token_type(claims, expected_type),
+         :ok <- verify_not_revoked(claims) do
+      {:ok, claims}
     end
   end
+
+  defp verify_token_type(_claims, nil), do: :ok
+
+  defp verify_token_type(claims, expected_type) do
+    if Map.get(claims, "typ") == expected_type do
+      :ok
+    else
+      {:error, :invalid_token_type}
+    end
+  end
+
+  defp verify_not_revoked(claims) do
+    jti = Map.get(claims, "jti")
+    sub = Map.get(claims, "sub")
+    iat = Map.get(claims, "iat")
+
+    # Check if this specific token is revoked
+    with :ok <- TokenRevocation.check_revoked(jti),
+         # Check if all user tokens issued before a certain time are revoked
+         :ok <- check_user_revocation(sub, iat) do
+      :ok
+    end
+  end
+
+  defp check_user_revocation("user:" <> user_id, iat) when not is_nil(iat) do
+    TokenRevocation.check_user_tokens_revoked(user_id, iat)
+  end
+
+  defp check_user_revocation(_, _), do: :ok
 
   @doc """
   Called after a token is generated.

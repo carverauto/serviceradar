@@ -230,24 +230,20 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   defp decode_and_verify_jwt(token, jwks) do
     # Parse JWT header to get key ID
     case String.split(token, ".") do
-      [header_b64, payload_b64, _signature] ->
+      [header_b64, _payload_b64, _signature] ->
         with {:ok, header_json} <- Base.url_decode64(header_b64, padding: false),
-             {:ok, header} <- Jason.decode(header_json),
-             {:ok, payload_json} <- Base.url_decode64(payload_b64, padding: false),
-             {:ok, payload} <- Jason.decode(payload_json) do
-          # Find matching key
+             {:ok, header} <- Jason.decode(header_json) do
+          # Find matching key by kid
           kid = header["kid"]
-          alg = header["alg"]
+          key_map = Enum.find(jwks, fn k -> k["kid"] == kid end)
 
-          key = Enum.find(jwks, fn k -> k["kid"] == kid end)
+          cond do
+            is_nil(key_map) ->
+              {:error, :key_not_found}
 
-          if key do
-            # For now, we trust the token if we can decode it and find the key
-            # Full signature verification requires JOSE library
-            # TODO: Add proper signature verification with JOSE
-            {:ok, payload}
-          else
-            {:error, :key_not_found}
+            true ->
+              # Convert JWK to JOSE key and verify
+              verify_jwt_with_key(token, key_map)
           end
         else
           _ -> {:error, :invalid_token_format}
@@ -255,6 +251,27 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
 
       _ ->
         {:error, :invalid_token_format}
+    end
+  end
+
+  defp verify_jwt_with_key(token, jwk_map) do
+    try do
+      # Convert the JWK map to a JOSE.JWK struct
+      jwk = JOSE.JWK.from_map(jwk_map)
+
+      # Verify the token signature and decode
+      case JOSE.JWT.verify_strict(jwk, [jwk_map["alg"] || "RS256"], token) do
+        {true, %JOSE.JWT{fields: claims}, _jws} ->
+          {:ok, claims}
+
+        {false, _, _} ->
+          Logger.warning("JWT signature verification failed")
+          {:error, :invalid_signature}
+      end
+    rescue
+      e ->
+        Logger.error("JWT verification error: #{inspect(e)}")
+        {:error, :verification_failed}
     end
   end
 

@@ -22,9 +22,52 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   alias ServiceRadarWebNGWeb.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
+  alias ServiceRadarWebNGWeb.Auth.RateLimiter
   alias ServiceRadarWebNGWeb.UserAuth
 
   plug :fetch_session
+  plug :check_rate_limit when action == :callback
+
+  # Rate limit: 20 attempts per minute per IP for callbacks
+  @callback_rate_limit 20
+  @callback_rate_window 60
+
+  defp check_rate_limit(conn, _opts) do
+    client_ip = get_client_ip(conn)
+
+    case RateLimiter.check_rate_limit("oidc_callback", client_ip,
+           limit: @callback_rate_limit,
+           window_seconds: @callback_rate_window
+         ) do
+      :ok ->
+        # Record the attempt
+        RateLimiter.record_attempt("oidc_callback", client_ip)
+        conn
+
+      {:error, retry_after} ->
+        Logger.warning("OIDC callback rate limited for IP: #{client_ip}")
+
+        conn
+        |> put_resp_header("retry-after", to_string(retry_after))
+        |> put_flash(:error, "Too many authentication attempts. Please wait #{retry_after} seconds.")
+        |> redirect(to: ~p"/users/log-in")
+        |> halt()
+    end
+  end
+
+  defp get_client_ip(conn) do
+    # Check for forwarded IP headers (proxy/load balancer)
+    forwarded_for =
+      conn
+      |> get_req_header("x-forwarded-for")
+      |> List.first()
+
+    if forwarded_for do
+      forwarded_for |> String.split(",") |> List.first() |> String.trim()
+    else
+      conn.remote_ip |> :inet.ntoa() |> to_string()
+    end
+  end
 
   @doc """
   Initiates OIDC authentication by redirecting to the IdP.
@@ -75,6 +118,12 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
       state != stored_state ->
         Logger.warning("OIDC callback state mismatch")
 
+        Hooks.on_auth_failed(:invalid_state, %{
+          method: :oidc,
+          ip: get_client_ip(conn),
+          user_agent: get_req_header(conn, "user-agent") |> List.first()
+        })
+
         conn
         |> put_flash(:error, "Authentication failed: invalid state. Please try again.")
         |> redirect(to: ~p"/users/log-in")
@@ -87,6 +136,13 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   def callback(conn, %{"error" => error, "error_description" => description}) do
     Logger.warning("OIDC callback error: #{error} - #{description}")
 
+    Hooks.on_auth_failed(:idp_error, %{
+      method: :oidc,
+      error: error,
+      description: description,
+      ip: get_client_ip(conn)
+    })
+
     conn
     |> delete_session(:oidc_state)
     |> delete_session(:oidc_nonce)
@@ -96,6 +152,12 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
   def callback(conn, %{"error" => error}) do
     Logger.warning("OIDC callback error: #{error}")
+
+    Hooks.on_auth_failed(:idp_error, %{
+      method: :oidc,
+      error: error,
+      ip: get_client_ip(conn)
+    })
 
     conn
     |> delete_session(:oidc_state)
@@ -125,12 +187,22 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
       {:error, :user_creation_failed} ->
         Logger.error("Failed to create/update user from OIDC")
 
+        Hooks.on_auth_failed(:user_creation_failed, %{
+          method: :oidc,
+          ip: get_client_ip(conn)
+        })
+
         conn
         |> put_flash(:error, "Failed to create user account. Please contact your administrator.")
         |> redirect(to: ~p"/users/log-in")
 
       {:error, reason} ->
         Logger.error("OIDC authentication failed: #{inspect(reason)}")
+
+        Hooks.on_auth_failed(reason, %{
+          method: :oidc,
+          ip: get_client_ip(conn)
+        })
 
         conn
         |> put_flash(:error, "Authentication failed. Please try again.")

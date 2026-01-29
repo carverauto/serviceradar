@@ -100,6 +100,29 @@ defmodule ServiceRadarWebNGWeb.Auth.Hooks do
   """
   @callback enrich_claims(claims :: map(), user :: User.t()) :: map()
 
+  @doc """
+  Called when an authentication attempt fails.
+
+  Useful for audit logging and security monitoring.
+
+  The `reason` atom indicates why authentication failed:
+  - `:invalid_credentials` - Wrong password
+  - `:user_not_found` - No user with given email
+  - `:invalid_token` - Invalid or expired token
+  - `:signature_validation_failed` - Invalid SAML/JWT signature
+  - `:rate_limited` - Too many attempts
+
+  The `context` map contains relevant details about the attempt.
+
+  ## Example
+
+      def on_auth_failed(reason, context) do
+        AuditLog.log(:auth_failure, reason, context)
+        :ok
+      end
+  """
+  @callback on_auth_failed(reason :: atom(), context :: map()) :: :ok | {:error, term()}
+
   # Public API - delegates to configured implementation
 
   @doc """
@@ -146,6 +169,17 @@ defmodule ServiceRadarWebNGWeb.Auth.Hooks do
       claims
   end
 
+  @doc """
+  Invokes the `on_auth_failed` callback for failed authentication attempts.
+  """
+  def on_auth_failed(reason, context) do
+    impl().on_auth_failed(reason, context)
+  rescue
+    e ->
+      Logger.error("Auth hook on_auth_failed failed: #{inspect(e)}")
+      {:error, e}
+  end
+
   defp impl do
     Application.get_env(:serviceradar_web_ng, :auth_hooks_module, __MODULE__.Default)
   end
@@ -153,11 +187,28 @@ end
 
 defmodule ServiceRadarWebNGWeb.Auth.Hooks.Default do
   @moduledoc """
-  Default no-op implementation of authentication hooks.
+  Default implementation of authentication hooks with structured logging.
 
-  This module provides pass-through implementations that don't perform
-  any external operations. Replace this with a custom implementation
-  when integrating with Permit or other authorization systems.
+  This module provides audit logging for authentication events. Replace this
+  with a custom implementation when integrating with Permit or other
+  authorization systems.
+
+  ## Logging
+
+  All authentication events are logged with structured metadata for security
+  monitoring and debugging:
+
+  - `event_type` - The type of auth event (user_created, auth_success, auth_failed)
+  - `user_id` - The user ID (if available)
+  - `email` - The user's email (if available)
+  - `method` - The authentication method (oidc, saml, password, gateway)
+  - `timestamp` - ISO8601 timestamp
+
+  ## Example Log Output
+
+      [info] auth_event: user_created user_id=uuid-123 method=oidc email=user@example.com
+      [info] auth_event: auth_success user_id=uuid-123 method=password ip=192.168.1.1
+      [warning] auth_event: auth_failed reason=invalid_credentials email=user@example.com ip=192.168.1.1
   """
 
   @behaviour ServiceRadarWebNGWeb.Auth.Hooks
@@ -166,18 +217,44 @@ defmodule ServiceRadarWebNGWeb.Auth.Hooks.Default do
 
   @impl true
   def on_user_created(user, source) do
-    Logger.debug("User created via #{source}: #{user.id}")
+    Logger.info(
+      "auth_event: user_created",
+      event_type: :user_created,
+      user_id: user.id,
+      email: user.email,
+      method: source,
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+    )
+
     :ok
   end
 
   @impl true
-  def on_user_authenticated(user, _claims) do
-    Logger.debug("User authenticated: #{user.id}")
+  def on_user_authenticated(user, claims) do
+    method = claims["method"] || claims[:method] || detect_auth_method(claims)
+
+    Logger.info(
+      "auth_event: auth_success",
+      event_type: :auth_success,
+      user_id: user.id,
+      email: user.email,
+      method: method,
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+    )
+
     :ok
   end
 
   @impl true
-  def on_token_generated(_user, _token, _claims) do
+  def on_token_generated(user, _token, claims) do
+    Logger.debug(
+      "auth_event: token_generated",
+      event_type: :token_generated,
+      user_id: user.id,
+      token_type: claims["typ"],
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+    )
+
     :ok
   end
 
@@ -187,5 +264,31 @@ defmodule ServiceRadarWebNGWeb.Auth.Hooks.Default do
     # permissions = Permit.get_permissions(user)
     # Map.put(claims, "permissions", permissions)
     claims
+  end
+
+  @impl true
+  def on_auth_failed(reason, context) do
+    Logger.warning(
+      "auth_event: auth_failed",
+      event_type: :auth_failed,
+      reason: reason,
+      email: context[:email],
+      method: context[:method],
+      ip: context[:ip],
+      user_agent: context[:user_agent],
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+    )
+
+    :ok
+  end
+
+  # Detect the authentication method from claims structure
+  defp detect_auth_method(claims) do
+    cond do
+      Map.has_key?(claims, "assertion") -> :saml
+      Map.has_key?(claims, "iss") and Map.has_key?(claims, "aud") -> :oidc
+      Map.has_key?(claims, "sub") and Map.has_key?(claims, "typ") -> :jwt
+      true -> :unknown
+    end
   end
 end

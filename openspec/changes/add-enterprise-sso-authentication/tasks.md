@@ -41,8 +41,8 @@
 - [x] 4.3 Implement OIDC discovery URL fetching and caching
 - [x] 4.4 Implement ID token verification (signature, claims, nonce)
 - [x] 4.5 Add JIT user provisioning for OIDC-authenticated users
-- [ ] 4.6 Create OIDC configuration section in admin UI
-- [ ] 4.7 Implement "Test OIDC Configuration" validation
+- [x] 4.6 Create OIDC configuration section in admin UI
+- [x] 4.7 Implement "Test OIDC Configuration" validation
 - [x] 4.8 Add routes for OIDC auth (`/auth/oidc`, `/auth/oidc/callback`)
 - [ ] 4.9 Write integration tests with mock OIDC provider
 
@@ -66,7 +66,7 @@
 - [x] 6.3 Implement JWKS fetching and caching for signature verification
 - [x] 6.4 Implement issuer, audience, and expiration claim validation
 - [x] 6.5 Add JIT user provisioning for gateway-authenticated users
-- [ ] 6.6 Create proxy JWT configuration section in admin UI
+- [x] 6.6 Create proxy JWT configuration section in admin UI
 - [x] 6.7 Hide login UI when proxy mode active
 - [ ] 6.8 Write integration tests for gateway JWT validation
 
@@ -109,14 +109,14 @@
 
 ## 10. Security & Validation
 
-- [ ] 10.1 Implement SAML signature validation with certificate pinning
-- [ ] 10.2 Add CSRF protection to all auth initiation endpoints
-- [ ] 10.3 Implement nonce/state validation for OIDC flow
-- [ ] 10.4 Add rate limiting to SSO callback endpoints
-- [ ] 10.5 Log all authentication attempts (success/failure) with audit fields
-- [ ] 10.6 Validate OIDC discovery URL accessibility before enabling
-- [ ] 10.7 Validate SAML metadata XML schema before enabling
-- [ ] 10.8 Implement token revocation for compromised sessions
+- [x] 10.1 Implement SAML signature validation with certificate pinning
+- [x] 10.2 Add CSRF protection to all auth initiation endpoints
+- [x] 10.3 Implement nonce/state validation for OIDC flow
+- [x] 10.4 Add rate limiting to SSO callback endpoints
+- [x] 10.5 Log all authentication attempts (success/failure) with audit fields
+- [x] 10.6 Validate OIDC discovery URL accessibility before enabling
+- [x] 10.7 Validate SAML metadata XML schema before enabling
+- [x] 10.8 Implement token revocation for compromised sessions
 
 ## 11. Testing & Documentation
 

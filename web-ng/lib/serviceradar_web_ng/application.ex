@@ -39,10 +39,11 @@ defmodule ServiceRadarWebNG.Application do
     # If we add simpler React components that benefit from SSR, enable Phoenix.React here.
     # react_children = [Phoenix.React]
 
-    # Auth configuration cache and rate limiter (must start after PubSub)
+    # Auth configuration cache, rate limiter, and token revocation (must start after PubSub)
     auth_children = [
       ServiceRadarWebNGWeb.Auth.ConfigCache,
-      ServiceRadarWebNGWeb.Auth.RateLimiter
+      ServiceRadarWebNGWeb.Auth.RateLimiter,
+      ServiceRadarWebNGWeb.Auth.TokenRevocation
     ]
 
     endpoint_children = [

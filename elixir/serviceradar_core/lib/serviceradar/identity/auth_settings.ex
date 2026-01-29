@@ -72,6 +72,7 @@ defmodule ServiceRadar.Identity.AuthSettings do
         :saml_idp_metadata_url,
         :saml_idp_metadata_xml,
         :saml_sp_entity_id,
+        :saml_pinned_cert_fingerprints,
         :jwt_public_key_pem,
         :jwt_jwks_url,
         :jwt_issuer,
@@ -125,6 +126,7 @@ defmodule ServiceRadar.Identity.AuthSettings do
         :saml_idp_metadata_url,
         :saml_idp_metadata_xml,
         :saml_sp_entity_id,
+        :saml_pinned_cert_fingerprints,
         :jwt_public_key_pem,
         :jwt_jwks_url,
         :jwt_issuer,
@@ -231,6 +233,12 @@ defmodule ServiceRadar.Identity.AuthSettings do
       public? false
       sensitive? true
       description "Encrypted SAML SP signing key"
+    end
+
+    attribute :saml_pinned_cert_fingerprints, {:array, :string} do
+      public? true
+      default []
+      description "SHA256 fingerprints of pinned IdP certificates for additional security"
     end
 
     # Proxy JWT Configuration

@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
+  alias ServiceRadarWebNGWeb.Auth.TokenRevocation
 
   @doc """
   Logs the user in by creating a Guardian session token.
@@ -46,9 +47,12 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   @doc """
   Logs the user out.
 
-  Clears the session and broadcasts disconnect to LiveViews.
+  Revokes the JWT token, clears the session, and broadcasts disconnect to LiveViews.
   """
   def log_out_user(conn) do
+    # Revoke the JWT token to prevent reuse
+    revoke_current_token(conn)
+
     if live_socket_id = get_session(conn, :live_socket_id) do
       ServiceRadarWebNGWeb.Endpoint.broadcast(live_socket_id, "disconnect", %{})
     end
@@ -58,6 +62,26 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     |> configure_session(renew: true)
     |> redirect(to: ~p"/")
   end
+
+  defp revoke_current_token(conn) do
+    with token when is_binary(token) <- get_session(conn, "user_token"),
+         {:ok, claims} <- Guardian.decode_and_verify(token, %{}) do
+      jti = Map.get(claims, "jti")
+      user_id = extract_user_id(claims)
+
+      if jti do
+        TokenRevocation.revoke_token(jti,
+          reason: :user_logout,
+          user_id: user_id
+        )
+      end
+    else
+      _ -> :ok
+    end
+  end
+
+  defp extract_user_id(%{"sub" => "user:" <> id}), do: id
+  defp extract_user_id(_), do: nil
 
   @doc """
   Authenticates the user by verifying the Guardian JWT token in the session.
