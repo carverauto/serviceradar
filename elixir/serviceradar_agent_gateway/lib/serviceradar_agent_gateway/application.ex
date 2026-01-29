@@ -94,10 +94,11 @@ defmodule ServiceRadarAgentGateway.Application do
     Logger.info("Starting ServiceRadar Agent Gateway: #{gateway_id}, domain: #{domain}")
     Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
 
+    # NOTE: Gateway does NOT start Repo - it has no database access.
+    # All database-dependent operations are forwarded to core-elx via RPC.
     core_children =
       [
         pubsub_child(),
-        repo_child(),
         process_registry_child(),
         gateway_tracker_child(),
         agent_tracker_child(),
@@ -213,18 +214,6 @@ defmodule ServiceRadarAgentGateway.Application do
       |> Base.encode16(case: :lower)
 
     "gateway-#{hostname}-#{suffix}"
-  end
-
-  defp repo_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
-      if Process.whereis(ServiceRadar.Repo) do
-        nil
-      else
-        ServiceRadar.Repo
-      end
-    else
-      nil
-    end
   end
 
   defp pubsub_child do

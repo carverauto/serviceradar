@@ -947,26 +947,25 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp core_nodes do
-    all_nodes = [Node.self() | Node.list()] |> Enum.uniq()
+    # IMPORTANT: Exclude Node.self() - gateway has no database access and must
+    # never execute database-dependent operations locally. All such operations
+    # must be forwarded to core-elx nodes via RPC.
+    remote_nodes = Node.list()
 
-    # First try to find nodes with ClusterHealth (preferred)
-    coordinators = find_nodes_with_process(all_nodes, ServiceRadar.ClusterHealth)
+    # Only look for nodes with ClusterHealth (core coordinator process).
+    # We do NOT fall back to Repo-based detection because the gateway should
+    # never be selected as a core node target.
+    coordinators = find_nodes_with_process(remote_nodes, ServiceRadar.ClusterHealth)
 
-    if coordinators != [] do
-      coordinators
-    else
-      # Fall back to nodes with Repo
-      repo_nodes = find_nodes_with_process(all_nodes, ServiceRadar.Repo)
-
-      if repo_nodes == [] and length(all_nodes) > 1 do
-        Logger.warning("No core nodes found",
-          connected_nodes: Node.list(),
-          checked_nodes: all_nodes
-        )
-      end
-
-      repo_nodes
+    if coordinators == [] and remote_nodes != [] do
+      Logger.warning(
+        "No core-elx nodes found with ClusterHealth. " <>
+          "Config compilation and other DB operations will fail until core is available.",
+        connected_nodes: remote_nodes
+      )
     end
+
+    coordinators
   end
 
 
