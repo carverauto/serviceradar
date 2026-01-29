@@ -68,15 +68,36 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
               <%= if @form[:is_enabled].value do %>
                 <div class="alert alert-success">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="stroke-current shrink-0 h-6 w-6"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                   </svg>
                   <span>SSO authentication is enabled.</span>
                 </div>
               <% else %>
                 <div class="alert">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-info shrink-0 w-6 h-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    class="stroke-info shrink-0 w-6 h-6"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    >
+                    </path>
                   </svg>
                   <span>SSO is disabled. Users will authenticate with password only.</span>
                 </div>
@@ -104,8 +125,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                       class="radio radio-primary mt-1"
                     />
                     <div>
-                      <div class="font-medium"><%= label %></div>
-                      <div class="text-sm text-base-content/60"><%= description %></div>
+                      <div class="font-medium">{label}</div>
+                      <div class="text-sm text-base-content/60">{description}</div>
                     </div>
                   </label>
                 <% end %>
@@ -133,7 +154,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                         checked={to_string(@form[:provider_type].value) == to_string(value)}
                         class="radio radio-primary"
                       />
-                      <span><%= label %></span>
+                      <span>{label}</span>
                     </label>
                   <% end %>
                 </div>
@@ -164,7 +185,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     checked={@form[:allow_password_fallback].value}
                     class="checkbox checkbox-primary"
                   />
-                  <span class="label-text">Allow users to sign in with password in addition to SSO</span>
+                  <span class="label-text">
+                    Allow users to sign in with password in addition to SSO
+                  </span>
                 </label>
               </.ui_panel>
             <% end %>
@@ -267,12 +290,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         </div>
 
         <div class="alert alert-info">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            class="stroke-current shrink-0 w-6 h-6"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            >
+            </path>
           </svg>
           <div>
             <div class="font-medium">Redirect URI</div>
-            <code class="text-xs"><%= ServiceRadarWebNGWeb.Endpoint.url() %>/auth/oidc/callback</code>
+            <code class="text-xs">{ServiceRadarWebNGWeb.Endpoint.url()}/auth/oidc/callback</code>
             <div class="text-xs mt-1">Add this to your IdP's allowed redirect URIs.</div>
           </div>
         </div>
@@ -284,8 +318,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             class="btn btn-outline btn-sm"
             disabled={!@form[:oidc_discovery_url].value || @form[:oidc_discovery_url].value == ""}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
             Test Configuration
           </button>
@@ -311,24 +356,43 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       <div class="space-y-4">
         <%!-- SP Information for IdP Configuration --%>
         <div class="alert alert-info">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            class="stroke-current shrink-0 w-6 h-6"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            >
+            </path>
           </svg>
           <div class="space-y-2 text-sm">
             <div class="font-medium">Configure these values in your Identity Provider:</div>
             <div class="grid grid-cols-1 gap-2">
               <div>
                 <span class="font-medium">Entity ID (SP): </span>
-                <code class="bg-base-300 px-1 rounded text-xs"><%= ServiceRadarWebNGWeb.Endpoint.url() %></code>
+                <code class="bg-base-300 px-1 rounded text-xs">
+                  {ServiceRadarWebNGWeb.Endpoint.url()}
+                </code>
               </div>
               <div>
                 <span class="font-medium">ACS URL: </span>
-                <code class="bg-base-300 px-1 rounded text-xs"><%= ServiceRadarWebNGWeb.Endpoint.url() %>/auth/saml/consume</code>
+                <code class="bg-base-300 px-1 rounded text-xs">
+                  {ServiceRadarWebNGWeb.Endpoint.url()}/auth/saml/consume
+                </code>
               </div>
               <div>
                 <span class="font-medium">SP Metadata URL: </span>
-                <a href={ServiceRadarWebNGWeb.Endpoint.url() <> "/auth/saml/metadata"} target="_blank" class="link link-primary text-xs">
-                  <%= ServiceRadarWebNGWeb.Endpoint.url() %>/auth/saml/metadata
+                <a
+                  href={ServiceRadarWebNGWeb.Endpoint.url() <> "/auth/saml/metadata"}
+                  target="_blank"
+                  class="link link-primary text-xs"
+                >
+                  {ServiceRadarWebNGWeb.Endpoint.url()}/auth/saml/metadata
                 </a>
               </div>
             </div>
@@ -384,8 +448,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         </div>
 
         <div class="alert">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            class="stroke-current shrink-0 w-6 h-6"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            >
+            </path>
           </svg>
           <div class="text-sm">
             <div class="font-medium">Expected SAML Response Format:</div>
@@ -402,10 +477,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             type="button"
             phx-click="test_saml"
             class="btn btn-outline btn-sm"
-            disabled={(!@form[:saml_idp_metadata_url].value || @form[:saml_idp_metadata_url].value == "") && (!@form[:saml_idp_metadata_xml].value || @form[:saml_idp_metadata_xml].value == "")}
+            disabled={
+              (!@form[:saml_idp_metadata_url].value || @form[:saml_idp_metadata_url].value == "") &&
+                (!@form[:saml_idp_metadata_xml].value || @form[:saml_idp_metadata_xml].value == "")
+            }
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
             Test Configuration
           </button>
@@ -441,7 +530,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             placeholder="Authorization"
           />
           <label class="label">
-            <span class="label-text-alt">The HTTP header containing the JWT (default: Authorization)</span>
+            <span class="label-text-alt">
+              The HTTP header containing the JWT (default: Authorization)
+            </span>
           </label>
         </div>
 
@@ -457,7 +548,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             placeholder="https://gateway.example.com/.well-known/jwks.json"
           />
           <label class="label">
-            <span class="label-text-alt">URL to fetch JSON Web Key Set for signature verification</span>
+            <span class="label-text-alt">
+              URL to fetch JSON Web Key Set for signature verification
+            </span>
           </label>
         </div>
 
@@ -647,87 +740,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     end
   end
 
-  # Validate OIDC/SAML configuration before enabling
-  defp validate_before_enable(params, update_params) do
-    is_enabling = params["is_enabled"] == "true"
-    mode = update_params[:mode]
-    provider_type = update_params[:provider_type]
-
-    cond do
-      # Only validate when enabling SSO
-      not is_enabling ->
-        :ok
-
-      mode != :active_sso ->
-        :ok
-
-      provider_type == :oidc ->
-        validate_oidc_config(params)
-
-      provider_type == :saml ->
-        validate_saml_config(params)
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_oidc_config(params) do
-    discovery_url = params["oidc_discovery_url"]
-    client_id = params["oidc_client_id"]
-
-    cond do
-      is_nil(discovery_url) or discovery_url == "" ->
-        {:error, "OIDC Discovery URL is required to enable SSO."}
-
-      is_nil(client_id) or client_id == "" ->
-        {:error, "OIDC Client ID is required to enable SSO."}
-
-      true ->
-        # Validate the discovery URL is accessible
-        case test_oidc_discovery(discovery_url) do
-          {:ok, _} ->
-            :ok
-
-          {:error, reason} ->
-            {:error, "OIDC configuration validation failed: #{reason}. Please verify your settings and try again."}
-        end
-    end
-  end
-
-  defp validate_saml_config(params) do
-    metadata_url = params["saml_idp_metadata_url"]
-    metadata_xml = params["saml_idp_metadata_xml"]
-
-    cond do
-      (is_nil(metadata_url) or metadata_url == "") and (is_nil(metadata_xml) or metadata_xml == "") ->
-        {:error, "SAML IdP metadata (URL or XML) is required to enable SSO."}
-
-      metadata_url && metadata_url != "" ->
-        # Validate the metadata URL is accessible
-        case test_saml_metadata_url(metadata_url) do
-          {:ok, _} ->
-            :ok
-
-          {:error, reason} ->
-            {:error, "SAML metadata validation failed: #{reason}. Please verify your settings and try again."}
-        end
-
-      metadata_xml && metadata_xml != "" ->
-        # Validate the metadata XML is valid
-        case test_saml_metadata_xml(metadata_xml) do
-          {:ok, _} ->
-            :ok
-
-          {:error, reason} ->
-            {:error, "SAML metadata XML validation failed: #{reason}"}
-        end
-
-      true ->
-        :ok
-    end
-  end
-
   def handle_event("reset", _params, socket) do
     settings = socket.assigns.settings
     form_data = settings_to_form_data(settings)
@@ -746,7 +758,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         {:ok, endpoints} ->
           {:noreply,
            socket
-           |> put_flash(:info, "OIDC configuration valid. Found endpoints: #{Enum.join(endpoints, ", ")}")}
+           |> put_flash(
+             :info,
+             "OIDC configuration valid. Found endpoints: #{Enum.join(endpoints, ", ")}"
+           )}
 
         {:error, reason} ->
           {:noreply,
@@ -795,6 +810,92 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         {:noreply,
          socket
          |> put_flash(:error, "Please enter a metadata URL or paste metadata XML first.")}
+    end
+  end
+
+  # Validate OIDC/SAML configuration before enabling
+  defp validate_before_enable(params, update_params) do
+    is_enabling = params["is_enabled"] == "true"
+    mode = update_params[:mode]
+    provider_type = update_params[:provider_type]
+
+    cond do
+      # Only validate when enabling SSO
+      not is_enabling ->
+        :ok
+
+      mode != :active_sso ->
+        :ok
+
+      provider_type == :oidc ->
+        validate_oidc_config(params)
+
+      provider_type == :saml ->
+        validate_saml_config(params)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_oidc_config(params) do
+    discovery_url = params["oidc_discovery_url"]
+    client_id = params["oidc_client_id"]
+
+    cond do
+      is_nil(discovery_url) or discovery_url == "" ->
+        {:error, "OIDC Discovery URL is required to enable SSO."}
+
+      is_nil(client_id) or client_id == "" ->
+        {:error, "OIDC Client ID is required to enable SSO."}
+
+      true ->
+        # Validate the discovery URL is accessible
+        case test_oidc_discovery(discovery_url) do
+          {:ok, _} ->
+            :ok
+
+          {:error, reason} ->
+            {:error,
+             "OIDC configuration validation failed: #{reason}. Please verify your settings and try again."}
+        end
+    end
+  end
+
+  defp validate_saml_config(params) do
+    metadata_url = params["saml_idp_metadata_url"]
+    metadata_xml = params["saml_idp_metadata_xml"]
+
+    has_url = metadata_url && metadata_url != ""
+    has_xml = metadata_xml && metadata_xml != ""
+
+    case {has_url, has_xml} do
+      {false, false} ->
+        {:error, "SAML IdP metadata (URL or XML) is required to enable SSO."}
+
+      {true, _} ->
+        validate_saml_metadata_url(metadata_url)
+
+      {false, true} ->
+        validate_saml_metadata_xml(metadata_xml)
+    end
+  end
+
+  defp validate_saml_metadata_url(url) do
+    case test_saml_metadata_url(url) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        {:error,
+         "SAML metadata validation failed: #{reason}. Please verify your settings and try again."}
+    end
+  end
+
+  defp validate_saml_metadata_xml(xml) do
+    case test_saml_metadata_xml(xml) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, "SAML metadata XML validation failed: #{reason}"}
     end
   end
 
@@ -929,15 +1030,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       "jwt_public_key_pem" => Map.get(settings, :jwt_public_key_pem),
       "jwt_issuer" => Map.get(settings, :jwt_issuer),
       "jwt_audience" => Map.get(settings, :jwt_audience),
-      "claim_mappings" => Map.get(settings, :claim_mappings, %{"email" => "email", "name" => "name", "sub" => "sub"})
+      "claim_mappings" =>
+        Map.get(settings, :claim_mappings, %{"email" => "email", "name" => "name", "sub" => "sub"})
     }
   end
 
   defp merge_form_params(existing, new_params) do
     existing
     |> Map.merge(new_params)
-    |> Map.put("is_enabled", new_params["is_enabled"] == "true" || new_params["is_enabled"] == true)
-    |> Map.put("allow_password_fallback", new_params["allow_password_fallback"] == "true" || new_params["allow_password_fallback"] == true)
+    |> Map.put(
+      "is_enabled",
+      new_params["is_enabled"] == "true" || new_params["is_enabled"] == true
+    )
+    |> Map.put(
+      "allow_password_fallback",
+      new_params["allow_password_fallback"] == "true" ||
+        new_params["allow_password_fallback"] == true
+    )
   end
 
   defp build_update_params(params) do

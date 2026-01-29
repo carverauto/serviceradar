@@ -140,11 +140,9 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
     sub = Map.get(claims, "sub")
     iat = Map.get(claims, "iat")
 
-    # Check if this specific token is revoked
-    with :ok <- TokenRevocation.check_revoked(jti),
-         # Check if all user tokens issued before a certain time are revoked
-         :ok <- check_user_revocation(sub, iat) do
-      :ok
+    # Check if this specific token is revoked, then check user-wide revocation
+    with :ok <- TokenRevocation.check_revoked(jti) do
+      check_user_revocation(sub, iat)
     end
   end
 

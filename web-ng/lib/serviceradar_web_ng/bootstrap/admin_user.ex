@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
   require Logger
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.Users
 
@@ -50,7 +51,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
   end
 
   defp create_admin_user(email, password) do
-    actor = system_actor()
+    actor = SystemActor.system(:bootstrap)
 
     with {:ok, user} <-
            Users.register_with_password(
@@ -132,12 +133,4 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
   end
 
   defp blank_to_nil(_), do: nil
-
-  defp system_actor do
-    %{
-      id: "bootstrap",
-      email: "system@serviceradar.local",
-      role: :system
-    }
-  end
 end

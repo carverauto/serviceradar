@@ -237,13 +237,11 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
           kid = header["kid"]
           key_map = Enum.find(jwks, fn k -> k["kid"] == kid end)
 
-          cond do
-            is_nil(key_map) ->
-              {:error, :key_not_found}
-
-            true ->
-              # Convert JWK to JOSE key and verify
-              verify_jwt_with_key(token, key_map)
+          if is_nil(key_map) do
+            {:error, :key_not_found}
+          else
+            # Convert JWK to JOSE key and verify
+            verify_jwt_with_key(token, key_map)
           end
         else
           _ -> {:error, :invalid_token_format}

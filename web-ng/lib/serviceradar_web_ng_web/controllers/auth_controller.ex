@@ -83,7 +83,10 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         Logger.warning("Local auth rate limited for IP: #{client_ip}")
 
         conn
-        |> put_flash(:error, "Too many login attempts. Please try again in #{retry_after} seconds.")
+        |> put_flash(
+          :error,
+          "Too many login attempts. Please try again in #{retry_after} seconds."
+        )
         |> redirect(to: ~p"/auth/local")
 
       :ok ->
@@ -147,7 +150,12 @@ defmodule ServiceRadarWebNGWeb.AuthController do
           {:ok, token, _claims} ->
             # Send the reset email
             reset_url = url(~p"/auth/password-reset/#{token}")
-            ServiceRadarWebNG.Accounts.UserNotifier.deliver_reset_password_instructions(user, reset_url)
+
+            ServiceRadarWebNG.Accounts.UserNotifier.deliver_reset_password_instructions(
+              user,
+              reset_url
+            )
+
             :ok
 
           {:error, _} ->
@@ -160,7 +168,10 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     end
 
     conn
-    |> put_flash(:info, "If your email is in our system, you will receive instructions to reset your password.")
+    |> put_flash(
+      :info,
+      "If your email is in our system, you will receive instructions to reset your password."
+    )
     |> redirect(to: ~p"/users/log-in")
   end
 
@@ -186,14 +197,20 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   Updates the user's password and signs them in.
   """
-  def reset_password(conn, %{"token" => token, "user" => %{"password" => password, "password_confirmation" => password_confirmation}}) do
+  def reset_password(conn, %{
+        "token" => token,
+        "user" => %{"password" => password, "password_confirmation" => password_confirmation}
+      }) do
     actor = SystemActor.system(:auth_controller)
 
     with {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "reset"),
-         {:ok, user} <- User.change_password(user, %{
-           password: password,
-           password_confirmation: password_confirmation
-         }, actor: actor) do
+         {:ok, user} <-
+           User.change_password(
+             user,
+             %{
+               password: password,
+               password_confirmation: password_confirmation
+             }, actor: actor) do
       conn
       |> put_flash(:info, "Password reset successfully.")
       |> UserAuth.log_in_user(user)
@@ -236,7 +253,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
         conn
         |> put_flash(:error, "Failed to create account: #{error_message}")
-        |> redirect(to: ~p"/users/register")
+        |> redirect(to: ~p"/users/log-in")
     end
   end
 end

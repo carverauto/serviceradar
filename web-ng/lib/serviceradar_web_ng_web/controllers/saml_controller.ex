@@ -58,7 +58,10 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
         conn
         |> put_resp_header("retry-after", to_string(retry_after))
-        |> put_flash(:error, "Too many authentication attempts. Please wait #{retry_after} seconds.")
+        |> put_flash(
+          :error,
+          "Too many authentication attempts. Please wait #{retry_after} seconds."
+        )
         |> redirect(to: ~p"/users/log-in")
         |> halt()
     end
@@ -203,39 +206,27 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   # Private functions
 
   defp get_saml_request_url(csrf_token) do
-    case SAMLStrategy.get_config() do
-      {:ok, config} ->
-        # Build AuthnRequest URL
-        # This is a simplified implementation - Samly handles the details
-        sp_entity_id = config.sp_entity_id
-        acs_url = config.acs_url
+    with {:ok, config} <- SAMLStrategy.get_config(),
+         {:xml, xml} <- config.idp_metadata,
+         {:ok, sso_url} <- extract_sso_url_from_metadata(xml) do
+      # Build AuthnRequest URL
+      sp_entity_id = config.sp_entity_id
+      acs_url = config.acs_url
 
-        case config.idp_metadata do
-          {:xml, xml} ->
-            case extract_sso_url_from_metadata(xml) do
-              {:ok, sso_url} ->
-                # Build the AuthnRequest
-                authn_request = build_authn_request(sp_entity_id, acs_url)
-                encoded_request = Base.encode64(authn_request)
+      # Build the AuthnRequest
+      authn_request = build_authn_request(sp_entity_id, acs_url)
+      encoded_request = Base.encode64(authn_request)
 
-                # Include CSRF token in RelayState
-                relay_state = csrf_token
+      # Include CSRF token in RelayState
+      relay_state = csrf_token
 
-                url =
-                  "#{sso_url}?SAMLRequest=#{URI.encode(encoded_request)}&RelayState=#{URI.encode(relay_state)}"
+      url =
+        "#{sso_url}?SAMLRequest=#{URI.encode(encoded_request)}&RelayState=#{URI.encode(relay_state)}"
 
-                {:ok, url}
-
-              error ->
-                error
-            end
-
-          _ ->
-            {:error, :invalid_metadata}
-        end
-
-      error ->
-        error
+      {:ok, url}
+    else
+      {:url, _url} -> {:error, :invalid_metadata}
+      error -> error
     end
   end
 
@@ -259,7 +250,9 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         # Try without namespace prefix
         sso_url_alt =
           xml
-          |> xpath(~x"//SingleSignOnService[@Binding='urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect']/@Location"s)
+          |> xpath(
+            ~x"//SingleSignOnService[@Binding='urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect']/@Location"s
+          )
 
         if sso_url_alt && sso_url_alt != "" do
           {:ok, sso_url_alt}
@@ -300,55 +293,32 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   end
 
   defp validate_saml_response(saml_response_b64) do
-    case Base.decode64(saml_response_b64) do
-      {:ok, saml_response_xml} ->
-        # First validate the XML signature
-        case validate_xml_signature(saml_response_xml) do
-          :ok ->
-            # Parse and validate the SAML assertion
-            case parse_saml_assertion(saml_response_xml) do
-              {:ok, assertion} ->
-                # Validate audience, timestamps, etc.
-                case validate_assertion(assertion) do
-                  :ok -> {:ok, assertion}
-                  error -> error
-                end
-
-              error ->
-                error
-            end
-
-          {:error, reason} ->
-            Logger.warning("SAML signature validation failed: #{inspect(reason)}")
-            {:error, :signature_validation_failed}
-        end
-
+    with {:ok, saml_response_xml} <- Base.decode64(saml_response_b64),
+         :ok <- validate_xml_signature(saml_response_xml),
+         {:ok, assertion} <- parse_saml_assertion(saml_response_xml),
+         :ok <- validate_assertion(assertion) do
+      {:ok, assertion}
+    else
       :error ->
         {:error, :invalid_base64}
+
+      {:error, reason} = error ->
+        Logger.warning("SAML response validation failed: #{inspect(reason)}")
+        error
     end
   end
 
   # Validate the XML signature on the SAML response/assertion
   defp validate_xml_signature(xml) do
-    case SAMLStrategy.get_config() do
-      {:ok, config} ->
-        case get_idp_certificates(config) do
-          {:ok, certs} when certs != [] ->
-            # Check certificate pinning if configured
-            case validate_certificate_pinning(certs, config) do
-              :ok ->
-                # Use esaml's signature validation
-                validate_signature_with_certs(xml, certs)
-
-              {:error, reason} ->
-                {:error, reason}
-            end
-
-          {:ok, []} ->
-            Logger.warning("No IdP certificates found for signature validation")
-            # If no certs configured, skip signature validation (not recommended for production)
-            :ok
-        end
+    with {:ok, config} <- SAMLStrategy.get_config(),
+         {:ok, certs} when certs != [] <- get_idp_certificates(config),
+         :ok <- validate_certificate_pinning(certs, config) do
+      validate_signature_with_certs(xml, certs)
+    else
+      {:ok, []} ->
+        Logger.warning("No IdP certificates found for signature validation")
+        # If no certs configured, skip signature validation (not recommended for production)
+        :ok
 
       {:error, reason} ->
         {:error, reason}
@@ -573,7 +543,9 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   defp find_signature_element(doc) do
     # Look for ds:Signature element in the document
     case :xmerl_xpath.string(~c"//ds:Signature", doc) do
-      [sig | _] -> {:ok, sig}
+      [sig | _] ->
+        {:ok, sig}
+
       [] ->
         # Try without namespace prefix
         case :xmerl_xpath.string(~c"//Signature", doc) do
@@ -586,7 +558,9 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   defp find_assertion_signature(doc) do
     # Look for signature within the Assertion element
     case :xmerl_xpath.string(~c"//saml:Assertion/ds:Signature", doc) do
-      [sig | _] -> {:ok, sig}
+      [sig | _] ->
+        {:ok, sig}
+
       [] ->
         case :xmerl_xpath.string(~c"//Assertion/Signature", doc) do
           [sig | _] -> {:ok, sig}
@@ -631,7 +605,9 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       # Check for SignedInfo
       has_signed_info =
         case :xmerl_xpath.string(~c"./ds:SignedInfo", sig_element) do
-          [_ | _] -> true
+          [_ | _] ->
+            true
+
           [] ->
             case :xmerl_xpath.string(~c"./SignedInfo", sig_element) do
               [_ | _] -> true
@@ -642,7 +618,9 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       # Check for SignatureValue
       has_signature_value =
         case :xmerl_xpath.string(~c"./ds:SignatureValue", sig_element) do
-          [_ | _] -> true
+          [_ | _] ->
+            true
+
           [] ->
             case :xmerl_xpath.string(~c"./SignatureValue", sig_element) do
               [_ | _] -> true
@@ -651,8 +629,12 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         end
 
       cond do
-        not has_signed_info -> {:error, :missing_signed_info}
-        not has_signature_value -> {:error, :missing_signature_value}
+        not has_signed_info ->
+          {:error, :missing_signed_info}
+
+        not has_signature_value ->
+          {:error, :missing_signature_value}
+
         true ->
           Logger.debug("SAML signature structure validated")
           :ok
@@ -669,23 +651,39 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       # Extract assertion data
       # Note: This is a simplified parser - production should use Samly's full validation
       assertion = %{
-        subject_name_id: xpath(xml, ~x"//saml:Subject/saml:NameID/text()"s |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")),
+        subject_name_id:
+          xpath(
+            xml,
+            ~x"//saml:Subject/saml:NameID/text()"s
+            |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
+          ),
         attributes: parse_attributes(xml),
         conditions: %{
-          not_before: xpath(xml, ~x"//saml:Conditions/@NotBefore"s |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")),
-          not_on_or_after: xpath(xml, ~x"//saml:Conditions/@NotOnOrAfter"s |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion"))
+          not_before:
+            xpath(
+              xml,
+              ~x"//saml:Conditions/@NotBefore"s
+              |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
+            ),
+          not_on_or_after:
+            xpath(
+              xml,
+              ~x"//saml:Conditions/@NotOnOrAfter"s
+              |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
+            )
         }
       }
 
       # Fallback for non-namespaced XML
       assertion =
         if assertion.subject_name_id == "" do
-          %{assertion |
-            subject_name_id: xpath(xml, ~x"//Subject/NameID/text()"s),
-            conditions: %{
-              not_before: xpath(xml, ~x"//Conditions/@NotBefore"s),
-              not_on_or_after: xpath(xml, ~x"//Conditions/@NotOnOrAfter"s)
-            }
+          %{
+            assertion
+            | subject_name_id: xpath(xml, ~x"//Subject/NameID/text()"s),
+              conditions: %{
+                not_before: xpath(xml, ~x"//Conditions/@NotBefore"s),
+                not_on_or_after: xpath(xml, ~x"//Conditions/@NotOnOrAfter"s)
+              }
           }
         else
           assertion
@@ -713,7 +711,9 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         ~x"//saml:AttributeStatement/saml:Attribute"l
         |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion"),
         name: ~x"./@Name"s,
-        value: ~x"./saml:AttributeValue/text()"s |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
+        value:
+          ~x"./saml:AttributeValue/text()"s
+          |> add_namespace(:saml, "urn:oasis:names:tc:SAML:2.0:assertion")
       )
 
     # Fallback to non-namespaced
@@ -755,11 +755,13 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
               :ok
           end
         else
-          _ -> :ok  # If dates can't be parsed, continue with other validation
+          # If dates can't be parsed, continue with other validation
+          _ -> :ok
         end
 
       _ ->
-        :ok  # No time constraints
+        # No time constraints
+        :ok
     end
   end
 
@@ -808,14 +810,20 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     email =
       get_attribute(assertion.attributes, mappings["email"]) ||
         get_attribute(assertion.attributes, "email") ||
-        get_attribute(assertion.attributes, "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress") ||
+        get_attribute(
+          assertion.attributes,
+          "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+        ) ||
         assertion.subject_name_id
 
     name =
       get_attribute(assertion.attributes, mappings["name"]) ||
         get_attribute(assertion.attributes, "name") ||
         get_attribute(assertion.attributes, "displayName") ||
-        get_attribute(assertion.attributes, "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")
+        get_attribute(
+          assertion.attributes,
+          "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+        )
 
     external_id =
       get_attribute(assertion.attributes, mappings["sub"]) ||

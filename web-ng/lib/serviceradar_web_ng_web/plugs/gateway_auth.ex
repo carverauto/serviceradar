@@ -128,52 +128,86 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   end
 
   defp verify_with_jwks(token, jwks_url) do
-    cache_key = "gateway_jwks:#{jwks_url}"
-
-    jwks =
-      case ConfigCache.get_cached(cache_key) do
-        {:ok, cached} ->
-          cached
-
-        :miss ->
-          case fetch_jwks(jwks_url) do
-            {:ok, keys} ->
-              ConfigCache.put_cached(cache_key, keys, ttl: :timer.minutes(60))
-              keys
-
-            {:error, _} ->
-              nil
-          end
-      end
-
-    if jwks do
-      # Parse JWT header to get key ID
-      case String.split(token, ".") do
-        [header_b64, _payload_b64, _signature] ->
-          with {:ok, header_json} <- Base.url_decode64(header_b64, padding: false),
-               {:ok, header} <- Jason.decode(header_json) do
-            kid = header["kid"]
-            _key = Enum.find(jwks, fn k -> k["kid"] == kid end)
-
-            # TODO: Implement proper JOSE signature verification
-            # For now, if we can find the key, we trust the token
-            :ok
-          else
-            _ -> {:error, :invalid_token_format}
-          end
-
-        _ ->
-          {:error, :invalid_token_format}
-      end
-    else
-      {:error, :jwks_unavailable}
+    with {:ok, jwks} <- get_jwks(jwks_url),
+         {:ok, jwk} <- find_matching_key(token, jwks) do
+      verify_token_signature(token, jwk)
     end
   end
 
-  defp verify_with_public_key(_token, _pem) do
-    # TODO: Implement RSA/EC signature verification with the public key
-    # For now, trust the gateway
-    :ok
+  defp get_jwks(jwks_url) do
+    cache_key = "gateway_jwks:#{jwks_url}"
+
+    case ConfigCache.get_cached(cache_key) do
+      {:ok, cached} ->
+        {:ok, cached}
+
+      :miss ->
+        case fetch_jwks(jwks_url) do
+          {:ok, keys} ->
+            ConfigCache.put_cached(cache_key, keys, ttl: :timer.minutes(60))
+            {:ok, keys}
+
+          {:error, _} ->
+            {:error, :jwks_unavailable}
+        end
+    end
+  end
+
+  defp find_matching_key(token, jwks) do
+    with [header_b64 | _rest] <- String.split(token, "."),
+         {:ok, header_json} <- Base.url_decode64(header_b64, padding: false),
+         {:ok, header} <- Jason.decode(header_json) do
+      kid = header["kid"]
+
+      case Enum.find(jwks, fn k -> k["kid"] == kid end) do
+        nil -> {:error, :key_not_found}
+        key -> {:ok, key}
+      end
+    else
+      _ -> {:error, :invalid_token_format}
+    end
+  end
+
+  defp verify_token_signature(token, jwk_map) do
+    # Convert JWK map to JOSE JWK struct
+    jwk = JOSE.JWK.from_map(jwk_map)
+
+    # Verify the token signature
+    case JOSE.JWT.verify_strict(jwk, allowed_algorithms(), token) do
+      {true, _jwt, _jws} ->
+        :ok
+
+      {false, _jwt, _jws} ->
+        Logger.warning("Gateway JWT signature verification failed")
+        {:error, :invalid_signature}
+    end
+  rescue
+    e ->
+      Logger.error("Gateway JWT verification error: #{Exception.message(e)}")
+      {:error, :verification_error}
+  end
+
+  defp verify_with_public_key(token, pem) do
+    # Parse PEM to JOSE JWK
+    jwk = JOSE.JWK.from_pem(pem)
+
+    case JOSE.JWT.verify_strict(jwk, allowed_algorithms(), token) do
+      {true, _jwt, _jws} ->
+        :ok
+
+      {false, _jwt, _jws} ->
+        Logger.warning("Gateway JWT signature verification failed with public key")
+        {:error, :invalid_signature}
+    end
+  rescue
+    e ->
+      Logger.error("Gateway JWT verification error: #{Exception.message(e)}")
+      {:error, :verification_error}
+  end
+
+  # Allowed JWT signing algorithms for gateway tokens
+  defp allowed_algorithms do
+    ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512"]
   end
 
   defp fetch_jwks(url) do

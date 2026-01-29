@@ -198,7 +198,24 @@ config :phoenix_react_server, Phoenix.React,
 # Configure Elixir's Logger
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id, :event_type, :severity]
+  metadata: [
+    :request_id,
+    :event_type,
+    :severity,
+    # Auth-related metadata
+    :user_id,
+    :email,
+    :method,
+    :timestamp,
+    :token_type,
+    :jti,
+    :reason,
+    :type,
+    :path,
+    :remote_ip,
+    :ip,
+    :user_agent
+  ]
 
 # Pin Rustler temp dir to an explicitly writable path when provided by the build system
 config :rustler, :tmp_dir, System.get_env("RUSTLER_TMPDIR") || System.tmp_dir!()

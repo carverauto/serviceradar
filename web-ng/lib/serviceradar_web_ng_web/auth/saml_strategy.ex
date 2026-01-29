@@ -95,11 +95,13 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
           idp_metadata: metadata,
           sp_entity_id: settings.saml_sp_entity_id || get_sp_entity_id(),
           acs_url: get_acs_url(),
-          claim_mappings: settings.claim_mappings || %{
-            "email" => "email",
-            "name" => "name",
-            "sub" => "sub"
-          },
+          claim_mappings:
+            settings.claim_mappings ||
+              %{
+                "email" => "email",
+                "name" => "name",
+                "sub" => "sub"
+              },
           pinned_cert_fingerprints: settings.saml_pinned_cert_fingerprints || []
         }
 

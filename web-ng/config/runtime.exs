@@ -570,8 +570,7 @@ if config_env() == :prod do
   config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
 
   # Guardian JWT signing secret (same as token_signing_secret for consistency)
-  config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
-    secret_key: token_signing_secret
+  config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian, secret_key: token_signing_secret
 
   config :serviceradar_web_ng, :base_url, "https://#{host}"
 

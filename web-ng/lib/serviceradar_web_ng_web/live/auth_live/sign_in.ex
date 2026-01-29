@@ -35,14 +35,12 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
         <%= case @auth_mode do %>
           <% :passive_proxy -> %>
             <.proxy_mode_message />
-
           <% :active_sso -> %>
             <.sso_login_section
               allow_password_fallback={@allow_password_fallback}
               provider_type={@provider_type}
               form={@form}
             />
-
           <% _ -> %>
             <.password_form form={@form} />
         <% end %>

@@ -17,9 +17,9 @@
 - [x] 2.4 Create password reset flow with Guardian tokens (keep Swoosh email integration)
 - [x] 2.5 Update `user_auth.ex` to use Guardian.decode_and_verify/2
 - [x] 2.6 Update `api_auth.ex` to use Guardian for bearer token verification
-- [ ] 2.7 Add feature flag for old/new auth system switching
-- [ ] 2.8 Create parallel routes for new auth (test without breaking existing)
-- [ ] 2.9 Write tests for Guardian-based password authentication
+- [x] 2.7 ~~Add feature flag for old/new auth system switching~~ (N/A - direct migration)
+- [x] 2.8 ~~Create parallel routes for new auth~~ (N/A - direct migration)
+- [x] 2.9 Write tests for Guardian-based password authentication
 
 ## 3. Remove AshAuthentication
 
@@ -120,17 +120,21 @@
 
 ## 11. Testing & Documentation
 
-- [ ] 11.1 Unit tests for Guardian token encoding/decoding
-- [ ] 11.2 Unit tests for ConfigCache caching and invalidation
-- [ ] 11.3 Unit tests for JIT user provisioning
+- [x] 11.1 Unit tests for Guardian token encoding/decoding
+- [x] 11.2 Unit tests for ConfigCache caching and invalidation
+- [x] 11.2a Unit tests for TokenRevocation
+- [x] 11.2b Unit tests for RateLimiter
+- [x] 11.2c Unit tests for Auth Hooks
+- [x] 11.2d Unit tests for OIDC Client (claim extraction)
+- [x] 11.3 Unit tests for JIT user provisioning
 - [ ] 11.4 Integration tests for password auth flow
 - [ ] 11.5 Integration tests for OIDC flow (mock IdP)
 - [ ] 11.6 Integration tests for SAML flow (mock IdP)
 - [ ] 11.7 Integration tests for gateway JWT validation
 - [ ] 11.8 Integration tests for client credentials flow
 - [ ] 11.9 E2E tests with real IdPs (Google, Okta) in staging
-- [ ] 11.10 Admin documentation for OIDC setup
-- [ ] 11.11 Admin documentation for SAML setup
-- [ ] 11.12 Admin documentation for Kong/gateway setup
-- [ ] 11.13 Developer documentation for API credential usage
-- [ ] 11.14 Troubleshooting runbook for SSO issues
+- [x] 11.10 Admin documentation for OIDC setup
+- [x] 11.11 Admin documentation for SAML setup
+- [x] 11.12 Admin documentation for Kong/gateway setup
+- [x] 11.13 Developer documentation for API credential usage
+- [x] 11.14 Troubleshooting runbook for SSO issues

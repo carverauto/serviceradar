@@ -32,7 +32,14 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
             phx-click="open_create_modal"
             class="btn btn-primary"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+              class="w-5 h-5"
+            >
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
             Create Client
@@ -63,8 +70,19 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
 
           <%= if Enum.empty?(@clients) do %>
             <div class="text-center py-8 text-base-content/60">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-12 h-12 mx-auto mb-4 opacity-50">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.5"
+                stroke="currentColor"
+                class="w-12 h-12 mx-auto mb-4 opacity-50"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"
+                />
               </svg>
               <p>No API clients yet.</p>
               <p class="text-sm">Create a client to get started with API access.</p>
@@ -87,14 +105,14 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                   <%= for client <- @clients do %>
                     <tr>
                       <td>
-                        <div class="font-medium"><%= client.name %></div>
+                        <div class="font-medium">{client.name}</div>
                         <%= if client.description do %>
-                          <div class="text-xs text-base-content/60"><%= client.description %></div>
+                          <div class="text-xs text-base-content/60">{client.description}</div>
                         <% end %>
                       </td>
                       <td>
                         <code class="text-xs bg-base-200 px-2 py-1 rounded">
-                          <%= client.id |> to_string() |> String.slice(0..7) %>...
+                          {client.id |> to_string() |> String.slice(0..7)}...
                         </code>
                         <button
                           type="button"
@@ -103,47 +121,80 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                           class="btn btn-ghost btn-xs ml-1"
                           title="Copy full Client ID"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke-width="1.5"
+                            stroke="currentColor"
+                            class="w-4 h-4"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"
+                            />
                           </svg>
                         </button>
                       </td>
                       <td>
                         <%= for scope <- client.scopes do %>
-                          <span class={"badge badge-sm #{scope_badge_class(scope)}"}><%= scope %></span>
+                          <span class={"badge badge-sm #{scope_badge_class(scope)}"}>{scope}</span>
                         <% end %>
                       </td>
                       <td>
                         <span class={"badge badge-sm badge-#{status_color(client)}"}>
-                          <%= status_label(client) %>
+                          {status_label(client)}
                         </span>
                       </td>
                       <td class="text-sm">
                         <%= if client.last_used_at do %>
                           <span title={DateTime.to_iso8601(client.last_used_at)}>
-                            <%= format_relative_time(client.last_used_at) %>
+                            {format_relative_time(client.last_used_at)}
                           </span>
                         <% else %>
                           <span class="text-base-content/40">Never</span>
                         <% end %>
                       </td>
-                      <td class="text-sm"><%= client.use_count %></td>
+                      <td class="text-sm">{client.use_count}</td>
                       <td>
                         <%= if is_nil(client.revoked_at) do %>
                           <div class="dropdown dropdown-end">
                             <div tabindex="0" role="button" class="btn btn-ghost btn-xs">
-                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke-width="1.5"
+                                stroke="currentColor"
+                                class="w-4 h-4"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"
+                                />
                               </svg>
                             </div>
-                            <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40">
+                            <ul
+                              tabindex="0"
+                              class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40"
+                            >
                               <li>
-                                <button phx-click="open_revoke_modal" phx-value-id={client.id} class="text-warning">
+                                <button
+                                  phx-click="open_revoke_modal"
+                                  phx-value-id={client.id}
+                                  class="text-warning"
+                                >
                                   Revoke
                                 </button>
                               </li>
                               <li>
-                                <button phx-click="delete_client" phx-value-id={client.id} class="text-error">
+                                <button
+                                  phx-click="delete_client"
+                                  phx-value-id={client.id}
+                                  class="text-error"
+                                >
                                   Delete
                                 </button>
                               </li>
@@ -197,10 +248,23 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
             </div>
 
             <div class="alert alert-info">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                class="stroke-current shrink-0 w-6 h-6"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                >
+                </path>
               </svg>
-              <span>Access tokens are valid for 1 hour. Request a new token when the current one expires.</span>
+              <span>
+                Access tokens are valid for 1 hour. Request a new token when the current one expires.
+              </span>
             </div>
           </div>
         </.ui_panel>
@@ -255,7 +319,9 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                   class="checkbox checkbox-sm"
                 />
                 <span class="label-text">Read</span>
-                <span class="text-xs text-base-content/60">- View devices, events, and configuration</span>
+                <span class="text-xs text-base-content/60">
+                  - View devices, events, and configuration
+                </span>
               </label>
               <label class="flex items-center gap-2 cursor-pointer">
                 <input
@@ -288,8 +354,18 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
         <h3 class="font-bold text-lg mb-4 text-success">Client Created Successfully!</h3>
 
         <div class="alert alert-warning mb-4">
-          <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="stroke-current shrink-0 h-6 w-6"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            />
           </svg>
           <span class="text-sm">
             <strong>Save these credentials now!</strong> The client secret will not be shown again.
@@ -548,6 +624,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
 
   defp status_color(%{revoked_at: revoked_at}) when not is_nil(revoked_at), do: "error"
   defp status_color(%{enabled: false}), do: "ghost"
+
   defp status_color(%{expires_at: expires_at}) when not is_nil(expires_at) do
     if DateTime.compare(expires_at, DateTime.utc_now()) == :lt do
       "warning"
@@ -555,10 +632,12 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
       "success"
     end
   end
+
   defp status_color(_), do: "success"
 
   defp status_label(%{revoked_at: revoked_at}) when not is_nil(revoked_at), do: "Revoked"
   defp status_label(%{enabled: false}), do: "Disabled"
+
   defp status_label(%{expires_at: expires_at}) when not is_nil(expires_at) do
     if DateTime.compare(expires_at, DateTime.utc_now()) == :lt do
       "Expired"
@@ -566,6 +645,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
       "Active"
     end
   end
+
   defp status_label(_), do: "Active"
 
   defp format_relative_time(datetime) do
@@ -574,8 +654,8 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
     cond do
       diff < 60 -> "Just now"
       diff < 3600 -> "#{div(diff, 60)} min ago"
-      diff < 86400 -> "#{div(diff, 3600)} hours ago"
-      diff < 604_800 -> "#{div(diff, 86400)} days ago"
+      diff < 86_400 -> "#{div(diff, 3600)} hours ago"
+      diff < 604_800 -> "#{div(diff, 86_400)} days ago"
       true -> Calendar.strftime(datetime, "%b %d, %Y")
     end
   end

@@ -128,7 +128,8 @@ defmodule ServiceRadarWebNGWeb.Auth.TokenRevocation do
 
   Used in conjunction with `revoke_all_for_user/2`.
   """
-  @spec check_user_tokens_revoked(String.t(), DateTime.t() | integer()) :: :ok | {:error, :revoked}
+  @spec check_user_tokens_revoked(String.t(), DateTime.t() | integer()) ::
+          :ok | {:error, :revoked}
   def check_user_tokens_revoked(user_id, issued_at) when is_binary(user_id) do
     marker_jti = "user:#{user_id}:all"
 

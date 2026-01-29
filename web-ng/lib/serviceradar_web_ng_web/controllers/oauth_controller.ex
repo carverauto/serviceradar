@@ -76,7 +76,12 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
         error_response(conn, 400, "invalid_request", "Missing grant_type parameter")
 
       grant_type ->
-        error_response(conn, 400, "unsupported_grant_type", "Grant type '#{grant_type}' is not supported")
+        error_response(
+          conn,
+          400,
+          "unsupported_grant_type",
+          "Grant type '#{grant_type}' is not supported"
+        )
     end
   end
 
@@ -111,21 +116,12 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   end
 
   defp get_basic_auth(conn) do
-    case get_req_header(conn, "authorization") do
-      ["Basic " <> encoded] ->
-        case Base.decode64(encoded) do
-          {:ok, decoded} ->
-            case String.split(decoded, ":", parts: 2) do
-              [client_id, client_secret] -> {:ok, client_id, client_secret}
-              _ -> :not_found
-            end
-
-          :error ->
-            :not_found
-        end
-
-      _ ->
-        :not_found
+    with ["Basic " <> encoded] <- get_req_header(conn, "authorization"),
+         {:ok, decoded} <- Base.decode64(encoded),
+         [client_id, client_secret] <- String.split(decoded, ":", parts: 2) do
+      {:ok, client_id, client_secret}
+    else
+      _ -> :not_found
     end
   end
 
@@ -183,18 +179,24 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
           "scope" => Enum.join(scopes, " ")
         }
 
-        case Guardian.create_access_token(user, claims: claims, ttl: {@default_ttl_seconds, :second}) do
+        case Guardian.create_access_token(user,
+               claims: claims,
+               ttl: {@default_ttl_seconds, :second}
+             ) do
           {:ok, token, _full_claims} ->
             conn
             |> put_resp_content_type("application/json")
             |> put_resp_header("cache-control", "no-store")
             |> put_resp_header("pragma", "no-cache")
-            |> send_resp(200, Jason.encode!(%{
-              access_token: token,
-              token_type: "Bearer",
-              expires_in: @default_ttl_seconds,
-              scope: Enum.join(scopes, " ")
-            }))
+            |> send_resp(
+              200,
+              Jason.encode!(%{
+                access_token: token,
+                token_type: "Bearer",
+                expires_in: @default_ttl_seconds,
+                scope: Enum.join(scopes, " ")
+              })
+            )
 
           {:error, reason} ->
             Logger.error("Failed to create access token: #{inspect(reason)}")
@@ -229,9 +231,12 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
     |> put_resp_content_type("application/json")
     |> put_resp_header("cache-control", "no-store")
     |> put_resp_header("pragma", "no-cache")
-    |> send_resp(status, Jason.encode!(%{
-      error: error,
-      error_description: description
-    }))
+    |> send_resp(
+      status,
+      Jason.encode!(%{
+        error: error,
+        error_description: description
+      })
+    )
   end
 end

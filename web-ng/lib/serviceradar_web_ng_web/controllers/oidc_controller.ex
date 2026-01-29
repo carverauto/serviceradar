@@ -49,7 +49,10 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
         conn
         |> put_resp_header("retry-after", to_string(retry_after))
-        |> put_flash(:error, "Too many authentication attempts. Please wait #{retry_after} seconds.")
+        |> put_flash(
+          :error,
+          "Too many authentication attempts. Please wait #{retry_after} seconds."
+        )
         |> redirect(to: ~p"/users/log-in")
         |> halt()
     end
@@ -113,23 +116,21 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
       |> delete_session(:oidc_state)
       |> delete_session(:oidc_nonce)
 
-    cond do
-      # Validate state (CSRF protection)
-      state != stored_state ->
-        Logger.warning("OIDC callback state mismatch")
+    # Validate state (CSRF protection)
+    if state != stored_state do
+      Logger.warning("OIDC callback state mismatch")
 
-        Hooks.on_auth_failed(:invalid_state, %{
-          method: :oidc,
-          ip: get_client_ip(conn),
-          user_agent: get_req_header(conn, "user-agent") |> List.first()
-        })
+      Hooks.on_auth_failed(:invalid_state, %{
+        method: :oidc,
+        ip: get_client_ip(conn),
+        user_agent: get_req_header(conn, "user-agent") |> List.first()
+      })
 
-        conn
-        |> put_flash(:error, "Authentication failed: invalid state. Please try again.")
-        |> redirect(to: ~p"/users/log-in")
-
-      true ->
-        handle_code_exchange(conn, code, stored_nonce)
+      conn
+      |> put_flash(:error, "Authentication failed: invalid state. Please try again.")
+      |> redirect(to: ~p"/users/log-in")
+    else
+      handle_code_exchange(conn, code, stored_nonce)
     end
   end
 
