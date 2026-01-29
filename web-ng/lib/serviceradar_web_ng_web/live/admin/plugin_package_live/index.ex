@@ -410,8 +410,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   def handle_event("create_assignment", %{"assignment" => params}, socket) do
     scope = socket.assigns.current_scope
+    config_schema = socket.assigns.selected_package.config_schema
 
-    case parse_assignment_params(params, socket.assigns.selected_package.id) do
+    case parse_assignment_params(params, socket.assigns.selected_package.id, config_schema) do
       {:ok, attrs} ->
         handle_assignment_upsert(socket, scope, attrs)
 
@@ -1786,7 +1787,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
   defp stringify_keys(value), do: value
 
-  defp parse_assignment_params(params, package_id) do
+  defp parse_assignment_params(params, package_id, config_schema) do
     agent_uid = params["agent_uid"]
     interval_seconds = parse_int(params["interval_seconds"], 60)
     timeout_seconds = parse_int(params["timeout_seconds"], 10)
@@ -1807,13 +1808,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            parse_optional_json_map(params["permissions_override"], "Permissions override"),
          {:ok, resources_override} <-
            parse_optional_json_map(params["resources_override"], "Resources override") do
+      # Normalize params using the config schema to convert string values to proper types
+      normalized_params = normalize_assignment_params(parsed_params, config_schema)
+
       {:ok,
        %{
          agent_uid: String.trim(agent_uid),
          plugin_package_id: package_id,
          interval_seconds: interval_seconds,
          timeout_seconds: timeout_seconds,
-         params: parsed_params,
+         params: normalized_params,
          permissions_override: permissions_override,
          resources_override: resources_override
        }}
@@ -1823,6 +1827,32 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       _ -> {:error, "invalid assignment"}
     end
   end
+
+  defp normalize_assignment_params(params, config_schema) when is_map(config_schema) do
+    alias ServiceRadar.Plugins.ConfigSchema
+
+    # First, remove empty string values (they cause URI validation failures)
+    # Empty strings for optional fields should be treated as missing
+    cleaned_params =
+      params
+      |> Enum.reject(fn {_k, v} -> v == "" end)
+      |> Map.new()
+
+    if map_size(config_schema) > 0 do
+      ConfigSchema.normalize_params(config_schema, cleaned_params)
+    else
+      cleaned_params
+    end
+  end
+
+  defp normalize_assignment_params(params, _config_schema) when is_map(params) do
+    # Even without schema, remove empty strings
+    params
+    |> Enum.reject(fn {_k, v} -> v == "" end)
+    |> Map.new()
+  end
+
+  defp normalize_assignment_params(_params, _config_schema), do: %{}
 
   defp parse_review_params(params) do
     approved_capabilities = parse_list(params["approved_capabilities"])
