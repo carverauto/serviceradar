@@ -1,0 +1,11 @@
+## 1. Implementation
+- [x] 1.1 Define the public SDK API (result builder, config, logging, host function wrappers).
+- [x] 1.2 Implement config loading and JSON decoding into user structs.
+- [x] 1.3 Implement `PluginResult` builder and serialization to `serviceradar.plugin_result.v1`.
+- [x] 1.4 Implement event emission helpers and alert promotion hints (alert_hint + condition_id).
+- [x] 1.5 Implement HTTP and stream wrappers using host function imports.
+- [x] 1.6 Implement logging bridge (debug/info/warn/error) to agent logs.
+- [x] 1.7 Export `alloc`/`dealloc` and an execution wrapper suitable for TinyGo.
+- [x] 1.8 Add TinyGo build target and a working example plugin.
+- [x] 1.9 Add SDK documentation (README + API docs) in `serviceradar-sdk-go`.
+- [x] 1.10 Add unit tests for result serialization and threshold helpers.
