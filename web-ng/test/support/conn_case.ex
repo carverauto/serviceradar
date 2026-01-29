@@ -60,15 +60,14 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   @doc """
   Logs the given `user` into the `conn`.
 
-  Generates an Ash JWT token and stores it in the session under the :user key,
-  matching what AshAuthentication.Phoenix.Controller.store_in_session/2 does.
+  Generates a Guardian JWT token and stores it in the session under the :user_token key.
 
   It returns an updated `conn`.
   """
   def log_in_user(conn, user, _opts \\ []) do
     # In a single deployment, DB connection's search_path determines the schema
-    # Generate an Ash JWT token for the user
-    {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(user, %{})
+    # Generate a Guardian JWT token for the user
+    {:ok, token, _claims} = ServiceRadarWebNG.Auth.Guardian.create_access_token(user)
 
     conn
     |> Phoenix.ConnTest.init_test_session(%{})
@@ -108,8 +107,8 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   """
   def log_in_api_user(conn, user, _opts \\ []) do
     # In a single deployment, DB connection's search_path determines the schema
-    # Generate an Ash JWT token for the user
-    {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(user, %{})
+    # Generate a Guardian JWT token for the user
+    {:ok, token, _claims} = ServiceRadarWebNG.Auth.Guardian.create_access_token(user)
 
     conn
     |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")

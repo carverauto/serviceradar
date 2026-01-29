@@ -1,14 +1,26 @@
 defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   @moduledoc """
-  API authentication plug supporting API keys, bearer tokens, and Ash API tokens.
+  API authentication plug supporting API keys, bearer tokens, and Guardian JWT tokens.
 
   This is a single-deployment UI. Schema context is implicit from the database
   connection's search_path, so this plug only validates authentication and does not
   perform additional routing.
 
   Checks for authentication in the following order:
-  1. `Authorization: Bearer <token>` header (JWT session token)
+  1. `Authorization: Bearer <token>` header (Guardian JWT session token or OAuth2 access token)
   2. `X-API-Key: <key>` header (Ash API token or legacy static key)
+
+  ## OAuth2 Client Credentials
+
+  Access tokens obtained via the OAuth2 client credentials flow (`/oauth/token`)
+  are validated as Guardian JWT tokens. These tokens include:
+  - `typ: "api"` - Identifies this as an API token
+  - `client_id` - The OAuth client UUID
+  - `scope` - Space-separated granted scopes
+
+  When an OAuth client credential token is used, the following assigns are set:
+  - `:oauth_client_id` - The client UUID
+  - `:oauth_token_scope` - The granted scopes as a space-separated string
 
   ## Ash API Tokens
 
@@ -23,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       config :serviceradar_web_ng, :api_auth,
         api_keys: ["key1", "key2"]
 
-  For bearer tokens, the plug validates against the user session token system.
+  For bearer tokens, the plug validates against Guardian JWT tokens.
   """
 
   import Plug.Conn
@@ -31,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
   alias Ash.PlugHelpers
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Auth.Guardian
 
   def init(opts), do: opts
 
@@ -82,29 +95,32 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp validate_bearer_token(conn, token) do
-    # Validate AshAuthentication JWT (user session tokens)
-    validate_ash_jwt(conn, token)
+    # Validate Guardian JWT (user session tokens or API tokens)
+    validate_guardian_jwt(conn, token)
   end
 
-  defp validate_ash_jwt(conn, token) do
-    # Bearer tokens are Ash JWT tokens
-    # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
-    case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng) do
-      {:ok, claims, resource} ->
-        with subject when is_binary(subject) <- claims["sub"],
-             {:ok, user} <- AshAuthentication.subject_to_user(subject, resource) do
-          scope = Scope.for_user(user)
-          {:ok, assign_scope(conn, scope, user)}
-        else
-          _ -> {:error, :invalid_subject}
-        end
+  defp validate_guardian_jwt(conn, token) do
+    # Try access token first, then API token
+    case Guardian.verify_token(token, []) do
+      {:ok, user, claims} ->
+        scope = Scope.for_user(user)
+        conn = assign_scope(conn, scope, user)
+
+        # Check if this is an OAuth client credential token
+        conn =
+          if claims["typ"] == "api" && claims["client_id"] do
+            conn
+            |> assign(:oauth_client_id, claims["client_id"])
+            |> assign(:oauth_token_scope, claims["scope"])
+          else
+            conn
+          end
+
+        {:ok, conn}
 
       {:error, reason} ->
         Logger.debug("JWT validation failed: #{inspect(reason)}")
         {:error, :unauthorized}
-
-      :error ->
-        {:error, :verification_failed}
     end
   end
 

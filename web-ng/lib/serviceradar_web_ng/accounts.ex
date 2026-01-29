@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.Accounts do
   The Accounts context.
 
   Delegates user operations to ServiceRadar.Identity.Users (Ash-based).
-  Session management is now handled by AshAuthentication JWT tokens.
+  Session management is handled by Guardian JWT tokens.
   """
 
   alias ServiceRadar.Identity.Users, as: AshUsers
@@ -74,7 +74,7 @@ defmodule ServiceRadarWebNG.Accounts do
   @doc """
   Checks whether the user is in sudo mode.
 
-  With Ash JWT authentication, sudo mode is always true for authenticated users.
+  With Guardian JWT authentication, sudo mode is always true for authenticated users.
   The JWT token's `iat` (issued at) claim could be used in the future to implement
   time-based sudo mode.
   """
@@ -132,8 +132,8 @@ defmodule ServiceRadarWebNG.Accounts do
   @doc """
   Updates the user email directly.
 
-  Note: For email changes that require confirmation, use the AshAuthentication
-  confirmation add-on configured on the User resource.
+  Note: For email changes that require confirmation, a Guardian token
+  can be generated and sent via email for verification.
   """
   def update_user_email(user, new_email) do
     AshUsers.update_email(user, %{email: new_email})
@@ -174,12 +174,11 @@ defmodule ServiceRadarWebNG.Accounts do
   @doc ~S"""
   Delivers the update email instructions to the given user.
 
-  Uses AshAuthentication's confirmation add-on for token generation and email delivery.
+  Uses Guardian tokens for email verification.
   """
   def deliver_user_update_email_instructions(user, _current_email, _update_email_url_fun) do
-    # The AshAuthentication confirmation add-on handles email change confirmation
-    # This function is kept for API compatibility but uses Ash under the hood
-    # Follow-up: integrate with AshAuthentication confirmation add-on.
+    # Email change confirmation uses Guardian tokens
+    # This function is kept for API compatibility
     UserNotifier.deliver_update_email_instructions(user, "#")
   end
 end

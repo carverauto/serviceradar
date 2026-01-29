@@ -1,15 +1,13 @@
 defmodule ServiceRadarWebNGWeb.AuthController do
   @moduledoc """
-  Controller for AshAuthentication callbacks.
+  Controller for authentication callbacks.
 
-  Handles authentication callbacks from password and OAuth strategies.
-  Uses the AshAuthentication.Phoenix.Controller behavior for standard auth flows.
+  Handles password authentication and SSO callbacks using Guardian for JWT tokens.
 
   ## Token Storage
 
-  AshAuthentication stores JWT tokens in the session automatically via `store_in_session/2`.
-  The token is stored under the subject token key (e.g., `"user_token"`) and can be retrieved
-  for verification using `AshAuthentication.Jwt.verify/2`.
+  Guardian JWT tokens are stored in the session under the "user_token" key.
+  The token can be verified using `ServiceRadarWebNG.Auth.Guardian.verify_token/2`.
 
   ## Schema Context
 
@@ -19,70 +17,243 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   """
 
   use ServiceRadarWebNGWeb, :controller
-  use AshAuthentication.Phoenix.Controller
+
+  require Logger
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.User
+  alias ServiceRadarWebNG.Auth.Guardian
+  alias ServiceRadarWebNGWeb.Auth.Hooks
+  alias ServiceRadarWebNGWeb.UserAuth
 
   plug :fetch_session
 
   @doc """
-  Called on successful authentication.
+  Handles password login form submission.
 
-  Signs the user into the session using Ash JWT tokens and redirects to the return path
-  or the default analytics page.
+  Authenticates the user with email and password, then creates a Guardian JWT token.
   """
-  def success(conn, _activity, nil, _token) do
-    conn
-    |> put_flash(:info, "Check your email for the next step.")
-    |> redirect(to: ~p"/users/log-in")
-  end
+  def create(conn, %{"user" => %{"email" => email, "password" => password}}) do
+    actor = SystemActor.system(:auth_controller)
 
-  def success(conn, _activity, %_{} = user, _token) do
-    return_to = get_session(conn, :user_return_to) || ~p"/analytics"
+    case User.authenticate(email, password, actor: actor) do
+      {:ok, user} ->
+        # Record authentication timestamp for sudo mode
+        User.record_authentication(user, actor: actor)
 
-    case AshAuthentication.Jwt.token_for_user(user, %{}) do
-      {:ok, token, _claims} ->
+        # Trigger auth hooks
+        Hooks.on_user_authenticated(user, %{"method" => "password"})
+
         conn
-        |> put_session("user_token", token)
-        |> delete_session(:user_return_to)
-        |> put_session(:live_socket_id, "users_sessions:#{user.id}")
-        |> configure_session(renew: true)
-        |> assign(:current_user, user)
         |> put_flash(:info, "Signed in successfully.")
-        |> redirect(to: return_to)
+        |> UserAuth.log_in_user(user)
 
-      :error ->
+      {:error, _} ->
         conn
-        |> put_flash(:error, "Unable to complete sign-in. Please try again.")
+        |> put_flash(:error, "Invalid email or password.")
         |> redirect(to: ~p"/users/log-in")
-        |> halt()
     end
   end
 
   @doc """
-  Called on authentication failure.
+  Handles sign out.
 
-  Displays an error message and redirects to the login page.
+  Clears the session and redirects to the home page.
   """
-  def failure(conn, activity, reason) do
-    require Logger
+  def delete(conn, _params) do
+    conn
+    |> put_flash(:info, "Signed out successfully.")
+    |> UserAuth.log_out_user()
+  end
 
-    Logger.error(
-      "Authentication failure: activity=#{inspect(activity)}, reason=#{inspect(reason)}"
-    )
+  @doc """
+  Handles local admin sign-in with rate limiting.
+
+  This is the "backdoor" for administrators when SSO/proxy auth is primary.
+  Rate limited to 5 attempts per minute per IP.
+  """
+  def local_sign_in(conn, %{"user" => %{"email" => email, "password" => password}}) do
+    alias ServiceRadarWebNGWeb.Auth.RateLimiter
+
+    client_ip = get_client_ip(conn)
+
+    # Check rate limit
+    case RateLimiter.check_rate_limit("local_auth", client_ip, limit: 5, window_seconds: 60) do
+      {:error, retry_after} ->
+        Logger.warning("Local auth rate limited for IP: #{client_ip}")
+
+        conn
+        |> put_flash(
+          :error,
+          "Too many login attempts. Please try again in #{retry_after} seconds."
+        )
+        |> redirect(to: ~p"/auth/local")
+
+      :ok ->
+        # Record the attempt
+        RateLimiter.record_attempt("local_auth", client_ip)
+
+        actor = SystemActor.system(:auth_controller)
+
+        case User.authenticate(email, password, actor: actor) do
+          {:ok, user} ->
+            Logger.info("Successful local admin login for #{email} from IP: #{client_ip}")
+
+            # Record authentication timestamp
+            User.record_authentication(user, actor: actor)
+
+            # Trigger auth hooks
+            Hooks.on_user_authenticated(user, %{"method" => "local_password"})
+
+            conn
+            |> put_flash(:info, "Signed in successfully.")
+            |> UserAuth.log_in_user(user)
+
+          {:error, _} ->
+            Logger.warning("Failed local admin login attempt for #{email} from IP: #{client_ip}")
+
+            conn
+            |> put_flash(:error, "Invalid email or password.")
+            |> redirect(to: ~p"/auth/local")
+        end
+    end
+  end
+
+  defp get_client_ip(conn) do
+    case Plug.Conn.get_req_header(conn, "x-forwarded-for") do
+      [forwarded | _] ->
+        forwarded
+        |> String.split(",")
+        |> List.first()
+        |> String.trim()
+
+      [] ->
+        conn.remote_ip
+        |> :inet.ntoa()
+        |> to_string()
+    end
+  end
+
+  @doc """
+  Initiates password reset flow.
+
+  Sends a password reset email with a Guardian token.
+  """
+  def request_reset(conn, %{"user" => %{"email" => email}}) do
+    actor = SystemActor.system(:auth_controller)
+
+    # Always show the same message to prevent email enumeration
+    case User.get_by_email(email, actor: actor) do
+      {:ok, user} ->
+        # Generate a password reset token
+        case Guardian.create_access_token(user, token_type: "reset", ttl: {1, :hour}) do
+          {:ok, token, _claims} ->
+            # Send the reset email
+            reset_url = url(~p"/auth/password-reset/#{token}")
+
+            ServiceRadarWebNG.Accounts.UserNotifier.deliver_reset_password_instructions(
+              user,
+              reset_url
+            )
+
+            :ok
+
+          {:error, _} ->
+            :ok
+        end
+
+      {:error, _} ->
+        # Don't reveal whether the email exists
+        :ok
+    end
 
     conn
-    |> put_flash(:error, "Authentication failed. Please try again.")
+    |> put_flash(
+      :info,
+      "If your email is in our system, you will receive instructions to reset your password."
+    )
     |> redirect(to: ~p"/users/log-in")
   end
 
   @doc """
-  Called when sign-out is requested.
+  Shows the password reset form.
 
-  Clears the session (including revoking tokens) and redirects to the home page.
+  Verifies the token is valid before showing the form.
   """
-  def sign_out(conn, _params) do
-    conn
-    |> clear_session(:serviceradar_web_ng)
-    |> put_flash(:info, "Signed out successfully.")
-    |> redirect(to: ~p"/")
+  def show_reset_form(conn, %{"token" => token}) do
+    case Guardian.verify_token(token, token_type: "reset") do
+      {:ok, _user, _claims} ->
+        render(conn, :reset_password, token: token)
+
+      {:error, _} ->
+        conn
+        |> put_flash(:error, "Reset password link is invalid or has expired.")
+        |> redirect(to: ~p"/users/log-in")
+    end
+  end
+
+  @doc """
+  Handles password reset form submission.
+
+  Updates the user's password and signs them in.
+  """
+  def reset_password(conn, %{
+        "token" => token,
+        "user" => %{"password" => password, "password_confirmation" => password_confirmation}
+      }) do
+    actor = SystemActor.system(:auth_controller)
+
+    with {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "reset"),
+         {:ok, user} <-
+           User.change_password(
+             user,
+             %{
+               password: password,
+               password_confirmation: password_confirmation
+             }, actor: actor) do
+      conn
+      |> put_flash(:info, "Password reset successfully.")
+      |> UserAuth.log_in_user(user)
+    else
+      {:error, %Ash.Error.Invalid{} = error} ->
+        errors = Ash.Error.to_error_class(error)
+        error_message = errors |> inspect()
+
+        conn
+        |> put_flash(:error, "Failed to reset password: #{error_message}")
+        |> redirect(to: ~p"/auth/password-reset/#{token}")
+
+      {:error, _} ->
+        conn
+        |> put_flash(:error, "Reset password link is invalid or has expired.")
+        |> redirect(to: ~p"/users/log-in")
+    end
+  end
+
+  @doc """
+  Handles user registration form submission.
+
+  Creates a new user with password and signs them in.
+  """
+  def register(conn, %{"user" => user_params}) do
+    actor = SystemActor.system(:auth_controller)
+
+    case User.register_with_password(user_params, actor: actor) do
+      {:ok, user} ->
+        # Trigger auth hooks
+        Hooks.on_user_created(user, :password)
+
+        conn
+        |> put_flash(:info, "Account created successfully.")
+        |> UserAuth.log_in_user(user)
+
+      {:error, %Ash.Error.Invalid{} = error} ->
+        errors = Ash.Error.to_error_class(error)
+        error_message = errors |> inspect()
+
+        conn
+        |> put_flash(:error, "Failed to create account: #{error_message}")
+        |> redirect(to: ~p"/users/log-in")
+    end
   end
 end

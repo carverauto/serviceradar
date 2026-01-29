@@ -52,7 +52,6 @@ defmodule ServiceRadarCore.MixProject do
       # Ash Framework
       {:ash, "~> 3.4"},
       {:ash_postgres, "~> 2.4"},
-      {:ash_authentication, "~> 4.3"},
       {:ash_oban, "~> 0.4"},
       {:ash_state_machine, "~> 0.2"},
       {:ash_json_api, "~> 1.4"},
@@ -99,6 +98,9 @@ defmodule ServiceRadarCore.MixProject do
 
       # Email (for auth senders)
       {:swoosh, "~> 1.5"},
+
+      # Password hashing (for authentication)
+      {:bcrypt_elixir, "~> 3.0"},
 
       # Development & Testing
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
