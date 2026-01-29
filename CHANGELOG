@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.87
+
+Database connectivity and AGE graph permission fixes.
+
+## Whats New
+
+**1.0.87**
+- Fixed PostgreSQL search_path configuration that caused "relation does not exist" errors for device tables. The search_path was incorrectly stored as a single quoted identifier instead of separate schema names.
+- Added auto-detection and correction of misconfigured search_path on startup migrations.
+- Fixed Apache AGE graph schema privileges so the app role can execute Cypher queries for interface topology.
+
 # ServiceRadar v1.0.86
 
 Docker startup reliability and TLS infrastructure improvements.
