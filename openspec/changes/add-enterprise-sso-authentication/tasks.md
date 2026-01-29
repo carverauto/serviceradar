@@ -1,38 +1,38 @@
 ## 1. Guardian Foundation
 
-- [ ] 1.1 Add guardian, ueberauth, ueberauth_oidcc dependencies to web-ng mix.exs
-- [ ] 1.2 Create `ServiceRadarWebNG.Auth.Guardian` module with token encoding/decoding
-- [ ] 1.3 Create `ServiceRadarWebNG.Auth.Pipeline` plug pipeline for Guardian
-- [ ] 1.4 Create `ServiceRadarWebNG.Auth.ErrorHandler` for auth failures
-- [ ] 1.5 Create `ServiceRadarWebNG.Auth.ConfigCache` GenServer for runtime config
-- [ ] 1.6 Create auth_settings database migration in platform schema
-- [ ] 1.7 Create `ServiceRadar.Identity.AuthSettings` Ash resource with Cloak encrypted fields
-- [ ] 1.8 Create extension point hooks module (`on_user_created`, `on_user_authenticated`, `on_token_generated`)
+- [x] 1.1 Add guardian, ueberauth, ueberauth_oidcc dependencies to web-ng mix.exs
+- [x] 1.2 Create `ServiceRadarWebNGWeb.Auth.Guardian` module with token encoding/decoding
+- [x] 1.3 Create `ServiceRadarWebNGWeb.Auth.Pipeline` plug pipeline for Guardian
+- [x] 1.4 Create `ServiceRadarWebNGWeb.Auth.ErrorHandler` for auth failures
+- [x] 1.5 Create `ServiceRadarWebNGWeb.Auth.ConfigCache` GenServer for runtime config
+- [x] 1.6 Create auth_settings database migration in platform schema
+- [x] 1.7 Create `ServiceRadar.Identity.AuthSettings` Ash resource with Cloak encrypted fields
+- [x] 1.8 Create extension point hooks module (`on_user_created`, `on_user_authenticated`, `on_token_generated`)
 
 ## 2. Password Auth Migration
 
-- [ ] 2.1 Create `ServiceRadarWebNG.Auth.PasswordController` with Guardian token generation
-- [ ] 2.2 Create password login LiveView component (replace AshAuthentication.Phoenix components)
-- [ ] 2.3 Implement password verification using existing Bcrypt hashing
-- [ ] 2.4 Create password reset flow with Guardian tokens (keep Swoosh email integration)
-- [ ] 2.5 Update `user_auth.ex` to use Guardian.decode_and_verify/2
-- [ ] 2.6 Update `api_auth.ex` to use Guardian for bearer token verification
+- [x] 2.1 Create `ServiceRadarWebNG.Auth.PasswordController` with Guardian token generation
+- [x] 2.2 Create password login LiveView component (replace AshAuthentication.Phoenix components)
+- [x] 2.3 Implement password verification using existing Bcrypt hashing
+- [x] 2.4 Create password reset flow with Guardian tokens (keep Swoosh email integration)
+- [x] 2.5 Update `user_auth.ex` to use Guardian.decode_and_verify/2
+- [x] 2.6 Update `api_auth.ex` to use Guardian for bearer token verification
 - [ ] 2.7 Add feature flag for old/new auth system switching
 - [ ] 2.8 Create parallel routes for new auth (test without breaking existing)
 - [ ] 2.9 Write tests for Guardian-based password authentication
 
 ## 3. Remove AshAuthentication
 
-- [ ] 3.1 Remove `AshAuthentication` extension from User resource
-- [ ] 3.2 Remove `AshAuthentication.TokenResource` extension from Token resource
-- [ ] 3.3 Repurpose Token resource for Guardian token storage (if needed for revocation)
-- [ ] 3.4 Remove `AshAuthentication.Phoenix.Controller` behavior from auth controller
-- [ ] 3.5 Remove `auth_routes/3`, `reset_route/2`, `sign_out_route/2` macros from router
-- [ ] 3.6 Replace with explicit Guardian/custom routes
-- [ ] 3.7 Remove `AshAuthentication.Phoenix.Overrides` module
-- [ ] 3.8 Remove `AshAuthentication.Checks.AshAuthenticationInteraction` policy bypass
-- [ ] 3.9 Remove ash_authentication and ash_authentication_phoenix from mix.exs
-- [ ] 3.10 Update email senders to not use AshAuthentication.Sender behavior
+- [x] 3.1 Remove `AshAuthentication` extension from User resource
+- [x] 3.2 Remove `AshAuthentication.TokenResource` extension from Token resource
+- [x] 3.3 Repurpose Token resource for Guardian token storage (if needed for revocation)
+- [x] 3.4 Remove `AshAuthentication.Phoenix.Controller` behavior from auth controller
+- [x] 3.5 Remove `auth_routes/3`, `reset_route/2`, `sign_out_route/2` macros from router
+- [x] 3.6 Replace with explicit Guardian/custom routes
+- [x] 3.7 Remove `AshAuthentication.Phoenix.Overrides` module
+- [x] 3.8 Remove `AshAuthentication.Checks.AshAuthenticationInteraction` policy bypass
+- [x] 3.9 Remove ash_authentication and ash_authentication_phoenix from mix.exs
+- [x] 3.10 Update email senders to not use AshAuthentication.Sender behavior
 
 ## 4. OIDC Integration
 

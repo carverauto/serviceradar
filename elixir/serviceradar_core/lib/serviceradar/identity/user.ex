@@ -14,14 +14,17 @@ defmodule ServiceRadar.Identity.User do
 
   Users can authenticate via:
   - Password (with bcrypt hashing)
-  - OAuth2 (future: Google, GitHub)
+  - OIDC (Google, Azure AD, Okta)
+  - SAML 2.0 (enterprise IdPs)
+  - Gateway JWT (Kong, Ambassador)
+
+  Authentication is handled by Guardian + Ueberauth, not AshAuthentication.
   """
 
   use Ash.Resource,
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshAuthentication]
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "ng_users"
@@ -29,45 +32,10 @@ defmodule ServiceRadar.Identity.User do
     schema "platform"
   end
 
-  authentication do
-    tokens do
-      enabled? true
-      token_resource ServiceRadar.Identity.Token
-      require_token_presence_for_authentication? true
-
-      signing_secret fn _, _ ->
-        Application.fetch_env(:serviceradar_web_ng, :token_signing_secret)
-      end
-    end
-
-    strategies do
-      password :password do
-        identity_field :email
-        hashed_password_field :hashed_password
-
-        hash_provider AshAuthentication.BcryptProvider
-        registration_enabled? false
-
-        resettable do
-          sender ServiceRadar.Identity.Senders.SendPasswordResetEmail
-        end
-      end
-    end
-
-    add_ons do
-      confirmation :confirm_email do
-        monitor_fields [:email]
-        require_interaction? true
-        sender ServiceRadar.Identity.Senders.SendConfirmationEmail
-        # Auto-confirm for these actions:
-        # - update_email: Uses token-based verification in the Accounts context
-        auto_confirm_actions [:update_email]
-      end
-    end
-  end
-
   code_interface do
     define :get_by_email, action: :by_email, args: [:email]
+    define :get_by_id, action: :by_id, args: [:id]
+    define :authenticate, action: :authenticate, args: [:email, :password]
   end
 
   actions do
@@ -79,15 +47,66 @@ defmodule ServiceRadar.Identity.User do
       filter expr(email == ^arg(:email))
     end
 
+    read :by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
+
     read :admins do
       filter expr(role == :admin)
     end
 
-    read :get_by_subject do
-      description "Get a user by the subject claim in a JWT"
-      argument :subject, :string, allow_nil?: false
+    # Password authentication action
+    # Returns user if credentials valid, error otherwise
+    read :authenticate do
+      description "Authenticate a user with email and password"
+      argument :email, :ci_string, allow_nil?: false
+      argument :password, :string, allow_nil?: false, sensitive?: true
       get? true
-      prepare AshAuthentication.Preparations.FilterBySubject
+      filter expr(email == ^arg(:email))
+
+      prepare fn query, _context ->
+        Ash.Query.after_action(query, fn _query, results ->
+          case results do
+            [user] ->
+              password = Ash.Query.get_argument(query, :password)
+
+              if verify_password(password, user.hashed_password) do
+                {:ok, [user]}
+              else
+                {:ok, []}
+              end
+
+            [] ->
+              # Prevent timing attacks
+              Bcrypt.no_user_verify()
+              {:ok, []}
+          end
+        end)
+      end
+    end
+
+    create :create do
+      description "Create a new user (admin or system use)"
+      accept [:email, :display_name, :role]
+
+      argument :password, :string do
+        allow_nil? true
+        sensitive? true
+        constraints min_length: 12
+      end
+
+      # Hash password if provided
+      change fn changeset, _context ->
+        case Ash.Changeset.get_argument(changeset, :password) do
+          nil -> changeset
+          "" -> changeset
+          password ->
+            hashed = Bcrypt.hash_pwd_salt(password)
+            Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
+        end
+      end
     end
 
     create :register_with_password do
@@ -107,10 +126,54 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      validate AshAuthentication.Strategy.Password.PasswordConfirmationValidation
+      # Validate password confirmation matches
+      validate fn changeset, _context ->
+        password = Ash.Changeset.get_argument(changeset, :password)
+        confirmation = Ash.Changeset.get_argument(changeset, :password_confirmation)
 
-      change AshAuthentication.Strategy.Password.HashPasswordChange
-      change AshAuthentication.GenerateTokenChange
+        if password == confirmation do
+          :ok
+        else
+          {:error, field: :password_confirmation, message: "does not match password"}
+        end
+      end
+
+      # Hash the password
+      change fn changeset, _context ->
+        password = Ash.Changeset.get_argument(changeset, :password)
+
+        if password do
+          hashed = Bcrypt.hash_pwd_salt(password)
+          Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
+        else
+          changeset
+        end
+      end
+    end
+
+    # JIT provisioning for SSO users
+    create :provision_sso_user do
+      description "Create a user from SSO claims (JIT provisioning)"
+      accept [:email, :display_name]
+
+      argument :external_id, :string do
+        allow_nil? false
+        description "IdP subject identifier"
+      end
+
+      argument :provider, :atom do
+        allow_nil? false
+        constraints one_of: [:oidc, :saml, :gateway]
+      end
+
+      # Set default role and mark as confirmed (SSO = verified email)
+      change set_attribute(:role, :viewer)
+      change set_attribute(:confirmed_at, &DateTime.utc_now/0)
+
+      change fn changeset, _context ->
+        external_id = Ash.Changeset.get_argument(changeset, :external_id)
+        Ash.Changeset.force_change_attribute(changeset, :external_id, external_id)
+      end
     end
 
     update :update do
@@ -207,14 +270,14 @@ defmodule ServiceRadar.Identity.User do
         end
       end
     end
+
+    update :record_authentication do
+      description "Record authentication timestamp for sudo mode"
+      change set_attribute(:authenticated_at, &DateTime.utc_now/0)
+    end
   end
 
   policies do
-    # Allow authentication actions without an actor
-    bypass AshAuthentication.Checks.AshAuthenticationInteraction do
-      authorize_if always()
-    end
-
     # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
@@ -226,8 +289,24 @@ defmodule ServiceRadar.Identity.User do
       authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Registration is restricted to system/admin actors (bootstrap or admin workflow).
+    # Authentication action is public (no actor required)
+    policy action(:authenticate) do
+      authorize_if always()
+    end
+
+    # Registration is restricted to system/admin actors (bootstrap or admin workflow)
     policy action(:register_with_password) do
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    # SSO provisioning is system-only
+    policy action(:provision_sso_user) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    # Admin user creation
+    policy action(:create) do
       authorize_if actor_attribute_equals(:role, :admin)
       authorize_if actor_attribute_equals(:role, :system)
     end
@@ -245,13 +324,15 @@ defmodule ServiceRadar.Identity.User do
       authorize_if expr(id == ^actor(:id))
     end
 
+    policy action(:record_authentication) do
+      authorize_if expr(id == ^actor(:id))
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Only admins can change roles
     policy action(:update_role) do
       authorize_if actor_attribute_equals(:role, :admin)
     end
-  end
-
-  changes do
   end
 
   attributes do
@@ -283,6 +364,11 @@ defmodule ServiceRadar.Identity.User do
       description "User's role for authorization"
     end
 
+    attribute :external_id, :string do
+      public? false
+      description "External IdP subject identifier (for SSO users)"
+    end
+
     attribute :confirmed_at, :utc_datetime do
       public? true
       description "When the user confirmed their email"
@@ -295,9 +381,6 @@ defmodule ServiceRadar.Identity.User do
 
     create_timestamp :inserted_at
     update_timestamp :updated_at
-  end
-
-  relationships do
   end
 
   calculations do
@@ -319,8 +402,13 @@ defmodule ServiceRadar.Identity.User do
   end
 
   identities do
-    # Email identity required by AshAuthentication for password strategies.
-    # Email uniqueness is enforced per instance schema.
+    # Email uniqueness is enforced per instance schema
     identity :email, [:email]
   end
+
+  # Helper function for password verification
+  defp verify_password(nil, _hash), do: false
+  defp verify_password(_password, nil), do: false
+  defp verify_password(_password, ""), do: false
+  defp verify_password(password, hash), do: Bcrypt.verify_pass(password, hash)
 end

@@ -1,10 +1,9 @@
 defmodule ServiceRadarWebNGWeb.UserAuth do
   @moduledoc """
-  Authentication helpers using Ash JWT tokens.
+  Authentication helpers using Guardian JWT tokens.
 
   Handles session management, current user loading, and LiveView authentication
-  using AshAuthentication JWT tokens stored in the session by
-  `AshAuthentication.Phoenix.Controller.store_in_session/2`.
+  using Guardian JWT tokens stored in the session.
 
   This is a single-deployment UI. Schema context is implicit from the database
   connection's search_path, so we only need to track the authenticated user.
@@ -16,6 +15,33 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   import Phoenix.Controller
 
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Auth.Guardian
+
+  @doc """
+  Logs the user in by creating a Guardian session token.
+
+  Stores the token in the session and sets up the live socket ID for
+  broadcasting disconnects on logout.
+  """
+  def log_in_user(conn, user, params \\ %{}) do
+    return_to = get_session(conn, :user_return_to) || params["return_to"] || ~p"/analytics"
+
+    case Guardian.create_access_token(user) do
+      {:ok, token, _claims} ->
+        conn
+        |> put_session("user_token", token)
+        |> delete_session(:user_return_to)
+        |> put_session(:live_socket_id, "users_sessions:#{user.id}")
+        |> configure_session(renew: true)
+        |> assign(:current_user, user)
+        |> redirect(to: return_to)
+
+      {:error, _reason} ->
+        conn
+        |> put_flash(:error, "Unable to complete sign-in. Please try again.")
+        |> redirect(to: ~p"/users/log-in")
+    end
+  end
 
   @doc """
   Logs the user out.
@@ -34,42 +60,17 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   @doc """
-  Authenticates the user by verifying the Ash JWT token in the session.
+  Authenticates the user by verifying the Guardian JWT token in the session.
 
-  When `require_token_presence_for_authentication?` is true in the User resource's
-  token config, the token is stored under "user_token" key by AshAuthentication.
-  Otherwise it would be stored under :user as a subject string.
+  The token is stored under "user_token" key by `log_in_user/3`.
   """
   def fetch_current_scope_for_user(conn, _opts) do
-    # AshAuthentication stores under "user_token" when require_token_presence_for_authentication? is true
     with token when is_binary(token) <- get_session(conn, "user_token"),
-         {:ok, user, _claims} <- verify_token(token) do
+         {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "access") do
       assign(conn, :current_scope, Scope.for_user(user))
     else
       _ ->
         assign(conn, :current_scope, Scope.for_user(nil))
-    end
-  end
-
-  # Verify an Ash JWT token and load the user
-  # Schema context comes from database search_path, not from token claims
-  defp verify_token(token) do
-    # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
-    # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim
-    case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng) do
-      {:ok, claims, resource} ->
-        with subject when is_binary(subject) <- claims["sub"],
-             {:ok, user} <- AshAuthentication.subject_to_user(subject, resource) do
-          {:ok, user, claims}
-        else
-          _ -> {:error, :invalid_token}
-        end
-
-      {:error, _reason} ->
-        {:error, :invalid_token}
-
-      :error ->
-        {:error, :invalid_token}
     end
   end
 
@@ -88,12 +89,12 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   ## `on_mount` arguments
 
     * `:mount_current_scope` - Assigns current_scope
-      to socket assigns based on the Ash JWT token, or nil if
+      to socket assigns based on the Guardian JWT token, or nil if
       there's no token or no matching user.
 
     * `:require_authenticated` - Authenticates the user from the session,
       and assigns the current_scope to socket assigns based
-      on the Ash JWT token.
+      on the Guardian JWT token.
       Redirects to login page if there's no logged user.
 
   ## Examples
@@ -133,7 +134,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     end
   end
 
-  # Sudo mode is not implemented with Ash JWT tokens.
+  # Sudo mode is not implemented with Guardian JWT tokens.
   # For now, this just requires authentication. In the future, this could
   # verify a recent authentication timestamp in the JWT claims.
   def on_mount(:require_sudo_mode, params, session, socket) do
@@ -143,10 +144,9 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   defp mount_current_scope(socket, session) do
     socket
     |> Phoenix.Component.assign_new(:current_scope, fn ->
-      # Token is stored under "user_token" key when require_token_presence_for_authentication? is true
       user =
         with token when is_binary(token) <- session["user_token"],
-             {:ok, user, _claims} <- verify_token(token) do
+             {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "access") do
           user
         else
           _ -> nil

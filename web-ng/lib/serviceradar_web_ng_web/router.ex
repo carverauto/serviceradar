@@ -1,6 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Router do
   use ServiceRadarWebNGWeb, :router
-  use AshAuthentication.Phoenix.Router
   import AshAdmin.Router
 
   import Oban.Web.Router
@@ -241,20 +240,29 @@ defmodule ServiceRadarWebNGWeb.Router do
     end
   end
 
-  ## AshAuthentication routes
-  # These routes handle password and OAuth callbacks
+  ## Authentication routes
+  # Password login, logout, and password reset
 
-  scope "/", ServiceRadarWebNGWeb do
+  scope "/auth", ServiceRadarWebNGWeb do
     pipe_through(:browser)
 
-    sign_out_route(AuthController, "/auth/sign-out")
+    # Password login
+    post("/sign-in", AuthController, :create)
 
-    reset_route(path: "/auth/password-reset", auth_routes_prefix: "/auth")
+    # Sign out
+    get("/sign-out", AuthController, :delete)
+    delete("/sign-out", AuthController, :delete)
 
-    auth_routes(AuthController, ServiceRadar.Identity.User, path: "/auth")
+    # Password reset
+    post("/password-reset", AuthController, :request_reset)
+    get("/password-reset/:token", AuthController, :show_reset_form)
+    put("/password-reset/:token", AuthController, :reset_password)
+
+    # Registration (if enabled)
+    post("/register", AuthController, :register)
   end
 
-  ## Authentication routes
+  ## Authenticated routes
 
   scope "/", ServiceRadarWebNGWeb do
     pipe_through([:browser, :require_authenticated_user])
@@ -346,11 +354,11 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/users/update-password", UserSessionController, :update_password)
   end
 
+  # Public authentication pages (login, register)
   scope "/", ServiceRadarWebNGWeb do
     pipe_through(:browser)
 
-    # AshAuthentication.Phoenix sign-in LiveView
-    ash_authentication_live_session :authentication,
+    live_session :authentication,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live("/users/log-in", AuthLive.SignIn, :sign_in)
     end

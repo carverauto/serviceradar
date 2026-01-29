@@ -568,6 +568,11 @@ if config_env() == :prod do
     System.get_env("TOKEN_SIGNING_SECRET") || secret_key_base
 
   config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
+
+  # Guardian JWT signing secret (same as token_signing_secret for consistency)
+  config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
+    secret_key: token_signing_secret
+
   config :serviceradar_web_ng, :base_url, "https://#{host}"
 
   gateway_addr = System.get_env("SERVICERADAR_GATEWAY_ADDR")

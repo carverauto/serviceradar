@@ -52,7 +52,6 @@ defmodule ServiceRadarCore.MixProject do
       # Ash Framework
       {:ash, "~> 3.4"},
       {:ash_postgres, "~> 2.4"},
-      {:ash_authentication, "~> 4.3"},
       {:ash_oban, "~> 0.4"},
       {:ash_state_machine, "~> 0.2"},
       {:ash_json_api, "~> 1.4"},

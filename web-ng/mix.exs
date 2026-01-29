@@ -77,8 +77,14 @@ defmodule ServiceRadarWebNG.MixProject do
       {:protobuf, "~> 0.16.0", override: true},
 
       # Ash Framework - Phoenix integration (UI components)
-      {:ash_authentication_phoenix, "~> 2.0"},
       {:ash_phoenix, "~> 2.0"},
+
+      # Guardian - JWT token management (replacing AshAuthentication tokens)
+      {:guardian, "~> 2.3"},
+
+      # Ueberauth - OAuth2/OIDC/SAML authentication strategies
+      {:ueberauth, "~> 0.10"},
+      {:ueberauth_oidcc, "~> 0.4"},
 
       # Note: ash_admin comes from serviceradar_core dependency
 

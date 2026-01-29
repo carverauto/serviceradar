@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
   @moduledoc """
-  LiveView wrapper for AshAuthentication.Phoenix sign-in components.
+  LiveView for user sign-in.
 
   Renders the authentication UI for password sign-in.
   """
@@ -27,18 +27,54 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
           <h1 class="text-xl font-semibold">Sign in to your account</h1>
         </div>
 
-        <.live_component
-          module={AshAuthentication.Phoenix.Components.SignIn}
-          id="sign-in-component"
-          otp_app={:serviceradar_web_ng}
-          live_action={@live_action}
-          path={~p"/users/log-in"}
-          auth_routes_prefix="/auth"
-          overrides={[
-            ServiceRadarWebNGWeb.AuthOverrides,
-            AshAuthentication.Phoenix.Overrides.Default
-          ]}
-        />
+        <.form
+          for={@form}
+          action={~p"/auth/sign-in"}
+          method="post"
+          class="space-y-4"
+        >
+          <div class="form-control w-full">
+            <label class="label" for="user_email">
+              <span class="label-text">Email</span>
+            </label>
+            <input
+              type="email"
+              id="user_email"
+              name="user[email]"
+              value={@form[:email].value}
+              class="input input-bordered w-full"
+              placeholder="you@example.com"
+              required
+              autofocus
+            />
+          </div>
+
+          <div class="form-control w-full">
+            <label class="label" for="user_password">
+              <span class="label-text">Password</span>
+            </label>
+            <input
+              type="password"
+              id="user_password"
+              name="user[password]"
+              class="input input-bordered w-full"
+              placeholder="Enter your password"
+              required
+            />
+          </div>
+
+          <div class="form-control">
+            <button type="submit" class="btn btn-primary w-full">
+              Sign in
+            </button>
+          </div>
+
+          <div class="text-center text-sm">
+            <a href={~p"/auth/password-reset"} class="link link-primary">
+              Forgot your password?
+            </a>
+          </div>
+        </.form>
       </div>
     </Layouts.app>
     """
@@ -46,6 +82,7 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket}
+    form = to_form(%{"email" => "", "password" => ""}, as: :user)
+    {:ok, assign(socket, form: form)}
   end
 end
