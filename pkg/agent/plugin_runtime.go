@@ -161,8 +161,19 @@ type PluginEngineSnapshot struct {
 	LastConfigAt         time.Time
 }
 
+// maxSummaryLen limits error summary length to avoid exceeding message size limits.
+// Stack traces from WASM panics can be very long; truncate to keep payloads manageable.
+const maxSummaryLen = 2048
+
 func buildPluginErrorResult(assignment *pluginAssignment, summary string) PluginResult {
 	observed := time.Now().UTC()
+
+	// Truncate very long summaries (e.g., WASM stack traces) to prevent
+	// message size issues during transmission.
+	if len(summary) > maxSummaryLen {
+		summary = summary[:maxSummaryLen] + "... (truncated)"
+	}
+
 	payload := map[string]interface{}{
 		"status":      "UNKNOWN",
 		"summary":     summary,
@@ -939,13 +950,17 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 		return err
 	}
 
-	if assignment.Runtime == "wasi-preview1" {
-		if _, err := wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
-			return fmt.Errorf("instantiate wasi: %w", err)
-		}
+	// Always instantiate WASI - it's harmless if unused but required if the
+	// plugin imports from wasi_snapshot_preview1. Many WASM toolchains
+	// (TinyGo, Rust, etc.) automatically include WASI imports.
+	if _, err := wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
+		return fmt.Errorf("instantiate wasi: %w", err)
 	}
 
-	modConfig := wazero.NewModuleConfig().WithName(assignment.AssignmentID)
+	modConfig := wazero.NewModuleConfig().
+		WithName(assignment.AssignmentID).
+		WithSysWalltime().
+		WithSysNanotime()
 
 	module, err := runtime.InstantiateWithConfig(ctx, wasm, modConfig)
 	if err != nil {
