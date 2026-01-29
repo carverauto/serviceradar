@@ -86,6 +86,9 @@ defmodule ServiceRadarWebNG.MixProject do
       {:ueberauth, "~> 0.10"},
       {:ueberauth_oidcc, "~> 0.4"},
 
+      # Samly - SAML 2.0 Service Provider
+      {:samly, "~> 1.0"},
+
       # Note: ash_admin comes from serviceradar_core dependency
 
       # OpenAPI spec generation for AshJsonApi

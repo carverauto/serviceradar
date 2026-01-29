@@ -86,6 +86,18 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
   end
 
   @doc """
+  Invalidates the cache and forces a refresh.
+
+  Call this after updating auth settings to ensure all nodes pick up changes.
+  """
+  def invalidate do
+    # Clear the local cache
+    :ets.delete(@table, :auth_settings)
+    # Force a refresh to reload from database
+    refresh()
+  end
+
+  @doc """
   Checks if SSO is enabled without fetching full settings.
 
   This is a fast path for checking if SSO redirection should happen.
@@ -107,6 +119,63 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
       {:ok, settings} -> settings.mode
       {:error, _} -> :password_only
     end
+  end
+
+  @doc """
+  Alias for get_config/0 for consistency with other code.
+  """
+  def get_settings do
+    get_config()
+  end
+
+  @doc """
+  Gets a cached value by key.
+
+  Returns `{:ok, value}` if found and not expired, `:miss` otherwise.
+  Used for caching OIDC discovery metadata, JWKS, etc.
+  """
+  def get_cached(key) do
+    case :ets.lookup(@table, {:cache, key}) do
+      [{{:cache, ^key}, value, expires_at}] ->
+        if System.monotonic_time(:millisecond) < expires_at do
+          {:ok, value}
+        else
+          :ets.delete(@table, {:cache, key})
+          :miss
+        end
+
+      [] ->
+        :miss
+    end
+  end
+
+  @doc """
+  Stores a value in the cache with optional TTL.
+
+  Options:
+  - `:ttl` - Time-to-live in milliseconds (default: 60 seconds)
+  """
+  def put_cached(key, value, opts \\ []) do
+    ttl = Keyword.get(opts, :ttl, @default_ttl_ms)
+    expires_at = System.monotonic_time(:millisecond) + ttl
+    :ets.insert(@table, {{:cache, key}, value, expires_at})
+    :ok
+  end
+
+  @doc """
+  Removes a cached value by key.
+  """
+  def delete_cached(key) do
+    :ets.delete(@table, {:cache, key})
+    :ok
+  end
+
+  @doc """
+  Clears all cached values (but not auth_settings).
+  """
+  def clear_cache do
+    :ets.match_delete(@table, {{:cache, :_}, :_, :_})
+    :ok
   end
 
   # Server Callbacks

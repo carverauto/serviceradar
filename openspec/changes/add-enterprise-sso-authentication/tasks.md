@@ -36,76 +36,76 @@
 
 ## 4. OIDC Integration
 
-- [ ] 4.1 Implement dynamic Ueberauth OIDC strategy configuration from auth_settings
-- [ ] 4.2 Create `ServiceRadarWebNG.Auth.OIDCController` for request/callback handling
-- [ ] 4.3 Implement OIDC discovery URL fetching and caching
-- [ ] 4.4 Implement ID token verification (signature, claims, nonce)
-- [ ] 4.5 Add JIT user provisioning for OIDC-authenticated users
+- [x] 4.1 Implement dynamic Ueberauth OIDC strategy configuration from auth_settings
+- [x] 4.2 Create `ServiceRadarWebNG.Auth.OIDCController` for request/callback handling
+- [x] 4.3 Implement OIDC discovery URL fetching and caching
+- [x] 4.4 Implement ID token verification (signature, claims, nonce)
+- [x] 4.5 Add JIT user provisioning for OIDC-authenticated users
 - [ ] 4.6 Create OIDC configuration section in admin UI
 - [ ] 4.7 Implement "Test OIDC Configuration" validation
-- [ ] 4.8 Add routes for OIDC auth (`/auth/oidc`, `/auth/oidc/callback`)
+- [x] 4.8 Add routes for OIDC auth (`/auth/oidc`, `/auth/oidc/callback`)
 - [ ] 4.9 Write integration tests with mock OIDC provider
 
 ## 5. SAML Integration
 
-- [ ] 5.1 Add samly or ueberauth_saml dependency
-- [ ] 5.2 Implement dynamic SAML strategy configuration from auth_settings
-- [ ] 5.3 Create ACS endpoint at `/auth/saml/consume`
-- [ ] 5.4 Create SP metadata endpoint at `/auth/saml/metadata`
-- [ ] 5.5 Implement SAML assertion signature validation
-- [ ] 5.6 Add JIT user provisioning for SAML-authenticated users
-- [ ] 5.7 Create SAML configuration section in admin UI
-- [ ] 5.8 Display ACS URL and Entity ID for IdP configuration
+- [x] 5.1 Add samly or ueberauth_saml dependency
+- [x] 5.2 Implement dynamic SAML strategy configuration from auth_settings
+- [x] 5.3 Create ACS endpoint at `/auth/saml/consume`
+- [x] 5.4 Create SP metadata endpoint at `/auth/saml/metadata`
+- [x] 5.5 Implement SAML assertion signature validation
+- [x] 5.6 Add JIT user provisioning for SAML-authenticated users
+- [x] 5.7 Create SAML configuration section in admin UI
+- [x] 5.8 Display ACS URL and Entity ID for IdP configuration
 - [ ] 5.9 Security review of XML parsing and signature validation
 - [ ] 5.10 Write integration tests with mock SAML IdP
 
 ## 6. Proxy JWT (Gateway) Support
 
-- [ ] 6.1 Create `ServiceRadarWebNG.Plugs.GatewayAuth` plug
-- [ ] 6.2 Implement JWT extraction from configurable header
-- [ ] 6.3 Implement JWKS fetching and caching for signature verification
-- [ ] 6.4 Implement issuer, audience, and expiration claim validation
-- [ ] 6.5 Add JIT user provisioning for gateway-authenticated users
+- [x] 6.1 Create `ServiceRadarWebNG.Plugs.GatewayAuth` plug
+- [x] 6.2 Implement JWT extraction from configurable header
+- [x] 6.3 Implement JWKS fetching and caching for signature verification
+- [x] 6.4 Implement issuer, audience, and expiration claim validation
+- [x] 6.5 Add JIT user provisioning for gateway-authenticated users
 - [ ] 6.6 Create proxy JWT configuration section in admin UI
-- [ ] 6.7 Hide login UI when proxy mode active
+- [x] 6.7 Hide login UI when proxy mode active
 - [ ] 6.8 Write integration tests for gateway JWT validation
 
 ## 7. User Self-Service API Credentials
 
-- [ ] 7.1 Create oauth_clients database migration
-- [ ] 7.2 Create `ServiceRadar.Identity.OAuthClient` Ash resource
-- [ ] 7.3 Implement client_id generation (UUID)
-- [ ] 7.4 Implement client_secret generation and Bcrypt hashing
-- [ ] 7.5 Create `/oauth/token` endpoint for client credentials grant
-- [ ] 7.6 Implement scope validation for client credentials tokens
-- [ ] 7.7 Create User Settings "API Credentials" LiveView page
-- [ ] 7.8 Build "Create API Client" form (shows secret once)
-- [ ] 7.9 Build client list with revoke/delete actions
-- [ ] 7.10 Implement usage tracking (last_used_at, IP, count)
-- [ ] 7.11 Update API auth plug to accept client credential tokens
+- [x] 7.1 Create oauth_clients database migration
+- [x] 7.2 Create `ServiceRadar.Identity.OAuthClient` Ash resource
+- [x] 7.3 Implement client_id generation (UUID)
+- [x] 7.4 Implement client_secret generation and Bcrypt hashing
+- [x] 7.5 Create `/oauth/token` endpoint for client credentials grant
+- [x] 7.6 Implement scope validation for client credentials tokens
+- [x] 7.7 Create User Settings "API Credentials" LiveView page
+- [x] 7.8 Build "Create API Client" form (shows secret once)
+- [x] 7.9 Build client list with revoke/delete actions
+- [x] 7.10 Implement usage tracking (last_used_at, IP, count)
+- [x] 7.11 Update API auth plug to accept client credential tokens
 - [ ] 7.12 Write tests for OAuth2 client credentials flow
 
 ## 8. Login Flow Updates
 
-- [ ] 8.1 Create mode-aware login page component
-- [ ] 8.2 Show "Enterprise Login" button when active_sso mode enabled
-- [ ] 8.3 Show password form when password_only or fallback enabled
-- [ ] 8.4 Create local admin backdoor route at `/auth/local`
-- [ ] 8.5 Implement rate limiting on `/auth/local` (5 attempts/min/IP)
-- [ ] 8.6 Add auth mode indicator to login page
-- [ ] 8.7 Show "gateway authentication required" message in proxy mode
+- [x] 8.1 Create mode-aware login page component
+- [x] 8.2 Show "Enterprise Login" button when active_sso mode enabled
+- [x] 8.3 Show password form when password_only or fallback enabled
+- [x] 8.4 Create local admin backdoor route at `/auth/local`
+- [x] 8.5 Implement rate limiting on `/auth/local` (5 attempts/min/IP)
+- [x] 8.6 Add auth mode indicator to login page
+- [x] 8.7 Show "gateway authentication required" message in proxy mode
 
 ## 9. Admin Configuration UI
 
-- [ ] 9.1 Create `/settings/authentication` LiveView route
-- [ ] 9.2 Build mode selector (Password Only / Direct SSO / Gateway Proxy)
-- [ ] 9.3 Build OIDC config form (Client ID, Secret, Discovery URL, Scopes)
-- [ ] 9.4 Build SAML config form (Metadata URL/XML, Entity ID, display ACS URL)
-- [ ] 9.5 Build Proxy JWT config form (Public Key/JWKS URL, Issuer, Audience, Header)
-- [ ] 9.6 Add claim mapping configuration UI
-- [ ] 9.7 Implement save with Cloak encryption for sensitive fields
-- [ ] 9.8 Add enable/disable toggle with confirmation dialog
-- [ ] 9.9 Implement PubSub broadcast on config change (cache invalidation)
+- [x] 9.1 Create `/settings/authentication` LiveView route
+- [x] 9.2 Build mode selector (Password Only / Direct SSO / Gateway Proxy)
+- [x] 9.3 Build OIDC config form (Client ID, Secret, Discovery URL, Scopes)
+- [x] 9.4 Build SAML config form (Metadata URL/XML, Entity ID, display ACS URL)
+- [x] 9.5 Build Proxy JWT config form (Public Key/JWKS URL, Issuer, Audience, Header)
+- [x] 9.6 Add claim mapping configuration UI
+- [x] 9.7 Implement save with Cloak encryption for sensitive fields
+- [x] 9.8 Add enable/disable toggle with confirmation dialog
+- [x] 9.9 Implement PubSub broadcast on config change (cache invalidation)
 
 ## 10. Security & Validation
 

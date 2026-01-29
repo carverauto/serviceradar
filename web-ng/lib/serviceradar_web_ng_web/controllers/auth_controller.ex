@@ -18,6 +18,8 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  require Logger
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Auth.Guardian
@@ -62,6 +64,71 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     conn
     |> put_flash(:info, "Signed out successfully.")
     |> UserAuth.log_out_user()
+  end
+
+  @doc """
+  Handles local admin sign-in with rate limiting.
+
+  This is the "backdoor" for administrators when SSO/proxy auth is primary.
+  Rate limited to 5 attempts per minute per IP.
+  """
+  def local_sign_in(conn, %{"user" => %{"email" => email, "password" => password}}) do
+    alias ServiceRadarWebNGWeb.Auth.RateLimiter
+
+    client_ip = get_client_ip(conn)
+
+    # Check rate limit
+    case RateLimiter.check_rate_limit("local_auth", client_ip, limit: 5, window_seconds: 60) do
+      {:error, retry_after} ->
+        Logger.warning("Local auth rate limited for IP: #{client_ip}")
+
+        conn
+        |> put_flash(:error, "Too many login attempts. Please try again in #{retry_after} seconds.")
+        |> redirect(to: ~p"/auth/local")
+
+      :ok ->
+        # Record the attempt
+        RateLimiter.record_attempt("local_auth", client_ip)
+
+        actor = SystemActor.system(:auth_controller)
+
+        case User.authenticate(email, password, actor: actor) do
+          {:ok, user} ->
+            Logger.info("Successful local admin login for #{email} from IP: #{client_ip}")
+
+            # Record authentication timestamp
+            User.record_authentication(user, actor: actor)
+
+            # Trigger auth hooks
+            Hooks.on_user_authenticated(user, %{"method" => "local_password"})
+
+            conn
+            |> put_flash(:info, "Signed in successfully.")
+            |> UserAuth.log_in_user(user)
+
+          {:error, _} ->
+            Logger.warning("Failed local admin login attempt for #{email} from IP: #{client_ip}")
+
+            conn
+            |> put_flash(:error, "Invalid email or password.")
+            |> redirect(to: ~p"/auth/local")
+        end
+    end
+  end
+
+  defp get_client_ip(conn) do
+    case Plug.Conn.get_req_header(conn, "x-forwarded-for") do
+      [forwarded | _] ->
+        forwarded
+        |> String.split(",")
+        |> List.first()
+        |> String.trim()
+
+      [] ->
+        conn.remote_ip
+        |> :inet.ntoa()
+        |> to_string()
+    end
   end
 
   @doc """

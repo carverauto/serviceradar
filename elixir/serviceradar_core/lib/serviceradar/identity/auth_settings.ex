@@ -51,11 +51,46 @@ defmodule ServiceRadar.Identity.AuthSettings do
 
   code_interface do
     define :get_singleton, action: :get_singleton
+    define :get_settings, action: :get_singleton
     define :update_settings, action: :update
+    define :update
+    define :create
   end
 
   actions do
     defaults [:read]
+
+    create :create do
+      description "Create initial auth settings"
+
+      accept [
+        :mode,
+        :provider_type,
+        :oidc_client_id,
+        :oidc_discovery_url,
+        :oidc_scopes,
+        :saml_idp_metadata_url,
+        :saml_idp_metadata_xml,
+        :saml_sp_entity_id,
+        :jwt_public_key_pem,
+        :jwt_jwks_url,
+        :jwt_issuer,
+        :jwt_audience,
+        :jwt_header_name,
+        :claim_mappings,
+        :is_enabled,
+        :allow_password_fallback
+      ]
+
+      argument :oidc_client_secret, :string do
+        sensitive? true
+        description "OIDC client secret (will be encrypted)"
+      end
+
+      change fn changeset, _context ->
+        maybe_encrypt_secret(changeset, :oidc_client_secret, :oidc_client_secret_encrypted)
+      end
+    end
 
     read :get_singleton do
       description "Get the singleton auth settings"
@@ -262,6 +297,10 @@ defmodule ServiceRadar.Identity.AuthSettings do
     end
 
     policy action_type(:update) do
+      authorize_if actor_attribute_equals(:role, :admin)
+    end
+
+    policy action_type(:create) do
       authorize_if actor_attribute_equals(:role, :admin)
     end
   end

@@ -36,6 +36,11 @@ defmodule ServiceRadar.Identity.User do
     define :get_by_email, action: :by_email, args: [:email]
     define :get_by_id, action: :by_id, args: [:id]
     define :authenticate, action: :authenticate, args: [:email, :password]
+    define :register_with_password
+    define :provision_sso_user
+    define :update
+    define :change_password
+    define :record_authentication
   end
 
   actions do

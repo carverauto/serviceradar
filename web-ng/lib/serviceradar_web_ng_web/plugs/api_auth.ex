@@ -7,8 +7,20 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   perform additional routing.
 
   Checks for authentication in the following order:
-  1. `Authorization: Bearer <token>` header (Guardian JWT session token)
+  1. `Authorization: Bearer <token>` header (Guardian JWT session token or OAuth2 access token)
   2. `X-API-Key: <key>` header (Ash API token or legacy static key)
+
+  ## OAuth2 Client Credentials
+
+  Access tokens obtained via the OAuth2 client credentials flow (`/oauth/token`)
+  are validated as Guardian JWT tokens. These tokens include:
+  - `typ: "api"` - Identifies this as an API token
+  - `client_id` - The OAuth client UUID
+  - `scope` - Space-separated granted scopes
+
+  When an OAuth client credential token is used, the following assigns are set:
+  - `:oauth_client_id` - The client UUID
+  - `:oauth_token_scope` - The granted scopes as a space-separated string
 
   ## Ash API Tokens
 
@@ -90,9 +102,21 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   defp validate_guardian_jwt(conn, token) do
     # Try access token first, then API token
     case Guardian.verify_token(token, []) do
-      {:ok, user, _claims} ->
+      {:ok, user, claims} ->
         scope = Scope.for_user(user)
-        {:ok, assign_scope(conn, scope, user)}
+        conn = assign_scope(conn, scope, user)
+
+        # Check if this is an OAuth client credential token
+        conn =
+          if claims["typ"] == "api" && claims["client_id"] do
+            conn
+            |> assign(:oauth_client_id, claims["client_id"])
+            |> assign(:oauth_token_scope, claims["scope"])
+          else
+            conn
+          end
+
+        {:ok, conn}
 
       {:error, reason} ->
         Logger.debug("JWT validation failed: #{inspect(reason)}")

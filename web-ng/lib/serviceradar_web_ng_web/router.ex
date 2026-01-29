@@ -240,6 +240,15 @@ defmodule ServiceRadarWebNGWeb.Router do
     end
   end
 
+  ## OAuth2 Token Endpoint
+  # Client credentials grant for API access
+
+  scope "/oauth", ServiceRadarWebNGWeb do
+    pipe_through(:api)
+
+    post("/token", OAuthController, :token)
+  end
+
   ## Authentication routes
   # Password login, logout, and password reset
 
@@ -260,6 +269,18 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # Registration (if enabled)
     post("/register", AuthController, :register)
+
+    # OIDC SSO
+    get("/oidc", OIDCController, :request)
+    get("/oidc/callback", OIDCController, :callback)
+
+    # Local admin backdoor (for use when proxy/SSO auth is primary)
+    post("/local/sign-in", AuthController, :local_sign_in)
+
+    # SAML SSO
+    get("/saml", SAMLController, :request)
+    post("/saml/consume", SAMLController, :consume)
+    get("/saml/metadata", SAMLController, :metadata)
   end
 
   ## Authenticated routes
@@ -297,12 +318,16 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/services", ServiceLive.Index, :index)
       live("/services/check", ServiceLive.Show, :show)
       live("/settings/profile", UserLive.Settings, :edit)
+      live("/settings/api-credentials", UserLive.ApiCredentials, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
 
       # Cluster visibility for all authenticated users
       live("/settings/cluster", Settings.ClusterLive.Index, :index)
       live("/settings/cluster/nodes/:node_name", NodeLive.Show, :show)
       live("/settings/rules", Settings.RulesLive.Index, :index)
+
+      # Authentication settings (admin only - enforced by resource policies)
+      live("/settings/authentication", Settings.AuthenticationLive, :index)
 
       # Network sweep configuration
       live("/settings/networks", Settings.NetworksLive.Index, :index)
@@ -361,6 +386,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     live_session :authentication,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live("/users/log-in", AuthLive.SignIn, :sign_in)
+      live("/auth/local", AuthLive.LocalSignIn, :local_sign_in)
     end
   end
 

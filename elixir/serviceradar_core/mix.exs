@@ -99,6 +99,9 @@ defmodule ServiceRadarCore.MixProject do
       # Email (for auth senders)
       {:swoosh, "~> 1.5"},
 
+      # Password hashing (for authentication)
+      {:bcrypt_elixir, "~> 3.0"},
+
       # Development & Testing
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
