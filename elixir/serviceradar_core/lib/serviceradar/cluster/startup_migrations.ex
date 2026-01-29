@@ -270,9 +270,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   defp format_search_path(search_path) do
     search_path
     |> String.split(",")
-    |> Enum.map(&String.trim/1)
-    |> Enum.map(&quote_ident/1)
-    |> Enum.join(", ")
+    |> Enum.map_join(", ", fn schema -> schema |> String.trim() |> quote_ident() end)
   end
 
   # Fix existing misconfigured search_path where the entire value was stored as a single
