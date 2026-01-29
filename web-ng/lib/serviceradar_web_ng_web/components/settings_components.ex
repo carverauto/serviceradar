@@ -76,6 +76,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         label: "Jobs",
         navigate: ~p"/admin/jobs",
         active: String.starts_with?(path, "/admin/jobs")
+      },
+      %{
+        label: "Authentication",
+        navigate: ~p"/settings/authentication",
+        active: String.starts_with?(path, "/settings/authentication")
       }
     ]
   end
