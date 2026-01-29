@@ -50,7 +50,8 @@ defmodule ServiceRadar.Repo.Migrations.CreateAuthSettings do
     end
 
     # Singleton constraint - only one auth_settings row per instance
-    create unique_index(:auth_settings, [true], name: :auth_settings_singleton, prefix: "platform")
+    # Use expression index with constant value to ensure only one row can exist
+    execute "CREATE UNIQUE INDEX auth_settings_singleton ON platform.auth_settings ((1))"
 
     # Insert default row
     execute """
