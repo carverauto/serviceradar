@@ -247,13 +247,53 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   defp ensure_database_search_path!(app_user, database, search_path) do
     if repo_enabled?() do
+      # First, fix any existing misconfigured search_path (with quoted identifier)
+      fix_search_path!(app_user, database)
+
+      # Format the search_path as a proper comma-separated list of identifiers.
+      # Each schema name is quoted individually to handle any special characters.
+      formatted_path = format_search_path(search_path)
+
       ServiceRadar.Repo.query!(
-        "ALTER DATABASE #{quote_ident(database)} SET search_path TO #{quote_literal(search_path)}"
+        "ALTER DATABASE #{quote_ident(database)} SET search_path TO #{formatted_path}"
       )
 
       ServiceRadar.Repo.query!(
-        "ALTER ROLE #{quote_ident(app_user)} SET search_path TO #{quote_literal(search_path)}"
+        "ALTER ROLE #{quote_ident(app_user)} SET search_path TO #{formatted_path}"
       )
+    end
+  end
+
+  # Format search_path as comma-separated quoted identifiers.
+  # Input: "platform, public, ag_catalog"
+  # Output: "platform", "public", "ag_catalog"
+  defp format_search_path(search_path) do
+    search_path
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.map(&quote_ident/1)
+    |> Enum.join(", ")
+  end
+
+  # Fix existing misconfigured search_path where the entire value was stored as a single
+  # quoted identifier (e.g., "platform, public, ag_catalog" with quotes in the value).
+  defp fix_search_path!(app_user, database) do
+    # Check if the current search_path has the bug (contains literal double quotes)
+    case ServiceRadar.Repo.query!("SELECT current_setting('search_path')") do
+      %{rows: [[current_path]]} when is_binary(current_path) ->
+        if String.starts_with?(current_path, "\"") do
+          Logger.warning(
+            "[StartupMigrations] Detected misconfigured search_path: #{inspect(current_path)}. " <>
+              "Resetting to fix quoted identifier issue."
+          )
+
+          # Reset to default then re-apply correctly
+          ServiceRadar.Repo.query!("ALTER DATABASE #{quote_ident(database)} RESET search_path")
+          ServiceRadar.Repo.query!("ALTER ROLE #{quote_ident(app_user)} RESET search_path")
+        end
+
+      _ ->
+        :ok
     end
   end
 
@@ -273,6 +313,37 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
       ServiceRadar.Repo.query!(
         "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO #{quote_ident(app_user)}"
+      )
+
+      # Also grant privileges on the AGE graph schema (named 'serviceradar').
+      # AGE creates a schema for each graph to store vertex/edge labels.
+      ensure_age_graph_privileges!(app_user, "serviceradar")
+    end
+  end
+
+  # Grant privileges on an AGE graph schema.
+  # AGE creates a schema with the same name as the graph to store vertex/edge tables.
+  defp ensure_age_graph_privileges!(app_user, graph_name) do
+    if schema_exists?(graph_name) do
+      ServiceRadar.Repo.query!(
+        "GRANT USAGE ON SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}"
+      )
+
+      ServiceRadar.Repo.query!(
+        "GRANT ALL ON ALL TABLES IN SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}"
+      )
+
+      ServiceRadar.Repo.query!(
+        "GRANT ALL ON ALL SEQUENCES IN SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}"
+      )
+
+      # Set default privileges for future objects created in this graph
+      ServiceRadar.Repo.query!(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA #{quote_ident(graph_name)} GRANT ALL ON TABLES TO #{quote_ident(app_user)}"
+      )
+
+      ServiceRadar.Repo.query!(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA #{quote_ident(graph_name)} GRANT ALL ON SEQUENCES TO #{quote_ident(app_user)}"
       )
     end
   end
