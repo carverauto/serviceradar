@@ -1244,7 +1244,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </summary>
                   <div class="mt-3">
                     <textarea
-                      name="assignment[params]"
+                      name="assignment[params_raw]"
                       class="textarea textarea-bordered w-full font-mono text-xs min-h-[80px]"
                     ><%= assignment_params_raw(@assignment_form) %></textarea>
                   </div>
@@ -1755,9 +1755,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp assignment_params_map(_), do: %{}
 
   defp assignment_params_raw(form) when is_map(form) do
+    params_raw = Map.get(form, "params_raw", "")
     params = Map.get(form, "params", "")
 
     cond do
+      is_binary(params_raw) and String.trim(params_raw) != "" -> params_raw
       is_binary(params) -> params
       is_map(params) -> Jason.encode!(params)
       true -> ""
@@ -1788,11 +1790,19 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     agent_uid = params["agent_uid"]
     interval_seconds = parse_int(params["interval_seconds"], 60)
     timeout_seconds = parse_int(params["timeout_seconds"], 10)
+    params_raw = params["params_raw"]
 
     with true <-
            (is_binary(agent_uid) and String.trim(agent_uid) != "") ||
              {:error, "agent_uid required"},
-         {:ok, parsed_params} <- parse_optional_json_map(params["params"], "Params"),
+         {:ok, parsed_params} <-
+           parse_optional_json_map(
+             if(is_binary(params_raw) and String.trim(params_raw) != "",
+               do: params_raw,
+               else: params["params"]
+             ),
+             "Params"
+           ),
          {:ok, permissions_override} <-
            parse_optional_json_map(params["permissions_override"], "Permissions override"),
          {:ok, resources_override} <-
@@ -1908,6 +1918,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       "interval_seconds" => "60",
       "timeout_seconds" => "10",
       "params" => "",
+      "params_raw" => "",
       "permissions_override" => "",
       "resources_override" => ""
     }
