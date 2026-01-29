@@ -347,33 +347,40 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp create_aliases_for_new_devices(created_devices, actor) do
     Enum.each(created_devices, fn {ip, record} ->
-      device_id = record.canonical_device_id
-
-      case DeviceAliasState.create_detected(
-             %{
-               device_id: device_id,
-               partition: "default",
-               alias_type: :ip,
-               alias_value: ip,
-               metadata: %{"source" => "sweep_discovery"}
-             },
-             actor: actor
-           ) do
-        {:ok, _alias} ->
-          Logger.debug("SweepResultsIngestor: Created IP alias #{ip} for device #{device_id}")
-
-        {:error, %Ash.Error.Invalid{} = err} ->
-          # Check if it's a uniqueness constraint violation (alias already exists)
-          if Enum.any?(err.errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)) do
-            Logger.debug("SweepResultsIngestor: Alias #{ip} already exists, skipping")
-          else
-            Logger.warning("SweepResultsIngestor: Failed to create alias #{ip}: #{inspect(err)}")
-          end
-
-        {:error, reason} ->
-          Logger.warning("SweepResultsIngestor: Failed to create alias #{ip}: #{inspect(reason)}")
-      end
+      create_alias_for_device(ip, record.canonical_device_id, actor)
     end)
+  end
+
+  defp create_alias_for_device(ip, device_id, actor) do
+    result =
+      DeviceAliasState.create_detected(
+        %{
+          device_id: device_id,
+          partition: "default",
+          alias_type: :ip,
+          alias_value: ip,
+          metadata: %{"source" => "sweep_discovery"}
+        },
+        actor: actor
+      )
+
+    handle_alias_creation_result(result, ip, device_id)
+  end
+
+  defp handle_alias_creation_result({:ok, _alias}, ip, device_id) do
+    Logger.debug("SweepResultsIngestor: Created IP alias #{ip} for device #{device_id}")
+  end
+
+  defp handle_alias_creation_result({:error, %Ash.Error.Invalid{} = err}, ip, _device_id) do
+    if Enum.any?(err.errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)) do
+      Logger.debug("SweepResultsIngestor: Alias #{ip} already exists, skipping")
+    else
+      Logger.warning("SweepResultsIngestor: Failed to create alias #{ip}: #{inspect(err)}")
+    end
+  end
+
+  defp handle_alias_creation_result({:error, reason}, ip, _device_id) do
+    Logger.warning("SweepResultsIngestor: Failed to create alias #{ip}: #{inspect(reason)}")
   end
 
   defp generate_device_uid(ip) do
