@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     MapperUnifiController
   }
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{DeviceCleanupSettings, DeviceCleanupWorker}
   alias ServiceRadar.Infrastructure.Gateway
 
@@ -2673,10 +2674,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
-  defp load_gateways(scope) do
-    case Ash.read(Gateway, scope: scope) do
-      {:ok, gateways} -> gateways
-      {:error, _} -> []
+  defp load_gateways(_scope) do
+    require Logger
+
+    # Use SystemActor to load gateways - user is already authenticated at this point
+    # and gateway data is infrastructure info visible to any authenticated user
+    actor = SystemActor.system(:networks_live)
+
+    result = Ash.read(Gateway, domain: ServiceRadar.Infrastructure, actor: actor)
+
+    case result do
+      {:ok, gateways} ->
+        Logger.debug("load_gateways: loaded #{length(gateways)} gateways")
+        gateways
+
+      {:error, reason} ->
+        Logger.warning("load_gateways: failed to load gateways - #{inspect(reason)}")
+        []
     end
   end
 
