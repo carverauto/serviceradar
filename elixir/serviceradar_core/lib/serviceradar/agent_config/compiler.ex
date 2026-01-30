@@ -67,8 +67,6 @@ defmodule ServiceRadar.AgentConfig.Compiler do
   @optional_callbacks [validate: 1]
 
   # Registry of available compilers
-  # Note: Dusk checker was migrated to the WASM plugin system and no longer
-  # requires a compiler. It's managed through regular PluginAssignment records.
   @compilers %{
     sweep: ServiceRadar.AgentConfig.Compilers.SweepCompiler,
     sysmon: ServiceRadar.AgentConfig.Compilers.SysmonCompiler,
