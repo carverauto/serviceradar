@@ -577,6 +577,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
       {:error, error} ->
         Logger.error("Plugin assignment update failed for #{assignment.id}: #{inspect(error)}")
+
         {:noreply,
          socket |> put_flash(:error, "Failed to update assignment: #{format_error(error)}")}
     end
@@ -1859,7 +1860,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  defp normalize_assignment_params(params, config_schema) when is_map(params) and is_map(config_schema) do
+  defp normalize_assignment_params(params, config_schema)
+       when is_map(params) and is_map(config_schema) do
     alias ServiceRadar.Plugins.ConfigSchema
 
     schema = stringify_keys(config_schema)

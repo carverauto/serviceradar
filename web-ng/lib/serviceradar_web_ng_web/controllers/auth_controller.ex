@@ -210,7 +210,9 @@ defmodule ServiceRadarWebNGWeb.AuthController do
              %{
                password: password,
                password_confirmation: password_confirmation
-             }, actor: actor) do
+             },
+             actor: actor
+           ) do
       conn
       |> put_flash(:info, "Password reset successfully.")
       |> UserAuth.log_in_user(user)
