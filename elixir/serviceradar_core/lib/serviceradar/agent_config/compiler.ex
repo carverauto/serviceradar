@@ -30,7 +30,7 @@ defmodule ServiceRadar.AgentConfig.Compiler do
 
   @type partition :: String.t()
   @type agent_id :: String.t() | nil
-  @type config_type :: :sweep | :sysmon | :snmp | :mapper | :dusk | :poller | :checker
+  @type config_type :: :sweep | :sysmon | :snmp | :mapper | :poller | :checker
   @type compiled_config :: map()
   @type compile_opts :: [actor: map(), timeout: pos_integer()]
 
@@ -71,8 +71,7 @@ defmodule ServiceRadar.AgentConfig.Compiler do
     sweep: ServiceRadar.AgentConfig.Compilers.SweepCompiler,
     sysmon: ServiceRadar.AgentConfig.Compilers.SysmonCompiler,
     snmp: ServiceRadar.AgentConfig.Compilers.SNMPCompiler,
-    mapper: ServiceRadar.AgentConfig.Compilers.MapperCompiler,
-    dusk: ServiceRadar.AgentConfig.Compilers.DuskCompiler
+    mapper: ServiceRadar.AgentConfig.Compilers.MapperCompiler
   }
 
   @doc """

@@ -229,7 +229,6 @@ config :serviceradar_core,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.DuskProfiles,
     ServiceRadar.Plugins
   ]
 

@@ -211,7 +211,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           config_json: config_json,
           sysmon_config: Map.get(config, :sysmon_config),
           snmp_config: Map.get(config, :snmp_config),
-          dusk_config: Map.get(config, :dusk_config),
           plugin_config: proto_plugins
         }
 

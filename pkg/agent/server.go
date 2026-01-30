@@ -70,11 +70,6 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 		log.Warn().Err(err).Msg("Failed to initialize SNMP service, continuing without it")
 	}
 
-	// Initialize embedded dusk service
-	if err := s.initDuskService(ctx); err != nil {
-		log.Warn().Err(err).Msg("Failed to initialize dusk service, continuing without it")
-	}
-
 	return s, nil
 }
 
@@ -252,28 +247,6 @@ func (s *Server) GetSNMPStatus(ctx context.Context) (*proto.StatusResponse, erro
 	return svc.GetStatus(ctx)
 }
 
-// initDuskService creates and initializes the embedded dusk service.
-func (s *Server) initDuskService(ctx context.Context) error {
-	duskSvc, err := NewDuskService(DuskServiceConfig{
-		AgentID:   s.config.AgentID,
-		Partition: s.config.Partition,
-		ConfigDir: s.configDir,
-		Logger:    s.logger,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create dusk service: %w", err)
-	}
-
-	// Start the dusk service
-	if err := duskSvc.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start dusk service: %w", err)
-	}
-
-	s.duskService = duskSvc
-	s.logger.Info().Msg("Dusk service initialized and started")
-	return nil
-}
-
 func (s *Server) initPluginManager(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -288,19 +261,6 @@ func (s *Server) initPluginManager(ctx context.Context) {
 		LocalStoreDir: s.configDir,
 		Logger:        s.logger,
 	})
-}
-
-// GetDuskStatus returns the current dusk status if the service is running.
-func (s *Server) GetDuskStatus(ctx context.Context) (*proto.StatusResponse, error) {
-	s.mu.RLock()
-	svc := s.duskService
-	s.mu.RUnlock()
-
-	if svc == nil || !svc.IsEnabled() {
-		return nil, nil
-	}
-
-	return svc.GetStatus(ctx)
 }
 
 // Start initializes and starts all agent services.
@@ -339,13 +299,6 @@ func (s *Server) Stop(_ context.Context) error {
 	if s.snmpService != nil {
 		if err := s.snmpService.Stop(context.Background()); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop SNMP service")
-		}
-	}
-
-	// Stop dusk service if running
-	if s.duskService != nil {
-		if err := s.duskService.Stop(context.Background()); err != nil {
-			s.logger.Error().Err(err).Msg("Failed to stop dusk service")
 		}
 	}
 

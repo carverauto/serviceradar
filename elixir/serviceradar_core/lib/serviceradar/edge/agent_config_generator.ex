@@ -32,7 +32,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.AgentConfig.Compilers.DuskCompiler
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
@@ -127,7 +126,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         mapper_config = load_mapper_config(agent_id)
         sysmon_config = load_sysmon_config(agent_id)
         snmp_config = load_snmp_config(agent_id)
-        dusk_config = load_dusk_config(agent_id)
         plugin_assignments = load_plugin_assignments(agent_id)
         plugin_engine_limits = load_plugin_engine_limits(agent_id)
         plugin_config = %{
@@ -143,7 +141,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
             mapper_config,
             sysmon_config,
             snmp_config,
-            dusk_config,
             plugin_config
           )
 
@@ -405,7 +402,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          mapper_config,
          sysmon_config,
          snmp_config,
-         dusk_config,
          plugin_config
        ) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
@@ -418,14 +414,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Map.put("sweep", sweep_config)
       |> Map.put("mapper", mapper_config)
 
-    # Compute version hash from checks, sync payload, sweep config, sysmon config, and dusk config
+    # Compute version hash from all config components
     config_version =
       compute_version_hash(
         check_configs,
         full_payload,
         sysmon_config,
         snmp_config,
-        dusk_config,
         plugin_assignments,
         plugin_engine_limits
       )
@@ -442,8 +437,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       plugin_engine_limits: plugin_engine_limits,
       config_json: config_json,
       sysmon_config: build_sysmon_proto_config(sysmon_config),
-      snmp_config: build_snmp_proto_config(snmp_config),
-      dusk_config: build_dusk_proto_config(dusk_config)
+      snmp_config: build_snmp_proto_config(snmp_config)
     }
   end
 
@@ -514,7 +508,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          sync_payload,
          sysmon_config,
          snmp_config,
-         dusk_config,
          plugin_assignments,
          plugin_engine_limits
        ) do
@@ -529,7 +522,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         sync: sync_payload,
         sysmon: sysmon_config,
         snmp: snmp_config,
-        dusk: dusk_config,
         plugins: sorted_plugins,
         plugin_engine_limits: plugin_engine_limits
       })
@@ -906,45 +898,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp snmp_data_type(:float), do: :SNMP_DATA_TYPE_FLOAT
   defp snmp_data_type(:timeticks), do: :SNMP_DATA_TYPE_TIMETICKS
   defp snmp_data_type(_), do: :SNMP_DATA_TYPE_UNSPECIFIED
-
-  # Load dusk configuration from the AgentConfig system
-  # This uses the ConfigServer which compiles dusk configs from DuskProfile resources
-  defp load_dusk_config(agent_id) do
-    partition = get_agent_partition(agent_id)
-
-    Logger.debug(
-      "AgentConfigGenerator: loading dusk config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}"
-    )
-
-    case ConfigServer.get_config(:dusk, partition, agent_id) do
-      {:ok, entry} ->
-        entry.config
-
-      {:error, :no_config_found} ->
-        # Return default dusk config when none defined (disabled by default)
-        Logger.debug("No dusk config found for agent #{agent_id}, using default (disabled)")
-        DuskCompiler.default_config()
-
-      {:error, reason} ->
-        Logger.warning("Failed to load dusk config for agent #{agent_id}: #{inspect(reason)}")
-
-        DuskCompiler.default_config()
-    end
-  end
-
-  # Build the proto-compatible DuskConfig struct
-  defp build_dusk_proto_config(nil), do: nil
-
-  defp build_dusk_proto_config(config) when is_map(config) do
-    %Monitoring.DuskConfig{
-      enabled: Map.get(config, "enabled", false),
-      node_address: Map.get(config, "node_address", ""),
-      timeout: Map.get(config, "timeout", "5m"),
-      profile_id: Map.get(config, "profile_id") || "",
-      profile_name: Map.get(config, "profile_name") || "",
-      config_source: Map.get(config, "config_source", "default")
-    }
-  end
 
   defp resolve_agent_device_uid(nil, _actor), do: nil
   defp resolve_agent_device_uid("", _actor), do: nil

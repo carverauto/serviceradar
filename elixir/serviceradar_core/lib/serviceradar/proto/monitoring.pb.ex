@@ -341,7 +341,6 @@ defmodule Monitoring.AgentConfigResponse do
   field :config_json, 7, type: :bytes, json_name: "configJson"
   field :sysmon_config, 8, type: Monitoring.SysmonConfig, json_name: "sysmonConfig"
   field :snmp_config, 9, type: Monitoring.SNMPConfig, json_name: "snmpConfig"
-  field :dusk_config, 10, type: Monitoring.DuskConfig, json_name: "duskConfig"
   field :plugin_config, 11, type: Monitoring.PluginConfig, json_name: "pluginConfig"
 end
 
@@ -447,19 +446,6 @@ defmodule Monitoring.AgentCheckConfig do
   field :path, 9, type: :string
   field :method, 10, type: :string
   field :settings, 11, repeated: true, type: Monitoring.AgentCheckConfig.SettingsEntry, map: true
-end
-
-defmodule Monitoring.DuskConfig do
-  @moduledoc false
-
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
-
-  field :enabled, 1, type: :bool
-  field :node_address, 2, type: :string, json_name: "nodeAddress"
-  field :timeout, 3, type: :string
-  field :profile_id, 4, type: :string, json_name: "profileId"
-  field :profile_name, 5, type: :string, json_name: "profileName"
-  field :config_source, 6, type: :string, json_name: "configSource"
 end
 
 defmodule Monitoring.SNMPConfig do
