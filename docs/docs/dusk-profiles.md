@@ -1,157 +1,115 @@
 ---
 sidebar_position: 17
-title: Dusk Profiles
+title: Dusk Monitoring
 ---
 
-# Dusk Profiles
+# Dusk Monitoring
 
-Dusk Profiles provide centralized management for Dusk blockchain node monitoring configuration across your ServiceRadar agents. The dusk monitoring service is now embedded directly in the agent, eliminating the need for a separate dusk-checker binary.
+ServiceRadar provides monitoring for Dusk blockchain nodes through a WASM plugin. The dusk-checker plugin connects to Dusk nodes via their WebSocket API and reports node health status.
 
 ## Overview
 
-The Dusk monitoring feature connects to Dusk blockchain nodes via their WebSocket API and collects:
+The Dusk monitoring feature collects:
 - **Block height**: Current chain height and sync status
 - **Node status**: Connection state, peer count
 - **Chain metrics**: Block production, finalization status
 
-Dusk Profiles let you control:
-- Which Dusk node to monitor (WebSocket address)
-- Connection timeout settings
-- Whether monitoring is enabled/disabled
+## Architecture
 
-## Key Concepts
+The dusk-checker runs as a WebAssembly (WASM) plugin within the ServiceRadar agent's plugin runtime. This provides:
 
-### Embedded Monitoring
+- **Sandboxed execution**: Plugin runs in isolated WASM environment
+- **Consistent deployment**: Same plugin binary across all platforms
+- **Secure networking**: Host-mediated WebSocket connections with permission controls
+- **Hot reloading**: Plugin updates without agent restart
 
-Unlike previous versions where dusk-checker ran as a standalone binary, Dusk monitoring is now embedded directly in the ServiceRadar agent. This provides:
-- Simplified deployment (no extra binaries)
-- Unified configuration delivery
-- Automatic config hot-reload
-- Consistent lifecycle management
+## Configuration
 
-### Disabled by Default
+Dusk monitoring is configured through **Plugin Assignments** in the ServiceRadar control plane.
 
-Dusk monitoring is **disabled by default**. An agent without a dusk profile assigned will not attempt to connect to any Dusk node. This ensures:
-- No unnecessary connection attempts
-- Clean startup for agents not monitoring Dusk
-- Explicit opt-in for blockchain monitoring
+### Creating a Plugin Assignment
 
-## Accessing Dusk Profiles
+1. Navigate to **Plugins > Assignments** in the web UI
+2. Click **Create Assignment**
+3. Select the **dusk-checker** plugin package
+4. Configure the assignment:
+   - **Target Agent**: Select the agent(s) to run this check
+   - **Enabled**: Whether this assignment is active
+   - **Interval**: How often to run the check (e.g., 60 seconds)
+   - **Timeout**: Maximum time for each check execution
 
-Navigate to **Settings > Dusk Profiles** in the web UI (when available).
+### Plugin Parameters
 
-## Profile Management
+The dusk-checker accepts the following parameters:
 
-### Creating a Profile
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `node_address` | WebSocket endpoint of the Dusk node | `localhost:8080` or `ws://node.example.com:8080` |
+| `timeout` | Connection and operation timeout | `30s`, `1m`, `5m` |
 
-1. Click **Create Profile**
-2. Fill in the profile settings:
-   - **Name**: A descriptive name (e.g., "Production Dusk Node", "Testnet Monitor")
-   - **Node Address**: WebSocket address of the Dusk node (e.g., `localhost:8080`, `dusk-node.example.com:8080`)
-   - **Timeout**: Connection and operation timeout (e.g., "5m", "30s", "10m")
-   - **Enabled**: Whether this profile should activate monitoring
-3. Click **Save**
-
-### Profile Fields
-
-| Field | Description | Default |
-|-------|-------------|---------|
-| `name` | Human-readable profile name | (required) |
-| `node_address` | WebSocket address of the Dusk node | (required when enabled) |
-| `timeout` | Connection timeout as duration string | `5m` |
-| `enabled` | Whether monitoring is active | `true` |
-| `is_default` | Fallback profile for unassigned agents | `false` |
-| `target_query` | SRQL query for device targeting | `nil` |
-| `priority` | Resolution order (higher = first) | `0` |
-
-### Default Profile
-
-Each deployment can have a default dusk profile:
-- Applies to agents without specific profile assignments
-- Cannot be deleted while marked as default
-- Provides a fallback configuration
-
-To set a profile as default:
-1. Open the profile
-2. Click **Set as Default**
-3. Any previous default profile is automatically unset
-
-## Profile Assignments via SRQL
-
-Profiles can target specific devices using SRQL (ServiceRadar Query Language) queries. This allows dynamic assignment based on device attributes.
-
-### How SRQL Targeting Works
-
-1. Create a profile with a `target_query`
-2. Set a `priority` (higher values evaluated first)
-3. When an agent requests config, profiles are checked in priority order
-4. The first profile whose query matches the agent's device is used
-
-### Example Target Queries
-
-| Query | Matches |
-|-------|---------|
-| `in:devices tags.role:dusk-node` | Devices with tag `role=dusk-node` |
-| `in:devices hostname:dusk-*` | Devices with hostnames starting with "dusk-" |
-| `in:devices tags.env:production` | Devices tagged as production |
-
-### Resolution Priority
-
-When an agent requests its dusk configuration:
-
-1. **SRQL targeting profiles**: Evaluated by priority (highest first)
-2. **Default profile**: Fallback when no targeting profile matches
-3. **No profile**: Returns disabled config (dusk monitoring off)
-
-## Local Configuration
-
-Agents can also use local configuration files for dusk monitoring:
-
-### Configuration File Locations
-
-| Platform | Primary Path | Alternative |
-|----------|-------------|-------------|
-| Linux | `/etc/serviceradar/dusk.json` | - |
-| macOS | `/etc/serviceradar/dusk.json` | `/usr/local/etc/serviceradar/dusk.json` |
-
-### Example Configuration
-
+Example params JSON:
 ```json
 {
-  "enabled": true,
   "node_address": "localhost:8080",
-  "timeout": "5m"
+  "timeout": "30s"
 }
 ```
 
-### Configuration Priority
+### Plugin Permissions
 
-1. Local configuration file (highest priority)
-2. Remote profile from ConfigServer
-3. Cached configuration
-4. Default disabled config
+The dusk-checker requires the following capabilities:
+- `websocket_connect`: Connect to WebSocket endpoints
+- `websocket_send`: Send messages over WebSocket
+- `websocket_recv`: Receive messages over WebSocket
+- `websocket_close`: Close WebSocket connections
+- `http_request`: Make HTTP requests (for node info endpoints)
+- `log`: Write to agent logs
+- `get_config`: Retrieve configuration
+- `submit_result`: Report check results
 
-## Monitoring Status
+Default permissions allow:
+- **Allowed domains**: `*` (all domains)
+- **Allowed ports**: Port from node_address (e.g., 8080)
 
-Once configured, dusk monitoring status appears in the agent's service reports:
+You can restrict permissions in the plugin assignment or package approval settings.
+
+## Monitoring Results
+
+Check results are reported in the standard ServiceRadar plugin result format:
 
 ```json
 {
-  "service_name": "dusk",
-  "service_type": "dusk",
-  "available": true,
-  "message": {
-    "available": true,
-    "response_time": 12345678,
-    "status": {
-      "block_height": 1234567,
-      "sync_status": "synced"
-    }
+  "status": "OK",
+  "summary": "Block height: 1234567, peers: 8",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "labels": {
+    "block_height": "1234567",
+    "peer_count": "8"
   }
 }
 ```
 
-## Migration from Standalone dusk-checker
+### Status Values
+
+| Status | Description |
+|--------|-------------|
+| `OK` | Node is healthy and reachable |
+| `WARNING` | Node is reachable but may have issues (e.g., syncing) |
+| `CRITICAL` | Cannot connect to node or node is unhealthy |
+| `UNKNOWN` | Configuration error or unexpected state |
+
+## Migration from Previous Versions
+
+### From Embedded Agent Monitoring (pre-1.0.88)
+
+If you previously used the embedded dusk monitoring in the agent:
+
+1. **Create a plugin assignment** for the dusk-checker plugin
+2. **Configure parameters** (node_address, timeout)
+3. **Assign to agents** that need dusk monitoring
+4. **Remove old dusk profiles** (optional, they're no longer used)
+
+### From Standalone dusk-checker Binary
 
 If you previously ran the standalone `dusk-checker` binary:
 
@@ -161,19 +119,11 @@ If you previously ran the standalone `dusk-checker` binary:
    systemctl disable serviceradar-dusk
    ```
 
-2. **Create a dusk profile** in the web UI or via API
+2. **Create a plugin assignment** in the web UI
 
-3. **Assign the profile** to your dusk-monitoring agents via:
-   - SRQL targeting (recommended)
-   - Default profile
-   - Local configuration file
+3. **Verify monitoring** by checking agent status
 
-4. **Verify monitoring** by checking agent status:
-   ```bash
-   curl -s localhost:8080/api/status | jq '.services[] | select(.service_name == "dusk")'
-   ```
-
-5. **Remove old artifacts** (optional):
+4. **Remove old artifacts** (optional):
    ```bash
    rm /etc/serviceradar/dusk-checker.json
    rm /usr/local/bin/dusk-checker
@@ -181,29 +131,57 @@ If you previously ran the standalone `dusk-checker` binary:
 
 ## Troubleshooting
 
-### Dusk Not Monitoring
+### Plugin Not Running
 
-1. **Check profile assignment**:
-   - Verify a profile exists and is enabled
-   - Confirm the profile matches the agent's device (if using SRQL targeting)
-   - Check if a default profile exists
-
-2. **Check agent logs**:
+1. **Verify plugin assignment exists** and is enabled
+2. **Check plugin package status** is "approved"
+3. **Review agent logs** for plugin loading errors:
    ```bash
-   journalctl -u serviceradar-agent -f | grep -i dusk
+   journalctl -u serviceradar-agent -f | grep -i plugin
    ```
-
-3. **Verify configuration delivery**:
-   - Agent logs should show "Applied dusk config from gateway" or "Loaded dusk config from local file"
 
 ### Connection Failures
 
-1. **Verify node address** is reachable from the agent
+1. **Verify node address** is reachable from the agent:
+   ```bash
+   curl -I http://node-address:port/
+   ```
+
 2. **Check timeout settings** - increase if the node is slow to respond
-3. **Review firewall rules** - ensure WebSocket connections are allowed
 
-### Config Not Updating
+3. **Review firewall rules** - ensure WebSocket connections are allowed on the target port
 
-1. **Wait for refresh interval** (default: 5 minutes)
-2. **Check config hash** - agent only reconfigures when config changes
-3. **Force reload** by restarting the agent
+4. **Check plugin permissions** - verify allowed_ports includes your node's port
+
+### Check Always Reports CRITICAL
+
+1. **Verify the Dusk node is running** and accepting WebSocket connections
+2. **Test connectivity manually**:
+   ```bash
+   wscat -c ws://localhost:8080/ws
+   ```
+3. **Check the node_address format** - should be `host:port` without protocol prefix (the plugin adds `ws://` automatically)
+
+## API Reference
+
+### Creating Assignment via API
+
+```bash
+curl -X POST /api/plugins/assignments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plugin_id": "dusk-checker",
+    "agent_uid": "agent-001",
+    "enabled": true,
+    "interval_seconds": 60,
+    "timeout_seconds": 30,
+    "params": {
+      "node_address": "localhost:8080",
+      "timeout": "30s"
+    }
+  }'
+```
+
+### Querying Results
+
+Check results are available through the standard monitoring APIs and will appear in dashboards configured to display plugin results.

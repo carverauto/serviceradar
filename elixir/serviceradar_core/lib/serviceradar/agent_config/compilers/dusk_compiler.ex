@@ -1,16 +1,32 @@
 defmodule ServiceRadar.AgentConfig.Compilers.DuskCompiler do
   @moduledoc """
+  DEPRECATED: Dusk checker has been migrated to the WASM plugin system.
+
+  The dusk-checker is now a standard WASM plugin managed through regular
+  PluginAssignment records. This compiler is kept for reference but is no
+  longer used by the config generation pipeline.
+
+  To use the dusk-checker:
+  1. Upload the dusk-checker WASM plugin package
+  2. Create PluginAssignment records with the appropriate params:
+     - node_address: WebSocket endpoint of the Dusk node
+     - timeout: Check timeout (e.g., "30s")
+
+  ---
+
+  Original documentation (historical reference):
+
   Compiler for dusk monitoring configurations.
 
-  Transforms DuskProfile Ash resources into agent-consumable dusk
-  configuration format using SRQL-based targeting.
+  Transforms DuskProfile Ash resources into plugin assignment configurations
+  for the dusk-checker WASM plugin using SRQL-based targeting.
 
   ## Resolution Order
 
   When resolving which profile applies to a device:
   1. SRQL targeting profiles (ordered by priority, highest first)
   2. Default profile (fallback)
-  3. No profile = dusk monitoring disabled
+  3. No profile = no dusk plugin assignment
 
   Profiles use `target_query` (SRQL) to define which devices they apply to.
   Example: `target_query: "in:devices tags.role:dusk-node"` matches all devices
@@ -18,27 +34,39 @@ defmodule ServiceRadar.AgentConfig.Compilers.DuskCompiler do
 
   ## Output Format
 
-  The compiled config follows this structure:
+  The compiled config is a plugin assignment for the dusk-checker plugin:
 
       %{
-        "enabled" => true,
-        "node_address" => "localhost:8080",
-        "timeout" => "5m",
-        "profile_id" => "uuid",
-        "profile_name" => "Production Dusk Node",
-        "config_source" => "srql"
+        assignment_id: "dusk-profile-uuid",
+        plugin_id: "dusk-checker",
+        name: "Dusk Checker",
+        entrypoint: "run_check",
+        runtime: "wasi-preview1",
+        outputs: "serviceradar.plugin_result.v1",
+        capabilities: ["get_config", "log", "submit_result", "http_request",
+                       "websocket_connect", "websocket_send", "websocket_recv", "websocket_close"],
+        params: %{
+          "node_address" => "localhost:8080",
+          "timeout" => "30s",
+          "use_ssl" => false
+        },
+        permissions: %{
+          "allowed_domains" => ["*"],
+          "allowed_ports" => [8080, 443]
+        },
+        resources: %{
+          "requested_memory_mb" => 64,
+          "max_open_connections" => 1
+        },
+        enabled: true,
+        interval_sec: 60,
+        timeout_sec: 30,
+        source: "dusk_profile",
+        profile_id: "uuid",
+        profile_name: "Production Dusk Node"
       }
 
-  If no profile is found, returns a disabled config:
-
-      %{
-        "enabled" => false,
-        "node_address" => "",
-        "timeout" => "5m",
-        "profile_id" => nil,
-        "profile_name" => nil,
-        "config_source" => "default"
-      }
+  If no profile is found, returns nil (no assignment).
   """
 
   @behaviour ServiceRadar.AgentConfig.Compiler
@@ -49,6 +77,23 @@ defmodule ServiceRadar.AgentConfig.Compilers.DuskCompiler do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.DuskProfiles.DuskProfile
   alias ServiceRadar.Inventory.Device
+
+  # Default plugin configuration for dusk-checker
+  @dusk_plugin_id "dusk-checker"
+  @dusk_plugin_name "Dusk Checker"
+  @dusk_entrypoint "run_check"
+  @dusk_runtime "wasi-preview1"
+  @dusk_outputs "serviceradar.plugin_result.v1"
+  @dusk_capabilities [
+    "get_config",
+    "log",
+    "submit_result",
+    "http_request",
+    "websocket_connect",
+    "websocket_send",
+    "websocket_recv",
+    "websocket_close"
+  ]
 
   @impl true
   def config_type, do: :dusk
@@ -67,12 +112,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.DuskCompiler do
     # Resolve the profile for this agent/device
     profile = resolve_profile(device_uid, actor)
 
-    if profile do
-      config = compile_profile(profile)
+    if profile && profile.enabled do
+      config = compile_to_plugin_assignment(profile)
       {:ok, config}
     else
-      # Return disabled config if no profile found
-      {:ok, default_config()}
+      # Return nil if no profile found or profile is disabled
+      {:ok, nil}
     end
   rescue
     e ->
@@ -83,17 +128,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.DuskCompiler do
   @impl true
   def validate(config) when is_map(config) do
     cond do
-      not Map.has_key?(config, "enabled") ->
-        {:error, "Config missing 'enabled' key"}
+      not Map.has_key?(config, :params) ->
+        {:error, "Config missing 'params' key"}
 
-      Map.get(config, "enabled") == true and
-          (not Map.has_key?(config, "node_address") or config["node_address"] == "") ->
-        {:error, "Config enabled but missing 'node_address'"}
+      not is_map(config.params) ->
+        {:error, "Config 'params' must be a map"}
+
+      config.params["node_address"] in [nil, ""] ->
+        {:error, "Config params missing 'node_address'"}
 
       true ->
         :ok
     end
   end
+
+  def validate(nil), do: :ok
 
   @doc """
   Resolves the dusk profile for a device using SRQL targeting.
@@ -108,6 +157,93 @@ defmodule ServiceRadar.AgentConfig.Compilers.DuskCompiler do
   def resolve_profile(device_uid, actor) do
     try_srql_targeting(device_uid, actor) ||
       get_default_profile(actor)
+  end
+
+  @doc """
+  Compiles a DuskProfile to a plugin assignment configuration.
+
+  This transforms the profile into a format compatible with the
+  plugin assignment system used by the agent.
+  """
+  @spec compile_to_plugin_assignment(DuskProfile.t()) :: map()
+  def compile_to_plugin_assignment(profile) do
+    # Parse timeout for both params and timeout_sec
+    timeout_seconds = parse_timeout_seconds(profile.timeout)
+    port = extract_port(profile.node_address)
+
+    %{
+      assignment_id: "dusk-#{profile.id}",
+      plugin_id: @dusk_plugin_id,
+      name: @dusk_plugin_name,
+      entrypoint: @dusk_entrypoint,
+      runtime: @dusk_runtime,
+      outputs: @dusk_outputs,
+      capabilities: @dusk_capabilities,
+      params: %{
+        "node_address" => profile.node_address,
+        "timeout" => profile.timeout,
+        "use_ssl" => String.starts_with?(profile.node_address || "", "wss://")
+      },
+      permissions: %{
+        "allowed_domains" => ["*"],
+        "allowed_ports" => [port]
+      },
+      resources: %{
+        "requested_memory_mb" => 64,
+        "max_open_connections" => 1
+      },
+      enabled: profile.enabled,
+      interval_sec: 60,
+      timeout_sec: timeout_seconds,
+      # Metadata for tracking
+      source: "dusk_profile",
+      profile_id: to_string(profile.id),
+      profile_name: profile.name
+    }
+  end
+
+  # Parse timeout string to seconds
+  defp parse_timeout_seconds(nil), do: 30
+  defp parse_timeout_seconds(""), do: 30
+
+  defp parse_timeout_seconds(timeout) when is_binary(timeout) do
+    cond do
+      String.ends_with?(timeout, "s") ->
+        timeout |> String.trim_trailing("s") |> String.to_integer()
+
+      String.ends_with?(timeout, "m") ->
+        timeout |> String.trim_trailing("m") |> String.to_integer() |> Kernel.*(60)
+
+      String.ends_with?(timeout, "h") ->
+        timeout |> String.trim_trailing("h") |> String.to_integer() |> Kernel.*(3600)
+
+      true ->
+        30
+    end
+  rescue
+    _ -> 30
+  end
+
+  # Extract port from node address
+  defp extract_port(nil), do: 8080
+
+  defp extract_port(address) when is_binary(address) do
+    # Handle wss://host:port/path or host:port formats
+    address
+    |> String.replace(~r{^wss?://}, "")
+    |> String.split("/")
+    |> List.first()
+    |> String.split(":")
+    |> case do
+      [_host, port] ->
+        case Integer.parse(port) do
+          {p, _} -> p
+          :error -> 8080
+        end
+
+      _ ->
+        8080
+    end
   end
 
   # Try to find a matching profile via SRQL targeting
@@ -244,44 +380,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.DuskCompiler do
     Ash.Query.filter(query, fragment("tags @> ?", ^%{tag_key => tag_value}))
   end
 
-  @doc """
-  Compiles a profile to the agent config format.
-  """
-  @spec compile_profile(DuskProfile.t()) :: map()
-  def compile_profile(profile) do
-    config_source =
-      cond do
-        profile.is_default -> "default"
-        not is_nil(profile.target_query) -> "srql"
-        true -> "profile"
-      end
-
-    %{
-      "enabled" => profile.enabled,
-      "node_address" => profile.node_address,
-      "timeout" => profile.timeout,
-      "profile_id" => profile.id,
-      "profile_name" => profile.name,
-      "config_source" => config_source
-    }
-  end
-
-  @doc """
-  Returns default dusk configuration when no profile is assigned.
-  Dusk is disabled by default.
-  """
-  @spec default_config() :: map()
-  def default_config do
-    %{
-      "enabled" => false,
-      "node_address" => "",
-      "timeout" => "5m",
-      "profile_id" => nil,
-      "profile_name" => nil,
-      "config_source" => "default"
-    }
-  end
-
   # Get the default profile
   defp get_default_profile(actor) do
     query =
@@ -292,5 +390,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.DuskCompiler do
       {:ok, profile} -> profile
       {:error, _} -> nil
     end
+  end
+
+  # Legacy function for backwards compatibility during migration
+  @doc false
+  def default_config do
+    %{
+      "enabled" => false,
+      "node_address" => "",
+      "timeout" => "5m",
+      "profile_id" => nil,
+      "profile_name" => nil,
+      "config_source" => "default"
+    }
   end
 end
