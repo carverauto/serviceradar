@@ -555,6 +555,10 @@ func (s *ICMPSweeper) processReply(reply struct {
 			result.PacketLoss = 0
 		}
 
+		// Write the updated result back to the map
+		// (result is a value copy, so we must store it back)
+		s.results[ip] = result
+
 		s.emitResult(ip, &result)
 	}
 

@@ -40,7 +40,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Identity.{DeviceAliasState, DeviceLookup}
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
-  alias ServiceRadar.SweepJobs.{SweepGroupExecution, SweepHostResult, SweepPubSub}
+  alias ServiceRadar.SweepJobs.{SweepGroup, SweepGroupExecution, SweepHostResult, SweepMonitorWorker, SweepPubSub}
 
   require Ash.Query
   import Ecto.Query
@@ -97,7 +97,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         start_time = System.monotonic_time(:millisecond)
 
         results
-        |> process_batches(execution_id, actor)
+        |> process_batches(execution_id, sweep_group_id, actor)
         |> finalize_results(
           execution_id,
           sweep_group_id,
@@ -161,7 +161,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp process_batches(results, execution_id, actor) do
+  defp process_batches(results, execution_id, sweep_group_id, actor) do
     batches =
       results
       |> Enum.chunk_every(@batch_size)
@@ -180,7 +180,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     Enum.reduce_while(batches, {:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
       batch_start = System.monotonic_time(:millisecond)
 
-      case process_batch(batch, execution_id, actor) do
+      case process_batch(batch, execution_id, sweep_group_id, actor) do
         {:ok, batch_stats} ->
           batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
@@ -246,7 +246,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     error
   end
 
-  defp process_batch(results, execution_id, actor) do
+  defp process_batch(results, execution_id, sweep_group_id, actor) do
     # Step 1: Extract all IPs for bulk device lookup
     ips = Enum.map(results, &extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
@@ -283,7 +283,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     case bulk_insert_host_results(host_results) do
       :ok ->
         # Step 9: Update device availability
-        update_device_availability(results, all_devices, actor)
+        update_device_availability(results, all_devices, sweep_group_id, actor)
 
         final_stats =
           stats
@@ -476,7 +476,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # Default threshold: require 2 consecutive failures before marking unavailable
   @unavailable_threshold 2
 
-  defp update_device_availability(results, device_map, actor) do
+  defp update_device_availability(results, device_map, sweep_group_id, actor) do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
     available_ips = result_ips_for_status(results, true)
@@ -493,7 +493,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     # Apply hysteresis for unavailable devices
     # Only mark unavailable after consecutive failure threshold is exceeded
-    update_device_statuses_with_hysteresis(unavailable_uids, timestamp)
+    # "Available wins" window is based on sweep interval
+    update_device_statuses_with_hysteresis(unavailable_uids, timestamp, sweep_group_id)
 
     maybe_add_sweep_source(Enum.uniq(available_uids ++ unavailable_uids))
 
@@ -613,18 +614,34 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
+  # Default window for "available wins" when sweep interval cannot be determined
+  @default_available_wins_window_seconds 60
+
   # Apply hysteresis for unavailable devices
   # Only marks device as unavailable after threshold consecutive failures
-  defp update_device_statuses_with_hysteresis([], _timestamp), do: :ok
+  # "Available wins" - skips devices recently marked available by another sweep
+  defp update_device_statuses_with_hysteresis([], _timestamp, _sweep_group_id), do: :ok
 
-  defp update_device_statuses_with_hysteresis(device_uids, timestamp) do
+  defp update_device_statuses_with_hysteresis(device_uids, timestamp, sweep_group_id) do
     # DB connection's search_path determines the schema
     #
     # Hysteresis logic using metadata.sweep_consecutive_failures:
     # 1. Increment failure count
     # 2. Only set is_available=false if failure count >= threshold
     #
+    # "Available wins" logic:
+    # - Skip devices that are currently available AND were updated recently
+    # - The window is based on the sweep interval (from sweep group config)
+    # - This prevents multi-agent conflicts where one agent sees the device
+    #   and another doesn't, causing availability flapping
+    #
     # This prevents transient network issues from causing availability flapping
+    available_wins_window = get_available_wins_window(sweep_group_id)
+
+    available_wins_cutoff =
+      timestamp
+      |> DateTime.add(-available_wins_window, :second)
+
     sql = """
     UPDATE ocsf_devices
     SET
@@ -640,18 +657,51 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       END,
       modified_time = $3
     WHERE uid = ANY($1)
+      -- "Available wins" - skip devices recently marked available by another sweep
+      -- This prevents multi-agent flapping when one agent can reach device and another can't
+      AND NOT (is_available = true AND last_seen_time > $4)
     """
 
-    case Repo.query(sql, [device_uids, @unavailable_threshold, timestamp]) do
+    case Repo.query(sql, [device_uids, @unavailable_threshold, timestamp, available_wins_cutoff]) do
       {:ok, %{num_rows: count}} ->
-        Logger.debug(
-          "SweepResultsIngestor: Applied hysteresis to #{count} devices (threshold: #{@unavailable_threshold})"
-        )
+        skipped = length(device_uids) - count
+
+        if skipped > 0 do
+          Logger.info(
+            "SweepResultsIngestor: Applied hysteresis to #{count} devices, " <>
+              "skipped #{skipped} recently-available devices (available wins, window: #{available_wins_window}s)"
+          )
+        else
+          Logger.debug(
+            "SweepResultsIngestor: Applied hysteresis to #{count} devices (threshold: #{@unavailable_threshold})"
+          )
+        end
 
       {:error, reason} ->
         Logger.error(
           "SweepResultsIngestor: Failed to apply hysteresis: #{inspect(reason)}"
         )
+    end
+  end
+
+  # Get the "available wins" window based on the sweep group's configured interval
+  defp get_available_wins_window(nil), do: @default_available_wins_window_seconds
+  defp get_available_wins_window(""), do: @default_available_wins_window_seconds
+
+  defp get_available_wins_window(sweep_group_id) do
+    case Repo.get(SweepGroup, sweep_group_id) do
+      nil ->
+        Logger.debug(
+          "SweepResultsIngestor: Sweep group #{sweep_group_id} not found, using default window"
+        )
+
+        @default_available_wins_window_seconds
+
+      %SweepGroup{interval: interval} when is_binary(interval) ->
+        SweepMonitorWorker.parse_interval_to_seconds(interval)
+
+      _ ->
+        @default_available_wins_window_seconds
     end
   end
 
