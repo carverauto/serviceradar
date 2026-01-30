@@ -150,8 +150,14 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
   end
 
   defp soft_delete_device(actor, device, reason) do
+    deleted_by = Map.get(actor, :id) || Map.get(actor, :email)
+
     device
-    |> Ash.Changeset.for_update(:soft_delete, %{deleted_reason: reason}, actor: actor)
+    |> Ash.Changeset.for_update(
+      :soft_delete,
+      %{deleted_reason: reason, deleted_by: deleted_by},
+      actor: actor
+    )
     |> Ash.update()
   end
 

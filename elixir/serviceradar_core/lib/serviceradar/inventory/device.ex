@@ -56,7 +56,7 @@ defmodule ServiceRadar.Inventory.Device do
     define :get_by_uid, action: :by_uid, args: [:uid, :include_deleted]
     define :get_by_ip, action: :by_ip, args: [:ip, :include_deleted]
     define :get_by_mac, action: :by_mac, args: [:mac, :include_deleted]
-    define :soft_delete, action: :soft_delete
+    define :soft_delete, action: :soft_delete, args: [:deleted_reason, :deleted_by]
     define :restore, action: :restore
     define :bulk_soft_delete, action: :bulk_soft_delete, args: [:device_uids, :deleted_reason]
   end
@@ -240,10 +240,9 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     update :soft_delete do
-      accept [:deleted_reason]
+      accept [:deleted_reason, :deleted_by]
 
       change set_attribute(:deleted_at, &DateTime.utc_now/0)
-      change set_attribute(:deleted_by, &ServiceRadar.Inventory.Device.deleted_by_from_changeset/1)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
@@ -262,6 +261,7 @@ defmodule ServiceRadar.Inventory.Device do
         actor = Map.get(context, :actor)
         device_uids = input.arguments.device_uids || []
         deleted_reason = input.arguments.deleted_reason
+        deleted_by = actor_identifier(actor)
 
         query =
           __MODULE__
@@ -269,7 +269,10 @@ defmodule ServiceRadar.Inventory.Device do
           |> Ash.Query.filter(uid in ^device_uids)
 
         result =
-          Ash.bulk_update(query, :soft_delete, %{deleted_reason: deleted_reason},
+          Ash.bulk_update(query, :soft_delete, %{
+            deleted_reason: deleted_reason,
+            deleted_by: deleted_by
+          },
             actor: actor,
             return_errors?: true,
             return_records?: false
@@ -670,17 +673,16 @@ defmodule ServiceRadar.Inventory.Device do
               )
   end
 
-  @doc false
-  def deleted_by_from_changeset(changeset) do
-    actor = Map.get(changeset, :context, %{})[:actor]
+  defp actor_identifier(nil), do: nil
 
-    if is_map(actor) do
-      Map.get(actor, :id) ||
-        Map.get(actor, "id") ||
-        Map.get(actor, :email) ||
-        Map.get(actor, "email")
-    end
+  defp actor_identifier(actor) when is_map(actor) do
+    Map.get(actor, :id) ||
+      Map.get(actor, "id") ||
+      Map.get(actor, :email) ||
+      Map.get(actor, "email")
   end
+
+  defp actor_identifier(_actor), do: nil
 
   identities do
     identity :unique_uid, [:uid]

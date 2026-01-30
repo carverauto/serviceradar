@@ -291,7 +291,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     case load_device(scope, device_uid) do
       {:ok, device} ->
-        case Device.soft_delete(device, %{deleted_reason: "ui_delete"}, scope: scope) do
+        deleted_by = deleted_by_from_scope(scope)
+
+        case Device.soft_delete(device, %{deleted_reason: "ui_delete", deleted_by: deleted_by},
+               scope: scope
+             ) do
           {:ok, _} ->
             {:noreply,
              socket
@@ -4769,4 +4773,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_single_ash_error(err),
     do: inspect(err)
+
+  defp deleted_by_from_scope(%{user: user}) when is_map(user) do
+    Map.get(user, :email) || Map.get(user, :id)
+  end
+
+  defp deleted_by_from_scope(_), do: nil
 end
