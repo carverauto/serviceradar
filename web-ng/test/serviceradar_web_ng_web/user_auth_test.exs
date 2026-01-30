@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
 
   alias Phoenix.LiveView
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNGWeb.UserAuth
 
   import ServiceRadarWebNG.AccountsFixtures
@@ -60,6 +61,44 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
         |> UserAuth.fetch_current_scope_for_user([])
 
       assert conn.assigns.current_scope.user == nil
+    end
+
+    test "refreshes the session token and sets session_started_at", %{conn: conn, user: user} do
+      {:ok, token, _claims} = Guardian.create_access_token(user)
+
+      conn =
+        conn
+        |> put_session("user_token", token)
+        |> UserAuth.fetch_current_scope_for_user([])
+
+      refreshed_token = get_session(conn, "user_token")
+      assert refreshed_token != token
+      assert is_integer(get_session(conn, :session_started_at))
+      assert conn.assigns.current_scope.user.id == user.id
+    end
+
+    test "clears session when absolute timeout has elapsed", %{conn: conn, user: user} do
+      original_config = Application.get_env(:serviceradar_web_ng, :session, [])
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_web_ng, :session, original_config)
+      end)
+
+      Application.put_env(:serviceradar_web_ng, :session,
+        Keyword.merge(original_config, absolute_timeout_seconds: 1, idle_timeout_seconds: 3600)
+      )
+
+      {:ok, token, _claims} = Guardian.create_access_token(user)
+      started_at = System.system_time(:second) - 5
+
+      conn =
+        conn
+        |> put_session("user_token", token)
+        |> put_session(:session_started_at, started_at)
+        |> UserAuth.fetch_current_scope_for_user([])
+
+      assert conn.assigns.current_scope.user == nil
+      refute get_session(conn, "user_token")
     end
   end
 
