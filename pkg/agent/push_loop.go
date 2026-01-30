@@ -49,10 +49,6 @@ import (
 //nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
 
-const (
-	// configSourceRemote is the config source value for configs from the gateway.
-	configSourceRemote = "remote"
-)
 
 var (
 	errSweepMissingHosts    = errors.New("sweep data missing hosts field")

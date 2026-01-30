@@ -33,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1844,7 +1845,7 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 		port = 443
 	}
 	if parsed.Port() != "" {
-		if p, err := net.LookupPort("tcp", parsed.Port()); err == nil {
+		if p, err := strconv.Atoi(parsed.Port()); err == nil {
 			port = p
 		}
 	}
@@ -1864,7 +1865,10 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	conn, _, err := dialer.DialContext(dialCtx, wsURL, nil)
+	conn, resp, err := dialer.DialContext(dialCtx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return pluginErrTimeout

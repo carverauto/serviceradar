@@ -154,8 +154,9 @@ func TestDuskCheckerWithConfig(t *testing.T) {
 	t.Logf("Status: %s, Summary: %s", status, summary)
 
 	// Expect CRITICAL because we can't connect to the fake server
-	if status != "CRITICAL" {
-		t.Logf("Expected CRITICAL status (no server), got %s", status)
+	const expectedStatus = "CRITICAL"
+	if status != expectedStatus {
+		t.Logf("Expected %s status (no server), got %s", expectedStatus, status)
 	}
 }
 
