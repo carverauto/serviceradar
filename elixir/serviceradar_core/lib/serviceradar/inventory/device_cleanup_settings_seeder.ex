@@ -33,22 +33,29 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettingsSeeder do
       actor = SystemActor.system(:device_cleanup_settings_seeder)
       opts = [actor: actor]
 
-      case DeviceCleanupSettings.get_settings(opts) do
-        {:ok, %DeviceCleanupSettings{}} ->
-          :ok
-
-        {:ok, nil} ->
-          create_default(opts)
-
-        {:error, reason} ->
-          if not_found?(reason) do
-            create_default(opts)
-          else
-            Logger.warning("Failed to load device cleanup settings: #{inspect(reason)}")
-          end
-      end
-
+      ensure_settings(opts)
       _ = DeviceCleanupWorker.ensure_scheduled()
+    end
+  end
+
+  defp ensure_settings(opts) do
+    case DeviceCleanupSettings.get_settings(opts) do
+      {:ok, %DeviceCleanupSettings{}} ->
+        :ok
+
+      {:ok, nil} ->
+        create_default(opts)
+
+      {:error, reason} ->
+        handle_settings_error(reason, opts)
+    end
+  end
+
+  defp handle_settings_error(reason, opts) do
+    if not_found?(reason) do
+      create_default(opts)
+    else
+      Logger.warning("Failed to load device cleanup settings: #{inspect(reason)}")
     end
   end
 

@@ -478,12 +478,40 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   defp restore_deleted_devices([], _actor), do: :ok
 
   defp restore_deleted_devices(device_uids, actor) do
-    query =
+    case load_deleted_devices(device_uids, actor) do
+      {:ok, devices} ->
+        devices
+        |> eligible_restore_uids()
+        |> restore_eligible_devices(actor)
+
+      {:error, reason} ->
+        Logger.warning("SweepResultsIngestor: Restore lookup failed", error: inspect(reason))
+        :ok
+    end
+  end
+
+  defp load_deleted_devices(device_uids, actor) do
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(uid in ^device_uids and not is_nil(deleted_at))
+    |> Ash.read(actor: actor)
+  end
+
+  defp eligible_restore_uids(devices) do
+    devices
+    |> Enum.filter(&restore_eligible?/1)
+    |> Enum.map(& &1.uid)
+  end
+
+  defp restore_eligible_devices([], _actor), do: :ok
+
+  defp restore_eligible_devices(eligible_uids, actor) do
+    restore_query =
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: true})
-      |> Ash.Query.filter(uid in ^device_uids and not is_nil(deleted_at))
+      |> Ash.Query.filter(uid in ^eligible_uids)
 
-    case Ash.bulk_update(query, :restore, %{},
+    case Ash.bulk_update(restore_query, :restore, %{},
            actor: actor,
            return_records?: false,
            return_errors?: true
@@ -492,9 +520,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         :ok
 
       %Ash.BulkResult{status: :partial_success, errors: errors} ->
-        Logger.warning("SweepResultsIngestor: Partial restore failures",
-          errors: inspect(errors)
-        )
+        Logger.warning("SweepResultsIngestor: Partial restore failures", errors: inspect(errors))
 
       %Ash.BulkResult{status: :error, errors: errors} ->
         Logger.warning("SweepResultsIngestor: Restore failed", errors: inspect(errors))
@@ -502,6 +528,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       other ->
         Logger.warning("SweepResultsIngestor: Restore unexpected result", result: inspect(other))
     end
+  end
+
+  defp restore_eligible?(device) do
+    sources =
+      device.discovery_sources
+      |> List.wrap()
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&to_string/1)
+
+    Enum.any?(sources, fn source -> String.downcase(source) != "sweep" and source != "" end)
   end
 
   defp result_ips_for_status(results, desired) do

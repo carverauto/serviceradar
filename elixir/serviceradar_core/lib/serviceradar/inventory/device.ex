@@ -674,15 +674,11 @@ defmodule ServiceRadar.Inventory.Device do
   def deleted_by_from_changeset(changeset) do
     actor = Map.get(changeset, :context, %{})[:actor]
 
-    cond do
-      is_map(actor) ->
-        Map.get(actor, :id) ||
-          Map.get(actor, "id") ||
-          Map.get(actor, :email) ||
-          Map.get(actor, "email")
-
-      true ->
-        nil
+    if is_map(actor) do
+      Map.get(actor, :id) ||
+        Map.get(actor, "id") ||
+        Map.get(actor, :email) ||
+        Map.get(actor, "email")
     end
   end
 
