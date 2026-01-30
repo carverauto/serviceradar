@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.88
+
+WASM plugin runtime fix for TinyGo-compiled plugins.
+
+## Whats New
+
+**1.0.88**
+- Fixed WASI clock_time_get nil pointer crash when TinyGo plugins call time.Now(). The issue was caused by TinyGo's _start function calling proc_exit(0), which closed the module and cleared the Sys context before the plugin entrypoint could run.
+- Module config now uses WithStartFunctions() to disable automatic _start execution, keeping WASI clock functions operational.
+
 # ServiceRadar v1.0.87
 
 Database connectivity and AGE graph permission fixes.
