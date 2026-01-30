@@ -913,43 +913,59 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 		return false
 	}
 
-	statuses := make([]*proto.GatewayServiceStatus, 0, len(results))
-	for _, result := range results {
+	// Build status chunks - one per result to isolate failures and handle
+	// potentially large payloads (e.g., error messages with stack traces).
+	chunks := make([]*proto.GatewayStatusChunk, 0, len(results))
+	timestamp := time.Now().UnixNano()
+	sourceIP := p.getSourceIP()
+
+	for i, result := range results {
 		status := p.buildPluginGatewayStatus(result, agentID, partition, kvStoreID)
-		if status != nil {
-			statuses = append(statuses, status)
+		if status == nil {
+			continue
 		}
+
+		chunk := &proto.GatewayStatusChunk{
+			Services:    []*proto.GatewayServiceStatus{status},
+			GatewayId:   "",
+			AgentId:     agentID,
+			Timestamp:   timestamp,
+			Partition:   partition,
+			SourceIp:    sourceIP,
+			IsFinal:     i == len(results)-1,
+			ChunkIndex:  int32(i),
+			TotalChunks: int32(len(results)),
+			KvStoreId:   kvStoreID,
+		}
+		chunks = append(chunks, chunk)
 	}
 
-	if len(statuses) == 0 {
+	if len(chunks) == 0 {
 		return false
 	}
 
-	req := &proto.GatewayStatusRequest{
-		Services:  statuses,
-		GatewayId: "",
-		AgentId:   agentID,
-		Timestamp: time.Now().UnixNano(),
-		Partition: partition,
-		SourceIp:  p.getSourceIP(),
-		KvStoreId: kvStoreID,
+	// Update chunk metadata after filtering nil statuses
+	for i, chunk := range chunks {
+		chunk.ChunkIndex = int32(i)
+		chunk.TotalChunks = int32(len(chunks))
+		chunk.IsFinal = i == len(chunks)-1
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	resp, err := p.gateway.PushStatus(pushCtx, req)
+	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
 	if err != nil {
-		p.logger.Error().Err(err).Int("plugin_results", len(statuses)).Msg("Failed to push plugin results to gateway")
+		p.logger.Error().Err(err).Int("plugin_results", len(chunks)).Msg("Failed to stream plugin results to gateway")
 		return false
 	}
 
 	if resp.Received {
-		p.logger.Info().Int("plugin_results", len(statuses)).Msg("Successfully pushed plugin results to gateway")
+		p.logger.Info().Int("plugin_results", len(chunks)).Msg("Successfully streamed plugin results to gateway")
 		return true
 	}
 
-	p.logger.Warn().Msg("Gateway did not acknowledge plugin result push")
+	p.logger.Warn().Msg("Gateway did not acknowledge plugin result stream")
 	return false
 }
 
