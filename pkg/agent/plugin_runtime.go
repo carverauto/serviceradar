@@ -40,6 +40,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/hashutil"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/gorilla/websocket"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
@@ -1243,6 +1244,7 @@ type pluginExecution struct {
 	assignment *pluginAssignment
 	mu         sync.Mutex
 	conns      map[uint32]net.Conn
+	wsConns    map[uint32]*websocket.Conn
 	nextHandle uint32
 	submitted  bool
 }
@@ -1252,6 +1254,7 @@ func newPluginExecution(manager *PluginManager, assignment *pluginAssignment) *p
 		manager:    manager,
 		assignment: assignment,
 		conns:      make(map[uint32]net.Conn),
+		wsConns:    make(map[uint32]*websocket.Conn),
 		nextHandle: 1,
 	}
 }
@@ -1286,6 +1289,18 @@ func (e *pluginExecution) instantiateHostModule(ctx context.Context, runtime waz
 	builder.NewFunctionBuilder().
 		WithFunc(e.hostUDPSendTo).
 		Export("udp_sendto")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostWebSocketConnect).
+		Export("websocket_connect")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostWebSocketSend).
+		Export("websocket_send")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostWebSocketRecv).
+		Export("websocket_recv")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostWebSocketClose).
+		Export("websocket_close")
 
 	_, err := builder.Instantiate(ctx)
 	return err
@@ -1756,6 +1771,193 @@ func (e *pluginExecution) closeAll() {
 		delete(e.conns, handle)
 		e.manager.releaseConnection()
 	}
+	for handle, wsConn := range e.wsConns {
+		_ = wsConn.Close()
+		delete(e.wsConns, handle)
+		e.manager.releaseConnection()
+	}
+}
+
+func (e *pluginExecution) storeWSConn(conn *websocket.Conn) uint32 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	max := e.assignment.Resources.MaxOpenConnections
+	totalConns := len(e.conns) + len(e.wsConns)
+	if max > 0 && totalConns >= max {
+		return 0
+	}
+
+	if !e.manager.reserveConnection() {
+		return 0
+	}
+
+	handle := e.nextHandle
+	e.nextHandle++
+	e.wsConns[handle] = conn
+	return handle
+}
+
+func (e *pluginExecution) getWSConn(handle uint32) *websocket.Conn {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.wsConns[handle]
+}
+
+func (e *pluginExecution) deleteWSConn(handle uint32) *websocket.Conn {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	conn := e.wsConns[handle]
+	delete(e.wsConns, handle)
+	if conn != nil {
+		e.manager.releaseConnection()
+	}
+	return conn
+}
+
+func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Module, urlPtr, urlLen, timeoutMS uint32) int32 {
+	if !e.hasCapability("websocket_connect") {
+		return pluginErrDenied
+	}
+
+	urlBytes, ok := readMemory(mod, urlPtr, urlLen)
+	if !ok {
+		return pluginErrInvalid
+	}
+	wsURL := strings.TrimSpace(string(urlBytes))
+	if wsURL == "" {
+		return pluginErrInvalid
+	}
+
+	parsed, err := url.Parse(wsURL)
+	if err != nil || parsed.Host == "" {
+		return pluginErrInvalid
+	}
+
+	host := parsed.Hostname()
+	if !e.assignment.Permissions.allowsDomain(host) {
+		return pluginErrDenied
+	}
+
+	port := 80
+	if parsed.Scheme == "wss" {
+		port = 443
+	}
+	if parsed.Port() != "" {
+		if p, err := net.LookupPort("tcp", parsed.Port()); err == nil {
+			port = p
+		}
+	}
+	if !e.assignment.Permissions.allowsPort(port) {
+		return pluginErrDenied
+	}
+
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = e.assignment.Timeout
+	}
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: timeout,
+	}
+
+	dialCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	conn, _, err := dialer.DialContext(dialCtx, wsURL, nil)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return pluginErrTimeout
+		}
+		return pluginErrInternal
+	}
+
+	handle := e.storeWSConn(conn)
+	if handle == 0 {
+		_ = conn.Close()
+		return pluginErrTooLarge
+	}
+
+	return int32(handle)
+}
+
+func (e *pluginExecution) hostWebSocketSend(_ context.Context, mod api.Module, handle, dataPtr, dataLen, timeoutMS uint32) int32 {
+	if !e.hasCapability("websocket_send") {
+		return pluginErrDenied
+	}
+
+	conn := e.getWSConn(handle)
+	if conn == nil {
+		return pluginErrBadHandle
+	}
+
+	data, ok := readMemory(mod, dataPtr, dataLen)
+	if !ok {
+		return pluginErrInvalid
+	}
+
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = e.assignment.Timeout
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(timeout))
+
+	if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return pluginErrTimeout
+		}
+		return pluginErrInternal
+	}
+
+	return int32(len(data))
+}
+
+func (e *pluginExecution) hostWebSocketRecv(_ context.Context, mod api.Module, handle, bufPtr, bufLen, timeoutMS uint32) int32 {
+	if !e.hasCapability("websocket_recv") {
+		return pluginErrDenied
+	}
+
+	conn := e.getWSConn(handle)
+	if conn == nil {
+		return pluginErrBadHandle
+	}
+
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = e.assignment.Timeout
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(timeout))
+
+	_, data, err := conn.ReadMessage()
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+			return pluginErrTimeout
+		}
+		return pluginErrInternal
+	}
+
+	if uint32(len(data)) > bufLen {
+		return pluginErrTooLarge
+	}
+
+	if !writeMemory(mod, bufPtr, data) {
+		return pluginErrInvalid
+	}
+
+	return int32(len(data))
+}
+
+func (e *pluginExecution) hostWebSocketClose(_ context.Context, _ api.Module, handle uint32) int32 {
+	if !e.hasCapability("websocket_close") {
+		return pluginErrDenied
+	}
+
+	conn := e.deleteWSConn(handle)
+	if conn == nil {
+		return pluginErrBadHandle
+	}
+	_ = conn.Close()
+	return pluginErrOK
 }
 
 func (e *pluginExecution) markSubmitted() {

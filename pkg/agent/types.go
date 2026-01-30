@@ -40,10 +40,9 @@ type Server struct {
 	config             *ServerConfig
 	createSweepService func(ctx context.Context, sweepConfig *SweepConfig) (Service, error)
 	logger             logger.Logger
-	sysmonService      *SysmonService
-	snmpService        *SNMPAgentService
-	duskService        *DuskService
-	mapperService      *MapperService
+	sysmonService *SysmonService
+	snmpService   *SNMPAgentService
+	mapperService *MapperService
 	pluginManager      *PluginManager
 }
 
