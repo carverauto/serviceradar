@@ -212,30 +212,40 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   def fetch_current_scope_for_user(conn, _opts) do
     token = get_session(conn, @user_token_key)
 
-    cond do
-      is_binary(token) ->
-        case Guardian.verify_token(token, token_type: "access") do
-          {:ok, user, claims} ->
-            case refresh_session(conn, user, claims) do
-              {:ok, refreshed_conn} ->
-                assign(refreshed_conn, :current_scope, Scope.for_user(user))
-
-              {:error, refreshed_conn} ->
-                assign(refreshed_conn, :current_scope, Scope.for_user(nil))
-            end
-
-          {:error, reason} ->
-            log_session_failure(conn, reason)
-
-            conn
-            |> clear_session()
-            |> configure_session(renew: true)
-            |> assign(:current_scope, Scope.for_user(nil))
-        end
-
-      true ->
-        assign(conn, :current_scope, Scope.for_user(nil))
+    if is_binary(token) do
+      authenticate_with_token(conn, token)
+    else
+      assign(conn, :current_scope, Scope.for_user(nil))
     end
+  end
+
+  defp authenticate_with_token(conn, token) do
+    case Guardian.verify_token(token, token_type: "access") do
+      {:ok, user, claims} ->
+        refresh_and_assign_scope(conn, user, claims)
+
+      {:error, reason} ->
+        handle_session_failure(conn, reason)
+    end
+  end
+
+  defp refresh_and_assign_scope(conn, user, claims) do
+    case refresh_session(conn, user, claims) do
+      {:ok, refreshed_conn} ->
+        assign(refreshed_conn, :current_scope, Scope.for_user(user))
+
+      {:error, refreshed_conn} ->
+        assign(refreshed_conn, :current_scope, Scope.for_user(nil))
+    end
+  end
+
+  defp handle_session_failure(conn, reason) do
+    log_session_failure(conn, reason)
+
+    conn
+    |> clear_session()
+    |> configure_session(renew: true)
+    |> assign(:current_scope, Scope.for_user(nil))
   end
 
   @doc """

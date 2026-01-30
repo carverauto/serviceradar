@@ -215,6 +215,8 @@ config :logger, :default_formatter,
     :reason,
     :type,
     :path,
+    :session_started_at,
+    :absolute_timeout_seconds,
     :remote_ip,
     :ip,
     :user_agent
