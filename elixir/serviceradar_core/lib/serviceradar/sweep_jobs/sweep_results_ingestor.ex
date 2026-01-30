@@ -428,25 +428,43 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp bulk_insert_host_results(records) do
     # DB connection's search_path determines the schema
+    # Insert records with ON CONFLICT handling that preserves non-zero response_time_ms
+    #
+    # The response_time_ms preservation uses: COALESCE(NULLIF(EXCLUDED.response_time_ms, 0), existing)
+    # - If new value is 0: NULLIF returns NULL, COALESCE falls back to existing
+    # - If new value is non-zero: NULLIF returns it, COALESCE uses the new value
+    # - This prevents sweep results with 0ms from overwriting valid response times
+    on_conflict_query =
+      from(r in SweepHostResult,
+        update: [
+          set: [
+            hostname: fragment("EXCLUDED.hostname"),
+            status: fragment("EXCLUDED.status"),
+            response_time_ms:
+              fragment(
+                "COALESCE(NULLIF(EXCLUDED.response_time_ms, 0), ?)",
+                r.response_time_ms
+              ),
+            open_ports: fragment("EXCLUDED.open_ports"),
+            sweep_modes_results: fragment("EXCLUDED.sweep_modes_results"),
+            device_id: fragment("EXCLUDED.device_id"),
+            error_message: fragment("EXCLUDED.error_message")
+          ]
+        ]
+      )
+
     case Repo.insert_all(
            SweepHostResult,
            records,
-           on_conflict:
-             {:replace,
-              [
-                :hostname,
-                :status,
-                :response_time_ms,
-                :sweep_modes_results,
-                :open_ports,
-                :error_message,
-                :device_id
-              ]},
+           on_conflict: on_conflict_query,
            conflict_target: [:execution_id, :ip],
            returning: false
          ) do
       {count, _} ->
-        Logger.debug("SweepResultsIngestor: Inserted #{count} host results")
+        Logger.debug(
+          "SweepResultsIngestor: Inserted #{count} host results (preserving non-zero response times)"
+        )
+
         :ok
     end
   rescue
@@ -454,6 +472,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       Logger.error("SweepResultsIngestor: Failed to insert host results: #{inspect(e)}")
       {:error, e}
   end
+
+  # Default threshold: require 2 consecutive failures before marking unavailable
+  @unavailable_threshold 2
 
   defp update_device_availability(results, device_map, actor) do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
@@ -467,8 +488,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     restore_deleted_devices(Enum.uniq(available_uids ++ unavailable_uids), actor)
 
     # DB connection's search_path determines the schema
-    update_device_statuses(available_uids, true, timestamp)
-    update_device_statuses(unavailable_uids, false, timestamp)
+    # Mark available devices (resets failure count)
+    update_device_statuses_available(available_uids, timestamp)
+
+    # Apply hysteresis for unavailable devices
+    # Only mark unavailable after consecutive failure threshold is exceeded
+    update_device_statuses_with_hysteresis(unavailable_uids, timestamp)
 
     maybe_add_sweep_source(Enum.uniq(available_uids ++ unavailable_uids))
 
@@ -555,33 +580,79 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp update_device_statuses([], _available, _timestamp), do: :ok
+  # Mark devices as available and reset consecutive failure count
+  defp update_device_statuses_available([], _timestamp), do: :ok
 
-  defp update_device_statuses(device_uids, true, timestamp) do
+  defp update_device_statuses_available(device_uids, timestamp) do
     # DB connection's search_path determines the schema
-    from(d in Device,
-      where: d.uid in ^device_uids
-    )
-    |> Repo.update_all(
-      set: [
-        is_available: true,
-        last_seen_time: timestamp,
-        modified_time: timestamp
-      ]
-    )
+    # Reset consecutive failure count to 0 when device becomes available
+    sql = """
+    UPDATE ocsf_devices
+    SET
+      is_available = true,
+      last_seen_time = $2,
+      modified_time = $2,
+      metadata = jsonb_set(
+        COALESCE(metadata, '{}'::jsonb),
+        '{sweep_consecutive_failures}',
+        '0'
+      )
+    WHERE uid = ANY($1)
+    """
+
+    case Repo.query(sql, [device_uids, timestamp]) do
+      {:ok, %{num_rows: count}} ->
+        Logger.debug(
+          "SweepResultsIngestor: Marked #{count} devices as available (reset failure count)"
+        )
+
+      {:error, reason} ->
+        Logger.error(
+          "SweepResultsIngestor: Failed to mark devices available: #{inspect(reason)}"
+        )
+    end
   end
 
-  defp update_device_statuses(device_uids, false, timestamp) do
+  # Apply hysteresis for unavailable devices
+  # Only marks device as unavailable after threshold consecutive failures
+  defp update_device_statuses_with_hysteresis([], _timestamp), do: :ok
+
+  defp update_device_statuses_with_hysteresis(device_uids, timestamp) do
     # DB connection's search_path determines the schema
-    from(d in Device,
-      where: d.uid in ^device_uids
-    )
-    |> Repo.update_all(
-      set: [
-        is_available: false,
-        modified_time: timestamp
-      ]
-    )
+    #
+    # Hysteresis logic using metadata.sweep_consecutive_failures:
+    # 1. Increment failure count
+    # 2. Only set is_available=false if failure count >= threshold
+    #
+    # This prevents transient network issues from causing availability flapping
+    sql = """
+    UPDATE ocsf_devices
+    SET
+      metadata = jsonb_set(
+        COALESCE(metadata, '{}'::jsonb),
+        '{sweep_consecutive_failures}',
+        to_jsonb(COALESCE((metadata->>'sweep_consecutive_failures')::int, 0) + 1)
+      ),
+      is_available = CASE
+        WHEN COALESCE((metadata->>'sweep_consecutive_failures')::int, 0) + 1 >= $2
+        THEN false
+        ELSE is_available
+      END,
+      modified_time = $3
+    WHERE uid = ANY($1)
+    """
+
+    case Repo.query(sql, [device_uids, @unavailable_threshold, timestamp]) do
+      {:ok, %{num_rows: count}} ->
+        Logger.debug(
+          "SweepResultsIngestor: Applied hysteresis to #{count} devices (threshold: #{@unavailable_threshold})"
+        )
+
+      {:error, reason} ->
+        Logger.error(
+          "SweepResultsIngestor: Failed to apply hysteresis: #{inspect(reason)}"
+        )
+    end
   end
 
   defp maybe_add_sweep_source([]), do: :ok
@@ -744,6 +815,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists")
       :ok
     else
+      # Check for multi-agent conflicts before creating execution
+      detect_multi_agent_conflict(sweep_group_id, agent_id)
+
       # Create execution record if we have a sweep_group_id
       if sweep_group_id && sweep_group_id != "" do
         create_execution(
@@ -761,6 +835,43 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         {:error, :missing_sweep_group_id}
       end
     end
+  end
+
+  # Detect when multiple agents are submitting results for the same sweep group
+  # This can cause availability flapping as agents overwrite each other's results
+  defp detect_multi_agent_conflict(nil, _agent_id), do: :ok
+  defp detect_multi_agent_conflict("", _agent_id), do: :ok
+  defp detect_multi_agent_conflict(_sweep_group_id, nil), do: :ok
+  defp detect_multi_agent_conflict(_sweep_group_id, ""), do: :ok
+
+  defp detect_multi_agent_conflict(sweep_group_id, agent_id) do
+    # Check for recent executions from different agents in the last hour
+    one_hour_ago = DateTime.utc_now() |> DateTime.add(-3600, :second)
+
+    recent_agents =
+      from(e in SweepGroupExecution,
+        where:
+          e.sweep_group_id == ^sweep_group_id and
+            e.started_at > ^one_hour_ago and
+            not is_nil(e.agent_id) and
+            e.agent_id != "",
+        select: e.agent_id,
+        distinct: true
+      )
+      |> Repo.all()
+
+    other_agents = Enum.reject(recent_agents, &(&1 == agent_id))
+
+    if length(other_agents) > 0 do
+      Logger.warning(
+        "SweepResultsIngestor: MULTI-AGENT CONFLICT DETECTED for sweep group #{sweep_group_id}. " <>
+          "Agent '#{agent_id}' is submitting results, but other agents have also submitted recently: #{inspect(other_agents)}. " <>
+          "This can cause availability flapping as agents overwrite each other's results. " <>
+          "Consider assigning the sweep group to a single agent, or using agent-specific sweep groups."
+      )
+    end
+
+    :ok
   end
 
   defp create_execution(
