@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.89
+
+Edge onboarding gateway defaults and mTLS SNI fixes.
+
+## Whats New
+
+**1.0.89**
+- Edge onboarding bundles now derive gateway addresses from the base site URL (e.g., demo.serviceradar.cloud -> demo-gw.serviceradar.cloud:50052).
+- Gateway TLS server_name defaults to serviceradar-agent-gateway to match the gateway certificate and avoid mTLS SNI failures.
+
 # ServiceRadar v1.0.88
 
 WASM plugin runtime fix for TinyGo-compiled plugins.
