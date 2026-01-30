@@ -363,9 +363,10 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq in
 	copy(addr[:], ipAddr.To4())
 	sockaddr := &syscall.SockaddrInet4{Addr: addr}
 
-	if err := syscall.Sendto(s.rawSocketFD, data, 0, sockaddr); err != nil {
-		s.logger.Error().Err(err).Str("host", target.Host).Int("seq", seq).Msg("Error sending ICMP")
-		return
+	// Record initial result BEFORE sending the first packet to avoid race condition
+	// where handleReply could run before the result exists in the map
+	if seq == 1 {
+		s.recordInitialResult(target)
 	}
 
 	// Track sent packet in hostStats
@@ -383,9 +384,9 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq in
 	stats.sent++
 	stats.mu.Unlock()
 
-	// Only record initial result on first packet
-	if seq == 1 {
-		s.recordInitialResult(target)
+	if err := syscall.Sendto(s.rawSocketFD, data, 0, sockaddr); err != nil {
+		s.logger.Error().Err(err).Str("host", target.Host).Int("seq", seq).Msg("Error sending ICMP")
+		return
 	}
 }
 
