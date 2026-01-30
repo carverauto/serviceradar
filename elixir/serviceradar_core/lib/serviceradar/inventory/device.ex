@@ -280,7 +280,7 @@ defmodule ServiceRadar.Inventory.Device do
 
         case result do
           %Ash.BulkResult{status: :success} ->
-            {:ok, %{deleted_count: length(device_uids)}}
+            :ok
 
           %Ash.BulkResult{status: :partial_success, errors: errors} ->
             {:error, List.first(errors) || :partial_failure}

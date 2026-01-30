@@ -410,6 +410,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     case bulk_delete_uids(socket) do
       {:ok, uids} ->
         case Device.bulk_soft_delete(uids, "bulk_delete", scope: scope) do
+          :ok ->
+            path =
+              device_list_path(Map.get(socket.assigns.srql || %{}, :query, ""), socket.assigns.limit)
+            count = length(uids)
+
+            {:noreply,
+             socket
+             |> assign(:selected_devices, MapSet.new())
+             |> assign(:select_all_matching, false)
+             |> assign(:total_matching_count, nil)
+             |> put_flash(:info, "Deleted #{count} device(s)")
+             |> push_patch(to: path)}
+
           {:ok, %{deleted_count: count}} ->
             path =
               device_list_path(Map.get(socket.assigns.srql || %{}, :query, ""), socket.assigns.limit)
