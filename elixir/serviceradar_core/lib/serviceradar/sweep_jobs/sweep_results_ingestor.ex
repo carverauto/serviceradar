@@ -37,7 +37,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.DeviceLookup
+  alias ServiceRadar.Identity.{DeviceAliasState, DeviceLookup}
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.{SweepGroupExecution, SweepHostResult, SweepPubSub}
@@ -317,7 +317,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   defp extract_ip(result) do
     result["host_ip"] || result["hostIp"] || result["ip"]
   end
-
 
   @doc false
   def build_host_results(results, execution_id, device_map) do
