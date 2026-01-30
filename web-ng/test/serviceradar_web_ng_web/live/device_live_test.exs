@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
   import Phoenix.LiveViewTest
 
@@ -42,6 +43,55 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
     assert has_element?(view, "[data-testid='sysmon-profile-label']", "Unassigned")
+  end
+
+  test "shows deleted badge and restore action for deleted devices", %{conn: conn, user: user} do
+    promote_user!(user, :admin)
+    uid = "test-device-deleted-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "deleted-host",
+        is_available: false,
+        deleted_at: ~U[2100-01-01 00:00:00Z],
+        deleted_by: "system",
+        deleted_reason: "test",
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+    assert html =~ "Deleted"
+    assert html =~ "Restore"
+  end
+
+  test "include_deleted query surfaces deleted devices in the list", %{conn: conn, user: user} do
+    promote_user!(user, :admin)
+    uid = "test-device-deleted-list-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "deleted-host",
+        is_available: false,
+        deleted_at: ~U[2100-01-01 00:00:00Z],
+        deleted_by: "system",
+        deleted_reason: "test",
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices?limit=10")
+    refute html =~ uid
+
+    {:ok, _lv, html} = live(conn, ~p"/devices?q=in:devices%20include_deleted:true&limit=10")
+    assert html =~ uid
+    assert html =~ "Deleted"
   end
 
   test "renders SNMP credential override form in edit mode", %{conn: conn} do
@@ -345,5 +395,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Disable Metrics Collection"
       assert html =~ "Add Tags"
     end
+  end
+
+  defp promote_user!(user, role) do
+    user
+    |> Ash.Changeset.for_update(:update_role, %{role: role}, actor: AshTestHelpers.system_actor())
+    |> Ash.update!()
   end
 end

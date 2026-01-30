@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   require Logger
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadar.Inventory.Device
 
   @default_limit 20
@@ -50,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:select_all_matching, false)
      |> assign(:total_matching_count, nil)
      |> assign(:show_bulk_edit_modal, false)
+     |> assign(:show_bulk_delete_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
      # Device management modals
      |> assign(:show_add_device_modal, false)
@@ -133,6 +135,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   def handle_event("srql_builder_run", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/devices")}
+  end
+
+  def handle_event("toggle_include_deleted", _params, socket) do
+    query = Map.get(socket.assigns.srql || %{}, :query, "") || ""
+    updated_query = toggle_include_deleted_query(query)
+    path = device_list_path(updated_query, socket.assigns.limit)
+    {:noreply, push_patch(socket, to: path)}
   end
 
   # Device management modal handlers
@@ -334,11 +343,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, assign(socket, :show_bulk_edit_modal, true)}
   end
 
+  def handle_event("open_bulk_delete_modal", _params, socket) do
+    {:noreply, assign(socket, :show_bulk_delete_modal, true)}
+  end
+
   def handle_event("close_bulk_edit_modal", _params, socket) do
     {:noreply,
      socket
      |> assign(:show_bulk_edit_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))}
+  end
+
+  def handle_event("close_bulk_delete_modal", _params, socket) do
+    {:noreply, assign(socket, :show_bulk_delete_modal, false)}
   end
 
   def handle_event("toggle_select_all_matching", _params, socket) do
@@ -396,6 +413,63 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
+  def handle_event("bulk_delete_devices", _params, socket) do
+    handle_confirm_bulk_delete(socket)
+  end
+
+  def handle_event("confirm_bulk_delete", _params, socket) do
+    handle_confirm_bulk_delete(socket)
+  end
+
+  defp handle_confirm_bulk_delete(socket) do
+    scope = socket.assigns.current_scope
+
+    case bulk_delete_uids(socket) do
+      {:ok, uids} ->
+        case Device.bulk_soft_delete(uids, "bulk_delete", scope: scope) do
+          :ok ->
+            path =
+              device_list_path(Map.get(socket.assigns.srql || %{}, :query, ""), socket.assigns.limit)
+
+            count = length(uids)
+
+            {:noreply,
+             socket
+             |> assign(:show_bulk_delete_modal, false)
+             |> assign(:selected_devices, MapSet.new())
+             |> assign(:select_all_matching, false)
+             |> assign(:total_matching_count, nil)
+             |> put_flash(:info, "Deleted #{count} device(s)")
+             |> push_patch(to: path)}
+
+          {:ok, %{deleted_count: count}} ->
+            path =
+              device_list_path(Map.get(socket.assigns.srql || %{}, :query, ""), socket.assigns.limit)
+
+            {:noreply,
+             socket
+             |> assign(:show_bulk_delete_modal, false)
+             |> assign(:selected_devices, MapSet.new())
+             |> assign(:select_all_matching, false)
+             |> assign(:total_matching_count, nil)
+             |> put_flash(:info, "Deleted #{count} device(s)")
+             |> push_patch(to: path)}
+
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> assign(:show_bulk_delete_modal, false)
+             |> put_flash(:error, "Bulk delete failed: #{format_device_error(reason)}")}
+        end
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:show_bulk_delete_modal, false)
+         |> put_flash(:error, reason)}
+    end
+  end
+
   # Get device UIDs from selected devices or all matching devices
   defp get_selected_uids(socket) do
     if socket.assigns.select_all_matching do
@@ -426,6 +500,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
           uids ->
             update_tags_for_uids(scope, uids, tags)
+        end
+    end
+  end
+
+  defp bulk_delete_uids(socket) do
+    cond do
+      socket.assigns.select_all_matching and
+          not is_integer(socket.assigns.total_matching_count) ->
+        {:error, "Unable to determine selection size. Please try again."}
+
+      socket.assigns.select_all_matching and socket.assigns.total_matching_count > 10_000 ->
+        {:error, "Too many devices selected. Narrow your filters and try again."}
+
+      true ->
+        case get_selected_uids(socket) do
+          [] -> {:error, "No devices selected"}
+          uids -> {:ok, uids}
         end
     end
   end
@@ -590,6 +681,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           >
             <.icon name="hero-signal" class="size-3" /> Swept
           </.link>
+          <button
+            phx-click="toggle_include_deleted"
+            class={"btn btn-xs #{if has_filter?(@srql, "include_deleted", "true"), do: "btn-secondary", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-archive-box" class="size-3" /> Include deleted
+          </button>
           <.link
             :if={has_any_filter?(@srql)}
             navigate={~p"/devices"}
@@ -633,6 +730,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           <div class="flex items-center gap-2">
             <.ui_button variant="primary" size="sm" phx-click="open_bulk_edit_modal">
               <.icon name="hero-tag" class="size-4" /> Bulk Edit
+            </.ui_button>
+            <.ui_button
+              variant="outline"
+              class="btn-error"
+              size="sm"
+              phx-click="open_bulk_delete_modal"
+            >
+              <.icon name="hero-trash" class="size-4" /> Bulk Delete
             </.ui_button>
           </div>
         </div>
@@ -689,7 +794,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               </thead>
               <tbody>
                 <tr :if={@devices == []}>
-                  <td colspan="10" class="py-8 text-center text-sm text-base-content/60">
+                  <td
+                    colspan={10}
+                    class="py-8 text-center text-sm text-base-content/60"
+                  >
                     No devices found.
                   </td>
                 </tr>
@@ -698,13 +806,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <% device_uid = Map.get(row, "uid") || Map.get(row, "id") %>
                   <% is_selected =
                     is_binary(device_uid) and MapSet.member?(@selected_devices, device_uid) %>
+                  <% deleted = deleted_device_row?(row) %>
                   <% icmp =
                     if is_binary(device_uid), do: Map.get(@icmp_sparklines, device_uid), else: nil %>
                   <% has_snmp =
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
-                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""}"}>
+                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted, do: "opacity-60", else: ""}"}>
                     <td class="text-center">
                       <input
                         :if={is_binary(device_uid)}
@@ -734,6 +843,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                         <span :if={not is_binary(device_uid)} class="truncate">
                           {Map.get(row, "hostname") || "—"}
                         </span>
+                        <span :if={deleted} class="badge badge-ghost badge-xs">Deleted</span>
                       </div>
                     </td>
                     <td class="font-mono text-xs">{Map.get(row, "ip") || "—"}</td>
@@ -802,6 +912,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       <.bulk_edit_modal
         :if={@show_bulk_edit_modal}
         form={@bulk_edit_form}
+        selected_count={@effective_count}
+      />
+
+    <!-- Bulk Delete Modal -->
+      <.bulk_delete_modal
+        :if={@show_bulk_delete_modal}
         selected_count={@effective_count}
       />
     </Layouts.app>
@@ -1150,6 +1266,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       </div>
       <form method="dialog" class="modal-backdrop">
         <button phx-click="close_bulk_edit_modal">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
+  # Bulk Delete Modal Component
+  attr :selected_count, :integer, required: true
+
+  defp bulk_delete_modal(assigns) do
+    ~H"""
+    <dialog id="bulk_delete_modal" class="modal modal-open">
+      <div class="modal-box max-w-lg">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_bulk_delete_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold text-error">Delete Devices</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          This will hide {@selected_count} selected device(s) from inventory. They can be restored
+          later.
+        </p>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" phx-click="close_bulk_delete_modal" class="btn btn-ghost">
+            Cancel
+          </button>
+          <button type="button" phx-click="confirm_bulk_delete" class="btn btn-error">
+            Delete Devices
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_bulk_delete_modal">close</button>
       </form>
     </dialog>
     """
@@ -2257,6 +2411,66 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     query = Map.get(srql || %{}, :query, "") || ""
     String.trim(query) != ""
   end
+
+  defp toggle_include_deleted_query(query) when is_binary(query) do
+    case SRQLBuilder.parse(query) do
+      {:ok, builder} ->
+        filters = Map.get(builder, "filters", [])
+        {updated_filters, _enabled} = toggle_builder_filter(filters, "include_deleted")
+
+        builder
+        |> Map.put("filters", updated_filters)
+        |> SRQLBuilder.build()
+
+      _ ->
+        fallback_toggle_include_deleted_query(query)
+    end
+  end
+
+  defp toggle_include_deleted_query(_), do: "in:devices include_deleted:true"
+
+  defp toggle_builder_filter(filters, field) do
+    {matches, rest} = Enum.split_with(filters, fn filter -> Map.get(filter, "field") == field end)
+
+    if matches == [] do
+      {rest ++ [%{"field" => field, "op" => "equals", "value" => "true"}], true}
+    else
+      {rest, false}
+    end
+  end
+
+  defp fallback_toggle_include_deleted_query(query) do
+    if String.contains?(query, "include_deleted:true") do
+      query
+      |> String.replace(~r/\s*include_deleted:true\b/, "")
+      |> String.trim()
+    else
+      query
+      |> String.trim()
+      |> case do
+        "" -> "in:devices include_deleted:true"
+        trimmed -> "#{trimmed} include_deleted:true"
+      end
+    end
+  end
+
+  defp device_list_path(query, limit) do
+    params =
+      %{"limit" => limit}
+      |> maybe_put_param("q", query)
+
+    ~p"/devices?#{params}"
+  end
+
+  defp maybe_put_param(params, _key, value) when value in [nil, ""], do: params
+  defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
+
+  defp deleted_device_row?(row) when is_map(row) do
+    value = Map.get(row, "deleted_at")
+    not is_nil(value) and value != ""
+  end
+
+  defp deleted_device_row?(_), do: false
 
   # Sysmon profile helpers
   # Note: Profile-per-device tracking removed - profiles now target devices via SRQL queries.

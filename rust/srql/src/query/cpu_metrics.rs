@@ -743,6 +743,7 @@ mod tests {
             stats: Some(crate::parser::StatsSpec::from_raw(stats)),
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         }
     }
 
@@ -764,6 +765,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         };
 
         let result = build_query(&plan);

@@ -4,7 +4,7 @@ use crate::{
     models::DeviceRow,
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     schema::ocsf_devices::dsl::{
-        agent_id as col_agent_id, device_type as col_device_type,
+        agent_id as col_agent_id, deleted_at as col_deleted_at, device_type as col_device_type,
         first_seen_time as col_first_seen_time, gateway_id as col_gateway_id,
         hostname as col_hostname, ip as col_ip, is_available as col_is_available,
         last_seen_time as col_last_seen_time, mac as col_mac, model as col_model, ocsf_devices,
@@ -246,6 +246,10 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 fn build_query(plan: &QueryPlan) -> Result<DeviceQuery<'static>> {
     let mut query = ocsf_devices.into_boxed::<Pg>();
 
+    if !plan.include_deleted && !has_deleted_filter(&plan.filters) {
+        query = query.filter(col_deleted_at.is_null());
+    }
+
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(
             col_last_seen_time
@@ -340,6 +344,10 @@ fn build_grouped_stats_query(
 
     let mut binds = Vec::new();
     let mut clauses = Vec::new();
+
+    if !plan.include_deleted && !has_deleted_filter(&plan.filters) {
+        clauses.push("deleted_at IS NULL".to_string());
+    }
 
     // Time range filter
     if let Some(TimeRange { start, end }) = &plan.time_range {
@@ -469,6 +477,30 @@ fn build_grouped_stats_filter_clause(
                 }
             }
         }
+        "deleted" => {
+            let value = parse_bool(filter.value.as_scalar()?)?;
+            match filter.op {
+                FilterOp::Eq => {
+                    if value {
+                        "deleted_at IS NOT NULL".to_string()
+                    } else {
+                        "deleted_at IS NULL".to_string()
+                    }
+                }
+                FilterOp::NotEq => {
+                    if value {
+                        "deleted_at IS NULL".to_string()
+                    } else {
+                        "deleted_at IS NOT NULL".to_string()
+                    }
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "deleted filter only supports equality".into(),
+                    ))
+                }
+            }
+        }
         "discovery_sources" => {
             let values = match &filter.value {
                 FilterValue::Scalar(v) => vec![v.to_string()],
@@ -576,6 +608,10 @@ fn build_stats_query(
     spec: &DeviceStatsSpec,
 ) -> Result<DeviceStatsQuery<'static>> {
     let mut query = ocsf_devices.into_boxed::<Pg>();
+
+    if !plan.include_deleted && !has_deleted_filter(&plan.filters) {
+        query = query.filter(col_deleted_at.is_null());
+    }
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(
@@ -698,6 +734,32 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
                 "risk_level filter only supports equality"
             )?;
         }
+        "deleted" => {
+            let value = parse_bool(filter.value.as_scalar()?)?;
+            let matches_deleted = col_deleted_at.is_not_null();
+            let matches_active = col_deleted_at.is_null();
+            query = match filter.op {
+                FilterOp::Eq => {
+                    if value {
+                        query.filter(matches_deleted)
+                    } else {
+                        query.filter(matches_active)
+                    }
+                }
+                FilterOp::NotEq => {
+                    if value {
+                        query.filter(matches_active)
+                    } else {
+                        query.filter(matches_deleted)
+                    }
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "deleted filter only supports equality".into(),
+                    ));
+                }
+            };
+        }
         "tags" => {
             query = apply_tags_filter(query, filter)?;
         }
@@ -765,6 +827,12 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
     }
 
     Ok(query)
+}
+
+fn has_deleted_filter(filters: &[Filter]) -> bool {
+    filters
+        .iter()
+        .any(|filter| filter.field.eq_ignore_ascii_case("deleted"))
 }
 
 fn apply_ip_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
@@ -872,6 +940,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         }
         "is_available" => {
             params.push(BindParam::Bool(parse_bool(filter.value.as_scalar()?)?));
+            Ok(())
+        }
+        "deleted" => {
+            let _ = parse_bool(filter.value.as_scalar()?)?;
             Ok(())
         }
         "discovery_sources" => {

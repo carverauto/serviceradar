@@ -9,13 +9,14 @@ The web-ng UI SHALL provide a delete action on the device detail page for admin 
 - **THEN** the device SHALL be soft deleted
 - **AND** the UI SHALL navigate away or show a deleted state
 
-### Requirement: Bulk Delete in Inventory List
-The web-ng UI SHALL provide a bulk delete action next to the Bulk Editor button, with confirmation.
+### Requirement: Device Restore Action
+The web-ng UI SHALL provide a restore action for deleted devices on the device detail page.
 
-#### Scenario: Bulk delete selected devices
-- **GIVEN** an admin selects multiple devices in the inventory list
-- **WHEN** they click Bulk Delete and confirm
-- **THEN** the selected devices SHALL be soft deleted
+#### Scenario: Restore device from detail page
+- **GIVEN** an admin or operator views a deleted device detail page
+- **WHEN** they click Restore and confirm
+- **THEN** the device SHALL be restored
+- **AND** the UI SHALL return to the active device state
 
 ### Requirement: Show Deleted Devices Toggle
 The web-ng UI SHALL provide an option to show deleted devices in the inventory list.
@@ -34,3 +35,13 @@ The web-ng UI SHALL expose a Network settings tab for inventory cleanup and devi
 - **WHEN** they open the Inventory Cleanup tab
 - **THEN** they can set the device deletion retention window in days
 - **AND** the value is saved for the reaper job
+
+#### Scenario: Configure reaper schedule
+- **GIVEN** an admin user on Settings → Network
+- **WHEN** they update the cleanup schedule
+- **THEN** the reaper job SHALL use the configured schedule
+
+#### Scenario: Run cleanup manually
+- **GIVEN** an admin user on Settings → Network
+- **WHEN** they click “Run cleanup now”
+- **THEN** the reaper job SHALL execute immediately

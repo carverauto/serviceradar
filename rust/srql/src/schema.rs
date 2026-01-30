@@ -82,6 +82,9 @@ diesel::table! {
         discovery_sources -> Nullable<Array<Text>>,
         is_available -> Nullable<Bool>,
         metadata -> Nullable<Jsonb>,
+        deleted_at -> Nullable<Timestamptz>,
+        deleted_by -> Nullable<Text>,
+        deleted_reason -> Nullable<Text>,
     }
 }
 

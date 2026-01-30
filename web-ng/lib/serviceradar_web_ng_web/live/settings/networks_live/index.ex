@@ -27,6 +27,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     MapperUnifiController
   }
 
+  alias ServiceRadar.Inventory.{DeviceCleanupSettings, DeviceCleanupWorker}
+
   @refresh_interval :timer.seconds(15)
 
   alias ServiceRadarWebNGWeb.SRQL.Catalog
@@ -34,6 +36,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
+    cleanup_settings = load_or_create_cleanup_settings(scope)
+    cleanup_form = build_cleanup_form(scope, cleanup_settings)
 
     if connected?(socket) do
       # Subscribe to sweep updates for this instance
@@ -70,6 +74,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:mapper_seeds_text, "")
       |> assign(:mapper_unifi_form, nil)
       |> assign(:mapper_unifi_present, false)
+      |> assign(:cleanup_settings, cleanup_settings)
+      |> assign(:cleanup_form, cleanup_form)
 
     {:ok, socket}
   end
@@ -256,6 +262,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         "groups" -> :groups
         "profiles" -> :profiles
         "active_scans" -> :active_scans
+        "cleanup" -> :cleanup
         _ -> socket.assigns.active_tab
       end
 
@@ -486,6 +493,52 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
          socket
          |> assign(:ash_form, ash_form)
          |> assign(:form, to_form(ash_form))}
+    end
+  end
+
+  def handle_event("validate_cleanup_settings", %{"cleanup" => params}, socket) do
+    form =
+      socket.assigns.cleanup_form
+      |> Form.validate(params)
+
+    {:noreply, assign(socket, :cleanup_form, to_form(form))}
+  end
+
+  def handle_event("save_cleanup_settings", %{"cleanup" => params}, socket) do
+    scope = socket.assigns.current_scope
+
+    form =
+      socket.assigns.cleanup_form
+      |> Form.validate(params)
+
+    case Form.submit(form, params: params) do
+      {:ok, settings} ->
+        _ = DeviceCleanupWorker.ensure_scheduled()
+        updated_form = build_cleanup_form(scope, settings)
+
+        {:noreply,
+         socket
+         |> assign(:cleanup_settings, settings)
+         |> assign(:cleanup_form, updated_form)
+         |> put_flash(:info, "Inventory cleanup settings saved")}
+
+      {:error, form} ->
+        {:noreply,
+         socket
+         |> assign(:cleanup_form, to_form(form))
+         |> put_flash(:error, "Failed to save inventory cleanup settings")}
+    end
+  end
+
+  def handle_event("run_cleanup_now", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    case DeviceCleanupSettings.run_cleanup(scope: scope) do
+      {:ok, _} ->
+        {:noreply, put_flash(socket, :info, "Cleanup job queued")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to queue cleanup: #{inspect(reason)}")}
     end
   end
 
@@ -855,6 +908,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                       groups={@sweep_groups}
                       execution_progress={@execution_progress}
                     />
+                  <% :cleanup -> %>
+                    <.inventory_cleanup_panel
+                      form={@cleanup_form}
+                      settings={@cleanup_settings}
+                    />
                 <% end %>
               <% end %>
             <% end %>
@@ -901,6 +959,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         >
           {@running_count}
         </span>
+      </button>
+      <button
+        phx-click="switch_tab"
+        phx-value-tab="cleanup"
+        class={"px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors " <>
+               if(@active_tab == :cleanup, do: "border-primary text-primary", else: "border-transparent text-base-content/60 hover:text-base-content")}
+      >
+        Inventory Cleanup
       </button>
     </div>
     """
@@ -1404,6 +1470,88 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           </table>
         </div>
       </.ui_panel>
+    </div>
+    """
+  end
+
+  # Inventory Cleanup Panel
+  attr :form, :any, default: nil
+  attr :settings, :any, default: nil
+
+  defp inventory_cleanup_panel(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 p-6 shadow-sm space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h3 class="text-lg font-semibold text-base-content">Inventory Cleanup</h3>
+          <p class="text-sm text-base-content/60">
+            Purge soft-deleted devices after a retention window. Deleted devices can be restored
+            if they are discovered again.
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <.ui_button
+            variant="outline"
+            size="sm"
+            phx-click="run_cleanup_now"
+            phx-confirm="Run cleanup now? This will permanently purge devices past the retention window."
+          >
+            <.icon name="hero-arrow-path" class="size-4" /> Run cleanup now
+          </.ui_button>
+        </div>
+      </div>
+
+      <div :if={is_nil(@form)} class="alert alert-warning">
+        <.icon name="hero-exclamation-triangle" class="size-5" />
+        <div>
+          <div class="font-semibold">Cleanup settings unavailable</div>
+          <div class="text-sm">Unable to load device cleanup settings.</div>
+        </div>
+      </div>
+
+      <.form
+        :if={not is_nil(@form)}
+        for={@form}
+        id="device-cleanup-form"
+        phx-change="validate_cleanup_settings"
+        phx-submit="save_cleanup_settings"
+        class="grid grid-cols-1 md:grid-cols-2 gap-6"
+      >
+        <div class="space-y-4">
+          <.input field={@form[:enabled]} type="checkbox" label="Enable scheduled cleanup" />
+          <.input
+            field={@form[:retention_days]}
+            type="number"
+            label="Retention (days)"
+            min="1"
+          />
+          <.input
+            field={@form[:cleanup_interval_minutes]}
+            type="number"
+            label="Cleanup interval (minutes)"
+            min="5"
+          />
+          <.input
+            field={@form[:batch_size]}
+            type="number"
+            label="Batch size"
+            min="100"
+          />
+        </div>
+        <div class="flex items-end">
+          <div class="space-y-3">
+            <p class="text-sm text-base-content/60">
+              Cleanup runs on the configured interval and deletes devices that have been
+              soft-deleted longer than the retention period.
+            </p>
+            <div class="flex gap-2">
+              <.ui_button type="submit" variant="primary" size="sm">
+                <.icon name="hero-check" class="size-4" /> Save settings
+              </.ui_button>
+            </div>
+          </div>
+        </div>
+      </.form>
     </div>
     """
   end
@@ -2539,6 +2687,30 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       {:error, _} ->
         nil
     end
+  end
+
+  defp load_or_create_cleanup_settings(scope) do
+    case DeviceCleanupSettings.get_settings(scope: scope) do
+      {:ok, settings} ->
+        settings
+
+      {:error, _} ->
+        case DeviceCleanupSettings.create_settings(%{}, scope: scope) do
+          {:ok, settings} ->
+            _ = DeviceCleanupWorker.ensure_scheduled()
+            settings
+
+          {:error, _} -> nil
+        end
+    end
+  end
+
+  defp build_cleanup_form(_scope, nil), do: nil
+
+  defp build_cleanup_form(scope, settings) do
+    settings
+    |> Form.for_update(:update, domain: ServiceRadar.Inventory, scope: scope, as: "cleanup")
+    |> to_form()
   end
 
   defp load_running_executions(scope) do
