@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package snmp pkg/checker/snmp/target_status.go
+// Package snmp pkg/agent/snmp/target_status.go
 package snmp
 
 const (

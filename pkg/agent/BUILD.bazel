@@ -27,7 +27,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/agentgateway",
-        "//pkg/checker/snmp",
+        "//pkg/agent/snmp",
         "//pkg/config",
         "//pkg/config/kv",
         "//pkg/grpc",

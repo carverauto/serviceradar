@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package snmp pkg/checker/snmp/config.go
+// Package snmp pkg/agent/snmp/config.go
 
 package snmp
 

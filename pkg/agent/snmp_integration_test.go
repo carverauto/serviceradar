@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/checker/snmp"
+	"github.com/carverauto/serviceradar/pkg/agent/snmp"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"

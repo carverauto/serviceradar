@@ -14,7 +14,7 @@ go_library(
         "target_status.go",
         "types.go",
     ],
-    importpath = "github.com/carverauto/serviceradar/pkg/checker/snmp",
+    importpath = "github.com/carverauto/serviceradar/pkg/agent/snmp",
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/logger",

@@ -10,10 +10,10 @@ This project uses Bazel aliases extensively for dependencies management for a nu
 
 In practice, you write your library with its Build file as usual, and then you add an alias to [alias/BUILD.bazel](alias/BUILD.bazel); for example:
 
-```text 
+```text
 alias(
-    name = "dusk",
-    actual = "//pkg/checker/dusk:dusk",
+    name = "agent",
+    actual = "//pkg/agent:agent",
 )
 ```
 

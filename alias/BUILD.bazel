@@ -11,22 +11,6 @@ alias(
     actual = "//pkg/agentgateway:agentgateway",
 )
 
-# pkg/checker
-alias(
-    name = "checker",
-    actual = "//pkg/checker:checker",
-)
-
-alias(
-    name = "dusk",
-    actual = "//pkg/checker/dusk:dusk",
-)
-
-alias(
-    name = "snmp",
-    actual = "//pkg/checker/snmp:snmp",
-)
-
 # pkg/cli
 alias(
     name = "cli",
