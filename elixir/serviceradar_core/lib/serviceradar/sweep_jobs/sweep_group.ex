@@ -62,7 +62,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         :description,
         :partition,
         :agent_id,
-        :gateway_id,
         :enabled,
         :interval,
         :schedule_type,
@@ -87,7 +86,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         :description,
         :partition,
         :agent_id,
-        :gateway_id,
         :enabled,
         :interval,
         :schedule_type,
@@ -180,16 +178,14 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     end
 
     read :for_agent_partition do
-      description "Get groups for a specific agent, partition, and optionally gateway"
+      description "Get groups for a specific agent and partition"
       argument :agent_id, :string, allow_nil?: true
       argument :partition, :string, allow_nil?: false
-      argument :gateway_id, :string, allow_nil?: true
 
       filter expr(
                enabled == true and
                  partition == ^arg(:partition) and
-                 (is_nil(^arg(:agent_id)) or agent_id == ^arg(:agent_id) or is_nil(agent_id)) and
-                 (is_nil(^arg(:gateway_id)) or gateway_id == ^arg(:gateway_id) or is_nil(gateway_id))
+                 (is_nil(^arg(:agent_id)) or agent_id == ^arg(:agent_id) or is_nil(agent_id))
              )
     end
   end
