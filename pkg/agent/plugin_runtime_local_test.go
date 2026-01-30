@@ -11,6 +11,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/sys"
 )
@@ -95,9 +96,11 @@ func instantiateEnvModule(ctx context.Context, rt wazero.Runtime) error {
 	return err
 }
 
-// TestWasmClockInterpreter tests WASI clock functions using the interpreter engine
-// to help diagnose if the issue is specific to the compiler (wazevo) engine.
-func TestWasmClockInterpreter(t *testing.T) {
+// runWasmClockTest is a helper that tests WASI clock functions with the given runtime config.
+// It instantiates a WASM module and calls its run_check entrypoint.
+func runWasmClockTest(t *testing.T, runtimeCfg wazero.RuntimeConfig, moduleName string) {
+	t.Helper()
+
 	wasmPath := os.Getenv("WASM_PATH")
 	if wasmPath == "" {
 		t.Skip("set WASM_PATH to a wasm file that uses time.Now()")
@@ -111,29 +114,25 @@ func TestWasmClockInterpreter(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Use the interpreter engine explicitly
-	runtimeCfg := wazero.NewRuntimeConfigInterpreter()
 	rt := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
-	defer rt.Close(ctx)
+	defer func() { _ = rt.Close(ctx) }()
 
-	// Instantiate the "env" host module with stub functions
 	if err := instantiateEnvModule(ctx, rt); err != nil {
 		t.Fatalf("instantiate env module: %v", err)
 	}
 
-	// Instantiate WASI
 	wasi, err := wasi_snapshot_preview1.Instantiate(ctx, rt)
 	if err != nil {
 		t.Fatalf("instantiate wasi: %v", err)
 	}
-	defer wasi.Close(ctx)
+	defer func() { _ = wasi.Close(ctx) }()
 
-	// Create module config with walltime enabled
+	// Create module config with walltime enabled.
 	// IMPORTANT: Use WithStartFunctions() with NO arguments to prevent _start from being called.
 	// TinyGo's _start calls proc_exit(0) which closes the module and clears Sys, preventing
 	// subsequent function calls from working.
 	modConfig := wazero.NewModuleConfig().
-		WithName("test-interpreter").
+		WithName(moduleName).
 		WithSysWalltime().
 		WithSysNanotime().
 		WithSysNanosleep().
@@ -143,17 +142,16 @@ func TestWasmClockInterpreter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("instantiate module: %v", err)
 	}
-	defer module.Close(ctx)
+	defer func() { _ = module.Close(ctx) }()
 
 	entrypoint := module.ExportedFunction("run_check")
 	if entrypoint == nil {
 		t.Fatalf("entrypoint 'run_check' not found")
 	}
 
-	t.Log("Calling entrypoint with interpreter engine...")
+	t.Logf("Calling entrypoint with %s...", moduleName)
 	_, err = entrypoint.Call(ctx)
 	if err != nil {
-		// Check if it's a clean exit
 		t.Logf("entrypoint.Call error: %v", err)
 		var exitErr *sys.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 0 {
@@ -163,73 +161,18 @@ func TestWasmClockInterpreter(t *testing.T) {
 		}
 	}
 	t.Log("Entrypoint completed successfully")
+}
+
+// TestWasmClockInterpreter tests WASI clock functions using the interpreter engine
+// to help diagnose if the issue is specific to the compiler (wazevo) engine.
+func TestWasmClockInterpreter(t *testing.T) {
+	runWasmClockTest(t, wazero.NewRuntimeConfigInterpreter(), "test-interpreter")
 }
 
 // TestWasmClockCompiler tests WASI clock functions using the compiler (wazevo) engine.
 func TestWasmClockCompiler(t *testing.T) {
-	wasmPath := os.Getenv("WASM_PATH")
-	if wasmPath == "" {
-		t.Skip("set WASM_PATH to a wasm file that uses time.Now()")
-	}
-
-	wasmBytes, err := os.ReadFile(wasmPath)
-	if err != nil {
-		t.Fatalf("read wasm: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Use the compiler engine explicitly
-	runtimeCfg := wazero.NewRuntimeConfigCompiler()
-	rt := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
-	defer rt.Close(ctx)
-
-	// Instantiate the "env" host module with stub functions
-	if err := instantiateEnvModule(ctx, rt); err != nil {
-		t.Fatalf("instantiate env module: %v", err)
-	}
-
-	// Instantiate WASI
-	wasi, err := wasi_snapshot_preview1.Instantiate(ctx, rt)
-	if err != nil {
-		t.Fatalf("instantiate wasi: %v", err)
-	}
-	defer wasi.Close(ctx)
-
-	// Create module config with walltime enabled
-	// IMPORTANT: Use WithStartFunctions() with NO arguments to prevent _start from being called.
-	// TinyGo's _start calls proc_exit(0) which closes the module and clears Sys, preventing
-	// subsequent function calls from working.
-	modConfig := wazero.NewModuleConfig().
-		WithName("test-compiler").
-		WithSysWalltime().
-		WithSysNanotime().
-		WithSysNanosleep().
-		WithStartFunctions() // Disable automatic _start call
-
-	module, err := rt.InstantiateWithConfig(ctx, wasmBytes, modConfig)
-	if err != nil {
-		t.Fatalf("instantiate module: %v", err)
-	}
-	defer module.Close(ctx)
-
-	entrypoint := module.ExportedFunction("run_check")
-	if entrypoint == nil {
-		t.Fatalf("entrypoint 'run_check' not found")
-	}
-
-	t.Log("Calling entrypoint with compiler engine...")
-	_, err = entrypoint.Call(ctx)
-	if err != nil {
-		t.Logf("entrypoint.Call error: %v", err)
-		// Check if it's a clean exit
-		var exitErr *sys.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 0 {
-			t.Log("Clean exit with code 0")
-		} else {
-			t.Fatalf("entrypoint failed: %v", err)
-		}
-	}
-	t.Log("Entrypoint completed successfully")
+	runWasmClockTest(t, wazero.NewRuntimeConfigCompiler(), "test-compiler")
 }
+
+// Ensure api.Module is used (imported for potential future use in test assertions).
+var _ api.Module = nil
