@@ -51,6 +51,11 @@ ServiceRadar replaces traditional "script-and-shell" plugins with a [modern WebA
 
 **Why WASM?** Plugins are "FS-less" by default. They cannot access the host filesystem or raw sockets. Instead, they use a **Network Bridge** where the Agent proxies specific HTTP/TCP calls based on admin-approved allowlists.
 
+### Plug-in SDK
+
+**Go**: https://github.com/carverauto/serviceradar-sdk-go
+**Rust**: https://github.com/carverauto/serviceradar-sdk-rust -- Coming Soon
+
 ## Quick Installation (Docker Compose)
 
 Get ServiceRadar running in under 5 minutes:
