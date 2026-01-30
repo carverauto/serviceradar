@@ -98,6 +98,11 @@ config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
   verify_module: Guardian.JWT,
   allowed_drift: 60_000
 
+# Session configuration for browser-authenticated users
+config :serviceradar_web_ng, :session,
+  idle_timeout_seconds: 60 * 60,
+  absolute_timeout_seconds: 30 * 24 * 60 * 60
+
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
 config :serviceradar_web_ng, :plugin_storage,

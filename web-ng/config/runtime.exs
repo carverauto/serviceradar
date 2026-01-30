@@ -572,6 +572,32 @@ if config_env() == :prod do
   # Guardian JWT signing secret (same as token_signing_secret for consistency)
   config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian, secret_key: token_signing_secret
 
+  session_idle_seconds =
+    System.get_env("SERVICERADAR_SESSION_IDLE_TIMEOUT_SECONDS")
+    |> to_int.()
+
+  session_absolute_seconds =
+    System.get_env("SERVICERADAR_SESSION_ABSOLUTE_TIMEOUT_SECONDS")
+    |> to_int.()
+
+  session_config = Application.get_env(:serviceradar_web_ng, :session, [])
+
+  session_config =
+    if is_integer(session_idle_seconds) and session_idle_seconds > 0 do
+      Keyword.put(session_config, :idle_timeout_seconds, session_idle_seconds)
+    else
+      session_config
+    end
+
+  session_config =
+    if is_integer(session_absolute_seconds) and session_absolute_seconds > 0 do
+      Keyword.put(session_config, :absolute_timeout_seconds, session_absolute_seconds)
+    else
+      session_config
+    end
+
+  config :serviceradar_web_ng, :session, session_config
+
   config :serviceradar_web_ng, :base_url, "https://#{host}"
 
   gateway_addr = System.get_env("SERVICERADAR_GATEWAY_ADDR")

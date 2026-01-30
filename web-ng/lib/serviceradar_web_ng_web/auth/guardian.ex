@@ -3,8 +3,8 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   Guardian implementation for JWT token management.
 
   This module handles all JWT operations for ServiceRadar authentication:
-  - Access tokens (short-lived, 1 hour)
-  - Refresh tokens (long-lived, 30 days)
+  - Access tokens (short-lived, configurable; default 1 hour)
+  - Refresh tokens (long-lived, configurable; default 30 days)
   - API tokens (client credentials, configurable expiration)
 
   ## Token Types
@@ -32,9 +32,9 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   alias ServiceRadarWebNGWeb.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.TokenRevocation
 
-  @access_token_ttl {1, :hour}
-  @refresh_token_ttl {30, :days}
-  @api_token_ttl {1, :hour}
+  @default_idle_timeout_seconds 60 * 60
+  @default_absolute_timeout_seconds 30 * 24 * 60 * 60
+  @default_api_token_ttl {1, :hour}
 
   @doc """
   Returns the subject identifier for a user.
@@ -172,7 +172,7 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   Returns `{:ok, token, claims}` on success.
   """
   def create_access_token(user, opts \\ []) do
-    opts = Keyword.merge([token_type: "access", ttl: @access_token_ttl], opts)
+    opts = Keyword.merge([token_type: "access", ttl: access_token_ttl()], opts)
     encode_and_sign(user, %{}, opts)
   end
 
@@ -182,7 +182,7 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   Returns `{:ok, token, claims}` on success.
   """
   def create_refresh_token(user, opts \\ []) do
-    opts = Keyword.merge([token_type: "refresh", ttl: @refresh_token_ttl], opts)
+    opts = Keyword.merge([token_type: "refresh", ttl: refresh_token_ttl()], opts)
     encode_and_sign(user, %{}, opts)
   end
 
@@ -197,7 +197,7 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   """
   def create_api_token(user, opts \\ []) do
     scopes = Keyword.get(opts, :scopes, [:read])
-    ttl = Keyword.get(opts, :ttl, @api_token_ttl)
+    ttl = Keyword.get(opts, :ttl, @default_api_token_ttl)
 
     opts = [token_type: "api", scopes: scopes, ttl: ttl]
     encode_and_sign(user, %{}, opts)
@@ -254,5 +254,27 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
 
   def has_scope?(claims, scope) when is_binary(scope) do
     scope in Map.get(claims, "scopes", [])
+  end
+
+  defp access_token_ttl do
+    {session_idle_timeout_seconds(), :second}
+  end
+
+  defp refresh_token_ttl do
+    {session_absolute_timeout_seconds(), :second}
+  end
+
+  defp session_idle_timeout_seconds do
+    session_config()
+    |> Keyword.get(:idle_timeout_seconds, @default_idle_timeout_seconds)
+  end
+
+  defp session_absolute_timeout_seconds do
+    session_config()
+    |> Keyword.get(:absolute_timeout_seconds, @default_absolute_timeout_seconds)
+  end
+
+  defp session_config do
+    Application.get_env(:serviceradar_web_ng, :session, [])
   end
 end
