@@ -404,6 +404,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
+  def handle_event("bulk_delete_devices", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    case bulk_delete_uids(socket) do
+      {:ok, uids} ->
+        case Device.bulk_soft_delete(uids, "bulk_delete", scope: scope) do
+          {:ok, %{deleted_count: count}} ->
+            path =
+              device_list_path(Map.get(socket.assigns.srql || %{}, :query, ""), socket.assigns.limit)
+
+            {:noreply,
+             socket
+             |> assign(:selected_devices, MapSet.new())
+             |> assign(:select_all_matching, false)
+             |> assign(:total_matching_count, nil)
+             |> put_flash(:info, "Deleted #{count} device(s)")
+             |> push_patch(to: path)}
+
+          {:error, reason} ->
+            {:noreply,
+             put_flash(socket, :error, "Bulk delete failed: #{format_device_error(reason)}")}
+        end
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, reason)}
+    end
+  end
+
   # Get device UIDs from selected devices or all matching devices
   defp get_selected_uids(socket) do
     if socket.assigns.select_all_matching do
@@ -434,6 +462,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
           uids ->
             update_tags_for_uids(scope, uids, tags)
+        end
+    end
+  end
+
+  defp bulk_delete_uids(socket) do
+    cond do
+      socket.assigns.select_all_matching and
+          not is_integer(socket.assigns.total_matching_count) ->
+        {:error, "Unable to determine selection size. Please try again."}
+
+      socket.assigns.select_all_matching and socket.assigns.total_matching_count > 10_000 ->
+        {:error, "Too many devices selected. Narrow your filters and try again."}
+
+      true ->
+        case get_selected_uids(socket) do
+          [] -> {:error, "No devices selected"}
+          uids -> {:ok, uids}
         end
     end
   end
@@ -647,6 +692,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           <div class="flex items-center gap-2">
             <.ui_button variant="primary" size="sm" phx-click="open_bulk_edit_modal">
               <.icon name="hero-tag" class="size-4" /> Bulk Edit
+            </.ui_button>
+            <.ui_button
+              variant="outline"
+              class="btn-error"
+              size="sm"
+              phx-click="bulk_delete_devices"
+              phx-confirm="Delete the selected devices? This hides them from inventory and can be restored later."
+            >
+              <.icon name="hero-trash" class="size-4" /> Bulk Delete
             </.ui_button>
           </div>
         </div>
