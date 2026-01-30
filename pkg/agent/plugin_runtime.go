@@ -953,14 +953,28 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 	// Always instantiate WASI - it's harmless if unused but required if the
 	// plugin imports from wasi_snapshot_preview1. Many WASM toolchains
 	// (TinyGo, Rust, etc.) automatically include WASI imports.
-	if _, err := wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
+	wasi, err := wasi_snapshot_preview1.Instantiate(ctx, runtime)
+	if err != nil {
 		return fmt.Errorf("instantiate wasi: %w", err)
 	}
+	defer func() {
+		_ = wasi.Close(ctx)
+	}()
 
+	// Configure walltime and nanotime on the plugin module so WASI clock
+	// functions work correctly. WASI functions use the sys.Context from
+	// the calling module (our plugin), not from the WASI module itself.
+	//
+	// IMPORTANT: Use WithStartFunctions() with NO arguments to prevent _start
+	// from being called automatically. TinyGo's _start calls proc_exit(0) which
+	// closes the module and clears the Sys field, preventing subsequent WASI
+	// clock functions from working.
 	modConfig := wazero.NewModuleConfig().
 		WithName(assignment.AssignmentID).
 		WithSysWalltime().
-		WithSysNanotime()
+		WithSysNanotime().
+		WithSysNanosleep().
+		WithStartFunctions()
 
 	module, err := runtime.InstantiateWithConfig(ctx, wasm, modConfig)
 	if err != nil {
