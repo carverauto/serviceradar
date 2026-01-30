@@ -603,12 +603,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp load_sweep_config(agent_id) do
     # Resolve partition from agent registry, fall back to "default"
     partition = get_agent_partition(agent_id)
+    # Resolve gateway_id from agent record for gateway-scoped sweep groups
+    gateway_id = get_agent_gateway_id(agent_id)
 
     Logger.debug(
-      "AgentConfigGenerator: loading sweep config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}"
+      "AgentConfigGenerator: loading sweep config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}, gateway_id=#{inspect(gateway_id)}"
     )
 
-    case ConfigServer.get_config(:sweep, partition, agent_id) do
+    case ConfigServer.get_config(:sweep, partition, agent_id, gateway_id: gateway_id) do
       {:ok, entry} ->
         # Return the compiled config from the cache entry
         Logger.debug(
@@ -693,6 +695,28 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         )
 
         "default"
+    end
+  end
+
+  # Resolve the gateway_id for an agent from the database
+  # Returns nil if agent is not found or has no gateway assigned
+  defp get_agent_gateway_id(agent_id) do
+    actor = SystemActor.system(:agent_config_generator)
+
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, agent} ->
+        Logger.debug(
+          "AgentConfigGenerator: resolved gateway_id=#{inspect(agent.gateway_id)} for agent #{agent_id}"
+        )
+
+        agent.gateway_id
+
+      {:error, reason} ->
+        Logger.debug(
+          "AgentConfigGenerator: agent #{agent_id} not found in database (#{inspect(reason)}), gateway_id=nil"
+        )
+
+        nil
     end
   end
 

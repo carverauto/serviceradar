@@ -46,6 +46,10 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       index [:agent_id],
         where: "agent_id IS NOT NULL",
         name: "sweep_groups_agent_idx"
+
+      index [:gateway_id],
+        where: "gateway_id IS NOT NULL",
+        name: "sweep_groups_gateway_idx"
     end
   end
 
@@ -58,6 +62,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         :description,
         :partition,
         :agent_id,
+        :gateway_id,
         :enabled,
         :interval,
         :schedule_type,
@@ -82,6 +87,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         :description,
         :partition,
         :agent_id,
+        :gateway_id,
         :enabled,
         :interval,
         :schedule_type,
@@ -174,14 +180,16 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     end
 
     read :for_agent_partition do
-      description "Get groups for a specific agent and partition"
+      description "Get groups for a specific agent, partition, and optionally gateway"
       argument :agent_id, :string, allow_nil?: true
       argument :partition, :string, allow_nil?: false
+      argument :gateway_id, :string, allow_nil?: true
 
       filter expr(
                enabled == true and
                  partition == ^arg(:partition) and
-                 (is_nil(^arg(:agent_id)) or agent_id == ^arg(:agent_id) or is_nil(agent_id))
+                 (is_nil(^arg(:agent_id)) or agent_id == ^arg(:agent_id) or is_nil(agent_id)) and
+                 (is_nil(^arg(:gateway_id)) or gateway_id == ^arg(:gateway_id) or is_nil(gateway_id))
              )
     end
   end
@@ -241,6 +249,12 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       allow_nil? true
       public? true
       description "Specific agent ID (nil = any agent in partition)"
+    end
+
+    attribute :gateway_id, :string do
+      allow_nil? true
+      public? true
+      description "Specific gateway ID (nil = all gateways in partition)"
     end
 
     attribute :enabled, :boolean do

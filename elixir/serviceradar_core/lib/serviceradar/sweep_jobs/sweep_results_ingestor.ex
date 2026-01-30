@@ -912,7 +912,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     other_agents = Enum.reject(recent_agents, &(&1 == agent_id))
 
-    if length(other_agents) > 0 do
+    if not Enum.empty?(other_agents) do
       Logger.warning(
         "SweepResultsIngestor: MULTI-AGENT CONFLICT DETECTED for sweep group #{sweep_group_id}. " <>
           "Agent '#{agent_id}' is submitting results, but other agents have also submitted recently: #{inspect(other_agents)}. " <>

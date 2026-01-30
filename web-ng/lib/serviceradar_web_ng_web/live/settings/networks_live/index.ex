@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   }
 
   alias ServiceRadar.Inventory.{DeviceCleanupSettings, DeviceCleanupWorker}
+  alias ServiceRadar.Infrastructure.Gateway
 
   @refresh_interval :timer.seconds(15)
 
@@ -109,6 +110,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:builder_open, false)
     |> assign(:builder, default_builder_state())
     |> assign(:builder_sync, true)
+    |> assign(:gateways, load_gateways(scope))
   end
 
   defp apply_action(socket, :edit_group, %{"id" => id}) do
@@ -137,6 +139,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:builder_open, false)
         |> assign(:builder, builder)
         |> assign(:builder_sync, builder_sync)
+        |> assign(:gateways, load_gateways(scope))
     end
   end
 
@@ -877,6 +880,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
               form={@form}
               show_form={@show_form}
               profiles={@sweep_profiles}
+              gateways={@gateways}
               target_device_count={@target_device_count}
               builder_open={@builder_open}
               builder_sync={@builder_sync}
@@ -1225,13 +1229,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
               <th>Name</th>
               <th>Schedule</th>
               <th>Partition</th>
+              <th>Gateway</th>
               <th>Last Run</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             <tr :if={@groups == []}>
-              <td colspan="6" class="text-center text-base-content/60 py-8">
+              <td colspan="7" class="text-center text-base-content/60 py-8">
                 No sweep groups configured. Create one to start scanning your network.
               </td>
             </tr>
@@ -1264,6 +1269,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                 </td>
                 <td class="text-xs">
                   {group.partition}
+                </td>
+                <td class="text-xs text-base-content/60">
+                  {group.gateway_id || "All"}
                 </td>
                 <td class="text-xs text-base-content/60">
                   {format_last_run(group.last_run_at)}
@@ -2100,6 +2108,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :form, :any, required: true
   attr :show_form, :atom, required: true
   attr :profiles, :list, required: true
+  attr :gateways, :list, default: []
   attr :target_device_count, :integer, default: nil
   attr :builder_open, :boolean, default: false
   attr :builder_sync, :boolean, default: true
@@ -2206,8 +2215,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
               />
             </div>
           </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="label">
+                <span class="label-text">Gateway</span>
+              </label>
+              <.input
+                type="select"
+                field={@form[:gateway_id]}
+                class="select select-bordered w-full"
+                options={[{"All gateways", ""} | Enum.map(@gateways, &{gateway_display_name(&1), &1.id})]}
+              />
+              <label class="label">
+                <span class="label-text-alt text-base-content/50">
+                  Only agents connected to this gateway will receive this sweep config
+                </span>
+              </label>
+            </div>
+          </div>
         </div>
-        
+
     <!-- Target Criteria Section -->
         <div class="space-y-4">
           <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
@@ -2641,6 +2669,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp load_sweep_profiles(scope) do
     case Ash.read(SweepProfile, scope: scope) do
       {:ok, profiles} -> profiles
+      {:error, _} -> []
+    end
+  end
+
+  defp load_gateways(scope) do
+    case Ash.read(Gateway, scope: scope) do
+      {:ok, gateways} -> gateways
       {:error, _} -> []
     end
   end
@@ -3391,6 +3426,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     case Integer.parse(port_str) do
       {port, _} when port > 0 and port <= 65_535 -> [port]
       _ -> []
+    end
+  end
+
+  defp gateway_display_name(gateway) do
+    cond do
+      gateway.component_id && gateway.component_id != "" -> gateway.component_id
+      gateway.id && gateway.id != "" -> gateway.id
+      true -> "Gateway #{gateway.id}"
     end
   end
 end
