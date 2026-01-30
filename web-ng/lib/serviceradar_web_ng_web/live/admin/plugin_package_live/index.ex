@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   import ServiceRadarWebNGWeb.PluginConfigForm
 
   require Ash.Query
+  require Logger
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.Manifest
@@ -410,15 +411,18 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   def handle_event("create_assignment", %{"assignment" => params}, socket) do
     scope = socket.assigns.current_scope
+    config_schema = socket.assigns.selected_package.config_schema
 
-    case parse_assignment_params(params, socket.assigns.selected_package.id) do
+    case parse_assignment_params(params, socket.assigns.selected_package.id, config_schema) do
       {:ok, attrs} ->
         handle_assignment_upsert(socket, scope, attrs)
 
       {:error, {:invalid_json, message}} ->
+        Logger.error("Plugin assignment failed - invalid JSON: #{message}")
         {:noreply, socket |> put_flash(:error, message)}
 
       {:error, error} ->
+        Logger.error("Plugin assignment failed: #{inspect(error)}")
         {:noreply, socket |> put_flash(:error, "Failed to assign: #{format_error(error)}")}
     end
   end
@@ -427,6 +431,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     scope = socket.assigns.current_scope
 
     case Assignments.delete(id, scope: scope) do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
+         |> put_flash(:info, "Assignment removed")}
+
       {:ok, _assignment} ->
         {:noreply,
          socket
@@ -434,6 +444,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> put_flash(:info, "Assignment removed")}
 
       {:error, error} ->
+        Logger.error("Plugin assignment deletion failed for #{id}: #{inspect(error)}")
         {:noreply, socket |> put_flash(:error, "Failed to remove: #{format_error(error)}")}
     end
   end
@@ -536,9 +547,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> put_flash(:info, "Assignment created")}
 
       {:error, {:invalid_json, message}} ->
+        Logger.error("Plugin assignment creation failed - invalid JSON: #{message}")
         {:noreply, socket |> put_flash(:error, message)}
 
       {:error, error} ->
+        Logger.error("Plugin assignment creation failed: #{inspect(error)}")
         {:noreply, socket |> put_flash(:error, "Failed to assign: #{format_error(error)}")}
     end
   end
@@ -559,9 +572,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> put_flash(:info, "Assignment updated")}
 
       {:error, {:invalid_json, message}} ->
+        Logger.error("Plugin assignment update failed - invalid JSON: #{message}")
         {:noreply, socket |> put_flash(:error, message)}
 
       {:error, error} ->
+        Logger.error("Plugin assignment update failed for #{assignment.id}: #{inspect(error)}")
+
         {:noreply,
          socket |> put_flash(:error, "Failed to update assignment: #{format_error(error)}")}
     end
@@ -1786,34 +1802,34 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
   defp stringify_keys(value), do: value
 
-  defp parse_assignment_params(params, package_id) do
+  defp parse_assignment_params(params, package_id, config_schema) do
     agent_uid = params["agent_uid"]
     interval_seconds = parse_int(params["interval_seconds"], 60)
     timeout_seconds = parse_int(params["timeout_seconds"], 10)
-    params_raw = params["params_raw"]
+
+    # Prefer structured params (from config fields) over raw JSON
+    # Only use params_raw if params["params"] is empty/nil
+    params_source = resolve_params_source(params)
 
     with true <-
            (is_binary(agent_uid) and String.trim(agent_uid) != "") ||
              {:error, "agent_uid required"},
          {:ok, parsed_params} <-
-           parse_optional_json_map(
-             if(is_binary(params_raw) and String.trim(params_raw) != "",
-               do: params_raw,
-               else: params["params"]
-             ),
-             "Params"
-           ),
+           parse_optional_json_map(params_source, "Params"),
          {:ok, permissions_override} <-
            parse_optional_json_map(params["permissions_override"], "Permissions override"),
          {:ok, resources_override} <-
            parse_optional_json_map(params["resources_override"], "Resources override") do
+      # Normalize params using the config schema to convert string values to proper types
+      normalized_params = normalize_assignment_params(parsed_params, config_schema)
+
       {:ok,
        %{
          agent_uid: String.trim(agent_uid),
          plugin_package_id: package_id,
          interval_seconds: interval_seconds,
          timeout_seconds: timeout_seconds,
-         params: parsed_params,
+         params: normalized_params,
          permissions_override: permissions_override,
          resources_override: resources_override
        }}
@@ -1823,6 +1839,51 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       _ -> {:error, "invalid assignment"}
     end
   end
+
+  # Prefer structured params from config fields over raw JSON textarea
+  defp resolve_params_source(params) do
+    structured_params = params["params"]
+    raw_params = params["params_raw"]
+
+    cond do
+      # If structured params is a non-empty map, use it (config fields were filled)
+      is_map(structured_params) and map_size(structured_params) > 0 ->
+        structured_params
+
+      # If raw params has content, use it
+      is_binary(raw_params) and String.trim(raw_params) != "" ->
+        raw_params
+
+      # Fall back to structured params (might be empty map or nil)
+      true ->
+        structured_params
+    end
+  end
+
+  defp normalize_assignment_params(params, config_schema)
+       when is_map(params) and is_map(config_schema) do
+    alias ServiceRadar.Plugins.ConfigSchema
+
+    schema = stringify_keys(config_schema)
+    required_fields = Map.get(schema, "required", [])
+
+    # Remove empty strings only for non-required fields
+    # Required fields with empty strings should fail validation with a clear error
+    cleaned_params =
+      params
+      |> Enum.reject(fn {k, v} -> v == "" and k not in required_fields end)
+      |> Map.new()
+
+    if map_size(schema) > 0 do
+      ConfigSchema.normalize_params(schema, cleaned_params)
+    else
+      cleaned_params
+    end
+  end
+
+  defp normalize_assignment_params(params, _config_schema) when is_map(params), do: params
+
+  defp normalize_assignment_params(_params, _config_schema), do: %{}
 
   defp parse_review_params(params) do
     approved_capabilities = parse_list(params["approved_capabilities"])
