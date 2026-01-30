@@ -19,6 +19,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -945,7 +946,13 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 		}
 	}
 
-	modConfig := wazero.NewModuleConfig().WithName(assignment.AssignmentID)
+	// modConfig := wazero.NewModuleConfig().WithName(assignment.AssignmentID)
+	modConfig := wazero.NewModuleConfig().
+		WithName(assignment.AssignmentID).
+		WithSysWalltime(). // Required for time.Now()
+		WithSysNanotime(). // Required for monotonic time/durations
+		WithSysNanosleep().
+		WithRandSource(rand.Reader)
 
 	module, err := runtime.InstantiateWithConfig(ctx, wasm, modConfig)
 	if err != nil {
