@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{DeviceCleanupSettings, DeviceCleanupWorker}
-  alias ServiceRadar.Infrastructure.Gateway
+  alias ServiceRadar.Infrastructure.Agent
 
   @refresh_interval :timer.seconds(15)
 
@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:builder_open, false)
     |> assign(:builder, default_builder_state())
     |> assign(:builder_sync, true)
-    |> assign(:gateways, load_gateways(scope))
+    |> assign(:agents, load_agents(scope))
   end
 
   defp apply_action(socket, :edit_group, %{"id" => id}) do
@@ -140,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:builder_open, false)
         |> assign(:builder, builder)
         |> assign(:builder_sync, builder_sync)
-        |> assign(:gateways, load_gateways(scope))
+        |> assign(:agents, load_agents(scope))
     end
   end
 
@@ -881,7 +881,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
               form={@form}
               show_form={@show_form}
               profiles={@sweep_profiles}
-              gateways={@gateways}
+              agents={@agents}
               target_device_count={@target_device_count}
               builder_open={@builder_open}
               builder_sync={@builder_sync}
@@ -1230,7 +1230,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
               <th>Name</th>
               <th>Schedule</th>
               <th>Partition</th>
-              <th>Gateway</th>
+              <th>Agent</th>
               <th>Last Run</th>
               <th>Actions</th>
             </tr>
@@ -1272,7 +1272,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                   {group.partition}
                 </td>
                 <td class="text-xs text-base-content/60">
-                  {group.gateway_id || "All"}
+                  {group.agent_id || "All"}
                 </td>
                 <td class="text-xs text-base-content/60">
                   {format_last_run(group.last_run_at)}
@@ -2109,7 +2109,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :form, :any, required: true
   attr :show_form, :atom, required: true
   attr :profiles, :list, required: true
-  attr :gateways, :list, default: []
+  attr :agents, :list, default: []
   attr :target_device_count, :integer, default: nil
   attr :builder_open, :boolean, default: false
   attr :builder_sync, :boolean, default: true
@@ -2220,17 +2220,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="label">
-                <span class="label-text">Gateway</span>
+                <span class="label-text">Agent</span>
               </label>
               <.input
                 type="select"
-                field={@form[:gateway_id]}
+                field={@form[:agent_id]}
                 class="select select-bordered w-full"
-                options={[{"All gateways", ""} | Enum.map(@gateways, &{gateway_display_name(&1), &1.id})]}
+                options={[{"All agents", ""} | Enum.map(@agents, &{agent_display_name(&1), &1.uid})]}
               />
               <label class="label">
                 <span class="label-text-alt text-base-content/50">
-                  Only agents connected to this gateway will receive this sweep config
+                  Pin this sweep config to a specific agent
                 </span>
               </label>
             </div>
@@ -2674,22 +2674,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
-  defp load_gateways(_scope) do
+  defp load_agents(_scope) do
     require Logger
 
-    # Use SystemActor to load gateways - user is already authenticated at this point
-    # and gateway data is infrastructure info visible to any authenticated user
+    # Use SystemActor to load agents - user is already authenticated at this point
+    # and agent data is infrastructure info visible to any authenticated user
     actor = SystemActor.system(:networks_live)
 
-    result = Ash.read(Gateway, domain: ServiceRadar.Infrastructure, actor: actor)
+    result = Ash.read(Agent, domain: ServiceRadar.Infrastructure, actor: actor)
 
     case result do
-      {:ok, gateways} ->
-        Logger.debug("load_gateways: loaded #{length(gateways)} gateways")
-        gateways
+      {:ok, agents} ->
+        Logger.debug("load_agents: loaded #{length(agents)} agents")
+        agents
 
       {:error, reason} ->
-        Logger.warning("load_gateways: failed to load gateways - #{inspect(reason)}")
+        Logger.warning("load_agents: failed to load agents - #{inspect(reason)}")
         []
     end
   end
@@ -3443,11 +3443,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
-  defp gateway_display_name(gateway) do
+  defp agent_display_name(agent) do
     cond do
-      gateway.component_id && gateway.component_id != "" -> gateway.component_id
-      gateway.id && gateway.id != "" -> gateway.id
-      true -> "Gateway #{gateway.id}"
+      agent.name && agent.name != "" -> agent.name
+      agent.uid && agent.uid != "" -> agent.uid
+      true -> "Agent #{agent.uid}"
     end
   end
 end
