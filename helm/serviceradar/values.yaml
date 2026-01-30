@@ -225,6 +225,7 @@ agentGateway:
     type: LoadBalancer
     nodePort: null
     loadBalancerIP: ""
+    externalTrafficPolicy: Cluster
     annotations: {}
   resources:
     limits:

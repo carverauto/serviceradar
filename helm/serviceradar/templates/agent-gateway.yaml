@@ -134,6 +134,9 @@ spec:
   selector:
     app: serviceradar-agent-gateway
   type: {{ default "ClusterIP" $gateway.service.type }}
+  {{- with $gateway.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
   {{- if and (eq (default "ClusterIP" $gateway.service.type) "LoadBalancer") $gateway.service.loadBalancerIP }}
   loadBalancerIP: {{ $gateway.service.loadBalancerIP | quote }}
   {{- end }}

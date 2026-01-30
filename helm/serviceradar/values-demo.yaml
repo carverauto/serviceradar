@@ -15,8 +15,10 @@ agentGateway:
   service:
     type: LoadBalancer
     port: 50052
+    externalTrafficPolicy: Local
     annotations:
       metallb.universe.tf/address-pool: k3s-pool
+      external-dns.alpha.kubernetes.io/hostname: "demo-gw.serviceradar.cloud."
 
 agent:
   pushInterval: "30s"
