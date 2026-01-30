@@ -34,7 +34,7 @@ import (
 	"time"
 
 	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
-	snmpchecker "github.com/carverauto/serviceradar/pkg/checker/snmp"
+	snmpchecker "github.com/carverauto/serviceradar/pkg/agent/snmp"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package snmp pkg/checker/snmp/interfaces.go
+// Package snmp pkg/agent/snmp/interfaces.go
 
 package snmp
 
@@ -25,7 +25,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
-//go:generate mockgen -destination=mock_snmp.go -package=snmp github.com/carverauto/serviceradar/pkg/checker/snmp Collector,Aggregator,Service,CollectorFactory,AggregatorFactory,SNMPClient
+//go:generate mockgen -destination=mock_snmp.go -package=snmp github.com/carverauto/serviceradar/pkg/agent/snmp Collector,Aggregator,Service,CollectorFactory,AggregatorFactory,SNMPClient
 
 // Collector defines how to collect SNMP data from a target.
 type Collector interface {

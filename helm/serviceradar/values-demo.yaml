@@ -12,6 +12,11 @@ image:
 
 agentGateway:
   enabled: true
+  service:
+    type: LoadBalancer
+    port: 50052
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
 
 agent:
   pushInterval: "30s"

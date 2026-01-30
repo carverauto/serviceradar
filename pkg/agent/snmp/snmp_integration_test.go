@@ -17,7 +17,7 @@
  * limitations under the License.
  */
 
-// Package snmp pkg/checker/snmp/snmp_integration_test.go
+// Package snmp pkg/agent/snmp/snmp_integration_test.go
 package snmp
 
 import (
