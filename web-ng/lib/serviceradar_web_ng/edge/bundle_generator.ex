@@ -185,8 +185,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     component_id = package.component_id || package.id
     metadata = metadata_map(package)
 
+    base_url = Keyword.get(opts, :base_url, default_base_url())
+
     gateway_addr =
-      Keyword.get(opts, :gateway_addr, Map.get(metadata, "gateway_addr", default_gateway_addr()))
+      Keyword.get(
+        opts,
+        :gateway_addr,
+        Map.get(metadata, "gateway_addr", default_gateway_addr(base_url))
+      )
 
     cert_dir = "/etc/serviceradar/certs"
     partition = Map.get(metadata, "partition", "default")
@@ -195,7 +201,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     gateway_security = %{
       "mode" => "mtls",
       "cert_dir" => cert_dir,
-      "server_name" => gateway_server_name(gateway_addr),
+      "server_name" => gateway_server_name(gateway_addr, metadata, opts),
       "role" => component_type,
       "tls" => %{
         "cert_file" => "component.pem",
@@ -706,8 +712,16 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     ServiceRadarWebNGWeb.Endpoint.url()
   end
 
-  defp default_gateway_addr do
-    Application.get_env(:serviceradar_web_ng, :gateway_addr, "agent-gateway:50052")
+  defp default_gateway_addr(base_url) do
+    env_gateway_addr = Application.get_env(:serviceradar_web_ng, :gateway_addr)
+
+    case normalize_string(env_gateway_addr) do
+      nil ->
+        derive_gateway_addr(base_url) || "agent-gateway:50052"
+
+      gateway_addr ->
+        gateway_addr
+    end
   end
 
   defp onboarding_token(package, opts) do
@@ -806,13 +820,87 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   defp metadata_map(_), do: %{}
 
-  defp gateway_server_name(gateway_addr) when is_binary(gateway_addr) do
+  defp gateway_server_name(gateway_addr, metadata, opts) when is_binary(gateway_addr) do
+    override =
+      normalize_string(Keyword.get(opts, :gateway_server_name)) ||
+        normalize_string(Map.get(metadata, "gateway_server_name")) ||
+        normalize_string(Application.get_env(:serviceradar_web_ng, :gateway_server_name))
+
+    if is_binary(override) do
+      override
+    else
+      host = gateway_host(gateway_addr)
+
+      if internal_gateway_host?(host) do
+        host
+      else
+        "serviceradar-agent-gateway"
+      end
+    end
+  end
+
+  defp gateway_host(gateway_addr) do
     case String.split(gateway_addr, ":") do
       [host, _port] -> host
       [host] -> host
       _ -> gateway_addr
     end
   end
+
+  defp internal_gateway_host?(host) when is_binary(host) do
+    host in [
+      "serviceradar-agent-gateway",
+      "agent-gateway",
+      "agent-gateway.serviceradar"
+    ] or String.ends_with?(host, ".svc.cluster.local")
+  end
+
+  defp internal_gateway_host?(_), do: false
+
+  defp derive_gateway_addr(base_url) when is_binary(base_url) do
+    case URI.parse(base_url) do
+      %URI{host: host} when is_binary(host) ->
+        host
+        |> derive_gateway_host()
+        |> case do
+          nil -> nil
+          derived_host -> "#{derived_host}:50052"
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp derive_gateway_addr(_), do: nil
+
+  defp derive_gateway_host(host) when is_binary(host) do
+    host = String.trim(host)
+
+    cond do
+      host == "" ->
+        nil
+
+      String.contains?(host, "-gw.") or String.ends_with?(host, "-gw") ->
+        host
+
+      true ->
+        case String.split(host, ".", parts: 2) do
+          [first, rest] when rest != "" -> "#{first}-gw.#{rest}"
+          [single] -> "#{single}-gw"
+          _ -> host
+        end
+    end
+  end
+
+  defp derive_gateway_host(_), do: nil
+
+  defp normalize_string(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_string(_), do: nil
 
   defp grpc_port_for_component(_), do: 50_051
 
