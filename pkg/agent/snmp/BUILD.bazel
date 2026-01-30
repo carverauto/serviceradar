@@ -1,0 +1,45 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "snmp",
+    srcs = [
+        "aggregator.go",
+        "client.go",
+        "collector.go",
+        "config.go",
+        "errors.go",
+        "interfaces.go",
+        "mock_snmp.go",
+        "service.go",
+        "target_status.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/agent/snmp",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@com_github_gosnmp_gosnmp//:gosnmp",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "snmp_test",
+    srcs = [
+        "aggregator_test.go",
+        "client_conversion_test.go",
+        "collector_test.go",
+        "service_deadlock_test.go",
+        "service_test.go",
+    ],
+    embedsrcs = ["service.go"],
+    embed = [":snmp"],
+    deps = [
+        "//pkg/logger",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_uber_go_mock//gomock",
+    ],
+)
