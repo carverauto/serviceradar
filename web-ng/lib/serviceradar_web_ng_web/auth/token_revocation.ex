@@ -23,7 +23,7 @@ defmodule ServiceRadarWebNGWeb.Auth.TokenRevocation do
   ## Cleanup
 
   Revoked tokens are automatically cleaned up after they would have expired
-  (default: 24 hours) to prevent unbounded memory growth.
+  (default: session absolute timeout) to prevent unbounded memory growth.
   """
 
   use GenServer
@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.Auth.TokenRevocation do
 
   @table :revoked_tokens
   @cleanup_interval :timer.hours(1)
-  @default_ttl :timer.hours(24)
+  @default_ttl_seconds 30 * 24 * 60 * 60
 
   # Client API
 
@@ -46,13 +46,13 @@ defmodule ServiceRadarWebNGWeb.Auth.TokenRevocation do
   Options:
   - `:reason` - Reason for revocation (for audit logging)
   - `:user_id` - User ID associated with the token
-  - `:ttl` - How long to keep the revocation record (default: 24h)
+  - `:ttl` - How long to keep the revocation record (default: session absolute timeout)
   """
   @spec revoke_token(String.t(), keyword()) :: :ok
   def revoke_token(jti, opts \\ []) when is_binary(jti) do
     reason = Keyword.get(opts, :reason, :manual)
     user_id = Keyword.get(opts, :user_id)
-    ttl = Keyword.get(opts, :ttl, @default_ttl)
+    ttl = Keyword.get(opts, :ttl, default_ttl_ms())
 
     expires_at = System.system_time(:millisecond) + ttl
 
@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.Auth.TokenRevocation do
       reason: reason,
       revoked_at: revoked_before,
       revoked_before: revoked_before,
-      expires_at: System.system_time(:millisecond) + @default_ttl
+      expires_at: System.system_time(:millisecond) + default_ttl_ms()
     }
 
     :ets.insert(@table, {marker_jti, entry})
@@ -223,5 +223,13 @@ defmodule ServiceRadarWebNGWeb.Auth.TokenRevocation do
     if expired_count > 0 do
       Logger.debug("Cleaned up #{expired_count} expired token revocations")
     end
+  end
+
+  defp default_ttl_ms do
+    seconds =
+      Application.get_env(:serviceradar_web_ng, :session, [])
+      |> Keyword.get(:absolute_timeout_seconds, @default_ttl_seconds)
+
+    max(seconds, 60) * 1_000
   end
 end

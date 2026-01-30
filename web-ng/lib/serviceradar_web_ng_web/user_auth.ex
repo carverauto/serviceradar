@@ -18,6 +18,12 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNGWeb.Auth.TokenRevocation
 
+  require Logger
+
+  @default_absolute_timeout_seconds 30 * 24 * 60 * 60
+  @session_started_key :session_started_at
+  @user_token_key "user_token"
+
   @doc """
   Logs the user in by creating a Guardian session token.
 
@@ -26,14 +32,17 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   """
   def log_in_user(conn, user, params \\ %{}) do
     return_to = get_session(conn, :user_return_to) || params["return_to"] || ~p"/analytics"
+    session_started_at = DateTime.utc_now() |> DateTime.to_unix()
+    max_age_seconds = session_absolute_timeout_seconds()
 
     case Guardian.create_access_token(user) do
       {:ok, token, _claims} ->
         conn
-        |> put_session("user_token", token)
+        |> put_session(@user_token_key, token)
+        |> put_session(@session_started_key, session_started_at)
         |> delete_session(:user_return_to)
         |> put_session(:live_socket_id, "users_sessions:#{user.id}")
-        |> configure_session(renew: true)
+        |> configure_session(renew: true, max_age: max_age_seconds)
         |> assign(:current_user, user)
         |> redirect(to: return_to)
 
@@ -64,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   defp revoke_current_token(conn) do
-    with token when is_binary(token) <- get_session(conn, "user_token"),
+    with token when is_binary(token) <- get_session(conn, @user_token_key),
          {:ok, claims} <- Guardian.decode_and_verify(token, %{}) do
       jti = Map.get(claims, "jti")
       user_id = extract_user_id(claims)
@@ -83,19 +92,160 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   defp extract_user_id(%{"sub" => "user:" <> id}), do: id
   defp extract_user_id(_), do: nil
 
+  defp refresh_session(conn, user, claims) do
+    {conn, session_started_at} = ensure_session_started_at(conn, claims)
+    now = System.system_time(:second)
+    absolute_timeout_seconds = session_absolute_timeout_seconds()
+
+    if now - session_started_at >= absolute_timeout_seconds do
+      log_session_expired(conn, user, session_started_at, absolute_timeout_seconds)
+
+      refreshed_conn =
+        conn
+        |> clear_session()
+        |> configure_session(renew: true)
+
+      {:error, refreshed_conn}
+    else
+      remaining_seconds = max(absolute_timeout_seconds - (now - session_started_at), 1)
+
+      case Guardian.create_access_token(user) do
+        {:ok, token, _claims} ->
+          refreshed_conn =
+            conn
+            |> put_session(@user_token_key, token)
+            |> configure_session(max_age: remaining_seconds)
+
+          {:ok, refreshed_conn}
+
+        {:error, reason} ->
+          Logger.warning("Failed to refresh session token",
+            reason: inspect(reason),
+            user_id: user.id
+          )
+
+          refreshed_conn =
+            conn
+            |> clear_session()
+            |> configure_session(renew: true)
+
+          {:error, refreshed_conn}
+      end
+    end
+  end
+
+  defp ensure_session_started_at(conn, claims) do
+    case get_session(conn, @session_started_key) do
+      started_at when is_integer(started_at) ->
+        {conn, started_at}
+
+      started_at when is_binary(started_at) ->
+        case Integer.parse(started_at) do
+          {parsed, ""} ->
+            {put_session(conn, @session_started_key, parsed), parsed}
+
+          _ ->
+            set_session_started_at(conn, claims)
+        end
+
+      _ ->
+        set_session_started_at(conn, claims)
+    end
+  end
+
+  defp set_session_started_at(conn, claims) do
+    started_at = claim_issued_at(claims)
+    {put_session(conn, @session_started_key, started_at), started_at}
+  end
+
+  defp claim_issued_at(claims) do
+    case Map.get(claims, "iat") do
+      iat when is_integer(iat) ->
+        iat
+
+      iat when is_float(iat) ->
+        trunc(iat)
+
+      iat when is_binary(iat) ->
+        case Integer.parse(iat) do
+          {parsed, ""} -> parsed
+          _ -> DateTime.utc_now() |> DateTime.to_unix()
+        end
+
+      _ ->
+        DateTime.utc_now() |> DateTime.to_unix()
+    end
+  end
+
+  defp log_session_failure(conn, reason) do
+    Logger.info("Session token rejected",
+      reason: inspect(reason),
+      path: conn.request_path,
+      method: conn.method
+    )
+  end
+
+  defp log_session_expired(conn, user, session_started_at, absolute_timeout_seconds) do
+    Logger.info("Session expired due to absolute timeout",
+      user_id: user.id,
+      session_started_at: session_started_at,
+      absolute_timeout_seconds: absolute_timeout_seconds,
+      path: conn.request_path,
+      method: conn.method
+    )
+  end
+
+  defp session_config do
+    Application.get_env(:serviceradar_web_ng, :session, [])
+  end
+
+  defp session_absolute_timeout_seconds do
+    session_config()
+    |> Keyword.get(:absolute_timeout_seconds, @default_absolute_timeout_seconds)
+  end
+
   @doc """
   Authenticates the user by verifying the Guardian JWT token in the session.
 
   The token is stored under "user_token" key by `log_in_user/3`.
   """
   def fetch_current_scope_for_user(conn, _opts) do
-    with token when is_binary(token) <- get_session(conn, "user_token"),
-         {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "access") do
-      assign(conn, :current_scope, Scope.for_user(user))
+    token = get_session(conn, @user_token_key)
+
+    if is_binary(token) do
+      authenticate_with_token(conn, token)
     else
-      _ ->
-        assign(conn, :current_scope, Scope.for_user(nil))
+      assign(conn, :current_scope, Scope.for_user(nil))
     end
+  end
+
+  defp authenticate_with_token(conn, token) do
+    case Guardian.verify_token(token, token_type: "access") do
+      {:ok, user, claims} ->
+        refresh_and_assign_scope(conn, user, claims)
+
+      {:error, reason} ->
+        handle_session_failure(conn, reason)
+    end
+  end
+
+  defp refresh_and_assign_scope(conn, user, claims) do
+    case refresh_session(conn, user, claims) do
+      {:ok, refreshed_conn} ->
+        assign(refreshed_conn, :current_scope, Scope.for_user(user))
+
+      {:error, refreshed_conn} ->
+        assign(refreshed_conn, :current_scope, Scope.for_user(nil))
+    end
+  end
+
+  defp handle_session_failure(conn, reason) do
+    log_session_failure(conn, reason)
+
+    conn
+    |> clear_session()
+    |> configure_session(renew: true)
+    |> assign(:current_scope, Scope.for_user(nil))
   end
 
   @doc """
@@ -169,7 +319,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     socket
     |> Phoenix.Component.assign_new(:current_scope, fn ->
       user =
-        with token when is_binary(token) <- session["user_token"],
+        with token when is_binary(token) <- session[@user_token_key],
              {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "access") do
           user
         else
