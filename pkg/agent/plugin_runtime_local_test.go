@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -68,6 +69,94 @@ func TestExecuteWithWasmHarness(t *testing.T) {
 	results := manager.DrainResults(1)
 	if len(results) == 0 {
 		t.Fatalf("expected plugin result, got none")
+	}
+	t.Logf("Plugin result: %s", string(results[0].Payload))
+}
+
+func TestDuskCheckerWithConfig(t *testing.T) {
+	wasmPath := os.Getenv("WASM_PATH")
+	if wasmPath == "" {
+		t.Skip("set WASM_PATH to dusk-checker plugin.wasm")
+	}
+
+	if _, err := os.Stat(wasmPath); err != nil {
+		t.Skipf("wasm file not found at %s", wasmPath)
+	}
+
+	wasm, err := os.ReadFile(wasmPath)
+	if err != nil {
+		t.Fatalf("read wasm: %v", err)
+	}
+
+	manager := NewPluginManager(context.Background(), PluginManagerConfig{
+		Logger: logger.NewTestLogger(),
+	})
+	defer manager.Stop()
+
+	// Provide config with node_address to test WebSocket path
+	config := map[string]interface{}{
+		"node_address": "localhost:9999", // Non-existent server
+		"timeout":      "5s",
+	}
+	configJSON, _ := json.Marshal(config)
+
+	assignment := &pluginAssignment{
+		AssignmentID: "dusk-checker-test",
+		PluginID:     "dusk-checker",
+		Name:         "Dusk Checker",
+		Entrypoint:   "run_check",
+		Runtime:      "wasi-preview1",
+		ParamsJSON:   configJSON,
+		Capabilities: map[string]bool{
+			"get_config":        true,
+			"log":               true,
+			"submit_result":     true,
+			"http_request":      true,
+			"websocket_connect": true,
+			"websocket_send":    true,
+			"websocket_recv":    true,
+			"websocket_close":   true,
+		},
+		Permissions: pluginPermissions{
+			AllowedDomains: []string{"*"},
+			AllowedPorts:   []int{9999},
+		},
+		Resources: pluginResources{
+			RequestedMemoryMB:  64,
+			MaxOpenConnections: 1,
+		},
+		Timeout: 10 * time.Second,
+	}
+	assignment.Permissions.normalize()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := manager.executeWithWasm(ctx, assignment, wasm); err != nil {
+		t.Fatalf("executeWithWasm: %v", err)
+	}
+
+	results := manager.DrainResults(1)
+	if len(results) == 0 {
+		t.Fatalf("expected plugin result, got none")
+	}
+
+	t.Logf("Plugin result: %s", string(results[0].Payload))
+
+	// Parse result to check status
+	var result map[string]interface{}
+	if err := json.Unmarshal(results[0].Payload, &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+
+	status, _ := result["status"].(string)
+	summary, _ := result["summary"].(string)
+	t.Logf("Status: %s, Summary: %s", status, summary)
+
+	// Expect CRITICAL because we can't connect to the fake server
+	const expectedStatus = "CRITICAL"
+	if status != expectedStatus {
+		t.Logf("Expected %s status (no server), got %s", expectedStatus, status)
 	}
 }
 

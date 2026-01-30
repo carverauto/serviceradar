@@ -37,7 +37,6 @@ func testSysmonConfig() *sysmon.Config {
 	return &cfg
 }
 
-//nolint:dupl // Test structure intentionally similar to other service tests
 func TestNewSysmonService(t *testing.T) {
 	t.Parallel()
 

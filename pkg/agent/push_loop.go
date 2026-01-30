@@ -49,10 +49,6 @@ import (
 //nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
 
-const (
-	// configSourceRemote is the config source value for configs from the gateway.
-	configSourceRemote = "remote"
-)
 
 var (
 	errSweepMissingHosts    = errors.New("sweep data missing hosts field")
@@ -1585,10 +1581,6 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 		statuses = append(statuses, p.convertToGatewayStatus(status, status.ServiceName, status.ServiceType))
 	}
 
-	if status, err := p.server.GetDuskStatus(ctx); err == nil && status != nil {
-		statuses = append(statuses, p.convertToGatewayStatus(status, status.ServiceName, status.ServiceType))
-	}
-
 	return statuses, sysmonStatus
 }
 
@@ -2346,11 +2338,6 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		p.applySNMPConfig(configResp.SnmpConfig)
 	}
 
-	// Apply dusk config if present
-	if configResp.DuskConfig != nil {
-		p.applyDuskConfig(configResp.DuskConfig)
-	}
-
 	// Apply plugin config if present
 	if configResp.PluginConfig != nil {
 		p.applyPluginConfig(configResp.PluginConfig)
@@ -2709,41 +2696,6 @@ func (p *PushLoop) applySNMPConfig(protoConfig *proto.SNMPConfig) {
 	}
 }
 
-// applyDuskConfig applies dusk configuration from the gateway to the embedded dusk service.
-func (p *PushLoop) applyDuskConfig(protoConfig *proto.DuskConfig) {
-	p.server.mu.RLock()
-	duskSvc := p.server.duskService
-	p.server.mu.RUnlock()
-
-	if duskSvc == nil {
-		p.logger.Debug().Msg("Dusk service not initialized, skipping config apply")
-		return
-	}
-
-	// Convert proto config to DuskConfig
-	cfg := protoToDuskConfig(protoConfig)
-
-	// Build source string from proto metadata
-	source := configSourceRemote
-	if protoConfig.ConfigSource != "" {
-		source = configSourceRemote + ":" + protoConfig.ConfigSource
-	}
-
-	// Apply the configuration
-	if err := duskSvc.Reconfigure(cfg, source); err != nil {
-		p.logger.Error().Err(err).Msg("Failed to apply dusk config from gateway")
-		return
-	}
-
-	p.logger.Info().
-		Str("profile_id", protoConfig.ProfileId).
-		Str("profile_name", protoConfig.ProfileName).
-		Str("config_source", protoConfig.ConfigSource).
-		Bool("enabled", cfg.Enabled).
-		Str("node_address", cfg.NodeAddress).
-		Msg("Applied dusk config from gateway")
-}
-
 func (p *PushLoop) applyCheckConfigs(checks []*proto.AgentCheckConfig) {
 	parsed := make(map[string]*icmpCheckConfig)
 
@@ -2821,39 +2773,12 @@ func parseICMPCheckConfig(check *proto.AgentCheckConfig) *icmpCheckConfig {
 	}
 }
 
-// protoToDuskConfig converts a proto DuskConfig to a DuskConfig.
-func protoToDuskConfig(p *proto.DuskConfig) *DuskConfig {
-	if p == nil {
-		return DefaultDuskConfig()
-	}
-
-	cfg := &DuskConfig{
-		Enabled:     p.Enabled,
-		NodeAddress: p.NodeAddress,
-	}
-
-	// Parse timeout from string duration
-	if p.Timeout != "" {
-		d, err := time.ParseDuration(p.Timeout)
-		if err == nil {
-			cfg.Timeout = models.Duration(d)
-		} else {
-			cfg.Timeout = models.Duration(5 * time.Minute) // Default timeout
-		}
-	} else {
-		cfg.Timeout = models.Duration(5 * time.Minute)
-	}
-
-	return cfg
-}
-
 // getAgentCapabilities returns the list of capabilities this agent supports.
 func getAgentCapabilities() []string {
 	return []string{
 		"icmp",
 		sweepType,
 		"snmp",
-		"dusk",
 		"mapper",
 		"sync",
 		"sysmon",

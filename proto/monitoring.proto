@@ -46,7 +46,7 @@ message DeviceStatusRequest {
 }
 
 message StatusRequest {
-  string service_name = 1; // Type of service to check (process, port, dusk)
+  string service_name = 1; // Name of the service to check
   string service_type = 2; // Type of service (process, port, grpc, etc)
   string agent_id = 3;     // Agent ID for traceability
   string gateway_id = 4;   // Gateway ID for traceability
@@ -271,9 +271,6 @@ message AgentConfigResponse {
   // SNMP configuration for embedded SNMP monitoring
   SNMPConfig snmp_config = 9;
 
-  // Dusk blockchain node monitoring configuration
-  DuskConfig dusk_config = 10;
-
   // Wasm plugin configuration assignments
   PluginConfig plugin_config = 11;
 }
@@ -376,25 +373,6 @@ message AgentCheckConfig {
 // ============================================================================
 // SNMP Configuration Messages
 // ============================================================================
-
-// DuskConfig defines Dusk blockchain node monitoring configuration.
-// The dusk monitoring service is embedded in the agent and monitors
-// Dusk blockchain nodes via their WebSocket API.
-message DuskConfig {
-  // Whether dusk monitoring is enabled
-  bool enabled = 1;
-
-  // WebSocket address of the Dusk node to monitor (e.g., "localhost:8080")
-  string node_address = 2;
-
-  // Connection and operation timeout as duration string (e.g., "5m", "30s")
-  string timeout = 3;
-
-  // Profile metadata (for UI display and debugging)
-  string profile_id = 4;           // UUID of the profile this config came from
-  string profile_name = 5;         // Name of the profile for logging
-  string config_source = 6;        // Source: "srql", "default", "profile"
-}
 
 // SNMPConfig defines SNMP monitoring configuration for the embedded SNMP collector.
 message SNMPConfig {

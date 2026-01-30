@@ -46,7 +46,6 @@ config :serviceradar_web_ng,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.DuskProfiles,
     ServiceRadar.Plugins
   ]
 
@@ -66,7 +65,6 @@ config :serviceradar_core,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.DuskProfiles,
     ServiceRadar.Plugins
   ]
 
