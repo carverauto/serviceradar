@@ -6,7 +6,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   - Stores SweepHostResult records for each scanned host
   - Updates SweepGroupExecution statistics
   - Updates device availability status in inventory
-  - Creates new device records for unknown hosts
   - Adds "sweep" to discovery_sources array
 
   ## Message Format
@@ -258,7 +257,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     known_ips = Map.keys(device_map)
     unknown_ips = ips -- known_ips
 
-    # Step 4: Check detected aliases for unknown IPs (fallback before creating new devices)
+    # Step 4: Check detected aliases for unknown IPs (fallback before skipping)
     detected_alias_map = DeviceLookup.lookup_detected_aliases_by_ip(unknown_ips, actor: actor)
     detected_ips = Map.keys(detected_alias_map)
 
@@ -270,15 +269,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       Enum.map(detected_alias_map, fn {ip, {record, _alias}} -> {ip, record} end)
       |> Map.new()
 
-    # Step 5: Create device records for truly unknown hosts (no device, no alias)
-    truly_unknown_ips = unknown_ips -- detected_ips
-    created_devices = create_unknown_devices(truly_unknown_ips, results, actor)
-
-    # Step 6: Merge all device sources
+    # Step 5: Merge all device sources (skip truly unknown hosts)
     all_devices =
       device_map
       |> Map.merge(detected_device_map)
-      |> Map.merge(created_devices)
 
     # Step 7: Build host result records
     {host_results, stats} = build_host_results(results, execution_id, all_devices)
@@ -291,7 +285,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
         final_stats =
           stats
-          |> Map.put(:devices_created, length(Map.keys(created_devices)))
+          |> Map.put(:devices_created, 0)
           |> Map.put(:devices_updated, length(known_ips) + length(detected_ips))
           |> Map.put(:aliases_confirmed, length(detected_ips))
 
@@ -324,122 +318,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     result["host_ip"] || result["hostIp"] || result["ip"]
   end
 
-  defp create_unknown_devices([], _results, _actor), do: %{}
-
-  defp create_unknown_devices(unknown_ips, results, actor) do
-    # Build lookup of result data by IP
-    result_by_ip =
-      results
-      |> Enum.map(fn r -> {extract_ip(r), r} end)
-      |> Enum.reject(fn {ip, _} -> is_nil(ip) end)
-      |> Map.new()
-
-    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    device_records = build_unknown_device_records(unknown_ips, result_by_ip, timestamp)
-    created = insert_unknown_device_records(device_records, timestamp)
-
-    # Create IP aliases for newly created devices so future discoveries can correlate
-    create_aliases_for_new_devices(created, actor)
-
-    created
-  end
-
-  defp create_aliases_for_new_devices(created_devices, actor) do
-    Enum.each(created_devices, fn {ip, record} ->
-      create_alias_for_device(ip, record.canonical_device_id, actor)
-    end)
-  end
-
-  defp create_alias_for_device(ip, device_id, actor) do
-    result =
-      DeviceAliasState.create_detected(
-        %{
-          device_id: device_id,
-          partition: "default",
-          alias_type: :ip,
-          alias_value: ip,
-          metadata: %{"source" => "sweep_discovery"}
-        },
-        actor: actor
-      )
-
-    handle_alias_creation_result(result, ip, device_id)
-  end
-
-  defp handle_alias_creation_result({:ok, _alias}, ip, device_id) do
-    Logger.debug("SweepResultsIngestor: Created IP alias #{ip} for device #{device_id}")
-  end
-
-  defp handle_alias_creation_result({:error, %Ash.Error.Invalid{} = err}, ip, _device_id) do
-    if Enum.any?(err.errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)) do
-      Logger.debug("SweepResultsIngestor: Alias #{ip} already exists, skipping")
-    else
-      Logger.warning("SweepResultsIngestor: Failed to create alias #{ip}: #{inspect(err)}")
-    end
-  end
-
-  defp handle_alias_creation_result({:error, reason}, ip, _device_id) do
-    Logger.warning("SweepResultsIngestor: Failed to create alias #{ip}: #{inspect(reason)}")
-  end
-
-  defp generate_device_uid(ip) do
-    "sweep-#{ip}-#{:erlang.phash2(ip)}"
-  end
-
-  defp build_unknown_device_records(unknown_ips, result_by_ip, timestamp) do
-    Enum.map(unknown_ips, fn ip ->
-      result = Map.get(result_by_ip, ip, %{})
-      hostname = result["hostname"]
-
-      %{
-        uid: generate_device_uid(ip),
-        type_id: 0,
-        type: "Unknown",
-        name: hostname || ip,
-        hostname: hostname,
-        ip: ip,
-        discovery_sources: ["sweep"],
-        is_available: result_available?(result),
-        first_seen_time: timestamp,
-        last_seen_time: timestamp,
-        created_time: timestamp,
-        modified_time: timestamp,
-        metadata: %{}
-      }
-    end)
-  end
-
-  defp insert_unknown_device_records([], _timestamp), do: %{}
-
-  defp insert_unknown_device_records(device_records, timestamp) do
-    # DB connection's search_path determines the schema
-    case Repo.insert_all(
-           Device,
-           device_records,
-           on_conflict: {:replace, [:last_seen_time, :is_available, :modified_time]},
-           conflict_target: :uid,
-           returning: [:uid, :ip]
-         ) do
-      {_count, created} ->
-        created
-        |> Enum.map(&device_map_entry(&1, timestamp))
-        |> Map.new()
-    end
-  end
-
-  defp device_map_entry(device, timestamp) do
-    {device.ip,
-     %{
-       canonical_device_id: device.uid,
-       partition: "default",
-       metadata_hash: nil,
-       attributes: %{},
-       updated_at: timestamp
-     }}
-  end
-
-  defp build_host_results(results, execution_id, device_map) do
+  @doc false
+  def build_host_results(results, execution_id, device_map) do
     initial_stats = %{
       hosts_total: 0,
       hosts_available: 0,
