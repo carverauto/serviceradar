@@ -97,7 +97,6 @@ const (
 	typeICMP    = "icmp"
 	typeSysMon  = "sysmon"
 	typeRPerf   = "rperf-checker"
-	typeDusk    = "dusk"
 )
 
 // Supported actions for update-gateway.
@@ -110,7 +109,6 @@ func getDefaultPorts() map[string]string {
 	return map[string]string{
 		typeSNMP:   ":50080",
 		typeRPerf:  ":50081",
-		typeDusk:   ":50082",
 		typeSysMon: ":50083",
 	}
 }

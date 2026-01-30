@@ -23,7 +23,6 @@ config :serviceradar_core,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.DuskProfiles,
     ServiceRadar.Plugins
   ]
 
