@@ -12,6 +12,13 @@ image:
 
 agentGateway:
   enabled: true
+  service:
+    type: LoadBalancer
+    port: 50052
+    loadBalancerIP: "23.138.124.19"
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
+      metallb.universe.tf/allow-shared-ip: "true"
 
 agent:
   pushInterval: "30s"

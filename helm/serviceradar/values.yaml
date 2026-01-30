@@ -222,7 +222,7 @@ agentGateway:
   kubernetesNodeBasename: "serviceradar_agent_gateway"
   service:
     port: 50052
-    type: ClusterIP
+    type: LoadBalancer
     nodePort: null
     loadBalancerIP: ""
     annotations: {}
