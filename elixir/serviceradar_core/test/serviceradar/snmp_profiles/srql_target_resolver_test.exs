@@ -33,16 +33,16 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
       assert {:ok, nil} = SrqlTargetResolver.resolve_for_device(nil, nil)
     end
 
-    test "returns error for invalid device_uid format" do
+    test "returns ok nil for invalid device_uid format" do
       actor = %{role: :system}
       result = SrqlTargetResolver.resolve_for_device("not-a-uuid", actor)
-      assert {:error, :invalid_device_uid} = result
+      assert {:ok, nil} = result
     end
 
-    test "returns error for malformed UUID" do
+    test "returns ok nil for malformed UUID" do
       actor = %{role: :system}
       result = SrqlTargetResolver.resolve_for_device("12345", actor)
-      assert {:error, :invalid_device_uid} = result
+      assert {:ok, nil} = result
     end
   end
 

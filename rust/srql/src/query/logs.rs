@@ -877,6 +877,7 @@ mod tests {
             stats: Some(crate::parser::StatsSpec::from_raw(stats)),
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         }
     }
 
@@ -898,6 +899,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         };
 
         let result = build_query(&plan);
@@ -931,6 +933,7 @@ mod tests {
             stats: Some(crate::parser::StatsSpec::from_raw("count() as total")),
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         };
 
         let result = build_stats_query(&plan);
@@ -960,6 +963,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: Some("severity".to_string()),
+            include_deleted: false,
         };
 
         let result = build_rollup_stats_query(&plan).expect("should build rollup_stats query");
@@ -1002,6 +1006,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: Some("severity".to_string()),
+            include_deleted: false,
         };
 
         let result = build_rollup_stats_query(&plan).expect("should build rollup_stats query");
@@ -1030,6 +1035,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: Some("unknown".to_string()),
+            include_deleted: false,
         };
 
         let result = build_rollup_stats_query(&plan);

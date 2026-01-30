@@ -391,6 +391,9 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             model: fragment("COALESCE(EXCLUDED.model, ?)", d.model),
             is_available: fragment("COALESCE(EXCLUDED.is_available, ?)", d.is_available),
             metadata: fragment("COALESCE(EXCLUDED.metadata, ?)", d.metadata),
+            deleted_at: nil,
+            deleted_by: nil,
+            deleted_reason: nil,
             discovery_sources:
               fragment(
                 "(SELECT array_agg(DISTINCT src) FROM unnest(array_cat(COALESCE(?, ARRAY[]::text[]), EXCLUDED.discovery_sources)) AS src WHERE src IS NOT NULL AND src <> '')",

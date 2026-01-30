@@ -33,6 +33,7 @@ defmodule ServiceRadar.Inventory.Device do
     extensions: [AshJsonApi.Resource]
 
   alias ServiceRadar.Inventory.IdentityReconciler
+  require Ash.Query
 
   postgres do
     table "ocsf_devices"
@@ -52,43 +53,69 @@ defmodule ServiceRadar.Inventory.Device do
   end
 
   code_interface do
-    define :get_by_uid, action: :by_uid, args: [:uid]
-    define :get_by_ip, action: :by_ip, args: [:ip]
-    define :get_by_mac, action: :by_mac, args: [:mac]
+    define :get_by_uid, action: :by_uid, args: [:uid, :include_deleted]
+    define :get_by_ip, action: :by_ip, args: [:ip, :include_deleted]
+    define :get_by_mac, action: :by_mac, args: [:mac, :include_deleted]
+    define :soft_delete, action: :soft_delete, args: [:deleted_reason, :deleted_by]
+    define :restore, action: :restore
+    define :bulk_soft_delete, action: :bulk_soft_delete, args: [:device_uids, :deleted_reason]
   end
 
   actions do
-    defaults [:read]
+    read :read do
+      argument :include_deleted, :boolean do
+        allow_nil? false
+        default false
+      end
+
+      filter expr(is_nil(deleted_at) or ^arg(:include_deleted))
+    end
 
     read :by_uid do
       argument :uid, :string, allow_nil?: false
+      argument :include_deleted, :boolean do
+        allow_nil? false
+        default false
+      end
       get? true
-      filter expr(uid == ^arg(:uid))
+      filter expr(uid == ^arg(:uid) and (is_nil(deleted_at) or ^arg(:include_deleted)))
     end
 
     read :by_ip do
       argument :ip, :string, allow_nil?: false
-      filter expr(ip == ^arg(:ip))
+      argument :include_deleted, :boolean do
+        allow_nil? false
+        default false
+      end
+      filter expr(ip == ^arg(:ip) and (is_nil(deleted_at) or ^arg(:include_deleted)))
     end
 
     read :by_mac do
       argument :mac, :string, allow_nil?: false
-      filter expr(mac == ^arg(:mac))
+      argument :include_deleted, :boolean do
+        allow_nil? false
+        default false
+      end
+      filter expr(mac == ^arg(:mac) and (is_nil(deleted_at) or ^arg(:include_deleted)))
     end
 
     read :by_gateway do
       argument :gateway_id, :string, allow_nil?: false
-      filter expr(gateway_id == ^arg(:gateway_id))
+      argument :include_deleted, :boolean do
+        allow_nil? false
+        default false
+      end
+      filter expr(gateway_id == ^arg(:gateway_id) and (is_nil(deleted_at) or ^arg(:include_deleted)))
     end
 
     read :available do
       description "Devices currently available"
-      filter expr(is_available == true)
+      filter expr(is_available == true and is_nil(deleted_at))
     end
 
     read :recently_seen do
       description "Devices seen in the last hour"
-      filter expr(last_seen_time > ago(1, :hour))
+      filter expr(last_seen_time > ago(1, :hour) and is_nil(deleted_at))
     end
 
     create :create do
@@ -190,6 +217,9 @@ defmodule ServiceRadar.Inventory.Device do
         :metadata
       ]
 
+      change set_attribute(:deleted_at, nil)
+      change set_attribute(:deleted_by, nil)
+      change set_attribute(:deleted_reason, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
@@ -207,6 +237,61 @@ defmodule ServiceRadar.Inventory.Device do
     update :set_availability do
       accept [:is_available]
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :soft_delete do
+      accept [:deleted_reason, :deleted_by]
+
+      change set_attribute(:deleted_at, &DateTime.utc_now/0)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :restore do
+      change set_attribute(:deleted_at, nil)
+      change set_attribute(:deleted_by, nil)
+      change set_attribute(:deleted_reason, nil)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    action :bulk_soft_delete do
+      argument :device_uids, {:array, :string}, allow_nil?: false
+      argument :deleted_reason, :string
+
+      run fn input, context ->
+        actor = Map.get(context, :actor)
+        device_uids = input.arguments.device_uids || []
+        deleted_reason = input.arguments.deleted_reason
+        deleted_by = actor_identifier(actor)
+
+        query =
+          __MODULE__
+          |> Ash.Query.for_read(:read, %{include_deleted: true})
+          |> Ash.Query.filter(uid in ^device_uids)
+
+        result =
+          Ash.bulk_update(query, :soft_delete, %{
+            deleted_reason: deleted_reason,
+            deleted_by: deleted_by
+          },
+            actor: actor,
+            return_errors?: true,
+            return_records?: false
+          )
+
+        case result do
+          %Ash.BulkResult{status: :success} ->
+            :ok
+
+          %Ash.BulkResult{status: :partial_success, errors: errors} ->
+            {:error, List.first(errors) || :partial_failure}
+
+          %Ash.BulkResult{status: :error, errors: errors} ->
+            {:error, List.first(errors) || :bulk_delete_failed}
+
+          other ->
+            {:error, other}
+        end
+      end
     end
 
     destroy :destroy do
@@ -233,7 +318,7 @@ defmodule ServiceRadar.Inventory.Device do
       run fn input, context ->
         device_id = input.arguments.device_id
         ids = input.arguments.identifiers
-        actor = context[:actor]
+        actor = Map.get(context, :actor)
 
         IdentityReconciler.register_identifiers(device_id, ids, actor: actor)
       end
@@ -267,6 +352,11 @@ defmodule ServiceRadar.Inventory.Device do
 
     # Destroy devices: operators/admins (schema isolation via search_path)
     policy action_type(:destroy) do
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
+    end
+
+    policy action(:bulk_soft_delete) do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
     end
@@ -467,6 +557,21 @@ defmodule ServiceRadar.Inventory.Device do
       description "List of discovery source types"
     end
 
+    attribute :deleted_at, :utc_datetime_usec do
+      public? true
+      description "Soft delete tombstone timestamp"
+    end
+
+    attribute :deleted_by, :string do
+      public? true
+      description "Actor identifier that deleted the device"
+    end
+
+    attribute :deleted_reason, :string do
+      public? true
+      description "Optional reason for device deletion"
+    end
+
     attribute :tags, :map do
       default %{}
       public? true
@@ -567,6 +672,17 @@ defmodule ServiceRadar.Inventory.Device do
                 end
               )
   end
+
+  defp actor_identifier(nil), do: nil
+
+  defp actor_identifier(actor) when is_map(actor) do
+    Map.get(actor, :id) ||
+      Map.get(actor, "id") ||
+      Map.get(actor, :email) ||
+      Map.get(actor, "email")
+  end
+
+  defp actor_identifier(_actor), do: nil
 
   identities do
     identity :unique_uid, [:uid]

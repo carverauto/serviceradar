@@ -42,6 +42,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.{SweepGroupExecution, SweepHostResult, SweepPubSub}
 
+  require Ash.Query
   import Ecto.Query
 
   # Process in chunks to balance memory vs DB efficiency
@@ -251,14 +252,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     # Step 2: Batch lookup existing devices by IP (confirmed aliases only)
     # DB connection's search_path determines the schema
-    device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor)
+    device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true)
 
     # Step 3: Find IPs without existing devices
     known_ips = Map.keys(device_map)
     unknown_ips = ips -- known_ips
 
     # Step 4: Check detected aliases for unknown IPs (fallback before skipping)
-    detected_alias_map = DeviceLookup.lookup_detected_aliases_by_ip(unknown_ips, actor: actor)
+    detected_alias_map =
+      DeviceLookup.lookup_detected_aliases_by_ip(unknown_ips, actor: actor, include_deleted: true)
     detected_ips = Map.keys(detected_alias_map)
 
     # Step 4a: Confirm detected aliases that matched sweep results
@@ -281,7 +283,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     case bulk_insert_host_results(host_results) do
       :ok ->
         # Step 9: Update device availability
-        update_device_availability(results, all_devices)
+        update_device_availability(results, all_devices, actor)
 
         final_stats =
           stats
@@ -453,7 +455,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:error, e}
   end
 
-  defp update_device_availability(results, device_map) do
+  defp update_device_availability(results, device_map, actor) do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
     available_ips = result_ips_for_status(results, true)
@@ -462,6 +464,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     available_uids = device_uids_for_ips(available_ips, device_map)
     unavailable_uids = device_uids_for_ips(unavailable_ips, device_map)
 
+    restore_deleted_devices(Enum.uniq(available_uids ++ unavailable_uids), actor)
+
     # DB connection's search_path determines the schema
     update_device_statuses(available_uids, true, timestamp)
     update_device_statuses(unavailable_uids, false, timestamp)
@@ -469,6 +473,71 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     maybe_add_sweep_source(Enum.uniq(available_uids ++ unavailable_uids))
 
     :ok
+  end
+
+  defp restore_deleted_devices([], _actor), do: :ok
+
+  defp restore_deleted_devices(device_uids, actor) do
+    case load_deleted_devices(device_uids, actor) do
+      {:ok, devices} ->
+        devices
+        |> eligible_restore_uids()
+        |> restore_eligible_devices(actor)
+
+      {:error, reason} ->
+        Logger.warning("SweepResultsIngestor: Restore lookup failed", error: inspect(reason))
+        :ok
+    end
+  end
+
+  defp load_deleted_devices(device_uids, actor) do
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(uid in ^device_uids and not is_nil(deleted_at))
+    |> Ash.read(actor: actor)
+  end
+
+  defp eligible_restore_uids(devices) do
+    devices
+    |> Enum.filter(&restore_eligible?/1)
+    |> Enum.map(& &1.uid)
+  end
+
+  defp restore_eligible_devices([], _actor), do: :ok
+
+  defp restore_eligible_devices(eligible_uids, actor) do
+    restore_query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid in ^eligible_uids)
+
+    case Ash.bulk_update(restore_query, :restore, %{},
+           actor: actor,
+           return_records?: false,
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success} ->
+        :ok
+
+      %Ash.BulkResult{status: :partial_success, errors: errors} ->
+        Logger.warning("SweepResultsIngestor: Partial restore failures", errors: inspect(errors))
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        Logger.warning("SweepResultsIngestor: Restore failed", errors: inspect(errors))
+
+      other ->
+        Logger.warning("SweepResultsIngestor: Restore unexpected result", result: inspect(other))
+    end
+  end
+
+  defp restore_eligible?(device) do
+    sources =
+      device.discovery_sources
+      |> List.wrap()
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&to_string/1)
+
+    Enum.any?(sources, fn source -> String.downcase(source) != "sweep" and source != "" end)
   end
 
   defp result_ips_for_status(results, desired) do

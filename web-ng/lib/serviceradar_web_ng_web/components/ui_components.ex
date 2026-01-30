@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :rest, :global, include: ~w(
       href navigate patch method download name value type disabled form
       phx-click phx-value-idx phx-value-id phx-value-entity
+      phx-confirm
       aria-label aria-controls aria-expanded title
     )
 
@@ -55,6 +56,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :rest, :global, include: ~w(
       href navigate patch method download name value type disabled form
       phx-click phx-value-idx phx-value-id phx-value-entity
+      phx-confirm
       aria-label aria-controls aria-expanded title
     )
 

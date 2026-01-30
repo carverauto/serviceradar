@@ -110,6 +110,9 @@ pub struct DeviceRow {
     pub discovery_sources: Option<Vec<String>>,
     pub is_available: Option<bool>,
     pub metadata: Option<serde_json::Value>,
+    pub deleted_at: Option<DateTime<Utc>>,
+    pub deleted_by: Option<String>,
+    pub deleted_reason: Option<String>,
 }
 
 impl DeviceRow {
@@ -166,6 +169,9 @@ impl DeviceRow {
             "discovery_sources": self.discovery_sources.unwrap_or_default(),
             "is_available": self.is_available.unwrap_or(false),
             "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "deleted_at": self.deleted_at,
+            "deleted_by": self.deleted_by,
+            "deleted_reason": self.deleted_reason,
         })
     }
 }

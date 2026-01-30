@@ -285,6 +285,55 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_event("delete_device", _params, socket) do
+    scope = socket.assigns.current_scope
+    device_uid = socket.assigns.device_uid
+
+    case load_device(scope, device_uid) do
+      {:ok, device} ->
+        deleted_by = deleted_by_from_scope(scope)
+
+        case Device.soft_delete(device, %{deleted_reason: "ui_delete", deleted_by: deleted_by},
+               scope: scope
+             ) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Device deleted")
+             |> push_patch(to: device_show_path(socket, device_uid))}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to delete device: #{format_ash_error(reason)}")}
+        end
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
+    end
+  end
+
+  def handle_event("restore_device", _params, socket) do
+    scope = socket.assigns.current_scope
+    device_uid = socket.assigns.device_uid
+
+    case load_device(scope, device_uid) do
+      {:ok, device} ->
+        case Device.restore(device, scope: scope) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Device restored")
+             |> push_patch(to: device_show_path(socket, device_uid))}
+
+          {:error, reason} ->
+            {:noreply,
+             put_flash(socket, :error, "Failed to restore device: #{format_ash_error(reason)}")}
+        end
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
+    end
+  end
+
   def handle_event("toggle_aliases", _params, socket) do
     show_stale = not socket.assigns.show_stale_aliases
     scope = socket.assigns.current_scope
@@ -1001,6 +1050,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       assigns
       |> assign(:device_row, device_row)
       |> assign(:can_edit, can_edit_device?(assigns.current_scope))
+      |> assign(:can_manage, can_manage_device?(assigns.current_scope))
+      |> assign(:device_deleted, deleted_device?(device_row))
       |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
       |> assign(
         :metric_sections_to_render,
@@ -1044,6 +1095,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               >
                 <.icon name="hero-bolt" class="size-3" /> Agent
               </span>
+              <span
+                :if={@device_deleted}
+                class="inline-flex items-center gap-1 rounded-full bg-base-200 px-2 py-0.5 text-[11px] font-semibold text-base-content/70"
+              >
+                <.icon name="hero-archive-box" class="size-3" /> Deleted
+              </span>
             </span>
           </:subtitle>
           <:actions>
@@ -1054,6 +1111,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               size="sm"
             >
               <.icon name="hero-pencil" class="size-4" /> Edit
+            </.ui_button>
+            <.ui_button
+              :if={@can_manage and @device_deleted}
+              phx-click="restore_device"
+              variant="outline"
+              size="sm"
+              phx-confirm="Restore this device to the active inventory?"
+            >
+              <.icon name="hero-arrow-path" class="size-4" /> Restore
+            </.ui_button>
+            <.ui_button
+              :if={@can_manage and not @device_deleted}
+              phx-click="delete_device"
+              variant="outline"
+              class="btn-error"
+              size="sm"
+              phx-confirm="Delete this device? It will be hidden from inventory but can be restored later."
+            >
+              <.icon name="hero-trash" class="size-4" /> Delete
             </.ui_button>
             <.ui_button href={~p"/devices"} variant="ghost" size="sm">Back to devices</.ui_button>
           </:actions>
@@ -1083,6 +1159,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               />
               <.kv_inline label="Gateway" value={Map.get(@device_row, "gateway_id")} mono />
               <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
+              <.kv_inline
+                :if={@device_deleted}
+                label="Deleted At"
+                value={Map.get(@device_row, "deleted_at")}
+                mono
+              />
+              <.kv_inline
+                :if={@device_deleted}
+                label="Deleted By"
+                value={Map.get(@device_row, "deleted_by")}
+              />
+              <.kv_inline
+                :if={@device_deleted}
+                label="Deleted Reason"
+                value={Map.get(@device_row, "deleted_reason")}
+              />
             </div>
           </div>
           
@@ -4001,7 +4093,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp default_device_query(device_uid, limit) do
-    "in:devices uid:\"#{escape_value(device_uid)}\" limit:#{limit}"
+    "in:devices uid:\"#{escape_value(device_uid)}\" include_deleted:true limit:#{limit}"
   end
 
   defp default_interfaces_query(device_uid) do
@@ -4515,7 +4607,46 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp can_edit_device?(_), do: false
 
+  defp can_manage_device?(%{user: %{role: role}}) do
+    role in [:admin, :operator]
+  end
+
+  defp can_manage_device?(_), do: false
+
   defp admin_role?(role), do: role in [:admin]
+
+  defp deleted_device?(row) when is_map(row) do
+    value = Map.get(row, "deleted_at")
+    not is_nil(value) and value != ""
+  end
+
+  defp deleted_device?(_), do: false
+
+  defp load_device(scope, device_uid) do
+    case Device.get_by_uid(device_uid, include_deleted: true, scope: scope) do
+      {:ok, nil} -> {:error, :not_found}
+      other -> other
+    end
+  end
+
+  defp device_show_path(socket, device_uid) do
+    tab =
+      case socket.assigns.active_tab do
+        :details -> nil
+        "details" -> nil
+        other -> to_string(other)
+      end
+
+    params =
+      %{"limit" => socket.assigns.limit}
+      |> maybe_put_param("q", Map.get(socket.assigns.srql || %{}, :query))
+      |> maybe_put_param("tab", tab)
+
+    ~p"/devices/#{device_uid}?#{params}"
+  end
+
+  defp maybe_put_param(params, _key, value) when value in [nil, ""], do: params
+  defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
 
   # Update device via Ash
   defp update_device(scope, device_uid, params) do
@@ -4642,4 +4773,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_single_ash_error(err),
     do: inspect(err)
+
+  defp deleted_by_from_scope(%{user: user}) when is_map(user) do
+    Map.get(user, :email) || Map.get(user, :id)
+  end
+
+  defp deleted_by_from_scope(_), do: nil
 end

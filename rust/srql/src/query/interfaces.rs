@@ -786,6 +786,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         };
 
         let (sql, _) = to_sql_and_params(&plan).expect("interfaces SQL should be generated");
@@ -864,6 +865,7 @@ mod tests {
             stats: Some(crate::parser::StatsSpec::from_raw(stats)),
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         }
     }
 
@@ -878,6 +880,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         }
     }
 }
