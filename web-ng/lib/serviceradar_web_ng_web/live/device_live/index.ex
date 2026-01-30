@@ -51,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:select_all_matching, false)
      |> assign(:total_matching_count, nil)
      |> assign(:show_bulk_edit_modal, false)
+     |> assign(:show_bulk_delete_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
      # Device management modals
      |> assign(:show_add_device_modal, false)
@@ -342,11 +343,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, assign(socket, :show_bulk_edit_modal, true)}
   end
 
+  def handle_event("open_bulk_delete_modal", _params, socket) do
+    {:noreply, assign(socket, :show_bulk_delete_modal, true)}
+  end
+
   def handle_event("close_bulk_edit_modal", _params, socket) do
     {:noreply,
      socket
      |> assign(:show_bulk_edit_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))}
+  end
+
+  def handle_event("close_bulk_delete_modal", _params, socket) do
+    {:noreply, assign(socket, :show_bulk_delete_modal, false)}
   end
 
   def handle_event("toggle_select_all_matching", _params, socket) do
@@ -405,6 +414,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("bulk_delete_devices", _params, socket) do
+    handle_confirm_bulk_delete(socket)
+  end
+
+  def handle_event("confirm_bulk_delete", _params, socket) do
+    handle_confirm_bulk_delete(socket)
+  end
+
+  defp handle_confirm_bulk_delete(socket) do
     scope = socket.assigns.current_scope
 
     case bulk_delete_uids(socket) do
@@ -413,10 +430,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           :ok ->
             path =
               device_list_path(Map.get(socket.assigns.srql || %{}, :query, ""), socket.assigns.limit)
+
             count = length(uids)
 
             {:noreply,
              socket
+             |> assign(:show_bulk_delete_modal, false)
              |> assign(:selected_devices, MapSet.new())
              |> assign(:select_all_matching, false)
              |> assign(:total_matching_count, nil)
@@ -429,6 +448,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
             {:noreply,
              socket
+             |> assign(:show_bulk_delete_modal, false)
              |> assign(:selected_devices, MapSet.new())
              |> assign(:select_all_matching, false)
              |> assign(:total_matching_count, nil)
@@ -437,11 +457,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
           {:error, reason} ->
             {:noreply,
-             put_flash(socket, :error, "Bulk delete failed: #{format_device_error(reason)}")}
+             socket
+             |> assign(:show_bulk_delete_modal, false)
+             |> put_flash(:error, "Bulk delete failed: #{format_device_error(reason)}")}
         end
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, reason)}
+        {:noreply,
+         socket
+         |> assign(:show_bulk_delete_modal, false)
+         |> put_flash(:error, reason)}
     end
   end
 
@@ -710,8 +735,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               variant="outline"
               class="btn-error"
               size="sm"
-              phx-click="bulk_delete_devices"
-              phx-confirm="Delete the selected devices? This hides them from inventory and can be restored later."
+              phx-click="open_bulk_delete_modal"
             >
               <.icon name="hero-trash" class="size-4" /> Bulk Delete
             </.ui_button>
@@ -888,6 +912,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       <.bulk_edit_modal
         :if={@show_bulk_edit_modal}
         form={@bulk_edit_form}
+        selected_count={@effective_count}
+      />
+
+    <!-- Bulk Delete Modal -->
+      <.bulk_delete_modal
+        :if={@show_bulk_delete_modal}
         selected_count={@effective_count}
       />
     </Layouts.app>
@@ -1236,6 +1266,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       </div>
       <form method="dialog" class="modal-backdrop">
         <button phx-click="close_bulk_edit_modal">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
+  # Bulk Delete Modal Component
+  attr :selected_count, :integer, required: true
+
+  defp bulk_delete_modal(assigns) do
+    ~H"""
+    <dialog id="bulk_delete_modal" class="modal modal-open">
+      <div class="modal-box max-w-lg">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_bulk_delete_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold text-error">Delete Devices</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          This will hide {@selected_count} selected device(s) from inventory. They can be restored
+          later.
+        </p>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" phx-click="close_bulk_delete_modal" class="btn btn-ghost">
+            Cancel
+          </button>
+          <button type="button" phx-click="confirm_bulk_delete" class="btn btn-error">
+            Delete Devices
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_bulk_delete_modal">close</button>
       </form>
     </dialog>
     """
