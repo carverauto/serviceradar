@@ -111,6 +111,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     use_cache = Keyword.get(opts, :use_cache, true)
     actor = Keyword.get(opts, :actor)
     include_detected = Keyword.get(opts, :include_detected, false)
+    include_deleted = Keyword.get(opts, :include_deleted, false)
 
     unique_ips =
       ips
@@ -122,11 +123,11 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       %{}
     else
       # First lookup confirmed/updated aliases
-      alias_results = lookup_aliases_by_ip(unique_ips, opts)
+      alias_results = lookup_aliases_by_ip(unique_ips, Keyword.put(opts, :include_deleted, include_deleted))
       remaining_ips = unique_ips -- Map.keys(alias_results)
 
       {cache_hits, cache_misses} = fetch_cache_hits(remaining_ips, use_cache)
-      db_results = lookup_devices_by_ips(cache_misses, actor)
+      db_results = lookup_devices_by_ips(cache_misses, actor, include_deleted)
 
       cache_db_results(alias_results, use_cache)
       cache_db_results(db_results, use_cache)
@@ -139,7 +140,8 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       # If include_detected is true, check detected aliases for remaining IPs
       if include_detected do
         still_unknown = unique_ips -- Map.keys(primary_results)
-        detected_results = lookup_detected_aliases_by_ip(still_unknown, opts)
+        detected_results =
+          lookup_detected_aliases_by_ip(still_unknown, Keyword.put(opts, :include_deleted, include_deleted))
         Map.merge(primary_results, detected_results)
       else
         primary_results
@@ -160,6 +162,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   def lookup_detected_aliases_by_ip(ips, opts) do
     actor = Keyword.get(opts, :actor)
     partition = Keyword.get(opts, :partition)
+    include_deleted = Keyword.get(opts, :include_deleted, false)
     query_opts = if actor, do: [actor: actor], else: []
 
     case read_detected_alias_states(ips, partition, query_opts) do
@@ -167,7 +170,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         %{}
 
       {:ok, aliases} ->
-        devices = load_alias_devices(aliases, query_opts)
+        devices = load_alias_devices(aliases, query_opts, include_deleted)
         build_detected_alias_map(devices, aliases)
 
       {:error, _} ->
@@ -260,6 +263,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   defp do_lookup(keys, opts) do
     use_cache = Keyword.get(opts, :use_cache, true)
     actor = Keyword.get(opts, :actor)
+    include_deleted = Keyword.get(opts, :include_deleted, false)
 
     Enum.reduce_while(
       keys,
@@ -270,7 +274,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
             {:halt, %{found: true, record: record, matched_key: key, resolved_via: "cache"}}
 
           :miss ->
-            handle_lookup_miss(key, actor, use_cache)
+            handle_lookup_miss(key, actor, include_deleted, use_cache)
         end
       end
     )
@@ -285,8 +289,8 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp cached_record_for_key(_key, _use_cache), do: :miss
 
-  defp handle_lookup_miss(key, actor, use_cache) do
-    case lookup_by_key(key, actor) do
+  defp handle_lookup_miss(key, actor, include_deleted, use_cache) do
+    case lookup_by_key(key, actor, include_deleted) do
       {:ok, nil} ->
         {:cont, %{found: false, record: nil, matched_key: nil, resolved_via: "miss"}}
 
@@ -308,18 +312,18 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp cache_lookup_result(_key, _record, _use_cache), do: :ok
 
-  defp lookup_by_key(%{kind: :device_id, value: device_id}, actor) do
+  defp lookup_by_key(%{kind: :device_id, value: device_id}, actor, include_deleted) do
     query_opts = if actor, do: [actor: actor], else: []
 
     Device
-    |> Ash.Query.for_read(:by_uid, %{uid: device_id})
+    |> Ash.Query.for_read(:by_uid, %{uid: device_id, include_deleted: include_deleted})
     |> Ash.read_one(query_opts)
   end
 
-  defp lookup_by_key(%{kind: :partition_ip, value: value}, actor) do
+  defp lookup_by_key(%{kind: :partition_ip, value: value}, actor, include_deleted) do
     {partition, ip} = split_partition_ip(value)
 
-    case lookup_by_key(%{kind: :ip, value: ip}, actor) do
+    case lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted) do
       {:ok, nil} ->
         {:ok, nil}
 
@@ -335,8 +339,8 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     end
   end
 
-  defp lookup_by_key(%{kind: :ip, value: ip}, actor) do
-    case lookup_alias_device_by_ip(ip, actor, []) do
+  defp lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted) do
+    case lookup_alias_device_by_ip(ip, actor, include_deleted: include_deleted) do
       {:ok, %Device{} = device} ->
         {:ok, device}
 
@@ -344,29 +348,29 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         query_opts = if actor, do: [actor: actor], else: []
 
         Device
-        |> Ash.Query.for_read(:by_ip, %{ip: ip})
+        |> Ash.Query.for_read(:by_ip, %{ip: ip, include_deleted: include_deleted})
         |> Ash.read(query_opts)
         |> case do
-          {:ok, devices} -> {:ok, select_canonical_device(devices)}
+          {:ok, devices} -> {:ok, select_canonical_device(devices, include_deleted)}
           error -> error
         end
     end
   end
 
-  defp lookup_by_key(%{kind: :mac, value: mac}, actor) do
+  defp lookup_by_key(%{kind: :mac, value: mac}, actor, include_deleted) do
     normalized_mac = normalize_mac(mac)
     query_opts = if actor, do: [actor: actor], else: []
 
     Device
-    |> Ash.Query.for_read(:by_mac, %{mac: normalized_mac})
+    |> Ash.Query.for_read(:by_mac, %{mac: normalized_mac, include_deleted: include_deleted})
     |> Ash.read(query_opts)
     |> case do
-      {:ok, devices} -> {:ok, select_canonical_device(devices)}
+      {:ok, devices} -> {:ok, select_canonical_device(devices, include_deleted)}
       error -> error
     end
   end
 
-  defp lookup_by_key(%{kind: id_type, value: id_value}, actor)
+  defp lookup_by_key(%{kind: id_type, value: id_value}, actor, include_deleted)
        when id_type in [:armis_id, :netbox_id, :integration_id] do
     query_opts = if actor, do: [actor: actor], else: []
 
@@ -387,7 +391,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     |> case do
       {:ok, [identifier | _]} ->
         Device
-        |> Ash.Query.for_read(:by_uid, %{uid: identifier.device_id})
+        |> Ash.Query.for_read(:by_uid, %{uid: identifier.device_id, include_deleted: include_deleted})
         |> Ash.read_one(query_opts)
 
       {:ok, []} ->
@@ -398,20 +402,21 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     end
   end
 
-  defp lookup_by_key(_key, _actor), do: {:ok, nil}
+  defp lookup_by_key(_key, _actor, _include_deleted), do: {:ok, nil}
 
   defp partition_matches?(partition, device) do
     device_partition = partition_from_device_id(device.uid)
     partition == "" or device_partition == partition
   end
 
-  defp lookup_devices_by_ips([], _actor), do: %{}
+  defp lookup_devices_by_ips([], _actor, _include_deleted), do: %{}
 
-  defp lookup_devices_by_ips(ips, actor) do
+  defp lookup_devices_by_ips(ips, actor, include_deleted) do
     query_opts = if actor, do: [actor: actor], else: []
 
     # Batch query for all IPs
     Device
+    |> Ash.Query.for_read(:read, %{include_deleted: include_deleted})
     |> Ash.Query.filter(ip in ^ips)
     |> Ash.read(query_opts)
     |> case do
@@ -420,7 +425,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         |> Enum.group_by(& &1.ip)
         |> Enum.flat_map(fn {ip, grouped_devices} ->
           grouped_devices
-          |> select_canonical_device()
+          |> select_canonical_device(include_deleted)
           |> maybe_record_for_ip(ip)
         end)
         |> Map.new()
@@ -435,6 +440,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   defp lookup_aliases_by_ip(ips, opts) do
     actor = Keyword.get(opts, :actor)
     partition = Keyword.get(opts, :partition)
+    include_deleted = Keyword.get(opts, :include_deleted, false)
     query_opts = if actor, do: [actor: actor], else: []
 
     case read_alias_states(ips, partition, query_opts) do
@@ -443,7 +449,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
       {:ok, aliases} ->
         aliases
-        |> load_alias_devices(query_opts)
+        |> load_alias_devices(query_opts, include_deleted)
         |> build_alias_map(aliases)
 
       {:error, _} ->
@@ -494,7 +500,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     end)
   end
 
-  defp load_alias_devices(aliases, query_opts) do
+  defp load_alias_devices(aliases, query_opts, include_deleted) do
     device_ids = Enum.map(aliases, & &1.device_id) |> Enum.uniq()
 
     case device_ids do
@@ -503,6 +509,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
       _ ->
         Device
+        |> Ash.Query.for_read(:read, %{include_deleted: include_deleted})
         |> Ash.Query.filter(uid in ^device_ids)
         |> Ash.read(query_opts)
         |> case do
@@ -523,6 +530,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp lookup_alias_device_by_ip(ip, actor, opts) do
     partition = Keyword.get(opts, :partition)
+    include_deleted = Keyword.get(opts, :include_deleted, false)
     query_opts = if actor, do: [actor: actor], else: []
 
     query =
@@ -535,7 +543,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     case Ash.read(query, query_opts) do
       {:ok, [%DeviceAliasState{device_id: device_id} | _]} ->
         Device
-        |> Ash.Query.for_read(:by_uid, %{uid: device_id})
+        |> Ash.Query.for_read(:by_uid, %{uid: device_id, include_deleted: include_deleted})
         |> Ash.read_one(query_opts)
 
       {:ok, []} ->
@@ -553,16 +561,17 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     Ash.Query.filter(query, partition == ^partition)
   end
 
-  defp select_canonical_device([]), do: nil
+  defp select_canonical_device([], _include_deleted), do: nil
 
-  defp select_canonical_device(devices) do
+  defp select_canonical_device(devices, include_deleted) do
     # Filter out tombstoned/deleted devices
     valid_devices =
       Enum.reject(devices, fn device ->
         metadata = device.metadata || %{}
 
         Map.has_key?(metadata, "_merged_into") or
-          String.downcase(to_string(metadata["_deleted"] || "")) == "true"
+          String.downcase(to_string(metadata["_deleted"] || "")) == "true" or
+          (not include_deleted and not is_nil(device.deleted_at))
       end)
 
     List.first(valid_devices) || List.first(devices)

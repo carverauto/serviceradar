@@ -9,7 +9,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   Also updates device inventory via SweepResultsIngestor:
   - Updates device availability status
   - Adds "sweep" to discovery_sources
-  - Creates new device records for unknown hosts
+  - Ignores unknown hosts (only updates existing devices/aliases)
   - Stores SweepHostResult records (when execution_id is provided)
 
   ## OCSF Classification
@@ -52,6 +52,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   import Ecto.Query
 
   require Logger
+  require Ash.Query
 
   @impl true
   def table_name, do: "ocsf_network_activity"
@@ -165,19 +166,58 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     else
       # Lookup existing devices
       actor = SystemActor.system(:sweep_processor)
-      device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor)
+      device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true)
       timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
-      update_availability(results, device_map, timestamp)
+      update_availability(results, device_map, timestamp, actor)
     end
   rescue
     e ->
       Logger.warning("Device availability update failed: #{inspect(e)}")
   end
 
-  defp update_availability(results, device_map, timestamp) do
+  defp update_availability(results, device_map, timestamp, actor) do
+    restore_deleted_devices(device_uids_from_results(results, device_map), actor)
     update_available_devices(results, device_map, timestamp)
     update_unavailable_devices(results, device_map, timestamp)
+  end
+
+  defp device_uids_from_results(results, device_map) do
+    results
+    |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&Map.get(device_map, &1))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(& &1.canonical_device_id)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp restore_deleted_devices([], _actor), do: :ok
+
+  defp restore_deleted_devices(device_uids, actor) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid in ^device_uids and not is_nil(deleted_at))
+
+    case Ash.bulk_update(query, :restore, %{},
+           actor: actor,
+           return_records?: false,
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success} ->
+        :ok
+
+      %Ash.BulkResult{status: :partial_success, errors: errors} ->
+        Logger.warning("SweepProcessor: Partial restore failures", errors: inspect(errors))
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        Logger.warning("SweepProcessor: Restore failed", errors: inspect(errors))
+
+      other ->
+        Logger.warning("SweepProcessor: Restore unexpected result", result: inspect(other))
+    end
   end
 
   defp update_available_devices(results, device_map, timestamp) do

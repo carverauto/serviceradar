@@ -251,6 +251,7 @@ fn build_query_plan(
 
     let (filters, order, downsample) =
         normalize_device_aliases(&ast.entity, ast.filters, ast.order, ast.downsample);
+    let (filters, include_deleted) = extract_include_deleted(filters)?;
 
     Ok(QueryPlan {
         entity: ast.entity,
@@ -262,6 +263,7 @@ fn build_query_plan(
         stats: ast.stats,
         downsample,
         rollup_stats: ast.rollup_stats,
+        include_deleted,
     })
 }
 
@@ -316,6 +318,38 @@ fn normalize_device_aliases(
     });
 
     (filters, order, downsample)
+}
+
+fn extract_include_deleted(filters: Vec<Filter>) -> Result<(Vec<Filter>, bool)> {
+    let mut include_deleted = false;
+    let mut remaining = Vec::with_capacity(filters.len());
+
+    for filter in filters {
+        if filter.field.eq_ignore_ascii_case("include_deleted") {
+            if !matches!(filter.op, crate::parser::FilterOp::Eq) {
+                return Err(ServiceError::InvalidRequest(
+                    "include_deleted only supports equality".into(),
+                ));
+            }
+
+            let raw = filter.value.as_scalar()?;
+            include_deleted = parse_bool_str(raw)?;
+        } else {
+            remaining.push(filter);
+        }
+    }
+
+    Ok((remaining, include_deleted))
+}
+
+fn parse_bool_str(value: &str) -> Result<bool> {
+    match value.to_lowercase().as_str() {
+        "true" | "1" | "yes" | "y" => Ok(true),
+        "false" | "0" | "no" | "n" => Ok(false),
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "invalid boolean value '{value}'"
+        ))),
+    }
 }
 
 fn normalize_device_field(entity: &Entity, field: &str) -> Option<String> {
@@ -1149,6 +1183,7 @@ pub struct QueryPlan {
     pub downsample: Option<crate::parser::DownsampleSpec>,
     /// Rollup stats type for querying pre-computed CAGGs (e.g., "severity", "summary", "availability")
     pub rollup_stats: Option<String>,
+    pub include_deleted: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]

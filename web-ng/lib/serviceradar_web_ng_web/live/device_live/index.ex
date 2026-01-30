@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   require Logger
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadar.Inventory.Device
 
   @default_limit 20
@@ -133,6 +134,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   def handle_event("srql_builder_run", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/devices")}
+  end
+
+  def handle_event("toggle_include_deleted", _params, socket) do
+    query = Map.get(socket.assigns.srql || %{}, :query, "") || ""
+    updated_query = toggle_include_deleted_query(query)
+    path = device_list_path(updated_query, socket.assigns.limit)
+    {:noreply, push_patch(socket, to: path)}
   end
 
   # Device management modal handlers
@@ -590,6 +598,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           >
             <.icon name="hero-signal" class="size-3" /> Swept
           </.link>
+          <button
+            phx-click="toggle_include_deleted"
+            class={"btn btn-xs #{if has_filter?(@srql, "include_deleted", "true"), do: "btn-secondary", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-archive-box" class="size-3" /> Include deleted
+          </button>
           <.link
             :if={has_any_filter?(@srql)}
             navigate={~p"/devices"}
@@ -689,7 +703,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               </thead>
               <tbody>
                 <tr :if={@devices == []}>
-                  <td colspan="10" class="py-8 text-center text-sm text-base-content/60">
+                  <td
+                    colspan={10}
+                    class="py-8 text-center text-sm text-base-content/60"
+                  >
                     No devices found.
                   </td>
                 </tr>
@@ -698,13 +715,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <% device_uid = Map.get(row, "uid") || Map.get(row, "id") %>
                   <% is_selected =
                     is_binary(device_uid) and MapSet.member?(@selected_devices, device_uid) %>
+                  <% deleted = deleted_device_row?(row) %>
                   <% icmp =
                     if is_binary(device_uid), do: Map.get(@icmp_sparklines, device_uid), else: nil %>
                   <% has_snmp =
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
-                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""}"}>
+                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted, do: "opacity-60", else: ""}"}>
                     <td class="text-center">
                       <input
                         :if={is_binary(device_uid)}
@@ -734,6 +752,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                         <span :if={not is_binary(device_uid)} class="truncate">
                           {Map.get(row, "hostname") || "—"}
                         </span>
+                        <span :if={deleted} class="badge badge-ghost badge-xs">Deleted</span>
                       </div>
                     </td>
                     <td class="font-mono text-xs">{Map.get(row, "ip") || "—"}</td>
@@ -2257,6 +2276,66 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     query = Map.get(srql || %{}, :query, "") || ""
     String.trim(query) != ""
   end
+
+  defp toggle_include_deleted_query(query) when is_binary(query) do
+    case SRQLBuilder.parse(query) do
+      {:ok, builder} ->
+        filters = Map.get(builder, "filters", [])
+        {updated_filters, _enabled} = toggle_builder_filter(filters, "include_deleted")
+
+        builder
+        |> Map.put("filters", updated_filters)
+        |> SRQLBuilder.build()
+
+      _ ->
+        fallback_toggle_include_deleted_query(query)
+    end
+  end
+
+  defp toggle_include_deleted_query(_), do: "in:devices include_deleted:true"
+
+  defp toggle_builder_filter(filters, field) do
+    {matches, rest} = Enum.split_with(filters, fn filter -> Map.get(filter, "field") == field end)
+
+    if matches == [] do
+      {rest ++ [%{"field" => field, "op" => "equals", "value" => "true"}], true}
+    else
+      {rest, false}
+    end
+  end
+
+  defp fallback_toggle_include_deleted_query(query) do
+    if String.contains?(query, "include_deleted:true") do
+      query
+      |> String.replace(~r/\s*include_deleted:true\b/, "")
+      |> String.trim()
+    else
+      query
+      |> String.trim()
+      |> case do
+        "" -> "in:devices include_deleted:true"
+        trimmed -> "#{trimmed} include_deleted:true"
+      end
+    end
+  end
+
+  defp device_list_path(query, limit) do
+    params =
+      %{"limit" => limit}
+      |> maybe_put_param("q", query)
+
+    ~p"/devices?#{params}"
+  end
+
+  defp maybe_put_param(params, _key, value) when value in [nil, ""], do: params
+  defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
+
+  defp deleted_device_row?(row) when is_map(row) do
+    value = Map.get(row, "deleted_at")
+    not is_nil(value) and value != ""
+  end
+
+  defp deleted_device_row?(_), do: false
 
   # Sysmon profile helpers
   # Note: Profile-per-device tracking removed - profiles now target devices via SRQL queries.

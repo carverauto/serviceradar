@@ -128,6 +128,9 @@ defmodule ServiceRadar.Application do
         # Job schedule defaults
         job_schedule_seeder_child(),
 
+        # Device cleanup settings defaults
+        device_cleanup_settings_seeder_child(),
+
         # Default SNMP profile seed
         snmp_profile_seeder_child(),
 
@@ -332,6 +335,14 @@ defmodule ServiceRadar.Application do
   defp job_schedule_seeder_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.Jobs.JobScheduleSeeder
+    else
+      nil
+    end
+  end
+
+  defp device_cleanup_settings_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Inventory.DeviceCleanupSettingsSeeder
     else
       nil
     end
