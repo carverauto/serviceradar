@@ -102,6 +102,42 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
     end
   end
 
+  describe "gateway defaults" do
+    test "derives gateway addr from base_url and uses gateway service server_name", %{
+      package: package,
+      join_token: join_token
+    } do
+      existing = Application.get_env(:serviceradar_web_ng, :gateway_addr)
+
+      Application.delete_env(:serviceradar_web_ng, :gateway_addr)
+
+      on_exit(fn ->
+        if is_nil(existing) do
+          Application.delete_env(:serviceradar_web_ng, :gateway_addr)
+        else
+          Application.put_env(:serviceradar_web_ng, :gateway_addr, existing)
+        end
+      end)
+
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(package, "", join_token,
+          base_url: "https://demo.serviceradar.cloud"
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, config_json} =
+        Enum.find(files, fn {name, _} ->
+          to_string(name) |> String.ends_with?("config.json")
+        end)
+
+      config = Jason.decode!(config_json)
+
+      assert config["gateway_addr"] == "demo-gw.serviceradar.cloud:50052"
+      assert get_in(config, ["gateway_security", "server_name"]) == "serviceradar-agent-gateway"
+    end
+  end
+
   describe "docker_install_command/3" do
     test "generates valid docker install command", %{
       package: package,
