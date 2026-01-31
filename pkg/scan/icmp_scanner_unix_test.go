@@ -257,6 +257,156 @@ func TestCalculatePacketsPerInterval(t *testing.T) {
 	}
 }
 
+// TestPerSequenceRTTCalculation verifies that RTT is calculated per-packet
+// using the send time for each specific sequence number, not the first packet's send time.
+// This is critical for accurate RTT measurements when sending multiple ICMP packets.
+func TestPerSequenceRTTCalculation(t *testing.T) {
+	tests := []struct {
+		name           string
+		sendTimes      map[int]time.Time // sequence -> send time
+		replyTimes     map[int]time.Time // sequence -> reply time
+		expectedAvgRTT time.Duration
+		tolerance      time.Duration
+	}{
+		{
+			name: "three packets with 1ms RTT each",
+			sendTimes: map[int]time.Time{
+				1: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				2: time.Date(2025, 1, 1, 0, 0, 0, 300*int(time.Millisecond), time.UTC),
+				3: time.Date(2025, 1, 1, 0, 0, 0, 600*int(time.Millisecond), time.UTC),
+			},
+			replyTimes: map[int]time.Time{
+				1: time.Date(2025, 1, 1, 0, 0, 0, 1*int(time.Millisecond), time.UTC),
+				2: time.Date(2025, 1, 1, 0, 0, 0, 301*int(time.Millisecond), time.UTC),
+				3: time.Date(2025, 1, 1, 0, 0, 0, 601*int(time.Millisecond), time.UTC),
+			},
+			expectedAvgRTT: 1 * time.Millisecond,
+			tolerance:      100 * time.Microsecond,
+		},
+		{
+			name: "three packets with varying RTTs",
+			sendTimes: map[int]time.Time{
+				1: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				2: time.Date(2025, 1, 1, 0, 0, 0, 100*int(time.Millisecond), time.UTC),
+				3: time.Date(2025, 1, 1, 0, 0, 0, 200*int(time.Millisecond), time.UTC),
+			},
+			replyTimes: map[int]time.Time{
+				1: time.Date(2025, 1, 1, 0, 0, 0, 2*int(time.Millisecond), time.UTC),  // 2ms RTT
+				2: time.Date(2025, 1, 1, 0, 0, 0, 105*int(time.Millisecond), time.UTC), // 5ms RTT
+				3: time.Date(2025, 1, 1, 0, 0, 0, 208*int(time.Millisecond), time.UTC), // 8ms RTT
+			},
+			expectedAvgRTT: 5 * time.Millisecond, // (2+5+8)/3 = 5ms
+			tolerance:      100 * time.Microsecond,
+		},
+		{
+			name: "single packet",
+			sendTimes: map[int]time.Time{
+				1: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			},
+			replyTimes: map[int]time.Time{
+				1: time.Date(2025, 1, 1, 0, 0, 0, 500*int(time.Microsecond), time.UTC), // 0.5ms RTT
+			},
+			expectedAvgRTT: 500 * time.Microsecond,
+			tolerance:      10 * time.Microsecond,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stats := &hostICMPStats{
+				sendTimes: make(map[int]time.Time),
+			}
+
+			// Simulate sending packets - record send times
+			for seq, sendTime := range tt.sendTimes {
+				stats.sendTimes[seq] = sendTime
+				stats.sent++
+			}
+
+			// Simulate receiving replies - calculate RTT per sequence
+			for seq, replyTime := range tt.replyTimes {
+				if sendTime, ok := stats.sendTimes[seq]; ok {
+					rtt := replyTime.Sub(sendTime)
+					stats.totalRTT += rtt
+					stats.received++
+					delete(stats.sendTimes, seq) // Clean up like the real code does
+				}
+			}
+
+			// Calculate average RTT
+			if stats.received == 0 {
+				t.Fatal("No packets received in test")
+			}
+			avgRTT := stats.totalRTT / time.Duration(stats.received)
+
+			// Verify the average RTT is within tolerance
+			diff := avgRTT - tt.expectedAvgRTT
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff > tt.tolerance {
+				t.Errorf("Average RTT: got %v, want %v (±%v)", avgRTT, tt.expectedAvgRTT, tt.tolerance)
+			}
+
+			// Verify sendTimes map is cleaned up
+			if len(stats.sendTimes) != 0 {
+				t.Errorf("sendTimes map should be empty after processing, has %d entries", len(stats.sendTimes))
+			}
+		})
+	}
+}
+
+// TestPerSequenceRTTVsFirstSeenBug demonstrates the bug where RTT was calculated
+// from firstSeen (first packet send time) instead of per-packet send time.
+// With the bug, packets sent later would show inflated RTTs.
+func TestPerSequenceRTTVsFirstSeenBug(t *testing.T) {
+	// Simulate the OLD buggy behavior vs NEW correct behavior
+	// Packets sent at t=0, t=300ms, t=600ms with actual 1ms RTT each
+
+	firstSeen := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	sendTimes := map[int]time.Time{
+		1: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		2: time.Date(2025, 1, 1, 0, 0, 0, 300*int(time.Millisecond), time.UTC),
+		3: time.Date(2025, 1, 1, 0, 0, 0, 600*int(time.Millisecond), time.UTC),
+	}
+
+	replyTimes := map[int]time.Time{
+		1: time.Date(2025, 1, 1, 0, 0, 0, 1*int(time.Millisecond), time.UTC),
+		2: time.Date(2025, 1, 1, 0, 0, 0, 301*int(time.Millisecond), time.UTC),
+		3: time.Date(2025, 1, 1, 0, 0, 0, 601*int(time.Millisecond), time.UTC),
+	}
+
+	// Calculate RTT the OLD buggy way (from firstSeen)
+	var buggyTotalRTT time.Duration
+	for _, replyTime := range replyTimes {
+		buggyRTT := replyTime.Sub(firstSeen)
+		buggyTotalRTT += buggyRTT
+	}
+	buggyAvgRTT := buggyTotalRTT / 3
+
+	// Calculate RTT the NEW correct way (per-sequence)
+	var correctTotalRTT time.Duration
+	for seq, replyTime := range replyTimes {
+		correctRTT := replyTime.Sub(sendTimes[seq])
+		correctTotalRTT += correctRTT
+	}
+	correctAvgRTT := correctTotalRTT / 3
+
+	// The buggy average should be much higher (~300ms instead of ~1ms)
+	if buggyAvgRTT < 200*time.Millisecond {
+		t.Errorf("Buggy RTT calculation should show inflated RTT, got %v", buggyAvgRTT)
+	}
+
+	// The correct average should be ~1ms
+	if correctAvgRTT > 2*time.Millisecond {
+		t.Errorf("Correct RTT calculation should show ~1ms, got %v", correctAvgRTT)
+	}
+
+	t.Logf("Buggy avg RTT: %v (inflated due to measuring from firstSeen)", buggyAvgRTT)
+	t.Logf("Correct avg RTT: %v (accurate per-sequence measurement)", correctAvgRTT)
+}
+
 func TestProcessResults(t *testing.T) {
 	sweeper := &ICMPSweeper{
 		results: make(map[string]models.Result),

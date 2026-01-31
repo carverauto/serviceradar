@@ -67,6 +67,7 @@ type hostICMPStats struct {
 	totalRTT      time.Duration // sum of all response times for averaging
 	firstSeen     time.Time
 	lastSeen      time.Time
+	sendTimes     map[int]time.Time // send time per sequence number for accurate RTT
 	mu            sync.Mutex
 }
 
@@ -370,11 +371,14 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq in
 	}
 
 	// Track sent packet in hostStats
+	now := time.Now()
+
 	s.mu.Lock()
 	stats, exists := s.hostStats[target.Host]
 	if !exists {
 		stats = &hostICMPStats{
-			firstSeen: time.Now(),
+			firstSeen: now,
+			sendTimes: make(map[int]time.Time),
 		}
 		s.hostStats[target.Host] = stats
 	}
@@ -382,6 +386,7 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq in
 
 	stats.mu.Lock()
 	stats.sent++
+	stats.sendTimes[seq] = now // Record send time for this sequence number
 	stats.mu.Unlock()
 
 	if err := syscall.Sendto(s.rawSocketFD, data, 0, sockaddr); err != nil {
@@ -515,6 +520,7 @@ func (s *ICMPSweeper) processReply(reply struct {
 	}
 
 	now := time.Now()
+	seq := echo.Seq
 
 	// Update hostStats with received packet
 	s.mu.Lock()
@@ -524,8 +530,12 @@ func (s *ICMPSweeper) processReply(reply struct {
 	if statsExist {
 		stats.mu.Lock()
 		stats.received++
-		rtt := now.Sub(stats.firstSeen)
-		stats.totalRTT += rtt
+		// Calculate RTT based on when this specific packet was sent
+		if sendTime, ok := stats.sendTimes[seq]; ok {
+			rtt := now.Sub(sendTime)
+			stats.totalRTT += rtt
+			delete(stats.sendTimes, seq) // Clean up to prevent memory growth
+		}
 		stats.lastSeen = now
 		stats.mu.Unlock()
 	}
