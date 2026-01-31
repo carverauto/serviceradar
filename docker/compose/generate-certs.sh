@@ -274,6 +274,22 @@ generate_cert "otel" "otel.serviceradar" "DNS:otel,DNS:otel.serviceradar,DNS:ser
 generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:flowgger.serviceradar,DNS:serviceradar-flowgger,DNS:localhost,IP:127.0.0.1"
 generate_cert "netflow-collector" "netflow-collector.serviceradar" "DNS:netflow-collector,DNS:netflow-collector.serviceradar,DNS:serviceradar-netflow-collector,DNS:localhost,IP:127.0.0.1"
 
+# Alias netflow client cert names for collector defaults.
+if [ -f "$CERT_DIR/netflow-collector.pem" ] && [ -f "$CERT_DIR/netflow-collector-key.pem" ]; then
+    if [ ! -f "$CERT_DIR/netflow-client.crt" ]; then
+        cp "$CERT_DIR/netflow-collector.pem" "$CERT_DIR/netflow-client.crt"
+        chmod 644 "$CERT_DIR/netflow-client.crt"
+    fi
+    if [ ! -f "$CERT_DIR/netflow-client.key" ]; then
+        cp "$CERT_DIR/netflow-collector-key.pem" "$CERT_DIR/netflow-client.key"
+        chmod 600 "$CERT_DIR/netflow-client.key"
+    fi
+fi
+if [ -f "$CERT_DIR/root.pem" ] && [ ! -f "$CERT_DIR/ca.crt" ]; then
+    cp "$CERT_DIR/root.pem" "$CERT_DIR/ca.crt"
+    chmod 644 "$CERT_DIR/ca.crt"
+fi
+
 # Edge / checker
 generate_cert "sysmon-osx" "sysmon-osx.serviceradar" "DNS:sysmon-osx,DNS:sysmon-osx.serviceradar,DNS:serviceradar-sysmon-osx,DNS:sysmon-osx-checker,DNS:localhost,IP:127.0.0.1"
 generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"

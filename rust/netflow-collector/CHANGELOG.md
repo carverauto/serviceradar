@@ -339,7 +339,7 @@ If issues arise after upgrade:
 
 2. **Revert Code Changes:**
    ```bash
-   git checkout HEAD~1 -- cmd/netflow-collector/src/
+   git checkout HEAD~1 -- rust/netflow-collector/src/
    ```
 
 3. **Rebuild:**

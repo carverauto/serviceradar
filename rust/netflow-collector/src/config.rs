@@ -161,23 +161,23 @@ mod tests {
             mode: SecurityMode::Mtls,
             cert_dir: Some("/etc/serviceradar/certs".to_string()),
             tls: Some(TlsConfig {
-                cert_file: Some("client.crt".to_string()),
-                key_file: Some("client.key".to_string()),
+                cert_file: Some("netflow-client.crt".to_string()),
+                key_file: Some("netflow-client.key".to_string()),
                 ca_file: Some("ca.crt".to_string()),
             }),
         };
 
         assert_eq!(
             config.cert_file_path(),
-            Some(PathBuf::from("/etc/certs/client.crt"))
+            Some(PathBuf::from("/etc/serviceradar/certs/netflow-client.crt"))
         );
         assert_eq!(
             config.key_file_path(),
-            Some(PathBuf::from("/etc/certs/client.key"))
+            Some(PathBuf::from("/etc/serviceradar/certs/netflow-client.key"))
         );
         assert_eq!(
             config.ca_file_path(),
-            Some(PathBuf::from("/etc/certs/ca.crt"))
+            Some(PathBuf::from("/etc/serviceradar/certs/ca.crt"))
         );
     }
 

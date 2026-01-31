@@ -10,7 +10,7 @@ The fastest way to test the NetFlow collector. Choose the method that works best
 
 ```bash
 # 1. Start the collector (in one terminal)
-cd /Users/michaelmileusnich/Code/serviceradar/cmd/netflow-collector
+cd /Users/michaelmileusnich/Code/serviceradar/rust/netflow-collector
 cargo run -- --config netflow-collector.json
 
 # 2. Send a test packet using Docker (in another terminal)
@@ -39,7 +39,7 @@ curl -L https://github.com/mikemiles-dev/netflow_generator/releases/latest/downl
   -o /usr/local/bin/netflow_generator && chmod +x /usr/local/bin/netflow_generator
 
 # 2. Start the collector (in one terminal)
-cd /Users/michaelmileusnich/Code/serviceradar/cmd/netflow-collector
+cd /Users/michaelmileusnich/Code/serviceradar/rust/netflow-collector
 cargo run -- --config netflow-collector.json
 
 # 3. Send a test packet (in another terminal)
@@ -53,7 +53,7 @@ netflow_generator --dest 127.0.0.1:2055 --once
 cargo install netflow_generator
 
 # 2. Start the collector (in one terminal)
-cd /Users/michaelmileusnich/Code/serviceradar/cmd/netflow-collector
+cd /Users/michaelmileusnich/Code/serviceradar/rust/netflow-collector
 cargo run -- --config netflow-collector.json
 
 # 3. Send a test packet (in another terminal)
@@ -155,7 +155,7 @@ Test each component independently:
 
 ```bash
 # Terminal 1: Start the collector with file-based config
-cd /Users/michaelmileusnich/Code/serviceradar/cmd/netflow-collector
+cd /Users/michaelmileusnich/Code/serviceradar/rust/netflow-collector
 cargo run -- --config netflow-collector.json
 
 # Terminal 2: Send test packets

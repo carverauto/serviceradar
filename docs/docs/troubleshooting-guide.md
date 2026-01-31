@@ -397,7 +397,7 @@ telnet <nats-host> 4222
 
 3. **mTLS certificate issues**: Check certificates
    - Verify cert files exist and are readable
-   - Check cert expiration: `openssl x509 -in client.crt -noout -dates`
+   - Check cert expiration: `openssl x509 -in netflow-client.crt -noout -dates`
    - Verify CA matches
 
 4. **Network isolation**: NATS not reachable from collector
@@ -534,8 +534,8 @@ sudo timeout 30 tcpdump -i any -n port 2055 -w netflow-capture.pcap
 
 **References:**
 - [NetFlow Ingest Guide](./netflow.md) - Full configuration guide
-- [CHANGELOG](../../cmd/netflow-collector/CHANGELOG.md) - Version-specific changes
-- [TESTING.md](../../cmd/netflow-collector/TESTING.md) - Testing procedures
+- [CHANGELOG](../../rust/netflow-collector/CHANGELOG.md) - Version-specific changes
+- [TESTING.md](../../rust/netflow-collector/TESTING.md) - Testing procedures
 
 ## OTEL
 

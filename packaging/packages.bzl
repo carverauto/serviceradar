@@ -233,6 +233,37 @@ PACKAGES = {
             "/etc/serviceradar/flowgger.toml",
         ],
     },
+    "netflow-collector": {
+        "package_name": "serviceradar-netflow-collector",
+        "description": "ServiceRadar NetFlow/IPFIX collector",
+        "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+        "architecture": "amd64",
+        "section": "net",
+        "priority": "optional",
+        "deb_depends": ["systemd", "serviceradar-cli"],
+        "rpm_requires": ["systemd", "serviceradar-cli"],
+        "binary": {
+            "target": "//rust/netflow-collector:netflow-collector",
+            "dest": "/usr/local/bin/serviceradar-netflow-collector",
+        },
+        "files": [
+            {
+                "src": "config/netflow-collector.json",
+                "dest": "/etc/serviceradar/netflow-collector.json",
+                "mode": "0644",
+                "rpm_filetag": "config(noreplace)",
+            },
+        ],
+        "systemd": {
+            "src": "systemd/serviceradar-netflow-collector.service",
+            "dest": "/lib/systemd/system/serviceradar-netflow-collector.service",
+        },
+        "postinst": "scripts/postinstall.sh",
+        "prerm": "scripts/preremove.sh",
+        "conffiles": [
+            "/etc/serviceradar/netflow-collector.json",
+        ],
+    },
     "nats": {
         "package_name": "serviceradar-nats",
         "description": "ServiceRadar NATS JetStream service",

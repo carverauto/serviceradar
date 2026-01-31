@@ -13,9 +13,9 @@
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "tls": {
-      "cert_file": "netflow-collector.pem",
-      "key_file": "netflow-collector-key.pem",
-      "ca_file": "root.pem"
+      "cert_file": "netflow-client.crt",
+      "key_file": "netflow-client.key",
+      "ca_file": "ca.crt"
     }
   },
   "metrics_addr": "0.0.0.0:9091"
