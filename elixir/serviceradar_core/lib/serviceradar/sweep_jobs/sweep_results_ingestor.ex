@@ -378,7 +378,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp response_time_ms(result) do
-    case parse_integer(result["icmp_response_time_ns"] || result["icmpResponseTimeNs"]) do
+    # Try multiple field names for response time (different Go structs use different names)
+    raw_value =
+      result["icmp_response_time_ns"] ||
+        result["icmpResponseTimeNs"] ||
+        result["response_time"]
+
+    case parse_integer(raw_value) do
       nil -> nil
       0 -> nil
       # Round up to at least 1ms for any non-zero response time

@@ -74,6 +74,23 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       assert record.response_time_ms == 8
     end
 
+    test "parses response_time_ms from response_time (HostResult format)" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "10.0.0.1",
+          "icmp_available" => true,
+          # Go's time.Duration serializes to nanoseconds
+          "response_time" => 12_000_000  # 12ms in nanoseconds
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.response_time_ms == 12
+    end
+
     test "response_time_ms is nil when not provided" do
       execution_id = Ash.UUID.generate()
 
