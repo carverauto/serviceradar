@@ -24,6 +24,9 @@ agent:
   pushInterval: "30s"
   statusDebounceInterval: "30s"
   statusHeartbeatInterval: "5m"
+  resources:
+    limits:
+      memory: 4Gi
   checkersStorage:
     enabled: true
     basePath: "/var/lib/serviceradar/checkers"
@@ -82,7 +85,7 @@ spire:
     enabled: true
     clusterName: cnpg
     instances: 3
-    storageSize: 10Gi
+    storageSize: 100Gi
 
 flowgger:
   externalService:

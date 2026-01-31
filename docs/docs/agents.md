@@ -167,6 +167,11 @@ If you see OOMKills during demo sweeps:
 - Reduce sweep fan-out by trimming port lists or target counts in the agent config.
 - Watch agent logs for `targetsGenerated`, `tcpTargets`, and `totalHosts` to spot runaway scans.
 
+Note: Demo DNS for the agent gateway (`demo-gw.serviceradar.cloud`) is configured via
+`helm/serviceradar/values-demo.yaml`. If you run Helm upgrades with only
+`values.yaml`, the `external-dns` annotation will be removed and the DNS record will
+stop updating.
+
 ## Resetting the Device Pipeline
 
 This clears the CNPG-backed telemetry tables and repopulates them with a fresh discovery crawl from the faker service.

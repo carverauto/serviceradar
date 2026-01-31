@@ -76,7 +76,8 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 
 - Build and push images: `make build` then `make push_all`.
 - Capture the tag: `git rev-parse HEAD` and set `appTag: "sha-<sha>"` in `helm/serviceradar/values.yaml`.
-- Deploy to demo: `helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values.yaml --atomic`.
+- Deploy to demo: `helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --atomic`.
+  - `values-demo.yaml` carries the `external-dns` annotation for `demo-gw.serviceradar.cloud`; using only `values.yaml` will drop the DNS record.
 - Sanity check: `kubectl get pods -n demo` and `helm status serviceradar -n demo`.
 
 ## Docker Compose Refresh
