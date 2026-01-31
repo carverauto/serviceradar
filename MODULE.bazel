@@ -20,6 +20,7 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
+
 # NOTE: rules_multirun uses Python, which causes issues with `bazel run` when
 # using remote execution from a different host platform (e.g., macOS -> Linux RBE).
 # See: https://github.com/keith/rules_multirun/issues/43
@@ -148,8 +149,8 @@ use_repo(python, "python_3_11", "python_versions")
 register_toolchains(
     # Host toolchains first - ensures local Python is used for `bazel run`
     # targets that use cfg="host" transitions (like rules_multirun)
-    "//build/python_toolchain:py3_toolchain",        # macOS ARM64
-    "//build/python_toolchain:py3_toolchain_x86_64", # macOS x86_64
+    "//build/python_toolchain:py3_toolchain",  # macOS ARM64
+    "//build/python_toolchain:py3_toolchain_x86_64",  # macOS x86_64
     # Hermetic toolchains for cross-platform builds and remote execution
     "@python_versions//3.11:all",
 )
@@ -456,7 +457,7 @@ use_repo(
 )
 
 # --- Rust toolchain bootstrap -----------------------------------------------
-RUST_DEFAULT_VERSION = "1.86.0"
+RUST_DEFAULT_VERSION = "1.93.0"
 
 RUST_EDITION = "2021"
 
@@ -495,12 +496,12 @@ write_file(
 """,
     build_script_data = [
         ":workspace_perl_tool",
-        "@rust_crates__openssl-src-300.5.4-3.5.4//:openssl_src_runfiles",
-        "@rust_crates__openssl-src-300.5.4-3.5.4//:openssl_src_readme",
+        "@rust_crates__openssl-src-300.5.5-3.5.5//:openssl_src_runfiles",
+        "@rust_crates__openssl-src-300.5.5-3.5.5//:openssl_src_readme",
     ],
     build_script_env = {
         "OPENSSL_SRC_PERL": "$(execpath :workspace_perl_tool)",
-        "RULES_RUST_OPENSSL_SRC_DIR": "$(location @rust_crates__openssl-src-300.5.4-3.5.4//:openssl_src_readme)",
+        "RULES_RUST_OPENSSL_SRC_DIR": "$(location @rust_crates__openssl-src-300.5.5-3.5.5//:openssl_src_readme)",
     },
     crate = "openssl-sys",
     repositories = ["rust_crates"],
