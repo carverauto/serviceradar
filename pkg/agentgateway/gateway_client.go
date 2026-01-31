@@ -56,6 +56,7 @@ const (
 	defaultReconnectDelay = 5 * time.Second
 	maxReconnectDelay     = 60 * time.Second
 	defaultPushTimeout    = 30 * time.Second
+	defaultConfigTimeout  = 30 * time.Second
 )
 
 // GatewayClient manages the connection to the agent-gateway and pushes status updates.
@@ -446,7 +447,7 @@ func (g *GatewayClient) GetConfig(ctx context.Context, req *proto.AgentConfigReq
 		return nil, ErrGatewayNotConnected
 	}
 
-	configCtx, cancel := context.WithTimeout(ctx, defaultConnectTimeout)
+	configCtx, cancel := context.WithTimeout(ctx, defaultConfigTimeout)
 	defer cancel()
 
 	resp, err := client.GetConfig(configCtx, req)

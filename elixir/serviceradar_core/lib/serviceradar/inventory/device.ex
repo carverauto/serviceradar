@@ -30,7 +30,8 @@ defmodule ServiceRadar.Inventory.Device do
     domain: ServiceRadar.Inventory,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshJsonApi.Resource]
+    extensions: [AshJsonApi.Resource],
+    primary_read_warning?: false
 
   alias ServiceRadar.Inventory.IdentityReconciler
   require Ash.Query
@@ -63,6 +64,8 @@ defmodule ServiceRadar.Inventory.Device do
 
   actions do
     read :read do
+      primary? true
+
       argument :include_deleted, :boolean do
         allow_nil? false
         default false
