@@ -351,7 +351,7 @@ fn to_sql_and_params_stats(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)>
     })?;
 
     // Parse stats expression: "sum(bytes_total) as total_bytes by src_endpoint_ip"
-    let (agg_func, field, alias, group_by) = parse_stats_expr(stats_expr)?;
+    let (agg_func, field, alias, group_by) = parse_stats_expr(stats_expr.as_raw())?;
 
     // Build SQL query wrapped in jsonb_build_object to return as JSON
     let mut sql = String::from("SELECT jsonb_build_object(");
@@ -508,6 +508,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         };
 
         let result = build_query(&plan);
@@ -539,6 +540,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         };
 
         let result = build_query(&plan);
@@ -561,6 +563,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            include_deleted: false,
         };
 
         let result = build_query(&plan);
