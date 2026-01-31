@@ -186,11 +186,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:sync_ingestor)
-    record_sync_start(updates, actor)
+    sync_meta = extract_sync_meta(updates)
+    record_sync_start(updates, actor, sync_meta)
     result = sync_ingestor().ingest_updates(updates, actor: actor)
     Logger.info("SyncIngestor result: #{inspect(result)}")
 
-    record_sync_status(updates, actor, result)
+    record_sync_status(updates, actor, result, sync_meta)
 
     result
   rescue
@@ -210,25 +211,35 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp record_sync_status(updates, actor, ingest_result) do
-    sync_service_id = extract_sync_service_id(updates)
+  defp record_sync_status(updates, actor, ingest_result, sync_meta) do
+    sync_service_id = extract_sync_service_id(updates, sync_meta)
 
-    with_sync_service(sync_service_id, actor, fn source ->
-      {action, action_attrs} = build_sync_finish(ingest_result, length(updates))
-      update_sync_source(source, actor, action, action_attrs, sync_service_id, "status")
-    end)
+    if should_record_sync_status?(sync_meta) do
+      with_sync_service(sync_service_id, actor, fn source ->
+        {action, action_attrs} =
+          build_sync_finish(ingest_result, sync_device_count(updates, sync_meta))
+
+        update_sync_source(source, actor, action, action_attrs, sync_service_id, "status")
+      end)
+    else
+      :ok
+    end
   rescue
     error ->
       Logger.warning("Error recording sync status: #{inspect(error)}")
   end
 
-  defp record_sync_start(updates, actor) do
-    sync_service_id = extract_sync_service_id(updates)
+  defp record_sync_start(updates, actor, sync_meta) do
+    sync_service_id = extract_sync_service_id(updates, sync_meta)
 
-    with_sync_service(sync_service_id, actor, fn source ->
-      action_attrs = %{device_count: length(updates)}
-      update_sync_source(source, actor, :sync_start, action_attrs, sync_service_id, "start")
-    end)
+    if should_record_sync_start?(sync_meta) do
+      with_sync_service(sync_service_id, actor, fn source ->
+        action_attrs = %{device_count: sync_device_count(updates, sync_meta)}
+        update_sync_source(source, actor, :sync_start, action_attrs, sync_service_id, "start")
+      end)
+    else
+      :ok
+    end
   rescue
     error ->
       Logger.warning("Error recording sync start: #{inspect(error)}")
@@ -294,12 +305,141 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp error_message(reason), do: inspect(reason)
 
-  defp extract_sync_service_id([update | _]) when is_map(update) do
+  defp extract_sync_service_id(updates, sync_meta) do
+    meta_id =
+      case sync_meta do
+        %{sync_service_id: id} when is_binary(id) and id != "" -> id
+        _ -> nil
+      end
+
+    meta_id || extract_sync_service_id_from_updates(updates)
+  end
+
+  defp extract_sync_service_id_from_updates([update | _]) when is_map(update) do
     metadata = update["metadata"] || update[:metadata] || %{}
     metadata["sync_service_id"] || metadata[:sync_service_id]
   end
 
-  defp extract_sync_service_id(_), do: nil
+  defp extract_sync_service_id_from_updates(_), do: nil
+
+  defp extract_sync_meta(updates) when is_list(updates) do
+    Enum.reduce(updates, %{}, fn update, acc ->
+      meta = update["sync_meta"] || update[:sync_meta] || %{}
+
+      sync_service_id = acc[:sync_service_id] || get_string(meta, ["sync_service_id", :sync_service_id])
+
+      total_devices =
+        acc[:total_devices] || get_integer(meta, ["total_devices", :total_devices])
+
+      chunk_index = select_min(acc[:chunk_index], get_integer(meta, ["chunk_index", :chunk_index]))
+
+      total_chunks = acc[:total_chunks] || get_integer(meta, ["total_chunks", :total_chunks])
+
+      is_final = acc[:is_final] || get_bool(meta, ["is_final", :is_final])
+
+      %{
+        sync_service_id: sync_service_id,
+        total_devices: total_devices,
+        chunk_index: chunk_index,
+        total_chunks: total_chunks,
+        is_final: is_final
+      }
+    end)
+  end
+
+  defp extract_sync_meta(_), do: %{}
+
+  defp sync_device_count(updates, sync_meta) do
+    case sync_meta do
+      %{total_devices: total} when is_integer(total) and total >= 0 -> total
+      _ -> length(updates)
+    end
+  end
+
+  defp should_record_sync_start?(sync_meta) do
+    cond do
+      is_map(sync_meta) and map_size(sync_meta) == 0 ->
+        true
+
+      match?(%{chunk_index: 0}, sync_meta) ->
+        true
+
+      match?(%{chunk_index: nil}, sync_meta) ->
+        true
+
+      is_map(sync_meta) ->
+        false
+
+      true ->
+        true
+    end
+  end
+
+  defp should_record_sync_status?(sync_meta) do
+    cond do
+      is_map(sync_meta) and map_size(sync_meta) == 0 ->
+        true
+
+      match?(%{is_final: true}, sync_meta) ->
+        true
+
+      match?(%{total_chunks: 1}, sync_meta) ->
+        true
+
+      match?(%{chunk_index: nil}, sync_meta) ->
+        true
+
+      is_map(sync_meta) ->
+        false
+
+      true ->
+        true
+    end
+  end
+
+  defp get_string(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case map do
+        %{^key => value} when is_binary(value) -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp get_integer(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case map do
+        %{^key => value} -> normalize_integer(value)
+        _ -> nil
+      end
+    end)
+  end
+
+  defp normalize_integer(value) when is_integer(value), do: value
+  defp normalize_integer(value) when is_float(value), do: trunc(value)
+
+  defp normalize_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      _ -> nil
+    end
+  end
+
+  defp normalize_integer(_value), do: nil
+
+  defp get_bool(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case map do
+        %{^key => value} when is_boolean(value) -> value
+        %{^key => value} when is_binary(value) -> value == "true"
+        _ -> nil
+      end
+    end) || false
+  end
+
+  defp select_min(nil, value), do: value
+  defp select_min(value, nil), do: value
+  defp select_min(value, other) when is_integer(value) and is_integer(other), do: min(value, other)
 
   defp decode_results(nil), do: {:ok, []}
 

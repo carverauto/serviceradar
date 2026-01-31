@@ -324,6 +324,7 @@ data:
         "push_interval": "{{ default "30s" $agentVals.pushInterval }}",
         "status_debounce_interval": "{{ default "30s" $agentVals.statusDebounceInterval }}",
         "status_heartbeat_interval": "{{ default "5m" $agentVals.statusHeartbeatInterval }}",
+        "sync_runtime_enabled": {{- if hasKey $agentVals "syncRuntimeEnabled" -}}{{ $agentVals.syncRuntimeEnabled }}{{- else -}}true{{- end }},
         "kv_address": "serviceradar-datasvc:50057",
         "kv_security": {
           "mode": "spiffe",

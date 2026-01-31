@@ -535,6 +535,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                       </td>
                       <td>
                         <.status_badge enabled={source.enabled} result={source.last_sync_result} />
+                        <%= if source.last_error_message do %>
+                          <div
+                            class="text-xs text-error/80 max-w-[180px] truncate"
+                            title={source.last_error_message}
+                          >
+                            {source.last_error_message}
+                          </div>
+                        <% end %>
                       </td>
                       <td class="text-xs text-base-content/70">
                         {format_datetime(source.last_sync_at)}
@@ -902,7 +910,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
           <.dynamic_credentials_fields
             form={@form}
-            source_type={(@selected_source && @selected_source.source_type) || :armis}
+            source_type={(@source && @source.source_type) || :armis}
             mode={:edit}
           />
 
@@ -964,7 +972,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </button>
           </div>
 
-          <%= if shows_network_blacklist?(@selected_source && @selected_source.source_type) do %>
+          <%= if shows_network_blacklist?(@source && @source.source_type) do %>
             <div class="divider text-xs text-base-content/60">Network Settings</div>
 
             <div class="form-control">
@@ -1098,6 +1106,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <div>
               <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Last Sync</div>
               <div class="text-sm">{format_datetime(@source.last_sync_at)}</div>
+            </div>
+          <% end %>
+
+          <%= if @source.enabled && is_nil(@source.last_sync_at) do %>
+            <div class="alert alert-info text-sm">
+              <.icon name="hero-information-circle" class="size-5" />
+              <div>
+                <div class="font-medium">This source has never run.</div>
+                <div class="text-xs text-base-content/70">
+                  Confirm the assigned agent is connected and the sync runtime is enabled.
+                </div>
+              </div>
             </div>
           <% end %>
 

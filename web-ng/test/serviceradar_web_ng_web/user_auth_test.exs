@@ -84,7 +84,9 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
         Application.put_env(:serviceradar_web_ng, :session, original_config)
       end)
 
-      Application.put_env(:serviceradar_web_ng, :session,
+      Application.put_env(
+        :serviceradar_web_ng,
+        :session,
         Keyword.merge(original_config, absolute_timeout_seconds: 1, idle_timeout_seconds: 3600)
       )
 
