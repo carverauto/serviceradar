@@ -64,7 +64,7 @@ services:
 
 **Standalone:**
 ```bash
-cd cmd/netflow-collector
+cd rust/netflow-collector
 cargo build --release
 ./target/release/serviceradar-netflow-collector --config netflow-collector.json
 ```
@@ -345,10 +345,10 @@ Monitor these in logs and system metrics:
   "drop_policy": "drop_oldest",
   "security": {
     "mode": "mtls",
-    "cert_dir": "/etc/certs",
+    "cert_dir": "/etc/serviceradar/certs",
     "tls": {
-      "cert_file": "client.crt",
-      "key_file": "client.key",
+      "cert_file": "netflow-client.crt",
+      "key_file": "netflow-client.key",
       "ca_file": "ca.crt"
     }
   },
@@ -564,7 +564,7 @@ Navigate to **http://localhost:3000/netflows** to view:
 - Existing `max_templates` applies per-source
 - Monitor logs for cache metrics to tune if needed
 
-See [CHANGELOG.md](../../cmd/netflow-collector/CHANGELOG.md) for full details.
+See [CHANGELOG.md](../../rust/netflow-collector/CHANGELOG.md) for full details.
 
 ## Performance Characteristics
 
@@ -597,5 +597,5 @@ See [CHANGELOG.md](../../cmd/netflow-collector/CHANGELOG.md) for full details.
 - [IPFIX RFC 7011](https://datatracker.ietf.org/doc/html/rfc7011)
 - [OCSF 1.7.0 Network Activity](https://schema.ocsf.io/1.7.0/classes/network_activity)
 - [Troubleshooting Guide](./troubleshooting-guide.md#netflow)
-- [Device Config Quick Reference](../../cmd/netflow-collector/DEVICE-CONFIG.md)
-- [TESTING.md](../../cmd/netflow-collector/TESTING.md) - Testing guide
+- [Device Config Quick Reference](../../rust/netflow-collector/DEVICE-CONFIG.md)
+- [TESTING.md](../../rust/netflow-collector/TESTING.md) - Testing guide
