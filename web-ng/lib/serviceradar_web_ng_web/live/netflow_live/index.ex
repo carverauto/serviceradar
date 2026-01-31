@@ -14,7 +14,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
      socket
      |> assign(:page_title, "NetFlow")
      |> assign(:flows, [])
-     |> assign(:summary, %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0})
+     |> assign(:summary, %{
+       total: 0,
+       tcp: 0,
+       udp: 0,
+       other: 0,
+       total_bytes: 0,
+       v5: 0,
+       v9: 0,
+       ipfix: 0
+     })
      |> assign(:limit, @default_limit)
      |> assign(:offset, 0)
      |> assign(:srql, %{enabled: false})}
@@ -75,8 +84,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
 
           <div class="flex items-center justify-between px-4 py-3 border-t">
             <div class="text-sm text-muted-foreground">
-              Showing <%= @offset + 1 %>-<%= @offset + length(@flows) %>
-              (Limit: <%= @limit %>)
+              Showing {@offset + 1}-{@offset + length(@flows)} (Limit: {@limit})
             </div>
             <div class="flex gap-2">
               <%= if @offset > 0 do %>
@@ -111,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-muted-foreground">Total Flows</p>
-              <p class="text-2xl font-bold"><%= @summary.total %></p>
+              <p class="text-2xl font-bold">{@summary.total}</p>
             </div>
             <.icon name="hero-arrow-trending-up" class="h-8 w-8 text-muted-foreground" />
           </div>
@@ -121,7 +129,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-muted-foreground">TCP Flows</p>
-              <p class="text-2xl font-bold"><%= @summary.tcp %></p>
+              <p class="text-2xl font-bold">{@summary.tcp}</p>
             </div>
             <.ui_badge variant="success">TCP</.ui_badge>
           </div>
@@ -131,7 +139,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-muted-foreground">UDP Flows</p>
-              <p class="text-2xl font-bold"><%= @summary.udp %></p>
+              <p class="text-2xl font-bold">{@summary.udp}</p>
             </div>
             <.ui_badge variant="info">UDP</.ui_badge>
           </div>
@@ -141,7 +149,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-muted-foreground">Other</p>
-              <p class="text-2xl font-bold"><%= @summary.other %></p>
+              <p class="text-2xl font-bold">{@summary.other}</p>
             </div>
             <.ui_badge variant="ghost">Other</.ui_badge>
           </div>
@@ -151,7 +159,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-muted-foreground">Total Bytes</p>
-              <p class="text-2xl font-bold"><%= format_bytes(@summary.total_bytes) %></p>
+              <p class="text-2xl font-bold">{format_bytes(@summary.total_bytes)}</p>
             </div>
             <.icon name="hero-server-stack" class="h-8 w-8 text-muted-foreground" />
           </div>
@@ -163,7 +171,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-muted-foreground">NetFlow v5</p>
-              <p class="text-2xl font-bold"><%= @summary.v5 %></p>
+              <p class="text-2xl font-bold">{@summary.v5}</p>
             </div>
             <.ui_badge variant="warning">v5</.ui_badge>
           </div>
@@ -173,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-muted-foreground">NetFlow v9</p>
-              <p class="text-2xl font-bold"><%= @summary.v9 %></p>
+              <p class="text-2xl font-bold">{@summary.v9}</p>
             </div>
             <.ui_badge variant="info">v9</.ui_badge>
           </div>
@@ -183,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-muted-foreground">IPFIX</p>
-              <p class="text-2xl font-bold"><%= @summary.ipfix %></p>
+              <p class="text-2xl font-bold">{@summary.ipfix}</p>
             </div>
             <.ui_badge variant="success">IPFIX</.ui_badge>
           </div>
@@ -212,13 +220,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
           <%= for flow <- @flows do %>
             <tr class="hover:bg-muted/50">
               <td class="p-2 text-muted-foreground text-xs">
-                <%= format_timestamp(flow["timestamp"]) %>
+                {format_timestamp(flow["timestamp"])}
               </td>
               <td class="p-2 font-mono text-sm">
-                <%= flow["src_addr"] %><%= if flow["src_port"] && flow["src_port"] != 0, do: ":#{flow["src_port"]}", else: "" %>
+                {flow["src_addr"]}{if flow["src_port"] && flow["src_port"] != 0,
+                  do: ":#{flow["src_port"]}",
+                  else: ""}
               </td>
               <td class="p-2 font-mono text-sm">
-                <%= flow["dst_addr"] %><%= if flow["dst_port"] && flow["dst_port"] != 0, do: ":#{flow["dst_port"]}", else: "" %>
+                {flow["dst_addr"]}{if flow["dst_port"] && flow["dst_port"] != 0,
+                  do: ":#{flow["dst_port"]}",
+                  else: ""}
               </td>
               <td class="p-2">
                 <.protocol_badge protocol={flow["protocol"]} />
@@ -227,10 +239,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
                 <.flow_type_badge flow_type={flow["flow_type"]} />
               </td>
               <td class="p-2 text-right font-mono">
-                <%= format_number(flow["packets"]) %>
+                {format_number(flow["packets"])}
               </td>
               <td class="p-2 text-right font-mono">
-                <%= format_bytes(flow["octets"]) %>
+                {format_bytes(flow["octets"])}
               </td>
             </tr>
           <% end %>
@@ -259,7 +271,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
     assigns = assign(assigns, label: label, variant: variant)
 
     ~H"""
-    <.ui_badge variant={@variant}><%= @label %></.ui_badge>
+    <.ui_badge variant={@variant}>{@label}</.ui_badge>
     """
   end
 
@@ -278,35 +290,39 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
     assigns = assign(assigns, label: label, variant: variant)
 
     ~H"""
-    <.ui_badge variant={@variant}><%= @label %></.ui_badge>
+    <.ui_badge variant={@variant}>{@label}</.ui_badge>
     """
   end
 
   defp compute_summary(flows) when is_list(flows) do
-    Enum.reduce(flows, %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0}, fn flow, acc ->
-      protocol = flow["protocol"]
-      bytes = flow["octets"] || 0
-      flow_type = flow["flow_type"]
+    Enum.reduce(
+      flows,
+      %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0},
+      fn flow, acc ->
+        protocol = flow["protocol"]
+        bytes = flow["octets"] || 0
+        flow_type = flow["flow_type"]
 
-      updated =
-        case protocol do
-          6 -> Map.update!(acc, :tcp, &(&1 + 1))
-          17 -> Map.update!(acc, :udp, &(&1 + 1))
-          _ -> Map.update!(acc, :other, &(&1 + 1))
-        end
+        updated =
+          case protocol do
+            6 -> Map.update!(acc, :tcp, &(&1 + 1))
+            17 -> Map.update!(acc, :udp, &(&1 + 1))
+            _ -> Map.update!(acc, :other, &(&1 + 1))
+          end
 
-      updated =
-        case flow_type do
-          "NETFLOW_V5" -> Map.update!(updated, :v5, &(&1 + 1))
-          "NETFLOW_V9" -> Map.update!(updated, :v9, &(&1 + 1))
-          "IPFIX" -> Map.update!(updated, :ipfix, &(&1 + 1))
-          _ -> updated
-        end
+        updated =
+          case flow_type do
+            "NETFLOW_V5" -> Map.update!(updated, :v5, &(&1 + 1))
+            "NETFLOW_V9" -> Map.update!(updated, :v9, &(&1 + 1))
+            "IPFIX" -> Map.update!(updated, :ipfix, &(&1 + 1))
+            _ -> updated
+          end
 
-      updated
-      |> Map.update!(:total, &(&1 + 1))
-      |> Map.update!(:total_bytes, &(&1 + bytes))
-    end)
+        updated
+        |> Map.update!(:total, &(&1 + 1))
+        |> Map.update!(:total_bytes, &(&1 + bytes))
+      end
+    )
   end
 
   defp query_db(sql) do

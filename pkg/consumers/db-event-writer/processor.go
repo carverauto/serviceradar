@@ -339,7 +339,7 @@ func (p *Processor) processTableMessages(ctx context.Context, table string, tabl
 		return p.processOCSFEventsTable(ctx, table, tableMsgs)
 	case table == "ocsf_network_activity" || strings.Contains(table, "ocsf_network_activity"):
 		p.logger.Debug().Str("table", table).Msg("Processing as OCSF network activity table")
-		return p.processOCSFNetworkActivityTable(ctx, tableMsgs)
+		return p.processOCSFNetworkActivityTable(ctx, table, tableMsgs)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedTable, table)
 	}
@@ -1076,8 +1076,9 @@ func (p *Processor) parseOTELTraces(msg jetstream.Msg) ([]models.OTELTraceRow, b
 
 	return traceRows, true
 }
+
 // processOCSFNetworkActivityTable processes OCSF network_activity events
-func (p *Processor) processOCSFNetworkActivityTable(ctx context.Context, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
+func (p *Processor) processOCSFNetworkActivityTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
 	if len(msgs) == 0 {
 		return nil, nil
 	}
@@ -1086,18 +1087,13 @@ func (p *Processor) processOCSFNetworkActivityTable(ctx context.Context, msgs []
 		return nil, errCNPGOCSFNotConfigured
 	}
 
-	var rows []models.OCSFNetworkActivity
-	var processed []jetstream.Msg
+	rows := make([]models.OCSFNetworkActivity, 0, len(msgs))
+	processed := make([]jetstream.Msg, 0, len(msgs))
 
 	for _, msg := range msgs {
 		data := msg.Data()
 
-		// Try to extract data from CloudEvents envelope using json.RawMessage
-		// to avoid an unnecessary marshal/unmarshal round-trip.
 		eventData := data
-		if extracted, ok := parseCloudEvent(data); ok {
-			eventData = []byte(extracted)
-		}
 
 		// Parse OCSF JSON
 		var ocsfEvent map[string]interface{}
@@ -1116,15 +1112,15 @@ func (p *Processor) processOCSFNetworkActivityTable(ctx context.Context, msgs []
 
 		// Build row
 		row := models.OCSFNetworkActivity{
-			Time:         timestamp,
-			ClassUID:     int(getFloat64(ocsfEvent, "class_uid", 4001)),
-			CategoryUID:  int(getFloat64(ocsfEvent, "category_uid", 4)),
-			ActivityID:   int(getFloat64(ocsfEvent, "activity_id", 6)),
-			TypeUID:      int(getFloat64(ocsfEvent, "type_uid", 400106)),
-			SeverityID:   int(getFloat64(ocsfEvent, "severity_id", 1)),
-			OCSFPayload:  eventData,
-			Partition:    "default",
-			CreatedAt:    time.Now(),
+			Time:        timestamp,
+			ClassUID:    int(getFloat64(ocsfEvent, "class_uid", 4001)),
+			CategoryUID: int(getFloat64(ocsfEvent, "category_uid", 4)),
+			ActivityID:  int(getFloat64(ocsfEvent, "activity_id", 6)),
+			TypeUID:     int(getFloat64(ocsfEvent, "type_uid", 400106)),
+			SeverityID:  int(getFloat64(ocsfEvent, "severity_id", 1)),
+			OCSFPayload: eventData,
+			Partition:   "default",
+			CreatedAt:   time.Now(),
 		}
 
 		// Extract timestamps
@@ -1208,7 +1204,7 @@ func (p *Processor) processOCSFNetworkActivityTable(ctx context.Context, msgs []
 	}
 
 	// Batch insert
-	if err := p.insertOCSFNetworkActivityBatch(ctx, rows); err != nil {
+	if err := p.insertOCSFNetworkActivityBatch(ctx, table, rows); err != nil {
 		return nil, fmt.Errorf("failed to insert OCSF network activity batch: %w", err)
 	}
 
@@ -1217,48 +1213,12 @@ func (p *Processor) processOCSFNetworkActivityTable(ctx context.Context, msgs []
 }
 
 // insertOCSFNetworkActivityBatch performs batch insert of OCSF network activity rows
-func (p *Processor) insertOCSFNetworkActivityBatch(ctx context.Context, rows []models.OCSFNetworkActivity) error {
+func (p *Processor) insertOCSFNetworkActivityBatch(ctx context.Context, table string, rows []models.OCSFNetworkActivity) error {
 	if len(rows) == 0 {
 		return nil
 	}
 
-	batch := &pgx.Batch{}
-	query := `
-		INSERT INTO ocsf_network_activity (
-			time, class_uid, category_uid, activity_id, type_uid, severity_id,
-			start_time, end_time,
-			src_endpoint_ip, src_endpoint_port, src_as_number,
-			dst_endpoint_ip, dst_endpoint_port, dst_as_number,
-			protocol_num, protocol_name, tcp_flags,
-			bytes_total, packets_total, bytes_in, bytes_out,
-			sampler_address, ocsf_payload, partition, created_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
-		)
-	`
-
-	for _, row := range rows {
-		batch.Queue(query,
-			row.Time, row.ClassUID, row.CategoryUID, row.ActivityID, row.TypeUID, row.SeverityID,
-			row.StartTime, row.EndTime,
-			row.SrcEndpointIP, row.SrcEndpointPort, row.SrcASNumber,
-			row.DstEndpointIP, row.DstEndpointPort, row.DstASNumber,
-			row.ProtocolNum, row.ProtocolName, row.TCPFlags,
-			row.BytesTotal, row.PacketsTotal, row.BytesIn, row.BytesOut,
-			row.SamplerAddress, row.OCSFPayload, row.Partition, row.CreatedAt,
-		)
-	}
-
-	br := p.db.SendBatch(ctx, batch)
-	defer br.Close()
-
-	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
-			return fmt.Errorf("failed to execute batch item %d: %w", i, err)
-		}
-	}
-
-	return nil
+	return p.db.InsertOCSFNetworkActivity(ctx, table, rows)
 }
 
 // Helper functions for OCSF event parsing
