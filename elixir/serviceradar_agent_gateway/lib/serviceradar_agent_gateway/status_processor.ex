@@ -138,22 +138,12 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     partition = status[:partition]
     agent_id = status[:agent_id]
     service_name = status[:service_name]
-    service_type = status[:service_type]
-    source = status[:source]
-    handler = handler_module(status)
+    handler = ServiceRadar.StatusHandler
 
-    # Log at info level for sync results to trace the flow
-    if service_type == "sync" and source == "results" do
-      Logger.info(
-        "Forwarding sync results to core: partition=#{partition} " <>
-          "agent=#{agent_id} service=#{service_name}"
-      )
-    else
-      Logger.debug(
-        "Forwarding status to core: partition=#{partition} " <>
-          "agent=#{agent_id} service=#{service_name}"
-      )
-    end
+    Logger.debug(
+      "Forwarding status to core: partition=#{partition} " <>
+        "agent=#{agent_id} service=#{service_name}"
+    )
 
     # Try to forward to the core cluster
     # First check if we have a local core process, then try distributed
@@ -172,7 +162,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   # Forward to local core process (same node)
   defp forward_local(status, handler) do
     # Check if core is available locally
-    message = handler_message(handler, status)
+    message = handler_message(status)
 
     case Process.whereis(handler) do
       nil ->
@@ -190,23 +180,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   # Forward to distributed core process via RPC
   defp forward_distributed(status, handler) do
-    service_type = status[:service_type]
-    source = status[:source]
-    is_sync_results = service_type == "sync" and source == "results"
-
-    message = handler_message(handler, status)
+    message = handler_message(status)
 
     case find_handler_node(handler) do
       {:ok, node} ->
         try do
           # Cast to the core handler on the remote node
           GenServer.cast({handler, node}, message)
-
-          if is_sync_results do
-            Logger.info("Forwarded sync results to #{inspect(handler)} on #{node}")
-          else
-            Logger.debug("Forwarded status to #{inspect(handler)} on #{node}")
-          end
+          Logger.debug("Forwarded status to #{inspect(handler)} on #{node}")
 
           :ok
         catch
@@ -216,26 +197,12 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
         end
 
       {:error, :not_found} ->
-        if is_sync_results do
-          Logger.warning("No handler found on any node for sync results")
-        else
-          Logger.debug("No handler found on any node")
-        end
-
+        Logger.debug("No handler found on any node")
         {:error, :not_available}
     end
   end
 
-  defp handler_module(status) do
-    if results_router_source?(status) do
-      ServiceRadar.ResultsRouter
-    else
-      ServiceRadar.StatusHandler
-    end
-  end
-
-  defp handler_message(ServiceRadar.ResultsRouter, status), do: {:results_update, status}
-  defp handler_message(_handler, status), do: {:status_update, status}
+  defp handler_message(status), do: {:status_update, status}
 
   # Find a node that has the handler running
   defp find_handler_node(handler) do
