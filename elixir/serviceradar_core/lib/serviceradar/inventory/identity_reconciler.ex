@@ -27,6 +27,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, Interface, MergeAudit}
@@ -90,7 +91,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     if serviceradar_uuid?(update.device_id) do
       {:ok, update.device_id}
     else
-      case lookup_by_ip(ids, actor) do
+      case lookup_by_ip(ids, actor, allow_strong: true) do
         {:ok, device_id} when is_binary(device_id) and device_id != "" ->
           {:ok, device_id}
 
@@ -225,9 +226,12 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   @doc """
   Lookup device by IP address (weak identifier).
   """
-  @spec lookup_by_ip(strong_identifiers(), term()) :: {:ok, String.t() | nil} | {:error, term()}
-  def lookup_by_ip(ids, actor) do
-    if has_strong_identifier?(ids) or ids.ip == "" do
+  @spec lookup_by_ip(strong_identifiers(), term(), keyword()) ::
+          {:ok, String.t() | nil} | {:error, term()}
+  def lookup_by_ip(ids, actor, opts \\ []) do
+    allow_strong = Keyword.get(opts, :allow_strong, false)
+
+    if (has_strong_identifier?(ids) and not allow_strong) or ids.ip == "" do
       {:ok, nil}
     else
       case lookup_alias_device_id(ids.ip, ids.partition, actor) do
@@ -246,17 +250,10 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     Device
     |> Ash.Query.for_read(:by_ip, %{ip: ip})
     |> Ash.read(query_opts)
+    |> Page.unwrap()
     |> case do
-      {:ok, [device | _]} ->
-        # Only return devices with ServiceRadar UUIDs
-        if serviceradar_uuid?(device.uid) do
-          {:ok, device.uid}
-        else
-          {:ok, nil}
-        end
-
-      {:ok, []} ->
-        {:ok, nil}
+      {:ok, devices} ->
+        {:ok, select_ip_device_id(devices)}
 
       {:error, _} = error ->
         error
@@ -500,11 +497,18 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
     Logger.info("Device identity reconciliation started")
 
-    {identifier_index, scanned_count} = build_identifier_index(actor)
+    {identifier_index, identifier_scanned} = build_identifier_index(actor)
+    {ip_index, ip_scanned} = build_ip_index(actor)
 
-    duplicate_entries =
+    identifier_duplicates =
       identifier_index
       |> Enum.filter(fn {_key, device_ids} -> MapSet.size(device_ids) > 1 end)
+
+    ip_duplicates =
+      ip_index
+      |> Enum.filter(fn {_key, device_ids} -> MapSet.size(device_ids) > 1 end)
+
+    duplicate_entries = identifier_duplicates ++ ip_duplicates
 
     components =
       duplicate_entries
@@ -516,8 +520,10 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     duration_ms = System.monotonic_time(:millisecond) - started_at
 
     stats = %{
-      identifiers_scanned: scanned_count,
-      duplicate_identifier_count: length(duplicate_entries),
+      identifiers_scanned: identifier_scanned,
+      duplicate_identifier_count: length(identifier_duplicates),
+      ip_addresses_scanned: ip_scanned,
+      duplicate_ip_count: length(ip_duplicates),
       duplicate_components: length(components),
       merges: merge_count,
       errors: error_count,
@@ -575,13 +581,16 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       |> Ash.Query.filter(uid in ^device_ids)
       |> Ash.Query.for_read(:read, %{}, actor: actor)
 
-    case Ash.read(query, actor: actor) do
+    case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, devices} when devices != [] ->
         devices
         |> Enum.max_by(fn device -> device.last_seen_time || ~U[1970-01-01 00:00:00Z] end)
         |> Map.get(:uid)
 
-      _ ->
+      {:ok, _} ->
+        List.first(device_ids)
+
+      {:error, _} ->
         List.first(device_ids)
     end
   end
@@ -634,6 +643,16 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     |> Enum.reduce({%{}, 0}, &accumulate_identifier_index/2)
   end
 
+  defp build_ip_index(actor) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(not is_nil(ip) and ip != "")
+
+    Ash.stream!(query, actor: actor, batch_size: 2000)
+    |> Enum.reduce({%{}, 0}, &accumulate_ip_index/2)
+  end
+
   defp accumulate_identifier_index(record, {acc, count}) do
     device_id = normalize_identifier_value(record.device_id)
     identifier_value = normalize_identifier_value(record.identifier_value)
@@ -653,8 +672,31 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     end
   end
 
+  defp accumulate_ip_index(device, {acc, count}) do
+    device_id = normalize_identifier_value(device.uid)
+    ip = normalize_identifier_value(device.ip)
+
+    if skip_ip_record?(device_id, ip) do
+      {acc, count + 1}
+    else
+      partition = partition_from_device_id(device_id) || "default"
+      key = {partition, ip}
+
+      updated =
+        Map.update(acc, key, MapSet.new([device_id]), fn set ->
+          MapSet.put(set, device_id)
+        end)
+
+      {updated, count + 1}
+    end
+  end
+
   defp skip_identifier_record?(device_id, identifier_value) do
     is_nil(device_id) or is_nil(identifier_value) or service_device_id?(device_id)
+  end
+
+  defp skip_ip_record?(device_id, ip) do
+    is_nil(device_id) or is_nil(ip) or service_device_id?(device_id)
   end
 
   defp normalize_identifier_value(value) when is_binary(value) do
@@ -667,6 +709,40 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp normalize_identifier_value(_), do: nil
+
+  defp select_ip_device([]), do: nil
+
+  defp select_ip_device(devices) do
+    valid_devices =
+      Enum.reject(devices, fn device ->
+        metadata = device.metadata || %{}
+
+        Map.has_key?(metadata, "_merged_into") or
+          String.downcase(to_string(metadata["_deleted"] || "")) == "true" or
+          not is_nil(device.deleted_at) or
+          service_device_id?(device.uid)
+      end)
+
+    candidates = Enum.filter(valid_devices, &serviceradar_uuid?(&1.uid))
+    candidates = if candidates == [], do: valid_devices, else: candidates
+
+    Enum.max_by(candidates, &device_seen_score/1, fn -> nil end)
+  end
+
+  defp select_ip_device_id(devices) do
+    case select_ip_device(devices) do
+      %Device{uid: uid} ->
+        if serviceradar_uuid?(uid), do: uid, else: nil
+      _ -> nil
+    end
+  end
+
+  defp device_seen_score(device) do
+    case device.last_seen_time do
+      %DateTime{} = dt -> DateTime.to_unix(dt, :second)
+      _ -> 0
+    end
+  end
 
   defp build_duplicate_components(duplicate_entries) do
     duplicate_entries
@@ -1085,4 +1161,13 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       end
     end
   end
+
+  defp partition_from_device_id(device_id) when is_binary(device_id) do
+    case String.split(device_id, ":", parts: 2) do
+      [partition, _rest] when partition != "sr" -> partition
+      _ -> "default"
+    end
+  end
+
+  defp partition_from_device_id(_), do: "default"
 end
