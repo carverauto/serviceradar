@@ -131,7 +131,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   end
 
   defp load_device_host(device_id, opts) do
-    case Device.get_by_uid(device_id, opts) do
+    case Device.get_by_uid(device_id, false, opts) do
       {:ok, device} -> device.ip || device.hostname || device.name
       {:error, _} -> nil
     end
