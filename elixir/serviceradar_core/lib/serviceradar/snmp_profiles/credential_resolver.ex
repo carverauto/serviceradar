@@ -118,7 +118,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   end
 
   defp lookup_device_uid(host, actor) do
-    case Device.get_by_uid(host, actor: actor) do
+    case Device.get_by_uid(host, false, actor: actor) do
       {:ok, %Device{} = device} ->
         {:ok, device.uid}
 

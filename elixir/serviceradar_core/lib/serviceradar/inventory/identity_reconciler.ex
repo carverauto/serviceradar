@@ -811,8 +811,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       ]
 
       Ash.transaction(resources, fn ->
-        with {:ok, %Device{} = from_device} <- Device.get_by_uid(from_device_id, actor: actor),
-             {:ok, %Device{} = _to_device} <- Device.get_by_uid(to_device_id, actor: actor),
+        with {:ok, %Device{} = from_device} <- Device.get_by_uid(from_device_id, false, actor: actor),
+             {:ok, %Device{} = _to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
              :ok <- reassign_device_identifiers(from_device_id, to_device_id, actor),
              :ok <- reassign_service_checks(from_device_id, to_device_id, actor),
              :ok <- reassign_alerts(from_device_id, to_device_id, actor),

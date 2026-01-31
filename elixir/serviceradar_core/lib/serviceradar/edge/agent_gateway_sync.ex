@@ -162,7 +162,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     os_info = if map_size(os_info) == 0, do: nil, else: os_info
 
     # Check if device exists
-    case Device.get_by_uid(device_uid, include_deleted: true, actor: actor) do
+    case Device.get_by_uid(device_uid, true, actor: actor) do
       {:ok, device} ->
         # Update existing device
         update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now)
