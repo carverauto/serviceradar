@@ -158,6 +158,15 @@ kubectl get pods -n demo -l app=serviceradar-faker
 kubectl exec -n demo deploy/serviceradar-faker -- ls /var/lib/serviceradar/faker
 ```
 
+## Agent Performance Tuning (Demo)
+
+Large sweeps can generate hundreds of thousands of targets and spike agent memory usage.
+If you see OOMKills during demo sweeps:
+
+- Increase the agent memory limit in `helm/serviceradar/values.yaml` (for example, `agent.resources.limits.memory: 4Gi`) and redeploy.
+- Reduce sweep fan-out by trimming port lists or target counts in the agent config.
+- Watch agent logs for `targetsGenerated`, `tcpTargets`, and `totalHosts` to spot runaway scans.
+
 ## Resetting the Device Pipeline
 
 This clears the CNPG-backed telemetry tables and repopulates them with a fresh discovery crawl from the faker service.
