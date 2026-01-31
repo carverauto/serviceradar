@@ -4208,6 +4208,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   <thead>
                     <tr class="text-xs text-base-content/60">
                       <th>Time</th>
+                      <th>Agent</th>
                       <th>Status</th>
                       <th>Response</th>
                       <th>Ports</th>
@@ -4217,6 +4218,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     <%= for result <- Enum.take(@results, 5) do %>
                       <tr class="hover:bg-base-200/40">
                         <td class="font-mono text-xs">{format_sweep_time(result.inserted_at)}</td>
+                        <td class="font-mono text-xs truncate max-w-[8rem]" title={get_sweep_agent_id(result)}>
+                          {truncate_agent_id(get_sweep_agent_id(result))}
+                        </td>
                         <td>
                           <span class={[
                             "inline-flex items-center gap-1",
@@ -4348,6 +4352,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_ports_compact(ports) when length(ports) <= 3, do: Enum.join(ports, ", ")
   defp format_ports_compact(ports), do: "#{length(ports)} ports"
 
+  defp get_sweep_agent_id(result) do
+    case result do
+      %{execution: %{agent_id: agent_id}} when is_binary(agent_id) -> agent_id
+      _ -> "—"
+    end
+  end
+
+  defp truncate_agent_id("—"), do: "—"
+  defp truncate_agent_id(nil), do: "—"
+
+  defp truncate_agent_id(agent_id) when is_binary(agent_id) do
+    if String.length(agent_id) > 12 do
+      String.slice(agent_id, 0, 12) <> "…"
+    else
+      agent_id
+    end
+  end
+
+  defp truncate_agent_id(_), do: "—"
+
   defp alias_state_label(nil), do: "Unknown"
 
   defp alias_state_label(state) do
@@ -4414,6 +4438,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     query =
       SweepHostResult
       |> Ash.Query.for_read(:by_ip, %{ip: ip}, actor: actor)
+      |> Ash.Query.load(:execution)
       |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(10)
 

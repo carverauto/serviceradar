@@ -129,7 +129,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   defp load_sweep_groups(partition, agent_id, actor) do
     query =
       SweepGroup
-      |> Ash.Query.for_read(:for_agent_partition, %{partition: partition, agent_id: agent_id})
+      |> Ash.Query.for_read(:for_agent_partition, %{
+        partition: partition,
+        agent_id: agent_id
+      })
 
     Logger.debug(
       "SweepCompiler: loading groups for partition=#{inspect(partition)}, agent_id=#{inspect(agent_id)}"
@@ -143,7 +146,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
         Enum.each(groups, fn g ->
           Logger.debug(
-            "SweepCompiler: group #{g.name} - target_query=#{inspect(g.target_query)}, static_targets=#{inspect(g.static_targets)}"
+            "SweepCompiler: group #{g.name} - target_query=#{inspect(g.target_query)}, static_targets=#{inspect(g.static_targets)}, agent_id=#{inspect(g.agent_id)}"
           )
         end)
 

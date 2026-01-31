@@ -209,6 +209,12 @@ func applyDefaultConfig(config *models.Config) *models.Config {
 		config.ICMPRateLimit = 1000
 	}
 
+	if config.ICMPCount == 0 {
+		// Send 3 ICMP packets per target by default for reliable availability detection
+		// Host is marked available if ANY packet receives a reply
+		config.ICMPCount = 3
+	}
+
 	return config
 }
 
@@ -228,7 +234,12 @@ func newScanStats() *ScanStats {
 
 // CheckICMP performs a standalone ICMP check on the specified host.
 func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Result, error) {
-	icmpScanner, err := scan.NewICMPSweeper(s.config.Timeout, s.config.ICMPRateLimit, s.logger)
+	var opts []scan.ICMPSweeperOption
+	if s.config.ICMPCount > 0 {
+		opts = append(opts, scan.WithICMPCount(s.config.ICMPCount))
+	}
+
+	icmpScanner, err := scan.NewICMPSweeper(s.config.Timeout, s.config.ICMPRateLimit, s.logger, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
