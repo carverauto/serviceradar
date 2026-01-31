@@ -133,6 +133,8 @@ pub enum MessageFormat {
     Protobuf,
     #[serde(rename = "otel_metrics")]
     OtelMetrics,
+    #[serde(rename = "flow_protobuf")]
+    FlowProtobuf,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
