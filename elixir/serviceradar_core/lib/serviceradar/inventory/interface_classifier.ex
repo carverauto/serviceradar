@@ -110,8 +110,8 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
       rule.enabled != false,
       has_constraints?(rule),
       matches_vendor?(rule.vendor_pattern, device_ctx),
-      matches_pattern?(rule.model_pattern, device_ctx.model),
-      matches_pattern?(rule.sys_descr_pattern, device_ctx.sys_descr),
+      matches_pattern?(rule.model_pattern, Map.get(device_ctx, :model)),
+      matches_pattern?(rule.sys_descr_pattern, Map.get(device_ctx, :sys_descr)),
       matches_pattern?(rule.if_name_pattern, record.if_name),
       matches_pattern?(rule.if_descr_pattern, record.if_descr),
       matches_pattern?(rule.if_alias_pattern, record.if_alias),
@@ -153,8 +153,8 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
   defp matches_vendor?("", _device_ctx), do: true
 
   defp matches_vendor?(pattern, device_ctx) do
-    vendor = device_ctx.vendor_name
-    sys_descr = device_ctx.sys_descr
+    vendor = Map.get(device_ctx, :vendor_name)
+    sys_descr = Map.get(device_ctx, :sys_descr)
 
     matches_pattern?(pattern, vendor) or
       (vendor in [nil, ""] and matches_pattern?(pattern, sys_descr))
