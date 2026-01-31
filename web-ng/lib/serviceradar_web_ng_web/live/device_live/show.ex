@@ -303,11 +303,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
              |> push_patch(to: device_show_path(socket, device_uid))}
 
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to delete device: #{format_ash_error(reason)}")}
+            {:noreply,
+             put_flash(socket, :error, "Failed to delete device: #{format_ash_error(reason)}")}
         end
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
+        {:noreply,
+         put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
     end
   end
 
@@ -330,7 +332,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         end
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
+        {:noreply,
+         put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
     end
   end
 
@@ -4218,7 +4221,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                     <%= for result <- Enum.take(@results, 5) do %>
                       <tr class="hover:bg-base-200/40">
                         <td class="font-mono text-xs">{format_sweep_time(result.inserted_at)}</td>
-                        <td class="font-mono text-xs truncate max-w-[8rem]" title={get_sweep_agent_id(result)}>
+                        <td
+                          class="font-mono text-xs truncate max-w-[8rem]"
+                          title={get_sweep_agent_id(result)}
+                        >
                           {truncate_agent_id(get_sweep_agent_id(result))}
                         </td>
                         <td>

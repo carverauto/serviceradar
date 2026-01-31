@@ -429,7 +429,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         case Device.bulk_soft_delete(uids, "bulk_delete", scope: scope) do
           :ok ->
             path =
-              device_list_path(Map.get(socket.assigns.srql || %{}, :query, ""), socket.assigns.limit)
+              device_list_path(
+                Map.get(socket.assigns.srql || %{}, :query, ""),
+                socket.assigns.limit
+              )
 
             count = length(uids)
 
@@ -444,7 +447,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
           {:ok, %{deleted_count: count}} ->
             path =
-              device_list_path(Map.get(socket.assigns.srql || %{}, :query, ""), socket.assigns.limit)
+              device_list_path(
+                Map.get(socket.assigns.srql || %{}, :query, ""),
+                socket.assigns.limit
+              )
 
             {:noreply,
              socket
@@ -914,7 +920,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         form={@bulk_edit_form}
         selected_count={@effective_count}
       />
-
+      
     <!-- Bulk Delete Modal -->
       <.bulk_delete_modal
         :if={@show_bulk_delete_modal}

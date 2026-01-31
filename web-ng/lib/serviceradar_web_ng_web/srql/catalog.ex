@@ -27,7 +27,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "tags",
         "include_deleted"
       ],
-      boolean_fields: ["is_available", "is_managed", "is_compliant", "is_trusted", "include_deleted"],
+      boolean_fields: [
+        "is_available",
+        "is_managed",
+        "is_compliant",
+        "is_trusted",
+        "include_deleted"
+      ],
       # Fields backed by array columns - builder will always use list syntax for these
       array_fields: ["discovery_sources", "tags"],
       # Fields that support GROUP BY in stats queries (stats:count() as count by <field>)

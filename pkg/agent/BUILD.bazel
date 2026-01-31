@@ -16,6 +16,7 @@ go_library(
         "push_loop.go",
         "server.go",
         "snmp_service.go",
+        "sync_runtime.go",
         "sweep_config_gateway.go",
         "sweep_results_limits.go",
         "sweep_service.go",

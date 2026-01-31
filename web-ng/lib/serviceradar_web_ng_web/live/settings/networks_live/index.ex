@@ -2236,7 +2236,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             </div>
           </div>
         </div>
-
+        
     <!-- Target Criteria Section -->
         <div class="space-y-4">
           <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
@@ -2749,7 +2749,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             _ = DeviceCleanupWorker.ensure_scheduled()
             settings
 
-          {:error, _} -> nil
+          {:error, _} ->
+            nil
         end
     end
   end
