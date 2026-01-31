@@ -141,7 +141,13 @@ func initializeICMPScanner(config *models.Config, log logger.Logger) scan.Scanne
 		return nil
 	}
 
-	icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log)
+	// Build options for ICMP scanner
+	var opts []scan.ICMPSweeperOption
+	if config.ICMPCount > 0 {
+		opts = append(opts, scan.WithICMPCount(config.ICMPCount))
+	}
+
+	icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, log, opts...)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to create ICMP scanner, ICMP scanning will be disabled")
 		return nil
@@ -738,12 +744,16 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 
 	// Initialize ICMP scanner if needed and not already initialized
 	if needsICMP && s.icmpScanner == nil {
-		icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, s.logger)
+		var opts []scan.ICMPSweeperOption
+		if config.ICMPCount > 0 {
+			opts = append(opts, scan.WithICMPCount(config.ICMPCount))
+		}
+		icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, s.logger, opts...)
 		if err != nil {
 			s.logger.Warn().Err(err).Msg("Failed to create ICMP scanner during config update, ICMP scanning will be disabled")
 		} else {
 			s.icmpScanner = icmpScanner
-			s.logger.Info().Msg("Initialized ICMP scanner based on updated config")
+			s.logger.Info().Int("icmpCount", config.ICMPCount).Msg("Initialized ICMP scanner based on updated config")
 		}
 	}
 

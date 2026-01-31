@@ -38,12 +38,14 @@ const (
 	defaultICMPRateLimit = 1000 // packets per second
 	defaultICMPTimeout   = 5 * time.Second
 	batchInterval        = 10 * time.Millisecond
+	defaultICMPCount     = 3 // default number of ICMP packets per target
 )
 
 type ICMPSweeper struct {
 	rateLimit   int
 	timeout     time.Duration
 	identifier  int
+	icmpCount   int // number of ICMP packets to send per target
 	rawSocketFD int
 	conn        *icmp.PacketConn
 	mu          sync.Mutex
@@ -51,8 +53,22 @@ type ICMPSweeper struct {
 	cancel      context.CancelFunc
 	logger      logger.Logger
 
+	// Per-host tracking for multi-packet ICMP
+	hostStats map[string]*hostICMPStats
+
 	// Streaming results callback for immediate result emission
 	resultCallback func(models.Result)
+}
+
+// hostICMPStats tracks ICMP statistics per host for multi-packet scanning
+type hostICMPStats struct {
+	sent          int
+	received      int
+	totalRTT      time.Duration // sum of all response times for averaging
+	firstSeen     time.Time
+	lastSeen      time.Time
+	sendTimes     map[int]time.Time // send time per sequence number for accurate RTT
+	mu            sync.Mutex
 }
 
 var _ Scanner = (*ICMPSweeper)(nil)
@@ -62,7 +78,7 @@ const (
 )
 
 // NewICMPSweeper creates a new scanner for ICMP sweeping.
-func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger) (*ICMPSweeper, error) {
+func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opts ...ICMPSweeperOption) (*ICMPSweeper, error) {
 	if timeout == 0 {
 		timeout = defaultICMPTimeout
 	}
@@ -96,13 +112,38 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger) (*I
 		rateLimit:   rateLimit,
 		timeout:     timeout,
 		identifier:  identifier,
+		icmpCount:   defaultICMPCount,
 		rawSocketFD: fd,
 		conn:        conn,
 		results:     make(map[string]models.Result),
+		hostStats:   make(map[string]*hostICMPStats),
 		logger:      log,
 	}
 
+	// Apply options
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	log.Info().
+		Int("icmpCount", s.icmpCount).
+		Int("rateLimit", s.rateLimit).
+		Dur("timeout", s.timeout).
+		Msg("Created ICMP sweeper with multi-packet support")
+
 	return s, nil
+}
+
+// ICMPSweeperOption configures an ICMPSweeper instance.
+type ICMPSweeperOption func(*ICMPSweeper)
+
+// WithICMPCount sets the number of ICMP packets to send per target.
+func WithICMPCount(count int) ICMPSweeperOption {
+	return func(s *ICMPSweeper) {
+		if count > 0 {
+			s.icmpCount = count
+		}
+	}
 }
 
 // Scan performs the ICMP sweep and returns results.
@@ -121,9 +162,10 @@ func (s *ICMPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan
 
 	resultCh := make(chan models.Result, len(icmpTargets))
 
-	// Reset results map for this scan
+	// Reset results and hostStats maps for this scan
 	s.mu.Lock()
 	s.results = make(map[string]models.Result)
+	s.hostStats = make(map[string]*hostICMPStats)
 	s.mu.Unlock()
 
 	// Start listener goroutine
@@ -175,23 +217,37 @@ func (s *ICMPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan
 }
 
 // sendPings sends ICMP echo requests to all targets with rate limiting.
+// Sends icmpCount packets per target with incrementing sequence numbers.
 func (s *ICMPSweeper) sendPings(ctx context.Context, targets []models.Target) {
 	packetsPerInterval := s.calculatePacketsPerInterval()
 
 	s.logger.Info().
 		Int("targetCount", len(targets)).
+		Int("icmpCount", s.icmpCount).
+		Int("totalPackets", len(targets)*s.icmpCount).
 		Int("rateLimit", s.rateLimit).
 		Int("packetsPerInterval", packetsPerInterval).
-		Msg("Sending ICMP pings")
+		Msg("Sending ICMP pings with multi-packet support")
 
-	data, err := s.prepareEchoRequest()
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Error marshaling ICMP message")
+	// Send icmpCount packets per target
+	for seq := 1; seq <= s.icmpCount; seq++ {
+		data, err := s.prepareEchoRequest(seq)
+		if err != nil {
+			s.logger.Error().Err(err).Int("seq", seq).Msg("Error marshaling ICMP message")
+			continue
+		}
 
-		return
+		s.sendBatches(ctx, targets, data, packetsPerInterval, seq)
+
+		// Brief pause between rounds to allow replies to come back
+		if seq < s.icmpCount {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
 	}
-
-	s.sendBatches(ctx, targets, data, packetsPerInterval)
 }
 
 const (
@@ -211,14 +267,14 @@ func (s *ICMPSweeper) calculatePacketsPerInterval() int {
 	return packets
 }
 
-// prepareEchoRequest builds the ICMP echo request template.
-func (s *ICMPSweeper) prepareEchoRequest() ([]byte, error) {
+// prepareEchoRequest builds the ICMP echo request with the given sequence number.
+func (s *ICMPSweeper) prepareEchoRequest(seq int) ([]byte, error) {
 	msg := icmp.Message{
 		Type: ipv4.ICMPTypeEcho,
 		Code: 0,
 		Body: &icmp.Echo{
 			ID:   s.identifier,
-			Seq:  1,
+			Seq:  seq,
 			Data: []byte("ping"),
 		},
 	}
@@ -231,7 +287,7 @@ const (
 )
 
 // sendBatches manages the sending of ping batches.
-func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, data []byte, batchSize int) {
+func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, data []byte, batchSize int, seq int) {
 	ticker := time.NewTicker(batchInterval)
 	defer ticker.Stop()
 
@@ -250,7 +306,7 @@ func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, 
 		batchEnd := s.calculateBatchEnd(targetIndex, maxBatchSize, len(targets))
 		batch := targets[targetIndex:batchEnd]
 
-		s.processBatch(batch, data)
+		s.processBatch(batch, data, seq)
 
 		targetIndex = batchEnd
 		if targetIndex >= len(targets) {
@@ -289,14 +345,14 @@ func (*ICMPSweeper) calculateBatchEnd(index, batchSize, totalTargets int) int {
 }
 
 // processBatch sends pings to a batch of targets.
-func (s *ICMPSweeper) processBatch(targets []models.Target, data []byte) {
+func (s *ICMPSweeper) processBatch(targets []models.Target, data []byte, seq int) {
 	for _, target := range targets {
-		s.sendPingToTarget(target, data)
+		s.sendPingToTarget(target, data, seq)
 	}
 }
 
-// sendPingToTarget sends a single ICMP ping and records initial result.
-func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte) {
+// sendPingToTarget sends a single ICMP ping and tracks it in hostStats.
+func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq int) {
 	ipAddr := net.ParseIP(target.Host)
 	if ipAddr == nil || ipAddr.To4() == nil {
 		s.logger.Warn().Str("host", target.Host).Msg("Invalid IPv4 address")
@@ -308,11 +364,35 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte) {
 	copy(addr[:], ipAddr.To4())
 	sockaddr := &syscall.SockaddrInet4{Addr: addr}
 
-	if err := syscall.Sendto(s.rawSocketFD, data, 0, sockaddr); err != nil {
-		s.logger.Error().Err(err).Str("host", target.Host).Msg("Error sending ICMP")
+	// Record initial result BEFORE sending the first packet to avoid race condition
+	// where handleReply could run before the result exists in the map
+	if seq == 1 {
+		s.recordInitialResult(target)
 	}
 
-	s.recordInitialResult(target)
+	// Track sent packet in hostStats
+	now := time.Now()
+
+	s.mu.Lock()
+	stats, exists := s.hostStats[target.Host]
+	if !exists {
+		stats = &hostICMPStats{
+			firstSeen: now,
+			sendTimes: make(map[int]time.Time),
+		}
+		s.hostStats[target.Host] = stats
+	}
+	s.mu.Unlock()
+
+	stats.mu.Lock()
+	stats.sent++
+	stats.sendTimes[seq] = now // Record send time for this sequence number
+	stats.mu.Unlock()
+
+	if err := syscall.Sendto(s.rawSocketFD, data, 0, sockaddr); err != nil {
+		s.logger.Error().Err(err).Str("host", target.Host).Int("seq", seq).Msg("Error sending ICMP")
+		return
+	}
 }
 
 // recordInitialResult stores the initial ping result.
@@ -439,15 +519,57 @@ func (s *ICMPSweeper) processReply(reply struct {
 		return nil // Not an error, just not our reply
 	}
 
-	// Update the result
+	now := time.Now()
+	seq := echo.Seq
+
+	// Update hostStats with received packet
+	s.mu.Lock()
+	stats, statsExist := s.hostStats[ip]
+	s.mu.Unlock()
+
+	if statsExist {
+		stats.mu.Lock()
+		stats.received++
+		// Calculate RTT based on when this specific packet was sent
+		if sendTime, ok := stats.sendTimes[seq]; ok {
+			rtt := now.Sub(sendTime)
+			stats.totalRTT += rtt
+			delete(stats.sendTimes, seq) // Clean up to prevent memory growth
+		}
+		stats.lastSeen = now
+		stats.mu.Unlock()
+	}
+
+	// Update the result - mark as available if ANY reply is received
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if result, ok := s.results[ip]; ok {
 		result.Available = true
-		result.RespTime = time.Since(result.FirstSeen)
-		result.PacketLoss = 0
-		result.LastSeen = time.Now()
+		result.LastSeen = now
+
+		// Calculate response time and packet loss from stats
+		if statsExist {
+			stats.mu.Lock()
+			if stats.received > 0 {
+				// Average response time from all received replies
+				result.RespTime = stats.totalRTT / time.Duration(stats.received)
+			}
+			if stats.sent > 0 {
+				// Packet loss = (sent - received) / sent * 100
+				result.PacketLoss = float64(stats.sent-stats.received) / float64(stats.sent) * 100
+			}
+			stats.mu.Unlock()
+		} else {
+			// Fallback for single packet case
+			result.RespTime = now.Sub(result.FirstSeen)
+			result.PacketLoss = 0
+		}
+
+		// Write the updated result back to the map
+		// (result is a value copy, so we must store it back)
+		s.results[ip] = result
+
 		s.emitResult(ip, &result)
 	}
 
@@ -459,9 +581,36 @@ func (s *ICMPSweeper) processResults(targets []models.Target, ch chan<- models.R
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Send all results to the channel
+	// Send all results to the channel, with final packet loss calculations
 	for _, target := range targets {
 		if result, ok := s.results[target.Host]; ok {
+			// Update final stats from hostStats
+			if stats, statsExist := s.hostStats[target.Host]; statsExist {
+				stats.mu.Lock()
+				if stats.sent > 0 {
+					result.PacketLoss = float64(stats.sent-stats.received) / float64(stats.sent) * 100
+					if stats.received > 0 && result.RespTime == 0 {
+						result.RespTime = stats.totalRTT / time.Duration(stats.received)
+					}
+				}
+
+				// Log partial success for debugging
+				if stats.received > 0 && stats.received < stats.sent {
+					s.logger.Debug().
+						Str("host", target.Host).
+						Int("sent", stats.sent).
+						Int("received", stats.received).
+						Float64("packetLoss", result.PacketLoss).
+						Dur("avgRTT", result.RespTime).
+						Msg("Partial ICMP success - host marked available")
+				} else if stats.received == 0 {
+					s.logger.Debug().
+						Str("host", target.Host).
+						Int("sent", stats.sent).
+						Msg("No ICMP replies received - host marked unavailable")
+				}
+				stats.mu.Unlock()
+			}
 			ch <- result
 		} else {
 			// If we somehow don't have a result for this target, create a default one

@@ -456,7 +456,7 @@ func (s *InMemoryStore) updateHostAndPortResults(r *models.Result, hostMap map[s
 	if r.Available {
 		host.Available = true
 
-		if r.Target.Mode == models.ModeTCP {
+		if r.Target.Mode == models.ModeTCP || r.Target.Mode == models.ModeTCPConnect {
 			s.updateTCPPortResults(host, r, portCounts)
 		}
 	}
