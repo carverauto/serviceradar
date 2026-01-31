@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     unique: [period: 300, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.{Device, DeviceCleanupSettings}
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -143,7 +144,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       |> Ash.Query.filter(not is_nil(deleted_at) and deleted_at < ^cutoff)
       |> Ash.Query.limit(batch_size)
 
-    case Ash.read(query, actor: actor) do
+    case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, []} ->
         stats
 

@@ -43,6 +43,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.Device
@@ -213,6 +214,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     |> Ash.Query.for_read(:read, %{include_deleted: true})
     |> Ash.Query.filter(uid in ^device_uids and not is_nil(deleted_at))
     |> Ash.read(actor: actor)
+    |> Page.unwrap()
   end
 
   defp eligible_restore_uids(devices) do

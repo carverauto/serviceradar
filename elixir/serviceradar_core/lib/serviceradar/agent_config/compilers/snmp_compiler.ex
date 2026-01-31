@@ -58,6 +58,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SNMPProfiles.CredentialResolver
@@ -235,7 +236,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       |> Ash.Query.distinct(:device_id)
       |> Ash.Query.load(:device)
 
-    case Ash.read(query, actor: actor) do
+    case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, interfaces} ->
         # Extract unique devices
         interfaces
@@ -258,7 +259,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> apply_device_filters(filters)
 
-    case Ash.read(query, actor: actor) do
+    case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, devices} -> devices
       {:error, reason} ->
         Logger.warning("SNMPCompiler: failed to query devices - #{inspect(reason)}")

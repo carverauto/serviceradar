@@ -37,6 +37,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.{DeviceAliasState, DeviceLookup}
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
@@ -531,6 +532,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> Ash.Query.for_read(:read, %{include_deleted: true})
     |> Ash.Query.filter(uid in ^device_uids and not is_nil(deleted_at))
     |> Ash.read(actor: actor)
+    |> Page.unwrap()
   end
 
   defp eligible_restore_uids(devices) do
