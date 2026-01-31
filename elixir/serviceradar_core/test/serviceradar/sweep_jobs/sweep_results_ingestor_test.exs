@@ -89,7 +89,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       assert record.response_time_ms == nil
     end
 
-    test "response_time_ms is 0 when response_time_ns is 0" do
+    test "response_time_ms is nil when response_time_ns is 0" do
       execution_id = Ash.UUID.generate()
 
       results = [
@@ -102,7 +102,76 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
 
-      assert record.response_time_ms == 0
+      # 0ns means no response was received, should be nil not 0
+      assert record.response_time_ms == nil
+    end
+
+    test "sub-millisecond response times round up to 1ms" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "10.0.0.1",
+          "icmp_available" => true,
+          # 500 microseconds = 500,000 nanoseconds (sub-millisecond)
+          "icmp_response_time_ns" => 500_000
+        },
+        %{
+          "host_ip" => "10.0.0.2",
+          "icmp_available" => true,
+          # 100 microseconds = 100,000 nanoseconds
+          "icmp_response_time_ns" => 100_000
+        },
+        %{
+          "host_ip" => "10.0.0.3",
+          "icmp_available" => true,
+          # 999 microseconds = 999,000 nanoseconds (just under 1ms)
+          "icmp_response_time_ns" => 999_000
+        }
+      ]
+
+      {records, _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      # All sub-millisecond times should round up to 1ms (not 0)
+      for record <- records do
+        assert record.response_time_ms == 1,
+               "Expected 1ms for #{record.ip}, got #{record.response_time_ms}ms"
+      end
+    end
+
+    test "response times >= 1ms are preserved correctly" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "10.0.0.1",
+          "icmp_available" => true,
+          # Exactly 1ms
+          "icmp_response_time_ns" => 1_000_000
+        },
+        %{
+          "host_ip" => "10.0.0.2",
+          "icmp_available" => true,
+          # 1.5ms should truncate to 1ms (integer division)
+          "icmp_response_time_ns" => 1_500_000
+        },
+        %{
+          "host_ip" => "10.0.0.3",
+          "icmp_available" => true,
+          # 2ms
+          "icmp_response_time_ns" => 2_000_000
+        }
+      ]
+
+      {records, _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      record1 = Enum.find(records, &(&1.ip == "10.0.0.1"))
+      record2 = Enum.find(records, &(&1.ip == "10.0.0.2"))
+      record3 = Enum.find(records, &(&1.ip == "10.0.0.3"))
+
+      assert record1.response_time_ms == 1
+      assert record2.response_time_ms == 1
+      assert record3.response_time_ms == 2
     end
   end
 

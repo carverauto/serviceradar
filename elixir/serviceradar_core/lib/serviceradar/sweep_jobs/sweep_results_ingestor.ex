@@ -380,6 +380,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   defp response_time_ms(result) do
     case parse_integer(result["icmp_response_time_ns"] || result["icmpResponseTimeNs"]) do
       nil -> nil
+      0 -> nil
+      # Round up to at least 1ms for any non-zero response time
+      # Sub-millisecond times (common for local subnet) would otherwise become 0
+      value when value < 1_000_000 -> 1
       value -> div(value, 1_000_000)
     end
   end
