@@ -2,7 +2,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @moduledoc """
   Ingests sweep results and updates device inventory.
 
-  Processes sweep results from gateway/agents and:
+  Processes sweep results from agents and:
   - Stores SweepHostResult records for each scanned host
   - Updates SweepGroupExecution statistics
   - Updates device availability status in inventory

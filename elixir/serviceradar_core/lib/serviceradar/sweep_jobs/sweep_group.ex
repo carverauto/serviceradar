@@ -46,10 +46,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       index [:agent_id],
         where: "agent_id IS NOT NULL",
         name: "sweep_groups_agent_idx"
-
-      index [:gateway_id],
-        where: "gateway_id IS NOT NULL",
-        name: "sweep_groups_gateway_idx"
     end
   end
 
@@ -245,12 +241,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       allow_nil? true
       public? true
       description "Specific agent ID (nil = any agent in partition)"
-    end
-
-    attribute :gateway_id, :string do
-      allow_nil? true
-      public? true
-      description "Specific gateway ID (nil = all gateways in partition)"
     end
 
     attribute :enabled, :boolean do
