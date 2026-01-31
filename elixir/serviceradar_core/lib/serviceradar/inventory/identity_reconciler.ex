@@ -253,17 +253,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     |> Page.unwrap()
     |> case do
       {:ok, devices} ->
-        case select_ip_device(devices) do
-          %Device{uid: uid} ->
-            if serviceradar_uuid?(uid) do
-              {:ok, uid}
-            else
-              {:ok, nil}
-            end
-
-          _ ->
-            {:ok, nil}
-        end
+        {:ok, select_ip_device_id(devices)}
 
       {:error, _} = error ->
         error
@@ -737,6 +727,14 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     candidates = if candidates == [], do: valid_devices, else: candidates
 
     Enum.max_by(candidates, &device_seen_score/1, fn -> nil end)
+  end
+
+  defp select_ip_device_id(devices) do
+    case select_ip_device(devices) do
+      %Device{uid: uid} ->
+        if serviceradar_uuid?(uid), do: uid, else: nil
+      _ -> nil
+    end
   end
 
   defp device_seen_score(device) do
