@@ -1,0 +1,24 @@
+{
+  "nats_url": "nats://127.0.0.1:4222",
+  "stream_name": "flows",
+  "consumer_name": "zen-consumer-flows-test",
+  "subjects": [
+    "flows.raw.netflow"
+  ],
+  "decision_groups": [
+    {
+      "name": "netflow",
+      "subjects": ["flows.raw.netflow"],
+      "rules": [
+        {"order": 1, "key": "netflow_to_ocsf"}
+      ],
+      "format": "flow_protobuf"
+    }
+  ],
+  "agent_id": "default-agent",
+  "kv_bucket": "zen-test",
+  "listen_addr": "0.0.0.0:50055",
+  "result_subject_suffix": ".processed",
+  "security": null,
+  "grpc_security": null
+}

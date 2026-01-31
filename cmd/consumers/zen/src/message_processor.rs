@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::config::{Config, MessageFormat};
 use crate::engine::SharedEngine;
-use crate::{otel_logs, otel_metrics};
+use crate::{flow_proto, otel_logs, otel_metrics};
 
 pub async fn process_message(
     engine: &SharedEngine,
@@ -21,6 +21,7 @@ pub async fn process_message(
         MessageFormat::Json => serde_json::from_slice(&msg.payload)?,
         MessageFormat::Protobuf => otel_logs::otel_logs_to_json(&msg.payload)?,
         MessageFormat::OtelMetrics => otel_metrics::otel_metrics_to_json(&msg.payload)?,
+        MessageFormat::FlowProtobuf => flow_proto::flow_to_json(&msg.payload)?,
     };
 
     let rule_subject = cfg.subject_for_rule_lookup(&msg.subject);
