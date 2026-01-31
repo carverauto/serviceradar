@@ -52,8 +52,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
 
     assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
 
-    assert {:ok, _} = Device.get_by_uid(canonical.uid, actor: actor)
-    assert {:error, _} = Device.get_by_uid(alias_device.uid, actor: actor)
+    assert {:ok, _} = Device.get_by_uid(canonical.uid, false, actor: actor)
+    assert {:error, _} = Device.get_by_uid(alias_device.uid, false, actor: actor)
 
     assert {:ok, [audit | _]} = MergeAudit.get_merged_to(alias_device.uid, actor: actor)
     assert audit.to_device_id == canonical.uid

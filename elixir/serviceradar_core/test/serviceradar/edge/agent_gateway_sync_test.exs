@@ -48,7 +48,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert is_binary(device_uid)
 
       # Verify device was created
-      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
       assert device.hostname == "test-host-#{agent_id}"
       assert device.ip == "192.168.1.100"
       assert device.agent_id == agent_id
@@ -88,7 +88,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert device_uid1 == device_uid2
 
       # Verify device was updated
-      {:ok, device} = Device.get_by_uid(device_uid2, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid2, false, actor: actor)
       assert device.hostname == "test-host-updated"
       assert device.ip == "192.168.1.102"
       assert "sysmon" in device.discovery_sources
@@ -110,7 +110,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, device_uid} =
         AgentGatewaySync.ensure_device_for_agent(agent_id_no_sysmon, attrs_no_sysmon)
 
-      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
       assert "agent" in device.discovery_sources
       refute "sysmon" in device.discovery_sources
     end
@@ -129,7 +129,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
 
-      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
       assert "sysmon" in device.discovery_sources
     end
   end

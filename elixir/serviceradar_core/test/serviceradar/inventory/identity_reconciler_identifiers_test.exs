@@ -43,8 +43,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
 
     assert :ok = IdentityReconciler.register_identifiers(device_b.uid, ids, actor: actor)
 
-    assert {:ok, _} = Device.get_by_uid(device_a.uid, actor: actor)
-    assert {:error, _} = Device.get_by_uid(device_b.uid, actor: actor)
+    assert {:ok, _} = Device.get_by_uid(device_a.uid, false, actor: actor)
+    assert {:error, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
 
     mac_query =
       DeviceIdentifier

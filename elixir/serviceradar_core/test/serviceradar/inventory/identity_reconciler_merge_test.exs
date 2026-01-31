@@ -37,8 +37,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
 
     assert :ok = IdentityReconciler.merge_devices(from_uid, to_uid, actor: actor)
 
-    assert {:error, _} = Device.get_by_uid(from_uid, actor: actor)
-    assert {:ok, _} = Device.get_by_uid(to_uid, actor: actor)
+    assert {:error, _} = Device.get_by_uid(from_uid, false, actor: actor)
+    assert {:ok, _} = Device.get_by_uid(to_uid, false, actor: actor)
 
     assert {:ok, interfaces} = list_interfaces(actor, to_uid)
     assert length(interfaces) == 2

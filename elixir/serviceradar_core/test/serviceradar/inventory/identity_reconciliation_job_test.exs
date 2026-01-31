@@ -44,12 +44,12 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
              |> Ash.update(actor: actor)
 
     {remaining_id, merged_id} =
-      case Device.get_by_uid(device_a.uid, actor: actor) do
+      case Device.get_by_uid(device_a.uid, false, actor: actor) do
         {:ok, _} -> {device_a.uid, device_b.uid}
         _ -> {device_b.uid, device_a.uid}
       end
 
-    assert {:error, _} = Device.get_by_uid(merged_id, actor: actor)
+    assert {:error, _} = Device.get_by_uid(merged_id, false, actor: actor)
 
     assert {:ok, interfaces} = list_interfaces(actor, remaining_id)
     assert Enum.any?(interfaces, &(&1.interface_uid == "ifindex:99"))
