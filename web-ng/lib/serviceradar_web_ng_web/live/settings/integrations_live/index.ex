@@ -910,7 +910,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
           <.dynamic_credentials_fields
             form={@form}
-            source_type={(@selected_source && @selected_source.source_type) || :armis}
+            source_type={(@source && @source.source_type) || :armis}
             mode={:edit}
           />
 
@@ -972,7 +972,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </button>
           </div>
 
-          <%= if shows_network_blacklist?(@selected_source && @selected_source.source_type) do %>
+          <%= if shows_network_blacklist?(@source && @source.source_type) do %>
             <div class="divider text-xs text-base-content/60">Network Settings</div>
 
             <div class="form-control">
