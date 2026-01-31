@@ -33,8 +33,8 @@ import (
 	"sync"
 	"time"
 
-	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	snmpchecker "github.com/carverauto/serviceradar/pkg/agent/snmp"
+	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
@@ -48,7 +48,6 @@ import (
 //
 //nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
-
 
 var (
 	errSweepMissingHosts    = errors.New("sweep data missing hosts field")
@@ -125,6 +124,7 @@ type PushLoop struct {
 	statusHeartbeatConfigured bool
 	lastStatusPush            time.Time
 	lastStatusSignature       string
+	syncRuntime               *SyncRuntime
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -312,6 +312,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		snmpLastSent:       make(map[string]time.Time),
 		statusDebounce:     debounce,
 		statusHeartbeat:    heartbeat,
+		syncRuntime:        NewSyncRuntime(server, gateway, log),
 	}
 }
 
@@ -338,6 +339,10 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	} else {
 		// Connected, try to enroll
 		p.enroll(runCtx)
+	}
+
+	if p.syncRuntime != nil {
+		p.syncRuntime.SetContext(runCtx)
 	}
 
 	// Start config polling in a separate goroutine
@@ -2327,6 +2332,9 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 
 	p.applySweepConfig(configResp.ConfigJson)
 	p.applyMapperConfig(configResp.ConfigJson)
+	if p.syncRuntime != nil {
+		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
+	}
 
 	// Apply sysmon config if present
 	if configResp.SysmonConfig != nil {

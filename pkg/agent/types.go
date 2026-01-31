@@ -40,9 +40,9 @@ type Server struct {
 	config             *ServerConfig
 	createSweepService func(ctx context.Context, sweepConfig *SweepConfig) (Service, error)
 	logger             logger.Logger
-	sysmonService *SysmonService
-	snmpService   *SNMPAgentService
-	mapperService *MapperService
+	sysmonService      *SysmonService
+	snmpService        *SNMPAgentService
+	mapperService      *MapperService
 	pluginManager      *PluginManager
 }
 
@@ -84,6 +84,9 @@ type ServerConfig struct {
 	PushInterval            Duration               `json:"push_interval,omitempty"`             // How often to run the push loop (default: 30s)
 	StatusDebounceInterval  Duration               `json:"status_debounce_interval,omitempty"`  // Minimum interval between unchanged status pushes
 	StatusHeartbeatInterval Duration               `json:"status_heartbeat_interval,omitempty"` // Maximum interval between status pushes (heartbeat)
+
+	// Embedded sync runtime
+	SyncRuntimeEnabled *bool `json:"sync_runtime_enabled,omitempty"` // Enable embedded integration sync runtime
 }
 
 // ServiceError represents an error that occurred in a specific service.
