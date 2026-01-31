@@ -29,6 +29,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       ], ip_hint: "192.168.1.100")
   """
 
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier}
@@ -419,6 +420,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     |> Ash.Query.for_read(:read, %{include_deleted: include_deleted})
     |> Ash.Query.filter(ip in ^ips)
     |> Ash.read(query_opts)
+    |> Page.unwrap()
     |> case do
       {:ok, devices} ->
         devices
@@ -512,6 +514,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         |> Ash.Query.for_read(:read, %{include_deleted: include_deleted})
         |> Ash.Query.filter(uid in ^device_ids)
         |> Ash.read(query_opts)
+        |> Page.unwrap()
         |> case do
           {:ok, records} -> Map.new(records, &{&1.uid, &1})
           _ -> %{}

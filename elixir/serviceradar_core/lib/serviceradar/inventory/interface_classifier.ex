@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
   require Ash.Query
   import Bitwise
 
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.{Device, InterfaceClassificationRule}
 
   @exclusive_classifications ~w(management wan lan vpn loopback virtual)
@@ -64,7 +65,7 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
       |> Ash.Query.filter(uid in ^device_ids)
       |> Ash.Query.select([:uid, :vendor_name, :model, :metadata, :hostname])
 
-    case Ash.read(query, actor: actor) do
+    case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, devices} ->
         devices
         |> Enum.map(fn device ->

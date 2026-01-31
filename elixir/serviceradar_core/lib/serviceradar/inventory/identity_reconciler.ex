@@ -27,6 +27,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, Interface, MergeAudit}
@@ -249,6 +250,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     Device
     |> Ash.Query.for_read(:by_ip, %{ip: ip})
     |> Ash.read(query_opts)
+    |> Page.unwrap()
     |> case do
       {:ok, devices} ->
         case select_ip_device(devices) do
@@ -589,13 +591,16 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       |> Ash.Query.filter(uid in ^device_ids)
       |> Ash.Query.for_read(:read, %{}, actor: actor)
 
-    case Ash.read(query, actor: actor) do
+    case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, devices} when devices != [] ->
         devices
         |> Enum.max_by(fn device -> device.last_seen_time || ~U[1970-01-01 00:00:00Z] end)
         |> Map.get(:uid)
 
-      _ ->
+      {:ok, _} ->
+        List.first(device_ids)
+
+      {:error, _} ->
         List.first(device_ids)
     end
   end
