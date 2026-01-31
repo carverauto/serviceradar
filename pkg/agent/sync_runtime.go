@@ -36,7 +36,13 @@ const (
 	armisAuthHeaderTemplate = "Bearer %s"
 )
 
-var errSyncRuntimeNoContext = errors.New("sync runtime requires context")
+var (
+	errSyncRuntimeNoContext         = errors.New("sync runtime requires context")
+	errUnsupportedSyncSourceType    = errors.New("unsupported sync source type")
+	errArmisTokenRequestFailed      = errors.New("armis token request failed")
+	errArmisTokenMissingAccessToken = errors.New("armis token response missing access_token")
+	errArmisSearchFailed            = errors.New("armis search failed")
+)
 
 // SyncRuntime executes integration sources delivered via GetConfig.
 type SyncRuntime struct {
@@ -280,7 +286,7 @@ func (r *SyncRuntime) runSourceOnce(
 	case armisSourceType:
 		return r.runArmisSync(ctx, runner, runID)
 	default:
-		return 0, fmt.Errorf("unsupported sync source type: %s", sourceType)
+		return 0, fmt.Errorf("%w: %s", errUnsupportedSyncSourceType, sourceType)
 	}
 }
 
@@ -370,50 +376,11 @@ func (r *SyncRuntime) buildResultsStatusChunks(
 	serviceName string,
 	serviceType string,
 ) []*proto.GatewayStatusChunk {
-	if len(chunks) == 0 {
-		return nil
-	}
-
 	r.server.mu.RLock()
 	agentID := r.server.config.AgentID
 	partition := r.server.config.Partition
 	r.server.mu.RUnlock()
-	gatewayID := ""
-
-	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
-
-	for _, chunk := range chunks {
-		if chunk == nil {
-			continue
-		}
-
-		status := &proto.GatewayServiceStatus{
-			ServiceName:  serviceName,
-			Available:    true,
-			Message:      chunk.Data,
-			ServiceType:  serviceType,
-			ResponseTime: 0,
-			AgentId:      agentID,
-			GatewayId:    gatewayID,
-			Partition:    partition,
-			Source:       "results",
-			KvStoreId:    "",
-		}
-
-		statusChunks = append(statusChunks, &proto.GatewayStatusChunk{
-			Services:    []*proto.GatewayServiceStatus{status},
-			GatewayId:   gatewayID,
-			AgentId:     agentID,
-			Timestamp:   chunk.Timestamp,
-			Partition:   partition,
-			IsFinal:     chunk.IsFinal,
-			ChunkIndex:  chunk.ChunkIndex,
-			TotalChunks: chunk.TotalChunks,
-			KvStoreId:   "",
-		})
-	}
-
-	return statusChunks
+	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition)
 }
 
 func (r *syncSourceRunner) tryStart() bool {
@@ -532,10 +499,12 @@ func (c *armisClient) accessToken(ctx context.Context, creds map[string]string) 
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("armis token request failed: %s", resp.Status)
+		return "", fmt.Errorf("%w: %s", errArmisTokenRequestFailed, resp.Status)
 	}
 
 	var token armisTokenResponse
@@ -543,7 +512,7 @@ func (c *armisClient) accessToken(ctx context.Context, creds map[string]string) 
 		return "", err
 	}
 	if token.Data.AccessToken == "" {
-		return "", errors.New("armis token response missing access_token")
+		return "", errArmisTokenMissingAccessToken
 	}
 	return token.Data.AccessToken, nil
 }
@@ -579,10 +548,12 @@ func (c *armisClient) search(ctx context.Context, token string, query string, fr
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("armis search failed: %s", resp.Status)
+		return nil, fmt.Errorf("%w: %s", errArmisSearchFailed, resp.Status)
 	}
 
 	var result armisSearchResponse

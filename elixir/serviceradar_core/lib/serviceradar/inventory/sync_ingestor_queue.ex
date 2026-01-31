@@ -409,19 +409,23 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp get_integer(map, keys) do
     Enum.find_value(keys, fn key ->
       case map do
-        %{^key => value} when is_integer(value) -> value
-        %{^key => value} when is_float(value) -> trunc(value)
-        %{^key => value} when is_binary(value) ->
-          case Integer.parse(value) do
-            {int, _} -> int
-            _ -> nil
-          end
-
-        _ ->
-          nil
+        %{^key => value} -> normalize_integer(value)
+        _ -> nil
       end
     end)
   end
+
+  defp normalize_integer(value) when is_integer(value), do: value
+  defp normalize_integer(value) when is_float(value), do: trunc(value)
+
+  defp normalize_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      _ -> nil
+    end
+  end
+
+  defp normalize_integer(_value), do: nil
 
   defp get_bool(map, keys) do
     Enum.find_value(keys, fn key ->

@@ -1951,16 +1951,25 @@ func (p *PushLoop) buildResultsStatusChunks(
 	serviceName string,
 	serviceType string,
 ) []*proto.GatewayStatusChunk {
-	if len(chunks) == 0 {
-		return nil
-	}
-
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
 	p.server.mu.RUnlock()
-	gatewayID := ""
+	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition)
+}
 
+func buildResultsStatusChunksForAgent(
+	chunks []*proto.ResultsChunk,
+	serviceName string,
+	serviceType string,
+	agentID string,
+	partition string,
+) []*proto.GatewayStatusChunk {
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	gatewayID := ""
 	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
 
 	for _, chunk := range chunks {
