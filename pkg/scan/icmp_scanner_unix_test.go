@@ -257,55 +257,64 @@ func TestCalculatePacketsPerInterval(t *testing.T) {
 	}
 }
 
+// buildTimeMaps is a helper to construct send/reply time maps for RTT tests.
+// sendOffsets and rtts are parallel slices: sendOffsets[i] is when packet i+1 was sent,
+// and rtts[i] is the round-trip time for that packet.
+func buildTimeMaps(sendOffsets, rtts []time.Duration) (sendTimes, replyTimes map[int]time.Time) {
+	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	sendTimes = make(map[int]time.Time)
+	replyTimes = make(map[int]time.Time)
+	for i := range sendOffsets {
+		seq := i + 1
+		sendTimes[seq] = base.Add(sendOffsets[i])
+		replyTimes[seq] = base.Add(sendOffsets[i] + rtts[i])
+	}
+	return sendTimes, replyTimes
+}
+
 // TestPerSequenceRTTCalculation verifies that RTT is calculated per-packet
 // using the send time for each specific sequence number, not the first packet's send time.
 // This is critical for accurate RTT measurements when sending multiple ICMP packets.
 func TestPerSequenceRTTCalculation(t *testing.T) {
+	// Build test cases using helper to avoid code duplication
+	uniformSend, uniformReply := buildTimeMaps(
+		[]time.Duration{0, 300 * time.Millisecond, 600 * time.Millisecond},
+		[]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond},
+	)
+	varyingSend, varyingReply := buildTimeMaps(
+		[]time.Duration{0, 100 * time.Millisecond, 200 * time.Millisecond},
+		[]time.Duration{2 * time.Millisecond, 5 * time.Millisecond, 8 * time.Millisecond},
+	)
+	singleSend, singleReply := buildTimeMaps(
+		[]time.Duration{0},
+		[]time.Duration{500 * time.Microsecond},
+	)
+
 	tests := []struct {
 		name           string
-		sendTimes      map[int]time.Time // sequence -> send time
-		replyTimes     map[int]time.Time // sequence -> reply time
+		sendTimes      map[int]time.Time
+		replyTimes     map[int]time.Time
 		expectedAvgRTT time.Duration
 		tolerance      time.Duration
 	}{
 		{
-			name: "three packets with 1ms RTT each",
-			sendTimes: map[int]time.Time{
-				1: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-				2: time.Date(2025, 1, 1, 0, 0, 0, 300*int(time.Millisecond), time.UTC),
-				3: time.Date(2025, 1, 1, 0, 0, 0, 600*int(time.Millisecond), time.UTC),
-			},
-			replyTimes: map[int]time.Time{
-				1: time.Date(2025, 1, 1, 0, 0, 0, 1*int(time.Millisecond), time.UTC),
-				2: time.Date(2025, 1, 1, 0, 0, 0, 301*int(time.Millisecond), time.UTC),
-				3: time.Date(2025, 1, 1, 0, 0, 0, 601*int(time.Millisecond), time.UTC),
-			},
+			name:           "three packets with 1ms RTT each",
+			sendTimes:      uniformSend,
+			replyTimes:     uniformReply,
 			expectedAvgRTT: 1 * time.Millisecond,
 			tolerance:      100 * time.Microsecond,
 		},
 		{
-			name: "three packets with varying RTTs",
-			sendTimes: map[int]time.Time{
-				1: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-				2: time.Date(2025, 1, 1, 0, 0, 0, 100*int(time.Millisecond), time.UTC),
-				3: time.Date(2025, 1, 1, 0, 0, 0, 200*int(time.Millisecond), time.UTC),
-			},
-			replyTimes: map[int]time.Time{
-				1: time.Date(2025, 1, 1, 0, 0, 0, 2*int(time.Millisecond), time.UTC),  // 2ms RTT
-				2: time.Date(2025, 1, 1, 0, 0, 0, 105*int(time.Millisecond), time.UTC), // 5ms RTT
-				3: time.Date(2025, 1, 1, 0, 0, 0, 208*int(time.Millisecond), time.UTC), // 8ms RTT
-			},
+			name:           "three packets with varying RTTs (2ms, 5ms, 8ms)",
+			sendTimes:      varyingSend,
+			replyTimes:     varyingReply,
 			expectedAvgRTT: 5 * time.Millisecond, // (2+5+8)/3 = 5ms
 			tolerance:      100 * time.Microsecond,
 		},
 		{
-			name: "single packet",
-			sendTimes: map[int]time.Time{
-				1: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-			},
-			replyTimes: map[int]time.Time{
-				1: time.Date(2025, 1, 1, 0, 0, 0, 500*int(time.Microsecond), time.UTC), // 0.5ms RTT
-			},
+			name:           "single packet with 0.5ms RTT",
+			sendTimes:      singleSend,
+			replyTimes:     singleReply,
 			expectedAvgRTT: 500 * time.Microsecond,
 			tolerance:      10 * time.Microsecond,
 		},
