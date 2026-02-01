@@ -8,7 +8,8 @@ use crate::{
         scope_version as col_scope_version, service_instance as col_service_instance,
         service_name as col_service_name, service_version as col_service_version,
         severity_number as col_severity_number, severity_text as col_severity_text,
-        span_id as col_span_id, timestamp as col_timestamp, trace_id as col_trace_id,
+        source as col_source, span_id as col_span_id, timestamp as col_timestamp,
+        trace_id as col_trace_id,
     },
     time::TimeRange,
 };
@@ -208,7 +209,8 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             Ok(())
         }
         "trace_id" | "span_id" | "service_name" | "service_version" | "service_instance"
-        | "scope_name" | "scope_version" | "severity_text" | "severity" | "level" | "body" => {
+        | "source" | "scope_name" | "scope_version" | "severity_text" | "severity" | "level"
+        | "body" => {
             collect_text_params(params, filter)
         }
         "severity_number" => match filter.op {
@@ -445,6 +447,9 @@ fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQue
         "service_instance" => {
             query = apply_text_filter!(query, filter, col_service_instance)?;
         }
+        "source" => {
+            query = apply_text_filter!(query, filter, col_source)?;
+        }
         "scope_name" => {
             query = apply_text_filter!(query, filter, col_scope_name)?;
         }
@@ -675,6 +680,7 @@ fn resolve_group_field(field: &str) -> Result<&'static str> {
         "service_name" | "service" | "name" => Ok("service_name"),
         "service_version" | "version" => Ok("service_version"),
         "service_instance" | "instance" => Ok("service_instance"),
+        "source" => Ok("source"),
         "scope_name" | "scope" => Ok("scope_name"),
         "scope_version" => Ok("scope_version"),
         "severity_text" | "severity" | "level" => Ok("severity_text"),
@@ -694,6 +700,7 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
         "service_name" | "service" => build_text_clause("service_name", filter),
         "service_version" => build_text_clause("service_version", filter),
         "service_instance" => build_text_clause("service_instance", filter),
+        "source" => build_text_clause("source", filter),
         "scope_name" => build_text_clause("scope_name", filter),
         "scope_version" => build_text_clause("scope_version", filter),
         "severity_text" | "severity" | "level" => build_text_clause("severity_text", filter),

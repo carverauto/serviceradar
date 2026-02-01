@@ -112,6 +112,7 @@ func processLogAttributes(attributes []*commonv1.KeyValue) []string {
 // createLogRow creates a LogRow from a log record and its context
 func createLogRow(
 	logRecord *logsv1.LogRecord,
+	source string,
 	serviceName, serviceVersion, serviceInstance string,
 	scopeName, scopeVersion, scopeAttributes string,
 	resourceAttribs []string,
@@ -140,6 +141,7 @@ func createLogRow(
 		SeverityNumber:     int32(logRecord.SeverityNumber),
 		Body:               body,
 		EventName:          logRecord.EventName,
+		Source:             source,
 		ServiceName:        serviceName,
 		ServiceVersion:     serviceVersion,
 		ServiceInstance:    serviceInstance,
@@ -205,12 +207,17 @@ func traceFlagsFromRecord(flags uint32) *int32 {
 }
 
 // parseOTELLogs parses OTEL protobuf logs data and returns LogRow entries
-func parseOTELLogs(b []byte, _ string) ([]models.OTELLogRow, error) {
+func parseOTELLogs(b []byte, subject string) ([]models.OTELLogRow, error) {
 	// Unmarshal the protobuf data
 	var req v1.ExportLogsServiceRequest
 
 	if err := proto.Unmarshal(b, &req); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal OTEL logs: %w", err)
+	}
+
+	source := inferLogSource(subject)
+	if source == "" {
+		source = "otel"
 	}
 
 	// Pre-allocate result slice
@@ -240,6 +247,7 @@ func parseOTELLogs(b []byte, _ string) ([]models.OTELLogRow, error) {
 				// Build and add the log row
 				row := createLogRow(
 					logRecord,
+					source,
 					serviceName, serviceVersion, serviceInstance,
 					scopeName, scopeVersion, scopeAttributes,
 					resourceAttribs,
