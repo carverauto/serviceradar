@@ -1,5 +1,5 @@
 use crate::config::{Config, SecurityMode};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_nats::jetstream::{self, stream::StorageType};
 use async_nats::{Client, ConnectOptions};
 use log::{error, info, warn};
@@ -99,6 +99,15 @@ impl Publisher {
                     // No TLS
                 }
             }
+        }
+
+        if let Some(creds_file) = &self.config.nats_creds_file {
+            options = options
+                .credentials_file(creds_file)
+                .await
+                .with_context(|| {
+                    format!("Failed to load NATS creds file {}", creds_file)
+                })?;
         }
 
         // Connect to NATS server
