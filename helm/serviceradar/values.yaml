@@ -279,6 +279,7 @@ netflowCollector:
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "flows"
     subject: "flows.raw.netflow"
+    stream_max_bytes: 10737418240
     partition: "default"
     max_templates: 2000
     max_template_fields: 10000

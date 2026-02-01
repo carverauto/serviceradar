@@ -12,6 +12,7 @@ data:
       "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
       "stream_name": "flows",
       "subject": "flows.raw.netflow",
+      "stream_max_bytes": 1073741824,
       "partition": "default",
       "max_templates": 2000,
       "max_template_fields": 10000,

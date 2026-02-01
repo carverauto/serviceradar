@@ -119,7 +119,7 @@ impl Publisher {
             name: self.config.stream_name.clone(),
             subjects: vec![self.config.subject.clone()],
             storage: StorageType::File,
-            max_bytes: 10 * 1024 * 1024 * 1024,         // 10 GB
+            max_bytes: self.config.stream_max_bytes,
             max_age: Duration::from_secs(24 * 60 * 60), // 24 hours
             ..Default::default()
         };
@@ -181,6 +181,7 @@ mod tests {
             nats_url: "nats://localhost:4222".to_string(),
             stream_name: "flows".to_string(),
             subject: "flows.raw.netflow".to_string(),
+            stream_max_bytes: 10 * 1024 * 1024 * 1024,
             partition: "default".to_string(),
             max_templates: 2000,
             max_template_fields: 10_000,

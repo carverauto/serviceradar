@@ -14,6 +14,8 @@ pub struct Config {
     pub nats_creds_file: Option<String>,
     pub stream_name: String,
     pub subject: String,
+    #[serde(default = "default_stream_max_bytes")]
+    pub stream_max_bytes: i64,
     #[serde(default = "default_partition")]
     pub partition: String,
 
@@ -126,6 +128,10 @@ fn default_publish_timeout_ms() -> u64 {
 
 fn default_partition() -> String {
     "default".to_string()
+}
+
+fn default_stream_max_bytes() -> i64 {
+    10 * 1024 * 1024 * 1024
 }
 
 impl Config {
