@@ -10,6 +10,8 @@ pub struct Config {
 
     // NATS
     pub nats_url: String,
+    #[serde(default)]
+    pub nats_creds_file: Option<String>,
     pub stream_name: String,
     pub subject: String,
     #[serde(default = "default_partition")]
