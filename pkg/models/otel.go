@@ -13,6 +13,7 @@ type OTELLogRow struct {
 	SeverityNumber     int32
 	Body               string
 	EventName          string
+	Source             string
 	ServiceName        string
 	ServiceVersion     string
 	ServiceInstance    string

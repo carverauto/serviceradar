@@ -28,6 +28,7 @@ const (
 		severity_number,
 		body,
 		event_name,
+		source,
 		service_name,
 		service_version,
 		service_instance,
@@ -40,7 +41,7 @@ const (
 		$1,$2,$3,$4,$5,
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
-		$16,$17
+		$16,$17,$18
 	) ON CONFLICT DO NOTHING`
 
 	otelMetricsInsertSQL = `INSERT INTO %s (
@@ -126,6 +127,7 @@ func (inserter otelLogInserter) QueueRow(batch *pgx.Batch, query string, rowInde
 		row.SeverityNumber,
 		row.Body,
 		row.EventName,
+		row.Source,
 		row.ServiceName,
 		row.ServiceVersion,
 		row.ServiceInstance,

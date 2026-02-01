@@ -121,6 +121,10 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 
 	severityText, severityNumber := normalizeSeverity(entry)
 	observedTimestamp := parseObservedTimestamp(entry)
+	if observedTimestamp == nil {
+		now := time.Now().UTC()
+		observedTimestamp = &now
+	}
 	traceFlags := parseTraceFlags(entry)
 	eventName := firstString(entry, "event_name", "eventName")
 
@@ -197,6 +201,10 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 	attributes := encodeAttributes(attributesMap)
 	resourceAttributes := encodeAttributes(resourceAttribs)
 	scopeAttributesEncoded := encodeAttributes(scopeAttributes)
+	source := firstString(entry, "source")
+	if source == "" {
+		source = inferLogSource(subject)
+	}
 
 	return models.OTELLogRow{
 		Timestamp:          timestamp,
@@ -208,6 +216,7 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 		SeverityNumber:     severityNumber,
 		Body:               body,
 		EventName:          eventName,
+		Source:             source,
 		ServiceName:        serviceName,
 		ServiceVersion:     serviceVersion,
 		ServiceInstance:    serviceInstance,
@@ -216,6 +225,28 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 		ScopeAttributes:    scopeAttributesEncoded,
 		Attributes:         attributes,
 		ResourceAttributes: resourceAttributes,
+	}
+}
+
+func inferLogSource(subject string) string {
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	if strings.HasPrefix(subject, "logs.") {
+		parts := strings.Split(subject, ".")
+		if len(parts) > 1 && parts[1] != "" {
+			return parts[1]
+		}
+	}
+	switch {
+	case strings.Contains(subject, "syslog"):
+		return "syslog"
+	case strings.Contains(subject, "snmp"):
+		return "snmp"
+	case strings.Contains(subject, "otel"):
+		return "otel"
+	case strings.Contains(subject, "internal"):
+		return "internal"
+	default:
+		return ""
 	}
 }
 

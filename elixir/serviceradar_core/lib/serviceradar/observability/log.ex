@@ -81,6 +81,7 @@ defmodule ServiceRadar.Observability.Log do
         :severity_number,
         :body,
         :event_name,
+        :source,
         :service_name,
         :service_version,
         :service_instance,
@@ -175,6 +176,11 @@ defmodule ServiceRadar.Observability.Log do
     attribute :event_name, :string do
       public? true
       description "Event name identifying the log record type"
+    end
+
+    attribute :source, :string do
+      public? true
+      description "Log source (syslog, otel, snmp, internal, etc)"
     end
 
     # Service identification (from Resource)

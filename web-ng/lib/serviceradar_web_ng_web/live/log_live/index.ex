@@ -157,6 +157,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   {panel_subtitle(@active_tab)}
                 </div>
               </div>
+
+              <.log_source_filters :if={@active_tab == "logs"} srql={@srql} limit={@limit} />
             </:header>
 
             <.logs_table :if={@active_tab == "logs"} id="logs" logs={@logs} />
@@ -283,6 +285,154 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     </.link>
     """
   end
+
+  attr :srql, :map, required: true
+  attr :limit, :integer, required: true
+
+  defp log_source_filters(assigns) do
+    query = Map.get(assigns.srql, :query) || ""
+
+    active_source =
+      query |> extract_filter_from_query("source") |> normalize_string() |> normalize_source()
+
+    sources = [
+      %{label: "All", value: nil},
+      %{label: "Syslog", value: "syslog"},
+      %{label: "OTel", value: "otel"},
+      %{label: "SNMP", value: "snmp"},
+      %{label: "Internal", value: "internal"}
+    ]
+
+    assigns =
+      assigns
+      |> assign(:query, query)
+      |> assign(:active_source, active_source)
+      |> assign(:sources, sources)
+
+    ~H"""
+    <div class="flex items-center justify-end gap-2">
+      <div class="hidden sm:flex items-center gap-2">
+        <span class="text-[10px] uppercase tracking-wider text-base-content/50">Source</span>
+        <div class="flex flex-wrap gap-1">
+          <%= for source <- @sources do %>
+            <.log_source_chip
+              label={source.label}
+              value={source.value}
+              active_source={@active_source}
+              query={@query}
+              limit={@limit}
+            />
+          <% end %>
+        </div>
+      </div>
+
+      <div>
+        <.ui_dropdown align="end">
+          <:trigger>
+            <.ui_button variant="ghost" size="xs" class="rounded-full">
+              <.icon name="hero-funnel" class="size-4" />
+              <span class="text-xs">Source</span>
+            </.ui_button>
+          </:trigger>
+          <:item :for={source <- @sources}>
+            <.link
+              patch={log_source_patch(@query, source.value, @limit)}
+              class={[
+                "text-xs",
+                source_active?(@active_source, source.value) && "font-semibold text-primary"
+              ]}
+            >
+              {source.label}
+            </.link>
+          </:item>
+        </.ui_dropdown>
+      </div>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :string, default: nil
+  attr :active_source, :string, default: nil
+  attr :query, :string, required: true
+  attr :limit, :integer, required: true
+
+  defp log_source_chip(assigns) do
+    active? = source_active?(assigns.active_source, assigns.value)
+    href = log_source_patch(assigns.query, assigns.value, assigns.limit)
+
+    assigns =
+      assigns
+      |> assign(:active?, active?)
+      |> assign(:href, href)
+
+    ~H"""
+    <.ui_button
+      patch={@href}
+      size="xs"
+      variant="ghost"
+      active={@active?}
+      class="rounded-full"
+    >
+      {@label}
+    </.ui_button>
+    """
+  end
+
+  defp normalize_source(nil), do: nil
+  defp normalize_source(""), do: nil
+
+  defp normalize_source(value) when is_binary(value),
+    do: value |> String.trim() |> String.downcase()
+
+  defp normalize_source(_), do: nil
+
+  defp source_active?(current, value) do
+    current = normalize_source(current)
+    value = normalize_source(value)
+
+    if is_nil(value) do
+      is_nil(current)
+    else
+      current == value
+    end
+  end
+
+  defp log_source_patch(query, source, limit) do
+    new_query = log_source_query(query, source)
+
+    params =
+      %{tab: "logs", limit: limit}
+      |> maybe_put_param(:q, new_query)
+
+    "/observability?" <> URI.encode_query(params)
+  end
+
+  defp log_source_query(query, source) do
+    cleaned = strip_filter(query, "source")
+
+    cond do
+      is_nil(source) or source == "" -> cleaned
+      cleaned == "" -> "in:logs source:#{source} time:last_24h sort:timestamp:desc"
+      true -> cleaned <> " source:#{source}"
+    end
+  end
+
+  defp strip_filter(nil, _field), do: ""
+  defp strip_filter("", _field), do: ""
+
+  defp strip_filter(query, field) when is_binary(query) and is_binary(field) do
+    pattern = ~r/(?:^|\s)#{Regex.escape(field)}:(?:"[^"]+"|\S+)/
+
+    query
+    |> then(&Regex.replace(pattern, &1, ""))
+    |> then(&Regex.replace(~r/\s+/, &1, " "))
+    |> String.trim()
+  end
+
+  defp maybe_put_param(params, _key, nil), do: params
+  defp maybe_put_param(params, _key, ""), do: params
+  defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
 
   defp color_class("error"), do: "text-error"
   defp color_class("warning"), do: "text-warning"
@@ -503,7 +653,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp logs_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
+    <div id={"#{@id}-local-time"} class="overflow-x-auto" phx-hook=".LocalTime">
       <table id={@id} class="table table-sm table-zebra w-full">
         <thead>
           <tr>
@@ -535,7 +685,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               phx-click={JS.navigate(~p"/logs/#{log_id(log)}")}
             >
               <td class="whitespace-nowrap text-xs font-mono">
-                {format_timestamp(log)}
+                <% time = timestamp_meta(log) %>
+                <%= if is_binary(time.iso) do %>
+                  <time data-iso={time.iso} data-utc={time.display} title={time.display}>
+                    {time.display}
+                  </time>
+                <% else %>
+                  {time.display}
+                <% end %>
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.severity_badge value={Map.get(log, "severity_text")} />
@@ -551,6 +708,39 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </tbody>
       </table>
     </div>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".LocalTime">
+      export default {
+        mounted() {
+          this.format()
+        },
+        updated() {
+          this.format()
+        },
+        format() {
+          const nodes = this.el.querySelectorAll("time[data-iso]")
+          nodes.forEach((node) => {
+            const iso = node.dataset.iso
+            if (!iso) return
+            const date = new Date(iso)
+            if (Number.isNaN(date.getTime())) return
+            node.textContent = this.formatLocal(date)
+            const utc = node.dataset.utc
+            if (utc) node.title = utc
+          })
+        },
+        formatLocal(date) {
+          const pad = (value) => String(value).padStart(2, "0")
+          const year = date.getFullYear()
+          const month = pad(date.getMonth() + 1)
+          const day = pad(date.getDate())
+          const hours = pad(date.getHours())
+          const minutes = pad(date.getMinutes())
+          const seconds = pad(date.getSeconds())
+          return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+        }
+      }
+    </script>
     """
   end
 
@@ -1388,8 +1578,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
 
     case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
       _ -> ts || "—"
+    end
+  end
+
+  defp timestamp_meta(log) do
+    ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} ->
+        %{
+          iso: DateTime.to_iso8601(dt),
+          display: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+        }
+
+      _ ->
+        %{iso: nil, display: ts || "—"}
     end
   end
 
@@ -1407,10 +1612,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     # Extract service_name filter if present
     service_name = extract_filter_from_query(current_query, "service_name")
+    source = extract_filter_from_query(current_query, "source")
 
     base_opts
     |> Keyword.put(:time, time)
     |> maybe_put(:service_name, service_name)
+    |> maybe_put(:source, source)
   end
 
   defp extract_time_from_query(nil), do: nil
