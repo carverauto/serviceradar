@@ -147,6 +147,7 @@ diesel::table! {
         severity_number -> Nullable<Int4>,
         body -> Nullable<Text>,
         event_name -> Nullable<Text>,
+        source -> Nullable<Text>,
         service_name -> Nullable<Text>,
         service_version -> Nullable<Text>,
         service_instance -> Nullable<Text>,

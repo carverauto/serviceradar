@@ -93,11 +93,14 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     attributes = attach_ingest_metadata(attributes, metadata)
     resource_attributes = normalize_resource_attributes(json)
     {scope_name, scope_version} = parse_scope_fields(json)
+    source = FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
+
+    observed_timestamp = parse_observed_timestamp(json) || metadata[:received_at]
 
     %{
       id: log_id,
       timestamp: parse_timestamp(json),
-      observed_timestamp: parse_observed_timestamp(json),
+      observed_timestamp: observed_timestamp,
       trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
       span_id: FieldParser.get_field(json, "span_id", "spanId"),
       trace_flags: parse_trace_flags(json),
@@ -109,6 +112,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         |> FieldParser.safe_bigint(),
       body: extract_body(json),
       event_name: FieldParser.get_field(json, "event_name", "eventName"),
+      source: source,
       service_name:
         service_field(json, resource_attributes, "service_name", "serviceName", "service.name"),
       service_version:
@@ -294,6 +298,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       log_attributes = key_values_to_map(log_record.attributes)
       log_attributes = attach_ingest_metadata(log_attributes, metadata)
       log_id = Ash.UUID.generate()
+      source = source_kind(metadata[:subject])
 
       [
         %{
@@ -304,6 +309,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
           severity_text: log_record.severity_text,
           severity_number: FieldParser.safe_bigint(log_record.severity_number),
           body: any_value_to_body(log_record.body),
+          source: source,
           service_name: service_name,
           service_version: service_version,
           service_instance: service_instance,
@@ -393,11 +399,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   defp iso8601(_), do: nil
 
   defp source_kind(subject) when is_binary(subject) do
-    cond do
-      String.starts_with?(subject, "logs.syslog") -> "syslog"
-      String.starts_with?(subject, "logs.snmp") -> "snmp"
-      String.starts_with?(subject, "logs.otel") -> "otel"
-      true -> nil
+    subject
+    |> String.trim()
+    |> String.split(".", parts: 3)
+    |> case do
+      ["logs", source | _] when source != "" -> source
+      _ -> nil
     end
   end
 

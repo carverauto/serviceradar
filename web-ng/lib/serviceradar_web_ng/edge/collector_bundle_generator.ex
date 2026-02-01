@@ -135,6 +135,11 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     input_listen = get_in(package.config_overrides, ["input", "listen"]) || "0.0.0.0:514"
     input_format = get_in(package.config_overrides, ["input", "format"]) || "rfc3164"
 
+    input_timezone =
+      get_in(package.config_overrides, ["input", "rfc3164_timezone"]) ||
+        get_in(package.config_overrides, ["input", "timezone"]) ||
+        "local"
+
     """
     # ServiceRadar Flowgger Configuration
     # Package ID: #{package.id}
@@ -145,6 +150,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     type = "udp"
     listen = "#{input_listen}"
     format = "#{input_format}"
+    rfc3164_timezone = "#{input_timezone}"
 
     [output]
     type = "nats"

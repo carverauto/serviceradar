@@ -2,17 +2,22 @@ use super::Decoder;
 use crate::flowgger::config::Config;
 use crate::flowgger::record::Record;
 use crate::flowgger::utils;
+use std::env;
+use std::fs;
 use std::io::{stderr, Write};
 use time::{format_description, OffsetDateTime, PrimitiveDateTime};
 use time_tz::timezones::get_by_name;
 use time_tz::PrimitiveDateTimeExt;
 
 #[derive(Clone)]
-pub struct RFC3164Decoder {}
+pub struct RFC3164Decoder {
+    default_timezone: Option<String>,
+}
 
 impl RFC3164Decoder {
     pub fn new(_config: &Config) -> RFC3164Decoder {
-        RFC3164Decoder {}
+        let default_timezone = resolve_default_timezone(_config);
+        RFC3164Decoder { default_timezone }
     }
 }
 
@@ -32,13 +37,14 @@ impl Decoder for RFC3164Decoder {
         // Get the optional pri part and remove it from the string
         let (pri, _msg) = parse_strip_pri(line)?;
 
-        let mut res = decode_rfc_standard(&pri, _msg, line);
+        let default_timezone = self.default_timezone.as_deref();
+        let mut res = decode_rfc_standard(&pri, _msg, line, default_timezone);
         if let Ok(record) = res {
             return Ok(record);
         }
 
         // Specific implementation
-        res = decode_rfc_custom(&pri, _msg, line);
+        res = decode_rfc_custom(&pri, _msg, line, default_timezone);
         if let Ok(record) = res {
             return Ok(record);
         }
@@ -53,7 +59,12 @@ struct Pri {
     severity: Option<u8>,
 }
 
-fn decode_rfc_standard(pri: &Pri, msg: &str, line: &str) -> Result<Record, &'static str> {
+fn decode_rfc_standard(
+    pri: &Pri,
+    msg: &str,
+    line: &str,
+    default_timezone: Option<&str>,
+) -> Result<Record, &'static str> {
     // Decoding "recommended" rfc input as advised in the rfc: [<pri>]<datetime> <hostname> <message>
 
     // The event may have several consecutive spaces as separator
@@ -62,7 +73,7 @@ fn decode_rfc_standard(pri: &Pri, msg: &str, line: &str) -> Result<Record, &'sta
     // If we have less than 4 tokens, the input can't be valid
     if tokens_vec.len() > 3 {
         // Parse the date, the next token is the hostname
-        let (ts, _log_tokens) = parse_date_token(&tokens_vec)?;
+        let (ts, _log_tokens) = parse_date_token(&tokens_vec, default_timezone)?;
         let _hostname = _log_tokens[0];
 
         // All that remains is the message that may contain several spaces, so rebuild it
@@ -87,7 +98,12 @@ fn decode_rfc_standard(pri: &Pri, msg: &str, line: &str) -> Result<Record, &'sta
     }
 }
 
-fn decode_rfc_custom(pri: &Pri, msg: &str, line: &str) -> Result<Record, &'static str> {
+fn decode_rfc_custom(
+    pri: &Pri,
+    msg: &str,
+    line: &str,
+    default_timezone: Option<&str>,
+) -> Result<Record, &'static str> {
     // Decoding custom rfc input formatted as : [<pri>]<hostname>: <datetime>: <message>
 
     // The event separator for hostname/timestamp/message is ": "
@@ -99,7 +115,7 @@ fn decode_rfc_custom(pri: &Pri, msg: &str, line: &str) -> Result<Record, &'stati
 
         // The date is space separated, but make sure to remove consecutive spaces
         let date_tokens_vec = tokens_vec[1].split_whitespace().collect::<Vec<&str>>();
-        let (ts, _) = parse_date_token(&date_tokens_vec)?;
+        let (ts, _) = parse_date_token(&date_tokens_vec, default_timezone)?;
 
         // All that remains is the message, rebuild it
         let _message = tokens_vec[2..].join(": ");
@@ -152,18 +168,23 @@ fn parse_strip_pri(event: &str) -> Result<(Pri, &str), &'static str> {
     }
 }
 
-fn parse_date_token<'a>(ts_tokens: &'a [&str]) -> Result<(f64, Vec<&'a str>), &'static str> {
+fn parse_date_token<'a>(
+    ts_tokens: &'a [&str],
+    default_timezone: Option<&str>,
+) -> Result<(f64, Vec<&'a str>), &'static str> {
     // If we don't have at least 3 tokens, don't even try, parsing will fail
     if ts_tokens.len() < 3 {
         return Err("Invalid time format");
     }
     // Decode the date/time without year (expected), and if it fails, try  add the year
-    parse_date(ts_tokens, false).or_else(|_| parse_date(ts_tokens, true))
+    parse_date(ts_tokens, false, default_timezone)
+        .or_else(|_| parse_date(ts_tokens, true, default_timezone))
 }
 
 fn parse_date<'a>(
     ts_tokens: &'a [&str],
     has_year: bool,
+    default_timezone: Option<&str>,
 ) -> Result<(f64, Vec<&'a str>), &'static str> {
     // Decode the date/time from the given tokens with optional year specified
     let ts_str;
@@ -192,26 +213,85 @@ fn parse_date<'a>(
     match PrimitiveDateTime::parse(&ts_str, &format_item) {
         Ok(primitive_date) => {
             // See if the next token is a timezone
-            let ts: f64;
-            let tz_res = if ts_tokens.len() > idx {
-                get_by_name(ts_tokens[idx]).ok_or("No timezone".to_string())
-            } else {
-                Err("No timezone".to_string())
-            };
+            let mut ts: Option<f64> = None;
+            if ts_tokens.len() > idx {
+                if let Some(tz) = get_by_name(ts_tokens[idx]) {
+                    let dt = primitive_date.assume_timezone(tz);
+                    ts = Some(utils::PreciseTimestamp::from_offset_datetime(dt).as_f64());
+                    idx += 1;
+                }
+            }
 
-            if let Ok(tz) = tz_res {
-                let dt = primitive_date.assume_timezone(tz);
-                ts = utils::PreciseTimestamp::from_offset_datetime(dt).as_f64();
-                idx += 1;
+            if ts.is_none() {
+                if let Some(default_tz) = default_timezone {
+                    if let Some(tz) = get_by_name(default_tz) {
+                        let dt = primitive_date.assume_timezone(tz);
+                        ts = Some(utils::PreciseTimestamp::from_offset_datetime(dt).as_f64());
+                    }
+                }
             }
-            // No timezome, give a timestamp without tz
-            else {
-                ts = utils::PreciseTimestamp::from_primitive_datetime(primitive_date).as_f64();
-            }
+
+            let ts = ts.unwrap_or_else(|| {
+                utils::PreciseTimestamp::from_primitive_datetime(primitive_date).as_f64()
+            });
+
             Ok((ts, ts_tokens[idx..].to_vec()))
         }
         Err(_) => Err("Unable to parse the date in RFC3164 decoder"),
     }
+}
+
+fn resolve_default_timezone(config: &Config) -> Option<String> {
+    let tz_value = config
+        .lookup("input.rfc3164_timezone")
+        .and_then(|value| value.as_str())
+        .or_else(|| config.lookup("input.timezone").and_then(|value| value.as_str()));
+
+    match tz_value {
+        Some(value) => normalize_timezone_value(value),
+        None => None,
+    }
+}
+
+fn normalize_timezone_value(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    if value.eq_ignore_ascii_case("local") {
+        return detect_system_timezone();
+    }
+
+    Some(value.to_string())
+}
+
+fn detect_system_timezone() -> Option<String> {
+    if let Ok(tz_env) = env::var("TZ") {
+        let tz_env = tz_env.trim();
+        if !tz_env.is_empty() {
+            return Some(tz_env.to_string());
+        }
+    }
+
+    if let Ok(contents) = fs::read_to_string("/etc/timezone") {
+        let tz = contents.lines().next().unwrap_or("").trim();
+        if !tz.is_empty() {
+            return Some(tz.to_string());
+        }
+    }
+
+    if let Ok(link) = fs::read_link("/etc/localtime") {
+        let path = link.to_string_lossy();
+        if let Some(index) = path.find("zoneinfo/") {
+            let tz = &path[index + "zoneinfo/".len()..];
+            if !tz.is_empty() {
+                return Some(tz.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -224,7 +304,7 @@ use time::Month;
 #[test]
 fn test_rfc3164_decode_nopri() {
     let msg = r#"Aug  6 11:15:24 testhostname appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#;
-    let cfg = Config::from_string("[input]\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
     let expected_ts = ts_from_partial_date_time(Month::August, 6, 11, 15, 24);
 
     let decoder = RFC3164Decoder::new(&cfg);
@@ -244,7 +324,7 @@ fn test_rfc3164_decode_nopri() {
 #[test]
 fn test_rfc3164_decode_with_pri() {
     let msg = r#"<13>Aug  6 11:15:24 testhostname appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#;
-    let cfg = Config::from_string("[input]\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
     let expected_ts = ts_from_partial_date_time(Month::August, 6, 11, 15, 24);
 
     let decoder = RFC3164Decoder::new(&cfg);
@@ -264,7 +344,7 @@ fn test_rfc3164_decode_with_pri() {
 #[test]
 fn test_rfc3164_decode_with_pri_year() {
     let msg = r#"<13>2020 Aug  6 11:15:24 testhostname appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#;
-    let cfg = Config::from_string("[input]\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
     let expected_ts = ts_from_date_time(2020, Month::August, 6, 11, 15, 24, 0);
 
     let decoder = RFC3164Decoder::new(&cfg);
@@ -284,7 +364,7 @@ fn test_rfc3164_decode_with_pri_year() {
 #[test]
 fn test_rfc3164_decode_with_pri_year_tz() {
     let msg = r#"<13>2020 Aug 6 05:15:24 America/Sao_Paulo testhostname appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#;
-    let cfg = Config::from_string("[input]\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
     let expected_ts = ts_from_date_time(2020, Month::August, 6, 08, 15, 24, 0);
 
     let decoder = RFC3164Decoder::new(&cfg);
@@ -304,7 +384,7 @@ fn test_rfc3164_decode_with_pri_year_tz() {
 #[test]
 fn test_rfc3164_decode_tz_no_year() {
     let msg = r#"Aug  6 11:15:24 UTC testhostname appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#;
-    let cfg = Config::from_string("[input]\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
     let expected_ts = ts_from_partial_date_time(Month::August, 6, 11, 15, 24);
 
     let decoder = RFC3164Decoder::new(&cfg);
@@ -324,7 +404,7 @@ fn test_rfc3164_decode_tz_no_year() {
 #[test]
 fn test_rfc3164_decode_invalid_event() {
     let msg = "test message";
-    let cfg = Config::from_string("[input]\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
 
     let decoder = RFC3164Decoder::new(&cfg);
     let res = decoder.decode(msg);
@@ -334,7 +414,7 @@ fn test_rfc3164_decode_invalid_event() {
 #[test]
 fn test_rfc3164_decode_invalid_date() {
     let msg = r#"Aug  36 11:15:24 testhostname appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#;
-    let cfg = Config::from_string("[input]\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
 
     let decoder = RFC3164Decoder::new(&cfg);
     let res = decoder.decode(msg);
@@ -344,7 +424,7 @@ fn test_rfc3164_decode_invalid_date() {
 #[test]
 fn test_rfc3164_decode_custom_with_year() {
     let msg = r#"testhostname: 2020 Aug  6 11:15:24 UTC: appname 69 42 some test message"#;
-    let cfg = Config::from_string("[input]\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
     let expected_ts = ts_from_date_time(2020, Month::August, 6, 11, 15, 24, 0);
 
     let decoder = RFC3164Decoder::new(&cfg);
@@ -367,7 +447,7 @@ fn test_rfc3164_decode_custom_with_year() {
 #[test]
 fn test_rfc3164_decode_custom_with_year_notz() {
     let msg = r#"testhostname: 2019 Mar 27 12:09:39: appname: a test message"#;
-    let cfg = Config::from_string("[input]\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
     let expected_ts = ts_from_date_time(2019, Month::March, 27, 12, 9, 39, 0);
 
     let decoder = RFC3164Decoder::new(&cfg);
@@ -387,7 +467,7 @@ fn test_rfc3164_decode_custom_with_year_notz() {
 #[test]
 fn test_rfc3164_decode_custom_with_pri() {
     let msg = r#"<13>testhostname: 2019 Mar 27 12:09:39 UTC: appname: test message"#;
-    let cfg = Config::from_string("[input]\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
     let expected_ts = ts_from_date_time(2019, Month::March, 27, 12, 9, 39, 0);
 
     let decoder = RFC3164Decoder::new(&cfg);
@@ -407,7 +487,7 @@ fn test_rfc3164_decode_custom_with_pri() {
 #[test]
 fn test_rfc3164_decode_custom_trimed() {
     let msg = "<13>testhostname: 2019 Mar 27 12:09:39 UTC: appname: test message \n";
-    let cfg = Config::from_string("[input]\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n").unwrap();
     let expected_ts = ts_from_date_time(2019, Month::March, 27, 12, 9, 39, 0);
 
     let decoder = RFC3164Decoder::new(&cfg);

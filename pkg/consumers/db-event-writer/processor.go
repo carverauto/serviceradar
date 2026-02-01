@@ -112,6 +112,7 @@ func processLogAttributes(attributes []*commonv1.KeyValue) []string {
 // createLogRow creates a LogRow from a log record and its context
 func createLogRow(
 	logRecord *logsv1.LogRecord,
+	source string,
 	serviceName, serviceVersion, serviceInstance string,
 	scopeName, scopeVersion, scopeAttributes string,
 	resourceAttribs []string,
@@ -140,6 +141,7 @@ func createLogRow(
 		SeverityNumber:     int32(logRecord.SeverityNumber),
 		Body:               body,
 		EventName:          logRecord.EventName,
+		Source:             source,
 		ServiceName:        serviceName,
 		ServiceVersion:     serviceVersion,
 		ServiceInstance:    serviceInstance,
@@ -205,12 +207,17 @@ func traceFlagsFromRecord(flags uint32) *int32 {
 }
 
 // parseOTELLogs parses OTEL protobuf logs data and returns LogRow entries
-func parseOTELLogs(b []byte, _ string) ([]models.OTELLogRow, error) {
+func parseOTELLogs(b []byte, subject string) ([]models.OTELLogRow, error) {
 	// Unmarshal the protobuf data
 	var req v1.ExportLogsServiceRequest
 
 	if err := proto.Unmarshal(b, &req); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal OTEL logs: %w", err)
+	}
+
+	source := inferLogSource(subject)
+	if source == "" {
+		source = "otel"
 	}
 
 	// Pre-allocate result slice
@@ -240,6 +247,7 @@ func parseOTELLogs(b []byte, _ string) ([]models.OTELLogRow, error) {
 				// Build and add the log row
 				row := createLogRow(
 					logRecord,
+					source,
 					serviceName, serviceVersion, serviceInstance,
 					scopeName, scopeVersion, scopeAttributes,
 					resourceAttribs,
@@ -438,16 +446,41 @@ func processOTELTable[T any](
 
 // processLogsTable handles logs table batch processing
 func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
-	return processOTELTable(
-		ctx,
-		p.logger,
-		table,
-		msgs,
-		p.parseOTELMessage,
-		p.db.InsertOTELLogs,
-		"Skipping malformed OTEL log message",
-		"Inserted OTEL logs into CNPG",
-	)
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+
+	processed := make([]jetstream.Msg, 0, len(msgs))
+	rows := make([]models.OTELLogRow, 0, len(msgs))
+
+	for _, msg := range msgs {
+		processed = append(processed, msg)
+
+		parsedRows, ok := p.parseOTELMessage(msg)
+		if !ok {
+			p.logger.Warn().
+				Str("subject", msg.Subject()).
+				Msg("Skipping malformed log message")
+			continue
+		}
+
+		rows = append(rows, parsedRows...)
+	}
+
+	if len(rows) == 0 {
+		return processed, nil
+	}
+
+	if err := p.db.InsertOTELLogs(ctx, table, rows); err != nil {
+		return processed, err
+	}
+
+	p.logger.Info().
+		Int("rows_processed", len(rows)).
+		Str("table", table).
+		Msg("Inserted logs into CNPG")
+
+	return processed, nil
 }
 
 // processMetricsTable handles performance metrics table batch processing

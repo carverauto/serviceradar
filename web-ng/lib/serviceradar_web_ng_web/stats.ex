@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
     * `:time` - Time range filter (default: "last_24h")
     * `:service_name` - Filter by service name (optional)
+    * `:source` - Filter by log source (optional)
     * `:srql_module` - SRQL module to use (default from config)
 
   ## Examples

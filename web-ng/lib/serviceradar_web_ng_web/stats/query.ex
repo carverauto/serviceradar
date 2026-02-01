@@ -18,11 +18,18 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   def logs_severity(opts \\ []) do
     time = Keyword.get(opts, :time, @default_time_window)
     service_name = Keyword.get(opts, :service_name)
+    source = Keyword.get(opts, :source)
 
     base = "in:logs time:#{time} rollup_stats:severity"
 
-    if is_binary(service_name) and service_name != "" do
-      "#{base} service_name:\"#{escape_value(service_name)}\""
+    filters =
+      []
+      |> maybe_add_filter("service_name", service_name)
+      |> maybe_add_filter("source", source)
+      |> Enum.join(" ")
+
+    if filters != "" do
+      "#{base} #{filters}"
     else
       base
     end
