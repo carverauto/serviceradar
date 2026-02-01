@@ -4,6 +4,8 @@ load("@rust_crates//:defs.bzl", "all_crate_deps", "crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files(["netflow-collector.json"])
+
 cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
