@@ -1039,6 +1039,7 @@ pkg_tar(
         "//cmd/consumers/zen:data/snmp_severity.json": "var/lib/serviceradar/data/snmp_severity.json",
         "//cmd/consumers/zen:data/passthrough.json": "var/lib/serviceradar/data/passthrough.json",
         "//cmd/consumers/zen:data/strip_full_message.json": "var/lib/serviceradar/data/strip_full_message.json",
+        "//rust/netflow-collector:data/flows/netflow_to_ocsf.json": "var/lib/serviceradar/data/netflow_to_ocsf.json",
     },
     modes = {
         "usr/local/bin/serviceradar-zen": "0755",

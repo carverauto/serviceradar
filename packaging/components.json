@@ -338,6 +338,7 @@
     "conffiles": [
       "/etc/serviceradar/consumers/zen-consumer.json",
       "/etc/serviceradar/zen/rules/cef_severity.json",
+      "/etc/serviceradar/zen/rules/netflow_to_ocsf.json",
       "/etc/serviceradar/zen/rules/passthrough.json",
       "/etc/serviceradar/zen/rules/snmp_severity.json",
       "/etc/serviceradar/zen/rules/strip_full_message.json"
@@ -350,6 +351,10 @@
       {
         "dest": "/etc/serviceradar/zen/rules/cef_severity.json",
         "source": "packaging/zen/rules/cef_severity.json"
+      },
+      {
+        "dest": "/etc/serviceradar/zen/rules/netflow_to_ocsf.json",
+        "source": "packaging/zen/rules/netflow_to_ocsf.json"
       },
       {
         "dest": "/etc/serviceradar/zen/rules/passthrough.json",

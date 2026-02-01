@@ -279,8 +279,11 @@ netflowCollector:
     buffer_size: 65536
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
-    stream_name: "flows"
+    stream_name: "events"
     subject: "flows.raw.netflow"
+    stream_subjects:
+      - "flows.raw.netflow"
+      - "flows.raw.netflow.processed"
     stream_max_bytes: 10737418240
     partition: "default"
     max_templates: 2000
