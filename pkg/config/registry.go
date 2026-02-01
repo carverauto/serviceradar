@@ -141,14 +141,6 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 			"kv_address",
 		},
 	},
-	"netflow-consumer": {
-		Name:        "netflow-consumer",
-		DisplayName: "NetFlow Consumer",
-		ServiceType: "netflow-consumer",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/netflow-consumer.json",
-		Format:      ConfigFormatJSON,
-	},
 	"sysmon-osx-checker": {
 		Name:        "sysmon-osx-checker",
 		DisplayName: "Sysmon-OSX Checker",

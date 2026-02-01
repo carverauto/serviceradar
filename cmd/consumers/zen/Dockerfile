@@ -14,25 +14,36 @@ COPY Cargo.toml ./
 # Copy all workspace members' manifests
 COPY rust/kvutil/Cargo.toml ./rust/kvutil/Cargo.toml
 COPY rust/config-bootstrap/Cargo.toml ./rust/config-bootstrap/Cargo.toml
+COPY rust/edge-onboarding/Cargo.toml ./rust/edge-onboarding/Cargo.toml
 COPY cmd/flowgger/Cargo.toml ./cmd/flowgger/Cargo.toml
 COPY cmd/trapd/Cargo.toml ./cmd/trapd/Cargo.toml
 COPY cmd/otel/Cargo.toml ./cmd/otel/Cargo.toml
+COPY rust/netflow-collector/Cargo.toml ./rust/netflow-collector/Cargo.toml
 COPY cmd/consumers/zen/Cargo.toml ./cmd/consumers/zen/Cargo.toml
+COPY cmd/checkers/rperf-client/Cargo.toml ./cmd/checkers/rperf-client/Cargo.toml
+COPY cmd/checkers/sysmon/Cargo.toml ./cmd/checkers/sysmon/Cargo.toml
 # Create stub targets to satisfy workspace validation
-RUN mkdir -p rust/kvutil/src rust/config-bootstrap/src cmd/flowgger/src cmd/trapd/src cmd/otel/src cmd/consumers/zen/src && \
+RUN mkdir -p rust/kvutil/src rust/config-bootstrap/src rust/edge-onboarding/src \
+             cmd/flowgger/src cmd/trapd/src cmd/otel/src rust/netflow-collector/src \
+             cmd/consumers/zen/src cmd/checkers/rperf-client/src cmd/checkers/sysmon/src && \
     printf "pub fn _stub(){}" > rust/kvutil/src/lib.rs && \
     printf "pub fn _stub(){}" > rust/config-bootstrap/src/lib.rs && \
+    printf "pub fn _stub(){}" > rust/edge-onboarding/src/lib.rs && \
     printf "fn main(){}" > cmd/trapd/src/main.rs && \
     printf "fn main(){}" > cmd/flowgger/src/main.rs && \
     printf "pub fn _stub(){}" > cmd/flowgger/src/lib.rs && \
     printf "fn main(){}" > cmd/otel/src/main.rs && \
     printf "pub fn _stub(){}" > cmd/otel/src/lib.rs && \
-    printf "fn main(){}" > cmd/consumers/zen/src/main.rs
+    printf "fn main(){}" > rust/netflow-collector/src/main.rs && \
+    printf "fn main(){}" > cmd/consumers/zen/src/main.rs && \
+    printf "fn main(){}" > cmd/checkers/rperf-client/src/main.rs && \
+    printf "fn main(){}" > cmd/checkers/sysmon/src/main.rs
 RUN cargo fetch --manifest-path cmd/consumers/zen/Cargo.toml
 
 # Now copy sources
 COPY rust/kvutil ./rust/kvutil
 COPY rust/config-bootstrap ./rust/config-bootstrap
+COPY rust/edge-onboarding ./rust/edge-onboarding
 COPY proto ./proto
 COPY cmd/otel/proto ./cmd/otel/proto
 COPY cmd/consumers/zen ./cmd/consumers/zen

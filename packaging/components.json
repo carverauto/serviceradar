@@ -12,6 +12,7 @@
           "profiler",
           "trapd",
           "flowgger",
+          "netflow-collector",
           "goflow2",
           "nats",
           "zen",
@@ -533,6 +534,57 @@
     "systemd_service": {
       "dest": "/lib/systemd/system/serviceradar-flowgger.service",
       "source": "packaging/flowgger/systemd/serviceradar-flowgger.service"
+    },
+    "version": "1.0.58"
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "rust",
+      "docker_output_path": "/output/serviceradar-netflow-collector",
+      "output_path": "/usr/local/bin/serviceradar-netflow-collector",
+      "source_path": "rust/netflow-collector"
+    },
+    "conffiles": [
+      "/etc/serviceradar/netflow-collector.json"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/netflow-collector.json",
+        "source": "packaging/netflow-collector/config/netflow-collector.json"
+      }
+    ],
+    "custom_steps": [],
+    "deb": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "rust/netflow-collector/Dockerfile"
+    },
+    "description": "ServiceRadar NetFlow/IPFIX collector",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "name": "netflow-collector",
+    "package_name": "serviceradar-netflow-collector",
+    "postinst": {
+      "source": "packaging/netflow-collector/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/netflow-collector/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.netflow-collector",
+      "release": "1"
+    },
+    "section": "net",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-netflow-collector.service",
+      "source": "packaging/netflow-collector/systemd/serviceradar-netflow-collector.service"
     },
     "version": "1.0.58"
   },

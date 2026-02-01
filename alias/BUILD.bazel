@@ -34,11 +34,6 @@ alias(
     actual = "//pkg/consumers/db-event-writer:db-event-writer",
 )
 
-alias(
-    name = "netflow",
-    actual = "//pkg/consumers/netflow:netflow",
-)
-
 # pkg/cpufreq
 alias(
     name = "cpufreq",

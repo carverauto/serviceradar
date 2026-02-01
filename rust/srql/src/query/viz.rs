@@ -661,6 +661,41 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: None,
             }],
         },
+        Entity::Flows => VizMeta {
+            columns: vec![
+                col("time", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+                col("src_endpoint_ip", ColumnType::Text, None),
+                col("src_endpoint_port", ColumnType::Int, None),
+                col("dst_endpoint_ip", ColumnType::Text, None),
+                col("dst_endpoint_port", ColumnType::Int, None),
+                col("protocol_num", ColumnType::Int, None),
+                col("protocol_name", ColumnType::Text, None),
+                col("bytes_total", ColumnType::Int, Some(ColumnSemantic::Value)),
+                col(
+                    "packets_total",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col("bytes_in", ColumnType::Int, Some(ColumnSemantic::Value)),
+                col("bytes_out", ColumnType::Int, Some(ColumnSemantic::Value)),
+                col("sampler_address", ColumnType::Text, None),
+                col("ocsf_payload", ColumnType::Jsonb, None),
+            ],
+            suggestions: vec![
+                VizSuggestion {
+                    kind: VizKind::Table,
+                    x: None,
+                    y: None,
+                    series: None,
+                },
+                VizSuggestion {
+                    kind: VizKind::Timeseries,
+                    x: Some("time".to_string()),
+                    y: Some("bytes_total".to_string()),
+                    series: Some("src_endpoint_ip".to_string()),
+                },
+            ],
+        },
     })
 }
 
