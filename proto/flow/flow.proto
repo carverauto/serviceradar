@@ -120,4 +120,7 @@ message FlowMessage {
   repeated bytes ipv6_routing_header_addresses = 105; // SRv6
   uint32 ipv6_routing_header_seg_left = 106; // SRv6
 
+  // Human-readable protocol name (e.g., "TCP", "UDP", "ICMP")
+  string protocol_name = 107;
+
 }

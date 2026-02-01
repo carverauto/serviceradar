@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
       src_endpoint_port as src_port,
       dst_endpoint_port as dst_port,
       protocol_num as protocol,
+      protocol_name,
       packets_total as packets,
       bytes_total as octets,
       COALESCE(ocsf_payload->'unmapped'->>'flow_type', ocsf_payload->>'flow_type') as flow_type
@@ -233,7 +234,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
                   else: ""}
               </td>
               <td class="p-2">
-                <.protocol_badge protocol={flow["protocol"]} />
+                <.protocol_badge protocol={flow["protocol"]} protocol_name={flow["protocol_name"]} />
               </td>
               <td class="p-2">
                 <.flow_type_badge flow_type={flow["flow_type"]} />
@@ -257,15 +258,20 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
   end
 
   defp protocol_badge(assigns) do
+    protocol_name = Map.get(assigns, :protocol_name)
     protocol = assigns.protocol
 
     {label, variant} =
-      case protocol do
-        6 -> {"TCP", "success"}
-        17 -> {"UDP", "info"}
-        1 -> {"ICMP", "ghost"}
-        nil -> {"Unknown", "ghost"}
-        other -> {to_string(other), "ghost"}
+      if is_binary(protocol_name) and protocol_name != "" do
+        {String.upcase(protocol_name), protocol_variant(protocol_name)}
+      else
+        case protocol do
+          6 -> {"TCP", "success"}
+          17 -> {"UDP", "info"}
+          1 -> {"ICMP", "ghost"}
+          nil -> {"Unknown", "ghost"}
+          other -> {to_string(other), "ghost"}
+        end
       end
 
     assigns = assign(assigns, label: label, variant: variant)
@@ -273,6 +279,22 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
     ~H"""
     <.ui_badge variant={@variant}>{@label}</.ui_badge>
     """
+  end
+
+  defp protocol_variant(name) when is_binary(name) do
+    case String.downcase(name) do
+      "tcp" -> "success"
+      "udp" -> "info"
+      "icmp" -> "ghost"
+      "sctp" -> "success"
+      "gre" -> "warning"
+      "esp" -> "warning"
+      "ah" -> "warning"
+      "ospf" -> "info"
+      "igmp" -> "info"
+      "ipv6-icmp" -> "ghost"
+      _ -> "ghost"
+    end
   end
 
   defp flow_type_badge(assigns) do

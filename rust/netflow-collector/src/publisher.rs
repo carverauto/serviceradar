@@ -234,6 +234,7 @@ mod tests {
             drop_policy: crate::config::DropPolicy::DropOldest,
             security: None,
             metrics_addr: None,
+            nats_creds_file: None,
         });
 
         let (_tx, rx) = mpsc::channel(1000);

@@ -12,11 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
-type CacheStatsVec = Vec<(
-    String,
-    netflow_parser::CacheStats,
-    netflow_parser::CacheStats,
-)>;
+type CacheStatsVec = Vec<(String, netflow_parser::ParserCacheStats)>;
 
 fn template_event_callback(event: &TemplateEvent) {
     use TemplateEvent::*;
@@ -183,24 +179,12 @@ impl Listener {
         let v9_stats: Vec<_> = parser
             .v9_stats()
             .iter()
-            .map(|(key, template_stats, data_stats)| {
-                (
-                    format!("{:?}", key),
-                    template_stats.clone(),
-                    data_stats.clone(),
-                )
-            })
+            .map(|(key, stats)| (format!("{:?}", key), stats.clone()))
             .collect();
         let ipfix_stats: Vec<_> = parser
             .ipfix_stats()
             .iter()
-            .map(|(key, template_stats, data_stats)| {
-                (
-                    format!("{:?}", key),
-                    template_stats.clone(),
-                    data_stats.clone(),
-                )
-            })
+            .map(|(key, stats)| (format!("{:?}", key), stats.clone()))
             .collect();
         (v9_stats, ipfix_stats)
     }
