@@ -334,8 +334,12 @@ Monitor these in logs and system metrics:
   "listen_addr": "0.0.0.0:2055",
   "buffer_size": 65536,
   "nats_url": "nats://nats:4222",
-  "stream_name": "flows",
+  "stream_name": "events",
   "subject": "flows.raw.netflow",
+  "stream_subjects": [
+    "flows.raw.netflow",
+    "flows.raw.netflow.processed"
+  ],
   "partition": "default",
   "max_templates": 2000,
   "max_template_fields": 10000,
@@ -358,6 +362,8 @@ Monitor these in logs and system metrics:
 
 **Key Parameters:**
 - `listen_addr`: UDP socket binding (default: 0.0.0.0:2055)
+- `stream_name`: JetStream stream for NetFlow subjects (default: events)
+- `stream_subjects`: Stream subjects to ensure exist (raw + processed)
 - `max_templates`: Template cache size per source (default: 2000)
 - `max_template_fields`: Max fields per template for security (default: 10,000)
 - `channel_size`: Bounded channel depth (default: 10,000)
@@ -438,11 +444,13 @@ grep -i "error\|warn" /var/log/netflow-collector.log
 
 ```bash
 # Check stream has messages
-nats stream info flows
+nats stream info events
 
-# Should show:
-# Messages: 125,432
-# Subjects: 1 (flows.raw.netflow)
+# Should show flows.raw.netflow and flows.raw.netflow.processed in the subjects list.
+#
+# Note: If an old `flows` stream already owns flows.raw.netflow, delete it so the
+# `events` stream can claim the subject:
+# nats stream rm flows
 ```
 
 ### 5. Query Database

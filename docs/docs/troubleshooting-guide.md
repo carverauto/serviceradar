@@ -100,7 +100,7 @@ docker logs netflow-collector | grep "Received.*bytes from"
 kubectl logs -l app=netflow-collector | grep "Received.*bytes from"
 
 # 4. Check NATS stream
-nats stream info flows
+nats stream info events
 
 # 5. Query database directly
 psql -c "SELECT COUNT(*) FROM ocsf_network_activity WHERE time > NOW() - INTERVAL '5 minutes';"
@@ -481,7 +481,7 @@ Enable debug logging and measure:
 
 ```bash
 # Check NATS JetStream lag
-nats stream info flows
+nats stream info events
 
 # Check Zen consumer lag
 docker logs zen | grep "Processing message"
@@ -509,7 +509,7 @@ docker logs --tail 1000 netflow-collector > netflow-collector.log
 docker stats netflow-collector
 
 # NATS stream info
-nats stream info flows > nats-stream-info.txt
+nats stream info events > nats-stream-info.txt
 
 # Database flow count
 psql -c "SELECT

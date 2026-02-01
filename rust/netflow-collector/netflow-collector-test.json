@@ -2,8 +2,12 @@
   "listen_addr": "0.0.0.0:2055",
   "buffer_size": 65536,
   "nats_url": "nats://127.0.0.1:4222",
-  "stream_name": "flows",
+  "stream_name": "events",
   "subject": "flows.raw.netflow",
+  "stream_subjects": [
+    "flows.raw.netflow",
+    "flows.raw.netflow.processed"
+  ],
   "partition": "default",
   "channel_size": 10000,
   "batch_size": 5,

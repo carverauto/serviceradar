@@ -338,6 +338,11 @@ PACKAGES = {
                 "mode": "0644",
             },
             {
+                "src": "rules/netflow_to_ocsf.json",
+                "dest": "/usr/share/serviceradar-zen/rules/netflow_to_ocsf.json",
+                "mode": "0644",
+            },
+            {
                 "src": "rules/passthrough.json",
                 "dest": "/usr/share/serviceradar-zen/rules/passthrough.json",
                 "mode": "0644",

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-netflow_parser = "0.8.1"
+netflow_parser = { version = "0.8.1", features = ["parse_unknown_fields"] }
 prost = "0.13"
 async-nats = "0.42"
 tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }

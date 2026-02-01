@@ -7,6 +7,7 @@ use std::cmp::min;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::time::{sleep, timeout};
 
 pub struct Publisher {
@@ -32,15 +33,8 @@ impl Publisher {
 
         loop {
             // Receive messages from the listener channel
-            match self.rx.recv().await {
-                Some(msg) => {
-                    batch.push(msg);
-
-                    // Publish when batch is full or channel is empty
-                    if batch.len() >= self.config.batch_size {
-                        self.publish_batch(&js, &mut batch, timeout_duration).await;
-                    }
-                }
+            let msg = match self.rx.recv().await {
+                Some(msg) => msg,
                 None => {
                     // Channel closed, publish remaining messages and exit
                     if !batch.is_empty() {
@@ -49,6 +43,31 @@ impl Publisher {
                     info!("Publisher channel closed, shutting down");
                     return Ok(());
                 }
+            };
+
+            batch.push(msg);
+
+            // Drain any immediately-available messages to build a batch
+            let mut closed = false;
+            while batch.len() < self.config.batch_size {
+                match self.rx.try_recv() {
+                    Ok(msg) => batch.push(msg),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        closed = true;
+                        break;
+                    }
+                }
+            }
+
+            // Publish whatever we have so low-volume streams still emit data
+            if !batch.is_empty() {
+                self.publish_batch(&js, &mut batch, timeout_duration).await;
+            }
+
+            if closed {
+                info!("Publisher channel closed, shutting down");
+                return Ok(());
             }
         }
     }
@@ -114,17 +133,40 @@ impl Publisher {
         let client = options.connect(&self.config.nats_url).await?;
         let js = jetstream::new(client.clone());
 
-        // Ensure the target stream exists
-        let stream_config = jetstream::stream::Config {
-            name: self.config.stream_name.clone(),
-            subjects: vec![self.config.subject.clone()],
-            storage: StorageType::File,
-            max_bytes: self.config.stream_max_bytes,
-            max_age: Duration::from_secs(24 * 60 * 60), // 24 hours
-            ..Default::default()
-        };
+        // Ensure the target stream exists and includes all required subjects
+        let required_subjects = self.config.stream_subjects_resolved();
+        match js.get_stream(&self.config.stream_name).await {
+            Ok(mut existing_stream) => {
+                let info = existing_stream.info().await?;
+                let mut current_subjects = info.config.subjects.clone();
+                let mut needs_update = false;
 
-        js.get_or_create_stream(stream_config).await?;
+                for required in &required_subjects {
+                    if !current_subjects.contains(required) {
+                        current_subjects.push(required.clone());
+                        needs_update = true;
+                    }
+                }
+
+                if needs_update {
+                    let mut updated_config = info.config.clone();
+                    updated_config.subjects = current_subjects;
+                    js.update_stream(updated_config).await?;
+                    js.get_stream(&self.config.stream_name).await?;
+                }
+            }
+            Err(_) => {
+                let stream_config = jetstream::stream::Config {
+                    name: self.config.stream_name.clone(),
+                    subjects: required_subjects.clone(),
+                    storage: StorageType::File,
+                    max_bytes: self.config.stream_max_bytes,
+                    max_age: Duration::from_secs(24 * 60 * 60), // 24 hours
+                    ..Default::default()
+                };
+                js.get_or_create_stream(stream_config).await?;
+            }
+        }
 
         info!(
             "Connected to NATS at {} and ensured stream '{}' exists",
@@ -181,6 +223,7 @@ mod tests {
             nats_url: "nats://localhost:4222".to_string(),
             stream_name: "flows".to_string(),
             subject: "flows.raw.netflow".to_string(),
+            stream_subjects: None,
             stream_max_bytes: 10 * 1024 * 1024 * 1024,
             partition: "default".to_string(),
             max_templates: 2000,

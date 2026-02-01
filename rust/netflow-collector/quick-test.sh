@@ -79,7 +79,7 @@ echo
 # Check NATS
 echo -e "${YELLOW}[5/7] Checking NATS stream...${NC}"
 if command -v nats &> /dev/null; then
-    NATS_MSGS=$(nats stream info flows -j 2>/dev/null | jq -r '.state.messages' 2>/dev/null || echo "0")
+    NATS_MSGS=$(nats stream info events -j 2>/dev/null | jq -r '.state.messages' 2>/dev/null || echo "0")
     if [ "$NATS_MSGS" -gt 0 ]; then
         echo -e "${GREEN}✓ NATS stream has messages${NC}"
         echo "  Total messages: $NATS_MSGS"
