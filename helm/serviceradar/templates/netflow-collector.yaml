@@ -102,6 +102,9 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
         - name: netflow-collector-data
           mountPath: /var/lib/serviceradar
         - name: logs
@@ -113,6 +116,9 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: nats-creds
+        secret:
+          secretName: serviceradar-nats-creds
       - name: netflow-collector-data
         {{- if $data.existingClaim }}
         persistentVolumeClaim:
