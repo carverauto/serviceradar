@@ -144,6 +144,9 @@ metadata:
   {{- end }}
 spec:
   type: {{ .Values.netflowCollector.service.type | default "ClusterIP" }}
+  {{- with .Values.netflowCollector.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
   {{- if .Values.netflowCollector.service.loadBalancerIP }}
   loadBalancerIP: {{ .Values.netflowCollector.service.loadBalancerIP | quote }}
   {{- end }}

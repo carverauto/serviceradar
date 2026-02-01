@@ -252,6 +252,8 @@ flowgger:
     enabled: false
     # Service type: LoadBalancer, NodePort, or ClusterIP
     type: LoadBalancer
+    # Only advertise from nodes with local endpoints (required for Calico BGP)
+    externalTrafficPolicy: Cluster
     # Annotations for load balancer configuration (MetalLB, cloud providers, etc.)
     # Example for MetalLB: metallb.universe.tf/address-pool: k3s-pool
     # Example for AWS NLB: service.beta.kubernetes.io/aws-load-balancer-type: nlb
@@ -304,6 +306,8 @@ netflowCollector:
     type: ClusterIP
     annotations: {}
     loadBalancerIP: ""
+    # Only advertise from nodes with local endpoints (required for Calico BGP)
+    externalTrafficPolicy: Cluster
     ports:
       netflow:
         enabled: true
