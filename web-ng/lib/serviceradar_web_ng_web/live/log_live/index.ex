@@ -386,9 +386,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     current = normalize_source(current)
     value = normalize_source(value)
 
-    cond do
-      is_nil(value) -> is_nil(current)
-      true -> current == value
+    if is_nil(value) do
+      is_nil(current)
+    else
+      current == value
     end
   end
 
