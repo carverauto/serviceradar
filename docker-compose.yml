@@ -394,6 +394,7 @@ services:
       serviceradar-net:
         aliases:
           - nats.serviceradar
+          - serviceradar-nats
     restart: unless-stopped
 
   datasvc:
