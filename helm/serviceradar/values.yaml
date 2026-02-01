@@ -46,6 +46,9 @@ natsCreds:
   platform: ""
   system: ""
   operator: ""
+nats:
+  persistence:
+    size: 30Gi
 certs:
   regenerator:
     # Disable by default to avoid unexpected cert rotation.
