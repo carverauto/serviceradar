@@ -29,6 +29,10 @@ func TestParseJSONLogsSingle(t *testing.T) {
 	if row.ServiceName != "device-1" {
 		t.Fatalf("unexpected service name: %s", row.ServiceName)
 	}
+
+	if row.ObservedTimestamp == nil {
+		t.Fatalf("expected observed timestamp to be set")
+	}
 }
 
 func TestParseJSONLogsArray(t *testing.T) {

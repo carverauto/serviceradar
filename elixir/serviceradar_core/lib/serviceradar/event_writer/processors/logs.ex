@@ -95,10 +95,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     {scope_name, scope_version} = parse_scope_fields(json)
     source = FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
 
+    observed_timestamp = parse_observed_timestamp(json) || metadata[:received_at]
+
     %{
       id: log_id,
       timestamp: parse_timestamp(json),
-      observed_timestamp: parse_observed_timestamp(json),
+      observed_timestamp: observed_timestamp,
       trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
       span_id: FieldParser.get_field(json, "span_id", "spanId"),
       trace_flags: parse_trace_flags(json),

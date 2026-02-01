@@ -8,13 +8,14 @@ use crate::{
         scope_version as col_scope_version, service_instance as col_service_instance,
         service_name as col_service_name, service_version as col_service_version,
         severity_number as col_severity_number, severity_text as col_severity_text,
-        source as col_source, span_id as col_span_id, timestamp as col_timestamp,
-        trace_id as col_trace_id,
+        source as col_source, span_id as col_span_id, trace_id as col_trace_id,
     },
     time::TimeRange,
 };
 use chrono::{DateTime, Utc};
 use diesel::deserialize::QueryableByName;
+use diesel::dsl::sql;
+use diesel::expression::SqlLiteral;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
@@ -116,11 +117,19 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     }
 }
 
+fn effective_timestamp_expr() -> SqlLiteral<Timestamptz> {
+    sql::<Timestamptz>("coalesce(observed_timestamp, timestamp)")
+}
+
 fn build_query(plan: &QueryPlan) -> Result<LogsQuery<'static>> {
     let mut query = logs.into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        query = query.filter(col_timestamp.ge(*start).and(col_timestamp.le(*end)));
+        query = query.filter(
+            effective_timestamp_expr()
+                .ge(*start)
+                .and(effective_timestamp_expr().le(*end)),
+        );
     }
 
     for filter in &plan.filters {
@@ -266,9 +275,9 @@ fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>> {
     let mut clauses = Vec::new();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        clauses.push("timestamp >= ?".to_string());
+        clauses.push("coalesce(observed_timestamp, timestamp) >= ?".to_string());
         binds.push(SqlBindValue::Timestamp(*start));
-        clauses.push("timestamp <= ?".to_string());
+        clauses.push("coalesce(observed_timestamp, timestamp) <= ?".to_string());
         binds.push(SqlBindValue::Timestamp(*end));
     }
 
@@ -515,8 +524,8 @@ fn apply_ordering<'a>(mut query: LogsQuery<'a>, order: &[OrderClause]) -> LogsQu
             applied = true;
             match clause.field.as_str() {
                 "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_timestamp.asc()),
-                    OrderDirection::Desc => query.order(col_timestamp.desc()),
+                    OrderDirection::Asc => query.order(effective_timestamp_expr().asc()),
+                    OrderDirection::Desc => query.order(effective_timestamp_expr().desc()),
                 },
                 "severity_number" => match clause.direction {
                     OrderDirection::Asc => query.order(col_severity_number.asc()),
@@ -527,8 +536,8 @@ fn apply_ordering<'a>(mut query: LogsQuery<'a>, order: &[OrderClause]) -> LogsQu
         } else {
             match clause.field.as_str() {
                 "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_timestamp.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_timestamp.desc()),
+                    OrderDirection::Asc => query.then_order_by(effective_timestamp_expr().asc()),
+                    OrderDirection::Desc => query.then_order_by(effective_timestamp_expr().desc()),
                 },
                 "severity_number" => match clause.direction {
                     OrderDirection::Asc => query.then_order_by(col_severity_number.asc()),
@@ -541,7 +550,7 @@ fn apply_ordering<'a>(mut query: LogsQuery<'a>, order: &[OrderClause]) -> LogsQu
 
     if !applied {
         query = query
-            .order(col_timestamp.desc())
+            .order(effective_timestamp_expr().desc())
             .then_order_by(col_severity_number.desc());
     }
 

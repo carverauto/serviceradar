@@ -121,6 +121,10 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 
 	severityText, severityNumber := normalizeSeverity(entry)
 	observedTimestamp := parseObservedTimestamp(entry)
+	if observedTimestamp == nil {
+		now := time.Now().UTC()
+		observedTimestamp = &now
+	}
 	traceFlags := parseTraceFlags(entry)
 	eventName := firstString(entry, "event_name", "eventName")
 

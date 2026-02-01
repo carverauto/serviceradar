@@ -332,6 +332,7 @@ WITH base AS (
 )
 INSERT INTO logs (
         timestamp,
+        observed_timestamp,
         trace_id,
         span_id,
         severity_text,
@@ -347,6 +348,7 @@ INSERT INTO logs (
         created_at
     )
 SELECT base.now_ts - INTERVAL '1 minute',
+    NULL,
     'trace-1',
     'span-1',
     'INFO',
@@ -362,7 +364,8 @@ SELECT base.now_ts - INTERVAL '1 minute',
     base.now_ts
 FROM base
 UNION ALL
-SELECT base.now_ts - INTERVAL '5 minutes',
+SELECT base.now_ts - INTERVAL '2 hours',
+    base.now_ts - INTERVAL '30 seconds',
     'trace-2',
     'span-2',
     'ERROR',
