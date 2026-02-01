@@ -62,6 +62,10 @@ ServiceRadar replaces traditional "script-and-shell" plugins with a [modern WebA
 Get ServiceRadar running in under 5 minutes:
 
 ```bash
+# Optional - set these in your .env 
+export SERVICERADAR_HOST=<my-vm-ip>
+export GATEWAY_PUBLIC_IP=0.0.0.0
+# 
 git clone https://github.com/carverauto/serviceradar.git
 cd serviceradar
 docker compose up -d
