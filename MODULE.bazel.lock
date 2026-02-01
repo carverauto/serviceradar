@@ -1750,7 +1750,7 @@
         "bzlTransitiveDigest": "qATCXoRXiE4t2IhaFrGaKqtvL9i+mgfVSeAFstpB2/Q=",
         "usagesDigest": "nBE61dnm18OtQXTyg7JmEHbvLyMbE7WBDjiibYOo1aE=",
         "recordedFileInputs": {
-          "@@//Cargo.lock": "4e141c534a67ad3e35676ad5697581dc280c97c4e2a8487f531637448cdf9684",
+          "@@//Cargo.lock": "1f213cf81d5c404e8ba6b2566e27e6f0a57afaeeb0b64dc9075cff7eb4c09e37",
           "@@//Cargo.toml": "b1ddcdaef53ae1ac1fc8475d101096af3eec67e3a15b3284fb1436c561815a65",
           "@@//cmd/checkers/rperf-client/Cargo.toml": "a0c791977332d5ab34a589b105b63f9723372480bdc7d789fa1eed70e239ce35",
           "@@//cmd/consumers/zen/Cargo.toml": "13b21f7d75c3ca22aeb560efa80fc6c1317596ec59060c2139dc81bb0f1aaaec",
@@ -1766,7 +1766,7 @@
           "@@//rust/config-bootstrap/Cargo.toml": "2bab61d0cf5a9c1ad54e7d2b7b1a2ec4817ccceedf512251320481560c2ecf5d",
           "@@//rust/edge-onboarding/Cargo.toml": "9e396945a2d384813230bb4320b61571979b25e8faedd895affe50f9da081ab1",
           "@@//rust/kvutil/Cargo.toml": "bf91698e845539ec5e02348e953b249ef60d78bdc07809f89f638003fba5661c",
-          "@@//rust/netflow-collector/Cargo.toml": "7626c5f0c6f61330aa04a5685e0a5a6bb3d3b6abaec6d537e1b6dc7d4e3a4ac4",
+          "@@//rust/netflow-collector/Cargo.toml": "e06e4795250ad1e582778104f7a4c3ee6ea7e80a0ba7785c7b556336388f9726",
           "@@//rust/srql/Cargo.toml": "8b449856e44197ca63160b171b4c8bce215b97cf5f7681a80994d24cf3e36373"
         },
         "recordedDirentsInputs": {},

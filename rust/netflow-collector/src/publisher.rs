@@ -7,6 +7,7 @@ use std::cmp::min;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::time::{sleep, timeout};
 
 pub struct Publisher {
@@ -32,15 +33,8 @@ impl Publisher {
 
         loop {
             // Receive messages from the listener channel
-            match self.rx.recv().await {
-                Some(msg) => {
-                    batch.push(msg);
-
-                    // Publish when batch is full or channel is empty
-                    if batch.len() >= self.config.batch_size {
-                        self.publish_batch(&js, &mut batch, timeout_duration).await;
-                    }
-                }
+            let msg = match self.rx.recv().await {
+                Some(msg) => msg,
                 None => {
                     // Channel closed, publish remaining messages and exit
                     if !batch.is_empty() {
@@ -49,6 +43,31 @@ impl Publisher {
                     info!("Publisher channel closed, shutting down");
                     return Ok(());
                 }
+            };
+
+            batch.push(msg);
+
+            // Drain any immediately-available messages to build a batch
+            let mut closed = false;
+            while batch.len() < self.config.batch_size {
+                match self.rx.try_recv() {
+                    Ok(msg) => batch.push(msg),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        closed = true;
+                        break;
+                    }
+                }
+            }
+
+            // Publish whatever we have so low-volume streams still emit data
+            if !batch.is_empty() {
+                self.publish_batch(&js, &mut batch, timeout_duration).await;
+            }
+
+            if closed {
+                info!("Publisher channel closed, shutting down");
+                return Ok(());
             }
         }
     }
