@@ -23,6 +23,7 @@ image:
     otel: *appTag
     trapd: *appTag
     flowgger: *appTag
+    netflowCollector: *appTag
     zen: *appTag
     rperfClient: *appTag
     faker: *appTag
@@ -266,6 +267,61 @@ flowgger:
         port: 2055
         targetPort: 2055
         protocol: UDP
+netflowCollector:
+  enabled: false
+  config:
+    listen_addr: "0.0.0.0:2055"
+    buffer_size: 65536
+    nats_url: "tls://serviceradar-nats:4222"
+    stream_name: "flows"
+    subject: "flows.raw.netflow"
+    partition: "default"
+    max_templates: 2000
+    max_template_fields: 10000
+    channel_size: 10000
+    batch_size: 100
+    publish_timeout_ms: 5000
+    drop_policy: "drop_oldest"
+    security:
+      mode: "mtls"
+      cert_dir: "/etc/serviceradar/certs"
+      tls:
+        cert_file: "netflow-client.crt"
+        key_file: "netflow-client.key"
+        ca_file: "ca.crt"
+    metrics_addr: "0.0.0.0:50046"
+  data:
+    enabled: true
+    existingClaim: ""
+    size: 1Gi
+    storageClassName: ""
+  service:
+    type: ClusterIP
+    annotations: {}
+    loadBalancerIP: ""
+    ports:
+      netflow:
+        enabled: true
+        port: 2055
+        targetPort: 2055
+        protocol: UDP
+      ipfix:
+        enabled: true
+        port: 4739
+        targetPort: 4739
+        protocol: UDP
+      metrics:
+        enabled: true
+        port: 50046
+        targetPort: 50046
+        protocol: TCP
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
 configSync:
   flowgger:
     enabled: true
@@ -318,6 +374,7 @@ spire:
   rperfCheckerServiceAccount: serviceradar-rperf-checker
   flowggerServiceAccount: serviceradar-flowgger
   trapdServiceAccount: serviceradar-trapd
+  netflowCollectorServiceAccount: serviceradar-netflow-collector
   bundleConfigMap: spire-bundle
   server:
     image: ghcr.io/spiffe/spire-server:1.11.2

@@ -1,0 +1,172 @@
+{{- if .Values.netflowCollector.enabled }}
+{{- $data := default (dict) .Values.netflowCollector.data -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-netflow-collector-config
+data:
+  netflow-collector.json: |
+    {{- toJson .Values.netflowCollector.config | nindent 4 }}
+---
+{{- if and ($data.enabled | default true) (not $data.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-netflow-collector-data
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ default "1Gi" $data.size | quote }}
+  {{- if $data.storageClassName }}
+  storageClassName: {{ $data.storageClassName | quote }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-netflow-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-netflow-collector
+  template:
+    metadata:
+      labels:
+        app: serviceradar-netflow-collector
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      serviceAccountName: {{ .Values.spire.netflowCollectorServiceAccount | default "serviceradar-netflow-collector" }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: netflow-collector
+        image: ghcr.io/carverauto/serviceradar-netflow-collector:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "netflowCollector") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        ports:
+        {{- if .Values.netflowCollector.service.ports.netflow.enabled }}
+        - name: netflow
+          containerPort: {{ .Values.netflowCollector.service.ports.netflow.targetPort | default 2055 }}
+          protocol: {{ .Values.netflowCollector.service.ports.netflow.protocol | default "UDP" }}
+        {{- end }}
+        {{- if .Values.netflowCollector.service.ports.ipfix.enabled }}
+        - name: ipfix
+          containerPort: {{ .Values.netflowCollector.service.ports.ipfix.targetPort | default 4739 }}
+          protocol: {{ .Values.netflowCollector.service.ports.ipfix.protocol | default "UDP" }}
+        {{- end }}
+        {{- if .Values.netflowCollector.service.ports.metrics.enabled }}
+        - name: metrics
+          containerPort: {{ .Values.netflowCollector.service.ports.metrics.targetPort | default 50046 }}
+          protocol: {{ .Values.netflowCollector.service.ports.metrics.protocol | default "TCP" }}
+        {{- end }}
+        args:
+        - "--config"
+        - "/etc/serviceradar/netflow-collector.json"
+        env:
+        - name: RUST_LOG
+          value: "info"
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f netflow-collector > /dev/null"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f netflow-collector > /dev/null"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.netflowCollector.resources | nindent 10 }}
+        securityContext:
+          capabilities:
+            add: ["NET_BIND_SERVICE"]
+        volumeMounts:
+        - name: netflow-collector-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: netflow-collector-data
+          mountPath: /var/lib/serviceradar
+        - name: logs
+          mountPath: /var/log/serviceradar
+      volumes:
+      - name: netflow-collector-config
+        configMap:
+          name: serviceradar-netflow-collector-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: netflow-collector-data
+        {{- if $data.existingClaim }}
+        persistentVolumeClaim:
+          claimName: {{ $data.existingClaim | quote }}
+        {{- else if ($data.enabled | default true) }}
+        persistentVolumeClaim:
+          claimName: serviceradar-netflow-collector-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-netflow-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with .Values.netflowCollector.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.netflowCollector.service.type | default "ClusterIP" }}
+  {{- if .Values.netflowCollector.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.netflowCollector.service.loadBalancerIP | quote }}
+  {{- end }}
+  selector:
+    app: serviceradar-netflow-collector
+  ports:
+  {{- if .Values.netflowCollector.service.ports.netflow.enabled }}
+  - name: netflow
+    port: {{ .Values.netflowCollector.service.ports.netflow.port | default 2055 }}
+    targetPort: {{ .Values.netflowCollector.service.ports.netflow.targetPort | default 2055 }}
+    protocol: {{ .Values.netflowCollector.service.ports.netflow.protocol | default "UDP" }}
+  {{- end }}
+  {{- if .Values.netflowCollector.service.ports.ipfix.enabled }}
+  - name: ipfix
+    port: {{ .Values.netflowCollector.service.ports.ipfix.port | default 4739 }}
+    targetPort: {{ .Values.netflowCollector.service.ports.ipfix.targetPort | default 4739 }}
+    protocol: {{ .Values.netflowCollector.service.ports.ipfix.protocol | default "UDP" }}
+  {{- end }}
+  {{- if .Values.netflowCollector.service.ports.metrics.enabled }}
+  - name: metrics
+    port: {{ .Values.netflowCollector.service.ports.metrics.port | default 50046 }}
+    targetPort: {{ .Values.netflowCollector.service.ports.metrics.targetPort | default 50046 }}
+    protocol: {{ .Values.netflowCollector.service.ports.metrics.protocol | default "TCP" }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.netflowCollectorServiceAccount | default "serviceradar-netflow-collector" }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+{{- end }}

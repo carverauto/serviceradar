@@ -1,7 +1,7 @@
 {
   "listen_addr": "0.0.0.0:2055",
   "buffer_size": 65536,
-  "nats_url": "tls://nats.serviceradar:4222",
+  "nats_url": "tls://serviceradar-nats:4222",
   "stream_name": "flows",
   "subject": "flows.raw.netflow",
   "partition": "default",
@@ -18,5 +18,5 @@
       "ca_file": "ca.crt"
     }
   },
-  "metrics_addr": "0.0.0.0:9091"
+  "metrics_addr": "0.0.0.0:50046"
 }
