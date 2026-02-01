@@ -7,27 +7,27 @@ data:
   netflow-collector.json: |
     {
       "listen_addr": "0.0.0.0:2055",
-      "ipfix_listen_addr": "0.0.0.0:4739",
-      "buffer_size": 10000,
-      "drop_policy": "drop_newest",
-      "nats": {
-        "url": "tls://serviceradar-nats:4222",
-        "stream": "flows",
-        "subject": "flows.raw.netflow",
-        "timeout_ms": 30000,
-        "batch_size": 100,
-        "batch_timeout_ms": 1000,
-        "max_ack_pending": 1000
-      },
+      "buffer_size": 65536,
+      "nats_url": "tls://serviceradar-nats:4222",
+      "stream_name": "flows",
+      "subject": "flows.raw.netflow",
+      "partition": "default",
+      "max_templates": 2000,
+      "max_template_fields": 10000,
+      "channel_size": 10000,
+      "batch_size": 100,
+      "publish_timeout_ms": 5000,
+      "drop_policy": "drop_oldest",
       "security": {
-        "mode": "spiffe",
-        "trust_domain": "carverauto.dev",
-        "workload_socket": "unix:/run/spire/sockets/agent.sock"
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "tls": {
+          "cert_file": "netflow-client.crt",
+          "key_file": "netflow-client.key",
+          "ca_file": "ca.crt"
+        }
       },
-      "logging": {
-        "level": "info",
-        "format": "json"
-      }
+      "metrics_addr": "0.0.0.0:50046"
     }
 ---
 apiVersion: v1
@@ -73,20 +73,13 @@ spec:
         - name: ipfix
           containerPort: 4739
           protocol: UDP
-        - name: grpc
+        - name: metrics
           containerPort: 50046
           protocol: TCP
+        args:
+        - "--config"
+        - "/etc/serviceradar/netflow-collector.json"
         env:
-        - name: CONFIG_SOURCE
-          value: "file"
-        - name: CONFIG_PATH
-          value: "/etc/serviceradar/netflow-collector.json"
-        - name: SECURITY_MODE
-          value: "spiffe"
-        - name: TRUST_DOMAIN
-          value: "carverauto.dev"
-        - name: WORKLOAD_SOCKET
-          value: "unix:/run/spire/sockets/agent.sock"
         - name: RUST_LOG
           value: "info"
         # Process-based health checks
@@ -131,9 +124,6 @@ spec:
           mountPath: /var/lib/serviceradar
         - name: logs
           mountPath: /var/log/serviceradar
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
       volumes:
       - name: netflow-collector-config
         configMap:
@@ -146,10 +136,6 @@ spec:
           claimName: serviceradar-netflow-collector-data
       - name: logs
         emptyDir: {}
-      - name: spire-agent-socket
-        hostPath:
-          path: /run/spire/sockets
-          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -169,7 +155,7 @@ spec:
     port: 4739
     targetPort: 4739
     protocol: UDP
-  - name: grpc
+  - name: metrics
     port: 50046
     targetPort: 50046
     protocol: TCP

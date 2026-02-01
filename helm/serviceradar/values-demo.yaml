@@ -92,3 +92,10 @@ flowgger:
     enabled: true
     annotations:
       metallb.universe.tf/address-pool: k3s-pool
+
+netflowCollector:
+  enabled: true
+  service:
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
