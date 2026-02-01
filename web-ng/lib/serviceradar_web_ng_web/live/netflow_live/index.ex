@@ -36,17 +36,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Index do
     # Query directly from the database
     query = """
     SELECT
-      to_char(timestamp, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as timestamp,
-      src_addr,
-      dst_addr,
-      src_port,
-      dst_port,
-      protocol,
-      packets,
-      octets,
-      metadata->>'type' as flow_type
-    FROM netflow_metrics
-    ORDER BY timestamp DESC
+      to_char(time, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as timestamp,
+      src_endpoint_ip as src_addr,
+      dst_endpoint_ip as dst_addr,
+      src_endpoint_port as src_port,
+      dst_endpoint_port as dst_port,
+      protocol_num as protocol,
+      packets_total as packets,
+      bytes_total as octets,
+      COALESCE(ocsf_payload->'unmapped'->>'flow_type', ocsf_payload->>'flow_type') as flow_type
+    FROM ocsf_network_activity
+    ORDER BY time DESC
     LIMIT #{limit}
     OFFSET #{offset}
     """
