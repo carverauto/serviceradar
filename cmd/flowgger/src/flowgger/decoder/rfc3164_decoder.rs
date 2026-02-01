@@ -249,7 +249,7 @@ fn resolve_default_timezone(config: &Config) -> Option<String> {
 
     match tz_value {
         Some(value) => normalize_timezone_value(value),
-        None => detect_system_timezone(),
+        None => None,
     }
 }
 

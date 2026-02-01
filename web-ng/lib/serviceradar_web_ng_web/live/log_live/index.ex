@@ -291,7 +291,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp log_source_filters(assigns) do
     query = Map.get(assigns.srql, :query) || ""
-    active_source = query |> extract_filter_from_query("source") |> normalize_string() |> normalize_source()
+
+    active_source =
+      query |> extract_filter_from_query("source") |> normalize_string() |> normalize_source()
 
     sources = [
       %{label: "All", value: nil},
@@ -379,7 +381,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp normalize_source(nil), do: nil
   defp normalize_source(""), do: nil
-  defp normalize_source(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+
+  defp normalize_source(value) when is_binary(value),
+    do: value |> String.trim() |> String.downcase()
+
   defp normalize_source(_), do: nil
 
   defp source_active?(current, value) do
@@ -420,8 +425,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     pattern = ~r/(?:^|\s)#{Regex.escape(field)}:(?:"[^"]+"|\S+)/
 
     query
-    |> String.replace(pattern, "")
-    |> String.replace(~r/\s+/, " ")
+    |> then(&Regex.replace(pattern, &1, ""))
+    |> then(&Regex.replace(~r/\s+/, &1, " "))
     |> String.trim()
   end
 
