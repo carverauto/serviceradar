@@ -8,6 +8,7 @@ metadata:
     metallb.universe.tf/address-pool: k3s-pool
 spec:
   type: LoadBalancer
+  externalTrafficPolicy: Local
   selector:
     app: serviceradar-flowgger
     app.kubernetes.io/part-of: serviceradar

@@ -190,6 +190,9 @@ metadata:
   {{- end }}
 spec:
   type: {{ .Values.flowgger.externalService.type | default "LoadBalancer" }}
+  {{- with .Values.flowgger.externalService.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
   {{- if .Values.flowgger.externalService.loadBalancerIP }}
   loadBalancerIP: {{ .Values.flowgger.externalService.loadBalancerIP }}
   {{- end }}
