@@ -14,6 +14,8 @@ pub struct Config {
     pub nats_creds_file: Option<String>,
     pub stream_name: String,
     pub subject: String,
+    #[serde(default)]
+    pub stream_subjects: Option<Vec<String>>,
     #[serde(default = "default_stream_max_bytes")]
     pub stream_max_bytes: i64,
     #[serde(default = "default_partition")]
@@ -156,6 +158,19 @@ impl Config {
             anyhow::bail!("subject cannot be empty");
         }
         Ok(())
+    }
+
+    pub fn stream_subjects_resolved(&self) -> Vec<String> {
+        let mut subjects = self
+            .stream_subjects
+            .clone()
+            .unwrap_or_else(|| vec![self.subject.clone()]);
+        if !subjects.contains(&self.subject) {
+            subjects.push(self.subject.clone());
+        }
+        subjects.sort();
+        subjects.dedup();
+        subjects
     }
 }
 

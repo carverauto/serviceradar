@@ -352,7 +352,7 @@ wait
 docker logs serviceradar-netflow-collector-mtls 2>&1 | grep -i "drop\|buffer full"
 
 # Check NATS backlog
-nats stream info flows
+nats stream info events
 ```
 
 #### **4.3 Query Performance Test**
@@ -398,7 +398,7 @@ nats server check connection
 
 # Check stream exists
 nats stream ls
-nats stream info flows
+nats stream info events
 ```
 
 ### **Flows not in database**
@@ -449,7 +449,7 @@ sleep 3
 
 # 2. Check NATS
 echo "[2/5] Checking NATS messages..."
-MSG_COUNT=$(nats stream info flows -j | jq '.state.messages')
+MSG_COUNT=$(nats stream info events -j | jq '.state.messages')
 if [ "$MSG_COUNT" -gt 0 ]; then
   echo "✓ NATS has $MSG_COUNT messages"
 else

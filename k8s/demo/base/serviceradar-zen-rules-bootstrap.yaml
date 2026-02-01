@@ -1,30 +1,27 @@
-{{- if .Values.zenRulesBootstrap.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ printf "serviceradar-zen-rules-bootstrap-%s" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" }}
+  name: serviceradar-zen-rules-bootstrap
   labels:
     app: serviceradar-zen-rules-bootstrap
     app.kubernetes.io/part-of: serviceradar
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "5"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
-  backoffLimit: 3
+  backoffLimit: 6
   ttlSecondsAfterFinished: 300
   template:
     metadata:
       labels:
         app: serviceradar-zen-rules-bootstrap
+        app.kubernetes.io/part-of: serviceradar
     spec:
       restartPolicy: OnFailure
-      serviceAccountName: {{ .Values.spire.zenServiceAccount | default "serviceradar-zen" }}
-      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: serviceradar-zen
+      imagePullSecrets:
+        - name: ghcr-io-cred
       initContainers:
         - name: wait-for-nats
-          image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
-          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          image: ghcr.io/carverauto/serviceradar-tools:latest
+          imagePullPolicy: Always
           command: ["/usr/local/bin/wait-for-port"]
           args:
             - "--host"
@@ -35,17 +32,10 @@ spec:
             - "30"
             - "--interval"
             - "2s"
-          resources:
-            limits:
-              cpu: "100m"
-              memory: "64Mi"
-            requests:
-              cpu: "50m"
-              memory: "32Mi"
       containers:
         - name: zen-rules-bootstrap
-          image: ghcr.io/carverauto/serviceradar-zen:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "zen") }}
-          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          image: ghcr.io/carverauto/serviceradar-zen:latest
+          imagePullPolicy: Always
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -53,10 +43,6 @@ spec:
 
               RULES_DIR="/etc/serviceradar/rules"
               CONFIG_PATH="/etc/serviceradar/zen.json"
-              FORCE_REINSTALL="{{ .Values.zenRulesBootstrap.forceReinstall }}"
-
-              echo "Starting Zen rules bootstrap..."
-              echo "Force reinstall: ${FORCE_REINSTALL}"
 
               install_rule() {
                 local file="$1"
@@ -98,20 +84,10 @@ spec:
                 return 1
               }
 
-              # Install default rules
-              # Rule: strip_full_message -> logs.syslog
               install_rule "${RULES_DIR}/strip_full_message.json" "logs.syslog" "strip_full_message"
-
-              # Rule: cef_severity -> logs.syslog
               install_rule "${RULES_DIR}/cef_severity.json" "logs.syslog" "cef_severity"
-
-              # Rule: snmp_severity -> logs.snmp
               install_rule "${RULES_DIR}/snmp_severity.json" "logs.snmp" "snmp_severity"
-
-              # Rule: passthrough -> logs.otel
               install_rule "${RULES_DIR}/passthrough.json" "logs.otel" "passthrough"
-
-              # Rule: netflow_to_ocsf -> flows.raw.netflow
               install_rule "${RULES_DIR}/netflow_to_ocsf.json" "flows.raw.netflow" "netflow_to_ocsf"
 
               echo "✅ Zen rules bootstrap completed successfully"
@@ -128,7 +104,6 @@ spec:
               value: "true"
             - name: RUST_LOG
               value: "info"
-          {{- include "serviceradar.kvEnv" . | nindent 12 }}
           volumeMounts:
             - name: zen-rules
               mountPath: /etc/serviceradar/rules
@@ -138,21 +113,12 @@ spec:
             - name: cert-data
               mountPath: /etc/serviceradar/certs
               readOnly: true
-            {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
             - name: nats-creds
               mountPath: /etc/serviceradar/creds
               readOnly: true
-            {{- end }}
             - name: spire-agent-socket
               mountPath: /run/spire/sockets
               readOnly: true
-          resources:
-            limits:
-              cpu: "200m"
-              memory: "256Mi"
-            requests:
-              cpu: "100m"
-              memory: "128Mi"
       volumes:
         - name: zen-rules
           configMap:
@@ -163,13 +129,10 @@ spec:
         - name: cert-data
           persistentVolumeClaim:
             claimName: serviceradar-cert-data
-        {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
         - name: nats-creds
           secret:
             secretName: serviceradar-nats-creds
-        {{- end }}
         - name: spire-agent-socket
           hostPath:
-            path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+            path: /run/spire/sockets
             type: DirectoryOrCreate
-{{- end }}

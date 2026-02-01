@@ -20,6 +20,7 @@
   },
   "streams": [
     {"subject": "events.ocsf.processed", "table": "ocsf_events"},
+    {"subject": "flows.raw.netflow.processed", "table": "ocsf_network_activity"},
     {"subject": "logs.syslog.processed", "table": "logs"},
     {"subject": "logs.snmp.processed", "table": "logs"},
     {"subject": "logs.otel.processed", "table": "logs"},

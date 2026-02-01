@@ -1,6 +1,6 @@
 {
   "nats_url": "nats://127.0.0.1:4222",
-  "stream_name": "flows",
+  "stream_name": "events",
   "consumer_name": "zen-consumer-flows-test",
   "subjects": [
     "flows.raw.netflow"
