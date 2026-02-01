@@ -13,6 +13,7 @@ GHCR_PUSH_TARGETS = [
     {"image": "datasvc_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-datasvc"},
     {"image": "flowgger_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-flowgger"},
     {"image": "trapd_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-trapd"},
+    {"image": "netflow_collector_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-netflow-collector"},
     {"image": "otel_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-otel"},
     {"image": "rperf_client_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-rperf-client"},
     {"image": "agent_gateway_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent-gateway"},

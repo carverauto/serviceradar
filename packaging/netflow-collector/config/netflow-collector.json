@@ -1,0 +1,26 @@
+{
+  "listen_addr": "0.0.0.0:2055",
+  "buffer_size": 65536,
+  "nats_url": "tls://127.0.0.1:4222",
+  "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+  "stream_name": "flows",
+  "subject": "flows.raw.netflow",
+  "stream_max_bytes": 10737418240,
+  "partition": "default",
+  "max_templates": 2000,
+  "max_template_fields": 10000,
+  "channel_size": 10000,
+  "batch_size": 100,
+  "publish_timeout_ms": 5000,
+  "drop_policy": "drop_oldest",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "tls": {
+      "cert_file": "netflow-client.crt",
+      "key_file": "netflow-client.key",
+      "ca_file": "ca.crt"
+    }
+  },
+  "metrics_addr": "0.0.0.0:50046"
+}

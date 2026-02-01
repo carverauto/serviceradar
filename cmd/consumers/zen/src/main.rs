@@ -14,6 +14,7 @@ use futures::StreamExt;
 
 mod config;
 mod engine;
+mod flow_proto;
 mod grpc_server;
 #[cfg(test)]
 mod integration_tests;

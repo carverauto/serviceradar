@@ -13,6 +13,7 @@ cargo_build_script(
     data = [
         "@bazel_tools//tools/proto:protoc",
         "//proto:monitoring_proto_src",
+        "//proto/flow:flow_proto_src",
         "//cmd/otel:otel_proto_srcs",
     ],
     build_script_env = {

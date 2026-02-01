@@ -6,4 +6,5 @@ var (
 	errDBServiceNotDB          = errors.New("db.Service is not *db.DB")
 	errCNPGEventsNotConfigured = errors.New("cnpg storage is not configured for events ingestion")
 	errUnsupportedTable        = errors.New("unsupported table")
+	errCNPGOCSFNotConfigured   = errors.New("cnpg storage is not configured for OCSF network activity")
 )

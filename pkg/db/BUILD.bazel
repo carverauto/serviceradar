@@ -12,6 +12,7 @@ go_library(
         "interfaces.go",
         "mock_db.go",
         "netflow.go",
+        "ocsf_network_activity.go",
         "ocsf_events.go",
         "pgx_batch_helper.go",
         "time_json_helpers.go",
