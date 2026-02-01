@@ -419,7 +419,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     pattern = ~r/(?:^|\s)#{Regex.escape(field)}:(?:"[^"]+"|\S+)/
 
     query
-    |> Regex.replace(pattern, "")
+    |> String.replace(pattern, "")
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
   end
@@ -647,7 +647,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp logs_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
+    <div id={"#{@id}-local-time"} class="overflow-x-auto" phx-hook=".LocalTime">
       <table id={@id} class="table table-sm table-zebra w-full">
         <thead>
           <tr>
@@ -679,7 +679,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               phx-click={JS.navigate(~p"/logs/#{log_id(log)}")}
             >
               <td class="whitespace-nowrap text-xs font-mono">
-                {format_timestamp(log)}
+                <% time = timestamp_meta(log) %>
+                <%= if is_binary(time.iso) do %>
+                  <time data-iso={time.iso} data-utc={time.display} title={time.display}>
+                    {time.display}
+                  </time>
+                <% else %>
+                  {time.display}
+                <% end %>
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.severity_badge value={Map.get(log, "severity_text")} />
@@ -695,6 +702,39 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </tbody>
       </table>
     </div>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".LocalTime">
+      export default {
+        mounted() {
+          this.format()
+        },
+        updated() {
+          this.format()
+        },
+        format() {
+          const nodes = this.el.querySelectorAll("time[data-iso]")
+          nodes.forEach((node) => {
+            const iso = node.dataset.iso
+            if (!iso) return
+            const date = new Date(iso)
+            if (Number.isNaN(date.getTime())) return
+            node.textContent = this.formatLocal(date)
+            const utc = node.dataset.utc
+            if (utc) node.title = utc
+          })
+        },
+        formatLocal(date) {
+          const pad = (value) => String(value).padStart(2, "0")
+          const year = date.getFullYear()
+          const month = pad(date.getMonth() + 1)
+          const day = pad(date.getDate())
+          const hours = pad(date.getHours())
+          const minutes = pad(date.getMinutes())
+          const seconds = pad(date.getSeconds())
+          return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+        }
+      }
+    </script>
     """
   end
 
@@ -1532,8 +1572,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
 
     case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
       _ -> ts || "—"
+    end
+  end
+
+  defp timestamp_meta(log) do
+    ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} ->
+        %{
+          iso: DateTime.to_iso8601(dt),
+          display: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+        }
+
+      _ ->
+        %{iso: nil, display: ts || "—"}
     end
   end
 

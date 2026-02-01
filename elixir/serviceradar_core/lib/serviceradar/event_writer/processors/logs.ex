@@ -93,7 +93,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     attributes = attach_ingest_metadata(attributes, metadata)
     resource_attributes = normalize_resource_attributes(json)
     {scope_name, scope_version} = parse_scope_fields(json)
-    source = FieldParser.get_field(json, "source") || source_kind(metadata[:subject])
+    source = FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
 
     %{
       id: log_id,
