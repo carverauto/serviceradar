@@ -91,7 +91,8 @@ flowgger:
   externalService:
     enabled: true
     annotations:
-      metallb.universe.tf/address-pool: k3s-pool
+      metallb.universe.tf/address-pool: k3s-lan-pool
+    loadBalancerIP: "192.168.6.81"
 
 netflowCollector:
   enabled: true
@@ -100,4 +101,5 @@ netflowCollector:
   service:
     type: LoadBalancer
     annotations:
-      metallb.universe.tf/address-pool: k3s-pool
+      metallb.universe.tf/address-pool: k3s-lan-pool
+    loadBalancerIP: "192.168.6.82"
