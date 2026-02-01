@@ -691,45 +691,6 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  netflow-consumer:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.netflow-consumer
-    container_name: serviceradar-netflow-consumer-mtls
-    ports:
-      - "50048:50048"
-    volumes:
-      - ./docker/compose/netflow-consumer.mtls.json:/etc/serviceradar/templates/netflow.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
-      - netflow-consumer-data:/var/lib/serviceradar
-      - netflow-consumer-config:/etc/serviceradar/consumers
-      - ./logs:/var/log/serviceradar
-    environment:
-      - WAIT_FOR_NATS=1
-      - WAIT_FOR_CNPG=1
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
-      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
-      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
-      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
-      - CNPG_PASSWORD_FILE=/etc/serviceradar/cnpg/serviceradar-password
-      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
-      - CNPG_CERT_DIR=/etc/serviceradar/certs
-      - CNPG_CA_FILE=/etc/serviceradar/certs/root.pem
-      - CNPG_CERT_FILE=/etc/serviceradar/certs/netflow-consumer.pem
-      - CNPG_KEY_FILE=/etc/serviceradar/certs/netflow-consumer-key.pem
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      nats:
-        condition: service_started
-      cnpg:
-        condition: service_healthy
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
   web-ng:
     image: ghcr.io/carverauto/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
@@ -865,8 +826,6 @@ volumes:
   zen-data:
   db-event-writer-data:
   db-event-writer-config:
-  netflow-consumer-data:
-  netflow-consumer-config:
 
 networks:
   serviceradar-net:

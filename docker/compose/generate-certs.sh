@@ -249,8 +249,6 @@ generate_cert "gateway" "agent-gateway.serviceradar" "DNS:gateway,DNS:agent-gate
 generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "web" "web.serviceradar" "DNS:web,DNS:web.serviceradar,DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1"
-generate_cert "netflow-consumer" "netflow-consumer.serviceradar" "DNS:netflow-consumer,DNS:netflow-consumer.serviceradar,DNS:serviceradar-netflow-consumer,DNS:localhost,IP:127.0.0.1"
-
 CNPG_SAN="DNS:cnpg,DNS:cnpg-rw,DNS:cnpg.serviceradar,DNS:cnpg-rw.serviceradar,DNS:serviceradar-cnpg,DNS:localhost,IP:127.0.0.1"
 if [ -n "${CNPG_CERT_EXTRA_IPS:-}" ]; then
     for ip in $(echo "$CNPG_CERT_EXTRA_IPS" | tr ',' ' '); do
