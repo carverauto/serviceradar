@@ -598,6 +598,13 @@ fn field_value_to_mac_u64(value: &FieldValue) -> u64 {
     }
 }
 
+/// Returns true if the flow message contains meaningful traffic data.
+/// Flows with 0 bytes AND 0 packets are degenerate records (e.g. options templates,
+/// metadata records, or incomplete template data) and should be filtered out.
+pub fn is_valid_flow(msg: &flowpb::FlowMessage) -> bool {
+    msg.bytes > 0 || msg.packets > 0
+}
+
 fn protocol_type_name(pt: ProtocolTypes) -> String {
     format!("{pt:?}").to_uppercase()
 }
@@ -830,5 +837,47 @@ mod tests {
 
         let fv = FieldValue::Ip4Addr([10, 0, 0, 1].into());
         assert_eq!(field_value_to_protocol_name(&fv), "");
+    }
+
+    // --- is_valid_flow tests ---
+
+    #[test]
+    fn test_is_valid_flow_zero_bytes_zero_packets_is_invalid() {
+        let msg = flowpb::FlowMessage {
+            bytes: 0,
+            packets: 0,
+            ..Default::default()
+        };
+        assert!(!is_valid_flow(&msg));
+    }
+
+    #[test]
+    fn test_is_valid_flow_with_bytes_is_valid() {
+        let msg = flowpb::FlowMessage {
+            bytes: 100,
+            packets: 0,
+            ..Default::default()
+        };
+        assert!(is_valid_flow(&msg));
+    }
+
+    #[test]
+    fn test_is_valid_flow_with_packets_is_valid() {
+        let msg = flowpb::FlowMessage {
+            bytes: 0,
+            packets: 1,
+            ..Default::default()
+        };
+        assert!(is_valid_flow(&msg));
+    }
+
+    #[test]
+    fn test_is_valid_flow_with_both_is_valid() {
+        let msg = flowpb::FlowMessage {
+            bytes: 1500,
+            packets: 3,
+            ..Default::default()
+        };
+        assert!(is_valid_flow(&msg));
     }
 }
