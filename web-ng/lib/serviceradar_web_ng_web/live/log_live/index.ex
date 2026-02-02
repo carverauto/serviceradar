@@ -169,17 +169,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <.netflow_summary :if={@active_tab == "netflows"} summary={@netflow_summary} />
 
           <.ui_panel>
-          <:header>
-            <div class="min-w-0">
-              <div class="text-sm font-semibold">{panel_title(@active_tab)}</div>
-              <div class="text-xs text-base-content/70">
-                {panel_subtitle(@active_tab)}
+            <:header>
+              <div class="min-w-0">
+                <div class="text-sm font-semibold">{panel_title(@active_tab)}</div>
+                <div class="text-xs text-base-content/70">
+                  {panel_subtitle(@active_tab)}
+                </div>
               </div>
-            </div>
 
-            <.log_source_filters :if={@active_tab == "logs"} srql={@srql} limit={@limit} />
-            <.netflow_presets :if={@active_tab == "netflows"} srql={@srql} limit={@limit} />
-          </:header>
+              <.log_source_filters :if={@active_tab == "logs"} srql={@srql} limit={@limit} />
+              <.netflow_presets :if={@active_tab == "netflows"} srql={@srql} limit={@limit} />
+            </:header>
 
             <.logs_table :if={@active_tab == "logs"} id="logs" logs={@logs} />
             <.traces_table :if={@active_tab == "traces"} id="traces" traces={@traces} />

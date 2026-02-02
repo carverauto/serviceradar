@@ -106,6 +106,7 @@ type PushLoop struct {
 	doneOnce                  sync.Once
 	configVersion             string        // Current config version for polling
 	configPollInterval        time.Duration // How often to poll for config updates
+	gatewayID                 string        // Gateway ID assigned during enrollment
 	enrolled                  bool          // Whether we've successfully enrolled
 	started                   bool          // Whether Start has been invoked
 	enrollMu                  sync.Mutex
@@ -124,7 +125,7 @@ type PushLoop struct {
 	lastStatusSignature       string
 	syncRuntime               *SyncRuntime
 
-	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
+	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started, gatewayID
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
 }
@@ -253,6 +254,18 @@ func (p *PushLoop) isEnrolled() bool {
 func (p *PushLoop) setEnrolled(v bool) {
 	p.stateMu.Lock()
 	p.enrolled = v
+	p.stateMu.Unlock()
+}
+
+func (p *PushLoop) getGatewayID() string {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.gatewayID
+}
+
+func (p *PushLoop) setGatewayID(id string) {
+	p.stateMu.Lock()
+	p.gatewayID = id
 	p.stateMu.Unlock()
 }
 
@@ -745,10 +758,11 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.getGatewayID()
 
 	req := &proto.GatewayStatusRequest{
 		Services:  statuses,
-		GatewayId: "", // Will be set by the gateway
+		GatewayId: gatewayID,
 		AgentId:   agentID,
 		Timestamp: time.Now().UnixNano(),
 		Partition: partition,
@@ -785,6 +799,7 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	partition := p.server.config.Partition
 	sysmonSvc := p.server.sysmonService
 	p.server.mu.RUnlock()
+	gatewayID := p.getGatewayID()
 
 	var chunks []*proto.GatewayStatusChunk
 
@@ -801,7 +816,7 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 				// Append a new chunk for each sample.
 				chunks = append(chunks, &proto.GatewayStatusChunk{
 					Services:  []*proto.GatewayServiceStatus{s},
-					GatewayId: "",
+					GatewayId: gatewayID,
 					AgentId:   agentID,
 					Timestamp: time.Now().UnixNano(),
 					Partition: partition,
@@ -815,7 +830,7 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	if len(chunks) == 0 && status != nil {
 		chunks = append(chunks, &proto.GatewayStatusChunk{
 			Services:    []*proto.GatewayServiceStatus{status},
-			GatewayId:   "",
+			GatewayId:   gatewayID,
 			AgentId:     agentID,
 			Timestamp:   time.Now().UnixNano(),
 			Partition:   partition,
@@ -864,6 +879,7 @@ func (p *PushLoop) convertToSysmonGatewayStatusFromSample(sample *sysmon.MetricS
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.getGatewayID()
 
 	// Build the response payload
 	payload := struct {
@@ -889,7 +905,7 @@ func (p *PushLoop) convertToSysmonGatewayStatusFromSample(sample *sysmon.MetricS
 		ServiceType:  SysmonServiceType,
 		ResponseTime: 0,
 		AgentId:      agentID,
-		GatewayId:    "",
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "sysmon-metrics",
 		KvStoreId:    kvStoreID,
@@ -903,6 +919,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	kvStoreID := p.server.config.KVAddress
 	snmpSvc := p.server.snmpService
 	p.server.mu.RUnlock()
+	gatewayID := p.getGatewayID()
 
 	if snmpSvc == nil || !snmpSvc.IsEnabled() {
 		return false
@@ -949,7 +966,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 		ServiceType:  "snmp",
 		ResponseTime: 0,
 		AgentId:      agentID,
-		GatewayId:    "",
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "snmp-metrics",
 		KvStoreId:    kvStoreID,
@@ -957,7 +974,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 
 	chunk := &proto.GatewayStatusChunk{
 		Services:    []*proto.GatewayServiceStatus{status},
-		GatewayId:   "",
+		GatewayId:   gatewayID,
 		AgentId:     agentID,
 		Timestamp:   time.Now().UnixNano(),
 		Partition:   partition,
@@ -993,6 +1010,7 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.getGatewayID()
 
 	if pluginManager == nil {
 		return false
@@ -1017,7 +1035,7 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 
 		chunk := &proto.GatewayStatusChunk{
 			Services:    []*proto.GatewayServiceStatus{status},
-			GatewayId:   "",
+			GatewayId:   gatewayID,
 			AgentId:     agentID,
 			Timestamp:   timestamp,
 			Partition:   partition,
@@ -1066,6 +1084,7 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.getGatewayID()
 
 	if pluginManager == nil {
 		return false
@@ -1084,7 +1103,7 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 		ServiceType:  "plugin-engine",
 		ResponseTime: 0,
 		AgentId:      agentID,
-		GatewayId:    "",
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "plugin-telemetry",
 		KvStoreId:    kvStoreID,
@@ -1092,7 +1111,7 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 
 	req := &proto.GatewayStatusRequest{
 		Services:  []*proto.GatewayServiceStatus{status},
-		GatewayId: "",
+		GatewayId: gatewayID,
 		AgentId:   agentID,
 		Timestamp: time.Now().UnixNano(),
 		Partition: partition,
@@ -1696,6 +1715,7 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.getGatewayID()
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  serviceName,
@@ -1704,7 +1724,7 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 		ServiceType:  serviceType,
 		ResponseTime: resp.ResponseTime,
 		AgentId:      agentID,
-		GatewayId:    "", // Will be set by gateway
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "status",
 		KvStoreId:    kvStoreID,
@@ -1723,6 +1743,7 @@ func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *pro
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.getGatewayID()
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  SysmonServiceName,
@@ -1731,7 +1752,7 @@ func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *pro
 		ServiceType:  SysmonServiceType,
 		ResponseTime: resp.ResponseTime,
 		AgentId:      agentID,
-		GatewayId:    "", // Will be set by gateway
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "sysmon-metrics",
 		KvStoreId:    kvStoreID,
@@ -1751,6 +1772,7 @@ func (p *PushLoop) buildPluginGatewayStatus(
 	}
 
 	serviceName := pluginServiceName(result)
+	gatewayID := p.getGatewayID()
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  serviceName,
@@ -1759,7 +1781,7 @@ func (p *PushLoop) buildPluginGatewayStatus(
 		ServiceType:  "plugin",
 		ResponseTime: 0,
 		AgentId:      agentID,
-		GatewayId:    "",
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "plugin-result",
 		KvStoreId:    kvStoreID,
@@ -2037,7 +2059,8 @@ func (p *PushLoop) buildResultsStatusChunks(
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
 	p.server.mu.RUnlock()
-	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition)
+	gatewayID := p.getGatewayID()
+	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition, gatewayID)
 }
 
 func buildResultsStatusChunksForAgent(
@@ -2046,12 +2069,12 @@ func buildResultsStatusChunksForAgent(
 	serviceType string,
 	agentID string,
 	partition string,
+	gatewayID string,
 ) []*proto.GatewayStatusChunk {
 	if len(chunks) == 0 {
 		return nil
 	}
 
-	gatewayID := ""
 	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
 
 	for _, chunk := range chunks {
@@ -2273,6 +2296,7 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 		}
 	}
 
+	p.setGatewayID(helloResp.GatewayId)
 	p.setEnrolled(true)
 	p.logger.Info().
 		Str("agent_id", helloResp.AgentId).

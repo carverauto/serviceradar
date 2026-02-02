@@ -380,7 +380,7 @@ func (r *SyncRuntime) buildResultsStatusChunks(
 	agentID := r.server.config.AgentID
 	partition := r.server.config.Partition
 	r.server.mu.RUnlock()
-	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition)
+	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition, "")
 }
 
 func (r *syncSourceRunner) tryStart() bool {
