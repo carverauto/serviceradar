@@ -77,3 +77,19 @@ func TestRingBuffer_EmptyDrain(t *testing.T) {
 	values := rb.Drain()
 	assert.Nil(t, values)
 }
+
+func TestRingBuffer_ZeroCapacityNoop(t *testing.T) {
+	assert.NotPanics(t, func() {
+		rb := NewRingBuffer[int](0)
+		assert.Equal(t, 0, rb.Capacity())
+		assert.Equal(t, 0, rb.Count())
+
+		rb.Write(1)
+		assert.Equal(t, 0, rb.Count())
+
+		assert.Nil(t, rb.Drain())
+		assert.Nil(t, rb.Snapshot())
+
+		rb.WalkReverse(func(_ int) bool { return true })
+	})
+}

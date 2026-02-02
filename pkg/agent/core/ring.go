@@ -34,6 +34,10 @@ type RingBuffer[T any] struct {
 
 // NewRingBuffer creates a new RingBuffer with the given capacity.
 func NewRingBuffer[T any](capacity int) *RingBuffer[T] {
+	if capacity <= 0 {
+		return &RingBuffer[T]{}
+	}
+
 	return &RingBuffer[T]{
 		values: make([]T, capacity),
 		size:   capacity,
@@ -46,6 +50,10 @@ func NewRingBuffer[T any](capacity int) *RingBuffer[T] {
 func (r *RingBuffer[T]) Write(v T) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.size == 0 {
+		return
+	}
 
 	r.values[r.head] = v
 
@@ -64,7 +72,7 @@ func (r *RingBuffer[T]) Drain() []T {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.count == 0 {
+	if r.size == 0 || r.count == 0 {
 		return nil
 	}
 
@@ -86,7 +94,7 @@ func (r *RingBuffer[T]) Snapshot() []T {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if r.count == 0 {
+	if r.size == 0 || r.count == 0 {
 		return nil
 	}
 
@@ -107,7 +115,7 @@ func (r *RingBuffer[T]) WalkReverse(fn func(T) bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if r.count == 0 {
+	if r.size == 0 || r.count == 0 {
 		return
 	}
 
