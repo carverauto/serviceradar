@@ -48,6 +48,7 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
       accept [
         :name,
         :description,
+        :interval,
         :ports,
         :sweep_modes,
         :concurrency,
@@ -63,6 +64,7 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
       accept [
         :name,
         :description,
+        :interval,
         :ports,
         :sweep_modes,
         :concurrency,
@@ -127,6 +129,13 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
       allow_nil? true
       public? true
       description "Description of the profile's purpose"
+    end
+
+    attribute :interval, :string do
+      allow_nil? false
+      public? true
+      default "1h"
+      description "Default sweep interval (e.g., '15m', '2h', '1d')"
     end
 
     attribute :ports, {:array, :integer} do

@@ -18,6 +18,7 @@ package agent
 
 import (
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -198,5 +199,87 @@ func TestConvertDeviceTargets_NormalizesIPsToCIDR(t *testing.T) {
 	// Second target should remain as-is
 	if converted[1].Network != "10.0.0.2/32" {
 		t.Errorf("expected '10.0.0.2/32', got '%s'", converted[1].Network)
+	}
+}
+
+func TestParseGatewaySweepConfig_MultipleGroups(t *testing.T) {
+	log := logger.NewTestLogger()
+
+	configJSON := []byte(`{
+		"sweep": {
+			"groups": [
+				{
+					"id": "group-1",
+					"targets": ["10.0.1.0/24"],
+					"ports": [80],
+					"modes": ["icmp"],
+					"schedule": {
+						"type": "interval",
+						"interval": "1h"
+					},
+					"settings": {
+						"concurrency": 10,
+						"timeout": "5s"
+					}
+				},
+				{
+					"id": "group-2",
+					"targets": ["10.0.2.0/24"],
+					"ports": [443],
+					"modes": ["tcp"],
+					"schedule": {
+						"type": "interval",
+						"interval": "15m"
+					},
+					"settings": {
+						"concurrency": 50,
+						"timeout": "30s"
+					}
+				}
+			],
+			"config_hash": "merged-hash"
+		}
+	}`)
+
+	config, err := parseGatewaySweepConfig(configJSON, log)
+	if err != nil {
+		t.Fatalf("parseGatewaySweepConfig failed: %v", err)
+	}
+
+	// Verify merged networks
+	if len(config.Networks) != 2 {
+		t.Errorf("expected 2 networks, got %d", len(config.Networks))
+	}
+
+	// Verify merged ports
+	if len(config.Ports) != 2 {
+		t.Errorf("expected 2 ports, got %d", len(config.Ports))
+	}
+
+	// Verify merged sweep modes
+	if len(config.SweepModes) != 2 {
+		t.Errorf("expected 2 sweep modes, got %d", len(config.SweepModes))
+	}
+
+	// Verify interval selection (min should win)
+	expectedInterval := Duration(15 * 60 * time.Second)
+	if config.Interval != expectedInterval {
+		t.Errorf("expected interval %v, got %v", expectedInterval, config.Interval)
+	}
+
+	// Verify timeout selection (max should win)
+	expectedTimeout := Duration(30 * time.Second)
+	if config.Timeout != expectedTimeout {
+		t.Errorf("expected timeout %v, got %v", expectedTimeout, config.Timeout)
+	}
+
+	// Verify concurrency selection (max should win)
+	if config.Concurrency != 50 {
+		t.Errorf("expected concurrency 50, got %d", config.Concurrency)
+	}
+
+	// Verify first group ID is preserved for attribution
+	if config.SweepGroupID != "group-1" {
+		t.Errorf("expected sweep_group_id 'group-1', got '%s'", config.SweepGroupID)
 	}
 }
