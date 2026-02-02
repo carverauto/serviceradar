@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::converter::Converter;
+use crate::converter::{Converter, is_valid_flow};
 use crate::converter::flowpb;
 use crate::error::GetCurrentTimeError;
 use anyhow::Result;
@@ -12,11 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
-type CacheStatsVec = Vec<(
-    String,
-    netflow_parser::CacheStats,
-    netflow_parser::CacheStats,
-)>;
+type CacheStatsVec = Vec<(String, netflow_parser::ParserCacheStats)>;
 
 fn template_event_callback(event: &TemplateEvent) {
     use TemplateEvent::*;
@@ -150,10 +146,36 @@ impl Listener {
                     }
                 };
 
-            debug!("Converted {} flow records", flow_messages.len());
+            // Filter out degenerate flow records (0 bytes, 0 packets)
+            let (valid, invalid): (Vec<_>, Vec<_>) =
+                flow_messages.into_iter().partition(is_valid_flow);
 
-            // Encode and send each flow message to the publisher channel
-            for flow_msg in flow_messages {
+            if !invalid.is_empty() {
+                warn!(
+                    "Dropped {} degenerate flow record(s) from {} \
+                     (0 bytes, 0 packets - likely options template or metadata)",
+                    invalid.len(),
+                    peer_addr
+                );
+                for dropped in &invalid {
+                    debug!(
+                        "Dropped flow: proto={} protocol_name={:?} src_addr={:?} dst_addr={:?} \
+                         src_port={} dst_port={} type={:?}",
+                        dropped.proto,
+                        dropped.protocol_name,
+                        dropped.src_addr,
+                        dropped.dst_addr,
+                        dropped.src_port,
+                        dropped.dst_port,
+                        dropped.r#type,
+                    );
+                }
+            }
+
+            debug!("Converted {} flow records ({} dropped)", valid.len(), invalid.len());
+
+            // Encode and send each valid flow message to the publisher channel
+            for flow_msg in valid {
                 let mut buf = Vec::new();
                 if let Err(e) = flow_msg.encode(&mut buf) {
                     error!("Failed to encode protobuf: {}", e);
@@ -183,24 +205,12 @@ impl Listener {
         let v9_stats: Vec<_> = parser
             .v9_stats()
             .iter()
-            .map(|(key, template_stats, data_stats)| {
-                (
-                    format!("{:?}", key),
-                    template_stats.clone(),
-                    data_stats.clone(),
-                )
-            })
+            .map(|(key, stats)| (format!("{:?}", key), stats.clone()))
             .collect();
         let ipfix_stats: Vec<_> = parser
             .ipfix_stats()
             .iter()
-            .map(|(key, template_stats, data_stats)| {
-                (
-                    format!("{:?}", key),
-                    template_stats.clone(),
-                    data_stats.clone(),
-                )
-            })
+            .map(|(key, stats)| (format!("{:?}", key), stats.clone()))
             .collect();
         (v9_stats, ipfix_stats)
     }

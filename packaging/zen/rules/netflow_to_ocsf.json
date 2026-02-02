@@ -66,7 +66,7 @@
           {
             "id": "connection_info",
             "key": "connection_info",
-            "value": "{ protocol_num: proto, protocol_name: proto == 1 ? 'ICMP' : proto == 6 ? 'TCP' : proto == 17 ? 'UDP' : proto == 47 ? 'GRE' : proto == 50 ? 'ESP' : proto == 58 ? 'ICMPv6' : 'Unknown', tcp_flags: tcp_flags, direction_id: 0, boundary_id: 0 }"
+            "value": "{ protocol_num: proto, protocol_name: protocol_name != '' ? protocol_name : (proto == 1 ? 'ICMP' : proto == 6 ? 'TCP' : proto == 17 ? 'UDP' : proto == 47 ? 'GRE' : proto == 50 ? 'ESP' : proto == 58 ? 'ICMPv6' : 'Unknown'), tcp_flags: tcp_flags, direction_id: 0, boundary_id: 0 }"
           },
           {
             "id": "traffic",
