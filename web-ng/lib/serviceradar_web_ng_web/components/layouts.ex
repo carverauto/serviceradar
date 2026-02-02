@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   # The default root.html.heex file contains the HTML
   # skeleton of your application, namely HTML headers
   # and other static content.
-  embed_templates "layouts/*"
+  embed_templates("layouts/*")
 
   @doc """
   Renders your app layout.
@@ -25,19 +25,21 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       </Layouts.app>
 
   """
-  attr :flash, :map, required: true, doc: "the map of flash messages"
+  attr(:flash, :map, required: true, doc: "the map of flash messages")
 
-  attr :current_scope, :map,
+  attr(:current_scope, :map,
     default: nil,
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
+  )
 
-  attr :srql, :map, default: %{}, doc: "SRQL query bar state for SRQL-driven pages"
+  attr(:srql, :map, default: %{}, doc: "SRQL query bar state for SRQL-driven pages")
 
-  attr :hide_breadcrumb, :boolean,
+  attr(:hide_breadcrumb, :boolean,
     default: false,
     doc: "Hide auto breadcrumb when page has custom one"
+  )
 
-  slot :inner_block, required: true
+  slot(:inner_block, required: true)
 
   def app(assigns) do
     assigns = assign_new(assigns, :srql, fn -> %{} end)
@@ -161,34 +163,17 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
-                  href={~p"/netflows"}
-                  label="NetFlow"
-                  icon="hero-arrow-path"
-                  active={@current_path == "/netflows"}
-                />
-              </li>
-              <li>
-                <.sidebar_link
-                  href={~p"/events"}
-                  label="Events"
-                  icon="hero-bell-alert"
-                  active={@current_path && String.starts_with?(@current_path, "/events")}
-                />
-              </li>
-              <li>
-                <.sidebar_link
-                  href={~p"/alerts"}
-                  label="Alerts"
-                  icon="hero-exclamation-triangle"
-                  active={@current_path && String.starts_with?(@current_path, "/alerts")}
-                />
-              </li>
-              <li>
-                <.sidebar_link
                   href={~p"/observability"}
                   label="Observability"
                   icon="hero-presentation-chart-line"
-                  active={@current_path in ["/observability", "/logs"]}
+                  active={
+                    @current_path &&
+                      (String.starts_with?(@current_path, "/observability") ||
+                         String.starts_with?(@current_path, "/logs") ||
+                         String.starts_with?(@current_path, "/events") ||
+                         String.starts_with?(@current_path, "/alerts") ||
+                         String.starts_with?(@current_path, "/netflows"))
+                  }
                 />
               </li>
               <li>
@@ -287,10 +272,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp format_role(role) when is_binary(role), do: role
 
-  attr :href, :string, required: true
-  attr :label, :string, required: true
-  attr :icon, :string, default: nil
-  attr :active, :boolean, default: false
+  attr(:href, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:icon, :string, default: nil)
+  attr(:active, :boolean, default: false)
 
   def sidebar_link(assigns) do
     ~H"""
@@ -308,7 +293,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     """
   end
 
-  attr :current_path, :string, required: true
+  attr(:current_path, :string, required: true)
 
   defp breadcrumb_nav(assigns) do
     crumbs = build_breadcrumbs(assigns.current_path)
@@ -448,8 +433,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       <.flash_group flash={@flash} />
   """
-  attr :flash, :map, required: true, doc: "the map of flash messages"
-  attr :id, :string, default: "flash-group", doc: "the optional id of flash container"
+  attr(:flash, :map, required: true, doc: "the map of flash messages")
+  attr(:id, :string, default: "flash-group", doc: "the optional id of flash container")
 
   def flash_group(assigns) do
     ~H"""

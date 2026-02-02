@@ -14,6 +14,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @default_limit 20
   @max_limit 100
   @default_stats_window "last_24h"
+  @default_events_limit 20
+  @max_events_limit 100
+  @default_alerts_limit 25
+  @max_alerts_limit 200
+  @default_netflow_limit 50
+  @max_netflow_limit 200
 
   @impl true
   def mount(_params, _session, socket) do
@@ -24,8 +30,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:logs, [])
      |> assign(:traces, [])
      |> assign(:metrics, [])
+     |> assign(:events, [])
+     |> assign(:alerts, [])
+     |> assign(:netflows, [])
      |> assign(:sparklines, %{})
      |> assign(:summary, %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0})
+     |> assign(:event_summary, empty_event_summary())
+     |> assign(:alert_summary, empty_alert_summary())
+     |> assign(:netflow_summary, empty_netflow_summary())
      |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
      |> assign(:trace_latency, %{
        avg_duration_ms: 0.0,
@@ -51,6 +63,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     path = uri |> to_string() |> URI.parse() |> Map.get(:path)
     tab = normalize_tab(Map.get(params, "tab"), path)
     {entity, list_key} = tab_entity(tab)
+    {default_limit, max_limit} = tab_limits(tab)
 
     socket =
       socket
@@ -58,10 +71,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:logs, [])
       |> assign(:traces, [])
       |> assign(:metrics, [])
-      |> ensure_srql_entity(entity)
+      |> assign(:events, [])
+      |> assign(:alerts, [])
+      |> assign(:netflows, [])
+      |> ensure_srql_entity(entity, default_limit)
       |> SRQLPage.load_list(params, uri, list_key,
-        default_limit: @default_limit,
-        max_limit: @max_limit
+        default_limit: default_limit,
+        max_limit: max_limit
       )
 
     socket = apply_tab_assigns(socket, tab, srql_module())
@@ -142,24 +158,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <.observability_tabs active={@active_tab} />
 
           <.log_summary :if={@active_tab == "logs"} summary={@summary} />
+          <.event_summary :if={@active_tab == "events"} summary={@event_summary} />
+          <.alert_summary :if={@active_tab == "alerts"} summary={@alert_summary} />
           <.traces_summary
             :if={@active_tab == "traces"}
             stats={@trace_stats}
             latency={@trace_latency}
           />
           <.metrics_summary :if={@active_tab == "metrics"} stats={@metrics_stats} />
+          <.netflow_summary :if={@active_tab == "netflows"} summary={@netflow_summary} />
 
           <.ui_panel>
-            <:header>
-              <div class="min-w-0">
-                <div class="text-sm font-semibold">{panel_title(@active_tab)}</div>
-                <div class="text-xs text-base-content/70">
-                  {panel_subtitle(@active_tab)}
-                </div>
+          <:header>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold">{panel_title(@active_tab)}</div>
+              <div class="text-xs text-base-content/70">
+                {panel_subtitle(@active_tab)}
               </div>
+            </div>
 
-              <.log_source_filters :if={@active_tab == "logs"} srql={@srql} limit={@limit} />
-            </:header>
+            <.log_source_filters :if={@active_tab == "logs"} srql={@srql} limit={@limit} />
+            <.netflow_presets :if={@active_tab == "netflows"} srql={@srql} limit={@limit} />
+          </:header>
 
             <.logs_table :if={@active_tab == "logs"} id="logs" logs={@logs} />
             <.traces_table :if={@active_tab == "traces"} id="traces" traces={@traces} />
@@ -169,6 +189,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               metrics={@metrics}
               sparklines={@sparklines}
             />
+            <.events_table :if={@active_tab == "events"} id="events" events={@events} />
+            <.alerts_table :if={@active_tab == "alerts"} id="alerts" alerts={@alerts} />
+            <.netflows_table :if={@active_tab == "netflows"} flows={@netflows} />
 
             <div class="mt-4 pt-4 border-t border-base-200">
               <.ui_pagination
@@ -177,7 +200,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 base_path={Map.get(@srql, :page_path) || "/observability"}
                 query={Map.get(@srql, :query, "")}
                 limit={@limit}
-                result_count={panel_result_count(@active_tab, @logs, @traces, @metrics)}
+                result_count={
+                  panel_result_count(
+                    @active_tab,
+                    @logs,
+                    @traces,
+                    @metrics,
+                    @events,
+                    @alerts,
+                    @netflows
+                  )
+                }
                 extra_params={%{tab: @active_tab}}
               />
             </div>
@@ -188,7 +221,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :summary, :map, required: true
+  attr(:summary, :map, required: true)
 
   defp log_summary(assigns) do
     total = assigns.summary.total
@@ -254,11 +287,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :label, :string, required: true
-  attr :count, :integer, required: true
-  attr :total, :integer, required: true
-  attr :color, :string, required: true
-  attr :level, :string, required: true
+  attr(:label, :string, required: true)
+  attr(:count, :integer, required: true)
+  attr(:total, :integer, required: true)
+  attr(:color, :string, required: true)
+  attr(:level, :string, required: true)
 
   defp level_stat(assigns) do
     pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
@@ -286,8 +319,281 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :srql, :map, required: true
-  attr :limit, :integer, required: true
+  attr(:summary, :map, required: true)
+
+  defp event_summary(assigns) do
+    total = Map.get(assigns.summary, :total, 0)
+    critical = Map.get(assigns.summary, :critical, 0)
+    high = Map.get(assigns.summary, :high, 0)
+    medium = Map.get(assigns.summary, :medium, 0)
+    low = Map.get(assigns.summary, :low, 0)
+
+    assigns =
+      assigns
+      |> assign(:total, total)
+      |> assign(:critical, critical)
+      |> assign(:high, high)
+      |> assign(:medium, medium)
+      |> assign(:low, low)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider">
+          Event Severity Breakdown
+        </div>
+        <div class="flex items-center gap-1">
+          <.link patch={~p"/observability?#{%{tab: "events"}}"} class="btn btn-ghost btn-xs">
+            All Events
+          </.link>
+          <.link
+            patch={
+              ~p"/observability?#{%{tab: "events", q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc"}}"
+            }
+            class="btn btn-ghost btn-xs text-error"
+          >
+            Critical/High
+          </.link>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <.event_severity_stat
+          label="Critical"
+          count={@critical}
+          total={@total}
+          color="error"
+          severity="Critical"
+        />
+        <.event_severity_stat
+          label="High"
+          count={@high}
+          total={@total}
+          color="warning"
+          severity="High"
+        />
+        <.event_severity_stat
+          label="Medium"
+          count={@medium}
+          total={@total}
+          color="info"
+          severity="Medium"
+        />
+        <.event_severity_stat
+          label="Low"
+          count={@low}
+          total={@total}
+          color="success"
+          severity="Low"
+        />
+      </div>
+    </div>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:count, :integer, required: true)
+  attr(:total, :integer, required: true)
+  attr(:color, :string, required: true)
+  attr(:severity, :string, required: true)
+
+  defp event_severity_stat(assigns) do
+    pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
+    query = "in:events severity:#{assigns.severity} time:last_24h sort:event_timestamp:desc"
+
+    assigns =
+      assigns
+      |> assign(:pct, pct)
+      |> assign(:query, query)
+
+    ~H"""
+    <.link
+      patch={~p"/observability?#{%{tab: "events", q: @query}}"}
+      class="rounded-lg bg-base-200/50 p-3 hover:bg-base-200 transition-colors cursor-pointer group"
+    >
+      <div class="flex items-center justify-between mb-1">
+        <span class={["text-xs font-medium", color_class(@color)]}>{@label}</span>
+        <span class="text-xs text-base-content/50">{@pct}%</span>
+      </div>
+      <div class="text-xl font-bold group-hover:text-primary">{@count}</div>
+      <div class="h-1 bg-base-300 rounded-full mt-2 overflow-hidden">
+        <div class={["h-full rounded-full", color_bg(@color)]} style={"width: #{@pct}%"} />
+      </div>
+    </.link>
+    """
+  end
+
+  attr(:summary, :map, required: true)
+
+  defp alert_summary(assigns) do
+    assigns =
+      assigns
+      |> assign(:total, Map.get(assigns.summary, :total, 0))
+      |> assign(:pending, Map.get(assigns.summary, :pending, 0))
+      |> assign(:acknowledged, Map.get(assigns.summary, :acknowledged, 0))
+      |> assign(:resolved, Map.get(assigns.summary, :resolved, 0))
+      |> assign(:escalated, Map.get(assigns.summary, :escalated, 0))
+      |> assign(:suppressed, Map.get(assigns.summary, :suppressed, 0))
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider">
+          Alert Status Overview
+        </div>
+        <div class="flex items-center gap-1">
+          <.link patch={~p"/observability?#{%{tab: "alerts"}}"} class="btn btn-ghost btn-xs">
+            All Alerts
+          </.link>
+          <.link
+            patch={
+              ~p"/observability?#{%{tab: "alerts", q: "in:alerts status:pending time:last_7d sort:timestamp:desc"}}"
+            }
+            class="btn btn-ghost btn-xs text-warning"
+          >
+            Pending
+          </.link>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <.status_stat label="Pending" count={@pending} tone="warning" />
+        <.status_stat label="Acked" count={@acknowledged} tone="info" />
+        <.status_stat label="Resolved" count={@resolved} tone="success" />
+        <.status_stat label="Escalated" count={@escalated} tone="error" />
+        <.status_stat label="Suppressed" count={@suppressed} tone="neutral" />
+        <.status_stat label="Total" count={@total} tone="ghost" />
+      </div>
+    </div>
+    """
+  end
+
+  attr(:summary, :map, required: true)
+
+  defp netflow_summary(assigns) do
+    summary = assigns.summary
+
+    assigns =
+      assigns
+      |> assign(:total, Map.get(summary, :total, 0))
+      |> assign(:tcp, Map.get(summary, :tcp, 0))
+      |> assign(:udp, Map.get(summary, :udp, 0))
+      |> assign(:other, Map.get(summary, :other, 0))
+      |> assign(:total_bytes, Map.get(summary, :total_bytes, 0))
+      |> assign(:v5, Map.get(summary, :v5, 0))
+      |> assign(:v9, Map.get(summary, :v9, 0))
+      |> assign(:ipfix, Map.get(summary, :ipfix, 0))
+
+    ~H"""
+    <div class="space-y-4">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <.ui_panel class="p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium text-base-content/60">Total Flows</p>
+              <p class="text-2xl font-bold">{@total}</p>
+            </div>
+            <.icon name="hero-arrow-trending-up" class="h-8 w-8 text-base-content/40" />
+          </div>
+        </.ui_panel>
+
+        <.ui_panel class="p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium text-base-content/60">TCP Flows</p>
+              <p class="text-2xl font-bold">{@tcp}</p>
+            </div>
+            <.ui_badge variant="success">TCP</.ui_badge>
+          </div>
+        </.ui_panel>
+
+        <.ui_panel class="p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium text-base-content/60">UDP Flows</p>
+              <p class="text-2xl font-bold">{@udp}</p>
+            </div>
+            <.ui_badge variant="info">UDP</.ui_badge>
+          </div>
+        </.ui_panel>
+
+        <.ui_panel class="p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium text-base-content/60">Other</p>
+              <p class="text-2xl font-bold">{@other}</p>
+            </div>
+            <.ui_badge variant="ghost">Other</.ui_badge>
+          </div>
+        </.ui_panel>
+
+        <.ui_panel class="p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium text-base-content/60">Total Bytes</p>
+              <p class="text-2xl font-bold">{format_netflow_bytes(@total_bytes)}</p>
+            </div>
+            <.icon name="hero-circle-stack" class="h-8 w-8 text-base-content/40" />
+          </div>
+        </.ui_panel>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <.ui_panel class="p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium text-base-content/60">NetFlow v5</p>
+              <p class="text-xl font-bold">{@v5}</p>
+            </div>
+            <.ui_badge variant="warning">v5</.ui_badge>
+          </div>
+        </.ui_panel>
+
+        <.ui_panel class="p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium text-base-content/60">NetFlow v9</p>
+              <p class="text-xl font-bold">{@v9}</p>
+            </div>
+            <.ui_badge variant="info">v9</.ui_badge>
+          </div>
+        </.ui_panel>
+
+        <.ui_panel class="p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium text-base-content/60">IPFIX</p>
+              <p class="text-xl font-bold">{@ipfix}</p>
+            </div>
+            <.ui_badge variant="success">IPFIX</.ui_badge>
+          </div>
+        </.ui_panel>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:count, :integer, required: true)
+  attr(:tone, :string, required: true)
+
+  defp status_stat(assigns) do
+    assigns = assign(assigns, :tone, tone_class(assigns.tone))
+
+    ~H"""
+    <div class="rounded-lg border border-base-200 bg-base-200/40 p-3">
+      <div class="text-xs text-base-content/60">{@label}</div>
+      <div class={["text-xl font-bold", @tone]}>{@count}</div>
+    </div>
+    """
+  end
+
+  defp tone_class("warning"), do: "text-warning"
+  defp tone_class("info"), do: "text-info"
+  defp tone_class("success"), do: "text-success"
+  defp tone_class("error"), do: "text-error"
+  defp tone_class(_), do: "text-base-content"
+
+  attr(:srql, :map, required: true)
+  attr(:limit, :integer, required: true)
 
   defp log_source_filters(assigns) do
     query = Map.get(assigns.srql, :query) || ""
@@ -351,11 +657,65 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :label, :string, required: true
-  attr :value, :string, default: nil
-  attr :active_source, :string, default: nil
-  attr :query, :string, required: true
-  attr :limit, :integer, required: true
+  attr(:srql, :map, required: true)
+  attr(:limit, :integer, required: true)
+
+  defp netflow_presets(assigns) do
+    query = Map.get(assigns.srql, :query) || ""
+
+    presets = [
+      %{label: "Recent", query: "in:flows time:last_24h sort:time:desc"},
+      %{label: "Top Bytes", query: "in:flows time:last_24h sort:bytes_total:desc"},
+      %{label: "Top Packets", query: "in:flows time:last_24h sort:packets_total:desc"},
+      %{label: "TCP", query: "in:flows time:last_24h proto:6 sort:bytes_total:desc"},
+      %{label: "UDP", query: "in:flows time:last_24h proto:17 sort:bytes_total:desc"}
+    ]
+
+    assigns =
+      assigns
+      |> assign(:query, query)
+      |> assign(:presets, presets)
+      |> assign(:base_path, Map.get(assigns.srql, :page_path) || "/observability")
+
+    ~H"""
+    <div class="flex items-center justify-end gap-2">
+      <span class="text-[10px] uppercase tracking-wider text-base-content/50">Presets</span>
+      <div class="flex flex-wrap gap-1">
+        <%= for preset <- @presets do %>
+          <.ui_button
+            size="xs"
+            variant="ghost"
+            active={preset_active?(@query, preset.query)}
+            class="rounded-full"
+            patch={netflow_preset_patch(@base_path, preset.query, @limit)}
+          >
+            {preset.label}
+          </.ui_button>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  defp preset_active?(current, target) when is_binary(current) and is_binary(target) do
+    String.trim(current) == target
+  end
+
+  defp preset_active?(_, _), do: false
+
+  defp netflow_preset_patch(base_path, query, limit) do
+    params =
+      %{tab: "netflows", limit: limit}
+      |> maybe_put_param(:q, query)
+
+    base_path <> "?" <> URI.encode_query(params)
+  end
+
+  attr(:label, :string, required: true)
+  attr(:value, :string, default: nil)
+  attr(:active_source, :string, default: nil)
+  attr(:query, :string, required: true)
+  attr(:limit, :integer, required: true)
 
   defp log_source_chip(assigns) do
     active? = source_active?(assigns.active_source, assigns.value)
@@ -448,7 +808,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp color_bg("success"), do: "bg-success"
   defp color_bg(_), do: "bg-base-content"
 
-  attr :active, :string, required: true
+  attr(:active, :string, required: true)
 
   defp observability_tabs(assigns) do
     ~H"""
@@ -457,15 +817,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.tab_button id="logs" label="Logs" icon="hero-rectangle-stack" active={@active} />
         <.tab_button id="traces" label="Traces" icon="hero-clock" active={@active} />
         <.tab_button id="metrics" label="Metrics" icon="hero-chart-bar" active={@active} />
+        <.tab_button id="events" label="Events" icon="hero-bell-alert" active={@active} />
+        <.tab_button id="alerts" label="Alerts" icon="hero-exclamation-triangle" active={@active} />
+        <.tab_button id="netflows" label="NetFlow" icon="hero-arrow-path" active={@active} />
       </div>
     </div>
     """
   end
 
-  attr :id, :string, required: true
-  attr :label, :string, required: true
-  attr :icon, :string, required: true
-  attr :active, :string, required: true
+  attr(:id, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:icon, :string, required: true)
+  attr(:active, :string, required: true)
 
   defp tab_button(assigns) do
     active? = assigns.active == assigns.id
@@ -486,8 +849,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :stats, :map, required: true
-  attr :latency, :map, required: true
+  attr(:stats, :map, required: true)
+  attr(:latency, :map, required: true)
 
   defp traces_summary(assigns) do
     total = Map.get(assigns.stats, :total, 0)
@@ -552,7 +915,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :stats, :map, required: true
+  attr(:stats, :map, required: true)
 
   defp metrics_summary(assigns) do
     total = Map.get(assigns.stats, :total, 0)
@@ -612,11 +975,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :title, :string, required: true
-  attr :value, :string, required: true
-  attr :subtitle, :string, default: nil
-  attr :icon, :string, required: true
-  attr :tone, :string, default: "neutral", values: ~w(neutral success warning error info)
+  attr(:title, :string, required: true)
+  attr(:value, :string, required: true)
+  attr(:subtitle, :string, default: nil)
+  attr(:icon, :string, required: true)
+  attr(:tone, :string, default: "neutral", values: ~w(neutral success warning error info))
 
   defp obs_stat(assigns) do
     {bg, fg} =
@@ -648,8 +1011,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :id, :string, required: true
-  attr :logs, :list, default: []
+  attr(:id, :string, required: true)
+  attr(:logs, :list, default: [])
 
   defp logs_table(assigns) do
     ~H"""
@@ -744,8 +1107,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :id, :string, required: true
-  attr :traces, :list, default: []
+  attr(:id, :string, required: true)
+  attr(:traces, :list, default: [])
 
   defp traces_table(assigns) do
     ~H"""
@@ -809,9 +1172,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :id, :string, required: true
-  attr :metrics, :list, default: []
-  attr :sparklines, :map, default: %{}
+  attr(:id, :string, required: true)
+  attr(:metrics, :list, default: [])
+  attr(:sparklines, :map, default: %{})
 
   defp metrics_table(assigns) do
     values =
@@ -931,8 +1294,501 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :metric, :map, required: true
-  attr :sparklines, :map, default: %{}
+  attr(:id, :string, required: true)
+  attr(:events, :list, default: [])
+
+  defp events_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <table id={@id} class="table table-sm table-zebra w-full">
+        <thead>
+          <tr>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Time
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+              Severity
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Source
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              Message
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={@events == []}>
+            <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+              No events found.
+            </td>
+          </tr>
+
+          <%= for {event, idx} <- Enum.with_index(@events) do %>
+            <tr
+              id={"#{@id}-row-#{idx}"}
+              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              phx-click={JS.navigate(~p"/events/#{event_id(event)}")}
+            >
+              <td class="whitespace-nowrap text-xs font-mono">
+                {format_event_timestamp(event)}
+              </td>
+              <td class="whitespace-nowrap text-xs">
+                <.event_severity_badge value={Map.get(event, "severity")} />
+              </td>
+              <td class="whitespace-nowrap text-xs truncate max-w-[12rem]" title={event_source(event)}>
+                {event_source(event)}
+              </td>
+              <td class="text-xs truncate max-w-[32rem]" title={event_message(event)}>
+                {event_message(event)}
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr(:value, :any, default: nil)
+
+  defp event_severity_badge(assigns) do
+    variant = event_severity_variant(assigns.value)
+    label = event_severity_label(assigns.value)
+
+    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  defp event_severity_variant(value) do
+    case normalize_event_severity(value) do
+      s when s in ["critical", "fatal", "error"] -> "error"
+      s when s in ["high", "warn", "warning"] -> "warning"
+      s when s in ["medium", "info"] -> "info"
+      s when s in ["low", "debug", "ok"] -> "success"
+      _ -> "ghost"
+    end
+  end
+
+  defp event_severity_label(nil), do: "—"
+  defp event_severity_label(""), do: "—"
+  defp event_severity_label(value) when is_binary(value), do: value
+  defp event_severity_label(value), do: to_string(value)
+
+  defp normalize_event_severity(nil), do: ""
+  defp normalize_event_severity(v) when is_binary(v), do: v |> String.trim() |> String.downcase()
+  defp normalize_event_severity(v), do: v |> to_string() |> normalize_event_severity()
+
+  defp event_id(event) do
+    Map.get(event, "id") || Map.get(event, "event_id") || "unknown"
+  end
+
+  defp format_event_timestamp(event) do
+    ts = Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      _ -> ts || "—"
+    end
+  end
+
+  defp event_source(event) do
+    source =
+      Map.get(event, "host") ||
+        Map.get(event, "source") ||
+        Map.get(event, "uid") ||
+        Map.get(event, "device_id") ||
+        Map.get(event, "subject")
+
+    case source do
+      nil -> "—"
+      "" -> "—"
+      v when is_binary(v) -> v
+      v -> to_string(v)
+    end
+  end
+
+  defp event_message(event) do
+    message =
+      Map.get(event, "short_message") ||
+        Map.get(event, "message") ||
+        Map.get(event, "subject") ||
+        Map.get(event, "description")
+
+    case message do
+      nil -> "—"
+      "" -> "—"
+      v when is_binary(v) -> String.slice(v, 0, 200)
+      v -> v |> to_string() |> String.slice(0, 200)
+    end
+  end
+
+  attr(:id, :string, required: true)
+  attr(:alerts, :list, default: [])
+
+  defp alerts_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <table id={@id} class="table table-sm table-zebra w-full">
+        <thead>
+          <tr>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Time
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+              Severity
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-28">
+              Status
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              Title
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={@alerts == []}>
+            <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+              No alerts found.
+            </td>
+          </tr>
+
+          <%= for {alert, idx} <- Enum.with_index(@alerts) do %>
+            <tr
+              id={"#{@id}-row-#{idx}"}
+              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              phx-click={JS.navigate(~p"/alerts/#{alert_id(alert)}")}
+            >
+              <td class="whitespace-nowrap text-xs font-mono">{format_alert_timestamp(alert)}</td>
+              <td class="whitespace-nowrap text-xs">
+                <.alert_severity_badge value={Map.get(alert, "severity")} />
+              </td>
+              <td class="whitespace-nowrap text-xs">
+                <.alert_status_badge value={Map.get(alert, "status")} />
+              </td>
+              <td class="text-xs truncate max-w-[36rem]" title={alert_title(alert)}>
+                {alert_title(alert)}
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr(:value, :any, default: nil)
+
+  defp alert_severity_badge(assigns) do
+    variant = alert_severity_variant(assigns.value)
+    label = alert_severity_label(assigns.value)
+
+    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  defp alert_severity_variant(value) do
+    case normalize_alert_severity(value) do
+      s when s in ["emergency", "critical"] -> "error"
+      s when s in ["warning"] -> "warning"
+      s when s in ["info"] -> "info"
+      _ -> "ghost"
+    end
+  end
+
+  defp alert_severity_label(nil), do: "—"
+  defp alert_severity_label(""), do: "—"
+  defp alert_severity_label(value) when is_binary(value), do: value
+  defp alert_severity_label(value), do: to_string(value)
+
+  defp normalize_alert_severity(nil), do: ""
+  defp normalize_alert_severity(v) when is_binary(v), do: v |> String.trim() |> String.downcase()
+  defp normalize_alert_severity(v), do: v |> to_string() |> normalize_alert_severity()
+
+  attr(:value, :any, default: nil)
+
+  defp alert_status_badge(assigns) do
+    variant = alert_status_variant(assigns.value)
+    label = alert_status_label(assigns.value)
+
+    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  defp alert_status_variant(value) do
+    case normalize_alert_status(value) do
+      "pending" -> "warning"
+      "acknowledged" -> "info"
+      "resolved" -> "success"
+      "escalated" -> "error"
+      "suppressed" -> "ghost"
+      _ -> "ghost"
+    end
+  end
+
+  defp alert_status_label(nil), do: "—"
+  defp alert_status_label(""), do: "—"
+  defp alert_status_label(value) when is_binary(value), do: String.capitalize(value)
+  defp alert_status_label(value), do: value |> to_string() |> String.capitalize()
+
+  defp normalize_alert_status(nil), do: ""
+  defp normalize_alert_status(v) when is_binary(v), do: String.downcase(v)
+  defp normalize_alert_status(v), do: v |> to_string() |> normalize_alert_status()
+
+  defp alert_id(alert) do
+    Map.get(alert, "id") || Map.get(alert, "alert_id") || "unknown"
+  end
+
+  defp alert_title(alert) do
+    Map.get(alert, "title") || Map.get(alert, "description") || "Alert"
+  end
+
+  defp format_alert_timestamp(alert) do
+    ts = Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      _ -> ts || "—"
+    end
+  end
+
+  attr(:flows, :list, default: [])
+
+  defp netflows_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <table class="table table-sm table-zebra w-full">
+        <thead>
+          <tr>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Time
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Source
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Destination
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+              Protocol
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+              Version
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
+              Packets
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
+              Bytes
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <%= for flow <- @flows do %>
+            <tr class="hover:bg-base-200/40">
+              <td class="whitespace-nowrap text-xs font-mono">
+                {format_netflow_timestamp(flow)}
+              </td>
+              <td class="whitespace-nowrap text-xs font-mono">
+                {netflow_addr(flow, :src)}{if netflow_port(flow, :src),
+                  do: ":#{netflow_port(flow, :src)}",
+                  else: ""}
+              </td>
+              <td class="whitespace-nowrap text-xs font-mono">
+                {netflow_addr(flow, :dst)}{if netflow_port(flow, :dst),
+                  do: ":#{netflow_port(flow, :dst)}",
+                  else: ""}
+              </td>
+              <td class="whitespace-nowrap text-xs">
+                <.netflow_protocol_badge
+                  protocol={netflow_protocol_num(flow)}
+                  name={netflow_protocol_name(flow)}
+                />
+              </td>
+              <td class="whitespace-nowrap text-xs">
+                <.netflow_flow_type_badge flow_type={netflow_flow_type(flow)} />
+              </td>
+              <td class="whitespace-nowrap text-xs text-right font-mono">
+                {format_netflow_number(netflow_packets(flow))}
+              </td>
+              <td class="whitespace-nowrap text-xs text-right font-mono">
+                {format_netflow_bytes(netflow_bytes(flow))}
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+
+      <div :if={@flows == []} class="py-12 text-center text-base-content/60">
+        No network flows found. Generate some NetFlow data to see it here!
+      </div>
+    </div>
+    """
+  end
+
+  attr(:protocol, :any, default: nil)
+  attr(:name, :any, default: nil)
+
+  defp netflow_protocol_badge(assigns) do
+    protocol = assigns.protocol
+    name = assigns.name
+    protocol_num = to_int(protocol)
+
+    {label, variant} =
+      case protocol_num do
+        6 ->
+          {"TCP", "success"}
+
+        17 ->
+          {"UDP", "info"}
+
+        1 ->
+          {"ICMP", "ghost"}
+
+        _ ->
+          case name do
+            value when is_binary(value) and value != "" ->
+              {String.upcase(value), "ghost"}
+
+            _ ->
+              case protocol do
+                value when is_binary(value) and value != "" -> {value, "ghost"}
+                _ -> {"Unknown", "ghost"}
+              end
+          end
+      end
+
+    assigns = assign(assigns, label: label, variant: variant)
+
+    ~H"""
+    <.ui_badge variant={@variant}>{@label}</.ui_badge>
+    """
+  end
+
+  defp netflow_flow_type_badge(assigns) do
+    flow_type = assigns.flow_type
+
+    {label, variant} =
+      case flow_type do
+        "NETFLOW_V5" -> {"v5", "warning"}
+        "NETFLOW_V9" -> {"v9", "info"}
+        "IPFIX" -> {"IPFIX", "success"}
+        nil -> {"Unknown", "ghost"}
+        other -> {other, "ghost"}
+      end
+
+    assigns = assign(assigns, label: label, variant: variant)
+
+    ~H"""
+    <.ui_badge variant={@variant}>{@label}</.ui_badge>
+    """
+  end
+
+  defp netflow_addr(flow, :src),
+    do: netflow_value(flow, ["src_endpoint_ip", "src_addr"]) || "—"
+
+  defp netflow_addr(flow, :dst),
+    do: netflow_value(flow, ["dst_endpoint_ip", "dst_addr"]) || "—"
+
+  defp netflow_addr(_flow, _), do: "—"
+
+  defp netflow_port(flow, :src), do: netflow_value(flow, ["src_endpoint_port", "src_port"])
+  defp netflow_port(flow, :dst), do: netflow_value(flow, ["dst_endpoint_port", "dst_port"])
+  defp netflow_port(_flow, _), do: nil
+
+  defp netflow_protocol_num(flow), do: netflow_value(flow, ["protocol_num", "protocol"])
+  defp netflow_protocol_name(flow), do: netflow_value(flow, ["protocol_name"])
+
+  defp netflow_packets(flow), do: netflow_value(flow, ["packets_total", "packets"])
+  defp netflow_bytes(flow), do: netflow_value(flow, ["bytes_total", "octets"])
+
+  defp netflow_flow_type(flow) do
+    payload =
+      case Map.get(flow, "ocsf_payload") do
+        %{} = data -> data
+        _ -> nil
+      end
+
+    flow_type =
+      if is_map(payload) do
+        get_in(payload, ["unmapped", "flow_type"]) || get_in(payload, ["flow_type"])
+      else
+        nil
+      end
+
+    case flow_type do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  defp netflow_value(flow, keys) when is_map(flow) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      value = Map.get(flow, key)
+      if is_nil(value) or value == "", do: nil, else: value
+    end)
+  end
+
+  defp netflow_value(_flow, _keys), do: nil
+
+  defp format_netflow_timestamp(%{} = flow) do
+    ts = Map.get(flow, "time") || Map.get(flow, "timestamp")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      _ -> ts || "—"
+    end
+  end
+
+  defp format_netflow_timestamp(nil), do: "—"
+  defp format_netflow_timestamp(ts) when is_binary(ts), do: String.slice(ts, 0..18)
+  defp format_netflow_timestamp(_), do: "—"
+
+  defp format_netflow_bytes(nil), do: "0 B"
+
+  defp format_netflow_bytes(bytes) when is_binary(bytes) do
+    case Integer.parse(bytes) do
+      {value, _} -> format_netflow_bytes(value)
+      _ -> "—"
+    end
+  end
+
+  defp format_netflow_bytes(bytes) when is_integer(bytes) and bytes < 1024, do: "#{bytes} B"
+
+  defp format_netflow_bytes(bytes) when is_integer(bytes) and bytes < 1_048_576,
+    do: "#{Float.round(bytes / 1024, 1)} KB"
+
+  defp format_netflow_bytes(bytes) when is_integer(bytes) and bytes < 1_073_741_824,
+    do: "#{Float.round(bytes / 1_048_576, 1)} MB"
+
+  defp format_netflow_bytes(bytes) when is_integer(bytes),
+    do: "#{Float.round(bytes / 1_073_741_824, 2)} GB"
+
+  defp format_netflow_bytes(_), do: "—"
+
+  defp format_netflow_number(nil), do: "0"
+
+  defp format_netflow_number(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> Integer.to_string(int)
+      _ -> "—"
+    end
+  end
+
+  defp format_netflow_number(num) when is_integer(num), do: Integer.to_string(num)
+  defp format_netflow_number(_), do: "—"
+
+  attr(:metric, :map, required: true)
+  attr(:sparklines, :map, default: %{})
 
   defp metric_viz(assigns) do
     metric_type = normalize_string(Map.get(assigns.metric, "metric_type")) || ""
@@ -964,7 +1820,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :data, :list, required: true
+  attr(:data, :list, required: true)
 
   defp sparkline(assigns) do
     data = assigns.data
@@ -1006,7 +1862,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :metric, :map, required: true
+  attr(:metric, :map, required: true)
 
   # Duration visualization for span-type metrics
   defp span_duration_viz(assigns) do
@@ -1062,7 +1918,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  attr :metric, :map, required: true
+  attr(:metric, :map, required: true)
 
   defp histogram_viz(assigns) do
     # For histograms with duration data, show a duration-based gauge bar
@@ -1510,7 +2366,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp metric_value_ms(_), do: nil
 
-  attr :value, :any, default: nil
+  attr(:value, :any, default: nil)
 
   defp severity_badge(assigns) do
     variant = severity_variant(assigns.value)
@@ -1702,8 +2558,88 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp parse_timestamp(_), do: :error
 
+  defp compute_event_summary(events) when is_list(events) do
+    initial = %{total: 0, critical: 0, high: 0, medium: 0, low: 0}
+
+    Enum.reduce(events, initial, fn event, acc ->
+      severity = normalize_event_severity(Map.get(event, "severity"))
+
+      updated =
+        case severity do
+          s when s in ["critical", "fatal", "error"] -> Map.update!(acc, :critical, &(&1 + 1))
+          s when s in ["high", "warn", "warning"] -> Map.update!(acc, :high, &(&1 + 1))
+          s when s in ["medium", "info"] -> Map.update!(acc, :medium, &(&1 + 1))
+          s when s in ["low", "debug", "ok"] -> Map.update!(acc, :low, &(&1 + 1))
+          _ -> acc
+        end
+
+      Map.update!(updated, :total, &(&1 + 1))
+    end)
+  end
+
+  defp compute_event_summary(_), do: empty_event_summary()
+
+  defp compute_alert_summary(alerts) when is_list(alerts) do
+    Enum.reduce(
+      alerts,
+      %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0},
+      fn alert, acc ->
+        status = normalize_alert_status(Map.get(alert, "status"))
+
+        acc
+        |> Map.update!(:total, &(&1 + 1))
+        |> increment_alert_status(status)
+      end
+    )
+  end
+
+  defp compute_alert_summary(_), do: empty_alert_summary()
+
+  defp increment_alert_status(acc, "pending"), do: Map.update!(acc, :pending, &(&1 + 1))
+  defp increment_alert_status(acc, "acknowledged"), do: Map.update!(acc, :acknowledged, &(&1 + 1))
+  defp increment_alert_status(acc, "resolved"), do: Map.update!(acc, :resolved, &(&1 + 1))
+  defp increment_alert_status(acc, "escalated"), do: Map.update!(acc, :escalated, &(&1 + 1))
+  defp increment_alert_status(acc, "suppressed"), do: Map.update!(acc, :suppressed, &(&1 + 1))
+  defp increment_alert_status(acc, _), do: acc
+
+  defp compute_netflow_summary(flows) when is_list(flows) do
+    Enum.reduce(
+      flows,
+      %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0},
+      fn flow, acc ->
+        protocol = flow |> netflow_protocol_num() |> to_int()
+        bytes = flow |> netflow_bytes() |> to_int()
+        flow_type = netflow_flow_type(flow)
+
+        updated =
+          case protocol do
+            6 -> Map.update!(acc, :tcp, &(&1 + 1))
+            17 -> Map.update!(acc, :udp, &(&1 + 1))
+            _ -> Map.update!(acc, :other, &(&1 + 1))
+          end
+
+        updated =
+          case flow_type do
+            "NETFLOW_V5" -> Map.update!(updated, :v5, &(&1 + 1))
+            "NETFLOW_V9" -> Map.update!(updated, :v9, &(&1 + 1))
+            "IPFIX" -> Map.update!(updated, :ipfix, &(&1 + 1))
+            _ -> updated
+          end
+
+        updated
+        |> Map.update!(:total, &(&1 + 1))
+        |> Map.update!(:total_bytes, &(&1 + bytes))
+      end
+    )
+  end
+
+  defp compute_netflow_summary(_), do: empty_netflow_summary()
+
   defp panel_title("traces"), do: "Traces"
   defp panel_title("metrics"), do: "Metrics"
+  defp panel_title("events"), do: "Events"
+  defp panel_title("alerts"), do: "Alerts"
+  defp panel_title("netflows"), do: "NetFlow"
   defp panel_title(_), do: "Log Stream"
 
   defp panel_subtitle("traces"), do: "Click a trace to jump to correlated logs."
@@ -1711,23 +2647,52 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp panel_subtitle("metrics"),
     do: "Click a metric to jump to correlated logs (if trace_id is present)."
 
+  defp panel_subtitle("events"), do: "Click any event to view full details."
+  defp panel_subtitle("alerts"), do: "Click any alert to view full details."
+  defp panel_subtitle("netflows"), do: "Network flow data from NetFlow collectors."
   defp panel_subtitle(_), do: "Click any log entry to view full details."
 
-  defp panel_result_count("traces", _logs, traces, _metrics), do: length(traces)
-  defp panel_result_count("metrics", _logs, _traces, metrics), do: length(metrics)
-  defp panel_result_count(_, logs, _traces, _metrics), do: length(logs)
+  defp panel_result_count("traces", _logs, traces, _metrics, _events, _alerts, _netflows),
+    do: length(traces)
+
+  defp panel_result_count("metrics", _logs, _traces, metrics, _events, _alerts, _netflows),
+    do: length(metrics)
+
+  defp panel_result_count("events", _logs, _traces, _metrics, events, _alerts, _netflows),
+    do: length(events)
+
+  defp panel_result_count("alerts", _logs, _traces, _metrics, _events, alerts, _netflows),
+    do: length(alerts)
+
+  defp panel_result_count("netflows", _logs, _traces, _metrics, _events, _alerts, netflows),
+    do: length(netflows)
+
+  defp panel_result_count(_, logs, _traces, _metrics, _events, _alerts, _netflows),
+    do: length(logs)
 
   defp default_tab_for_path("/observability"), do: "logs"
+  defp default_tab_for_path("/netflows"), do: "netflows"
   defp default_tab_for_path(_), do: "logs"
 
   defp normalize_tab("logs", _path), do: "logs"
   defp normalize_tab("traces", _path), do: "traces"
   defp normalize_tab("metrics", _path), do: "metrics"
+  defp normalize_tab("events", _path), do: "events"
+  defp normalize_tab("alerts", _path), do: "alerts"
+  defp normalize_tab("netflows", _path), do: "netflows"
   defp normalize_tab(_tab, path), do: default_tab_for_path(path)
 
   defp tab_entity("traces"), do: {"otel_trace_summaries", :traces}
   defp tab_entity("metrics"), do: {"otel_metrics", :metrics}
+  defp tab_entity("events"), do: {"events", :events}
+  defp tab_entity("alerts"), do: {"alerts", :alerts}
+  defp tab_entity("netflows"), do: {"flows", :netflows}
   defp tab_entity(_), do: {"logs", :logs}
+
+  defp tab_limits("events"), do: {@default_events_limit, @max_events_limit}
+  defp tab_limits("alerts"), do: {@default_alerts_limit, @max_alerts_limit}
+  defp tab_limits("netflows"), do: {@default_netflow_limit, @max_netflow_limit}
+  defp tab_limits(_), do: {@default_limit, @max_limit}
 
   defp apply_tab_assigns(socket, "traces", srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
@@ -1751,12 +2716,51 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:trace_latency, empty_trace_latency())
   end
 
+  defp apply_tab_assigns(socket, "events", _srql_module) do
+    summary = compute_event_summary(socket.assigns.events)
+
+    socket
+    |> assign(:event_summary, summary)
+    |> assign(:alert_summary, empty_alert_summary())
+    |> assign(:netflow_summary, empty_netflow_summary())
+    |> assign(:trace_stats, empty_trace_stats())
+    |> assign(:trace_latency, empty_trace_latency())
+    |> assign(:metrics_stats, empty_metrics_stats())
+  end
+
+  defp apply_tab_assigns(socket, "alerts", _srql_module) do
+    summary = compute_alert_summary(socket.assigns.alerts)
+
+    socket
+    |> assign(:alert_summary, summary)
+    |> assign(:event_summary, empty_event_summary())
+    |> assign(:netflow_summary, empty_netflow_summary())
+    |> assign(:trace_stats, empty_trace_stats())
+    |> assign(:trace_latency, empty_trace_latency())
+    |> assign(:metrics_stats, empty_metrics_stats())
+  end
+
+  defp apply_tab_assigns(socket, "netflows", _srql_module) do
+    summary = compute_netflow_summary(socket.assigns.netflows)
+
+    socket
+    |> assign(:netflow_summary, summary)
+    |> assign(:event_summary, empty_event_summary())
+    |> assign(:alert_summary, empty_alert_summary())
+    |> assign(:trace_stats, empty_trace_stats())
+    |> assign(:trace_latency, empty_trace_latency())
+    |> assign(:metrics_stats, empty_metrics_stats())
+  end
+
   defp apply_tab_assigns(socket, _tab, srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
     summary = maybe_load_log_summary(socket, srql_module, scope)
 
     socket
     |> assign(:summary, summary)
+    |> assign(:event_summary, empty_event_summary())
+    |> assign(:alert_summary, empty_alert_summary())
+    |> assign(:netflow_summary, empty_netflow_summary())
     |> assign(:trace_stats, empty_trace_stats())
     |> assign(:trace_latency, empty_trace_latency())
     |> assign(:metrics_stats, empty_metrics_stats())
@@ -1803,13 +2807,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     }
   end
 
-  defp ensure_srql_entity(socket, entity) when is_binary(entity) do
+  defp empty_event_summary do
+    %{total: 0, critical: 0, high: 0, medium: 0, low: 0}
+  end
+
+  defp empty_alert_summary do
+    %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0}
+  end
+
+  defp empty_netflow_summary do
+    %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0}
+  end
+
+  defp ensure_srql_entity(socket, entity, default_limit \\ @default_limit)
+       when is_binary(entity) do
     current = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:entity)
 
     if current == entity do
       socket
     else
-      SRQLPage.init(socket, entity, default_limit: @default_limit)
+      SRQLPage.init(socket, entity, default_limit: default_limit)
     end
   end
 

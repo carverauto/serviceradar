@@ -316,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/logs", LogLive.Index, :index)
       live("/logs/:log_id", LogLive.Show, :show)
       live("/services", ServiceLive.Index, :index)
-      live("/netflows", NetflowLive.Index, :index)
+      live("/netflows", LogLive.Index, :index)
       live("/services/check", ServiceLive.Show, :show)
       live("/settings/profile", UserLive.Settings, :edit)
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
