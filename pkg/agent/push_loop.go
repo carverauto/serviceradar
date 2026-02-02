@@ -116,8 +116,6 @@ type PushLoop struct {
 	icmpMu                    sync.RWMutex
 	sysmonLastSent            time.Time
 	sysmonMu                  sync.RWMutex
-	snmpLastSent              map[string]time.Time
-	snmpMu                    sync.RWMutex
 	statusDebounce            time.Duration
 	statusHeartbeat           time.Duration
 	statusDebounceConfigured  bool
@@ -309,7 +307,6 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		configPollInterval: defaultConfigPollInterval,
 		icmpChecks:         make(map[string]*icmpCheckConfig),
 		icmpLastRun:        make(map[string]time.Time),
-		snmpLastSent:       make(map[string]time.Time),
 		statusDebounce:     debounce,
 		statusHeartbeat:    heartbeat,
 		syncRuntime:        NewSyncRuntime(server, gateway, log),

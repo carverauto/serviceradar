@@ -34,7 +34,7 @@ func TestRingBuffer_WriteAndDrain(t *testing.T) {
 
 	// Drain
 	values := rb.Drain()
-	assert.Equal(t, 3, len(values))
+	assert.Len(t, values, 3)
 	assert.Equal(t, []float64{1.1, 2.2, 3.3}, values)
 	assert.Equal(t, 0, rb.Count())
 }
@@ -63,7 +63,7 @@ func TestRingBuffer_PartialDrainAndRefill(t *testing.T) {
 	rb.Write(2.2)
 
 	values := rb.Drain()
-	assert.Equal(t, 2, len(values))
+	assert.Len(t, values, 2)
 
 	rb.Write(3.3)
 	rb.Write(4.4)

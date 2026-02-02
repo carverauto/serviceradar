@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSNMPAggregator_Drain(t *testing.T) {
@@ -42,8 +43,8 @@ func TestSNMPAggregator_Drain(t *testing.T) {
 	assert.Len(t, drained["ifInOctets"], 2)
 	assert.Len(t, drained["ifOutOctets"], 1)
 
-	assert.Equal(t, 100.0, drained["ifInOctets"][0].Value)
-	assert.Equal(t, 200.0, drained["ifInOctets"][1].Value)
+	assert.InDelta(t, 100.0, drained["ifInOctets"][0].Value, 0.001)
+	assert.InDelta(t, 200.0, drained["ifInOctets"][1].Value, 0.001)
 
 	// Drain again should be empty
 	drained2 := agg.Drain()
@@ -61,7 +62,7 @@ func TestSNMPAggregator_GetAggregatedData(t *testing.T) {
 
 	// Get aggregation for last minute
 	avg, err := agg.GetAggregatedData("cpu", Minute)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// Should be average of 20 and 40 = 30
-	assert.Equal(t, 30.0, avg.Value)
+	assert.InDelta(t, 30.0, avg.Value, 0.001)
 }

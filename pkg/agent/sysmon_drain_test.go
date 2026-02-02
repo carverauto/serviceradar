@@ -61,8 +61,7 @@ func TestSysmonService_DrainMetrics(t *testing.T) {
 
 	// Drain
 	samples := svc.DrainMetrics()
-	assert.Greater(t, len(samples), 0, "Should have collected at least one sample")
-	assert.Greater(t, len(samples), 0, "Should have collected at least one sample")
+	assert.NotEmpty(t, samples, "Should have collected at least one sample")
 
 	// Verify sample content
 	for _, s := range samples {
