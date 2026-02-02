@@ -1300,7 +1300,7 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 
 		serviceName := response.ServiceName
 		if serviceName == "" {
-			serviceName = "network_sweep"
+			serviceName = networkSweepServiceName
 		}
 
 		serviceType := response.ServiceType

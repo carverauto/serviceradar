@@ -34,6 +34,8 @@ import (
 
 const defaultSweepGroupID = "default"
 
+var errSweepServerConfigRequired = errors.New("server config is required")
+
 // MultiSweepService manages multiple sweep groups and schedules them independently.
 type MultiSweepService struct {
 	mu             sync.RWMutex
@@ -62,7 +64,7 @@ func NewMultiSweepService(cfg *ServerConfig, groups []SweepGroupConfig, log logg
 	}
 
 	if cfg == nil {
-		return nil, errors.New("server config is required")
+		return nil, errSweepServerConfigRequired
 	}
 
 	if len(groups) == 0 {
@@ -78,7 +80,7 @@ func NewMultiSweepService(cfg *ServerConfig, groups []SweepGroupConfig, log logg
 
 // Name returns the service name.
 func (*MultiSweepService) Name() string {
-	return "network_sweep"
+	return networkSweepServiceName
 }
 
 // Start begins all sweep group services.
@@ -149,7 +151,7 @@ func (s *MultiSweepService) UpdateConfig(config *models.Config) error {
 		Interval:      Duration(config.Interval),
 		Concurrency:   config.Concurrency,
 		Timeout:       Duration(config.Timeout),
-		ScheduleType:  "interval",
+		ScheduleType:  intervalLiteral,
 		ConfigHash:    config.ConfigHash,
 	}
 
@@ -323,7 +325,7 @@ func (s *MultiSweepService) GetSweepResults(ctx context.Context, _ string) (*pro
 	return &proto.ResultsResponse{
 		HasNewData:      false,
 		CurrentSequence: s.aggregateSequence(),
-		ServiceName:     "network_sweep",
+		ServiceName:     networkSweepServiceName,
 		ServiceType:     "sweep",
 		Available:       true,
 		Timestamp:       time.Now().Unix(),
@@ -387,11 +389,11 @@ func sortedGroupIDs(groups map[string]SweepGroupConfig) []string {
 func isSweepGroupScheduleSupported(group SweepGroupConfig, log logger.Logger) bool {
 	scheduleType := group.ScheduleType
 	if scheduleType == "" {
-		scheduleType = "interval"
+		scheduleType = intervalLiteral
 	}
 
 	switch scheduleType {
-	case "interval":
+	case intervalLiteral:
 		if time.Duration(group.Interval) <= 0 {
 			log.Warn().Str("sweep_group_id", group.SweepGroupID).Msg("Sweep group interval is missing or invalid")
 			return false

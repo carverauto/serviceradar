@@ -28,6 +28,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/scan"
 )
 
+const (
+	intervalLiteral         = "interval"
+	networkSweepServiceName = "network_sweep"
+)
+
 // Server represents the main agent server that handles service coordination and management.
 // In push-mode, the Server coordinates embedded services, collecting their status
 // to be pushed to the gateway by PushLoop.

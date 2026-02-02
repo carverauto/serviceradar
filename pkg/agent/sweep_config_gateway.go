@@ -132,14 +132,14 @@ func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepGroups
 
 func parseScheduleInterval(schedule gatewaySweepSchedule, log logger.Logger) (Duration, bool) {
 	switch strings.ToLower(strings.TrimSpace(schedule.Type)) {
-	case "", "interval":
+	case "", intervalLiteral:
 		if schedule.Interval == "" {
 			return 0, false
 		}
 
 		interval, err := parseDurationValue(schedule.Interval)
 		if err != nil {
-			log.Warn().Err(err).Str("interval", schedule.Interval).Msg("Invalid sweep interval")
+			log.Warn().Err(err).Str(intervalLiteral, schedule.Interval).Msg("Invalid sweep interval")
 			return 0, false
 		}
 

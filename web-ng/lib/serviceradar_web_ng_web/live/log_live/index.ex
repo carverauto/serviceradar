@@ -1643,29 +1643,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     name = assigns.name
     protocol_num = to_int(protocol)
 
-    {label, variant} =
-      case protocol_num do
-        6 ->
-          {"TCP", "success"}
-
-        17 ->
-          {"UDP", "info"}
-
-        1 ->
-          {"ICMP", "ghost"}
-
-        _ ->
-          case name do
-            value when is_binary(value) and value != "" ->
-              {String.upcase(value), "ghost"}
-
-            _ ->
-              case protocol do
-                value when is_binary(value) and value != "" -> {value, "ghost"}
-                _ -> {"Unknown", "ghost"}
-              end
-          end
-      end
+    {label, variant} = netflow_protocol_label_variant(protocol_num, protocol, name)
 
     assigns = assign(assigns, label: label, variant: variant)
 

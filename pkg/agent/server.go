@@ -87,7 +87,7 @@ func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *S
 
 // createSweepService constructs a new SweepService instance.
 func createSweepService(
-	ctx context.Context,
+	_ context.Context,
 	sweepConfig *SweepConfig,
 	cfg *ServerConfig,
 	log logger.Logger,
@@ -121,45 +121,9 @@ func sweepGroupConfigFromSweepConfig(sweepConfig *SweepConfig) SweepGroupConfig 
 		Interval:      sweepConfig.Interval,
 		Concurrency:   sweepConfig.Concurrency,
 		Timeout:       sweepConfig.Timeout,
-		ScheduleType:  "interval",
+		ScheduleType:  intervalLiteral,
 		ConfigHash:    sweepConfig.ConfigHash,
 	}
-}
-
-func buildSweepModelConfig(cfg *ServerConfig, sweepConfig *SweepConfig, log logger.Logger) (*models.Config, error) {
-	if sweepConfig == nil {
-		return nil, errSweepConfigNil
-	}
-
-	if cfg == nil {
-		return nil, ErrAgentIDRequired
-	}
-
-	// Validate required configuration
-	partition := cfg.Partition
-	if partition == "" {
-		log.Warn().Msg("Partition not configured, using 'default'. Consider setting partition in agent config")
-		partition = defaultPartition
-	}
-
-	if cfg.AgentID == "" {
-		return nil, ErrAgentIDRequired
-	}
-
-	return &models.Config{
-		Networks:      sweepConfig.Networks,
-		Ports:         sweepConfig.Ports,
-		SweepModes:    sweepConfig.SweepModes,
-		DeviceTargets: sweepConfig.DeviceTargets,
-		Interval:      time.Duration(sweepConfig.Interval),
-		Concurrency:   sweepConfig.Concurrency,
-		Timeout:       time.Duration(sweepConfig.Timeout),
-		AgentID:       cfg.AgentID,
-		GatewayID:     cfg.AgentID, // Use AgentID as GatewayID for now
-		Partition:     partition,
-		SweepGroupID:  sweepConfig.SweepGroupID,
-		ConfigHash:    sweepConfig.ConfigHash,
-	}, nil
 }
 
 func buildSweepModelConfigFromGroup(cfg *ServerConfig, group SweepGroupConfig, log logger.Logger) (*models.Config, error) {

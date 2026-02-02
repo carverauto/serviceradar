@@ -99,7 +99,7 @@ func (s *SweepService) Stop(_ context.Context) error {
 
 // Name returns the service name.
 func (*SweepService) Name() string {
-	return "network_sweep"
+	return networkSweepServiceName
 }
 
 // UpdateConfig updates the service configuration.
@@ -165,7 +165,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 	return &proto.StatusResponse{
 		Available:    true,
 		Message:      statusJSON,
-		ServiceName:  "network_sweep",
+		ServiceName:  networkSweepServiceName,
 		ServiceType:  "sweep",
 		ResponseTime: time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds(),
 	}, nil
@@ -315,7 +315,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		return &proto.ResultsResponse{
 			HasNewData:      false,
 			CurrentSequence: currentSeqStr,
-			ServiceName:     "network_sweep",
+			ServiceName:     networkSweepServiceName,
 			ServiceType:     "sweep",
 			ExecutionId:     s.executionID,
 			SweepGroupId:    s.sweepGroupID,
@@ -334,7 +334,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		return &proto.ResultsResponse{
 			HasNewData:      false,
 			CurrentSequence: currentSeqStr,
-			ServiceName:     "network_sweep",
+			ServiceName:     networkSweepServiceName,
 			ServiceType:     "sweep",
 			ExecutionId:     s.executionID,
 			SweepGroupId:    s.sweepGroupID,
@@ -404,7 +404,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		HasNewData:      true,
 		CurrentSequence: currentSeqStr,
 		Data:            resultData,
-		ServiceName:     "network_sweep",
+		ServiceName:     networkSweepServiceName,
 		ServiceType:     "sweep",
 		Available:       true,
 		Timestamp:       time.Now().Unix(),
