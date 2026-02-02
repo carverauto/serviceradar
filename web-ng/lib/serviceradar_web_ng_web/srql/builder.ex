@@ -201,7 +201,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp normalize_sort_field(entity, field) when is_binary(field) do
     field = String.trim(field)
-
     allowed = allowed_sort_fields(entity)
 
     cond do
@@ -230,7 +229,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
         if id == "gateways" do
           ["last_seen", "gateway_id", "status", "agent_count", "checker_count"]
         else
-          ["last_seen", "hostname", "ip", "uid"]
+          ["last_seen", "hostname", "ip", "uid", "is_available"]
         end
 
       _ ->
