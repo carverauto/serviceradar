@@ -2,8 +2,9 @@ use crate::error::ConversionError;
 use anyhow::Result;
 use log::debug;
 use netflow_parser::NetflowPacket;
+use netflow_parser::protocol::ProtocolTypes;
 use netflow_parser::static_versions::v5::V5;
-use netflow_parser::variable_versions::data_number::FieldValue;
+use netflow_parser::variable_versions::data_number::{DataNumber, FieldValue};
 use netflow_parser::variable_versions::ipfix_lookup::{IANAIPFixField, IPFixField};
 use netflow_parser::variable_versions::v9_lookup::V9Field;
 use std::net::{IpAddr, SocketAddr};
@@ -50,6 +51,7 @@ impl Converter {
 
             // Protocol
             msg.proto = u32::from(flow.protocol_number);
+            msg.protocol_name = protocol_type_name(ProtocolTypes::from(flow.protocol_number));
 
             // Bytes and packets
             msg.bytes = u64::from(flow.d_octets);
@@ -143,7 +145,10 @@ impl Converter {
                             V9Field::L4DstPort => msg.dst_port = field_value_to_u32(field_value),
 
                             // Protocol
-                            V9Field::Protocol => msg.proto = field_value_to_u32(field_value),
+                            V9Field::Protocol => {
+                                msg.proto = field_value_to_u32(field_value);
+                                msg.protocol_name = field_value_to_protocol_name(field_value);
+                            }
 
                             // Volume
                             V9Field::InBytes => msg.bytes = field_value_to_u64(field_value),
@@ -303,7 +308,8 @@ impl Converter {
 
                             // Protocol
                             IPFixField::IANA(IANAIPFixField::ProtocolIdentifier) => {
-                                msg.proto = field_value_to_u32(field_value)
+                                msg.proto = field_value_to_u32(field_value);
+                                msg.protocol_name = field_value_to_protocol_name(field_value);
                             }
 
                             // Volume - prefer Delta counts
@@ -526,12 +532,58 @@ fn field_value_to_ip_bytes(value: &FieldValue) -> Vec<u8> {
     }
 }
 
+fn data_number_to_u32(dn: &DataNumber) -> u32 {
+    match *dn {
+        DataNumber::U8(v) => u32::from(v),
+        DataNumber::I8(v) => v.max(0) as u32,
+        DataNumber::U16(v) => u32::from(v),
+        DataNumber::I16(v) => v.max(0) as u32,
+        DataNumber::U24(v) => v,
+        DataNumber::I24(v) => v.max(0) as u32,
+        DataNumber::U32(v) => v,
+        DataNumber::I32(v) => v.max(0) as u32,
+        DataNumber::U64(v) => v.min(u64::from(u32::MAX)) as u32,
+        DataNumber::I64(v) => v.max(0).min(i64::from(u32::MAX)) as u32,
+        DataNumber::U128(v) => v.min(u128::from(u32::MAX)) as u32,
+        DataNumber::I128(v) => v.max(0).min(i128::from(u32::MAX)) as u32,
+    }
+}
+
+fn data_number_to_u64(dn: &DataNumber) -> u64 {
+    match *dn {
+        DataNumber::U8(v) => u64::from(v),
+        DataNumber::I8(v) => v.max(0) as u64,
+        DataNumber::U16(v) => u64::from(v),
+        DataNumber::I16(v) => v.max(0) as u64,
+        DataNumber::U24(v) => u64::from(v),
+        DataNumber::I24(v) => v.max(0) as u64,
+        DataNumber::U32(v) => u64::from(v),
+        DataNumber::I32(v) => v.max(0) as u64,
+        DataNumber::U64(v) => v,
+        DataNumber::I64(v) => v.max(0) as u64,
+        DataNumber::U128(v) => v.min(u128::from(u64::MAX)) as u64,
+        DataNumber::I128(v) => v.max(0).min(i128::from(u64::MAX)) as u64,
+    }
+}
+
 fn field_value_to_u32(value: &FieldValue) -> u32 {
-    value.try_into().unwrap_or_default()
+    match value {
+        FieldValue::DataNumber(dn) => data_number_to_u32(dn),
+        FieldValue::Duration(d) => u32::try_from(d.as_millis()).unwrap_or(u32::MAX),
+        FieldValue::ProtocolType(pt) => u32::from(u8::from(*pt)),
+        FieldValue::Float64(f) => f.max(0.0).min(f64::from(u32::MAX)) as u32,
+        _ => 0,
+    }
 }
 
 fn field_value_to_u64(value: &FieldValue) -> u64 {
-    value.try_into().unwrap_or_default()
+    match value {
+        FieldValue::DataNumber(dn) => data_number_to_u64(dn),
+        FieldValue::Duration(d) => d.as_millis().try_into().unwrap_or(u64::MAX),
+        FieldValue::ProtocolType(pt) => u64::from(u8::from(*pt)),
+        FieldValue::Float64(f) => f.max(0.0).min(u64::MAX as f64) as u64,
+        _ => 0,
+    }
 }
 
 fn field_value_to_mac_u64(value: &FieldValue) -> u64 {
@@ -548,9 +600,33 @@ fn field_value_to_mac_u64(value: &FieldValue) -> u64 {
     }
 }
 
+/// Returns true if the flow message contains meaningful traffic data.
+/// Flows with 0 bytes AND 0 packets are degenerate records (e.g. options templates,
+/// metadata records, or incomplete template data) and should be filtered out.
+pub fn is_valid_flow(msg: &flowpb::FlowMessage) -> bool {
+    msg.bytes > 0 || msg.packets > 0
+}
+
+fn protocol_type_name(pt: ProtocolTypes) -> String {
+    format!("{pt:?}").to_uppercase()
+}
+
+fn field_value_to_protocol_name(value: &FieldValue) -> String {
+    match value {
+        FieldValue::ProtocolType(pt) => protocol_type_name(*pt),
+        FieldValue::DataNumber(dn) => {
+            let n = data_number_to_u32(dn) as u8;
+            protocol_type_name(ProtocolTypes::from(n))
+        }
+        _ => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use netflow_parser::protocol::ProtocolTypes;
+    use std::time::Duration;
 
     #[test]
     fn test_mac_to_u64() {
@@ -575,5 +651,248 @@ mod tests {
         let ip = IpAddr::V4([192, 168, 1, 1].into());
         let bytes = ip_to_bytes(&ip);
         assert_eq!(bytes, vec![192, 168, 1, 1]);
+    }
+
+    // --- data_number_to_u32 tests ---
+
+    #[test]
+    fn test_data_number_to_u32_unsigned_widening() {
+        assert_eq!(data_number_to_u32(&DataNumber::U8(255)), 255);
+        assert_eq!(data_number_to_u32(&DataNumber::U16(65535)), 65535);
+        assert_eq!(data_number_to_u32(&DataNumber::U24(16_777_215)), 16_777_215);
+        assert_eq!(data_number_to_u32(&DataNumber::U32(42)), 42);
+    }
+
+    #[test]
+    fn test_data_number_to_u32_saturates_large() {
+        assert_eq!(
+            data_number_to_u32(&DataNumber::U64(u64::from(u32::MAX) + 1)),
+            u32::MAX
+        );
+        assert_eq!(
+            data_number_to_u32(&DataNumber::U128(u128::from(u32::MAX) + 100)),
+            u32::MAX
+        );
+    }
+
+    #[test]
+    fn test_data_number_to_u32_signed_negative_clamps_to_zero() {
+        assert_eq!(data_number_to_u32(&DataNumber::I8(-1)), 0);
+        assert_eq!(data_number_to_u32(&DataNumber::I16(-500)), 0);
+        assert_eq!(data_number_to_u32(&DataNumber::I32(-1)), 0);
+        assert_eq!(data_number_to_u32(&DataNumber::I64(-1)), 0);
+        assert_eq!(data_number_to_u32(&DataNumber::I128(-1)), 0);
+        assert_eq!(data_number_to_u32(&DataNumber::I24(-1)), 0);
+    }
+
+    #[test]
+    fn test_data_number_to_u32_signed_positive() {
+        assert_eq!(data_number_to_u32(&DataNumber::I8(127)), 127);
+        assert_eq!(data_number_to_u32(&DataNumber::I16(1000)), 1000);
+        assert_eq!(data_number_to_u32(&DataNumber::I32(35000)), 35000);
+        assert_eq!(data_number_to_u32(&DataNumber::I64(100)), 100);
+    }
+
+    // --- data_number_to_u64 tests ---
+
+    #[test]
+    fn test_data_number_to_u64_unsigned_widening() {
+        assert_eq!(data_number_to_u64(&DataNumber::U8(200)), 200);
+        assert_eq!(data_number_to_u64(&DataNumber::U16(50000)), 50000);
+        assert_eq!(data_number_to_u64(&DataNumber::U32(35000)), 35000);
+        assert_eq!(data_number_to_u64(&DataNumber::U64(99999)), 99999);
+    }
+
+    #[test]
+    fn test_data_number_to_u64_saturates_u128() {
+        assert_eq!(
+            data_number_to_u64(&DataNumber::U128(u128::from(u64::MAX) + 1)),
+            u64::MAX
+        );
+    }
+
+    #[test]
+    fn test_data_number_to_u64_signed_negative_clamps_to_zero() {
+        assert_eq!(data_number_to_u64(&DataNumber::I8(-10)), 0);
+        assert_eq!(data_number_to_u64(&DataNumber::I64(-999)), 0);
+        assert_eq!(data_number_to_u64(&DataNumber::I128(-1)), 0);
+    }
+
+    // --- field_value_to_u32 tests ---
+
+    #[test]
+    fn test_field_value_to_u32_data_number() {
+        let fv = FieldValue::DataNumber(DataNumber::U8(6));
+        assert_eq!(field_value_to_u32(&fv), 6);
+
+        let fv = FieldValue::DataNumber(DataNumber::U32(35000));
+        assert_eq!(field_value_to_u32(&fv), 35000);
+    }
+
+    #[test]
+    fn test_field_value_to_u32_protocol_type() {
+        let fv = FieldValue::ProtocolType(ProtocolTypes::Tcp);
+        assert_eq!(field_value_to_u32(&fv), 6);
+
+        let fv = FieldValue::ProtocolType(ProtocolTypes::Udp);
+        assert_eq!(field_value_to_u32(&fv), 17);
+
+        let fv = FieldValue::ProtocolType(ProtocolTypes::Icmp);
+        assert_eq!(field_value_to_u32(&fv), 1);
+    }
+
+    #[test]
+    fn test_field_value_to_u32_float64() {
+        let fv = FieldValue::Float64(42.7);
+        assert_eq!(field_value_to_u32(&fv), 42);
+    }
+
+    #[test]
+    fn test_field_value_to_u32_duration() {
+        let fv = FieldValue::Duration(Duration::from_millis(28_796_274));
+        assert_eq!(field_value_to_u32(&fv), 28_796_274);
+    }
+
+    #[test]
+    fn test_field_value_to_u32_non_numeric_returns_zero() {
+        let fv = FieldValue::String("hello".to_string());
+        assert_eq!(field_value_to_u32(&fv), 0);
+
+        let fv = FieldValue::Ip4Addr([10, 0, 0, 1].into());
+        assert_eq!(field_value_to_u32(&fv), 0);
+
+        let fv = FieldValue::Vec(vec![1, 2, 3]);
+        assert_eq!(field_value_to_u32(&fv), 0);
+    }
+
+    // --- field_value_to_u64 tests ---
+
+    #[test]
+    fn test_field_value_to_u64_data_number() {
+        // The key bug scenario: IN_BYTES sent as 4-byte field -> DataNumber::U32
+        let fv = FieldValue::DataNumber(DataNumber::U32(35000));
+        assert_eq!(field_value_to_u64(&fv), 35000);
+
+        let fv = FieldValue::DataNumber(DataNumber::U64(999999));
+        assert_eq!(field_value_to_u64(&fv), 999999);
+    }
+
+    #[test]
+    fn test_field_value_to_u64_protocol_type() {
+        let fv = FieldValue::ProtocolType(ProtocolTypes::Tcp);
+        assert_eq!(field_value_to_u64(&fv), 6);
+    }
+
+    #[test]
+    fn test_field_value_to_u64_duration() {
+        let fv = FieldValue::Duration(Duration::from_millis(12345));
+        assert_eq!(field_value_to_u64(&fv), 12_345);
+    }
+
+    #[test]
+    fn test_field_value_to_u64_non_numeric_returns_zero() {
+        let fv = FieldValue::String("test".to_string());
+        assert_eq!(field_value_to_u64(&fv), 0);
+
+        let fv = FieldValue::MacAddr("00:11:22:33:44:55".to_string());
+        assert_eq!(field_value_to_u64(&fv), 0);
+    }
+
+    // --- protocol_type_name tests ---
+
+    #[test]
+    fn test_protocol_type_name_common_protocols() {
+        assert_eq!(protocol_type_name(ProtocolTypes::Tcp), "TCP");
+        assert_eq!(protocol_type_name(ProtocolTypes::Udp), "UDP");
+        assert_eq!(protocol_type_name(ProtocolTypes::Icmp), "ICMP");
+        assert_eq!(protocol_type_name(ProtocolTypes::Gre), "GRE");
+        assert_eq!(protocol_type_name(ProtocolTypes::Esp), "ESP");
+    }
+
+    #[test]
+    fn test_protocol_type_name_ipv6_icmp() {
+        assert_eq!(protocol_type_name(ProtocolTypes::Ipv6Icmp), "IPV6ICMP");
+    }
+
+    #[test]
+    fn test_protocol_type_name_unknown() {
+        assert_eq!(protocol_type_name(ProtocolTypes::Unknown), "UNKNOWN");
+    }
+
+    // --- field_value_to_protocol_name tests ---
+
+    #[test]
+    fn test_field_value_to_protocol_name_protocol_type() {
+        let fv = FieldValue::ProtocolType(ProtocolTypes::Tcp);
+        assert_eq!(field_value_to_protocol_name(&fv), "TCP");
+
+        let fv = FieldValue::ProtocolType(ProtocolTypes::Udp);
+        assert_eq!(field_value_to_protocol_name(&fv), "UDP");
+    }
+
+    #[test]
+    fn test_field_value_to_protocol_name_data_number() {
+        // Protocol number 6 = TCP
+        let fv = FieldValue::DataNumber(DataNumber::U8(6));
+        assert_eq!(field_value_to_protocol_name(&fv), "TCP");
+
+        // Protocol number 17 = UDP
+        let fv = FieldValue::DataNumber(DataNumber::U16(17));
+        assert_eq!(field_value_to_protocol_name(&fv), "UDP");
+
+        // Protocol number 1 = ICMP
+        let fv = FieldValue::DataNumber(DataNumber::U32(1));
+        assert_eq!(field_value_to_protocol_name(&fv), "ICMP");
+    }
+
+    #[test]
+    fn test_field_value_to_protocol_name_non_numeric_returns_empty() {
+        let fv = FieldValue::String("hello".to_string());
+        assert_eq!(field_value_to_protocol_name(&fv), "");
+
+        let fv = FieldValue::Ip4Addr([10, 0, 0, 1].into());
+        assert_eq!(field_value_to_protocol_name(&fv), "");
+    }
+
+    // --- is_valid_flow tests ---
+
+    #[test]
+    fn test_is_valid_flow_zero_bytes_zero_packets_is_invalid() {
+        let msg = flowpb::FlowMessage {
+            bytes: 0,
+            packets: 0,
+            ..Default::default()
+        };
+        assert!(!is_valid_flow(&msg));
+    }
+
+    #[test]
+    fn test_is_valid_flow_with_bytes_is_valid() {
+        let msg = flowpb::FlowMessage {
+            bytes: 100,
+            packets: 0,
+            ..Default::default()
+        };
+        assert!(is_valid_flow(&msg));
+    }
+
+    #[test]
+    fn test_is_valid_flow_with_packets_is_valid() {
+        let msg = flowpb::FlowMessage {
+            bytes: 0,
+            packets: 1,
+            ..Default::default()
+        };
+        assert!(is_valid_flow(&msg));
+    }
+
+    #[test]
+    fn test_is_valid_flow_with_both_is_valid() {
+        let msg = flowpb::FlowMessage {
+            bytes: 1500,
+            packets: 3,
+            ..Default::default()
+        };
+        assert!(is_valid_flow(&msg));
     }
 }

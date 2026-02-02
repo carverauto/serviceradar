@@ -544,6 +544,17 @@ func (s *SysmonService) GetLatestSample() *sysmon.MetricSample {
 	return s.collector.Latest()
 }
 
+// DrainMetrics returns all buffered metric samples since the last call.
+func (s *SysmonService) DrainMetrics() []*sysmon.MetricSample {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.collector == nil {
+		return nil
+	}
+	return s.collector.Drain()
+}
+
 // GetConfigSource returns the source of the current configuration.
 // Returns one of: "local:<path>", "cache:<path>", "default", or "" if not started.
 func (s *SysmonService) GetConfigSource() string {

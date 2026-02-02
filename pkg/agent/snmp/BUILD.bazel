@@ -15,8 +15,9 @@ go_library(
         "types.go",
     ],
     importpath = "github.com/carverauto/serviceradar/pkg/agent/snmp",
-    visibility = ["//visibility:public"],
+    visibility = ["//pkg/agent:__pkg__"],
     deps = [
+        "//pkg/agent/core",
         "//pkg/logger",
         "//pkg/models",
         "//proto",

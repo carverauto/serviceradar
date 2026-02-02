@@ -175,14 +175,60 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 		return fmt.Errorf("%w - %w", ErrSNMPConvert, err)
 	}
 
-	// Create data point with the proper fields
+	now := time.Now()
+	finalValue := converted
+
+	// Handle Delta/Rate calculation at the edge
+	if oidConfig.Delta {
+		c.mu.RLock()
+		prevStatus, exists := c.status.OIDStatus[oidConfig.Name]
+		c.mu.RUnlock()
+
+		if exists && prevStatus.LastValue != nil && !prevStatus.LastUpdate.IsZero() {
+			elapsed := now.Sub(prevStatus.LastUpdate).Seconds()
+			if elapsed > 0 {
+				delta := calculateDelta(prevStatus.LastValue, converted)
+				// Calculate per-second rate
+				finalValue = delta / elapsed
+			} else {
+				// Avoid division by zero or negative time
+				return nil
+			}
+		} else {
+			// First sample, just store it and wait for next poll to calculate rate
+			c.updateOIDStatus(oidConfig.Name, &DataPoint{
+				Value:     converted,
+				Timestamp: now,
+			})
+			return nil
+		}
+	}
+
+	// Apply scaling if configured
+	if oidConfig.Scale != 0 && oidConfig.Scale != 1.0 {
+		if val, ok := toFloat64(finalValue); ok {
+			finalValue = val * oidConfig.Scale
+		}
+	}
+
+	// Create data point
+	// If we performed delta calculation, the resulting value is a Rate (Gauge/Float)
+	// and should no longer be treated as a Delta/Counter by the backend.
+	dataType := oidConfig.DataType
+	isDelta := oidConfig.Delta
+
+	if oidConfig.Delta {
+		dataType = TypeFloat
+		isDelta = false
+	}
+
 	point := DataPoint{
 		OIDName:   oidConfig.Name,
-		Value:     converted,
-		Timestamp: time.Now(),
-		DataType:  oidConfig.DataType,
+		Value:     finalValue,
+		Timestamp: now,
+		DataType:  dataType,
 		Scale:     oidConfig.Scale,
-		Delta:     oidConfig.Delta,
+		Delta:     isDelta,
 	}
 
 	// Update OID status
@@ -195,6 +241,52 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 		return ctx.Err()
 	case <-c.done:
 		return ErrCollectorStopped
+	}
+}
+
+func calculateDelta(prev, current interface{}) float64 {
+	p, okP := toFloat64(prev)
+	c, okC := toFloat64(current)
+	if !okP || !okC {
+		return 0
+	}
+
+	if c < p {
+		// Handle counter rollover
+		// If both values are within 32-bit range, assume 32-bit rollover.
+		const maxUint32 = 4294967295
+		if p <= maxUint32 {
+			return (maxUint32 - p) + c + 1
+		}
+		// Otherwise assume 64-bit rollover
+		// We can't express maxUint64 precisely in float64 without precision loss at the very edge,
+		// but standard float64 has 53 bits of significand.
+		// For high precision 64-bit counters, this might be slightly off if values are huge,
+		// but it's the best we can do with float64 storage.
+		// NOTE: 1.844e19 is approx 2^64
+		const maxUint64 float64 = 18446744073709551615.0
+		return (maxUint64 - p) + c + 1
+	}
+
+	return c - p
+}
+
+func toFloat64(v interface{}) (float64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return val, true
+	case uint64:
+		return float64(val), true
+	case int64:
+		return float64(val), true
+	case uint32:
+		return float64(val), true
+	case int32:
+		return float64(val), true
+	case int:
+		return float64(val), true
+	default:
+		return 0, false
 	}
 }
 
