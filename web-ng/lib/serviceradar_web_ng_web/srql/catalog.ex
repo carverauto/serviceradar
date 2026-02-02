@@ -102,6 +102,25 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "flows",
+      label: "NetFlow",
+      route: "/observability",
+      default_time: "last_24h",
+      default_sort_field: "time",
+      default_sort_dir: "desc",
+      default_filter_field: "src_endpoint_ip",
+      filter_fields: [
+        "src_endpoint_ip",
+        "dst_endpoint_ip",
+        "src_port",
+        "dst_port",
+        "protocol_name",
+        "protocol_num",
+        "sampler_address"
+      ],
+      downsample: false
+    },
+    %{
       id: "services",
       label: "Services",
       route: "/services",
