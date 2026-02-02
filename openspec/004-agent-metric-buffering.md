@@ -1,7 +1,7 @@
 # Proposal 004: Agent Metric Buffering & Normalization
 
 ## Status
-Draft
+Implemented
 
 ## Context
 Currently, the agent `PushLoop` polls services for their "current status" at the push interval (default 30s). Services like SNMP may poll targets much faster (e.g., 1s or 5s). Intermediate data points collected between pushes are effectively discarded or overwritten in the `TargetStatus` map.
@@ -87,3 +87,24 @@ Update `pushSNMPMetrics` in `pkg/agent/push_loop.go`:
 
 ## Future Work: Time Alignment (Phase 2)
 Once buffering is in place, we can implement "Interpolation" to align messy poll timestamps to a perfect grid (e.g. exactly on the second), handling jitter and missed polls gracefully. This is a key feature of Netdata that allows clean overlaying of metrics from different sources.
+
+## Implementation Details
+
+### Phase 1: Core Architecture (Completed)
+1.  **RingBuffer**: Implemented a generic, thread-safe `RingBuffer[T]` in `pkg/agent/core/ring.go` with support for:
+    *   `Drain()`: Reads and clears buffer.
+    *   `Snapshot()`: Reads without clearing.
+    *   `WalkReverse()`: Efficient iteration from newest to oldest.
+2.  **SNMP Service**:
+    *   Updated `SNMPAggregator` to use `RingBuffer`.
+    *   Added `DrainMetrics` to `SNMPAgentService` interface.
+    *   Updated `SNMPCollector` to perform **Edge Rate Calculation**. Delta metrics (counters) are now converted to per-second rates immediately upon collection, handling 32/64-bit rollovers.
+3.  **Transport**:
+    *   Updated `PushLoop` to use `DrainMetrics` for SNMP and Sysmon.
+    *   Ensured `pushSNMPMetrics` streams all buffered data points to the gateway using `StreamStatus`.
+
+### Phase 2: Time Alignment (Completed)
+1.  **Interpolator**: Implemented `Interpolate()` in `pkg/agent/core/interpolator.go`.
+    *   Aligns raw data points to a fixed time grid (e.g., 1s).
+    *   Handles gaps and jitter using linear interpolation.
+    *   Ready for integration into future visualization or export pipelines that require perfectly aligned timeseries.

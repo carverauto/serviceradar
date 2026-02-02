@@ -110,8 +110,7 @@ func (a *SNMPAggregator) GetAggregatedData(oidName string, interval Interval) (*
 	timeRange := a.getTimeRange(interval)
 
 	// Get points within the time range
-	// NOTE: This currently reads everything from the ring buffer and filters.
-	// For high-performance we might want a better way to query RingBuffer by time.
+	// Uses WalkReverse to efficiently find recent points without scanning the entire buffer.
 	points := series.getPointsInRange(timeRange)
 	if len(points) == 0 {
 		return nil, fmt.Errorf("%w: %s", errNoDataPointsInterval, oidName)

@@ -1,7 +1,7 @@
 # Proposal 005: Sysmon Metric Buffering & Normalization
 
 ## Status
-Draft
+Implemented
 
 ## Context
 Following the implementation of Proposal 004 (SNMP Buffering), we have identified that System Monitor (Sysmon) metrics suffer from the same data loss and aliasing issues.
@@ -67,3 +67,17 @@ Sysmon payloads can be large (process lists). Buffering 30 seconds of process li
 *   **Optimization:** We might want to buffer CPU/Memory/Disk/Network every second, but Processes less frequently (or only send diffs).
 *   **Phase 1:** Buffer everything.
 *   **Phase 2 (Future):** Split "high-frequency" (metrics) vs "low-frequency" (processes) if payload size becomes an issue.
+
+## Implementation Details (Completed)
+
+1.  **Sysmon Collector**:
+    *   Updated `sysmon.Collector` interface to include `Drain()`.
+    *   Updated `DefaultCollector` to use `core.RingBuffer[*MetricSample]`.
+    *   Every `Collect()` call now writes to the ring buffer.
+2.  **Sysmon Service**:
+    *   Implemented `DrainMetrics` in `SysmonService` to expose the buffered data.
+3.  **PushLoop**:
+    *   Updated `pushSysmonStatus` to use `DrainMetrics`.
+    *   Configured to send *all* buffered samples as individual `GatewayServiceStatus` messages within the stream, ensuring no data loss.
+4.  **Verification**:
+    *   Added `pkg/agent/sysmon_drain_test.go` verifying that multiple samples are collected and drained even with fast sampling intervals (e.g., 10ms).
