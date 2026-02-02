@@ -3,7 +3,7 @@ use anyhow::Result;
 use log::debug;
 use netflow_parser::NetflowPacket;
 use netflow_parser::static_versions::v5::V5;
-use netflow_parser::variable_versions::data_number::FieldValue;
+use netflow_parser::variable_versions::data_number::{DataNumber, FieldValue};
 use netflow_parser::variable_versions::ipfix_lookup::{IANAIPFixField, IPFixField};
 use netflow_parser::variable_versions::v9_lookup::V9Field;
 use std::net::{IpAddr, SocketAddr};
@@ -527,11 +527,39 @@ fn field_value_to_ip_bytes(value: &FieldValue) -> Vec<u8> {
 }
 
 fn field_value_to_u32(value: &FieldValue) -> u32 {
-    value.try_into().unwrap_or_default()
+    match value {
+        FieldValue::DataNumber(d) => data_number_to_u32(d),
+        FieldValue::Duration(d) => u32::try_from(d.as_millis()).unwrap_or(u32::MAX),
+        FieldValue::ProtocolType(p) => u32::from(u8::from(*p)),
+        FieldValue::Float64(f) => {
+            if *f <= 0.0 {
+                0
+            } else if *f > f64::from(u32::MAX) {
+                u32::MAX
+            } else {
+                *f as u32
+            }
+        }
+        _ => 0,
+    }
 }
 
 fn field_value_to_u64(value: &FieldValue) -> u64 {
-    value.try_into().unwrap_or_default()
+    match value {
+        FieldValue::DataNumber(d) => data_number_to_u64(d),
+        FieldValue::Duration(d) => d.as_millis().try_into().unwrap_or(u64::MAX),
+        FieldValue::ProtocolType(p) => u64::from(u8::from(*p)),
+        FieldValue::Float64(f) => {
+            if *f <= 0.0 {
+                0
+            } else if *f > u64::MAX as f64 {
+                u64::MAX
+            } else {
+                *f as u64
+            }
+        }
+        _ => 0,
+    }
 }
 
 fn field_value_to_mac_u64(value: &FieldValue) -> u64 {
@@ -548,9 +576,51 @@ fn field_value_to_mac_u64(value: &FieldValue) -> u64 {
     }
 }
 
+fn data_number_to_u32(value: &DataNumber) -> u32 {
+    let value = data_number_to_u64(value);
+    if value > u64::from(u32::MAX) {
+        u32::MAX
+    } else {
+        value as u32
+    }
+}
+
+fn data_number_to_u64(value: &DataNumber) -> u64 {
+    match value {
+        DataNumber::U8(v) => u64::from(*v),
+        DataNumber::I8(v) => i64::from(*v).max(0) as u64,
+        DataNumber::U16(v) => u64::from(*v),
+        DataNumber::I16(v) => i64::from(*v).max(0) as u64,
+        DataNumber::U24(v) => u64::from(*v),
+        DataNumber::I24(v) => i64::from(*v).max(0) as u64,
+        DataNumber::U32(v) => u64::from(*v),
+        DataNumber::I32(v) => i64::from(*v).max(0) as u64,
+        DataNumber::U64(v) => *v,
+        DataNumber::I64(v) => (*v).max(0) as u64,
+        DataNumber::U128(v) => {
+            if *v > u64::MAX as u128 {
+                u64::MAX
+            } else {
+                *v as u64
+            }
+        }
+        DataNumber::I128(v) => {
+            if *v <= 0 {
+                0
+            } else if *v > u64::MAX as i128 {
+                u64::MAX
+            } else {
+                *v as u64
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use netflow_parser::protocol::ProtocolTypes;
+    use std::time::Duration;
 
     #[test]
     fn test_mac_to_u64() {
@@ -575,5 +645,29 @@ mod tests {
         let ip = IpAddr::V4([192, 168, 1, 1].into());
         let bytes = ip_to_bytes(&ip);
         assert_eq!(bytes, vec![192, 168, 1, 1]);
+    }
+
+    #[test]
+    fn test_field_value_to_u32_from_u16() {
+        let value = FieldValue::DataNumber(DataNumber::U16(56131));
+        assert_eq!(field_value_to_u32(&value), 56131);
+    }
+
+    #[test]
+    fn test_field_value_to_u64_from_u32() {
+        let value = FieldValue::DataNumber(DataNumber::U32(44));
+        assert_eq!(field_value_to_u64(&value), 44);
+    }
+
+    #[test]
+    fn test_field_value_to_u32_from_duration_ms() {
+        let value = FieldValue::Duration(Duration::from_millis(28_796_274));
+        assert_eq!(field_value_to_u32(&value), 28_796_274);
+    }
+
+    #[test]
+    fn test_field_value_to_u32_from_protocol_type() {
+        let value = FieldValue::ProtocolType(ProtocolTypes::Tcp);
+        assert_eq!(field_value_to_u32(&value), 6);
     }
 }

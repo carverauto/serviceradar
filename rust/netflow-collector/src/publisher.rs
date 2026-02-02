@@ -221,6 +221,7 @@ mod tests {
             listen_addr: "0.0.0.0:2055".to_string(),
             buffer_size: 65536,
             nats_url: "nats://localhost:4222".to_string(),
+            nats_creds_file: None,
             stream_name: "flows".to_string(),
             subject: "flows.raw.netflow".to_string(),
             stream_subjects: None,
