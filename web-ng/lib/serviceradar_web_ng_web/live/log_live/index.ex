@@ -169,17 +169,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <.netflow_summary :if={@active_tab == "netflows"} summary={@netflow_summary} />
 
           <.ui_panel>
-          <:header>
-            <div class="min-w-0">
-              <div class="text-sm font-semibold">{panel_title(@active_tab)}</div>
-              <div class="text-xs text-base-content/70">
-                {panel_subtitle(@active_tab)}
+            <:header>
+              <div class="min-w-0">
+                <div class="text-sm font-semibold">{panel_title(@active_tab)}</div>
+                <div class="text-xs text-base-content/70">
+                  {panel_subtitle(@active_tab)}
+                </div>
               </div>
-            </div>
 
-            <.log_source_filters :if={@active_tab == "logs"} srql={@srql} limit={@limit} />
-            <.netflow_presets :if={@active_tab == "netflows"} srql={@srql} limit={@limit} />
-          </:header>
+              <.log_source_filters :if={@active_tab == "logs"} srql={@srql} limit={@limit} />
+              <.netflow_presets :if={@active_tab == "netflows"} srql={@srql} limit={@limit} />
+            </:header>
 
             <.logs_table :if={@active_tab == "logs"} id="logs" logs={@logs} />
             <.traces_table :if={@active_tab == "traces"} id="traces" traces={@traces} />
@@ -1643,29 +1643,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     name = assigns.name
     protocol_num = to_int(protocol)
 
-    {label, variant} =
-      case protocol_num do
-        6 ->
-          {"TCP", "success"}
-
-        17 ->
-          {"UDP", "info"}
-
-        1 ->
-          {"ICMP", "ghost"}
-
-        _ ->
-          case name do
-            value when is_binary(value) and value != "" ->
-              {String.upcase(value), "ghost"}
-
-            _ ->
-              case protocol do
-                value when is_binary(value) and value != "" -> {value, "ghost"}
-                _ -> {"Unknown", "ghost"}
-              end
-          end
-      end
+    {label, variant} = netflow_protocol_label_variant(protocol_num, protocol, name)
 
     assigns = assign(assigns, label: label, variant: variant)
 
@@ -2834,8 +2812,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0}
   end
 
-  defp ensure_srql_entity(socket, entity, default_limit \\ @default_limit)
-       when is_binary(entity) do
+  defp ensure_srql_entity(socket, entity, default_limit) when is_binary(entity) do
     current = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:entity)
 
     if current == entity do

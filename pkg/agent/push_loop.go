@@ -745,10 +745,11 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
 
 	req := &proto.GatewayStatusRequest{
 		Services:  statuses,
-		GatewayId: "", // Will be set by the gateway
+		GatewayId: gatewayID,
 		AgentId:   agentID,
 		Timestamp: time.Now().UnixNano(),
 		Partition: partition,
@@ -785,6 +786,7 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	partition := p.server.config.Partition
 	sysmonSvc := p.server.sysmonService
 	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
 
 	var chunks []*proto.GatewayStatusChunk
 
@@ -800,12 +802,12 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 				}
 				// Append a new chunk for each sample.
 				chunks = append(chunks, &proto.GatewayStatusChunk{
-					Services:    []*proto.GatewayServiceStatus{s},
-					GatewayId:   "",
-					AgentId:     agentID,
-					Timestamp:   time.Now().UnixNano(),
-					Partition:   partition,
-					SourceIp:    p.getSourceIP(),
+					Services:  []*proto.GatewayServiceStatus{s},
+					GatewayId: gatewayID,
+					AgentId:   agentID,
+					Timestamp: time.Now().UnixNano(),
+					Partition: partition,
+					SourceIp:  p.getSourceIP(),
 				})
 			}
 		}
@@ -815,7 +817,7 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	if len(chunks) == 0 && status != nil {
 		chunks = append(chunks, &proto.GatewayStatusChunk{
 			Services:    []*proto.GatewayServiceStatus{status},
-			GatewayId:   "",
+			GatewayId:   gatewayID,
 			AgentId:     agentID,
 			Timestamp:   time.Now().UnixNano(),
 			Partition:   partition,
@@ -864,6 +866,7 @@ func (p *PushLoop) convertToSysmonGatewayStatusFromSample(sample *sysmon.MetricS
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
 
 	// Build the response payload
 	payload := struct {
@@ -889,7 +892,7 @@ func (p *PushLoop) convertToSysmonGatewayStatusFromSample(sample *sysmon.MetricS
 		ServiceType:  SysmonServiceType,
 		ResponseTime: 0,
 		AgentId:      agentID,
-		GatewayId:    "",
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "sysmon-metrics",
 		KvStoreId:    kvStoreID,
@@ -903,6 +906,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	kvStoreID := p.server.config.KVAddress
 	snmpSvc := p.server.snmpService
 	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
 
 	if snmpSvc == nil || !snmpSvc.IsEnabled() {
 		return false
@@ -949,7 +953,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 		ServiceType:  "snmp",
 		ResponseTime: 0,
 		AgentId:      agentID,
-		GatewayId:    "",
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "snmp-metrics",
 		KvStoreId:    kvStoreID,
@@ -957,7 +961,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 
 	chunk := &proto.GatewayStatusChunk{
 		Services:    []*proto.GatewayServiceStatus{status},
-		GatewayId:   "",
+		GatewayId:   gatewayID,
 		AgentId:     agentID,
 		Timestamp:   time.Now().UnixNano(),
 		Partition:   partition,
@@ -993,6 +997,7 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
 
 	if pluginManager == nil {
 		return false
@@ -1017,7 +1022,7 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 
 		chunk := &proto.GatewayStatusChunk{
 			Services:    []*proto.GatewayServiceStatus{status},
-			GatewayId:   "",
+			GatewayId:   gatewayID,
 			AgentId:     agentID,
 			Timestamp:   timestamp,
 			Partition:   partition,
@@ -1066,6 +1071,7 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
 
 	if pluginManager == nil {
 		return false
@@ -1084,7 +1090,7 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 		ServiceType:  "plugin-engine",
 		ResponseTime: 0,
 		AgentId:      agentID,
-		GatewayId:    "",
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "plugin-telemetry",
 		KvStoreId:    kvStoreID,
@@ -1092,7 +1098,7 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 
 	req := &proto.GatewayStatusRequest{
 		Services:  []*proto.GatewayServiceStatus{status},
-		GatewayId: "",
+		GatewayId: gatewayID,
 		AgentId:   agentID,
 		Timestamp: time.Now().UnixNano(),
 		Partition: partition,
@@ -1263,71 +1269,81 @@ func parseIfIndexFromOID(oid string) *int {
 }
 
 func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
-	sweepSvc := p.findSweepService()
+	sweepSvc := p.findSweepResultsProvider()
 	if sweepSvc == nil {
 		return false
 	}
 
 	lastSequence := p.getSweepResultsSequence()
-	response, err := sweepSvc.GetSweepResults(ctx, lastSequence)
-	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to get sweep results")
-		return false
-	}
+	sentAny := false
+	maxIterations := 32
 
-	if response == nil {
-		return false
-	}
+	for i := 0; i < maxIterations; i++ {
+		response, err := sweepSvc.GetSweepResults(ctx, lastSequence)
+		if err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to get sweep results")
+			return sentAny
+		}
 
-	pendingSeq := response.CurrentSequence
+		if response == nil {
+			return sentAny
+		}
 
-	if !response.HasNewData || len(response.Data) == 0 {
+		pendingSeq := response.CurrentSequence
+
+		if !response.HasNewData || len(response.Data) == 0 {
+			if pendingSeq != "" {
+				p.setSweepResultsSequence(pendingSeq)
+			}
+			return sentAny
+		}
+
+		chunks, err := buildSweepResultsChunks(response)
+		if err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to chunk sweep results")
+			return sentAny
+		}
+
+		serviceName := response.ServiceName
+		if serviceName == "" {
+			serviceName = networkSweepServiceName
+		}
+
+		serviceType := response.ServiceType
+		if serviceType == "" {
+			serviceType = sweepType
+		}
+
+		statusChunks := p.buildResultsStatusChunks(chunks, serviceName, serviceType)
+		if len(statusChunks) == 0 {
+			return sentAny
+		}
+
+		pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
+		cancel()
+		if err != nil {
+			p.logger.Error().Err(err).Msg("Failed to stream sweep results to gateway")
+			return sentAny
+		}
+
 		if pendingSeq != "" {
 			p.setSweepResultsSequence(pendingSeq)
+			lastSequence = pendingSeq
 		}
-		return false
+
+		sentAny = true
+		p.logger.Info().
+			Str("service_name", serviceName).
+			Int("chunk_count", len(statusChunks)).
+			Msg("Streamed sweep results to gateway")
 	}
 
-	chunks, err := buildSweepResultsChunks(response)
-	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to chunk sweep results")
-		return false
+	if sentAny {
+		p.logger.Warn().Int("max_iterations", maxIterations).Msg("Stopped sweep results push after max iterations")
 	}
 
-	serviceName := response.ServiceName
-	if serviceName == "" {
-		serviceName = "network_sweep"
-	}
-
-	serviceType := response.ServiceType
-	if serviceType == "" {
-		serviceType = sweepType
-	}
-
-	statusChunks := p.buildResultsStatusChunks(chunks, serviceName, serviceType)
-	if len(statusChunks) == 0 {
-		return false
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream sweep results to gateway")
-		return false
-	}
-
-	if pendingSeq != "" {
-		p.setSweepResultsSequence(pendingSeq)
-	}
-
-	p.logger.Info().
-		Str("service_name", serviceName).
-		Int("chunk_count", len(statusChunks)).
-		Msg("Streamed sweep results to gateway")
-
-	return true
+	return sentAny
 }
 
 func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
@@ -1661,13 +1677,13 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	return statuses, sysmonStatus
 }
 
-func (p *PushLoop) findSweepService() *SweepService {
+func (p *PushLoop) findSweepResultsProvider() SweepResultsProvider {
 	p.server.mu.RLock()
 	services := append([]Service(nil), p.server.services...)
 	p.server.mu.RUnlock()
 
 	for _, svc := range services {
-		if sweepSvc, ok := svc.(*SweepService); ok {
+		if sweepSvc, ok := svc.(SweepResultsProvider); ok {
 			return sweepSvc
 		}
 	}
@@ -1686,6 +1702,7 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  serviceName,
@@ -1694,7 +1711,7 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 		ServiceType:  serviceType,
 		ResponseTime: resp.ResponseTime,
 		AgentId:      agentID,
-		GatewayId:    "", // Will be set by gateway
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "status",
 		KvStoreId:    kvStoreID,
@@ -1713,6 +1730,7 @@ func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *pro
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  SysmonServiceName,
@@ -1721,7 +1739,7 @@ func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *pro
 		ServiceType:  SysmonServiceType,
 		ResponseTime: resp.ResponseTime,
 		AgentId:      agentID,
-		GatewayId:    "", // Will be set by gateway
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "sysmon-metrics",
 		KvStoreId:    kvStoreID,
@@ -1741,6 +1759,7 @@ func (p *PushLoop) buildPluginGatewayStatus(
 	}
 
 	serviceName := pluginServiceName(result)
+	gatewayID := p.gateway.GetGatewayID()
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  serviceName,
@@ -1749,7 +1768,7 @@ func (p *PushLoop) buildPluginGatewayStatus(
 		ServiceType:  "plugin",
 		ResponseTime: 0,
 		AgentId:      agentID,
-		GatewayId:    "",
+		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "plugin-result",
 		KvStoreId:    kvStoreID,
@@ -2027,7 +2046,8 @@ func (p *PushLoop) buildResultsStatusChunks(
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
 	p.server.mu.RUnlock()
-	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition)
+	gatewayID := p.gateway.GetGatewayID()
+	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition, gatewayID)
 }
 
 func buildResultsStatusChunksForAgent(
@@ -2036,12 +2056,12 @@ func buildResultsStatusChunksForAgent(
 	serviceType string,
 	agentID string,
 	partition string,
+	gatewayID string,
 ) []*proto.GatewayStatusChunk {
 	if len(chunks) == 0 {
 		return nil
 	}
 
-	gatewayID := ""
 	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
 
 	for _, chunk := range chunks {
@@ -2660,7 +2680,7 @@ func (p *PushLoop) pushMapperDerivedResults(
 }
 
 func (p *PushLoop) applySweepConfig(configJSON []byte) {
-	sweepSvc := p.findSweepService()
+	sweepSvc := p.findSweepResultsProvider()
 	if sweepSvc == nil {
 		return
 	}
@@ -2684,23 +2704,44 @@ func (p *PushLoop) applySweepConfig(configJSON []byte) {
 	cfg := p.server.config
 	p.server.mu.RUnlock()
 
-	sweepModelConfig, err := buildSweepModelConfig(cfg, sweepConfig, p.logger)
+	if updater, ok := sweepSvc.(SweepGroupConfigUpdater); ok {
+		if err := updater.UpdateSweepGroups(sweepConfig); err != nil {
+			p.logger.Error().Err(err).Msg("Failed to apply sweep group config from gateway")
+			return
+		}
+
+		p.logger.Info().
+			Str("config_hash", sweepConfig.ConfigHash).
+			Int("group_count", len(sweepConfig.Groups)).
+			Msg("Applied sweep group config from gateway")
+		return
+	}
+
+	if len(sweepConfig.Groups) == 0 {
+		p.logger.Info().Msg("No sweep groups configured; skipping sweep update")
+		return
+	}
+
+	groupConfig := sweepConfig.Groups[0]
+	sweepModelConfig, err := buildSweepModelConfigFromGroup(cfg, groupConfig, p.logger)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to build sweep config from gateway payload")
 		return
 	}
 
-	if err := sweepSvc.UpdateConfig(sweepModelConfig); err != nil {
-		p.logger.Error().Err(err).Msg("Failed to apply sweep config from gateway")
-		return
-	}
+	if updater, ok := sweepSvc.(interface{ UpdateConfig(*models.Config) error }); ok {
+		if err := updater.UpdateConfig(sweepModelConfig); err != nil {
+			p.logger.Error().Err(err).Msg("Failed to apply sweep config from gateway")
+			return
+		}
 
-	p.logger.Info().
-		Str("config_hash", sweepConfig.ConfigHash).
-		Int("networks", len(sweepConfig.Networks)).
-		Int("device_targets", len(sweepConfig.DeviceTargets)).
-		Int("ports", len(sweepConfig.Ports)).
-		Msg("Applied sweep config from gateway")
+		p.logger.Info().
+			Str("config_hash", sweepConfig.ConfigHash).
+			Int("networks", len(groupConfig.Networks)).
+			Int("device_targets", len(groupConfig.DeviceTargets)).
+			Int("ports", len(groupConfig.Ports)).
+			Msg("Applied sweep config from gateway")
+	}
 }
 
 // applySysmonConfig applies sysmon configuration from the gateway to the embedded sysmon service.

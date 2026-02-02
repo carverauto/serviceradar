@@ -28,6 +28,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/scan"
 )
 
+const (
+	intervalLiteral         = "interval"
+	networkSweepServiceName = "network_sweep"
+)
+
 // Server represents the main agent server that handles service coordination and management.
 // In push-mode, the Server coordinates embedded services, collecting their status
 // to be pushed to the gateway by PushLoop.
@@ -64,6 +69,28 @@ type SweepConfig struct {
 	Timeout       Duration              `json:"timeout"`
 	SweepGroupID  string                `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
 	ConfigHash    string                `json:"config_hash,omitempty"`    // Hash of config for change detection
+}
+
+// SweepGroupConfig represents a single sweep group config parsed from gateway payloads.
+type SweepGroupConfig struct {
+	ID             string
+	SweepGroupID   string
+	Networks       []string
+	Ports          []int
+	SweepModes     []models.SweepMode
+	DeviceTargets  []models.DeviceTarget
+	Interval       Duration
+	Concurrency    int
+	Timeout        Duration
+	ScheduleType   string
+	CronExpression string
+	ConfigHash     string
+}
+
+// SweepGroupsConfig bundles multiple sweep group configs with a shared config hash.
+type SweepGroupsConfig struct {
+	Groups     []SweepGroupConfig
+	ConfigHash string
 }
 
 // ServerConfig holds the configuration for the agent server.

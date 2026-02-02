@@ -69,6 +69,7 @@ type GatewayClient struct {
 	securityProvider srgrpc.SecurityProvider
 	connected        bool
 	reconnectDelay   time.Duration
+	gatewayID        string
 	logger           logger.Logger
 }
 
@@ -432,7 +433,18 @@ func (g *GatewayClient) Hello(ctx context.Context, req *proto.AgentHelloRequest)
 		Bool("config_outdated", resp.ConfigOutdated).
 		Msg("Agent enrolled with gateway")
 
+	g.mu.Lock()
+	g.gatewayID = resp.GatewayId
+	g.mu.Unlock()
+
 	return resp, nil
+}
+
+// GetGatewayID returns the gateway ID assigned during enrollment.
+func (g *GatewayClient) GetGatewayID() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.gatewayID
 }
 
 // GetConfig fetches the agent's configuration from the gateway.
