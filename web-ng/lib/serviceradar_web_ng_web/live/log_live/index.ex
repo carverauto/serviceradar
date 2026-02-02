@@ -2812,8 +2812,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0}
   end
 
-  defp ensure_srql_entity(socket, entity, default_limit \\ @default_limit)
-       when is_binary(entity) do
+  defp ensure_srql_entity(socket, entity, default_limit) when is_binary(entity) do
     current = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:entity)
 
     if current == entity do
