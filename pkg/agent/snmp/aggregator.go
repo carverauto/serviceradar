@@ -33,7 +33,6 @@ const (
 // TimeSeriesData holds time-series data points for an OID.
 type TimeSeriesData struct {
 	buffer *core.RingBuffer[DataPoint]
-	mu     sync.RWMutex
 }
 
 // SNMPAggregator implements the Aggregator interface.

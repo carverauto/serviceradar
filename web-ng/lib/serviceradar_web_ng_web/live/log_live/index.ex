@@ -1643,35 +1643,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     name = assigns.name
     protocol_num = to_int(protocol)
 
-    {label, variant} =
-      case protocol_num do
-        6 ->
-          {"TCP", "success"}
-
-        17 ->
-          {"UDP", "info"}
-
-        1 ->
-          {"ICMP", "ghost"}
-
-        _ ->
-          case name do
-            value when is_binary(value) and value != "" ->
-              {String.upcase(value), "ghost"}
-
-            _ ->
-              case protocol do
-                value when is_binary(value) and value != "" -> {value, "ghost"}
-                _ -> {"Unknown", "ghost"}
-              end
-          end
-      end
+    {label, variant} = netflow_protocol_label_variant(protocol_num, protocol, name)
 
     assigns = assign(assigns, label: label, variant: variant)
 
     ~H"""
     <.ui_badge variant={@variant}>{@label}</.ui_badge>
     """
+  end
+
+  defp netflow_protocol_label_variant(6, _protocol, _name), do: {"TCP", "success"}
+  defp netflow_protocol_label_variant(17, _protocol, _name), do: {"UDP", "info"}
+  defp netflow_protocol_label_variant(1, _protocol, _name), do: {"ICMP", "ghost"}
+
+  defp netflow_protocol_label_variant(_protocol_num, protocol, name) do
+    label =
+      cond do
+        is_binary(name) and name != "" -> String.upcase(name)
+        is_binary(protocol) and protocol != "" -> protocol
+        true -> "Unknown"
+      end
+
+    {label, "ghost"}
   end
 
   defp netflow_flow_type_badge(assigns) do

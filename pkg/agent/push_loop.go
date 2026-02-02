@@ -738,7 +738,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	}
 }
 
-// pushRegularStatuses sends non-sysmon statuses via StreamStatus for consistent chunking behavior.
+// pushRegularStatuses sends non-sysmon statuses via PushStatus.
 func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.GatewayServiceStatus, reason statusPushReason) bool {
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
@@ -746,25 +746,19 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
 
-	chunk := &proto.GatewayStatusChunk{
-		Services:    statuses,
-		GatewayId:   "",
-		AgentId:     agentID,
-		Timestamp:   time.Now().UnixNano(),
-		Partition:   partition,
-		SourceIp:    p.getSourceIP(),
-		IsFinal:     true,
-		ChunkIndex:  0,
-		TotalChunks: 1,
-		KvStoreId:   kvStoreID,
+	req := &proto.GatewayStatusRequest{
+		Services:  statuses,
+		GatewayId: "", // Will be set by the gateway
+		AgentId:   agentID,
+		Timestamp: time.Now().UnixNano(),
+		Partition: partition,
+		SourceIp:  p.getSourceIP(),
+		KvStoreId: kvStoreID,
 	}
 
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
+	resp, err := p.gateway.PushStatus(ctx, req)
 	if err != nil {
-		p.logger.Error().Err(err).Int("status_count", len(statuses)).Msg("Failed to stream status to gateway")
+		p.logger.Error().Err(err).Int("status_count", len(statuses)).Msg("Failed to push status to gateway")
 		return false
 	}
 
@@ -776,11 +770,11 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 		logEvent.
 			Int("status_count", len(statuses)).
 			Str("reason", string(reason)).
-			Msg("Streamed status to gateway")
+			Msg("Pushed status to gateway")
 		return true
 	}
 
-	p.logger.Warn().Msg("Gateway did not acknowledge status stream")
+	p.logger.Warn().Msg("Gateway did not acknowledge status push")
 	return false
 }
 
@@ -1096,34 +1090,31 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 		KvStoreId:    kvStoreID,
 	}
 
-	chunk := &proto.GatewayStatusChunk{
-		Services:    []*proto.GatewayServiceStatus{status},
-		GatewayId:   "",
-		AgentId:     agentID,
-		Timestamp:   time.Now().UnixNano(),
-		Partition:   partition,
-		SourceIp:    p.getSourceIP(),
-		IsFinal:     true,
-		ChunkIndex:  0,
-		TotalChunks: 1,
-		KvStoreId:   kvStoreID,
+	req := &proto.GatewayStatusRequest{
+		Services:  []*proto.GatewayServiceStatus{status},
+		GatewayId: "",
+		AgentId:   agentID,
+		Timestamp: time.Now().UnixNano(),
+		Partition: partition,
+		SourceIp:  p.getSourceIP(),
+		KvStoreId: kvStoreID,
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
+	resp, err := p.gateway.PushStatus(pushCtx, req)
 	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream plugin telemetry")
+		p.logger.Error().Err(err).Msg("Failed to push plugin telemetry")
 		return false
 	}
 
 	if resp.Received {
-		p.logger.Debug().Msg("Successfully streamed plugin telemetry")
+		p.logger.Debug().Msg("Successfully pushed plugin telemetry")
 		return true
 	}
 
-	p.logger.Warn().Msg("Gateway did not acknowledge plugin telemetry stream")
+	p.logger.Warn().Msg("Gateway did not acknowledge plugin telemetry")
 	return false
 }
 
