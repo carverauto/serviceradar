@@ -31,34 +31,34 @@ impl MetricsReporter {
             let (v9_stats, ipfix_stats) = listener.get_cache_stats();
 
             // Log V9 cache stats per source
-            for (source, template_stats, data_stats) in &v9_stats {
+            for (source, stats) in &v9_stats {
                 info!(
-                    "V9 Template Cache [{}] - Templates: {}/{}, Data: {}/{}, Template Hits/Misses: {}/{}, Data Hits/Misses: {}/{}",
+                    "V9 Template Cache [{}] - V9: {}/{}, IPFIX: {}/{}, V9 Hits/Misses: {}/{}, IPFIX Hits/Misses: {}/{}",
                     source,
-                    template_stats.current_size,
-                    template_stats.max_size,
-                    data_stats.current_size,
-                    data_stats.max_size,
-                    template_stats.metrics.hits,
-                    template_stats.metrics.misses,
-                    data_stats.metrics.hits,
-                    data_stats.metrics.misses
+                    stats.v9.current_size,
+                    stats.v9.max_size,
+                    stats.ipfix.current_size,
+                    stats.ipfix.max_size,
+                    stats.v9.metrics.hits,
+                    stats.v9.metrics.misses,
+                    stats.ipfix.metrics.hits,
+                    stats.ipfix.metrics.misses
                 );
             }
 
             // Log IPFIX cache stats per source
-            for (source, template_stats, data_stats) in &ipfix_stats {
+            for (source, stats) in &ipfix_stats {
                 info!(
-                    "IPFIX Template Cache [{}] - Templates: {}/{}, Data: {}/{}, Template Hits/Misses: {}/{}, Data Hits/Misses: {}/{}",
+                    "IPFIX Template Cache [{}] - V9: {}/{}, IPFIX: {}/{}, V9 Hits/Misses: {}/{}, IPFIX Hits/Misses: {}/{}",
                     source,
-                    template_stats.current_size,
-                    template_stats.max_size,
-                    data_stats.current_size,
-                    data_stats.max_size,
-                    template_stats.metrics.hits,
-                    template_stats.metrics.misses,
-                    data_stats.metrics.hits,
-                    data_stats.metrics.misses
+                    stats.v9.current_size,
+                    stats.v9.max_size,
+                    stats.ipfix.current_size,
+                    stats.ipfix.max_size,
+                    stats.v9.metrics.hits,
+                    stats.v9.metrics.misses,
+                    stats.ipfix.metrics.hits,
+                    stats.ipfix.metrics.misses
                 );
             }
 

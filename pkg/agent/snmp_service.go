@@ -348,6 +348,20 @@ func (s *SNMPAgentService) GetTargetStatuses(ctx context.Context) (map[string]sn
 	return svc.GetStatus(ctx)
 }
 
+// DrainMetrics returns all data points collected since the last Drain call.
+func (s *SNMPAgentService) DrainMetrics(ctx context.Context) (map[string][]snmp.DataPoint, error) {
+	s.mu.RLock()
+	started := s.started
+	svc := s.service
+	s.mu.RUnlock()
+
+	if !started || svc == nil {
+		return nil, nil
+	}
+
+	return svc.DrainMetrics(ctx)
+}
+
 // loadConfig loads the SNMP configuration from local file or defaults.
 //
 //nolint:unparam // error return reserved for future remote config fetching

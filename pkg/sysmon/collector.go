@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/agent/core"
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
@@ -41,6 +42,9 @@ type Collector interface {
 
 	// Latest returns the most recent metric sample, or nil if none available.
 	Latest() *MetricSample
+
+	// Drain returns all buffered metric samples since the last call.
+	Drain() []*MetricSample
 }
 
 // DefaultCollector implements the Collector interface using gopsutil.
@@ -55,6 +59,7 @@ type DefaultCollector struct {
 
 	mu           sync.RWMutex
 	latest       *MetricSample
+	buffer       *core.RingBuffer[*MetricSample]
 	running      bool
 	stopCh       chan struct{}
 	stoppedCh    chan struct{}
@@ -92,6 +97,9 @@ func NewCollector(config *ParsedConfig, opts ...CollectorOption) (*DefaultCollec
 		config:    config,
 		stopCh:    make(chan struct{}),
 		stoppedCh: make(chan struct{}),
+		// Default buffer size 60 (e.g. 1 minute at 1s interval)
+		// TODO: Make configurable
+		buffer: core.NewRingBuffer[*MetricSample](60),
 	}
 
 	// Apply options
@@ -238,9 +246,10 @@ func (c *DefaultCollector) Collect(ctx context.Context) (*MetricSample, error) {
 	// Update timestamp to reflect collection completion
 	sample.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
 
-	// Store as latest
+	// Store as latest and add to buffer
 	c.mu.Lock()
 	c.latest = sample
+	c.buffer.Write(sample)
 	c.mu.Unlock()
 
 	return sample, nil
@@ -276,6 +285,13 @@ func (c *DefaultCollector) Latest() *MetricSample {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.latest
+}
+
+// Drain returns all buffered metric samples since the last call.
+func (c *DefaultCollector) Drain() []*MetricSample {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buffer.Drain()
 }
 
 func (c *DefaultCollector) collectionLoop(ctx context.Context) {

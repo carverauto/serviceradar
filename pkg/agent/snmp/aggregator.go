@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/agent/core"
 )
 
 const (
@@ -30,9 +32,7 @@ const (
 
 // TimeSeriesData holds time-series data points for an OID.
 type TimeSeriesData struct {
-	points  []DataPoint
-	maxSize int
-	mu      sync.RWMutex
+	buffer *core.RingBuffer[DataPoint]
 }
 
 // SNMPAggregator implements the Aggregator interface.
@@ -68,6 +68,10 @@ func NewAggregator(interval time.Duration, maxDataPoints int) Aggregator {
 		interval = minInterval
 	}
 
+	if maxDataPoints <= 0 {
+		maxDataPoints = defaultDataPointSize
+	}
+
 	return &SNMPAggregator{
 		interval: interval,
 		data:     make(map[string]*TimeSeriesData),
@@ -84,13 +88,12 @@ func (a *SNMPAggregator) AddPoint(point *DataPoint) {
 	series, exists := a.data[point.OIDName]
 	if !exists {
 		series = &TimeSeriesData{
-			points:  make([]DataPoint, 0, defaultDataPointSize),
-			maxSize: a.maxSize,
+			buffer: core.NewRingBuffer[DataPoint](a.maxSize),
 		}
 		a.data[point.OIDName] = series
 	}
 
-	series.addPoint(point)
+	series.buffer.Write(*point)
 }
 
 // GetAggregatedData implements Aggregator interface.
@@ -107,6 +110,7 @@ func (a *SNMPAggregator) GetAggregatedData(oidName string, interval Interval) (*
 	timeRange := a.getTimeRange(interval)
 
 	// Get points within the time range
+	// Uses WalkReverse to efficiently find recent points without scanning the entire buffer.
 	points := series.getPointsInRange(timeRange)
 	if len(points) == 0 {
 		return nil, fmt.Errorf("%w: %s", errNoDataPointsInterval, oidName)
@@ -116,16 +120,29 @@ func (a *SNMPAggregator) GetAggregatedData(oidName string, interval Interval) (*
 	return a.aggregatePoints(points, AggregateAvg)
 }
 
+// Drain implements Aggregator interface.
+func (a *SNMPAggregator) Drain() map[string][]DataPoint {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	result := make(map[string][]DataPoint)
+	for oidName, series := range a.data {
+		points := series.buffer.Drain()
+		if len(points) > 0 {
+			result[oidName] = points
+		}
+	}
+	return result
+}
+
 // Reset implements Aggregator interface.
 func (a *SNMPAggregator) Reset() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	// Clear all data
+	// Re-initialize buffers
 	for _, series := range a.data {
-		series.mu.Lock()
-		series.points = series.points[:0]
-		series.mu.Unlock()
+		series.buffer = core.NewRingBuffer[DataPoint](a.maxSize)
 	}
 }
 
@@ -170,58 +187,35 @@ func (a *SNMPAggregator) aggregatePoints(points []DataPoint, aggType AggregateTy
 	return &result, nil
 }
 
-func (ts *TimeSeriesData) addPoint(point *DataPoint) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-
-	// Add new point
-	ts.points = append(ts.points, *point)
-
-	// Remove oldest points if we exceed maxSize
-	if len(ts.points) > ts.maxSize {
-		ts.points = ts.points[len(ts.points)-ts.maxSize:]
-	}
-}
-
 // getPointsInRange returns all points within the given duration.
 func (ts *TimeSeriesData) getPointsInRange(duration time.Duration) []DataPoint {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-
 	cutoff := time.Now().Add(-duration)
-
 	var result []DataPoint
 
-	// Find first point within range using binary search
-	idx := ts.findFirstPointAfter(cutoff)
-	if idx >= 0 {
-		result = make([]DataPoint, len(ts.points)-idx)
+	// Iterate backwards from newest to oldest
+	ts.buffer.WalkReverse(func(p DataPoint) bool {
+		// If the point is older than the cutoff, we can stop iterating
+		// because the buffer is time-ordered.
+		if p.Timestamp.Before(cutoff) {
+			return false
+		}
+		// Prepend to maintain chronological order in result?
+		// WalkReverse gives newest first. result will be [newest, ..., oldest]
+		// Typically aggregations work fine with this, or we can reverse it.
+		// Aggregate functions expect points.
+		result = append(result, p)
+		return true
+	})
 
-		copy(result, ts.points[idx:])
+	// Reverse the result to be chronological [oldest, ..., newest]
+	// if needed by aggregation functions (e.g. for trending).
+	// calculateAverage/Min/Max/Sum don't care about order.
+	// But it's safer to maintain expectation.
+	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+		result[i], result[j] = result[j], result[i]
 	}
 
 	return result
-}
-
-// findFirstPointAfter returns the index of the first point after the given time.
-func (ts *TimeSeriesData) findFirstPointAfter(t time.Time) int {
-	left, right := 0, len(ts.points)
-
-	// Binary search
-	for left < right {
-		mid := (left + right) / 2
-		if ts.points[mid].Timestamp.Before(t) {
-			left = mid + 1
-		} else {
-			right = mid
-		}
-	}
-
-	if left == len(ts.points) {
-		return -1
-	}
-
-	return left
 }
 
 // Calculation helper methods

@@ -116,8 +116,6 @@ type PushLoop struct {
 	icmpMu                    sync.RWMutex
 	sysmonLastSent            time.Time
 	sysmonMu                  sync.RWMutex
-	snmpLastSent              map[string]time.Time
-	snmpMu                    sync.RWMutex
 	statusDebounce            time.Duration
 	statusHeartbeat           time.Duration
 	statusDebounceConfigured  bool
@@ -309,7 +307,6 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		configPollInterval: defaultConfigPollInterval,
 		icmpChecks:         make(map[string]*icmpCheckConfig),
 		icmpLastRun:        make(map[string]time.Time),
-		snmpLastSent:       make(map[string]time.Time),
 		statusDebounce:     debounce,
 		statusHeartbeat:    heartbeat,
 		syncRuntime:        NewSyncRuntime(server, gateway, log),
@@ -700,7 +697,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	// Collect statuses, separating sysmon from other services
 	statuses, sysmonStatus := p.collectAllStatusesSeparated(ctx)
 
-	// Push regular statuses via PushStatus
+	// Push regular statuses via StreamStatus
 	if len(statuses) > 0 {
 		now := time.Now()
 		decision := p.evaluateStatusPush(statuses, now)
@@ -786,34 +783,116 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
+	sysmonSvc := p.server.sysmonService
 	p.server.mu.RUnlock()
 
-	// Build a single chunk for sysmon metrics
-	chunk := &proto.GatewayStatusChunk{
-		Services:    []*proto.GatewayServiceStatus{status},
-		GatewayId:   "",
-		AgentId:     agentID,
-		Timestamp:   time.Now().UnixNano(),
-		Partition:   partition,
-		SourceIp:    p.getSourceIP(),
-		IsFinal:     true,
-		ChunkIndex:  0,
-		TotalChunks: 1,
+	var chunks []*proto.GatewayStatusChunk
+
+	// If service is available, drain buffered metrics for transmission
+	if sysmonSvc != nil {
+		if samples := sysmonSvc.DrainMetrics(); len(samples) > 0 {
+			// Convert each sample into a separate status message to ensure
+			// full-fidelity time-series ingestion at the gateway.
+			for _, sample := range samples {
+				s := p.convertToSysmonGatewayStatusFromSample(sample)
+				if s == nil {
+					continue
+				}
+				// Append a new chunk for each sample.
+				chunks = append(chunks, &proto.GatewayStatusChunk{
+					Services:    []*proto.GatewayServiceStatus{s},
+					GatewayId:   "",
+					AgentId:     agentID,
+					Timestamp:   time.Now().UnixNano(),
+					Partition:   partition,
+					SourceIp:    p.getSourceIP(),
+				})
+			}
+		}
+	}
+
+	// If no buffered metrics (or service nil), fall back to sending the current status (heartbeat)
+	if len(chunks) == 0 && status != nil {
+		chunks = append(chunks, &proto.GatewayStatusChunk{
+			Services:    []*proto.GatewayServiceStatus{status},
+			GatewayId:   "",
+			AgentId:     agentID,
+			Timestamp:   time.Now().UnixNano(),
+			Partition:   partition,
+			SourceIp:    p.getSourceIP(),
+			IsFinal:     true,
+			ChunkIndex:  0,
+			TotalChunks: 1,
+		})
+	}
+
+	if len(chunks) == 0 {
+		return
+	}
+
+	// Update chunk metadata
+	totalChunks := int32(len(chunks))
+	for i, chunk := range chunks {
+		chunk.ChunkIndex = int32(i)
+		chunk.TotalChunks = totalChunks
+		chunk.IsFinal = int32(i) == totalChunks-1
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
+	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to stream sysmon metrics to gateway")
 		return
 	}
 
 	if resp.Received {
-		p.logger.Info().Msg("Successfully streamed sysmon metrics to gateway")
+		p.logger.Info().Int("sample_count", len(chunks)).Msg("Successfully streamed sysmon metrics to gateway")
 	} else {
 		p.logger.Warn().Msg("Gateway did not acknowledge sysmon metrics stream")
+	}
+}
+
+func (p *PushLoop) convertToSysmonGatewayStatusFromSample(sample *sysmon.MetricSample) *proto.GatewayServiceStatus {
+	if sample == nil {
+		return nil
+	}
+
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	p.server.mu.RUnlock()
+
+	// Build the response payload
+	payload := struct {
+		Available    bool                 `json:"available"`
+		ResponseTime int64                `json:"response_time"`
+		Status       *sysmon.MetricSample `json:"status"`
+	}{
+		Available:    true,
+		ResponseTime: 0, // Drained metrics don't have response time tracking easily available
+		Status:       sample,
+	}
+
+	messageBytes, err := json.Marshal(payload)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to marshal sysmon sample payload")
+		return nil
+	}
+
+	return &proto.GatewayServiceStatus{
+		ServiceName:  SysmonServiceName,
+		Available:    true,
+		Message:      messageBytes,
+		ServiceType:  SysmonServiceType,
+		ResponseTime: 0,
+		AgentId:      agentID,
+		GatewayId:    "",
+		Partition:    partition,
+		Source:       "sysmon-metrics",
+		KvStoreId:    kvStoreID,
 	}
 }
 
@@ -829,16 +908,26 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 		return false
 	}
 
+	// 1. Get metadata (HostIP, OID configs)
 	statuses, err := snmpSvc.GetTargetStatuses(ctx)
 	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to get SNMP target status")
-		return false
-	}
-	if len(statuses) == 0 {
+		p.logger.Warn().Err(err).Msg("Failed to get SNMP target status for metadata")
 		return false
 	}
 
-	results := p.buildSNMPMetricsResults(statuses)
+	// 2. Drain buffered metrics
+	metrics, err := snmpSvc.DrainMetrics(ctx)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to drain SNMP metrics")
+		return false
+	}
+
+	if len(metrics) == 0 {
+		return false
+	}
+
+	// 3. Build results for all drained points
+	results := p.buildSNMPDrainedResults(statuses, metrics)
 	if len(results) == 0 {
 		return false
 	}
@@ -889,7 +978,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	}
 
 	if resp.Received {
-		p.logger.Info().Msg("Successfully streamed SNMP metrics to gateway")
+		p.logger.Info().Int("result_count", len(results)).Msg("Successfully streamed SNMP metrics to gateway")
 		return true
 	}
 
@@ -1029,12 +1118,25 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 	return false
 }
 
-func (p *PushLoop) buildSNMPMetricsResults(
+func (p *PushLoop) buildSNMPDrainedResults(
 	statuses map[string]snmpchecker.TargetStatus,
+	metrics map[string][]snmpchecker.DataPoint,
 ) []snmpMetricResult {
 	results := make([]snmpMetricResult, 0)
 
-	for targetName, status := range statuses {
+	for key, points := range metrics {
+		parts := strings.SplitN(key, "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		targetName := parts[0]
+		oidName := parts[1]
+
+		status, ok := statuses[targetName]
+		if !ok {
+			continue
+		}
+
 		oidConfigs := make(map[string]snmpchecker.OIDConfig)
 		if status.Target != nil {
 			for _, oid := range status.Target.OIDs {
@@ -1042,38 +1144,29 @@ func (p *PushLoop) buildSNMPMetricsResults(
 			}
 		}
 
-		for oidName, oidStatus := range status.OIDStatus {
-			if oidStatus.LastUpdate.IsZero() || oidStatus.LastValue == nil {
-				continue
-			}
+		oidConfig, ok := oidConfigs[oidName]
+		oidValue := ""
+		dataType := ""
+		scale := 1.0
+		delta := false
+		if ok {
+			oidValue = oidConfig.OID
+			dataType = string(oidConfig.DataType)
+			scale = oidConfig.Scale
+			delta = oidConfig.Delta
+		}
 
-			cacheKey := targetName + "|" + oidName
-			if !p.shouldSendSNMPMetric(cacheKey, oidStatus.LastUpdate) {
-				continue
-			}
+		metricName, interfaceUID := parseSNMPMetricName(oidName)
+		ifIndex := parseIfIndexFromOID(oidValue)
 
-			oidConfig, ok := oidConfigs[oidName]
-			oidValue := ""
-			dataType := ""
-			scale := 1.0
-			delta := false
-			if ok {
-				oidValue = oidConfig.OID
-				dataType = string(oidConfig.DataType)
-				scale = oidConfig.Scale
-				delta = oidConfig.Delta
-			}
-
-			metricName, interfaceUID := parseSNMPMetricName(oidName)
-			ifIndex := parseIfIndexFromOID(oidValue)
-
+		for _, point := range points {
 			result := snmpMetricResult{
 				Target:       targetName,
 				Host:         status.HostIP,
 				Metric:       metricName,
 				OID:          oidValue,
-				Value:        oidStatus.LastValue,
-				Timestamp:    oidStatus.LastUpdate,
+				Value:        point.Value,
+				Timestamp:    point.Timestamp,
 				DataType:     dataType,
 				Scale:        scale,
 				Delta:        delta,
@@ -1085,31 +1178,10 @@ func (p *PushLoop) buildSNMPMetricsResults(
 			}
 
 			results = append(results, result)
-			p.markSNMPMetricSent(cacheKey, oidStatus.LastUpdate)
 		}
 	}
 
 	return results
-}
-
-func (p *PushLoop) shouldSendSNMPMetric(key string, ts time.Time) bool {
-	p.snmpMu.RLock()
-	last, ok := p.snmpLastSent[key]
-	p.snmpMu.RUnlock()
-
-	if !ok {
-		return true
-	}
-
-	return ts.After(last)
-}
-
-func (p *PushLoop) markSNMPMetricSent(key string, ts time.Time) {
-	p.snmpMu.Lock()
-	if last, ok := p.snmpLastSent[key]; !ok || ts.After(last) {
-		p.snmpLastSent[key] = ts
-	}
-	p.snmpMu.Unlock()
 }
 
 func (p *PushLoop) shouldSendSysmon(sample *sysmon.MetricSample) bool {

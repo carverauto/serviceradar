@@ -267,6 +267,23 @@ func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, err
 	return status, nil
 }
 
+// DrainMetrics implements the MetricProvider interface.
+func (s *SNMPService) DrainMetrics(_ context.Context) (map[string][]DataPoint, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	allMetrics := make(map[string][]DataPoint)
+	for targetName, aggregator := range s.aggregators {
+		metrics := aggregator.Drain()
+		for oidName, points := range metrics {
+			// Create a unique key for each metric stream
+			key := targetName + "|" + oidName
+			allMetrics[key] = points
+		}
+	}
+	return allMetrics, nil
+}
+
 // GetServiceStatus implements the proto.AgentServiceServer interface.
 // This is the gRPC endpoint for status requests.
 func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {

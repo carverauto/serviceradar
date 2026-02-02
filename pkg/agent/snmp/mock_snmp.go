@@ -134,6 +134,20 @@ func (mr *MockAggregatorMockRecorder) AddPoint(point any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddPoint", reflect.TypeOf((*MockAggregator)(nil).AddPoint), point)
 }
 
+// Drain mocks base method.
+func (m *MockAggregator) Drain() map[string][]DataPoint {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Drain")
+	ret0, _ := ret[0].(map[string][]DataPoint)
+	return ret0
+}
+
+// Drain indicates an expected call of Drain.
+func (mr *MockAggregatorMockRecorder) Drain() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Drain", reflect.TypeOf((*MockAggregator)(nil).Drain))
+}
+
 // GetAggregatedData mocks base method.
 func (m *MockAggregator) GetAggregatedData(oidName string, interval Interval) (*DataPoint, error) {
 	m.ctrl.T.Helper()

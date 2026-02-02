@@ -1674,6 +1674,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
+  defp netflow_protocol_label_variant(6, _protocol, _name), do: {"TCP", "success"}
+  defp netflow_protocol_label_variant(17, _protocol, _name), do: {"UDP", "info"}
+  defp netflow_protocol_label_variant(1, _protocol, _name), do: {"ICMP", "ghost"}
+
+  defp netflow_protocol_label_variant(_protocol_num, protocol, name) do
+    label =
+      cond do
+        is_binary(name) and name != "" -> String.upcase(name)
+        is_binary(protocol) and protocol != "" -> protocol
+        true -> "Unknown"
+      end
+
+    {label, "ghost"}
+  end
+
   defp netflow_flow_type_badge(assigns) do
     flow_type = assigns.flow_type
 
