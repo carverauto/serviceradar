@@ -99,12 +99,17 @@ func (s *SweepService) Stop(_ context.Context) error {
 
 // Name returns the service name.
 func (*SweepService) Name() string {
-	return "network_sweep"
+	return networkSweepServiceName
 }
 
 // UpdateConfig updates the service configuration.
 func (s *SweepService) UpdateConfig(config *models.Config) error {
 	newConfig := applyDefaultConfig(config)
+
+	s.logger.Info().
+		Dur("newInterval", newConfig.Interval).
+		Str("sweepGroupID", newConfig.SweepGroupID).
+		Msg("Applying updated sweep config")
 
 	// Update execution context for result tracking (takes its own lock)
 	if newConfig.SweepGroupID != "" || newConfig.ConfigHash != "" {
@@ -160,7 +165,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 	return &proto.StatusResponse{
 		Available:    true,
 		Message:      statusJSON,
-		ServiceName:  "network_sweep",
+		ServiceName:  networkSweepServiceName,
 		ServiceType:  "sweep",
 		ResponseTime: time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds(),
 	}, nil
@@ -310,7 +315,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		return &proto.ResultsResponse{
 			HasNewData:      false,
 			CurrentSequence: currentSeqStr,
-			ServiceName:     "network_sweep",
+			ServiceName:     networkSweepServiceName,
 			ServiceType:     "sweep",
 			ExecutionId:     s.executionID,
 			SweepGroupId:    s.sweepGroupID,
@@ -329,7 +334,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		return &proto.ResultsResponse{
 			HasNewData:      false,
 			CurrentSequence: currentSeqStr,
-			ServiceName:     "network_sweep",
+			ServiceName:     networkSweepServiceName,
 			ServiceType:     "sweep",
 			ExecutionId:     s.executionID,
 			SweepGroupId:    s.sweepGroupID,
@@ -399,7 +404,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		HasNewData:      true,
 		CurrentSequence: currentSeqStr,
 		Data:            resultData,
-		ServiceName:     "network_sweep",
+		ServiceName:     networkSweepServiceName,
 		ServiceType:     "sweep",
 		Available:       true,
 		Timestamp:       time.Now().Unix(),

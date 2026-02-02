@@ -71,25 +71,31 @@ func TestParseGatewaySweepConfig_WithDeviceTargets(t *testing.T) {
 	}
 
 	// Verify basic config fields
-	if len(config.Networks) != 1 {
-		t.Errorf("expected 1 network, got %d", len(config.Networks))
+	if len(config.Groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(config.Groups))
 	}
 
-	if len(config.Ports) != 3 {
-		t.Errorf("expected 3 ports, got %d", len(config.Ports))
+	group := config.Groups[0]
+
+	if len(group.Networks) != 1 {
+		t.Errorf("expected 1 network, got %d", len(group.Networks))
 	}
 
-	if len(config.SweepModes) != 2 {
-		t.Errorf("expected 2 sweep modes, got %d", len(config.SweepModes))
+	if len(group.Ports) != 3 {
+		t.Errorf("expected 3 ports, got %d", len(group.Ports))
+	}
+
+	if len(group.SweepModes) != 2 {
+		t.Errorf("expected 2 sweep modes, got %d", len(group.SweepModes))
 	}
 
 	// Verify device targets are parsed
-	if len(config.DeviceTargets) != 2 {
-		t.Fatalf("expected 2 device targets, got %d", len(config.DeviceTargets))
+	if len(group.DeviceTargets) != 2 {
+		t.Fatalf("expected 2 device targets, got %d", len(group.DeviceTargets))
 	}
 
 	// Verify first device target
-	dt1 := config.DeviceTargets[0]
+	dt1 := group.DeviceTargets[0]
 	if dt1.Network != "192.168.1.10/32" {
 		t.Errorf("expected network '192.168.1.10/32', got '%s'", dt1.Network)
 	}
@@ -107,7 +113,7 @@ func TestParseGatewaySweepConfig_WithDeviceTargets(t *testing.T) {
 	}
 
 	// Verify second device target (already has /32)
-	dt2 := config.DeviceTargets[1]
+	dt2 := group.DeviceTargets[1]
 	if dt2.Network != "192.168.1.20/32" {
 		t.Errorf("expected network '192.168.1.20/32', got '%s'", dt2.Network)
 	}
@@ -155,8 +161,12 @@ func TestParseGatewaySweepConfig_NoDeviceTargets(t *testing.T) {
 	}
 
 	// DeviceTargets should be nil/empty when not provided
-	if len(config.DeviceTargets) != 0 {
-		t.Errorf("expected 0 device targets, got %d", len(config.DeviceTargets))
+	if len(config.Groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(config.Groups))
+	}
+
+	if len(config.Groups[0].DeviceTargets) != 0 {
+		t.Errorf("expected 0 device targets, got %d", len(config.Groups[0].DeviceTargets))
 	}
 }
 
@@ -170,6 +180,67 @@ func TestParseGatewaySweepConfig_EmptyPayload(t *testing.T) {
 
 	if config != nil {
 		t.Error("expected nil config for empty payload")
+	}
+}
+
+func TestParseGatewaySweepConfig_MultipleGroups(t *testing.T) {
+	log := logger.NewTestLogger()
+
+	configJSON := []byte(`{
+		"sweep": {
+			"groups": [
+				{
+					"id": "group-1",
+					"targets": ["10.0.1.0/24"],
+					"ports": [80],
+					"modes": ["icmp"],
+					"schedule": {
+						"type": "interval",
+						"interval": "1h"
+					},
+					"settings": {
+						"concurrency": 10,
+						"timeout": "5s"
+					}
+				},
+				{
+					"id": "group-2",
+					"targets": ["10.0.2.0/24"],
+					"ports": [443],
+					"modes": ["tcp"],
+					"schedule": {
+						"type": "interval",
+						"interval": "15m"
+					},
+					"settings": {
+						"concurrency": 50,
+						"timeout": "30s"
+					}
+				}
+			],
+			"config_hash": "merged-hash"
+		}
+	}`)
+
+	config, err := parseGatewaySweepConfig(configJSON, log)
+	if err != nil {
+		t.Fatalf("parseGatewaySweepConfig failed: %v", err)
+	}
+
+	if len(config.Groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(config.Groups))
+	}
+
+	if config.Groups[0].SweepGroupID != "group-1" {
+		t.Errorf("expected sweep_group_id 'group-1', got '%s'", config.Groups[0].SweepGroupID)
+	}
+
+	if config.Groups[1].SweepGroupID != "group-2" {
+		t.Errorf("expected sweep_group_id 'group-2', got '%s'", config.Groups[1].SweepGroupID)
+	}
+
+	if config.ConfigHash != "merged-hash" {
+		t.Errorf("expected config_hash 'merged-hash', got '%s'", config.ConfigHash)
 	}
 }
 

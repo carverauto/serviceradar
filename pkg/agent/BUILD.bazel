@@ -11,6 +11,7 @@ go_library(
         "kv.go",
         "mapper_config_gateway.go",
         "mapper_service.go",
+        "multi_sweep_service.go",
         "mock_agent.go",
         "plugin_runtime.go",
         "push_loop.go",

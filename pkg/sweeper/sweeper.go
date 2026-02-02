@@ -63,6 +63,7 @@ type NetworkSweeper struct {
 	// Device result aggregation for multi-IP devices
 	deviceResults map[string]*DeviceResultAggregator
 	resultsMu     sync.Mutex
+	tickerReset   chan struct{}
 }
 
 // DeviceResultAggregator aggregates scan results for a device with multiple IPs
@@ -124,6 +125,7 @@ func NewNetworkSweeper(
 		logger:            log,
 		done:              nil,
 		deviceResults:     make(map[string]*DeviceResultAggregator),
+		tickerReset:       make(chan struct{}, 1),
 	}
 
 	ns.ensureControlChannels()
@@ -421,6 +423,12 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 			s.logger.Info().Msg("Received done signal, stopping sweeper")
 
 			return nil
+		case <-s.tickerReset:
+			s.mu.RLock()
+			newInterval := s.config.Interval
+			s.mu.RUnlock()
+			s.logger.Info().Dur("newInterval", newInterval).Msg("Resetting sweep ticker due to interval change")
+			ticker.Reset(newInterval)
 		case t := <-ticker.C:
 			s.logger.Debug().Time("tickTime", t).Msg("Ticker fired, starting periodic sweep")
 
@@ -713,7 +721,16 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 		s.logger.Debug().Strs("preserved_fields", preservedFields).Msg("Preserved existing config values from zero/nil values")
 	}
 
+	oldInterval := s.config.Interval
 	s.config = config
+
+	if config.Interval != oldInterval {
+		select {
+		case s.tickerReset <- struct{}{}:
+		default:
+			// Signal already pending
+		}
+	}
 
 	// Re-check if we need ICMP scanner based on updated config
 	needsICMP := false

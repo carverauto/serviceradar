@@ -39,6 +39,17 @@ type SweepStatusProvider interface {
 	GetStatus(context.Context) (*proto.StatusResponse, error)
 }
 
+// SweepResultsProvider provides sweep results with sequence tracking.
+type SweepResultsProvider interface {
+	GetSweepResults(context.Context, string) (*proto.ResultsResponse, error)
+	GetConfigHash() string
+}
+
+// SweepGroupConfigUpdater applies multi-group sweep configurations.
+type SweepGroupConfigUpdater interface {
+	UpdateSweepGroups(*SweepGroupsConfig) error
+}
+
 // KVStore defines the interface for key-value store operations.
 // It embeds the shared configuration KV interface so agent stores remain compatible
 // with the config loader while allowing optional extensions (e.g. PutIfAbsent).
