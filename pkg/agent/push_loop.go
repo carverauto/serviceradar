@@ -106,7 +106,6 @@ type PushLoop struct {
 	doneOnce                  sync.Once
 	configVersion             string        // Current config version for polling
 	configPollInterval        time.Duration // How often to poll for config updates
-	gatewayID                 string        // Gateway ID assigned during enrollment
 	enrolled                  bool          // Whether we've successfully enrolled
 	started                   bool          // Whether Start has been invoked
 	enrollMu                  sync.Mutex
@@ -125,7 +124,7 @@ type PushLoop struct {
 	lastStatusSignature       string
 	syncRuntime               *SyncRuntime
 
-	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started, gatewayID
+	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
 }
@@ -254,18 +253,6 @@ func (p *PushLoop) isEnrolled() bool {
 func (p *PushLoop) setEnrolled(v bool) {
 	p.stateMu.Lock()
 	p.enrolled = v
-	p.stateMu.Unlock()
-}
-
-func (p *PushLoop) getGatewayID() string {
-	p.stateMu.RLock()
-	defer p.stateMu.RUnlock()
-	return p.gatewayID
-}
-
-func (p *PushLoop) setGatewayID(id string) {
-	p.stateMu.Lock()
-	p.gatewayID = id
 	p.stateMu.Unlock()
 }
 
@@ -758,7 +745,7 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
-	gatewayID := p.getGatewayID()
+	gatewayID := p.gateway.GetGatewayID()
 
 	req := &proto.GatewayStatusRequest{
 		Services:  statuses,
@@ -799,7 +786,7 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	partition := p.server.config.Partition
 	sysmonSvc := p.server.sysmonService
 	p.server.mu.RUnlock()
-	gatewayID := p.getGatewayID()
+	gatewayID := p.gateway.GetGatewayID()
 
 	var chunks []*proto.GatewayStatusChunk
 
@@ -879,7 +866,7 @@ func (p *PushLoop) convertToSysmonGatewayStatusFromSample(sample *sysmon.MetricS
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
-	gatewayID := p.getGatewayID()
+	gatewayID := p.gateway.GetGatewayID()
 
 	// Build the response payload
 	payload := struct {
@@ -919,7 +906,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	kvStoreID := p.server.config.KVAddress
 	snmpSvc := p.server.snmpService
 	p.server.mu.RUnlock()
-	gatewayID := p.getGatewayID()
+	gatewayID := p.gateway.GetGatewayID()
 
 	if snmpSvc == nil || !snmpSvc.IsEnabled() {
 		return false
@@ -1010,7 +997,7 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
-	gatewayID := p.getGatewayID()
+	gatewayID := p.gateway.GetGatewayID()
 
 	if pluginManager == nil {
 		return false
@@ -1084,7 +1071,7 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
-	gatewayID := p.getGatewayID()
+	gatewayID := p.gateway.GetGatewayID()
 
 	if pluginManager == nil {
 		return false
@@ -1715,7 +1702,7 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
-	gatewayID := p.getGatewayID()
+	gatewayID := p.gateway.GetGatewayID()
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  serviceName,
@@ -1743,7 +1730,7 @@ func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *pro
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
-	gatewayID := p.getGatewayID()
+	gatewayID := p.gateway.GetGatewayID()
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  SysmonServiceName,
@@ -1772,7 +1759,7 @@ func (p *PushLoop) buildPluginGatewayStatus(
 	}
 
 	serviceName := pluginServiceName(result)
-	gatewayID := p.getGatewayID()
+	gatewayID := p.gateway.GetGatewayID()
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  serviceName,
@@ -2059,7 +2046,7 @@ func (p *PushLoop) buildResultsStatusChunks(
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
 	p.server.mu.RUnlock()
-	gatewayID := p.getGatewayID()
+	gatewayID := p.gateway.GetGatewayID()
 	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition, gatewayID)
 }
 
@@ -2296,7 +2283,6 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 		}
 	}
 
-	p.setGatewayID(helloResp.GatewayId)
 	p.setEnrolled(true)
 	p.logger.Info().
 		Str("agent_id", helloResp.AgentId).
