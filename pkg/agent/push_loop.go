@@ -786,34 +786,130 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
+	sysmonSvc := p.server.sysmonService
 	p.server.mu.RUnlock()
 
-	// Build a single chunk for sysmon metrics
-	chunk := &proto.GatewayStatusChunk{
-		Services:    []*proto.GatewayServiceStatus{status},
-		GatewayId:   "",
-		AgentId:     agentID,
-		Timestamp:   time.Now().UnixNano(),
-		Partition:   partition,
-		SourceIp:    p.getSourceIP(),
-		IsFinal:     true,
-		ChunkIndex:  0,
-		TotalChunks: 1,
+	var chunks []*proto.GatewayStatusChunk
+
+	// If service is available, try to drain buffered metrics
+	if sysmonSvc != nil {
+		if samples := sysmonSvc.DrainMetrics(); len(samples) > 0 {
+			// Create a chunk for each sample (or batch them if we implement batching logic later)
+			// For now, let's just send the latest one as status (to maintain heartbeat)
+			// and stream the rest as historical data if needed.
+			// Actually, the requirement is "Lossless System Monitoring".
+			// So we should send ALL samples.
+
+			// Ideally we would batch these into a single message list, but the proto
+			// message structure for Sysmon might expect a single "Status" object per ServiceStatus.
+			// Let's check the proto definition...
+			// Message is []byte. For sysmon it's a JSON object with "status": MetricSample.
+			// We can change the payload to be "samples": [MetricSample] or send multiple ServiceStatuses.
+
+			// Strategy: Send multiple GatewayServiceStatus messages in the stream, one for each sample.
+			for _, sample := range samples {
+				s := p.convertToSysmonGatewayStatusFromSample(sample)
+				if s == nil {
+					continue
+				}
+				// We can pack multiple statuses into one chunk
+				chunks = append(chunks, &proto.GatewayStatusChunk{
+					Services:    []*proto.GatewayServiceStatus{s},
+					GatewayId:   "",
+					AgentId:     agentID,
+					Timestamp:   time.Now().UnixNano(),
+					Partition:   partition,
+					SourceIp:    p.getSourceIP(),
+					IsFinal:     false, // Will set later
+					ChunkIndex:  0,     // Will set later
+					TotalChunks: 0,     // Will set later
+				})
+			}
+		}
+	}
+
+	// If no buffered metrics (or service nil), fall back to sending the current status (heartbeat)
+	if len(chunks) == 0 && status != nil {
+		chunks = append(chunks, &proto.GatewayStatusChunk{
+			Services:    []*proto.GatewayServiceStatus{status},
+			GatewayId:   "",
+			AgentId:     agentID,
+			Timestamp:   time.Now().UnixNano(),
+			Partition:   partition,
+			SourceIp:    p.getSourceIP(),
+			IsFinal:     true,
+			ChunkIndex:  0,
+			TotalChunks: 1,
+		})
+	}
+
+	if len(chunks) == 0 {
+		return
+	}
+
+	// Update chunk metadata
+	totalChunks := int32(len(chunks))
+	for i, chunk := range chunks {
+		chunk.ChunkIndex = int32(i)
+		chunk.TotalChunks = totalChunks
+		chunk.IsFinal = int32(i) == totalChunks-1
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
+	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to stream sysmon metrics to gateway")
 		return
 	}
 
 	if resp.Received {
-		p.logger.Info().Msg("Successfully streamed sysmon metrics to gateway")
+		p.logger.Info().Int("sample_count", len(chunks)).Msg("Successfully streamed sysmon metrics to gateway")
 	} else {
 		p.logger.Warn().Msg("Gateway did not acknowledge sysmon metrics stream")
+	}
+}
+
+func (p *PushLoop) convertToSysmonGatewayStatusFromSample(sample *sysmon.MetricSample) *proto.GatewayServiceStatus {
+	if sample == nil {
+		return nil
+	}
+
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	p.server.mu.RUnlock()
+
+	// Build the response payload
+	payload := struct {
+		Available    bool                 `json:"available"`
+		ResponseTime int64                `json:"response_time"`
+		Status       *sysmon.MetricSample `json:"status"`
+	}{
+		Available:    true,
+		ResponseTime: 0, // Drained metrics don't have response time tracking easily available
+		Status:       sample,
+	}
+
+	messageBytes, err := json.Marshal(payload)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to marshal sysmon sample payload")
+		return nil
+	}
+
+	return &proto.GatewayServiceStatus{
+		ServiceName:  SysmonServiceName,
+		Available:    true,
+		Message:      messageBytes,
+		ServiceType:  SysmonServiceType,
+		ResponseTime: 0,
+		AgentId:      agentID,
+		GatewayId:    "",
+		Partition:    partition,
+		Source:       "sysmon-metrics",
+		KvStoreId:    kvStoreID,
 	}
 }
 
