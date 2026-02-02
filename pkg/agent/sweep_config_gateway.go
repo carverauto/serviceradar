@@ -37,14 +37,14 @@ type gatewaySweepConfig struct {
 }
 
 type gatewaySweepGroup struct {
-	ID            string                 `json:"id"`
-	SweepGroupID  string                 `json:"sweep_group_id"`
-	Targets       []string               `json:"targets"`
-	Ports         []int                  `json:"ports"`
-	Modes         []string               `json:"modes"`
-	Schedule      gatewaySweepSchedule   `json:"schedule"`
-	Settings      gatewaySweepSettings   `json:"settings"`
-	DeviceTargets []gatewayDeviceTarget  `json:"device_targets,omitempty"`
+	ID            string                `json:"id"`
+	SweepGroupID  string                `json:"sweep_group_id"`
+	Targets       []string              `json:"targets"`
+	Ports         []int                 `json:"ports"`
+	Modes         []string              `json:"modes"`
+	Schedule      gatewaySweepSchedule  `json:"schedule"`
+	Settings      gatewaySweepSettings  `json:"settings"`
+	DeviceTargets []gatewayDeviceTarget `json:"device_targets,omitempty"`
 }
 
 type gatewayDeviceTarget struct {
@@ -66,7 +66,7 @@ type gatewaySweepSettings struct {
 	Timeout     string `json:"timeout"`
 }
 
-func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepConfig, error) {
+func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepGroupsConfig, error) {
 	if len(configJSON) == 0 {
 		return nil, nil
 	}
@@ -87,74 +87,44 @@ func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepConfig
 
 	if len(sweep.Groups) == 0 {
 		log.Info().Msg("Gateway sweep config contained no groups; clearing sweep targets")
-		return &SweepConfig{ConfigHash: sweep.ConfigHash}, nil
+		return &SweepGroupsConfig{ConfigHash: sweep.ConfigHash}, nil
 	}
 
-	// Merge all groups into a single configuration
-	config := &SweepConfig{
+	config := &SweepGroupsConfig{
 		ConfigHash: sweep.ConfigHash,
+		Groups:     make([]SweepGroupConfig, 0, len(sweep.Groups)),
 	}
 
-	// To avoid duplicate ports and modes
-	portMap := make(map[int]struct{})
-	modeMap := make(map[models.SweepMode]struct{})
-	networkMap := make(map[string]struct{})
-
-	for i, group := range sweep.Groups {
-		// Use the first group's ID as the primary sweep group ID for result attribution
-		if i == 0 {
-			sweepGroupID := group.SweepGroupID
-			if sweepGroupID == "" {
-				sweepGroupID = group.ID
-			}
-			config.SweepGroupID = sweepGroupID
+	for _, group := range sweep.Groups {
+		sweepGroupID := group.SweepGroupID
+		if sweepGroupID == "" {
+			sweepGroupID = group.ID
 		}
 
-		// Merge networks
-		for _, target := range normalizeTargets(group.Targets, log) {
-			if _, exists := networkMap[target]; !exists {
-				config.Networks = append(config.Networks, target)
-				networkMap[target] = struct{}{}
-			}
-		}
-
-		// Merge ports
-		for _, port := range group.Ports {
-			if _, exists := portMap[port]; !exists {
-				config.Ports = append(config.Ports, port)
-				portMap[port] = struct{}{}
-			}
-		}
-
-		// Merge sweep modes
-		for _, mode := range parseSweepModes(group.Modes, log) {
-			if _, exists := modeMap[mode]; !exists {
-				config.SweepModes = append(config.SweepModes, mode)
-				modeMap[mode] = struct{}{}
-			}
-		}
-
-		// Merge device targets
-		config.DeviceTargets = append(config.DeviceTargets, convertDeviceTargets(group.DeviceTargets, log)...)
-
-		// Merge settings
-		if group.Settings.Concurrency > config.Concurrency {
-			config.Concurrency = group.Settings.Concurrency
+		groupConfig := SweepGroupConfig{
+			ID:             group.ID,
+			SweepGroupID:   sweepGroupID,
+			Networks:       normalizeTargets(group.Targets, log),
+			Ports:          group.Ports,
+			SweepModes:     parseSweepModes(group.Modes, log),
+			DeviceTargets:  convertDeviceTargets(group.DeviceTargets, log),
+			Concurrency:    group.Settings.Concurrency,
+			ScheduleType:   strings.ToLower(strings.TrimSpace(group.Schedule.Type)),
+			CronExpression: strings.TrimSpace(group.Schedule.Cron),
+			ConfigHash:     sweep.ConfigHash,
 		}
 
 		if interval, ok := parseScheduleInterval(group.Schedule, log); ok {
-			if config.Interval == 0 || interval < config.Interval {
-				config.Interval = interval
-			}
+			groupConfig.Interval = interval
 		}
 
 		if timeout, err := parseDurationValue(group.Settings.Timeout); err == nil {
-			if timeout > config.Timeout {
-				config.Timeout = timeout
-			}
+			groupConfig.Timeout = timeout
 		} else if group.Settings.Timeout != "" {
 			log.Warn().Err(err).Str("timeout", group.Settings.Timeout).Msg("Invalid sweep timeout")
 		}
+
+		config.Groups = append(config.Groups, groupConfig)
 	}
 
 	return config, nil

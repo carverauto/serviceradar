@@ -92,12 +92,38 @@ func createSweepService(
 	cfg *ServerConfig,
 	log logger.Logger,
 ) (Service, error) {
-	sweepModelConfig, err := buildSweepModelConfig(cfg, sweepConfig, log)
+	if sweepConfig == nil {
+		return nil, errSweepConfigNil
+	}
+
+	groupConfig := sweepGroupConfigFromSweepConfig(sweepConfig)
+	service, err := NewMultiSweepService(cfg, []SweepGroupConfig{groupConfig}, log)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewSweepService(ctx, sweepModelConfig, log)
+	return service, nil
+}
+
+func sweepGroupConfigFromSweepConfig(sweepConfig *SweepConfig) SweepGroupConfig {
+	groupID := sweepConfig.SweepGroupID
+	if groupID == "" {
+		groupID = defaultSweepGroupID
+	}
+
+	return SweepGroupConfig{
+		ID:            groupID,
+		SweepGroupID:  groupID,
+		Networks:      sweepConfig.Networks,
+		Ports:         sweepConfig.Ports,
+		SweepModes:    sweepConfig.SweepModes,
+		DeviceTargets: sweepConfig.DeviceTargets,
+		Interval:      sweepConfig.Interval,
+		Concurrency:   sweepConfig.Concurrency,
+		Timeout:       sweepConfig.Timeout,
+		ScheduleType:  "interval",
+		ConfigHash:    sweepConfig.ConfigHash,
+	}
 }
 
 func buildSweepModelConfig(cfg *ServerConfig, sweepConfig *SweepConfig, log logger.Logger) (*models.Config, error) {
@@ -133,6 +159,37 @@ func buildSweepModelConfig(cfg *ServerConfig, sweepConfig *SweepConfig, log logg
 		Partition:     partition,
 		SweepGroupID:  sweepConfig.SweepGroupID,
 		ConfigHash:    sweepConfig.ConfigHash,
+	}, nil
+}
+
+func buildSweepModelConfigFromGroup(cfg *ServerConfig, group SweepGroupConfig, log logger.Logger) (*models.Config, error) {
+	if cfg == nil {
+		return nil, ErrAgentIDRequired
+	}
+
+	partition := cfg.Partition
+	if partition == "" {
+		log.Warn().Msg("Partition not configured, using 'default'. Consider setting partition in agent config")
+		partition = defaultPartition
+	}
+
+	if cfg.AgentID == "" {
+		return nil, ErrAgentIDRequired
+	}
+
+	return &models.Config{
+		Networks:      group.Networks,
+		Ports:         group.Ports,
+		SweepModes:    group.SweepModes,
+		DeviceTargets: group.DeviceTargets,
+		Interval:      time.Duration(group.Interval),
+		Concurrency:   group.Concurrency,
+		Timeout:       time.Duration(group.Timeout),
+		AgentID:       cfg.AgentID,
+		GatewayID:     cfg.AgentID,
+		Partition:     partition,
+		SweepGroupID:  group.SweepGroupID,
+		ConfigHash:    group.ConfigHash,
 	}, nil
 }
 

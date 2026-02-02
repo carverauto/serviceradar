@@ -18,7 +18,6 @@ package agent
 
 import (
 	"testing"
-	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -72,25 +71,31 @@ func TestParseGatewaySweepConfig_WithDeviceTargets(t *testing.T) {
 	}
 
 	// Verify basic config fields
-	if len(config.Networks) != 1 {
-		t.Errorf("expected 1 network, got %d", len(config.Networks))
+	if len(config.Groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(config.Groups))
 	}
 
-	if len(config.Ports) != 3 {
-		t.Errorf("expected 3 ports, got %d", len(config.Ports))
+	group := config.Groups[0]
+
+	if len(group.Networks) != 1 {
+		t.Errorf("expected 1 network, got %d", len(group.Networks))
 	}
 
-	if len(config.SweepModes) != 2 {
-		t.Errorf("expected 2 sweep modes, got %d", len(config.SweepModes))
+	if len(group.Ports) != 3 {
+		t.Errorf("expected 3 ports, got %d", len(group.Ports))
+	}
+
+	if len(group.SweepModes) != 2 {
+		t.Errorf("expected 2 sweep modes, got %d", len(group.SweepModes))
 	}
 
 	// Verify device targets are parsed
-	if len(config.DeviceTargets) != 2 {
-		t.Fatalf("expected 2 device targets, got %d", len(config.DeviceTargets))
+	if len(group.DeviceTargets) != 2 {
+		t.Fatalf("expected 2 device targets, got %d", len(group.DeviceTargets))
 	}
 
 	// Verify first device target
-	dt1 := config.DeviceTargets[0]
+	dt1 := group.DeviceTargets[0]
 	if dt1.Network != "192.168.1.10/32" {
 		t.Errorf("expected network '192.168.1.10/32', got '%s'", dt1.Network)
 	}
@@ -108,7 +113,7 @@ func TestParseGatewaySweepConfig_WithDeviceTargets(t *testing.T) {
 	}
 
 	// Verify second device target (already has /32)
-	dt2 := config.DeviceTargets[1]
+	dt2 := group.DeviceTargets[1]
 	if dt2.Network != "192.168.1.20/32" {
 		t.Errorf("expected network '192.168.1.20/32', got '%s'", dt2.Network)
 	}
@@ -156,8 +161,12 @@ func TestParseGatewaySweepConfig_NoDeviceTargets(t *testing.T) {
 	}
 
 	// DeviceTargets should be nil/empty when not provided
-	if len(config.DeviceTargets) != 0 {
-		t.Errorf("expected 0 device targets, got %d", len(config.DeviceTargets))
+	if len(config.Groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(config.Groups))
+	}
+
+	if len(config.Groups[0].DeviceTargets) != 0 {
+		t.Errorf("expected 0 device targets, got %d", len(config.Groups[0].DeviceTargets))
 	}
 }
 
@@ -171,34 +180,6 @@ func TestParseGatewaySweepConfig_EmptyPayload(t *testing.T) {
 
 	if config != nil {
 		t.Error("expected nil config for empty payload")
-	}
-}
-
-func TestConvertDeviceTargets_NormalizesIPsToCIDR(t *testing.T) {
-	log := logger.NewTestLogger()
-
-	targets := []gatewayDeviceTarget{
-		{Network: "10.0.0.1", SweepModes: []string{"tcp"}},
-		{Network: "10.0.0.2/32", SweepModes: []string{"icmp"}},
-		{Network: "invalid", SweepModes: []string{"tcp"}},
-		{Network: "", SweepModes: []string{"tcp"}},
-	}
-
-	converted := convertDeviceTargets(targets, log)
-
-	// Should have 2 valid targets (invalid and empty should be skipped)
-	if len(converted) != 2 {
-		t.Fatalf("expected 2 converted targets, got %d", len(converted))
-	}
-
-	// First target should be normalized to /32
-	if converted[0].Network != "10.0.0.1/32" {
-		t.Errorf("expected '10.0.0.1/32', got '%s'", converted[0].Network)
-	}
-
-	// Second target should remain as-is
-	if converted[1].Network != "10.0.0.2/32" {
-		t.Errorf("expected '10.0.0.2/32', got '%s'", converted[1].Network)
 	}
 }
 
@@ -246,40 +227,47 @@ func TestParseGatewaySweepConfig_MultipleGroups(t *testing.T) {
 		t.Fatalf("parseGatewaySweepConfig failed: %v", err)
 	}
 
-	// Verify merged networks
-	if len(config.Networks) != 2 {
-		t.Errorf("expected 2 networks, got %d", len(config.Networks))
+	if len(config.Groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(config.Groups))
 	}
 
-	// Verify merged ports
-	if len(config.Ports) != 2 {
-		t.Errorf("expected 2 ports, got %d", len(config.Ports))
+	if config.Groups[0].SweepGroupID != "group-1" {
+		t.Errorf("expected sweep_group_id 'group-1', got '%s'", config.Groups[0].SweepGroupID)
 	}
 
-	// Verify merged sweep modes
-	if len(config.SweepModes) != 2 {
-		t.Errorf("expected 2 sweep modes, got %d", len(config.SweepModes))
+	if config.Groups[1].SweepGroupID != "group-2" {
+		t.Errorf("expected sweep_group_id 'group-2', got '%s'", config.Groups[1].SweepGroupID)
 	}
 
-	// Verify interval selection (min should win)
-	expectedInterval := Duration(15 * 60 * time.Second)
-	if config.Interval != expectedInterval {
-		t.Errorf("expected interval %v, got %v", expectedInterval, config.Interval)
+	if config.ConfigHash != "merged-hash" {
+		t.Errorf("expected config_hash 'merged-hash', got '%s'", config.ConfigHash)
+	}
+}
+
+func TestConvertDeviceTargets_NormalizesIPsToCIDR(t *testing.T) {
+	log := logger.NewTestLogger()
+
+	targets := []gatewayDeviceTarget{
+		{Network: "10.0.0.1", SweepModes: []string{"tcp"}},
+		{Network: "10.0.0.2/32", SweepModes: []string{"icmp"}},
+		{Network: "invalid", SweepModes: []string{"tcp"}},
+		{Network: "", SweepModes: []string{"tcp"}},
 	}
 
-	// Verify timeout selection (max should win)
-	expectedTimeout := Duration(30 * time.Second)
-	if config.Timeout != expectedTimeout {
-		t.Errorf("expected timeout %v, got %v", expectedTimeout, config.Timeout)
+	converted := convertDeviceTargets(targets, log)
+
+	// Should have 2 valid targets (invalid and empty should be skipped)
+	if len(converted) != 2 {
+		t.Fatalf("expected 2 converted targets, got %d", len(converted))
 	}
 
-	// Verify concurrency selection (max should win)
-	if config.Concurrency != 50 {
-		t.Errorf("expected concurrency 50, got %d", config.Concurrency)
+	// First target should be normalized to /32
+	if converted[0].Network != "10.0.0.1/32" {
+		t.Errorf("expected '10.0.0.1/32', got '%s'", converted[0].Network)
 	}
 
-	// Verify first group ID is preserved for attribution
-	if config.SweepGroupID != "group-1" {
-		t.Errorf("expected sweep_group_id 'group-1', got '%s'", config.SweepGroupID)
+	// Second target should remain as-is
+	if converted[1].Network != "10.0.0.2/32" {
+		t.Errorf("expected '10.0.0.2/32', got '%s'", converted[1].Network)
 	}
 }

@@ -800,12 +800,12 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 				}
 				// Append a new chunk for each sample.
 				chunks = append(chunks, &proto.GatewayStatusChunk{
-					Services:    []*proto.GatewayServiceStatus{s},
-					GatewayId:   "",
-					AgentId:     agentID,
-					Timestamp:   time.Now().UnixNano(),
-					Partition:   partition,
-					SourceIp:    p.getSourceIP(),
+					Services:  []*proto.GatewayServiceStatus{s},
+					GatewayId: "",
+					AgentId:   agentID,
+					Timestamp: time.Now().UnixNano(),
+					Partition: partition,
+					SourceIp:  p.getSourceIP(),
 				})
 			}
 		}
@@ -1263,71 +1263,81 @@ func parseIfIndexFromOID(oid string) *int {
 }
 
 func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
-	sweepSvc := p.findSweepService()
+	sweepSvc := p.findSweepResultsProvider()
 	if sweepSvc == nil {
 		return false
 	}
 
 	lastSequence := p.getSweepResultsSequence()
-	response, err := sweepSvc.GetSweepResults(ctx, lastSequence)
-	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to get sweep results")
-		return false
-	}
+	sentAny := false
+	maxIterations := 32
 
-	if response == nil {
-		return false
-	}
+	for i := 0; i < maxIterations; i++ {
+		response, err := sweepSvc.GetSweepResults(ctx, lastSequence)
+		if err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to get sweep results")
+			return sentAny
+		}
 
-	pendingSeq := response.CurrentSequence
+		if response == nil {
+			return sentAny
+		}
 
-	if !response.HasNewData || len(response.Data) == 0 {
+		pendingSeq := response.CurrentSequence
+
+		if !response.HasNewData || len(response.Data) == 0 {
+			if pendingSeq != "" {
+				p.setSweepResultsSequence(pendingSeq)
+			}
+			return sentAny
+		}
+
+		chunks, err := buildSweepResultsChunks(response)
+		if err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to chunk sweep results")
+			return sentAny
+		}
+
+		serviceName := response.ServiceName
+		if serviceName == "" {
+			serviceName = "network_sweep"
+		}
+
+		serviceType := response.ServiceType
+		if serviceType == "" {
+			serviceType = sweepType
+		}
+
+		statusChunks := p.buildResultsStatusChunks(chunks, serviceName, serviceType)
+		if len(statusChunks) == 0 {
+			return sentAny
+		}
+
+		pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
+		cancel()
+		if err != nil {
+			p.logger.Error().Err(err).Msg("Failed to stream sweep results to gateway")
+			return sentAny
+		}
+
 		if pendingSeq != "" {
 			p.setSweepResultsSequence(pendingSeq)
+			lastSequence = pendingSeq
 		}
-		return false
+
+		sentAny = true
+		p.logger.Info().
+			Str("service_name", serviceName).
+			Int("chunk_count", len(statusChunks)).
+			Msg("Streamed sweep results to gateway")
 	}
 
-	chunks, err := buildSweepResultsChunks(response)
-	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to chunk sweep results")
-		return false
+	if sentAny {
+		p.logger.Warn().Int("max_iterations", maxIterations).Msg("Stopped sweep results push after max iterations")
 	}
 
-	serviceName := response.ServiceName
-	if serviceName == "" {
-		serviceName = "network_sweep"
-	}
-
-	serviceType := response.ServiceType
-	if serviceType == "" {
-		serviceType = sweepType
-	}
-
-	statusChunks := p.buildResultsStatusChunks(chunks, serviceName, serviceType)
-	if len(statusChunks) == 0 {
-		return false
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream sweep results to gateway")
-		return false
-	}
-
-	if pendingSeq != "" {
-		p.setSweepResultsSequence(pendingSeq)
-	}
-
-	p.logger.Info().
-		Str("service_name", serviceName).
-		Int("chunk_count", len(statusChunks)).
-		Msg("Streamed sweep results to gateway")
-
-	return true
+	return sentAny
 }
 
 func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
@@ -1661,13 +1671,13 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	return statuses, sysmonStatus
 }
 
-func (p *PushLoop) findSweepService() *SweepService {
+func (p *PushLoop) findSweepResultsProvider() SweepResultsProvider {
 	p.server.mu.RLock()
 	services := append([]Service(nil), p.server.services...)
 	p.server.mu.RUnlock()
 
 	for _, svc := range services {
-		if sweepSvc, ok := svc.(*SweepService); ok {
+		if sweepSvc, ok := svc.(SweepResultsProvider); ok {
 			return sweepSvc
 		}
 	}
@@ -2660,7 +2670,7 @@ func (p *PushLoop) pushMapperDerivedResults(
 }
 
 func (p *PushLoop) applySweepConfig(configJSON []byte) {
-	sweepSvc := p.findSweepService()
+	sweepSvc := p.findSweepResultsProvider()
 	if sweepSvc == nil {
 		return
 	}
@@ -2684,23 +2694,44 @@ func (p *PushLoop) applySweepConfig(configJSON []byte) {
 	cfg := p.server.config
 	p.server.mu.RUnlock()
 
-	sweepModelConfig, err := buildSweepModelConfig(cfg, sweepConfig, p.logger)
+	if updater, ok := sweepSvc.(SweepGroupConfigUpdater); ok {
+		if err := updater.UpdateSweepGroups(sweepConfig); err != nil {
+			p.logger.Error().Err(err).Msg("Failed to apply sweep group config from gateway")
+			return
+		}
+
+		p.logger.Info().
+			Str("config_hash", sweepConfig.ConfigHash).
+			Int("group_count", len(sweepConfig.Groups)).
+			Msg("Applied sweep group config from gateway")
+		return
+	}
+
+	if len(sweepConfig.Groups) == 0 {
+		p.logger.Info().Msg("No sweep groups configured; skipping sweep update")
+		return
+	}
+
+	groupConfig := sweepConfig.Groups[0]
+	sweepModelConfig, err := buildSweepModelConfigFromGroup(cfg, groupConfig, p.logger)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to build sweep config from gateway payload")
 		return
 	}
 
-	if err := sweepSvc.UpdateConfig(sweepModelConfig); err != nil {
-		p.logger.Error().Err(err).Msg("Failed to apply sweep config from gateway")
-		return
-	}
+	if updater, ok := sweepSvc.(interface{ UpdateConfig(*models.Config) error }); ok {
+		if err := updater.UpdateConfig(sweepModelConfig); err != nil {
+			p.logger.Error().Err(err).Msg("Failed to apply sweep config from gateway")
+			return
+		}
 
-	p.logger.Info().
-		Str("config_hash", sweepConfig.ConfigHash).
-		Int("networks", len(sweepConfig.Networks)).
-		Int("device_targets", len(sweepConfig.DeviceTargets)).
-		Int("ports", len(sweepConfig.Ports)).
-		Msg("Applied sweep config from gateway")
+		p.logger.Info().
+			Str("config_hash", sweepConfig.ConfigHash).
+			Int("networks", len(groupConfig.Networks)).
+			Int("device_targets", len(groupConfig.DeviceTargets)).
+			Int("ports", len(groupConfig.Ports)).
+			Msg("Applied sweep config from gateway")
+	}
 }
 
 // applySysmonConfig applies sysmon configuration from the gateway to the embedded sysmon service.

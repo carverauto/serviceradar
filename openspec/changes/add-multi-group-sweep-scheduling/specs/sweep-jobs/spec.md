@@ -1,41 +1,41 @@
 ## MODIFIED Requirements
 ### Requirement: Sweep Job Compiled Config Output
 
-The system SHALL compile sweep job configurations into the agent-consumable JSON format matching the existing `sweep.json` schema.
+The system SHALL compile sweep job configurations into the agent-consumable JSON format matching the existing `sweep.json` schema, preserving sweep groups as distinct entries in the `groups` array.
 
 #### Scenario: Compile sweep config for agent
-- **GIVEN** a sweep job assigned to an agent
+- **GIVEN** one or more sweep jobs assigned to an agent
 - **WHEN** the agent polls for config
-- **THEN** the compiled config SHALL include:
-  - `networks`: CIDR ranges from device query evaluation
-  - `ports`: from selected profile or job override
-  - `sweep_modes`: ["tcp", "icmp", "tcp_connect"] based on profile
-  - `interval`: scan interval duration
-  - `concurrency`: parallel scan threads
-  - `timeout`: per-target timeout
-  - `icmp_count`, `high_perf_icmp`, `icmp_rate_limit`: ICMP settings
-  - `device_targets`: per-device configurations with metadata
-
-#### Scenario: Custom interval propagation
-- **GIVEN** a sweep job with a configured interval of "6h" (21600s) provided via its profile
-- **WHEN** the config is compiled
-- **THEN** the `interval` field in the JSON SHALL reflect the 6 hour duration
-- **AND** SHALL NOT default to 5 minutes
+- **THEN** the compiled config SHALL include a `groups` array
+- **AND** each group entry SHALL include:
+  - `id` and `sweep_group_id`
+  - `schedule` with `type` and `interval` or `cron_expression`
+  - `targets` CIDR ranges from device query evaluation
+  - `ports` from selected profile or job override
+  - `modes` derived from profile or job override
+  - `settings` including `concurrency`, `timeout`, and protocol settings
+  - `device_targets` with per-device metadata when applicable
+- **AND** group schedules SHALL NOT be merged into a single global interval
 
 #### Scenario: Device query evaluation at compile time
 - **GIVEN** a sweep job with device query "tags.env = 'prod'"
 - **WHEN** the config is compiled
 - **THEN** the query SHALL be evaluated against current device inventory
-- **AND** matching device IPs SHALL populate `networks` as /32 CIDRs
-- **AND** device metadata SHALL populate `device_targets` entries
+- **AND** matching device IPs SHALL populate `targets` as /32 CIDRs for that group
+- **AND** device metadata SHALL populate `device_targets` entries for that group
 
-#### Scenario: Merge multiple sweep jobs
+#### Scenario: Multiple sweep groups remain distinct
 - **GIVEN** multiple sweep jobs assigned to the same agent
 - **WHEN** the agent polls for config
-- **THEN** the configs SHALL be merged into a single sweep config
-- **AND** networks and device_targets SHALL be combined
-- **AND** the most restrictive settings SHALL be used for shared targets
-- **AND** the shortest interval SHALL be used as the global interval if intervals differ
+- **THEN** each sweep group SHALL be compiled into its own group entry
+- **AND** networks, ports, and settings SHALL NOT be merged across groups
+- **AND** each group SHALL retain its own schedule
+
+#### Scenario: Agent schedules groups independently
+- **GIVEN** two sweep groups with different intervals
+- **WHEN** the agent applies the compiled config
+- **THEN** the agent SHALL schedule and execute each group on its own interval
+- **AND** execution results SHALL be attributed to the originating `sweep_group_id`
 
 #### Scenario: Agent parses device targets with TCP ports
 - **GIVEN** a sweep config with device targets from `in:devices` query

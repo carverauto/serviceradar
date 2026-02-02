@@ -1364,7 +1364,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                 <td class="text-xs">
                   <div>Concurrency: {profile.concurrency}</div>
                   <div>Timeout: {profile.timeout}</div>
-                  <div>Interval: {profile.interval}</div>
                 </td>
                 <td>
                   <div class="flex items-center gap-1">
@@ -2468,26 +2467,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                 {"5 seconds", "5s"},
                 {"10 seconds", "10s"},
                 {"30 seconds", "30s"}
-              ]}
-            />
-          </div>
-          <div>
-            <label class="label">
-              <span class="label-text">Scan Interval</span>
-            </label>
-            <.input
-              type="select"
-              field={@form[:interval]}
-              class="select select-bordered w-full"
-              options={[
-                {"5 minutes", "5m"},
-                {"15 minutes", "15m"},
-                {"30 minutes", "30m"},
-                {"1 hour", "1h"},
-                {"2 hours", "2h"},
-                {"6 hours", "6h"},
-                {"12 hours", "12h"},
-                {"24 hours", "24h"}
               ]}
             />
           </div>
