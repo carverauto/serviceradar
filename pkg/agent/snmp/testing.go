@@ -72,6 +72,10 @@ func (a *noopAggregator) GetAggregatedData(_ string, _ Interval) (*DataPoint, er
 	return nil, nil
 }
 
+func (a *noopAggregator) Drain() map[string][]DataPoint {
+	return nil
+}
+
 func (a *noopAggregator) Reset() {}
 
 // noopAggregatorFactory creates noop aggregators for testing.

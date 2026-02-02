@@ -44,8 +44,17 @@ type Aggregator interface {
 	AddPoint(point *DataPoint)
 	// GetAggregatedData retrieves aggregated data for a given OID and interval
 	GetAggregatedData(oidName string, interval Interval) (*DataPoint, error)
+	// Drain returns all unread data points for all OIDs and marks them as read.
+	Drain() map[string][]DataPoint
 	// Reset clears all aggregated data
 	Reset()
+}
+
+// MetricProvider defines an interface for services that can provide
+// historical metric data via a Drain operation.
+type MetricProvider interface {
+	// DrainMetrics returns all data points collected since the last Drain call.
+	DrainMetrics(ctx context.Context) (map[string][]DataPoint, error)
 }
 
 // Service defines the main SNMP monitoring service.

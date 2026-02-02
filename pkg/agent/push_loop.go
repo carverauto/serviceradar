@@ -829,16 +829,26 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 		return false
 	}
 
+	// 1. Get metadata (HostIP, OID configs)
 	statuses, err := snmpSvc.GetTargetStatuses(ctx)
 	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to get SNMP target status")
-		return false
-	}
-	if len(statuses) == 0 {
+		p.logger.Warn().Err(err).Msg("Failed to get SNMP target status for metadata")
 		return false
 	}
 
-	results := p.buildSNMPMetricsResults(statuses)
+	// 2. Drain buffered metrics
+	metrics, err := snmpSvc.DrainMetrics(ctx)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to drain SNMP metrics")
+		return false
+	}
+
+	if len(metrics) == 0 {
+		return false
+	}
+
+	// 3. Build results for all drained points
+	results := p.buildSNMPDrainedResults(statuses, metrics)
 	if len(results) == 0 {
 		return false
 	}
@@ -889,7 +899,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	}
 
 	if resp.Received {
-		p.logger.Info().Msg("Successfully streamed SNMP metrics to gateway")
+		p.logger.Info().Int("result_count", len(results)).Msg("Successfully streamed SNMP metrics to gateway")
 		return true
 	}
 
@@ -1029,12 +1039,25 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 	return false
 }
 
-func (p *PushLoop) buildSNMPMetricsResults(
+func (p *PushLoop) buildSNMPDrainedResults(
 	statuses map[string]snmpchecker.TargetStatus,
+	metrics map[string][]snmpchecker.DataPoint,
 ) []snmpMetricResult {
 	results := make([]snmpMetricResult, 0)
 
-	for targetName, status := range statuses {
+	for key, points := range metrics {
+		parts := strings.SplitN(key, "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		targetName := parts[0]
+		oidName := parts[1]
+
+		status, ok := statuses[targetName]
+		if !ok {
+			continue
+		}
+
 		oidConfigs := make(map[string]snmpchecker.OIDConfig)
 		if status.Target != nil {
 			for _, oid := range status.Target.OIDs {
@@ -1042,38 +1065,29 @@ func (p *PushLoop) buildSNMPMetricsResults(
 			}
 		}
 
-		for oidName, oidStatus := range status.OIDStatus {
-			if oidStatus.LastUpdate.IsZero() || oidStatus.LastValue == nil {
-				continue
-			}
+		oidConfig, ok := oidConfigs[oidName]
+		oidValue := ""
+		dataType := ""
+		scale := 1.0
+		delta := false
+		if ok {
+			oidValue = oidConfig.OID
+			dataType = string(oidConfig.DataType)
+			scale = oidConfig.Scale
+			delta = oidConfig.Delta
+		}
 
-			cacheKey := targetName + "|" + oidName
-			if !p.shouldSendSNMPMetric(cacheKey, oidStatus.LastUpdate) {
-				continue
-			}
+		metricName, interfaceUID := parseSNMPMetricName(oidName)
+		ifIndex := parseIfIndexFromOID(oidValue)
 
-			oidConfig, ok := oidConfigs[oidName]
-			oidValue := ""
-			dataType := ""
-			scale := 1.0
-			delta := false
-			if ok {
-				oidValue = oidConfig.OID
-				dataType = string(oidConfig.DataType)
-				scale = oidConfig.Scale
-				delta = oidConfig.Delta
-			}
-
-			metricName, interfaceUID := parseSNMPMetricName(oidName)
-			ifIndex := parseIfIndexFromOID(oidValue)
-
+		for _, point := range points {
 			result := snmpMetricResult{
 				Target:       targetName,
 				Host:         status.HostIP,
 				Metric:       metricName,
 				OID:          oidValue,
-				Value:        oidStatus.LastValue,
-				Timestamp:    oidStatus.LastUpdate,
+				Value:        point.Value,
+				Timestamp:    point.Timestamp,
 				DataType:     dataType,
 				Scale:        scale,
 				Delta:        delta,
@@ -1085,31 +1099,10 @@ func (p *PushLoop) buildSNMPMetricsResults(
 			}
 
 			results = append(results, result)
-			p.markSNMPMetricSent(cacheKey, oidStatus.LastUpdate)
 		}
 	}
 
 	return results
-}
-
-func (p *PushLoop) shouldSendSNMPMetric(key string, ts time.Time) bool {
-	p.snmpMu.RLock()
-	last, ok := p.snmpLastSent[key]
-	p.snmpMu.RUnlock()
-
-	if !ok {
-		return true
-	}
-
-	return ts.After(last)
-}
-
-func (p *PushLoop) markSNMPMetricSent(key string, ts time.Time) {
-	p.snmpMu.Lock()
-	if last, ok := p.snmpLastSent[key]; !ok || ts.After(last) {
-		p.snmpLastSent[key] = ts
-	}
-	p.snmpMu.Unlock()
 }
 
 func (p *PushLoop) shouldSendSysmon(sample *sysmon.MetricSample) bool {

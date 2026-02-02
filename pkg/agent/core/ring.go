@@ -20,13 +20,12 @@ import (
 	"sync"
 )
 
-// RingBuffer is a fixed-size circular buffer for time-series data.
+// RingBuffer is a fixed-size circular buffer for data.
 // It supports concurrent writes and a "Drain" operation that returns
 // all values since the last drain.
-type RingBuffer struct {
+type RingBuffer[T any] struct {
 	mu     sync.RWMutex
-	values []float64
-	times  []int64
+	values []T
 	head   int // index where the next write will occur
 	tail   int // index of the oldest unread value
 	size   int // total capacity
@@ -34,10 +33,9 @@ type RingBuffer struct {
 }
 
 // NewRingBuffer creates a new RingBuffer with the given capacity.
-func NewRingBuffer(capacity int) *RingBuffer {
-	return &RingBuffer{
-		values: make([]float64, capacity),
-		times:  make([]int64, capacity),
+func NewRingBuffer[T any](capacity int) *RingBuffer[T] {
+	return &RingBuffer[T]{
+		values: make([]T, capacity),
 		size:   capacity,
 	}
 }
@@ -45,12 +43,11 @@ func NewRingBuffer(capacity int) *RingBuffer {
 // Write adds a new data point to the buffer.
 // If the buffer is full, it overwrites the oldest unread value
 // and advances the tail pointer.
-func (r *RingBuffer) Write(t int64, v float64) {
+func (r *RingBuffer[T]) Write(v T) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.values[r.head] = v
-	r.times[r.head] = t
 
 	r.head = (r.head + 1) % r.size
 
@@ -63,36 +60,53 @@ func (r *RingBuffer) Write(t int64, v float64) {
 }
 
 // Drain returns all unread data points and marks them as read.
-func (r *RingBuffer) Drain() ([]int64, []float64) {
+func (r *RingBuffer[T]) Drain() []T {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.count == 0 {
-		return nil, nil
+		return nil
 	}
 
-	times := make([]int64, r.count)
-	values := make([]float64, r.count)
+	data := make([]T, r.count)
 
 	for i := 0; i < r.count; i++ {
 		idx := (r.tail + i) % r.size
-		times[i] = r.times[idx]
-		values[i] = r.values[idx]
+		data[i] = r.values[idx]
 	}
 
 	r.tail = r.head
 	r.count = 0
 
-	return times, values
+	return data
+}
+
+// Snapshot returns all unread data points without marking them as read.
+func (r *RingBuffer[T]) Snapshot() []T {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.count == 0 {
+		return nil
+	}
+
+	data := make([]T, r.count)
+
+	for i := 0; i < r.count; i++ {
+		idx := (r.tail + i) % r.size
+		data[i] = r.values[idx]
+	}
+
+	return data
 }
 
 // Capacity returns the total capacity of the buffer.
-func (r *RingBuffer) Capacity() int {
+func (r *RingBuffer[T]) Capacity() int {
 	return r.size
 }
 
 // Count returns the number of unread data points currently in the buffer.
-func (r *RingBuffer) Count() int {
+func (r *RingBuffer[T]) Count() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.count
