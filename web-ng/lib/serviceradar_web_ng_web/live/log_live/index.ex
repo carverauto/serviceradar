@@ -1717,7 +1717,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp panel_result_count("metrics", _logs, _traces, metrics), do: length(metrics)
   defp panel_result_count(_, logs, _traces, _metrics), do: length(logs)
 
-  defp default_tab_for_path("/observability"), do: "traces"
+  defp default_tab_for_path("/observability"), do: "logs"
   defp default_tab_for_path(_), do: "logs"
 
   defp normalize_tab("logs", _path), do: "logs"
