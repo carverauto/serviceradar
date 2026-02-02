@@ -100,6 +100,29 @@ func (r *RingBuffer[T]) Snapshot() []T {
 	return data
 }
 
+// WalkReverse iterates over the buffer from newest to oldest.
+// The callback function 'fn' is called for each item.
+// If 'fn' returns false, iteration stops.
+func (r *RingBuffer[T]) WalkReverse(fn func(T) bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.count == 0 {
+		return
+	}
+
+	// Calculate the index of the newest item
+	// head points to the *next* write slot, so newest is head - 1
+	startIdx := (r.head - 1 + r.size) % r.size
+
+	for i := 0; i < r.count; i++ {
+		idx := (startIdx - i + r.size) % r.size
+		if !fn(r.values[idx]) {
+			return
+		}
+	}
+}
+
 // Capacity returns the total capacity of the buffer.
 func (r *RingBuffer[T]) Capacity() int {
 	return r.size

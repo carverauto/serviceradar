@@ -17,6 +17,7 @@ go_library(
     ],
     importpath = "github.com/carverauto/serviceradar/pkg/sysmon",
     deps = [
+        "//pkg/agent/core",
         "//pkg/cpufreq",
         "//pkg/logger",
         "@com_github_shirou_gopsutil_v3//cpu:go_default_library",

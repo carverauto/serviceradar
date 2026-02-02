@@ -211,14 +211,24 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 		}
 	}
 
-	// Create data point with the proper fields
+	// Create data point
+	// If we performed delta calculation, the resulting value is a Rate (Gauge/Float)
+	// and should no longer be treated as a Delta/Counter by the backend.
+	dataType := oidConfig.DataType
+	isDelta := oidConfig.Delta
+
+	if oidConfig.Delta {
+		dataType = TypeFloat
+		isDelta = false
+	}
+
 	point := DataPoint{
 		OIDName:   oidConfig.Name,
 		Value:     finalValue,
 		Timestamp: now,
-		DataType:  oidConfig.DataType,
+		DataType:  dataType,
 		Scale:     oidConfig.Scale,
-		Delta:     oidConfig.Delta,
+		Delta:     isDelta,
 	}
 
 	// Update OID status
@@ -242,10 +252,20 @@ func calculateDelta(prev, current interface{}) float64 {
 	}
 
 	if c < p {
-		// Handle counter rollover (heuristic: assume 32-bit or 64-bit)
-		// For now, just return 0 or handle common cases.
-		// A better way would be to check the DataType.
-		return 0
+		// Handle counter rollover
+		// If both values are within 32-bit range, assume 32-bit rollover.
+		const maxUint32 = 4294967295
+		if p <= maxUint32 {
+			return (maxUint32 - p) + c + 1
+		}
+		// Otherwise assume 64-bit rollover
+		// We can't express maxUint64 precisely in float64 without precision loss at the very edge,
+		// but standard float64 has 53 bits of significand.
+		// For high precision 64-bit counters, this might be slightly off if values are huge,
+		// but it's the best we can do with float64 storage.
+		// NOTE: 1.844e19 is approx 2^64
+		const maxUint64 float64 = 18446744073709551615.0
+		return (maxUint64 - p) + c + 1
 	}
 
 	return c - p

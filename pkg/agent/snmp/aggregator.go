@@ -191,17 +191,30 @@ func (a *SNMPAggregator) aggregatePoints(points []DataPoint, aggType AggregateTy
 
 // getPointsInRange returns all points within the given duration.
 func (ts *TimeSeriesData) getPointsInRange(duration time.Duration) []DataPoint {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-
 	cutoff := time.Now().Add(-duration)
-	allPoints := ts.buffer.Snapshot()
-
 	var result []DataPoint
-	for _, p := range allPoints {
-		if p.Timestamp.After(cutoff) {
-			result = append(result, p)
+
+	// Iterate backwards from newest to oldest
+	ts.buffer.WalkReverse(func(p DataPoint) bool {
+		// If the point is older than the cutoff, we can stop iterating
+		// because the buffer is time-ordered.
+		if p.Timestamp.Before(cutoff) {
+			return false
 		}
+		// Prepend to maintain chronological order in result?
+		// WalkReverse gives newest first. result will be [newest, ..., oldest]
+		// Typically aggregations work fine with this, or we can reverse it.
+		// Aggregate functions expect points.
+		result = append(result, p)
+		return true
+	})
+
+	// Reverse the result to be chronological [oldest, ..., newest]
+	// if needed by aggregation functions (e.g. for trending).
+	// calculateAverage/Min/Max/Sum don't care about order.
+	// But it's safer to maintain expectation.
+	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+		result[i], result[j] = result[j], result[i]
 	}
 
 	return result
