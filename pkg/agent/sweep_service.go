@@ -106,6 +106,11 @@ func (*SweepService) Name() string {
 func (s *SweepService) UpdateConfig(config *models.Config) error {
 	newConfig := applyDefaultConfig(config)
 
+	s.logger.Info().
+		Dur("newInterval", newConfig.Interval).
+		Str("sweepGroupID", newConfig.SweepGroupID).
+		Msg("Applying updated sweep config")
+
 	// Update execution context for result tracking (takes its own lock)
 	if newConfig.SweepGroupID != "" || newConfig.ConfigHash != "" {
 		s.SetExecutionContext(newConfig.SweepGroupID, newConfig.ConfigHash)
