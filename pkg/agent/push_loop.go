@@ -697,7 +697,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	// Collect statuses, separating sysmon from other services
 	statuses, sysmonStatus := p.collectAllStatusesSeparated(ctx)
 
-	// Push regular statuses via PushStatus
+	// Push regular statuses via StreamStatus
 	if len(statuses) > 0 {
 		now := time.Now()
 		decision := p.evaluateStatusPush(statuses, now)
@@ -738,7 +738,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	}
 }
 
-// pushRegularStatuses sends non-sysmon statuses via PushStatus.
+// pushRegularStatuses sends non-sysmon statuses via StreamStatus for consistent chunking behavior.
 func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.GatewayServiceStatus, reason statusPushReason) bool {
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
@@ -746,19 +746,25 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
 
-	req := &proto.GatewayStatusRequest{
-		Services:  statuses,
-		GatewayId: "", // Will be set by the gateway
-		AgentId:   agentID,
-		Timestamp: time.Now().UnixNano(),
-		Partition: partition,
-		SourceIp:  p.getSourceIP(),
-		KvStoreId: kvStoreID,
+	chunk := &proto.GatewayStatusChunk{
+		Services:    statuses,
+		GatewayId:   "",
+		AgentId:     agentID,
+		Timestamp:   time.Now().UnixNano(),
+		Partition:   partition,
+		SourceIp:    p.getSourceIP(),
+		IsFinal:     true,
+		ChunkIndex:  0,
+		TotalChunks: 1,
+		KvStoreId:   kvStoreID,
 	}
 
-	resp, err := p.gateway.PushStatus(ctx, req)
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
 	if err != nil {
-		p.logger.Error().Err(err).Int("status_count", len(statuses)).Msg("Failed to push status to gateway")
+		p.logger.Error().Err(err).Int("status_count", len(statuses)).Msg("Failed to stream status to gateway")
 		return false
 	}
 
@@ -770,11 +776,11 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 		logEvent.
 			Int("status_count", len(statuses)).
 			Str("reason", string(reason)).
-			Msg("Pushed status to gateway")
+			Msg("Streamed status to gateway")
 		return true
 	}
 
-	p.logger.Warn().Msg("Gateway did not acknowledge status push")
+	p.logger.Warn().Msg("Gateway did not acknowledge status stream")
 	return false
 }
 
@@ -788,28 +794,17 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 
 	var chunks []*proto.GatewayStatusChunk
 
-	// If service is available, try to drain buffered metrics
+	// If service is available, drain buffered metrics for transmission
 	if sysmonSvc != nil {
 		if samples := sysmonSvc.DrainMetrics(); len(samples) > 0 {
-			// Create a chunk for each sample (or batch them if we implement batching logic later)
-			// For now, let's just send the latest one as status (to maintain heartbeat)
-			// and stream the rest as historical data if needed.
-			// Actually, the requirement is "Lossless System Monitoring".
-			// So we should send ALL samples.
-
-			// Ideally we would batch these into a single message list, but the proto
-			// message structure for Sysmon might expect a single "Status" object per ServiceStatus.
-			// Let's check the proto definition...
-			// Message is []byte. For sysmon it's a JSON object with "status": MetricSample.
-			// We can change the payload to be "samples": [MetricSample] or send multiple ServiceStatuses.
-
-			// Strategy: Send multiple GatewayServiceStatus messages in the stream, one for each sample.
+			// Convert each sample into a separate status message to ensure
+			// full-fidelity time-series ingestion at the gateway.
 			for _, sample := range samples {
 				s := p.convertToSysmonGatewayStatusFromSample(sample)
 				if s == nil {
 					continue
 				}
-				// We can pack multiple statuses into one chunk
+				// Append a new chunk for each sample.
 				chunks = append(chunks, &proto.GatewayStatusChunk{
 					Services:    []*proto.GatewayServiceStatus{s},
 					GatewayId:   "",
@@ -817,9 +812,6 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 					Timestamp:   time.Now().UnixNano(),
 					Partition:   partition,
 					SourceIp:    p.getSourceIP(),
-					IsFinal:     false, // Will set later
-					ChunkIndex:  0,     // Will set later
-					TotalChunks: 0,     // Will set later
 				})
 			}
 		}
@@ -1104,31 +1096,34 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 		KvStoreId:    kvStoreID,
 	}
 
-	req := &proto.GatewayStatusRequest{
-		Services:  []*proto.GatewayServiceStatus{status},
-		GatewayId: "",
-		AgentId:   agentID,
-		Timestamp: time.Now().UnixNano(),
-		Partition: partition,
-		SourceIp:  p.getSourceIP(),
-		KvStoreId: kvStoreID,
+	chunk := &proto.GatewayStatusChunk{
+		Services:    []*proto.GatewayServiceStatus{status},
+		GatewayId:   "",
+		AgentId:     agentID,
+		Timestamp:   time.Now().UnixNano(),
+		Partition:   partition,
+		SourceIp:    p.getSourceIP(),
+		IsFinal:     true,
+		ChunkIndex:  0,
+		TotalChunks: 1,
+		KvStoreId:   kvStoreID,
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	resp, err := p.gateway.PushStatus(pushCtx, req)
+	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
 	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to push plugin telemetry")
+		p.logger.Error().Err(err).Msg("Failed to stream plugin telemetry")
 		return false
 	}
 
 	if resp.Received {
-		p.logger.Debug().Msg("Successfully pushed plugin telemetry")
+		p.logger.Debug().Msg("Successfully streamed plugin telemetry")
 		return true
 	}
 
-	p.logger.Warn().Msg("Gateway did not acknowledge plugin telemetry")
+	p.logger.Warn().Msg("Gateway did not acknowledge plugin telemetry stream")
 	return false
 }
 
