@@ -748,7 +748,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
       if form[:body_contains_enabled].value and
            String.trim(form[:body_contains].value || "") != "" do
         escaped = escape_srql_value(form[:body_contains].value)
-        ["body:\"*#{escaped}*\"" | filters]
+        ["body:\"%#{escaped}%\"" | filters]
       else
         filters
       end

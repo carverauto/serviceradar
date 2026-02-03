@@ -192,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
 
       query = build_preview_query(form)
 
-      assert query =~ ~s(body:"*connection error*")
+      assert query =~ ~s(body:"%connection error%")
     end
 
     test "builds query with severity filter" do
@@ -229,7 +229,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
       query = build_preview_query(form)
 
       # Should escape the quotes
-      assert query =~ ~s(body:"*error with \\"quotes\\"*)
+      assert query =~ ~s(body:"%error with \\"quotes\\"%")
     end
 
     test "builds query with multiple filters" do
@@ -246,7 +246,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
       query = build_preview_query(form)
 
       assert query =~ "in:logs"
-      assert query =~ ~s(body:"*timeout*")
+      assert query =~ ~s(body:"%timeout%")
       assert query =~ ~s(severity_text:"error")
       assert query =~ ~s(service_name:"api-gateway")
     end
