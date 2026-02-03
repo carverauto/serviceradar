@@ -16,6 +16,12 @@ use tokio::sync::mpsc;
 
 type CacheStatsVec = Vec<(String, netflow_parser::ParserCacheStats)>;
 
+#[derive(Debug, Default)]
+struct ProcessedPacketStats {
+    valid: usize,
+    dropped: usize,
+}
+
 fn template_event_callback(event: &TemplateEvent) {
     use TemplateEvent::*;
     match event {
@@ -136,13 +142,12 @@ impl Listener {
     }
 
     /// Process a single parsed NetFlow packet: convert, filter, encode, and send.
-    /// Returns (valid_count, dropped_count).
     fn process_parsed_packet(
         &self,
         packet: NetflowPacket,
         peer_addr: SocketAddr,
         receive_time_ns: u64,
-    ) -> Result<(usize, usize)> {
+    ) -> Result<ProcessedPacketStats> {
         debug!("Parsed NetFlow packet {:?}", packet);
 
         let flow_messages: Vec<flowpb::FlowMessage> =
@@ -150,7 +155,7 @@ impl Listener {
                 Ok(messages) => messages,
                 Err(e) => {
                     warn!("Failed to convert NetFlow packet to protobuf: {:?}", e);
-                    return Ok((0, 0));
+                    return Ok(ProcessedPacketStats::default());
                 }
             };
 
@@ -180,9 +185,11 @@ impl Listener {
             }
         }
 
-        let valid_count = valid.len();
-        let dropped_count = invalid.len();
-        debug!("Converted {} flow records ({} dropped)", valid_count, dropped_count);
+        let stats = ProcessedPacketStats {
+            valid: valid.len(),
+            dropped: invalid.len(),
+        };
+        debug!("Converted {} flow records ({} dropped)", stats.valid, stats.dropped);
 
         // Encode and send each valid flow message to the publisher channel
         for flow_msg in valid {
@@ -205,7 +212,7 @@ impl Listener {
             }
         }
 
-        Ok((valid_count, dropped_count))
+        Ok(stats)
     }
 
     async fn process_packet(&self, data: &[u8], peer_addr: SocketAddr) -> Result<()> {
@@ -237,7 +244,9 @@ impl Listener {
 
         // If there were parse errors, buffer the raw packet for later retry
         if had_errors {
-            let mut pending = self.pending_buffer.lock().unwrap();
+            let mut pending = self.pending_buffer
+                .lock()
+                .map_err(|e| anyhow::anyhow!("pending buffer lock poisoned: {e}"))?;
             pending.add(peer_addr, data.to_vec(), receive_time_ns);
             info!(
                 "Buffered pending packet from {} ({} bytes)",
@@ -247,7 +256,12 @@ impl Listener {
         }
 
         // If new templates were learned, retry any pending packets for this source
-        if templates_were_learned && self.pending_buffer.lock().unwrap().has_pending(&peer_addr) {
+        let has_pending = self
+            .pending_buffer
+            .lock()
+            .map_err(|e| anyhow::anyhow!("pending buffer lock poisoned: {e}"))?
+            .has_pending(&peer_addr);
+        if templates_were_learned && has_pending {
             self.retry_pending_packets(peer_addr)?;
         }
 
@@ -255,7 +269,11 @@ impl Listener {
     }
 
     fn retry_pending_packets(&self, peer_addr: SocketAddr) -> Result<()> {
-        let pending_packets = self.pending_buffer.lock().unwrap().take_all(&peer_addr);
+        let pending_packets = self
+            .pending_buffer
+            .lock()
+            .map_err(|e| anyhow::anyhow!("pending buffer lock poisoned: {e}"))?
+            .take_all(&peer_addr);
         let count = pending_packets.len();
         if count == 0 {
             return Ok(());
@@ -268,7 +286,12 @@ impl Listener {
 
         for pkt in pending_packets {
             // Check if this packet has expired
-            if self.pending_buffer.lock().unwrap().is_expired(&pkt) {
+            let expired = self
+                .pending_buffer
+                .lock()
+                .map_err(|e| anyhow::anyhow!("pending buffer lock poisoned: {e}"))?
+                .is_expired(&pkt);
+            if expired {
                 debug!(
                     "Dropping expired pending packet from {} ({} bytes)",
                     peer_addr,
@@ -304,7 +327,10 @@ impl Listener {
 
             // If still has errors, re-buffer
             if had_errors {
-                self.pending_buffer.lock().unwrap().re_add(peer_addr, pkt);
+                self.pending_buffer
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("pending buffer lock poisoned: {e}"))?
+                    .re_add(peer_addr, pkt);
                 still_pending += 1;
             }
         }
@@ -318,11 +344,20 @@ impl Listener {
     }
 
     pub fn sweep_pending_buffer(&self) {
-        self.pending_buffer.lock().unwrap().sweep_expired();
+        match self.pending_buffer.lock() {
+            Ok(mut buf) => buf.sweep_expired(),
+            Err(e) => warn!("Failed to lock pending buffer for sweep: {e}"),
+        }
     }
 
     pub fn get_pending_stats(&self) -> (usize, usize) {
-        self.pending_buffer.lock().unwrap().stats()
+        match self.pending_buffer.lock() {
+            Ok(buf) => buf.stats(),
+            Err(e) => {
+                warn!("Failed to lock pending buffer for stats: {e}");
+                (0, 0)
+            }
+        }
     }
 
     pub fn get_cache_stats(&self) -> (CacheStatsVec, CacheStatsVec) {
