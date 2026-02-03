@@ -755,7 +755,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
 
     filters =
       if form[:severity_enabled].value and String.trim(form[:severity_text].value || "") != "" do
-        ["severity_text:\"#{form[:severity_text].value}\"" | filters]
+        escaped = escape_srql_value(form[:severity_text].value)
+        ["severity_text:\"%#{escaped}%\"" | filters]
       else
         filters
       end

@@ -204,7 +204,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
 
       query = build_preview_query(form)
 
-      assert query =~ ~s(severity_text:"error")
+      assert query =~ ~s(severity_text:"%error%")
     end
 
     test "builds query with service name filter" do
@@ -247,7 +247,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
 
       assert query =~ "in:logs"
       assert query =~ ~s(body:"%timeout%")
-      assert query =~ ~s(severity_text:"error")
+      assert query =~ ~s(severity_text:"%error%")
       assert query =~ ~s(service_name:"api-gateway")
     end
   end
