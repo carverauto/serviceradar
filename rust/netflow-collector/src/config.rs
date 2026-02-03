@@ -43,6 +43,12 @@ pub struct Config {
     // Security
     pub security: Option<SecurityConfig>,
 
+    // Pending packet buffer
+    #[serde(default = "default_pending_packet_ttl_secs")]
+    pub pending_packet_ttl_secs: u64,
+    #[serde(default = "default_max_pending_packets")]
+    pub max_pending_packets: usize,
+
     // Observability
     pub metrics_addr: Option<String>,
 }
@@ -134,6 +140,14 @@ fn default_partition() -> String {
 
 fn default_stream_max_bytes() -> i64 {
     10 * 1024 * 1024 * 1024
+}
+
+fn default_pending_packet_ttl_secs() -> u64 {
+    60
+}
+
+fn default_max_pending_packets() -> usize {
+    100
 }
 
 impl Config {

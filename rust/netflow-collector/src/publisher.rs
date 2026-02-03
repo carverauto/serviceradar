@@ -234,8 +234,9 @@ mod tests {
             publish_timeout_ms: 5000,
             drop_policy: crate::config::DropPolicy::DropOldest,
             security: None,
+            pending_packet_ttl_secs: 60,
+            max_pending_packets: 100,
             metrics_addr: None,
-            nats_creds_file: None,
         });
 
         let (_tx, rx) = mpsc::channel(1000);

@@ -66,6 +66,16 @@ impl MetricsReporter {
                 info!("Template Cache - No sources active yet");
             }
 
+            // Sweep expired pending packets and report stats
+            listener.sweep_pending_buffer();
+            let (pending_packets, pending_sources) = listener.get_pending_stats();
+            if pending_packets > 0 {
+                info!(
+                    "Pending packet buffer: {} packet(s) across {} source(s)",
+                    pending_packets, pending_sources
+                );
+            }
+
             // TODO: Expose via Prometheus metrics endpoint on port 50046
             // The current implementation logs metrics, but the structure is ready
             // for Prometheus integration when needed. Example:

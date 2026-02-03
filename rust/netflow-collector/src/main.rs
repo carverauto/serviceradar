@@ -3,6 +3,7 @@ mod converter;
 mod error;
 mod listener;
 mod metrics;
+mod pending_buffer;
 mod publisher;
 
 use anyhow::Result;
