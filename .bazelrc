@@ -11,6 +11,8 @@ common --curses=yes
 common --repository_cache=third_party/bazel-repo-cache
 common --disk_cache=third_party/bazel-disk-cache
 common --distdir=third_party/distdir
+# Allow platform-specific build:* sections (linux/macos/windows).
+common --enable_platform_specific_config
 
 build --keep_going
 build --jobs=auto
@@ -50,7 +52,6 @@ build --repo_env=TURBOPACK=
 build --java_runtime_version=local_jdk
 build --tool_java_runtime_version=local_jdk
 build --@io_bazel_rules_go//go/config:pure
-
 
 # Standard test ergonomics: show failing logs and retry known flaky tests once.
 test --test_output=errors
