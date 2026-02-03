@@ -184,7 +184,7 @@ data:
               {
                 "id": "network_endpoint",
                 "key": "network_endpoint",
-                "value": "next_hop != null && next_hop != '' ? { ip: next_hop } : null"
+                "value": "{ ip: next_hop }"
               },
               {
                 "id": "observables",
