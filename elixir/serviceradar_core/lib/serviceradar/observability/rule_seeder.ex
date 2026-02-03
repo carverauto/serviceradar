@@ -113,23 +113,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
 
   defp default_event_rules do
     [
-      %{
-        name: "promote_missed_sweeps",
-        priority: 25,
-        enabled: true,
-        source_type: :log,
-        source: %{},
-        match: %{
-          "event_type" => "sweep.missed"
-        },
-        event: %{
-          "message" => "Network sweep missed expected execution",
-          "category_name" => "System Activity",
-          "class_name" => "Scheduled Job Activity",
-          "severity_id" => 3,
-          "type_id" => 6006
-        }
-      }
+      # Reserved for future default event rules.
     ]
   end
 

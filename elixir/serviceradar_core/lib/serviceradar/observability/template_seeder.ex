@@ -342,22 +342,6 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
         event: %{
           "message" => "Promoted warning log"
         }
-      },
-      %{
-        name: "promote_missed_sweeps",
-        description: "Promote missed sweep logs into events for alert processing.",
-        priority: 25,
-        enabled: true,
-        match: %{
-          "event_type" => "sweep.missed"
-        },
-        event: %{
-          "message" => "Network sweep missed expected execution",
-          "category_name" => "System Activity",
-          "class_name" => "Scheduled Job Activity",
-          "severity_id" => 3,
-          "type_id" => 6006
-        }
       }
     ]
   end

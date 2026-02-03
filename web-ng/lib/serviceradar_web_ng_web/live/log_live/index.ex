@@ -62,6 +62,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
        sample_size: 0
      })
      |> assign(:limit, @default_limit)
+     |> stream_configure(:logs, dom_id: &log_dom_id/1)
+     |> stream_configure(:events, dom_id: &event_dom_id/1)
      |> stream(:logs, [])
      |> stream(:events, [])
      |> SRQLPage.init("logs", default_limit: @default_limit)}

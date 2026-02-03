@@ -23,7 +23,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
      socket
      |> assign(:page_title, "Events")
      |> assign(:events, [])
-     |> assign(:summary, %{total: 0, critical: 0, high: 0, medium: 0, low: 0})
+     |> assign(:summary, %{
+       total: 0,
+       fatal: 0,
+       critical: 0,
+       high: 0,
+       medium: 0,
+       low: 0,
+       informational: 0
+     })
      |> assign(:limit, @default_limit)
      |> stream(:events, [], dom_id: &event_dom_id/1)
      |> SRQLPage.init("events", default_limit: @default_limit)}
@@ -135,18 +143,22 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   defp event_summary(assigns) do
     total = assigns.summary.total
+    fatal = assigns.summary.fatal
     critical = assigns.summary.critical
     high = assigns.summary.high
     medium = assigns.summary.medium
     low = assigns.summary.low
+    informational = assigns.summary.informational
 
     assigns =
       assigns
       |> assign(:total, total)
+      |> assign(:fatal, fatal)
       |> assign(:critical, critical)
       |> assign(:high, high)
       |> assign(:medium, medium)
       |> assign(:low, low)
+      |> assign(:informational, informational)
 
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
@@ -158,15 +170,22 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           <.link patch={~p"/events"} class="btn btn-ghost btn-xs">All Events</.link>
           <.link
             patch={
-              ~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:time:desc"}}"
+              ~p"/events?#{%{q: "in:events severity:(Fatal,Critical,High) time:last_24h sort:time:desc"}}"
             }
             class="btn btn-ghost btn-xs text-error"
           >
-            Critical/High
+            Fatal/Critical/High
           </.link>
         </div>
       </div>
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <.severity_stat
+          label="Fatal"
+          count={@fatal}
+          total={@total}
+          color="error"
+          severity="Fatal"
+        />
         <.severity_stat
           label="Critical"
           count={@critical}
@@ -177,6 +196,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         <.severity_stat label="High" count={@high} total={@total} color="warning" severity="High" />
         <.severity_stat label="Medium" count={@medium} total={@total} color="info" severity="Medium" />
         <.severity_stat label="Low" count={@low} total={@total} color="success" severity="Low" />
+        <.severity_stat
+          label="Informational"
+          count={@informational}
+          total={@total}
+          color="info"
+          severity="Informational"
+        />
       </div>
     </div>
     """
@@ -298,9 +324,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   defp severity_variant(value) do
     case normalize_severity(value) do
-      s when s in ["critical", "fatal", "error"] -> "error"
+      s when s in ["fatal", "critical", "error"] -> "error"
       s when s in ["high", "warn", "warning"] -> "warning"
-      s when s in ["medium", "info"] -> "info"
+      s when s in ["medium", "info", "informational"] -> "info"
       s when s in ["low", "debug", "ok"] -> "success"
       _ -> "ghost"
     end
@@ -386,17 +412,26 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   # Compute summary stats from events
   defp compute_summary(events) when is_list(events) do
-    initial = %{total: 0, critical: 0, high: 0, medium: 0, low: 0}
+    initial = %{
+      total: 0,
+      fatal: 0,
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      informational: 0
+    }
 
     Enum.reduce(events, initial, fn event, acc ->
-      severity = normalize_severity(Map.get(event, "severity"))
-
       updated =
-        case severity do
-          s when s in ["critical", "fatal", "error"] -> Map.update!(acc, :critical, &(&1 + 1))
-          s when s in ["high", "warn", "warning"] -> Map.update!(acc, :high, &(&1 + 1))
-          s when s in ["medium", "info"] -> Map.update!(acc, :medium, &(&1 + 1))
-          s when s in ["low", "debug", "ok"] -> Map.update!(acc, :low, &(&1 + 1))
+        case normalize_severity(Map.get(event, "severity")) do
+          "fatal" -> Map.update!(acc, :fatal, &(&1 + 1))
+          "critical" -> Map.update!(acc, :critical, &(&1 + 1))
+          "high" -> Map.update!(acc, :high, &(&1 + 1))
+          "medium" -> Map.update!(acc, :medium, &(&1 + 1))
+          "low" -> Map.update!(acc, :low, &(&1 + 1))
+          "informational" -> Map.update!(acc, :informational, &(&1 + 1))
+          "info" -> Map.update!(acc, :informational, &(&1 + 1))
           _ -> acc
         end
 
@@ -404,7 +439,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     end)
   end
 
-  defp compute_summary(_), do: %{total: 0, critical: 0, high: 0, medium: 0, low: 0}
+  defp compute_summary(_),
+    do: %{total: 0, fatal: 0, critical: 0, high: 0, medium: 0, low: 0, informational: 0}
 
   defp refresh_events(socket) do
     srql = Map.get(socket.assigns, :srql, %{})
