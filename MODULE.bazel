@@ -461,10 +461,19 @@ RUST_DEFAULT_VERSION = "1.93.0"
 
 RUST_EDITION = "2021"
 
+RUST_LINUX_LINKER_FLAGS = [
+    "-C",
+    "link-arg=-fuse-ld=bfd",
+]
+
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = RUST_EDITION,
     versions = [RUST_DEFAULT_VERSION],
+    extra_rustc_flags_triples = {
+        "aarch64-unknown-linux-gnu": RUST_LINUX_LINKER_FLAGS,
+        "x86_64-unknown-linux-gnu": RUST_LINUX_LINKER_FLAGS,
+    },
 )
 use_repo(rust, "rust_toolchains")
 
