@@ -121,6 +121,12 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   attr :event, :map, required: true
 
   defp event_summary(assigns) do
+    source = event_source(assigns.event)
+
+    assigns =
+      assigns
+      |> assign(:source, source)
+
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4">
@@ -139,9 +145,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           <span class="text-sm font-mono">{Map.get(@event, "host")}</span>
         </div>
 
-        <div :if={has_value?(@event, "source")} class="flex flex-col gap-1">
+        <div :if={@source != "—"} class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Source</span>
-          <span class="text-sm">{Map.get(@event, "source")}</span>
+          <span class="text-sm">{@source}</span>
         </div>
       </div>
 
@@ -173,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp event_details(assigns) do
     # Fields already shown in summary
     summary_fields =
-      ~w(id event_id severity severity_id time event_timestamp timestamp host source short_message message log_name log_provider log_level activity_name activity_id class_uid category_uid type_uid)
+      ~w(id event_id severity severity_id time event_timestamp timestamp host source short_message message activity_name activity_id class_uid category_uid type_uid)
 
     # Other fields (not summary)
     other_fields =
@@ -200,7 +206,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         <%= for field <- @other_fields do %>
           <div class="flex flex-col gap-0.5 min-w-0">
             <span class="text-xs text-base-content/50">{field_label(field)}</span>
-            <.inline_value value={Map.get(@event, field)} />
+            <.format_value value={Map.get(@event, field)} />
           </div>
         <% end %>
       </div>
@@ -382,6 +388,24 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   defp parse_timestamp(_), do: :error
+
+  defp event_source(event) do
+    source =
+      Map.get(event, "log_provider") ||
+        Map.get(event, "log_name") ||
+        Map.get(event, "host") ||
+        Map.get(event, "source") ||
+        Map.get(event, "uid") ||
+        Map.get(event, "device_id") ||
+        Map.get(event, "subject")
+
+    case source do
+      nil -> "—"
+      "" -> "—"
+      v when is_binary(v) -> v
+      v -> to_string(v)
+    end
+  end
 
   defp has_value?(map, key) do
     case Map.get(map, key) do

@@ -347,8 +347,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   defp event_source(event) do
     # Try various source fields in order of preference
     source =
-      Map.get(event, "host") ||
-        Map.get(event, "log_provider") ||
+      Map.get(event, "log_provider") ||
+        Map.get(event, "log_name") ||
+        Map.get(event, "host") ||
         Map.get(event, "source") ||
         Map.get(event, "uid") ||
         Map.get(event, "device_id") ||

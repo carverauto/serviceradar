@@ -118,6 +118,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
         match_service_name(log, match) and
         match_severity(log, match) and
         match_body(log, match) and
+        match_event_type(attributes, match) and
         match_map(attributes, match["attribute_equals"]) and
         match_map(resource_attributes, match["resource_attribute_equals"])
     end
@@ -185,6 +186,23 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
       _ ->
         false
+    end
+  end
+
+  defp match_event_type(attributes, match) do
+    case match["event_type"] do
+      nil ->
+        true
+
+      expected ->
+        actual =
+          get_nested_value(attributes, "event_type") ||
+            get_nested_value(attributes, "event.type") ||
+            Map.get(attributes, "event_type") ||
+            Map.get(attributes, :event_type) ||
+            Map.get(attributes, "event.type")
+
+        match_value(actual, expected)
     end
   end
 
