@@ -33,7 +33,7 @@ ServiceRadar is a distributed network monitoring system designed for infrastruct
 - **WASM Plugin System**: Securely extend monitoring with custom checks in Go or Rust. Runs in a hardware-level sandbox with zero local dependencies and proxied networking.
 - **SRQL**: intuitive key:value syntax for querying time-series and relational data.
 - **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, and Apache AGE for relational, time-series, and graph topology data.
-- **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), and NetFlow (planned).
+- **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), and NetFlow.
 - **Graph Network Mapper**: Discovery engine that maps interfaces and topology relationships via SNMP/LLDP/CDP.
 - **Security**: Hardened with mTLS ([SPIFFE/spire](http://spiffe.io/)), RBAC, and SSO integration.
 
