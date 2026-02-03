@@ -8,8 +8,8 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
-  alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Observability.StatefulAlertEngine
 
   require Logger

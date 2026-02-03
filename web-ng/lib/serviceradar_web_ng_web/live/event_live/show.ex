@@ -265,11 +265,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   # CloudEvents field ordering
-  defp cloudevents_order("specversion"), do: 0
-  defp cloudevents_order("type"), do: 1
-  defp cloudevents_order("datacontenttype"), do: 2
-  defp cloudevents_order(_), do: 99
-
   attr :value, :any, default: nil
 
   defp format_value(%{value: nil} = assigns) do

@@ -111,24 +111,27 @@ defmodule ServiceRadar.Observability.LogPromotion do
   end
 
   defp rule_matches?(log, %EventRule{match: match}) when is_map(match) do
-    if match["always"] == true do
-      true
-    else
-      subject = ingest_subject(log)
-      attributes = Map.get(log, :attributes) || %{}
-      resource_attributes = Map.get(log, :resource_attributes) || %{}
-
-      match_subject_prefix(subject, match) and
-        match_service_name(log, match) and
-        match_severity(log, match) and
-        match_body(log, match) and
-        match_event_type(attributes, match) and
-        match_map(attributes, match["attribute_equals"]) and
-        match_map(resource_attributes, match["resource_attribute_equals"])
-    end
+    match["always"] == true or rule_matches_all?(log, match)
   end
 
   defp rule_matches?(_log, _rule), do: false
+
+  defp rule_matches_all?(log, match) do
+    subject = ingest_subject(log)
+    attributes = Map.get(log, :attributes) || %{}
+    resource_attributes = Map.get(log, :resource_attributes) || %{}
+
+    [
+      match_subject_prefix(subject, match),
+      match_service_name(log, match),
+      match_severity(log, match),
+      match_body(log, match),
+      match_event_type(attributes, match),
+      match_map(attributes, match["attribute_equals"]),
+      match_map(resource_attributes, match["resource_attribute_equals"])
+    ]
+    |> Enum.all?()
+  end
 
   defp match_subject_prefix(_subject, match) when map_size(match) == 0, do: false
 

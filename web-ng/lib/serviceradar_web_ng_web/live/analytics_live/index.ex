@@ -218,7 +218,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         Map.put(
           queries,
           :events_recent,
-          "in:events log_level:(fatal,critical,error) time:last_24h sort:time:desc limit:#{@default_events_recent_limit}"
+          "in:events log_level:(FATAL,fatal,CRITICAL,critical,ERROR,error) time:last_24h sort:time:desc limit:#{@default_events_recent_limit}"
         )
       end
 
@@ -249,6 +249,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         results
       end
 
+    results = Map.put(results, :service_counts, service_counts)
+
     {stats, device_availability, events_summary, logs_summary, observability, high_utilization,
      bandwidth, error} =
       build_assigns(results)
@@ -273,7 +275,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
     # Calculate unique services from the services list
     {unique_services, failing_services} =
-      case service_counts do
+      case results[:service_counts] do
         %{total: total, failing: failing} ->
           {to_int(total), to_int(failing)}
 
@@ -1131,7 +1133,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </.link>
         <.link
           href={
-            ~p"/events?#{%{q: "in:events log_level:(fatal,critical,error) time:last_24h sort:time:desc limit:100"}}"
+            ~p"/events?#{%{q: "in:events log_level:(FATAL,fatal,CRITICAL,critical,ERROR,error) time:last_24h sort:time:desc limit:100"}}"
           }
           class="text-base-content/60 hover:text-primary"
           title="View high severity events"
@@ -1160,7 +1162,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="error"
               href={
-                ~p"/events?#{%{q: "in:events log_level:(fatal,critical) time:last_24h sort:time:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events log_level:(FATAL,fatal,CRITICAL,critical) time:last_24h sort:time:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -1169,7 +1171,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="warning"
               href={
-                ~p"/events?#{%{q: "in:events log_level:(error) time:last_24h sort:time:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events log_level:(ERROR,error) time:last_24h sort:time:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -1178,7 +1180,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="info"
               href={
-                ~p"/events?#{%{q: "in:events log_level:(warning,warn) time:last_24h sort:time:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events log_level:(WARNING,warning,WARN,warn) time:last_24h sort:time:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -1187,7 +1189,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="primary"
               href={
-                ~p"/events?#{%{q: "in:events log_level:(info,debug,trace) time:last_24h sort:time:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events log_level:(INFO,info,DEBUG,debug,TRACE,trace) time:last_24h sort:time:desc limit:100"}}"
               }
             />
           </tbody>
