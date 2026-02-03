@@ -1,11 +1,13 @@
 defmodule ServiceRadarWebNGWeb.EventLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
+  import Ecto.Query
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Infrastructure.HealthPubSub
+  alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 20
@@ -46,8 +48,12 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         max_limit: @max_limit
       )
 
-    # Compute summary from current page results
-    summary = compute_summary(socket.assigns.events)
+    # Compute summary from CAGG when possible, else fallback to page results
+    summary =
+      case cagg_summary(time_window_from_query(Map.get(socket.assigns, :srql, %{})[:query] || "")) do
+        {:ok, summary} -> summary
+        _ -> compute_summary(socket.assigns.events)
+      end
 
     {:noreply,
      socket
@@ -455,10 +461,79 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         max_limit: @max_limit
       )
 
+    summary =
+      case cagg_summary(time_window_from_query(query)) do
+        {:ok, summary} -> summary
+        _ -> compute_summary(socket.assigns.events)
+      end
+
     socket
     |> stream(:events, socket.assigns.events, reset: true, dom_id: &event_dom_id/1)
-    |> assign(:summary, compute_summary(socket.assigns.events))
+    |> assign(:summary, summary)
   end
+
+  defp cagg_summary(time_window) do
+    with {:ok, cutoff} <- cutoff_for_time_window(time_window) do
+      query =
+        from(s in "ocsf_events_hourly_stats",
+          where: s.bucket >= ^cutoff,
+          group_by: s.severity_id,
+          select: {s.severity_id, sum(s.total_count)}
+        )
+
+      rows = Repo.all(query)
+
+      summary =
+        %{total: 0, fatal: 0, critical: 0, high: 0, medium: 0, low: 0, informational: 0}
+        |> merge_event_stats(rows)
+
+      {:ok, summary}
+    end
+  rescue
+    _ -> :error
+  end
+
+  defp merge_event_stats(base, rows) when is_list(rows) do
+    Enum.reduce(rows, base, fn {severity_id, total_count}, acc ->
+      count = to_int(total_count)
+      acc = Map.update!(acc, :total, &(&1 + count))
+
+      case to_int(severity_id) do
+        6 -> Map.update!(acc, :fatal, &(&1 + count))
+        5 -> Map.update!(acc, :critical, &(&1 + count))
+        4 -> Map.update!(acc, :high, &(&1 + count))
+        3 -> Map.update!(acc, :medium, &(&1 + count))
+        2 -> Map.update!(acc, :low, &(&1 + count))
+        1 -> Map.update!(acc, :informational, &(&1 + count))
+        _ -> acc
+      end
+    end)
+  end
+
+  defp merge_event_stats(base, _), do: base
+
+  defp to_int(nil), do: 0
+  defp to_int(value) when is_integer(value), do: value
+  defp to_int(value) when is_float(value), do: trunc(value)
+  defp to_int(%Decimal{} = d), do: Decimal.to_integer(d)
+  defp to_int(_), do: 0
+
+  defp time_window_from_query(query) when is_binary(query) do
+    case Regex.run(~r/\btime:(last_\d+[hd])\b/i, query) do
+      [_, value] -> String.downcase(value)
+      _ -> "last_7d"
+    end
+  end
+
+  defp time_window_from_query(_), do: "last_7d"
+
+  defp cutoff_for_time_window("last_1h"),
+    do: {:ok, DateTime.add(DateTime.utc_now(), -1, :hour)}
+
+  defp cutoff_for_time_window("last_24h"),
+    do: {:ok, DateTime.add(DateTime.utc_now(), -24, :hour)}
+
+  defp cutoff_for_time_window(_), do: :error
 
   defp event_dom_id(event) do
     id = event_id(event)

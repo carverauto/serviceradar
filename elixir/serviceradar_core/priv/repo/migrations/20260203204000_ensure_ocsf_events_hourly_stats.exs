@@ -19,6 +19,7 @@ defmodule ServiceRadar.Repo.Migrations.EnsureOcsfEventsHourlyStats do
       ts_schema text;
       view_ident text;
       source_exists boolean;
+      policy_exists boolean;
     BEGIN
       SELECT n.nspname
       INTO ts_schema
@@ -73,19 +74,29 @@ defmodule ServiceRadar.Repo.Migrations.EnsureOcsfEventsHourlyStats do
         '#{@view}'
       );
 
-      BEGIN
-        EXECUTE format(
-          'SELECT %I.add_continuous_aggregate_policy(%L::regclass, '
-          'start_offset => INTERVAL ''#{@refresh_start_offset}'', '
-          'end_offset => INTERVAL ''#{@refresh_end_offset}'', '
-          'schedule_interval => INTERVAL ''#{@refresh_interval}'')',
-          ts_schema,
-          view_ident
-        );
-      EXCEPTION
-        WHEN others THEN
-          RAISE NOTICE 'Could not add continuous aggregate policy to #{@view}: %', SQLERRM;
-      END;
+      SELECT EXISTS (
+        SELECT 1
+        FROM timescaledb_information.jobs
+        WHERE proc_name = 'policy_refresh_continuous_aggregate'
+          AND hypertable_schema = '#{prefix()}'
+          AND hypertable_name = '#{@view}'
+      ) INTO policy_exists;
+
+      IF NOT policy_exists THEN
+        BEGIN
+          EXECUTE format(
+            'SELECT %I.add_continuous_aggregate_policy(%L::regclass, '
+            'start_offset => INTERVAL ''#{@refresh_start_offset}'', '
+            'end_offset => INTERVAL ''#{@refresh_end_offset}'', '
+            'schedule_interval => INTERVAL ''#{@refresh_interval}'')',
+            ts_schema,
+            view_ident
+          );
+        EXCEPTION
+          WHEN others THEN
+            RAISE NOTICE 'Could not add continuous aggregate policy to #{@view}: %', SQLERRM;
+        END;
+      END IF;
 
       BEGIN
         EXECUTE format(
