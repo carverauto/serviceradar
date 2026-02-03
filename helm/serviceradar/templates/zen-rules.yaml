@@ -148,17 +148,17 @@ data:
               {
                 "id": "time",
                 "key": "time",
-                "value": "time_flow_end_ns != null && time_flow_end_ns > 0 ? time_flow_end_ns / 1000000 : time_received_ns / 1000000"
+                "value": "time_flow_end_ns > 0 ? time_flow_end_ns / 1000000 : time_received_ns / 1000000"
               },
               {
                 "id": "start_time",
                 "key": "start_time",
-                "value": "time_flow_start_ns != null && time_flow_start_ns > 0 ? time_flow_start_ns / 1000000 : null"
+                "value": "time_flow_start_ns > 0 ? time_flow_start_ns / 1000000 : null"
               },
               {
                 "id": "end_time",
                 "key": "end_time",
-                "value": "time_flow_end_ns != null && time_flow_end_ns > 0 ? time_flow_end_ns / 1000000 : null"
+                "value": "time_flow_end_ns > 0 ? time_flow_end_ns / 1000000 : null"
               },
               {
                 "id": "src_endpoint",
