@@ -5,6 +5,27 @@ defmodule ServiceRadar.Observability.LogPromotionParser do
 
   alias ServiceRadar.EventWriter.FieldParser
 
+  @severity_aliases %{
+    "fatal" => "FATAL",
+    "critical" => "FATAL",
+    "emergency" => "FATAL",
+    "alert" => "FATAL",
+    "very high" => "FATAL",
+    "very_high" => "FATAL",
+    "high" => "ERROR",
+    "error" => "ERROR",
+    "medium" => "WARN",
+    "warn" => "WARN",
+    "warning" => "WARN",
+    "low" => "INFO",
+    "info" => "INFO",
+    "informational" => "INFO",
+    "notice" => "INFO",
+    "unknown" => "INFO",
+    "debug" => "DEBUG",
+    "trace" => "DEBUG"
+  }
+
   @reserved_keys MapSet.new([
                    "@timestamp",
                    "_remote_addr",
@@ -159,27 +180,9 @@ defmodule ServiceRadar.Observability.LogPromotionParser do
   end
 
   defp normalize_severity_text(text) when is_binary(text) do
-    case String.downcase(String.trim(text)) do
-      "fatal" -> {"FATAL", severity_number_for_text("FATAL")}
-      "critical" -> {"FATAL", severity_number_for_text("FATAL")}
-      "emergency" -> {"FATAL", severity_number_for_text("FATAL")}
-      "alert" -> {"FATAL", severity_number_for_text("FATAL")}
-      "very high" -> {"FATAL", severity_number_for_text("FATAL")}
-      "very_high" -> {"FATAL", severity_number_for_text("FATAL")}
-      "high" -> {"ERROR", severity_number_for_text("ERROR")}
-      "error" -> {"ERROR", severity_number_for_text("ERROR")}
-      "medium" -> {"WARN", severity_number_for_text("WARN")}
-      "warn" -> {"WARN", severity_number_for_text("WARN")}
-      "warning" -> {"WARN", severity_number_for_text("WARN")}
-      "low" -> {"INFO", severity_number_for_text("INFO")}
-      "info" -> {"INFO", severity_number_for_text("INFO")}
-      "informational" -> {"INFO", severity_number_for_text("INFO")}
-      "notice" -> {"INFO", severity_number_for_text("INFO")}
-      "unknown" -> {"INFO", severity_number_for_text("INFO")}
-      "debug" -> {"DEBUG", severity_number_for_text("DEBUG")}
-      "trace" -> {"DEBUG", severity_number_for_text("DEBUG")}
-      _ -> {"INFO", severity_number_for_text("INFO")}
-    end
+    normalized = String.downcase(String.trim(text))
+    severity = Map.get(@severity_aliases, normalized, "INFO")
+    {severity, severity_number_for_text(severity)}
   end
 
   defp normalize_severity_text(_), do: {"INFO", severity_number_for_text("INFO")}
@@ -325,21 +328,25 @@ defmodule ServiceRadar.Observability.LogPromotionParser do
 
   defp first_string(entry, keys) when is_map(entry) do
     Enum.find_value(keys, fn key ->
-      case Map.fetch(entry, key) do
-        {:ok, value} when is_binary(value) ->
-          trimmed = String.trim(value)
-          if trimmed != "", do: trimmed, else: nil
-
-        {:ok, value} when is_number(value) ->
-          to_string(value)
-
-        _ ->
-          nil
-      end
+      entry
+      |> Map.get(key)
+      |> string_from_value()
     end)
   end
 
   defp first_string(_, _), do: nil
+
+  defp string_from_value(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> blank_to_nil()
+  end
+
+  defp string_from_value(value) when is_number(value), do: to_string(value)
+  defp string_from_value(_), do: nil
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
 
   defp parse_numeric(value) when is_integer(value), do: {:ok, value}
   defp parse_numeric(value) when is_float(value), do: {:ok, round(value)}
