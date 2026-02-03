@@ -119,28 +119,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
 
   defp default_stateful_rules do
     [
-      %{
-        name: "repeated_missed_sweeps",
-        priority: 25,
-        enabled: true,
-        signal: :event,
-        threshold: 2,
-        window_seconds: 3600,
-        bucket_seconds: 300,
-        cooldown_seconds: 1800,
-        renotify_seconds: 21_600,
-        group_by: ["sweep_group_id"],
-        match: %{
-          "type_id" => 6006,
-          "class_name" => "Scheduled Job Activity"
-        },
-        event: %{},
-        alert: %{
-          "severity" => "high",
-          "title" => "Network Sweep Repeatedly Missed",
-          "description" => "A network sweep group has missed multiple scheduled executions"
-        }
-      }
+      # Reserved for future default stateful alert rules.
     ]
   end
 

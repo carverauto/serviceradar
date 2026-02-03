@@ -212,7 +212,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <.netflow_presets :if={@active_tab == "netflows"} srql={@srql} limit={@limit} />
             </:header>
 
-            <.logs_table :if={@active_tab == "logs"} id="logs" logs={@streams.logs} count={length(@logs)} />
+            <.logs_table
+              :if={@active_tab == "logs"}
+              id="logs"
+              logs={@streams.logs}
+              count={length(@logs)}
+            />
             <.traces_table :if={@active_tab == "traces"} id="traces" traces={@traces} />
             <.metrics_table
               :if={@active_tab == "metrics"}
@@ -220,7 +225,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               metrics={@metrics}
               sparklines={@sparklines}
             />
-            <.events_table :if={@active_tab == "events"} id="events" events={@streams.events} count={length(@events)} />
+            <.events_table
+              :if={@active_tab == "events"}
+              id="events"
+              events={@streams.events}
+              count={length(@events)}
+            />
             <.alerts_table :if={@active_tab == "alerts"} id="alerts" alerts={@alerts} />
             <.netflows_table :if={@active_tab == "netflows"} flows={@netflows} />
 

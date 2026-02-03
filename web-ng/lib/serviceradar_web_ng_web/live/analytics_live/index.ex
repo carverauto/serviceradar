@@ -185,7 +185,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     queries =
       if is_nil(service_counts) do
         # Fallback: fetch recent service rows and compute unique count
-        Map.put(queries, :services_list, "in:services time:last_1h sort:timestamp:desc limit:5000")
+        Map.put(
+          queries,
+          :services_list,
+          "in:services time:last_1h sort:timestamp:desc limit:5000"
+        )
       else
         queries
       end
