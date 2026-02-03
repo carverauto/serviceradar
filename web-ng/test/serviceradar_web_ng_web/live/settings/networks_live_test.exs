@@ -1,5 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNG.AshTestHelpers
 
   import Phoenix.LiveViewTest
 
@@ -76,6 +77,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
     assert html =~ "Discovery Jobs"
     assert html =~ job.name
+  end
+
+  test "discovery job form lists mapper-capable agents", %{conn: conn} do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: "agent-mapper", capabilities: ["mapper"]})
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/discovery/new")
+
+    assert has_element?(lv, "select[name='mapper_job[agent_id]']")
+    assert has_element?(lv, "option[value='#{agent.uid}']")
+  end
+
+  test "discovery job table includes run now action", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(:create, %{name: "Discovery #{unique}"})
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/discovery")
+
+    assert has_element?(lv, "#run-mapper-job-#{job.id}")
   end
 
   test "shows masked placeholders for stored controller credentials", %{conn: conn, scope: scope} do

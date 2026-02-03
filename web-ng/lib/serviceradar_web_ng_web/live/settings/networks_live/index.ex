@@ -27,7 +27,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     MapperUnifiController
   }
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{DeviceCleanupSettings, DeviceCleanupWorker}
   alias ServiceRadar.Infrastructure.Agent
 
@@ -71,6 +70,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:builder_sync, true)
       |> assign(:show_mapper_form, nil)
       |> assign(:mapper_jobs, load_mapper_jobs(scope))
+      |> assign(:agents, load_agents(scope))
       |> assign(:mapper_job, nil)
       |> assign(:mapper_form, nil)
       |> assign(:mapper_seeds_text, "")
@@ -355,6 +355,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to delete discovery job")}
+    end
+  end
+
+  def handle_event("run_mapper_job", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, job} <- fetch_mapper_job(scope, id),
+         {:ok, _updated} <- Ash.update(job, %{}, action: :run_now, scope: scope) do
+      {:noreply,
+       socket
+       |> assign(:mapper_jobs, load_mapper_jobs(scope))
+       |> put_flash(:info, "Discovery job queued to run now")}
+    else
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "Discovery job not found")}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to run discovery job: #{format_error(reason)}")}
     end
   end
 
@@ -1014,6 +1034,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         <.mapper_job_form
           form={@form}
           seeds_text={@seeds_text}
+          agents={@agents}
           unifi_form={@unifi_form}
           unifi_present={@unifi_present}
         />
@@ -1062,6 +1083,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                   <td class="text-xs text-base-content/60">{format_last_run(job.last_run_at)}</td>
                   <td>
                     <div class="flex items-center gap-1">
+                      <.ui_button
+                        id={"run-mapper-job-#{job.id}"}
+                        variant="ghost"
+                        size="xs"
+                        phx-click="run_mapper_job"
+                        phx-value-id={job.id}
+                      >
+                        <.icon name="hero-play" class="size-3" />
+                      </.ui_button>
                       <.link navigate={~p"/settings/networks/discovery/#{job.id}/edit"}>
                         <.ui_button variant="ghost" size="xs">
                           <.icon name="hero-pencil" class="size-3" />
@@ -1090,17 +1120,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   attr :form, :any, required: true
   attr :seeds_text, :string, default: ""
+  attr :agents, :list, default: []
   attr :unifi_form, :any, required: true
   attr :unifi_present, :boolean, default: false
 
   defp mapper_job_form(assigns) do
     # Get current values for conditional rendering
     discovery_mode = Phoenix.HTML.Form.input_value(assigns.form, :discovery_mode) || "snmp_api"
+    partition = Phoenix.HTML.Form.input_value(assigns.form, :partition) || "default"
+    current_agent_id = Phoenix.HTML.Form.input_value(assigns.form, :agent_id) || ""
+
+    agent_options = mapper_agent_options(assigns.agents, partition, current_agent_id)
 
     assigns =
       assigns
       |> assign(:discovery_mode, discovery_mode)
       |> assign(:show_api, discovery_mode in ["api", "snmp_api"])
+      |> assign(:agent_options, agent_options)
 
     ~H"""
     <.form
@@ -1116,7 +1152,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         <.input field={@form[:description]} type="text" label="Description" />
         <.input field={@form[:interval]} type="text" label="Interval (e.g. 15m, 2h)" required />
         <.input field={@form[:partition]} type="text" label="Partition" required />
-        <.input field={@form[:agent_id]} type="text" label="Agent ID (optional)" />
+        <.input
+          field={@form[:agent_id]}
+          type="select"
+          label="Agent"
+          options={@agent_options}
+          prompt="Any agent in partition"
+        />
         <.input
           field={@form[:discovery_mode]}
           type="select"
@@ -2674,14 +2716,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
-  defp load_agents(_scope) do
+  defp load_agents(scope) do
     require Logger
 
-    # Use SystemActor to load agents - user is already authenticated at this point
-    # and agent data is infrastructure info visible to any authenticated user
-    actor = SystemActor.system(:networks_live)
-
-    result = Ash.read(Agent, domain: ServiceRadar.Infrastructure, actor: actor)
+    # Agent data is infrastructure info visible to any authenticated user
+    result = Ash.read(Agent, domain: ServiceRadar.Infrastructure, scope: scope)
 
     case result do
       {:ok, agents} ->
@@ -2693,6 +2732,69 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         []
     end
   end
+
+  defp mapper_agent_options(agents, partition, current_agent_id) do
+    partition = normalize_partition(partition)
+
+    options =
+      agents
+      |> Enum.filter(&agent_supports_mapper?/1)
+      |> Enum.filter(&agent_partition_matches?(&1, partition))
+      |> Enum.sort_by(&agent_label/1)
+      |> Enum.map(&{agent_label(&1), &1.uid})
+
+    append_unknown_agent_option(options, current_agent_id)
+  end
+
+  defp normalize_partition(nil), do: "default"
+  defp normalize_partition(""), do: "default"
+  defp normalize_partition(value), do: value
+
+  defp agent_supports_mapper?(agent) do
+    (agent.capabilities || [])
+    |> Enum.map(&to_string/1)
+    |> Enum.any?(&(&1 == "mapper"))
+  end
+
+  defp agent_partition_matches?(agent, partition) do
+    metadata = agent.metadata || %{}
+    agent_partition = Map.get(metadata, "partition_id") || "default"
+    agent_partition == partition
+  end
+
+  defp agent_label(agent) do
+    name = Map.get(agent, :name)
+
+    if is_binary(name) and name != "" do
+      "#{name} (#{agent.uid})"
+    else
+      agent.uid
+    end
+  end
+
+  defp append_unknown_agent_option(options, current_agent_id) do
+    current = normalize_agent_id(current_agent_id)
+
+    cond do
+      is_nil(current) ->
+        options
+
+      Enum.any?(options, fn {_label, value} -> value == current end) ->
+        options
+
+      true ->
+        options ++ [{"Unknown agent (#{current})", current}]
+    end
+  end
+
+  defp normalize_agent_id(nil), do: nil
+
+  defp normalize_agent_id(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp normalize_agent_id(value), do: to_string(value)
 
   defp load_sweep_profile(scope, id) do
     case Ash.get(SweepProfile, id, scope: scope) do
@@ -2898,6 +3000,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> normalize_boolean("enabled")
     |> normalize_integer("concurrency")
     |> normalize_integer("retries")
+    |> drop_blank(~w(agent_id))
   end
 
   defp normalize_unifi_params(params) do

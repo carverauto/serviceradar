@@ -40,6 +40,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
         :retries,
         :options
       ]
+
+      validate ServiceRadar.NetworkDiscovery.Validations.AgentAssignment
     end
 
     update :update do
@@ -57,10 +59,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
         :retries,
         :options
       ]
+
+      validate ServiceRadar.NetworkDiscovery.Validations.AgentAssignment
     end
 
     update :record_run do
       accept [:last_run_at]
+    end
+
+    update :run_now do
+      accept []
+      change ServiceRadar.NetworkDiscovery.Changes.TriggerMapperRun
     end
 
     read :enabled_by_partition do
