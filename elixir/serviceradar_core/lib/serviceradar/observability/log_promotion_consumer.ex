@@ -3,170 +3,218 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
   Subscribes to processed log subjects and promotes matching logs to events.
   """
 
-  use GenServer
+  use Jetstream.PullConsumer
 
   require Logger
 
+  alias Jetstream.API.Consumer
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Observability.{LogPromotion, LogPromotionParser}
 
-  @subjects ["logs.*.processed"]
-  @reconnect_delay :timer.seconds(5)
+  @default_stream "events"
+  @default_consumer "log-promotion"
+  @default_filter "logs.*.processed"
+  @ack_wait_ns 30_000_000_000
+  @max_ack_pending 1_000
+  @max_deliver 3
+  @ensure_retry_ms 2_000
 
-  defstruct [
-    :conn,
-    :subscriptions,
-    :last_error,
-    :processed_count,
-    :promoted_count
-  ]
-
-  @type state :: %__MODULE__{
-          conn: pid() | nil,
-          subscriptions: list(),
-          last_error: term() | nil,
-          processed_count: non_neg_integer(),
-          promoted_count: non_neg_integer()
-        }
-
-  def start_link(_opts) do
-    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+  def start_link(opts \\ []) do
+    Jetstream.PullConsumer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   @spec enabled?() :: boolean()
   def enabled? do
-    Application.get_env(:serviceradar_core, :log_promotion_consumer_enabled, false)
+    case Application.get_env(:serviceradar_core, :log_promotion_consumer_enabled) do
+      nil ->
+        System.get_env("LOG_PROMOTION_CONSUMER_ENABLED", "true") in ~w(true 1 yes)
+
+      value ->
+        value
+    end
   end
 
   @spec status() :: map()
   def status do
-    case Process.whereis(__MODULE__) do
-      nil ->
-        %{enabled: enabled?(), running: false, connected: false, last_error: :not_running}
+    config = load_config([])
+    running = is_pid(Process.whereis(__MODULE__))
+    enabled = enabled?()
 
-      _pid ->
-        GenServer.call(__MODULE__, :status)
-    end
-  rescue
-    _ -> %{enabled: enabled?(), running: false, connected: false, last_error: :unknown}
-  end
+    connected =
+      enabled and running and Connection.connected?() and
+        consumer_available?(config)
 
-  @impl true
-  def init(_opts) do
-    state = %__MODULE__{
-      conn: nil,
-      subscriptions: [],
-      last_error: nil,
-      processed_count: 0,
-      promoted_count: 0
+    %{
+      enabled: enabled,
+      running: running,
+      connected: connected,
+      last_error: if(connected, do: nil, else: :not_connected)
     }
-
-    send(self(), :connect)
-
-    {:ok, state}
   end
 
   @impl true
-  def handle_call(:status, _from, state) do
-    {:reply,
+  def init(opts) do
+    config = load_config(opts)
+
+    ensure_consumer_async(config)
+
+    {:ok,
      %{
-       enabled: enabled?(),
-       running: true,
-       connected: is_pid(state.conn) and Process.alive?(state.conn),
-       last_error: state.last_error,
-       processed_count: state.processed_count,
-       promoted_count: state.promoted_count
-     }, state}
+       processed_count: 0,
+       promoted_count: 0,
+       last_error: nil,
+       config: config
+     },
+     connection_name: config.connection_name,
+     stream_name: config.stream_name,
+     consumer_name: config.consumer_name,
+     domain: config.domain}
   end
 
   @impl true
-  def handle_info(:connect, state) do
-    case Connection.get() do
-      {:ok, conn} ->
-        Process.monitor(conn)
-
-        subscriptions = subscribe(conn)
-
-        Logger.info("Log promotion consumer connected", subjects: @subjects)
-
-        {:noreply, %{state | conn: conn, subscriptions: subscriptions, last_error: nil}}
-
-      {:error, reason} ->
-        Logger.warning("Log promotion consumer failed to connect to NATS",
-          reason: inspect(reason)
-        )
-
-        Process.send_after(self(), :connect, @reconnect_delay)
-        {:noreply, %{state | last_error: reason}}
-    end
-  end
-
-  @impl true
-  def handle_info({:DOWN, _ref, :process, pid, reason}, %{conn: conn} = state)
-      when pid == conn do
-    Logger.warning("Log promotion consumer NATS connection lost", reason: inspect(reason))
-    Process.send_after(self(), :connect, @reconnect_delay)
-    {:noreply, %{state | conn: nil, subscriptions: [], last_error: reason}}
-  end
-
-  @impl true
-  def handle_info({:msg, %{body: body, topic: subject, reply_to: reply_to}}, state) do
+  def handle_message(%{body: body, topic: subject}, state) do
     received_at = DateTime.utc_now()
     logs = LogPromotionParser.parse_payload(body, subject, received_at)
 
-    {promoted, state} =
-      case logs do
-        [] ->
-          {0, state}
+    case logs do
+      [] ->
+        {:ack, %{state | processed_count: state.processed_count + 1}}
 
-        _ ->
-          {:ok, count} = LogPromotion.promote(logs)
+      _ ->
+        case LogPromotion.promote(logs) do
+          {:ok, count} ->
+            :telemetry.execute(
+              [:serviceradar, :log_promotion, :consumer, :processed],
+              %{logs: length(logs), events: count},
+              %{subject: subject}
+            )
 
-          :telemetry.execute(
-            [:serviceradar, :log_promotion, :consumer, :processed],
-            %{logs: length(logs), events: count},
-            %{subject: subject}
-          )
+            {:ack,
+             %{
+               state
+               | processed_count: state.processed_count + length(logs),
+                 promoted_count: state.promoted_count + count,
+                 last_error: nil
+             }}
 
-          {count, %{state | promoted_count: state.promoted_count + count}}
-      end
-
-    state = %{state | processed_count: state.processed_count + length(logs)}
-
-    maybe_ack(state.conn, reply_to, promoted >= 0)
-
-    {:noreply, state}
+          {:error, reason} ->
+            Logger.error("Log promotion failed", reason: inspect(reason), subject: subject)
+            {:nack, %{state | last_error: reason}}
+        end
+    end
+  rescue
+    error ->
+      Logger.error("Log promotion consumer crashed", error: inspect(error), subject: subject)
+      {:nack, %{state | last_error: error}}
   end
 
-  def handle_info(_msg, state), do: {:noreply, state}
+  defp load_config(opts) do
+    stream_name = Keyword.get(opts, :stream_name, System.get_env("LOG_PROMOTION_CONSUMER_STREAM"))
 
-  defp subscribe(conn) do
-    Enum.flat_map(@subjects, fn subject ->
-      case Gnat.sub(conn, self(), subject) do
-        {:ok, sid} ->
-          [{subject, sid}]
+    consumer_name =
+      Keyword.get(opts, :consumer_name, System.get_env("LOG_PROMOTION_CONSUMER_NAME"))
 
-        {:error, reason} ->
-          Logger.error("Log promotion consumer failed to subscribe",
-            subject: subject,
-            reason: inspect(reason)
-          )
+    filter_subject =
+      Keyword.get(opts, :filter_subject, System.get_env("LOG_PROMOTION_CONSUMER_FILTER"))
 
-          []
-      end
-    end)
+    deliver_policy =
+      Keyword.get(opts, :deliver_policy, System.get_env("LOG_PROMOTION_CONSUMER_DELIVER_POLICY"))
+
+    domain = Keyword.get(opts, :domain, System.get_env("LOG_PROMOTION_CONSUMER_DOMAIN"))
+
+    %{
+      connection_name: Connection.connection_name(),
+      stream_name: stream_name || @default_stream,
+      consumer_name: consumer_name || @default_consumer,
+      filter_subject: filter_subject || @default_filter,
+      deliver_policy: normalize_deliver_policy(deliver_policy),
+      domain: domain
+    }
   end
 
-  defp maybe_ack(conn, reply_to, _ok)
-       when not is_pid(conn) or not is_binary(reply_to) or reply_to == "" do
-    :ok
+  defp normalize_deliver_policy(policy) when is_atom(policy), do: policy
+
+  defp normalize_deliver_policy(policy) when is_binary(policy) do
+    case String.downcase(String.trim(policy)) do
+      "new" -> :new
+      "last" -> :last
+      "last_per_subject" -> :last_per_subject
+      "by_start_time" -> :by_start_time
+      "by_start_sequence" -> :by_start_sequence
+      _ -> :all
+    end
   end
 
-  defp maybe_ack(conn, reply_to, true) do
-    Gnat.pub(conn, reply_to, "+ACK")
+  defp normalize_deliver_policy(_policy), do: :all
+
+  defp ensure_consumer_async(config) do
+    Task.start(fn -> ensure_consumer(config) end)
   end
 
-  defp maybe_ack(conn, reply_to, false) do
-    Gnat.pub(conn, reply_to, "-NAK")
+  defp ensure_consumer(config, attempt \\ 0) do
+    case consumer_available?(config) do
+      true ->
+        :ok
+
+      false ->
+        case create_consumer(config) do
+          :ok ->
+            Logger.info("Log promotion JetStream consumer ready",
+              stream: config.stream_name,
+              consumer: config.consumer_name,
+              filter_subject: config.filter_subject
+            )
+
+          {:error, reason} ->
+            Logger.warning("Failed to create log promotion consumer",
+              reason: inspect(reason),
+              attempt: attempt + 1
+            )
+
+            Process.sleep(@ensure_retry_ms)
+            ensure_consumer(config, attempt + 1)
+        end
+    end
+  end
+
+  defp consumer_available?(config) do
+    case Consumer.info(
+           config.connection_name,
+           config.stream_name,
+           config.consumer_name,
+           config.domain
+         ) do
+      {:ok, _info} -> true
+      _ -> false
+    end
+  end
+
+  defp create_consumer(config) do
+    consumer = %Consumer{
+      stream_name: config.stream_name,
+      domain: config.domain,
+      durable_name: config.consumer_name,
+      filter_subject: config.filter_subject,
+      description: "Promote processed logs into OCSF events",
+      ack_policy: :explicit,
+      ack_wait: @ack_wait_ns,
+      max_ack_pending: @max_ack_pending,
+      max_deliver: @max_deliver,
+      deliver_policy: config.deliver_policy
+    }
+
+    case Consumer.create(config.connection_name, consumer) do
+      {:ok, _} ->
+        :ok
+
+      {:error, %{"code" => 400, "description" => description}}
+      when is_binary(description) and
+             (String.contains?(description, "consumer name already") or
+                String.contains?(description, "consumer already exists")) ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 end
