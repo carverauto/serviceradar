@@ -689,7 +689,9 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
 
     scope = socket.assigns.current_scope
 
-    case Ash.create(EventRule, attrs, scope: scope) do
+    changeset = Ash.Changeset.for_create(EventRule, :create, attrs, scope: scope)
+
+    case Ash.create(changeset) do
       {:ok, rule} ->
         send(self(), {:rule_created, rule})
         {:noreply, assign(socket, :saving, false)}
@@ -746,14 +748,15 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
       if form[:body_contains_enabled].value and
            String.trim(form[:body_contains].value || "") != "" do
         escaped = escape_srql_value(form[:body_contains].value)
-        ["body:\"*#{escaped}*\"" | filters]
+        ["body:\"%#{escaped}%\"" | filters]
       else
         filters
       end
 
     filters =
       if form[:severity_enabled].value and String.trim(form[:severity_text].value || "") != "" do
-        ["severity_text:\"#{form[:severity_text].value}\"" | filters]
+        escaped = escape_srql_value(form[:severity_text].value)
+        ["severity_text:\"%#{escaped}%\"" | filters]
       else
         filters
       end
@@ -767,7 +770,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
       end
 
     base = "in:logs"
-    time_filter = "timestamp:>now-1h"
+    time_filter = "time:last_1h"
 
     [base, time_filter | filters]
     |> Enum.join(" ")
