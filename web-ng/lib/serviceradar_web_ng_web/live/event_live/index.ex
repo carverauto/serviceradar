@@ -1,11 +1,13 @@
 defmodule ServiceRadarWebNGWeb.EventLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
+  import Ecto.Query
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Infrastructure.HealthPubSub
+  alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 20
@@ -23,8 +25,17 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
      socket
      |> assign(:page_title, "Events")
      |> assign(:events, [])
-     |> assign(:summary, %{total: 0, critical: 0, high: 0, medium: 0, low: 0})
+     |> assign(:summary, %{
+       total: 0,
+       fatal: 0,
+       critical: 0,
+       high: 0,
+       medium: 0,
+       low: 0,
+       informational: 0
+     })
      |> assign(:limit, @default_limit)
+     |> stream(:events, [], dom_id: &event_dom_id/1)
      |> SRQLPage.init("events", default_limit: @default_limit)}
   end
 
@@ -37,10 +48,17 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         max_limit: @max_limit
       )
 
-    # Compute summary from current page results
-    summary = compute_summary(socket.assigns.events)
+    # Compute summary from CAGG when possible, else fallback to page results
+    summary =
+      case cagg_summary(time_window_from_query(Map.get(socket.assigns, :srql, %{})[:query] || "")) do
+        {:ok, summary} -> summary
+        _ -> compute_summary(socket.assigns.events)
+      end
 
-    {:noreply, assign(socket, :summary, summary)}
+    {:noreply,
+     socket
+     |> stream(:events, socket.assigns.events, reset: true, dom_id: &event_dom_id/1)
+     |> assign(:summary, summary)}
   end
 
   @impl true
@@ -108,7 +126,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
               </div>
             </:header>
 
-            <.events_table id="events" events={@events} />
+            <.events_table id="events" events={@streams.events} count={length(@events)} />
 
             <div class="mt-4 pt-4 border-t border-base-200">
               <.ui_pagination
@@ -131,18 +149,22 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   defp event_summary(assigns) do
     total = assigns.summary.total
+    fatal = assigns.summary.fatal
     critical = assigns.summary.critical
     high = assigns.summary.high
     medium = assigns.summary.medium
     low = assigns.summary.low
+    informational = assigns.summary.informational
 
     assigns =
       assigns
       |> assign(:total, total)
+      |> assign(:fatal, fatal)
       |> assign(:critical, critical)
       |> assign(:high, high)
       |> assign(:medium, medium)
       |> assign(:low, low)
+      |> assign(:informational, informational)
 
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
@@ -154,15 +176,22 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           <.link patch={~p"/events"} class="btn btn-ghost btn-xs">All Events</.link>
           <.link
             patch={
-              ~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc"}}"
+              ~p"/events?#{%{q: "in:events severity:(Fatal,Critical,High) time:last_24h sort:time:desc"}}"
             }
             class="btn btn-ghost btn-xs text-error"
           >
-            Critical/High
+            Fatal/Critical/High
           </.link>
         </div>
       </div>
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <.severity_stat
+          label="Fatal"
+          count={@fatal}
+          total={@total}
+          color="error"
+          severity="Fatal"
+        />
         <.severity_stat
           label="Critical"
           count={@critical}
@@ -173,6 +202,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         <.severity_stat label="High" count={@high} total={@total} color="warning" severity="High" />
         <.severity_stat label="Medium" count={@medium} total={@total} color="info" severity="Medium" />
         <.severity_stat label="Low" count={@low} total={@total} color="success" severity="Low" />
+        <.severity_stat
+          label="Informational"
+          count={@informational}
+          total={@total}
+          color="info"
+          severity="Informational"
+        />
       </div>
     </div>
     """
@@ -186,7 +222,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   defp severity_stat(assigns) do
     pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
-    query = "in:events severity:#{assigns.severity} time:last_24h sort:event_timestamp:desc"
+    query = "in:events severity:#{assigns.severity} time:last_24h sort:time:desc"
 
     assigns =
       assigns
@@ -223,7 +259,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   defp color_bg(_), do: "bg-base-content"
 
   attr :id, :string, required: true
-  attr :events, :list, default: []
+  attr :events, :any, required: true
+  attr :count, :integer, required: true
 
   defp events_table(assigns) do
     ~H"""
@@ -245,16 +282,16 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
             </th>
           </tr>
         </thead>
-        <tbody>
-          <tr :if={@events == []}>
+        <tbody id={"#{@id}-rows"} phx-update="stream">
+          <tr :if={@count == 0}>
             <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
               No events found.
             </td>
           </tr>
 
-          <%= for {event, idx} <- Enum.with_index(@events) do %>
+          <%= for {dom_id, event} <- @events do %>
             <tr
-              id={"#{@id}-row-#{idx}"}
+              id={dom_id}
               class="hover:bg-base-200/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/events/#{event_id(event)}")}
             >
@@ -293,9 +330,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   defp severity_variant(value) do
     case normalize_severity(value) do
-      s when s in ["critical", "fatal", "error"] -> "error"
+      s when s in ["fatal", "critical", "error"] -> "error"
       s when s in ["high", "warn", "warning"] -> "warning"
-      s when s in ["medium", "info"] -> "info"
+      s when s in ["medium", "info", "informational"] -> "info"
       s when s in ["low", "debug", "ok"] -> "success"
       _ -> "ghost"
     end
@@ -315,7 +352,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   end
 
   defp format_timestamp(event) do
-    ts = Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
+    ts =
+      Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
 
     case parse_timestamp(ts) do
       {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
@@ -346,7 +384,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   defp event_source(event) do
     # Try various source fields in order of preference
     source =
-      Map.get(event, "host") ||
+      Map.get(event, "log_provider") ||
+        Map.get(event, "log_name") ||
+        Map.get(event, "host") ||
         Map.get(event, "source") ||
         Map.get(event, "uid") ||
         Map.get(event, "device_id") ||
@@ -378,17 +418,26 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   # Compute summary stats from events
   defp compute_summary(events) when is_list(events) do
-    initial = %{total: 0, critical: 0, high: 0, medium: 0, low: 0}
+    initial = %{
+      total: 0,
+      fatal: 0,
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      informational: 0
+    }
 
     Enum.reduce(events, initial, fn event, acc ->
-      severity = normalize_severity(Map.get(event, "severity"))
-
       updated =
-        case severity do
-          s when s in ["critical", "fatal", "error"] -> Map.update!(acc, :critical, &(&1 + 1))
-          s when s in ["high", "warn", "warning"] -> Map.update!(acc, :high, &(&1 + 1))
-          s when s in ["medium", "info"] -> Map.update!(acc, :medium, &(&1 + 1))
-          s when s in ["low", "debug", "ok"] -> Map.update!(acc, :low, &(&1 + 1))
+        case normalize_severity(Map.get(event, "severity")) do
+          "fatal" -> Map.update!(acc, :fatal, &(&1 + 1))
+          "critical" -> Map.update!(acc, :critical, &(&1 + 1))
+          "high" -> Map.update!(acc, :high, &(&1 + 1))
+          "medium" -> Map.update!(acc, :medium, &(&1 + 1))
+          "low" -> Map.update!(acc, :low, &(&1 + 1))
+          "informational" -> Map.update!(acc, :informational, &(&1 + 1))
+          "info" -> Map.update!(acc, :informational, &(&1 + 1))
           _ -> acc
         end
 
@@ -396,7 +445,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     end)
   end
 
-  defp compute_summary(_), do: %{total: 0, critical: 0, high: 0, medium: 0, low: 0}
+  defp compute_summary(_),
+    do: %{total: 0, fatal: 0, critical: 0, high: 0, medium: 0, low: 0, informational: 0}
 
   defp refresh_events(socket) do
     srql = Map.get(socket.assigns, :srql, %{})
@@ -411,6 +461,87 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         max_limit: @max_limit
       )
 
-    assign(socket, :summary, compute_summary(socket.assigns.events))
+    summary =
+      case cagg_summary(time_window_from_query(query)) do
+        {:ok, summary} -> summary
+        _ -> compute_summary(socket.assigns.events)
+      end
+
+    socket
+    |> stream(:events, socket.assigns.events, reset: true, dom_id: &event_dom_id/1)
+    |> assign(:summary, summary)
+  end
+
+  defp cagg_summary(time_window) do
+    with {:ok, cutoff} <- cutoff_for_time_window(time_window) do
+      query =
+        from(s in "ocsf_events_hourly_stats",
+          where: s.bucket >= ^cutoff,
+          group_by: s.severity_id,
+          select: {s.severity_id, sum(s.total_count)}
+        )
+
+      rows = Repo.all(query)
+
+      summary =
+        %{total: 0, fatal: 0, critical: 0, high: 0, medium: 0, low: 0, informational: 0}
+        |> merge_event_stats(rows)
+
+      {:ok, summary}
+    end
+  rescue
+    _ -> :error
+  end
+
+  defp merge_event_stats(base, rows) when is_list(rows) do
+    Enum.reduce(rows, base, fn {severity_id, total_count}, acc ->
+      count = to_int(total_count)
+      acc = Map.update!(acc, :total, &(&1 + count))
+
+      case to_int(severity_id) do
+        6 -> Map.update!(acc, :fatal, &(&1 + count))
+        5 -> Map.update!(acc, :critical, &(&1 + count))
+        4 -> Map.update!(acc, :high, &(&1 + count))
+        3 -> Map.update!(acc, :medium, &(&1 + count))
+        2 -> Map.update!(acc, :low, &(&1 + count))
+        1 -> Map.update!(acc, :informational, &(&1 + count))
+        _ -> acc
+      end
+    end)
+  end
+
+  defp merge_event_stats(base, _), do: base
+
+  defp to_int(nil), do: 0
+  defp to_int(value) when is_integer(value), do: value
+  defp to_int(value) when is_float(value), do: trunc(value)
+  defp to_int(%Decimal{} = d), do: Decimal.to_integer(d)
+  defp to_int(_), do: 0
+
+  defp time_window_from_query(query) when is_binary(query) do
+    case Regex.run(~r/\btime:(last_\d+[hd])\b/i, query) do
+      [_, value] -> String.downcase(value)
+      _ -> "last_7d"
+    end
+  end
+
+  defp time_window_from_query(_), do: "last_7d"
+
+  defp cutoff_for_time_window("last_1h"),
+    do: {:ok, DateTime.add(DateTime.utc_now(), -1, :hour)}
+
+  defp cutoff_for_time_window("last_24h"),
+    do: {:ok, DateTime.add(DateTime.utc_now(), -24, :hour)}
+
+  defp cutoff_for_time_window(_), do: :error
+
+  defp event_dom_id(event) do
+    id = event_id(event)
+
+    if id == "unknown" do
+      "event-" <> Integer.to_string(:erlang.phash2(event))
+    else
+      "event-" <> id
+    end
   end
 end

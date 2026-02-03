@@ -219,9 +219,7 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         }
         "trace_id" | "span_id" | "service_name" | "service_version" | "service_instance"
         | "source" | "scope_name" | "scope_version" | "severity_text" | "severity" | "level"
-        | "body" | "message" => {
-            collect_text_params(params, filter)
-        }
+        | "body" | "message" => collect_text_params(params, filter),
         "severity_number" => match filter.op {
             FilterOp::Eq | FilterOp::NotEq => {
                 let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {

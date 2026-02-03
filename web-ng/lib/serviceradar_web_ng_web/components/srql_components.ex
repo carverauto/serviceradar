@@ -436,7 +436,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     String.ends_with?(col_key, "_at") or String.ends_with?(col_key, "_time") or
       String.ends_with?(col_key, "_timestamp") or
-      col_key in ["timestamp", "event_timestamp", "last_seen", "first_seen"]
+      col_key in ["timestamp", "event_timestamp", "time", "last_seen", "first_seen"]
   end
 
   defp severity_badge(value) when is_binary(value) do

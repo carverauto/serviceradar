@@ -11,8 +11,8 @@ use diesel::dsl::sql;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
-use diesel::PgTextExpressionMethods;
 use diesel::sql_types::Text;
+use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -169,66 +169,62 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
                 "protocol_num filter only supports equality"
             )?;
         }
-        "src_port" | "src_endpoint_port" => {
-            match filter.op {
-                FilterOp::Eq | FilterOp::NotEq => {
-                    let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
-                        ServiceError::InvalidRequest("src_port must be an integer".into())
-                    })?;
-                    query = apply_eq_filter!(
-                        query,
-                        filter,
-                        src_endpoint_port,
-                        value,
-                        "src_port filter only supports equality"
-                    )?;
-                }
-                FilterOp::Like | FilterOp::NotLike => {
-                    let value = filter.value.as_scalar()?.to_string();
-                    let text_column = sql::<Text>("src_endpoint_port::text");
-                    query = match filter.op {
-                        FilterOp::Like => query.filter(text_column.ilike(value)),
-                        FilterOp::NotLike => query.filter(text_column.not_ilike(value)),
-                        _ => query,
-                    };
-                }
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "src_port filter only supports equality or wildcard matching".into(),
-                    ));
-                }
+        "src_port" | "src_endpoint_port" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                    ServiceError::InvalidRequest("src_port must be an integer".into())
+                })?;
+                query = apply_eq_filter!(
+                    query,
+                    filter,
+                    src_endpoint_port,
+                    value,
+                    "src_port filter only supports equality"
+                )?;
             }
-        }
-        "dst_port" | "dst_endpoint_port" => {
-            match filter.op {
-                FilterOp::Eq | FilterOp::NotEq => {
-                    let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
-                        ServiceError::InvalidRequest("dst_port must be an integer".into())
-                    })?;
-                    query = apply_eq_filter!(
-                        query,
-                        filter,
-                        dst_endpoint_port,
-                        value,
-                        "dst_port filter only supports equality"
-                    )?;
-                }
-                FilterOp::Like | FilterOp::NotLike => {
-                    let value = filter.value.as_scalar()?.to_string();
-                    let text_column = sql::<Text>("dst_endpoint_port::text");
-                    query = match filter.op {
-                        FilterOp::Like => query.filter(text_column.ilike(value)),
-                        FilterOp::NotLike => query.filter(text_column.not_ilike(value)),
-                        _ => query,
-                    };
-                }
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "dst_port filter only supports equality or wildcard matching".into(),
-                    ));
-                }
+            FilterOp::Like | FilterOp::NotLike => {
+                let value = filter.value.as_scalar()?.to_string();
+                let text_column = sql::<Text>("src_endpoint_port::text");
+                query = match filter.op {
+                    FilterOp::Like => query.filter(text_column.ilike(value)),
+                    FilterOp::NotLike => query.filter(text_column.not_ilike(value)),
+                    _ => query,
+                };
             }
-        }
+            _ => {
+                return Err(ServiceError::InvalidRequest(
+                    "src_port filter only supports equality or wildcard matching".into(),
+                ));
+            }
+        },
+        "dst_port" | "dst_endpoint_port" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                    ServiceError::InvalidRequest("dst_port must be an integer".into())
+                })?;
+                query = apply_eq_filter!(
+                    query,
+                    filter,
+                    dst_endpoint_port,
+                    value,
+                    "dst_port filter only supports equality"
+                )?;
+            }
+            FilterOp::Like | FilterOp::NotLike => {
+                let value = filter.value.as_scalar()?.to_string();
+                let text_column = sql::<Text>("dst_endpoint_port::text");
+                query = match filter.op {
+                    FilterOp::Like => query.filter(text_column.ilike(value)),
+                    FilterOp::NotLike => query.filter(text_column.not_ilike(value)),
+                    _ => query,
+                };
+            }
+            _ => {
+                return Err(ServiceError::InvalidRequest(
+                    "dst_port filter only supports equality or wildcard matching".into(),
+                ));
+            }
+        },
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for flows: '{other}'"
@@ -271,30 +267,19 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             params.push(BindParam::Int(value as i64));
             Ok(())
         }
-        "src_port" | "src_endpoint_port" => {
-            collect_port_params(params, filter, "src_port")
-        }
-        "dst_port" | "dst_endpoint_port" => {
-            collect_port_params(params, filter, "dst_port")
-        }
+        "src_port" | "src_endpoint_port" => collect_port_params(params, filter, "src_port"),
+        "dst_port" | "dst_endpoint_port" => collect_port_params(params, filter, "dst_port"),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field '{other}'"
         ))),
     }
 }
 
-fn collect_port_params(
-    params: &mut Vec<BindParam>,
-    filter: &Filter,
-    label: &str,
-) -> Result<()> {
+fn collect_port_params(params: &mut Vec<BindParam>, filter: &Filter, label: &str) -> Result<()> {
     match filter.op {
         FilterOp::Eq | FilterOp::NotEq => {
-            let value = filter
-                .value
-                .as_scalar()?
-                .parse::<i32>()
-                .map_err(|_| {
+            let value =
+                filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
                     ServiceError::InvalidRequest(format!("{label} must be an integer"))
                 })?;
             params.push(BindParam::Int(value as i64));
@@ -658,7 +643,10 @@ mod tests {
         };
 
         let result = build_query(&plan);
-        assert!(result.is_ok(), "should build query with wildcard port filter");
+        assert!(
+            result.is_ok(),
+            "should build query with wildcard port filter"
+        );
     }
 
     #[test]
