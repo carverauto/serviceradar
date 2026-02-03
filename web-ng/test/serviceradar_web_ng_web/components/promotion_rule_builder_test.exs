@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
       query = build_preview_query(form)
 
       assert query =~ "in:logs"
-      assert query =~ "timestamp:>now-1h"
+      assert query =~ "time:last_1h"
       assert query =~ "limit:10"
     end
 
@@ -192,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
 
       query = build_preview_query(form)
 
-      assert query =~ ~s(body:"*connection error*")
+      assert query =~ ~s(body:"%connection error%")
     end
 
     test "builds query with severity filter" do
@@ -204,7 +204,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
 
       query = build_preview_query(form)
 
-      assert query =~ ~s(severity_text:"error")
+      assert query =~ ~s(severity_text:"%error%")
     end
 
     test "builds query with service name filter" do
@@ -229,7 +229,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
       query = build_preview_query(form)
 
       # Should escape the quotes
-      assert query =~ ~s(body:"*error with \\"quotes\\"*)
+      assert query =~ ~s(body:"%error with \\"quotes\\"%")
     end
 
     test "builds query with multiple filters" do
@@ -246,8 +246,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
       query = build_preview_query(form)
 
       assert query =~ "in:logs"
-      assert query =~ ~s(body:"*timeout*")
-      assert query =~ ~s(severity_text:"error")
+      assert query =~ ~s(body:"%timeout%")
+      assert query =~ ~s(severity_text:"%error%")
       assert query =~ ~s(service_name:"api-gateway")
     end
   end
@@ -482,7 +482,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
       end
 
     base = "in:logs"
-    time_filter = "timestamp:>now-1h"
+    time_filter = "time:last_1h"
 
     [base, time_filter | filters]
     |> Enum.join(" ")

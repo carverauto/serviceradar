@@ -155,7 +155,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       })
       |> render_submit()
 
-      refute has_element?(lv, "#rule_builder_modal")
+      assert_redirect(lv, ~p"/settings/rules?#{%{tab: "events"}}")
 
       rules = unwrap_page(Ash.read(ServiceRadar.Observability.LogPromotionRule, scope: scope))
       rule = Enum.find(rules, &(&1.name == rule_name))

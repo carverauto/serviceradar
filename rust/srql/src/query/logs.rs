@@ -219,7 +219,7 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         }
         "trace_id" | "span_id" | "service_name" | "service_version" | "service_instance"
         | "source" | "scope_name" | "scope_version" | "severity_text" | "severity" | "level"
-        | "body" => {
+        | "body" | "message" => {
             collect_text_params(params, filter)
         }
         "severity_number" => match filter.op {
@@ -468,7 +468,7 @@ fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQue
         "severity_text" | "severity" | "level" => {
             query = apply_text_filter!(query, filter, col_severity_text)?;
         }
-        "body" => {
+        "body" | "message" => {
             query = apply_text_filter!(query, filter, col_body)?;
         }
         "severity_number" => match filter.op {
@@ -695,7 +695,7 @@ fn resolve_group_field(field: &str) -> Result<&'static str> {
         "severity_text" | "severity" | "level" => Ok("severity_text"),
         "trace_id" => Ok("trace_id"),
         "span_id" => Ok("span_id"),
-        "body" => Ok("body"),
+        "body" | "message" => Ok("body"),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported field '{other}' for group_uniq_array"
         ))),
@@ -713,7 +713,7 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
         "scope_name" => build_text_clause("scope_name", filter),
         "scope_version" => build_text_clause("scope_version", filter),
         "severity_text" | "severity" | "level" => build_text_clause("severity_text", filter),
-        "body" => build_text_clause("body", filter),
+        "body" | "message" => build_text_clause("body", filter),
         "severity_number" => build_numeric_clause("severity_number", filter),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for logs stats: '{other}'"
@@ -929,6 +929,66 @@ mod tests {
             }
             Ok(_) => panic!("expected error for unknown filter field"),
         }
+    }
+
+    #[test]
+    fn message_filter_is_supported() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(24);
+        let plan = QueryPlan {
+            entity: Entity::Logs,
+            filters: vec![Filter {
+                field: "message".into(),
+                op: FilterOp::Like,
+                value: FilterValue::Scalar("%earlyoom%".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let result = build_query(&plan);
+        assert!(result.is_ok(), "message filter should be supported");
+    }
+
+    #[test]
+    fn stats_query_accepts_message_filter() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(24);
+        let plan = QueryPlan {
+            entity: Entity::Logs,
+            filters: vec![Filter {
+                field: "message".into(),
+                op: FilterOp::Like,
+                value: FilterValue::Scalar("%earlyoom%".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw("count() as total")),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let stats_sql = build_stats_query(&plan).expect("stats query should parse");
+        let stats_sql = stats_sql.expect("stats SQL expected");
+        assert!(
+            stats_sql.sql.to_lowercase().contains("body ilike"),
+            "message filter should map to body: {}",
+            stats_sql.sql
+        );
+        assert_eq!(
+            stats_sql.binds.len(),
+            3,
+            "time range + message filter binds expected"
+        );
     }
 
     #[test]

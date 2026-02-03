@@ -71,10 +71,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     {:noreply,
      socket
      |> assign(:show_rule_builder, false)
-     |> put_flash(
-       :info,
-       "Rule \"#{rule.name}\" created successfully. View it in Settings > Rules."
-     )}
+     |> put_flash(:info, "Rule \"#{rule.name}\" created successfully.")
+     |> push_navigate(to: ~p"/settings/rules?#{%{tab: "events"}}")}
   end
 
   def handle_info({:rule_creation_failed, reason}, socket) do
