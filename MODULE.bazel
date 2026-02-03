@@ -33,6 +33,7 @@ bazel_dep(name = "rules_foreign_cc", version = "0.9.0")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.4")
+bazel_dep(name = "toolchains_llvm", version = "1.5.0")
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.14.0")
 bazel_dep(
@@ -212,6 +213,22 @@ buildbuddy_toolchain_ext.platform(
     container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.20",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
+
+# --- LLVM Toolchain (clang/lld) ----------------------------------
+llvm_ext = use_extension(
+    "@toolchains_llvm//toolchain/extensions:llvm.bzl",
+    "llvm",
+)
+llvm_ext.toolchain(
+    name = "llvm_toolchain",
+    llvm_versions = {
+        "darwin-aarch64": "17.0.4",
+        "darwin-x86_64": "15.0.7",
+        "ubuntu-22.04-x86_64": "17.0.4",
+    },
+)
+use_repo(llvm_ext, "llvm_toolchain")
+register_toolchains("@llvm_toolchain//:all")
 
 # --- RBE Toolchain and platforms  ----------------------------------
 register_execution_platforms(
