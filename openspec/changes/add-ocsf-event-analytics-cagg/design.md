@@ -7,6 +7,8 @@ Analytics currently loads recent OCSF events via SRQL and derives severity count
 
 ## Decisions
 - Decision: Create a TimescaleDB continuous aggregate `ocsf_events_hourly_stats` with hourly buckets and severity counts.
+- Decision: Refresh the aggregate every 5 minutes with a 5-minute end offset.
+- Decision: Retain aggregate data for 24 hours.
 - Decision: Keep a fallback to existing SRQL query if the aggregate is missing or unavailable.
 
 ## Risks / Trade-offs
@@ -18,5 +20,4 @@ Analytics currently loads recent OCSF events via SRQL and derives severity count
 - Deploy core migration before enabling Analytics to read from the aggregate.
 
 ## Open Questions
-- Desired refresh cadence (e.g., 5 minutes vs 15 minutes)?
-- Retention window for aggregates (align with 90-day rollups?).
+- None.

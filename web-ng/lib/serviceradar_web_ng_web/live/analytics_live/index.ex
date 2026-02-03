@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   require Logger
 
   @default_events_limit 500
+  @default_events_recent_limit 50
   @default_logs_limit 500
   @default_metrics_limit 100
   @refresh_interval_ms :timer.seconds(30)
@@ -109,6 +110,32 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       nil
   end
 
+  defp get_hourly_event_stats(_scope) do
+    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+
+    query =
+      from(s in "ocsf_events_hourly_stats",
+        where: s.bucket >= ^cutoff,
+        group_by: s.severity_id,
+        select: {s.severity_id, sum(s.total_count)}
+      )
+
+    rows = Repo.all(query)
+
+    %{
+      total: 0,
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0
+    }
+    |> merge_event_stats(rows)
+  rescue
+    error ->
+      Logger.warning("Failed to query hourly event stats: #{inspect(error)}")
+      nil
+  end
+
   defp to_float(nil), do: 0.0
   defp to_float(%Decimal{} = d), do: Decimal.to_float(d)
   defp to_float(v) when is_float(v), do: v
@@ -121,6 +148,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
     # Try to get metrics stats from continuous aggregation first (more efficient)
     hourly_stats = get_hourly_metrics_stats(scope)
+    event_stats = get_hourly_event_stats(scope)
 
     queries = %{
       devices_total: ~s|in:devices stats:"count() as total"|,
@@ -128,7 +156,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       devices_offline: ~s|in:devices is_available:false stats:"count() as offline"|,
       # Get unique services by service_name in the last hour (most recent status)
       services_list: "in:services time:last_1h sort:timestamp:desc limit:500",
-      events: "in:events time:last_24h sort:time:desc limit:#{@default_events_limit}",
       logs_recent: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}",
       logs_total: ~s|in:logs time:last_24h stats:"count() as total"|,
       logs_fatal: ~s|in:logs time:last_24h severity_text:(fatal,FATAL) stats:"count() as fatal"|,
@@ -172,6 +199,21 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         queries
       end
 
+    queries =
+      if is_nil(event_stats) do
+        Map.put(
+          queries,
+          :events,
+          "in:events time:last_24h sort:time:desc limit:#{@default_events_limit}"
+        )
+      else
+        Map.put(
+          queries,
+          :events_recent,
+          "in:events severity:(Critical,High) time:last_24h sort:time:desc limit:#{@default_events_recent_limit}"
+        )
+      end
+
     results =
       queries
       |> Task.async_stream(
@@ -188,6 +230,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     results =
       if hourly_stats do
         Map.put(results, :hourly_stats, hourly_stats)
+      else
+        results
+      end
+
+    results =
+      if event_stats do
+        Map.put(results, :event_stats, event_stats)
       else
         results
       end
@@ -239,8 +288,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       availability_pct: availability_pct
     }
 
-    events_rows = extract_rows(results[:events])
-    events_summary = build_events_summary(events_rows)
+    events_rows = extract_rows(results[:events_recent] || results[:events])
+    events_summary = build_events_summary(events_rows, Map.get(results, :event_stats))
 
     logs_rows = extract_rows(results[:logs_recent])
 
@@ -394,7 +443,21 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp parse_count_value(_), do: nil
 
-  defp build_events_summary(rows) when is_list(rows) do
+  defp build_events_summary(rows, %{} = stats) when is_list(rows) do
+    recent =
+      rows
+      |> Enum.filter(fn row ->
+        is_map(row) and
+          (row |> Map.get("severity") |> normalize_severity()) in ["Critical", "High"]
+      end)
+      |> Enum.take(5)
+
+    %{critical: 0, high: 0, medium: 0, low: 0, total: 0}
+    |> Map.merge(stats)
+    |> Map.put(:recent, recent)
+  end
+
+  defp build_events_summary(rows, nil) when is_list(rows) do
     counts =
       rows
       |> Enum.filter(&is_map/1)
@@ -421,7 +484,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     Map.merge(counts, %{total: length(rows), recent: recent})
   end
 
-  defp build_events_summary(_),
+  defp build_events_summary(_, _),
     do: %{critical: 0, high: 0, medium: 0, low: 0, total: 0, recent: []}
 
   defp build_logs_summary(rows, %{} = counts) when is_list(rows) do
@@ -487,6 +550,23 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp to_int(value) when is_float(value), do: trunc(value)
   defp to_int(%Decimal{} = d), do: Decimal.to_integer(d)
   defp to_int(_), do: 0
+
+  defp merge_event_stats(base, rows) when is_list(rows) do
+    Enum.reduce(rows, base, fn {severity_id, total_count}, acc ->
+      count = to_int(total_count)
+      acc = Map.update!(acc, :total, &(&1 + count))
+
+      case to_int(severity_id) do
+        5 -> Map.update!(acc, :critical, &(&1 + count))
+        4 -> Map.update!(acc, :high, &(&1 + count))
+        3 -> Map.update!(acc, :medium, &(&1 + count))
+        2 -> Map.update!(acc, :low, &(&1 + count))
+        _ -> acc
+      end
+    end)
+  end
+
+  defp merge_event_stats(base, _), do: base
 
   defp build_high_utilization_summary(cpu_rows, memory_rows, disk_rows)
        when is_list(cpu_rows) and is_list(memory_rows) and is_list(disk_rows) do
