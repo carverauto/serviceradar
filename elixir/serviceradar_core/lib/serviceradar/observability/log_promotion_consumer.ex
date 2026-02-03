@@ -207,11 +207,13 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
       {:ok, _} ->
         :ok
 
-      {:error, %{"code" => 400, "description" => description}}
-      when is_binary(description) and
-             (String.contains?(description, "consumer name already") or
-                String.contains?(description, "consumer already exists")) ->
-        :ok
+      {:error, %{"code" => 400, "description" => description}} when is_binary(description) ->
+        if String.contains?(description, "consumer name already") or
+             String.contains?(description, "consumer already exists") do
+          :ok
+        else
+          {:error, %{"code" => 400, "description" => description}}
+        end
 
       {:error, reason} ->
         {:error, reason}
