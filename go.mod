@@ -17,7 +17,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/spiffe/go-spiffe/v2 v2.6.0
-	github.com/spiffe/spire-api-sdk v1.14.0
+	github.com/spiffe/spire-api-sdk v1.14.1
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/swag v1.16.6
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.64.0
