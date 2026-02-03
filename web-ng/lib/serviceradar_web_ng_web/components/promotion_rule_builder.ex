@@ -767,7 +767,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
       end
 
     base = "in:logs"
-    time_filter = "timestamp:>now-1h"
+    time_filter = "time:last_1h"
 
     [base, time_filter | filters]
     |> Enum.join(" ")

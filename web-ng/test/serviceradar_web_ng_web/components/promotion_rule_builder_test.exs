@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
       query = build_preview_query(form)
 
       assert query =~ "in:logs"
-      assert query =~ "timestamp:>now-1h"
+      assert query =~ "time:last_1h"
       assert query =~ "limit:10"
     end
 
@@ -482,7 +482,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
       end
 
     base = "in:logs"
-    time_filter = "timestamp:>now-1h"
+    time_filter = "time:last_1h"
 
     [base, time_filter | filters]
     |> Enum.join(" ")
