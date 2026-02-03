@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.90
+
+Netflow visibility and log-to-event promotion are now live.
+
+## Whats New
+
+**1.0.90**
+- Netflow ingestion and flow observability pipeline are enabled.
+- Log promotion rules now generate OCSF events for analytics and alerting.
+
 # ServiceRadar v1.0.89
 
 Edge onboarding gateway defaults and mTLS SNI fixes.
