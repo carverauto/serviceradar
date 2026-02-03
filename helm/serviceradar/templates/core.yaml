@@ -286,6 +286,8 @@ spec:
         - name: NATS_CREDS_FILE
           value: "/etc/serviceradar/creds/platform.creds"
         {{- end }}
+        - name: LOG_PROMOTION_CONSUMER_ENABLED
+          value: {{ default false $coreVals.logPromotionConsumerEnabled | quote }}
         - name: CLOAK_KEY
           valueFrom:
             secretKeyRef:

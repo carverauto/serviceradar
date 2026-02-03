@@ -143,6 +143,9 @@ defmodule ServiceRadar.Application do
         # Cluster infrastructure (only if clustering is enabled)
         cluster_children(),
 
+        # Log promotion consumer for processed logs
+        log_promotion_consumer_child(),
+
         # EventWriter for NATS JetStream → CNPG consumption (optional)
         event_writer_child()
       ]
@@ -486,6 +489,14 @@ defmodule ServiceRadar.Application do
 
     if enabled and ServiceRadar.SPIFFE.certs_available?() do
       ServiceRadar.SPIFFE.CertMonitor
+    else
+      nil
+    end
+  end
+
+  defp log_promotion_consumer_child do
+    if ServiceRadar.Observability.LogPromotionConsumer.enabled?() do
+      ServiceRadar.Observability.LogPromotionConsumer
     else
       nil
     end
