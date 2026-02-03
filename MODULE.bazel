@@ -872,9 +872,9 @@ http_file(
 
 http_file(
     name = "debian_libc6_amd64_deb",
-    sha256 = "238546d9147df743bb321bfd00031a5e55b65c2bd728a807dc84168bd54ae192",
+    sha256 = "6da26eef20b67e5a45ba21bfffa0178b93ac29951e03bd0ea42133d1aa1b4087",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.42-10+b1_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.42-11+b1_amd64.deb",
     ],
 )
 
