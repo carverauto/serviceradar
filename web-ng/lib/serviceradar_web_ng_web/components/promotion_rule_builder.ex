@@ -689,7 +689,9 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
 
     scope = socket.assigns.current_scope
 
-    case Ash.create(EventRule, attrs, scope: scope) do
+    changeset = Ash.Changeset.for_create(EventRule, :create, attrs, scope: scope)
+
+    case Ash.create(changeset) do
       {:ok, rule} ->
         send(self(), {:rule_created, rule})
         {:noreply, assign(socket, :saving, false)}
