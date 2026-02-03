@@ -91,26 +91,21 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
         {:ack, %{state | processed_count: state.processed_count + 1}}
 
       _ ->
-        case LogPromotion.promote(logs) do
-          {:ok, count} ->
-            :telemetry.execute(
-              [:serviceradar, :log_promotion, :consumer, :processed],
-              %{logs: length(logs), events: count},
-              %{subject: subject}
-            )
+        {:ok, count} = LogPromotion.promote(logs)
 
-            {:ack,
-             %{
-               state
-               | processed_count: state.processed_count + length(logs),
-                 promoted_count: state.promoted_count + count,
-                 last_error: nil
-             }}
+        :telemetry.execute(
+          [:serviceradar, :log_promotion, :consumer, :processed],
+          %{logs: length(logs), events: count},
+          %{subject: subject}
+        )
 
-          {:error, reason} ->
-            Logger.error("Log promotion failed", reason: inspect(reason), subject: subject)
-            {:nack, %{state | last_error: reason}}
-        end
+        {:ack,
+         %{
+           state
+           | processed_count: state.processed_count + length(logs),
+             promoted_count: state.promoted_count + count,
+             last_error: nil
+         }}
     end
   rescue
     error ->
@@ -173,7 +168,7 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
 
   defp parse_int(nil, default), do: default
 
-  defp parse_int(value, default) when is_integer(value), do: value
+  defp parse_int(value, _default) when is_integer(value), do: value
 
   defp parse_int(value, default) when is_binary(value) do
     case Integer.parse(value) do

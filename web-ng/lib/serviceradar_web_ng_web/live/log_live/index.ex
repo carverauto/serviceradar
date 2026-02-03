@@ -348,7 +348,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </.link>
           <.link
             patch={
-              ~p"/observability?#{%{tab: "events", q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc"}}"
+              ~p"/observability?#{%{tab: "events", q: "in:events severity:(Critical,High) time:last_24h sort:time:desc"}}"
             }
             class="btn btn-ghost btn-xs text-error"
           >
@@ -398,7 +398,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp event_severity_stat(assigns) do
     pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
-    query = "in:events severity:#{assigns.severity} time:last_24h sort:event_timestamp:desc"
+    query = "in:events severity:#{assigns.severity} time:last_24h sort:time:desc"
 
     assigns =
       assigns
@@ -1387,7 +1387,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp format_event_timestamp(event) do
-    ts = Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
+    ts =
+      Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
 
     case parse_timestamp(ts) do
       {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")

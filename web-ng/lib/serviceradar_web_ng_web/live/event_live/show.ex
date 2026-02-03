@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   @impl true
   def handle_params(%{"event_id" => event_id}, _uri, socket) do
     query =
-      "in:events id:\"#{escape_value(event_id)}\" sort:event_timestamp:desc limit:1"
+      "in:events id:\"#{escape_value(event_id)}\" sort:time:desc limit:1"
 
     {event, error} =
       case srql_module().query(query) do
@@ -173,74 +173,28 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp event_details(assigns) do
     # Fields already shown in summary
     summary_fields =
-      ~w(id event_id severity event_timestamp timestamp host source short_message message)
+      ~w(id event_id severity severity_id time event_timestamp timestamp host source short_message message log_name log_provider log_level activity_name activity_id class_uid category_uid type_uid)
 
-    # CloudEvents metadata fields (show separately)
-    cloudevents_fields = ~w(specversion datacontenttype type)
-
-    # Get nested data if present
-    data = Map.get(assigns.event, "data", %{})
-    has_data = is_map(data) and map_size(data) > 0
-
-    # Get CloudEvents metadata
-    ce_fields =
-      assigns.event
-      |> Map.take(cloudevents_fields)
-      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-      |> Enum.sort_by(fn {k, _v} -> cloudevents_order(k) end)
-
-    # Other fields (not summary, not CloudEvents, not data)
+    # Other fields (not summary)
     other_fields =
       assigns.event
       |> Map.keys()
-      |> Enum.reject(&(&1 in summary_fields or &1 in cloudevents_fields or &1 == "data"))
+      |> Enum.reject(&(&1 in summary_fields))
       |> Enum.sort()
 
     assigns =
       assigns
-      |> assign(:ce_fields, ce_fields)
       |> assign(:other_fields, other_fields)
-      |> assign(:data, data)
-      |> assign(:has_data, has_data)
+      |> assign(:other_fields, other_fields)
 
     ~H"""
-    <%!-- CloudEvents Metadata --%>
-    <div :if={@ce_fields != []} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-4">
-        Event Metadata
-      </span>
-      <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
-        <%= for {field, value} <- @ce_fields do %>
-          <div class="flex flex-col gap-1">
-            <span class="text-xs text-base-content/50">{field_label(field)}</span>
-            <span class="text-sm font-mono">{value}</span>
-          </div>
-        <% end %>
-      </div>
-    </div>
-
-    <%!-- Event Data Payload --%>
-    <div :if={@has_data} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-4">
-        Event Payload
-      </span>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-        <%= for {field, value} <- Enum.sort(@data) do %>
-          <div class="flex flex-col gap-0.5 min-w-0">
-            <span class="text-xs text-base-content/50">{field_label(field)}</span>
-            <.inline_value value={value} />
-          </div>
-        <% end %>
-      </div>
-    </div>
-
-    <%!-- Other Fields --%>
+    <%!-- Event Details --%>
     <div
       :if={@other_fields != []}
       class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6"
     >
       <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-4">
-        Additional Fields
+        Event Details
       </span>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
         <%= for field <- @other_fields do %>
@@ -400,7 +354,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
 
   defp format_timestamp(event) do
-    ts = Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
+    ts =
+      Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
 
     case parse_timestamp(ts) do
       {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
@@ -438,30 +393,32 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   # Known field label mappings
   @field_labels %{
-    # CloudEvents
-    "specversion" => "Spec Version",
-    "datacontenttype" => "Content Type",
-    "type" => "Event Type",
     # Common fields
     "_remote_addr" => "Remote Address",
     "short_message" => "Message",
     "timestamp" => "Timestamp",
     "event_timestamp" => "Event Time",
+    "time" => "Event Time",
     "created_at" => "Created At",
     "updated_at" => "Updated At",
     "trace_id" => "Trace ID",
     "span_id" => "Span ID",
-    "http_method" => "HTTP Method",
-    "http_route" => "HTTP Route",
-    "http_status_code" => "Status Code",
-    "grpc_service" => "gRPC Service",
-    "grpc_method" => "gRPC Method",
-    "grpc_status_code" => "gRPC Status",
-    "service_name" => "Service",
     "host" => "Host",
     "level" => "Level",
     "severity" => "Severity",
-    "version" => "Version"
+    "severity_id" => "Severity ID",
+    "class_uid" => "Class UID",
+    "category_uid" => "Category UID",
+    "type_uid" => "Type UID",
+    "activity_id" => "Activity ID",
+    "activity_name" => "Activity",
+    "status_id" => "Status ID",
+    "status_code" => "Status Code",
+    "status_detail" => "Status Detail",
+    "log_name" => "Log Name",
+    "log_provider" => "Log Provider",
+    "log_level" => "Log Level",
+    "log_version" => "Log Version"
   }
 
   defp field_label(field) when is_binary(field) do

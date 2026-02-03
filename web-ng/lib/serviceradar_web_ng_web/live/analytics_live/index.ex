@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       devices_offline: ~s|in:devices is_available:false stats:"count() as offline"|,
       # Get unique services by service_name in the last hour (most recent status)
       services_list: "in:services time:last_1h sort:timestamp:desc limit:500",
-      events: "in:events time:last_24h sort:event_timestamp:desc limit:#{@default_events_limit}",
+      events: "in:events time:last_24h sort:time:desc limit:#{@default_events_limit}",
       logs_recent: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}",
       logs_total: ~s|in:logs time:last_24h stats:"count() as total"|,
       logs_fatal: ~s|in:logs time:last_24h severity_text:(fatal,FATAL) stats:"count() as fatal"|,
@@ -988,7 +988,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </.link>
         <.link
           href={
-            ~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc limit:100"}}"
+            ~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:time:desc limit:100"}}"
           }
           class="text-base-content/60 hover:text-primary"
           title="View critical events"
@@ -1017,7 +1017,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="error"
               href={
-                ~p"/events?#{%{q: "in:events severity:Critical time:last_24h sort:event_timestamp:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events severity:Critical time:last_24h sort:time:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -1026,7 +1026,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="warning"
               href={
-                ~p"/events?#{%{q: "in:events severity:High time:last_24h sort:event_timestamp:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events severity:High time:last_24h sort:time:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -1035,7 +1035,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="info"
               href={
-                ~p"/events?#{%{q: "in:events severity:Medium time:last_24h sort:event_timestamp:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events severity:Medium time:last_24h sort:time:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -1044,7 +1044,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="primary"
               href={
-                ~p"/events?#{%{q: "in:events severity:Low time:last_24h sort:event_timestamp:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events severity:Low time:last_24h sort:time:desc limit:100"}}"
               }
             />
           </tbody>
@@ -1725,7 +1725,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             {@event["short_message"] || "No details"}
           </div>
           <div class={["text-xs", severity_text_class(severity_color(@event["severity"]))]}>
-            {@event["severity"] || "Unknown"} · {format_relative_time(@event["event_timestamp"])}
+            {@event["severity"] || "Unknown"} · {format_relative_time(
+              @event["time"] || @event["event_timestamp"]
+            )}
           </div>
         </div>
       </div>

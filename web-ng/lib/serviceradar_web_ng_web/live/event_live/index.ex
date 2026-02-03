@@ -154,7 +154,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           <.link patch={~p"/events"} class="btn btn-ghost btn-xs">All Events</.link>
           <.link
             patch={
-              ~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc"}}"
+              ~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:time:desc"}}"
             }
             class="btn btn-ghost btn-xs text-error"
           >
@@ -186,7 +186,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   defp severity_stat(assigns) do
     pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
-    query = "in:events severity:#{assigns.severity} time:last_24h sort:event_timestamp:desc"
+    query = "in:events severity:#{assigns.severity} time:last_24h sort:time:desc"
 
     assigns =
       assigns
@@ -315,7 +315,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   end
 
   defp format_timestamp(event) do
-    ts = Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
+    ts =
+      Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
 
     case parse_timestamp(ts) do
       {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
@@ -347,6 +348,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     # Try various source fields in order of preference
     source =
       Map.get(event, "host") ||
+        Map.get(event, "log_provider") ||
         Map.get(event, "source") ||
         Map.get(event, "uid") ||
         Map.get(event, "device_id") ||
