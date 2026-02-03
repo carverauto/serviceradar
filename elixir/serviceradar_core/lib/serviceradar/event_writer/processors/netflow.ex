@@ -38,6 +38,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Observability.FlowPubSub
 
   require Logger
 
@@ -100,6 +101,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
            returning: false
          ) do
       {count, _} ->
+        FlowPubSub.broadcast_ingest(%{count: count})
         {:ok, count}
     end
   end

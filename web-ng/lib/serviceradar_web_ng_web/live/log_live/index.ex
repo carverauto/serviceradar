@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.Observability.FlowPubSub
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -28,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, LogPubSub.topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, EventsPubSub.topic())
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, FlowPubSub.topic())
     end
 
     {:ok,
@@ -159,6 +161,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @impl true
   def handle_info({:ocsf_event, _event}, socket) do
     {:noreply, maybe_refresh_tab(socket, "events")}
+  end
+
+  @impl true
+  def handle_info({:flows_ingested, _event}, socket) do
+    {:noreply, maybe_refresh_tab(socket, "netflows")}
   end
 
   @impl true
