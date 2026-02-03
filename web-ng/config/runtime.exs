@@ -391,6 +391,7 @@ if config_env() != :test do
 
   config :serviceradar_core, Oban, oban_config
   config :serviceradar_core, :start_ash_oban_scheduler, false
+  config :serviceradar_core, :log_promotion_consumer_enabled, false
 end
 
 # Phoenix React Server production configuration

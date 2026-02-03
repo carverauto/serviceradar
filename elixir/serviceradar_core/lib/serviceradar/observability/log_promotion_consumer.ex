@@ -18,6 +18,8 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
   @max_ack_pending 1_000
   @max_deliver 3
   @ensure_retry_ms 2_000
+  @default_connect_retry_ms 5_000
+  @default_connect_retries 120
 
   def start_link(opts \\ []) do
     Jetstream.PullConsumer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -54,21 +56,29 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
 
   @impl true
   def init(opts) do
-    config = load_config(opts)
+    if migration_only?() do
+      Logger.info("Log promotion consumer disabled in migration-only mode")
+      :ignore
+    else
+      config = load_config(opts)
 
-    ensure_consumer_async(config)
+      maybe_create_consumer(config)
+      ensure_consumer_async(config)
 
-    {:ok,
-     %{
-       processed_count: 0,
-       promoted_count: 0,
-       last_error: nil,
-       config: config
-     },
-     connection_name: config.connection_name,
-     stream_name: config.stream_name,
-     consumer_name: config.consumer_name,
-     domain: config.domain}
+      {:ok,
+       %{
+         processed_count: 0,
+         promoted_count: 0,
+         last_error: nil,
+         config: config
+       },
+       connection_name: config.connection_name,
+       stream_name: config.stream_name,
+       consumer_name: config.consumer_name,
+       domain: config.domain,
+       connection_retry_timeout: config.connection_retry_timeout,
+       connection_retries: config.connection_retries}
+    end
   end
 
   @impl true
@@ -128,7 +138,9 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
       consumer_name: consumer_name || @default_consumer,
       filter_subject: filter_subject || @default_filter,
       deliver_policy: normalize_deliver_policy(deliver_policy),
-      domain: domain
+      domain: domain,
+      connection_retry_timeout: load_connect_retry_timeout(opts),
+      connection_retries: load_connect_retries(opts)
     }
   end
 
@@ -146,6 +158,31 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
   end
 
   defp normalize_deliver_policy(_policy), do: :all
+
+  defp load_connect_retry_timeout(opts) do
+    from_opts = Keyword.get(opts, :connection_retry_timeout)
+    from_env = System.get_env("LOG_PROMOTION_CONSUMER_RETRY_TIMEOUT_MS")
+    parse_int(from_opts || from_env, @default_connect_retry_ms)
+  end
+
+  defp load_connect_retries(opts) do
+    from_opts = Keyword.get(opts, :connection_retries)
+    from_env = System.get_env("LOG_PROMOTION_CONSUMER_RETRY_COUNT")
+    parse_int(from_opts || from_env, @default_connect_retries)
+  end
+
+  defp parse_int(nil, default), do: default
+
+  defp parse_int(value, default) when is_integer(value), do: value
+
+  defp parse_int(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {number, _} -> number
+      :error -> default
+    end
+  end
+
+  defp parse_int(_value, default), do: default
 
   defp ensure_consumer_async(config) do
     Task.start(fn -> ensure_consumer(config) end)
@@ -177,46 +214,86 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
     end
   end
 
+  defp maybe_create_consumer(config) do
+    if Connection.connected?() do
+      _ = create_consumer(config)
+    end
+  end
+
   defp consumer_available?(config) do
-    case Consumer.info(
-           config.connection_name,
-           config.stream_name,
-           config.consumer_name,
-           config.domain
-         ) do
-      {:ok, _info} -> true
-      _ -> false
+    if Connection.connected?() do
+      try do
+        case Consumer.info(
+               config.connection_name,
+               config.stream_name,
+               config.consumer_name,
+               config.domain
+             ) do
+          {:ok, _info} -> true
+          _ -> false
+        end
+      catch
+        :exit, _ -> false
+      end
+    else
+      false
     end
   end
 
   defp create_consumer(config) do
-    consumer = %Consumer{
-      stream_name: config.stream_name,
-      domain: config.domain,
-      durable_name: config.consumer_name,
-      filter_subject: config.filter_subject,
-      description: "Promote processed logs into OCSF events",
-      ack_policy: :explicit,
-      ack_wait: @ack_wait_ns,
-      max_ack_pending: @max_ack_pending,
-      max_deliver: @max_deliver,
-      deliver_policy: config.deliver_policy
-    }
+    if not Connection.connected?() do
+      {:error, :not_connected}
+    else
+      payload =
+        %{
+          stream_name: config.stream_name,
+          config:
+            compact_map(%{
+              durable_name: config.consumer_name,
+              description: "Promote processed logs into OCSF events",
+              ack_policy: :explicit,
+              ack_wait: @ack_wait_ns,
+              deliver_policy: config.deliver_policy,
+              filter_subject: config.filter_subject,
+              max_ack_pending: @max_ack_pending,
+              max_deliver: @max_deliver,
+              replay_policy: :instant
+            })
+        }
+        |> Jason.encode!()
 
-    case Consumer.create(config.connection_name, consumer) do
-      {:ok, _} ->
-        :ok
+      topic =
+        "#{js_api(config.domain)}.CONSUMER.DURABLE.CREATE.#{config.stream_name}.#{config.consumer_name}"
 
-      {:error, %{"code" => 400, "description" => description}} when is_binary(description) ->
-        if String.contains?(description, "consumer name already") or
-             String.contains?(description, "consumer already exists") do
+      case Jetstream.API.Util.request(config.connection_name, topic, payload) do
+        {:ok, _} ->
           :ok
-        else
-          {:error, %{"code" => 400, "description" => description}}
-        end
 
-      {:error, reason} ->
-        {:error, reason}
+        {:error, %{"description" => description} = err} when is_binary(description) ->
+          if String.contains?(description, "consumer name already") or
+               String.contains?(description, "consumer already exists") do
+            :ok
+          else
+            {:error, err}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
+  end
+
+  defp compact_map(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp js_api(nil), do: "$JS.API"
+  defp js_api(""), do: "$JS.API"
+  defp js_api(domain), do: "$JS.#{domain}.API"
+
+  defp migration_only? do
+    System.get_env("SERVICERADAR_MIGRATION_ONLY", "false") in ~w(true 1 yes)
   end
 end
