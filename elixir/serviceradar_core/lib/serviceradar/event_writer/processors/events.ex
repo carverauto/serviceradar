@@ -8,6 +8,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Observability.StatefulAlertEngine
 
@@ -63,6 +64,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
          ) do
       {count, _} ->
         maybe_evaluate_stateful_rules(rows)
+        EventsPubSub.broadcast_event(%{count: count})
         {:ok, count}
     end
   end

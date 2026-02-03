@@ -70,6 +70,7 @@ core:
   kubernetesSelector: "app=serviceradar-core"
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
+  logPromotionConsumerEnabled: true
   database:
     poolSize: 40
     queueTargetMs: 2000

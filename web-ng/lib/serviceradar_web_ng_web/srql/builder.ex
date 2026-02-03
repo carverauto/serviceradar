@@ -544,12 +544,26 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp parse_filter_field(_), do: {"", false}
 
   defp parse_filter_value(negated, value) do
-    if String.contains?(value, "%") do
-      op = if negated, do: "not_contains", else: "contains"
-      {op, unwrap_like(value)}
-    else
-      op = if negated, do: "not_equals", else: "equals"
-      {op, String.replace(value, "\\ ", " ")}
+    value = String.trim(value)
+
+    cond do
+      String.starts_with?(value, "(") and String.ends_with?(value, ")") ->
+        inner =
+          value
+          |> String.trim_leading("(")
+          |> String.trim_trailing(")")
+          |> String.replace("\\ ", " ")
+
+        op = if negated, do: "not_equals", else: "equals"
+        {op, inner}
+
+      String.contains?(value, "%") ->
+        op = if negated, do: "not_contains", else: "contains"
+        {op, unwrap_like(value)}
+
+      true ->
+        op = if negated, do: "not_equals", else: "equals"
+        {op, String.replace(value, "\\ ", " ")}
     end
   end
 

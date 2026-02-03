@@ -136,6 +136,42 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    ocsf_events (time, id) {
+        time -> Timestamptz,
+        id -> Uuid,
+        class_uid -> Int4,
+        category_uid -> Int4,
+        type_uid -> Int4,
+        activity_id -> Int4,
+        activity_name -> Nullable<Text>,
+        severity_id -> Nullable<Int4>,
+        severity -> Nullable<Text>,
+        message -> Nullable<Text>,
+        status_id -> Nullable<Int4>,
+        status -> Nullable<Text>,
+        status_code -> Nullable<Text>,
+        status_detail -> Nullable<Text>,
+        metadata -> Jsonb,
+        observables -> Jsonb,
+        trace_id -> Nullable<Text>,
+        span_id -> Nullable<Text>,
+        actor -> Jsonb,
+        device -> Jsonb,
+        src_endpoint -> Jsonb,
+        dst_endpoint -> Jsonb,
+        log_name -> Nullable<Text>,
+        log_provider -> Nullable<Text>,
+        log_level -> Nullable<Text>,
+        log_version -> Nullable<Text>,
+        unmapped -> Jsonb,
+        raw_data -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     logs (timestamp, id) {
         timestamp -> Timestamptz,
         observed_timestamp -> Nullable<Timestamptz>,

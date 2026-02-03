@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   require Logger
 
   @default_events_limit 500
+  @default_events_recent_limit 50
   @default_logs_limit 500
   @default_metrics_limit 100
   @refresh_interval_ms :timer.seconds(30)
@@ -109,6 +110,32 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       nil
   end
 
+  defp get_hourly_event_stats(_scope) do
+    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+
+    query =
+      from(s in "ocsf_events_hourly_stats",
+        where: s.bucket >= ^cutoff,
+        group_by: s.severity_id,
+        select: {s.severity_id, sum(s.total_count)}
+      )
+
+    rows = Repo.all(query)
+
+    %{
+      total: 0,
+      critical: 0,
+      error: 0,
+      warning: 0,
+      info: 0
+    }
+    |> merge_event_stats(rows)
+  rescue
+    error ->
+      Logger.warning("Failed to query hourly event stats: #{inspect(error)}")
+      nil
+  end
+
   defp to_float(nil), do: 0.0
   defp to_float(%Decimal{} = d), do: Decimal.to_float(d)
   defp to_float(v) when is_float(v), do: v
@@ -121,14 +148,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
     # Try to get metrics stats from continuous aggregation first (more efficient)
     hourly_stats = get_hourly_metrics_stats(scope)
+    event_stats = get_hourly_event_stats(scope)
+
+    service_counts = get_service_counts()
 
     queries = %{
       devices_total: ~s|in:devices stats:"count() as total"|,
       devices_online: ~s|in:devices is_available:true stats:"count() as online"|,
       devices_offline: ~s|in:devices is_available:false stats:"count() as offline"|,
-      # Get unique services by service_name in the last hour (most recent status)
-      services_list: "in:services time:last_1h sort:timestamp:desc limit:500",
-      events: "in:events time:last_24h sort:event_timestamp:desc limit:#{@default_events_limit}",
       logs_recent: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}",
       logs_total: ~s|in:logs time:last_24h stats:"count() as total"|,
       logs_fatal: ~s|in:logs time:last_24h severity_text:(fatal,FATAL) stats:"count() as fatal"|,
@@ -155,6 +182,18 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       # rperf_targets: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"
     }
 
+    queries =
+      if is_nil(service_counts) do
+        # Fallback: fetch recent service rows and compute unique count
+        Map.put(
+          queries,
+          :services_list,
+          "in:services time:last_1h sort:timestamp:desc limit:5000"
+        )
+      else
+        queries
+      end
+
     # Only add SRQL fallback queries if hourly stats failed
     queries =
       if is_nil(hourly_stats) do
@@ -170,6 +209,21 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         })
       else
         queries
+      end
+
+    queries =
+      if is_nil(event_stats) do
+        Map.put(
+          queries,
+          :events,
+          "in:events time:last_24h sort:time:desc limit:#{@default_events_limit}"
+        )
+      else
+        Map.put(
+          queries,
+          :events_recent,
+          "in:events log_level:(FATAL,fatal,CRITICAL,critical,ERROR,error) time:last_24h sort:time:desc limit:#{@default_events_recent_limit}"
+        )
       end
 
     results =
@@ -191,6 +245,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       else
         results
       end
+
+    results =
+      if event_stats do
+        Map.put(results, :event_stats, event_stats)
+      else
+        results
+      end
+
+    results = Map.put(results, :service_counts, service_counts)
 
     {stats, device_availability, events_summary, logs_summary, observability, high_utilization,
      bandwidth, error} =
@@ -215,8 +278,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     offline_devices = extract_count(results[:devices_offline])
 
     # Calculate unique services from the services list
-    services_rows = extract_rows(results[:services_list])
-    {unique_services, failing_services} = count_unique_services(services_rows)
+    {unique_services, failing_services} =
+      case results[:service_counts] do
+        %{total: total, failing: failing} ->
+          {to_int(total), to_int(failing)}
+
+        _ ->
+          services_rows = extract_rows(results[:services_list])
+          count_unique_services(services_rows)
+      end
 
     stats = %{
       total_devices: total_devices,
@@ -239,8 +309,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       availability_pct: availability_pct
     }
 
-    events_rows = extract_rows(results[:events])
-    events_summary = build_events_summary(events_rows)
+    events_rows = extract_rows(results[:events_recent] || results[:events])
+    events_summary = build_events_summary(events_rows, Map.get(results, :event_stats))
 
     logs_rows = extract_rows(results[:logs_recent])
 
@@ -394,18 +464,29 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp parse_count_value(_), do: nil
 
-  defp build_events_summary(rows) when is_list(rows) do
+  defp build_events_summary(rows, %{} = stats) when is_list(rows) do
+    recent =
+      rows
+      |> Enum.filter(fn row ->
+        is_map(row) and event_summary_category(row) in [:critical, :error]
+      end)
+      |> Enum.take(5)
+
+    %{critical: 0, error: 0, warning: 0, info: 0, total: 0}
+    |> Map.merge(stats)
+    |> Map.put(:recent, recent)
+  end
+
+  defp build_events_summary(rows, nil) when is_list(rows) do
     counts =
       rows
       |> Enum.filter(&is_map/1)
-      |> Enum.reduce(%{critical: 0, high: 0, medium: 0, low: 0}, fn row, acc ->
-        severity = row |> Map.get("severity") |> normalize_severity()
-
-        case severity do
-          "Critical" -> Map.update!(acc, :critical, &(&1 + 1))
-          "High" -> Map.update!(acc, :high, &(&1 + 1))
-          "Medium" -> Map.update!(acc, :medium, &(&1 + 1))
-          "Low" -> Map.update!(acc, :low, &(&1 + 1))
+      |> Enum.reduce(%{critical: 0, error: 0, warning: 0, info: 0}, fn row, acc ->
+        case event_summary_category(row) do
+          :critical -> Map.update!(acc, :critical, &(&1 + 1))
+          :error -> Map.update!(acc, :error, &(&1 + 1))
+          :warning -> Map.update!(acc, :warning, &(&1 + 1))
+          :info -> Map.update!(acc, :info, &(&1 + 1))
           _ -> acc
         end
       end)
@@ -413,16 +494,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     recent =
       rows
       |> Enum.filter(fn row ->
-        is_map(row) and
-          (row |> Map.get("severity") |> normalize_severity()) in ["Critical", "High"]
+        is_map(row) and event_summary_category(row) in [:critical, :error]
       end)
       |> Enum.take(5)
 
     Map.merge(counts, %{total: length(rows), recent: recent})
   end
 
-  defp build_events_summary(_),
-    do: %{critical: 0, high: 0, medium: 0, low: 0, total: 0, recent: []}
+  defp build_events_summary(_, _),
+    do: %{critical: 0, error: 0, warning: 0, info: 0, total: 0, recent: []}
 
   defp build_logs_summary(rows, %{} = counts) when is_list(rows) do
     recent =
@@ -487,6 +567,49 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp to_int(value) when is_float(value), do: trunc(value)
   defp to_int(%Decimal{} = d), do: Decimal.to_integer(d)
   defp to_int(_), do: 0
+
+  defp merge_event_stats(base, rows) when is_list(rows) do
+    Enum.reduce(rows, base, fn {severity_id, total_count}, acc ->
+      count = to_int(total_count)
+      acc = Map.update!(acc, :total, &(&1 + count))
+
+      case to_int(severity_id) do
+        6 -> Map.update!(acc, :critical, &(&1 + count))
+        5 -> Map.update!(acc, :critical, &(&1 + count))
+        4 -> Map.update!(acc, :error, &(&1 + count))
+        3 -> Map.update!(acc, :warning, &(&1 + count))
+        2 -> Map.update!(acc, :info, &(&1 + count))
+        1 -> Map.update!(acc, :info, &(&1 + count))
+        _ -> acc
+      end
+    end)
+  end
+
+  defp merge_event_stats(base, _), do: base
+
+  defp get_service_counts do
+    cutoff = DateTime.add(DateTime.utc_now(), -1, :hour)
+
+    query =
+      from(s in "service_status",
+        where: s.timestamp >= ^cutoff,
+        select: %{
+          total: fragment("COUNT(DISTINCT ?)", s.service_name),
+          failing:
+            fragment(
+              "COUNT(DISTINCT ?) FILTER (WHERE ? = false)",
+              s.service_name,
+              s.available
+            )
+        }
+      )
+
+    Repo.one(query)
+  rescue
+    error ->
+      Logger.warning("Failed to query service counts: #{inspect(error)}")
+      nil
+  end
 
   defp build_high_utilization_summary(cpu_rows, memory_rows, disk_rows)
        when is_list(cpu_rows) and is_list(memory_rows) and is_list(disk_rows) do
@@ -658,10 +781,36 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp normalize_severity(value) do
     case value |> to_string() |> String.trim() |> String.downcase() do
       "critical" -> "Critical"
+      "fatal" -> "Fatal"
       "high" -> "High"
       "medium" -> "Medium"
       "low" -> "Low"
+      "informational" -> "Informational"
+      "info" -> "Informational"
       _ -> ""
+    end
+  end
+
+  defp event_summary_category(row) do
+    case normalize_log_level(Map.get(row, "log_level")) do
+      "Fatal" -> :critical
+      "Error" -> :error
+      "Warning" -> :warning
+      "Info" -> :info
+      "Debug" -> :info
+      _ -> event_category_from_severity(Map.get(row, "severity"))
+    end
+  end
+
+  defp event_category_from_severity(severity) do
+    case normalize_severity(severity) do
+      "Critical" -> :critical
+      "Fatal" -> :critical
+      "High" -> :error
+      "Medium" -> :warning
+      "Low" -> :info
+      "Informational" -> :info
+      _ -> :unknown
     end
   end
 
@@ -984,14 +1133,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     <div class="h-80 rounded-xl border border-base-200 bg-base-100 shadow-sm flex flex-col overflow-hidden">
       <header class="px-4 py-3 bg-base-200/40 flex items-start justify-between gap-3 shrink-0">
         <.link href={~p"/events"} class="hover:text-primary transition-colors">
-          <div class="text-sm font-semibold">Critical Events</div>
+          <div class="text-sm font-semibold">Event Levels</div>
         </.link>
         <.link
           href={
-            ~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc limit:100"}}"
+            ~p"/events?#{%{q: "in:events log_level:(FATAL,fatal,CRITICAL,critical,ERROR,error) time:last_24h sort:time:desc limit:100"}}"
           }
           class="text-base-content/60 hover:text-primary"
-          title="View critical events"
+          title="View high severity events"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
         </.link>
@@ -1012,39 +1161,39 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </thead>
           <tbody>
             <.severity_row
-              label="Critical"
+              label="Critical/Fatal"
               count={Map.get(@summary, :critical, 0)}
               total={Map.get(@summary, :total, 0)}
               color="error"
               href={
-                ~p"/events?#{%{q: "in:events severity:Critical time:last_24h sort:event_timestamp:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events log_level:(FATAL,fatal,CRITICAL,critical) time:last_24h sort:time:desc limit:100"}}"
               }
             />
             <.severity_row
-              label="High"
-              count={Map.get(@summary, :high, 0)}
+              label="Error"
+              count={Map.get(@summary, :error, 0)}
               total={Map.get(@summary, :total, 0)}
               color="warning"
               href={
-                ~p"/events?#{%{q: "in:events severity:High time:last_24h sort:event_timestamp:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events log_level:(ERROR,error) time:last_24h sort:time:desc limit:100"}}"
               }
             />
             <.severity_row
-              label="Medium"
-              count={Map.get(@summary, :medium, 0)}
+              label="Warning"
+              count={Map.get(@summary, :warning, 0)}
               total={Map.get(@summary, :total, 0)}
               color="info"
               href={
-                ~p"/events?#{%{q: "in:events severity:Medium time:last_24h sort:event_timestamp:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events log_level:(WARNING,warning,WARN,warn) time:last_24h sort:time:desc limit:100"}}"
               }
             />
             <.severity_row
-              label="Low"
-              count={Map.get(@summary, :low, 0)}
+              label="Info"
+              count={Map.get(@summary, :info, 0)}
               total={Map.get(@summary, :total, 0)}
               color="primary"
               href={
-                ~p"/events?#{%{q: "in:events severity:Low time:last_24h sort:event_timestamp:desc limit:100"}}"
+                ~p"/events?#{%{q: "in:events log_level:(INFO,info,DEBUG,debug,TRACE,trace) time:last_24h sort:time:desc limit:100"}}"
               }
             />
           </tbody>
@@ -1056,7 +1205,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         >
           <div>
             <.icon name="hero-shield-check" class="size-8 mx-auto mb-2 text-success" />
-            <p class="text-sm text-base-content/60">No critical events</p>
+            <p class="text-sm text-base-content/60">No high-severity events</p>
             <p class="text-xs text-base-content/40 mt-1">All systems reporting normally</p>
           </div>
         </div>
@@ -1725,7 +1874,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             {@event["short_message"] || "No details"}
           </div>
           <div class={["text-xs", severity_text_class(severity_color(@event["severity"]))]}>
-            {@event["severity"] || "Unknown"} · {format_relative_time(@event["event_timestamp"])}
+            {@event["severity"] || "Unknown"} · {format_relative_time(
+              @event["time"] || @event["event_timestamp"]
+            )}
           </div>
         </div>
       </div>
@@ -1757,20 +1908,24 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp severity_icon(severity) do
     case normalize_severity(severity) do
+      "Fatal" -> "hero-x-circle"
       "Critical" -> "hero-shield-exclamation"
       "High" -> "hero-exclamation-triangle"
       "Medium" -> "hero-exclamation-circle"
       "Low" -> "hero-information-circle"
+      "Informational" -> "hero-information-circle"
       _ -> "hero-exclamation-circle"
     end
   end
 
   defp severity_color(severity) do
     case normalize_severity(severity) do
+      "Fatal" -> "error"
       "Critical" -> "error"
       "High" -> "warning"
       "Medium" -> "info"
       "Low" -> "primary"
+      "Informational" -> "primary"
       _ -> "neutral"
     end
   end

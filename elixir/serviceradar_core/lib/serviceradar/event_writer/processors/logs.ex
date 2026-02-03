@@ -26,7 +26,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   alias Opentelemetry.Proto.Logs.V1.{LogRecord, ResourceLogs, ScopeLogs}
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.Observability.LogPromotion
+  alias ServiceRadar.Observability.{LogPromotion, LogPubSub}
 
   require Logger
 
@@ -75,6 +75,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          ) do
       {count, _} ->
         maybe_promote_logs(rows)
+        LogPubSub.broadcast_ingest(%{count: count})
         {:ok, count}
     end
   end

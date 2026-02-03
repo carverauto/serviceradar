@@ -131,14 +131,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp load_rules(state) do
-    rules =
-      StatefulAlertRule
-      |> Ash.Query.for_read(:active, %{})
-      |> Ash.read(state.ash_opts)
-      |> unwrap_page()
+    if repo_available?() do
+      rules =
+        StatefulAlertRule
+        |> Ash.Query.for_read(:active, %{})
+        |> Ash.read(state.ash_opts)
+        |> unwrap_page()
 
-    updated = %{state | rules: rules, rules_loaded_at: System.monotonic_time(:millisecond)}
-    {updated, rules}
+      updated = %{state | rules: rules, rules_loaded_at: System.monotonic_time(:millisecond)}
+      {updated, rules}
+    else
+      {state, []}
+    end
   rescue
     error ->
       Logger.warning("Failed to load stateful alert rules: #{inspect(error)}")
@@ -150,21 +154,28 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp unwrap_page(_), do: []
 
   defp load_state_snapshots(state) do
-    StatefulAlertRuleState
-    |> Ash.Query.for_read(:read, %{})
-    |> Ash.read(state.ash_opts)
-    |> case do
-      {:ok, %Ash.Page.Keyset{results: results}} -> results
-      {:ok, results} when is_list(results) -> results
-      _ -> []
+    if repo_available?() do
+      StatefulAlertRuleState
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.read(state.ash_opts)
+      |> case do
+        {:ok, %Ash.Page.Keyset{results: results}} -> results
+        {:ok, results} when is_list(results) -> results
+        _ -> []
+      end
+      |> Enum.each(fn snapshot ->
+        key = {snapshot.rule_id, snapshot.group_key}
+        :ets.insert(state.table, {key, normalize_snapshot(snapshot)})
+      end)
     end
-    |> Enum.each(fn snapshot ->
-      key = {snapshot.rule_id, snapshot.group_key}
-      :ets.insert(state.table, {key, normalize_snapshot(snapshot)})
-    end)
   rescue
     error ->
       Logger.warning("Failed to load rule snapshots: #{inspect(error)}")
+  end
+
+  defp repo_available? do
+    Application.get_env(:serviceradar_core, :repo_enabled, true) &&
+      is_pid(Process.whereis(ServiceRadar.Repo))
   end
 
   defp normalize_snapshot(snapshot) do

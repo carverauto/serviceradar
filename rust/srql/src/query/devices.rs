@@ -1137,15 +1137,23 @@ fn apply_primary_order<'a>(
     match clause.field.as_str() {
         "is_available" => (
             match clause.direction {
-                OrderDirection::Asc => query.order(sql::<Bool>("coalesce(is_available, false)").asc()),
-                OrderDirection::Desc => query.order(sql::<Bool>("coalesce(is_available, false)").desc()),
+                OrderDirection::Asc => {
+                    query.order(sql::<Bool>("coalesce(is_available, false)").asc())
+                }
+                OrderDirection::Desc => {
+                    query.order(sql::<Bool>("coalesce(is_available, false)").desc())
+                }
             },
             true,
         ),
         "ip" => (
             match clause.direction {
-                OrderDirection::Asc => query.order(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").asc()),
-                OrderDirection::Desc => query.order(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").desc()),
+                OrderDirection::Asc => {
+                    query.order(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").asc())
+                }
+                OrderDirection::Desc => {
+                    query.order(sql::<Nullable<Inet>>("NULLIF(ip, '')::inet").desc())
+                }
             },
             true,
         ),

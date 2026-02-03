@@ -175,6 +175,9 @@ config :serviceradar_core,
   cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes),
   cluster_coordinator: false
 
+# Ensure the gateway never starts the log promotion consumer.
+config :serviceradar_core, :log_promotion_consumer_enabled, false
+
 config :serviceradar_core, Oban, false
 
 # Disable Swoosh API client (agent gateway does not send email).

@@ -5,6 +5,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
+  alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.Observability.FlowPubSub
+  alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Stats
@@ -23,6 +26,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, LogPubSub.topic())
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, EventsPubSub.topic())
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, FlowPubSub.topic())
+    end
+
     {:ok,
      socket
      |> assign(:page_title, "Observability")
@@ -55,6 +64,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
        sample_size: 0
      })
      |> assign(:limit, @default_limit)
+     |> stream_configure(:logs, dom_id: &log_dom_id/1)
+     |> stream_configure(:events, dom_id: &event_dom_id/1)
+     |> stream(:logs, [])
+     |> stream(:events, [])
      |> SRQLPage.init("logs", default_limit: @default_limit)}
   end
 
@@ -80,7 +93,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         max_limit: max_limit
       )
 
-    socket = apply_tab_assigns(socket, tab, srql_module())
+    socket =
+      socket
+      |> apply_tab_assigns(tab, srql_module())
+      |> stream_active_tab(tab)
 
     {:noreply, socket}
   end
@@ -138,6 +154,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   @impl true
+  def handle_info({:logs_ingested, _event}, socket) do
+    {:noreply, maybe_refresh_tab(socket, "logs")}
+  end
+
+  @impl true
+  def handle_info({:ocsf_event, _event}, socket) do
+    {:noreply, maybe_refresh_tab(socket, "events")}
+  end
+
+  @impl true
+  def handle_info({:flows_ingested, _event}, socket) do
+    {:noreply, maybe_refresh_tab(socket, "netflows")}
+  end
+
+  @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
     assigns = assign(assigns, :pagination, pagination)
@@ -181,7 +212,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <.netflow_presets :if={@active_tab == "netflows"} srql={@srql} limit={@limit} />
             </:header>
 
-            <.logs_table :if={@active_tab == "logs"} id="logs" logs={@logs} />
+            <.logs_table
+              :if={@active_tab == "logs"}
+              id="logs"
+              logs={@streams.logs}
+              count={length(@logs)}
+            />
             <.traces_table :if={@active_tab == "traces"} id="traces" traces={@traces} />
             <.metrics_table
               :if={@active_tab == "metrics"}
@@ -189,7 +225,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               metrics={@metrics}
               sparklines={@sparklines}
             />
-            <.events_table :if={@active_tab == "events"} id="events" events={@events} />
+            <.events_table
+              :if={@active_tab == "events"}
+              id="events"
+              events={@streams.events}
+              count={length(@events)}
+            />
             <.alerts_table :if={@active_tab == "alerts"} id="alerts" alerts={@alerts} />
             <.netflows_table :if={@active_tab == "netflows"} flows={@netflows} />
 
@@ -348,7 +389,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </.link>
           <.link
             patch={
-              ~p"/observability?#{%{tab: "events", q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc"}}"
+              ~p"/observability?#{%{tab: "events", q: "in:events severity:(Critical,High) time:last_24h sort:time:desc"}}"
             }
             class="btn btn-ghost btn-xs text-error"
           >
@@ -398,7 +439,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp event_severity_stat(assigns) do
     pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
-    query = "in:events severity:#{assigns.severity} time:last_24h sort:event_timestamp:desc"
+    query = "in:events severity:#{assigns.severity} time:last_24h sort:time:desc"
 
     assigns =
       assigns
@@ -1012,7 +1053,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   attr(:id, :string, required: true)
-  attr(:logs, :list, default: [])
+  attr(:logs, :any, required: true)
+  attr(:count, :integer, required: true)
 
   defp logs_table(assigns) do
     ~H"""
@@ -1034,16 +1076,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             </th>
           </tr>
         </thead>
-        <tbody>
-          <tr :if={@logs == []}>
+        <tbody id={"#{@id}-rows"} phx-update="stream">
+          <tr :if={@count == 0}>
             <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
               No log entries found.
             </td>
           </tr>
 
-          <%= for {log, idx} <- Enum.with_index(@logs) do %>
+          <%= for {dom_id, log} <- @logs do %>
             <tr
-              id={"#{@id}-row-#{idx}"}
+              id={dom_id}
               class="hover:bg-base-200/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/logs/#{log_id(log)}")}
             >
@@ -1295,7 +1337,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   attr(:id, :string, required: true)
-  attr(:events, :list, default: [])
+  attr(:events, :any, required: true)
+  attr(:count, :integer, required: true)
 
   defp events_table(assigns) do
     ~H"""
@@ -1317,16 +1360,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             </th>
           </tr>
         </thead>
-        <tbody>
-          <tr :if={@events == []}>
+        <tbody id={"#{@id}-rows"} phx-update="stream">
+          <tr :if={@count == 0}>
             <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
               No events found.
             </td>
           </tr>
 
-          <%= for {event, idx} <- Enum.with_index(@events) do %>
+          <%= for {dom_id, event} <- @events do %>
             <tr
-              id={"#{@id}-row-#{idx}"}
+              id={dom_id}
               class="hover:bg-base-200/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/events/#{event_id(event)}")}
             >
@@ -1386,8 +1429,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     Map.get(event, "id") || Map.get(event, "event_id") || "unknown"
   end
 
+  defp event_dom_id(event) do
+    id = event_id(event)
+
+    if id == "unknown" do
+      "event-" <> Integer.to_string(:erlang.phash2(event))
+    else
+      "event-" <> id
+    end
+  end
+
   defp format_event_timestamp(event) do
-    ts = Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
+    ts =
+      Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
 
     case parse_timestamp(ts) do
       {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
@@ -1397,7 +1451,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp event_source(event) do
     source =
-      Map.get(event, "host") ||
+      Map.get(event, "log_provider") ||
+        Map.get(event, "log_name") ||
+        Map.get(event, "host") ||
         Map.get(event, "source") ||
         Map.get(event, "uid") ||
         Map.get(event, "device_id") ||
@@ -2412,6 +2468,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  defp log_dom_id(log) do
+    id = log_id(log)
+
+    if id == "unknown" do
+      "log-" <> Integer.to_string(:erlang.phash2(log))
+    else
+      "log-" <> id
+    end
+  end
+
   # Convert raw 16-byte binary UUID to string format
   defp uuid_to_string(<<a::32, b::16, c::16, d::16, e::48>>) do
     [a, b, c, d, e]
@@ -2758,6 +2824,43 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:trace_latency, empty_trace_latency())
     |> assign(:metrics_stats, empty_metrics_stats())
   end
+
+  defp maybe_refresh_tab(socket, tab) do
+    if socket.assigns.active_tab == tab do
+      refresh_tab(socket, tab)
+    else
+      socket
+    end
+  end
+
+  defp refresh_tab(socket, tab) do
+    {entity, list_key} = tab_entity(tab)
+    {default_limit, max_limit} = tab_limits(tab)
+    srql = Map.get(socket.assigns, :srql, %{})
+    query = Map.get(srql, :query, "")
+    limit = Map.get(socket.assigns, :limit, default_limit)
+    params = %{"q" => query, "limit" => limit}
+    uri = Map.get(srql, :page_path, "/observability")
+
+    socket
+    |> ensure_srql_entity(entity, default_limit)
+    |> SRQLPage.load_list(params, uri, list_key,
+      default_limit: default_limit,
+      max_limit: max_limit
+    )
+    |> apply_tab_assigns(tab, srql_module())
+    |> stream_active_tab(tab)
+  end
+
+  defp stream_active_tab(socket, "logs") do
+    stream(socket, :logs, socket.assigns.logs, reset: true, dom_id: &log_dom_id/1)
+  end
+
+  defp stream_active_tab(socket, "events") do
+    stream(socket, :events, socket.assigns.events, reset: true, dom_id: &event_dom_id/1)
+  end
+
+  defp stream_active_tab(socket, _tab), do: socket
 
   defp build_metrics_stats(srql_module, scope) do
     metrics_counts = load_metrics_counts(srql_module, scope)

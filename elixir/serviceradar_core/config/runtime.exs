@@ -141,7 +141,9 @@ if config_env() == :prod do
       if database_timeout, do: Keyword.put(opts, :timeout, database_timeout), else: opts
     end)
     |> then(fn opts ->
-      if database_pool_timeout, do: Keyword.put(opts, :pool_timeout, database_pool_timeout), else: opts
+      if database_pool_timeout,
+        do: Keyword.put(opts, :pool_timeout, database_pool_timeout),
+        else: opts
     end)
 
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
@@ -236,8 +238,12 @@ if config_env() == :prod do
     end)
     |> then(fn acc ->
       case System.get_env("PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS") do
-        nil -> acc
-        "" -> acc
+        nil ->
+          acc
+
+        "" ->
+          acc
+
         value ->
           case Integer.parse(value) do
             {parsed, ""} -> Keyword.put(acc, :download_ttl_seconds, parsed)
@@ -311,6 +317,11 @@ if config_env() == :prod do
     password: {:system, "NATS_PASSWORD"},
     creds_file: nats_creds_file,
     tls: nats_tls_config
+
+  log_promotion_enabled =
+    System.get_env("LOG_PROMOTION_CONSUMER_ENABLED", "true") in ~w(true 1 yes)
+
+  config :serviceradar_core, :log_promotion_consumer_enabled, log_promotion_enabled
 
   # EventWriter configuration (NATS JetStream → CNPG consumer)
   # Enable with EVENT_WRITER_ENABLED=true
