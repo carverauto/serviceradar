@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
      |> assign(:events, [])
      |> assign(:summary, %{total: 0, critical: 0, high: 0, medium: 0, low: 0})
      |> assign(:limit, @default_limit)
+     |> stream(:events, [], dom_id: &event_dom_id/1)
      |> SRQLPage.init("events", default_limit: @default_limit)}
   end
 
@@ -40,7 +41,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     # Compute summary from current page results
     summary = compute_summary(socket.assigns.events)
 
-    {:noreply, assign(socket, :summary, summary)}
+    {:noreply,
+     socket
+     |> stream(:events, socket.assigns.events, reset: true, dom_id: &event_dom_id/1)
+     |> assign(:summary, summary)}
   end
 
   @impl true
@@ -108,7 +112,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
               </div>
             </:header>
 
-            <.events_table id="events" events={@events} />
+            <.events_table id="events" events={@streams.events} count={length(@events)} />
 
             <div class="mt-4 pt-4 border-t border-base-200">
               <.ui_pagination
@@ -223,7 +227,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   defp color_bg(_), do: "bg-base-content"
 
   attr :id, :string, required: true
-  attr :events, :list, default: []
+  attr :events, :any, required: true
+  attr :count, :integer, required: true
 
   defp events_table(assigns) do
     ~H"""
@@ -245,16 +250,16 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
             </th>
           </tr>
         </thead>
-        <tbody>
-          <tr :if={@events == []}>
+        <tbody id={"#{@id}-rows"} phx-update="stream">
+          <tr :if={@count == 0}>
             <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
               No events found.
             </td>
           </tr>
 
-          <%= for {event, idx} <- Enum.with_index(@events) do %>
+          <%= for {dom_id, event} <- @events do %>
             <tr
-              id={"#{@id}-row-#{idx}"}
+              id={dom_id}
               class="hover:bg-base-200/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/events/#{event_id(event)}")}
             >
@@ -414,6 +419,18 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         max_limit: @max_limit
       )
 
-    assign(socket, :summary, compute_summary(socket.assigns.events))
+    socket
+    |> stream(:events, socket.assigns.events, reset: true, dom_id: &event_dom_id/1)
+    |> assign(:summary, compute_summary(socket.assigns.events))
+  end
+
+  defp event_dom_id(event) do
+    id = event_id(event)
+
+    if id == "unknown" do
+      "event-" <> Integer.to_string(:erlang.phash2(event))
+    else
+      "event-" <> id
+    end
   end
 end

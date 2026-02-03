@@ -86,6 +86,10 @@ defmodule ServiceRadar.Observability.LogPromotion do
         returning: false
       )
 
+    if count > 0 do
+      ServiceRadar.Events.PubSub.broadcast_event(%{count: count})
+    end
+
     :telemetry.execute(
       [:serviceradar, :log_promotion, :events_created],
       %{count: count},
