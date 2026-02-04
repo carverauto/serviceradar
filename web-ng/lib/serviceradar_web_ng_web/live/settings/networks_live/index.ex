@@ -2817,7 +2817,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
     options =
       agents
-      |> Enum.filter(&agent_supports_mapper?(&1) and agent_partition_matches?(&1, partition))
+      |> Enum.filter(&(agent_supports_mapper?(&1) and agent_partition_matches?(&1, partition)))
       |> Enum.sort_by(&agent_label/1)
       |> Enum.map(&{agent_label(&1), &1.uid})
 
