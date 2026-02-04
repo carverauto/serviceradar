@@ -77,3 +77,4 @@ docker compose logs cert-permissions-fixer
 - **Web UI not reachable**: Ensure Caddy is running (`docker compose ps`) and check its logs (`docker compose logs caddy`).
 - **Core API not reachable**: Verify `core-elx` is healthy and listening on port 8090 (`docker compose logs core-elx`).
 - **Database issues**: Confirm CNPG is healthy (`docker compose logs cnpg`).
+- **Agent not enrolling**: Check `docker compose logs agent` for a successful connection to `agent-gateway.serviceradar:50052` and verify the gateway logs show `Agent enrolled` (`docker compose logs agent-gateway`).
