@@ -65,9 +65,10 @@ Get ServiceRadar running in under 5 minutes:
 # Optional - set these in your .env 
 export SERVICERADAR_HOST=<my-vm-ip>
 export GATEWAY_PUBLIC_BIND=0.0.0.0
-# 
+
 git clone https://github.com/carverauto/serviceradar.git
 cd serviceradar
+
 docker compose up -d
 
 # Get your admin password
