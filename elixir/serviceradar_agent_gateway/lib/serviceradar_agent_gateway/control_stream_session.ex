@@ -83,20 +83,19 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
     case GRPC.Server.send_reply(state.stream, response) do
       :ok ->
-        command_meta =
-          context
-          |> normalize_context()
-          |> Map.put_new(:command_id, command.command_id)
-          |> Map.put_new(:command_type, command.command_type)
-          |> Map.put_new(:agent_id, state.agent_id)
-          |> Map.put_new(:partition_id, state.partition_id)
-          |> Map.put_new(:sent_at, DateTime.utc_now())
+        {:reply, {:ok, command.command_id}, track_command(state, command, context)}
 
-        commands = Map.put(state.commands, command.command_id, command_meta)
-        {:reply, {:ok, command.command_id}, %{state | commands: commands}}
+      {:ok, %GRPC.Server.Stream{} = stream} ->
+        {:reply, {:ok, command.command_id}, track_command(%{state | stream: stream}, command, context)}
+
+      %GRPC.Server.Stream{} = stream ->
+        {:reply, {:ok, command.command_id}, track_command(%{state | stream: stream}, command, context)}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
+
+      other ->
+        {:reply, {:error, {:unexpected_reply, other}}, state}
     end
   end
 
@@ -104,8 +103,20 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     response = %Monitoring.ControlStreamResponse{payload: {:config, config}}
 
     case GRPC.Server.send_reply(state.stream, response) do
-      :ok -> {:reply, :ok, state}
-      {:error, reason} -> {:reply, {:error, reason}, state}
+      :ok ->
+        {:reply, :ok, state}
+
+      {:ok, %GRPC.Server.Stream{} = stream} ->
+        {:reply, :ok, %{state | stream: stream}}
+
+      %GRPC.Server.Stream{} = stream ->
+        {:reply, :ok, %{state | stream: stream}}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+
+      other ->
+        {:reply, {:error, {:unexpected_reply, other}}, state}
     end
   end
 
@@ -232,6 +243,19 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       {:ok, decoded} -> decoded
       {:error, _} -> nil
     end
+  end
+
+  defp track_command(state, command, context) do
+    command_meta =
+      context
+      |> normalize_context()
+      |> Map.put_new(:command_id, command.command_id)
+      |> Map.put_new(:command_type, command.command_type)
+      |> Map.put_new(:agent_id, state.agent_id)
+      |> Map.put_new(:partition_id, state.partition_id)
+      |> Map.put_new(:sent_at, DateTime.utc_now())
+
+    %{state | commands: Map.put(state.commands, command.command_id, command_meta)}
   end
 
   defp normalize_context(context) when is_map(context), do: context
