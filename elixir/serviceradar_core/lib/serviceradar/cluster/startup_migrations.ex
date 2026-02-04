@@ -69,6 +69,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     bootstrap_app_role!(app_user, app_password)
     ensure_platform_schema!(app_user)
     sync_platform_schema_migrations!()
+    ensure_database_search_path!(app_user, app_database(), search_path())
     set_session_search_path!(search_path())
 
     Ecto.Migrator.run(
@@ -84,7 +85,6 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     sync_ash_schema_migrations!()
 
     ensure_platform_ownership!(app_user)
-    ensure_database_search_path!(app_user, app_database(), search_path())
     ensure_ag_catalog_privileges!(app_user)
   end
 
@@ -385,28 +385,48 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       []
     )
 
-    %{rows: rows} =
+    %{rows: table_rows} =
       Postgrex.query!(
         conn,
-        "SELECT c.relkind, c.relname\n" <>
+        "SELECT c.relname\n" <>
           "FROM pg_class c\n" <>
           "JOIN pg_namespace n ON n.oid = c.relnamespace\n" <>
           "WHERE n.nspname = $1\n" <>
-          "AND c.relkind IN ('r', 'p', 'S')",
+          "AND c.relkind IN ('r', 'p')",
         [graph_name]
       )
 
-    Enum.each(rows, fn [relkind, relname] ->
-      stmt =
-        case relkind do
-          "S" ->
-            "ALTER SEQUENCE #{quote_ident(graph_name)}.#{quote_ident(relname)} OWNER TO #{quote_ident(app_user)}"
+    Enum.each(table_rows, fn [relname] ->
+      Postgrex.query!(
+        conn,
+        "ALTER TABLE #{quote_ident(graph_name)}.#{quote_ident(relname)} OWNER TO #{quote_ident(app_user)}",
+        []
+      )
+    end)
 
-          _ ->
-            "ALTER TABLE #{quote_ident(graph_name)}.#{quote_ident(relname)} OWNER TO #{quote_ident(app_user)}"
-        end
+    # Skip sequences owned by tables; PostgreSQL forbids changing their owner directly.
+    %{rows: seq_rows} =
+      Postgrex.query!(
+        conn,
+        "SELECT c.relname\n" <>
+          "FROM pg_class c\n" <>
+          "JOIN pg_namespace n ON n.oid = c.relnamespace\n" <>
+          "WHERE n.nspname = $1\n" <>
+          "AND c.relkind = 'S'\n" <>
+          "AND NOT EXISTS (\n" <>
+          "  SELECT 1 FROM pg_depend d\n" <>
+          "  WHERE d.objid = c.oid\n" <>
+          "  AND d.deptype = 'a'\n" <>
+          ")",
+        [graph_name]
+      )
 
-      Postgrex.query!(conn, stmt, [])
+    Enum.each(seq_rows, fn [relname] ->
+      Postgrex.query!(
+        conn,
+        "ALTER SEQUENCE #{quote_ident(graph_name)}.#{quote_ident(relname)} OWNER TO #{quote_ident(app_user)}",
+        []
+      )
     end)
   end
 
