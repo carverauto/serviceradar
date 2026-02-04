@@ -37,15 +37,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
+    {profiles, profile_target_counts} = load_profiles_with_counts(scope)
+
     socket =
       socket
       |> assign(:page_title, "SNMP Profiles")
-      |> assign(:profiles, load_profiles(scope))
+      |> assign(:profiles, profiles)
+      |> assign(:profile_target_counts, profile_target_counts)
       |> assign(:selected_profile, nil)
       |> assign(:show_form, nil)
       |> assign(:ash_form, nil)
       |> assign(:form, nil)
       |> assign(:target_device_count, nil)
+      |> assign(:target_entity, "devices")
       |> assign(:builder_open, false)
       |> assign(:builder, default_builder_state())
       |> assign(:builder_sync, true)
@@ -113,6 +117,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     |> assign(:builder, default_builder_state())
     |> assign(:builder_sync, true)
     |> assign(:target_device_count, nil)
+    |> assign(:target_entity, "devices")
     |> assign(:targets, [])
     |> assign(:show_target_modal, false)
     |> assign(:target_form, nil)
@@ -120,6 +125,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     |> assign(:target_oids, [])
     |> assign(:show_template_browser, false)
     |> assign(:selected_template_ids, [])
+    |> assign_target_preview(nil)
   end
 
   defp apply_action(socket, :edit_profile, %{"id" => id}) do
@@ -132,12 +138,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       profile ->
         scope = socket.assigns.current_scope
         target_query = resolve_target_query(profile.target_query, profile.is_default)
+        normalized_query = normalize_target_query(target_query, profile.is_default)
 
         ash_form =
           Form.for_update(profile, :update, domain: ServiceRadar.SNMPProfiles, scope: scope)
           |> maybe_set_target_query(target_query)
 
-        device_count = count_target_devices(scope, target_query)
+        {device_count, target_entity} =
+          if is_nil(normalized_query) do
+            {nil, "devices"}
+          else
+            {count_target_devices(scope, normalized_query), extract_srql_entity(normalized_query)}
+          end
 
         # Parse the existing target_query into builder state if possible
         {builder, builder_sync} = parse_target_query_to_builder(target_query)
@@ -155,6 +167,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         |> assign(:ash_form, ash_form)
         |> assign(:form, to_form(ash_form))
         |> assign(:target_device_count, device_count)
+        |> assign(:target_entity, target_entity)
         |> assign(:builder_open, false)
         |> assign(:builder, builder)
         |> assign(:builder_sync, builder_sync)
@@ -170,16 +183,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
   @impl true
   def handle_event("validate_profile", %{"form" => params}, socket) do
-    scope = socket.assigns.current_scope
     target_query = Map.get(params, "target_query")
-    device_count = count_target_devices(scope, target_query)
     ash_form = socket.assigns.ash_form |> Form.validate(params)
 
     {:noreply,
      socket
      |> assign(:ash_form, ash_form)
      |> assign(:form, to_form(ash_form))
-     |> assign(:target_device_count, device_count)}
+     |> assign_target_preview(target_query)}
   end
 
   def handle_event("save_profile", %{"form" => params}, socket) do
@@ -206,7 +217,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
         {:noreply,
          socket
-         |> assign(:profiles, load_profiles(scope))
+         |> assign_profiles_with_counts(scope)
          |> put_flash(:info, "Profile #{action} successfully")
          |> push_navigate(to: ~p"/settings/snmp")}
 
@@ -233,7 +244,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
           {:ok, _updated} ->
             {:noreply,
              socket
-             |> assign(:profiles, load_profiles(scope))
+             |> assign_profiles_with_counts(scope)
              |> put_flash(:info, "Profile #{if new_enabled, do: "enabled", else: "disabled"}")}
 
           {:error, _} ->
@@ -257,7 +268,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
           :ok ->
             {:noreply,
              socket
-             |> assign(:profiles, load_profiles(scope))
+             |> assign_profiles_with_counts(scope)
              |> put_flash(:info, "Profile deleted")}
 
           {:error, _} ->
@@ -278,7 +289,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
           {:ok, _updated} ->
             {:noreply,
              socket
-             |> assign(:profiles, load_profiles(scope))
+             |> assign_profiles_with_counts(scope)
              |> put_flash(:info, "#{profile.name} is now the default profile")}
 
           {:error, _} ->
@@ -387,15 +398,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       socket.assigns.ash_form
       |> Form.validate(%{"target_query" => query})
 
-    scope = socket.assigns.current_scope
-    device_count = count_target_devices(scope, query)
-
     {:noreply,
      socket
      |> assign(:ash_form, ash_form)
      |> assign(:form, to_form(ash_form))
      |> assign(:builder_sync, true)
-     |> assign(:target_device_count, device_count)}
+     |> assign_target_preview(query)}
   end
 
   # OID Template Selection event handlers
@@ -1184,6 +1192,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               show_form={@show_form}
               selected_profile={@selected_profile}
               target_device_count={@target_device_count}
+              target_entity={@target_entity}
               builder_open={@builder_open}
               builder={@builder}
               builder_sync={@builder_sync}
@@ -1192,7 +1201,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               available_templates={@available_templates}
             />
           <% else %>
-            <.profiles_panel profiles={@profiles} />
+            <.profiles_panel
+              profiles={@profiles}
+              profile_target_counts={@profile_target_counts}
+            />
           <% end %>
         </div>
         
@@ -1229,6 +1241,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
   # Profiles Panel
   attr :profiles, :list, required: true
+  attr :profile_target_counts, :map, default: %{}
 
   defp profiles_panel(assigns) do
     ~H"""
@@ -1297,7 +1310,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                 <td class="text-xs max-w-xs">
                   <%= cond do %>
                     <% profile.is_default -> %>
-                      <span class="text-base-content/60 italic">All unmatched interfaces</span>
+                      <span class="text-base-content/60 italic">All unmatched devices</span>
                     <% profile.target_query && profile.target_query != "" -> %>
                       <code
                         class="font-mono text-[11px] bg-base-200/50 px-1.5 py-0.5 rounded truncate block max-w-[200px]"
@@ -1313,8 +1326,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                   {profile.poll_interval}s
                 </td>
                 <td>
-                  <.ui_badge variant="ghost" size="xs">
-                    0 targets
+                  <.ui_badge
+                    id={"snmp-profile-#{profile.id}-targets"}
+                    variant="ghost"
+                    size="xs"
+                    title={target_count_title(Map.get(@profile_target_counts, profile.id))}
+                  >
+                    {format_target_count(Map.get(@profile_target_counts, profile.id))}
                   </.ui_badge>
                 </td>
                 <td>
@@ -1360,7 +1378,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   attr :form, :any, required: true
   attr :show_form, :atom, required: true
   attr :selected_profile, :any, default: nil
-  attr :target_device_count, :integer, default: nil
+  attr :target_device_count, :any, default: nil
+  attr :target_entity, :string, default: "devices"
   attr :builder_open, :boolean, default: false
   attr :builder, :map, default: %{}
   attr :builder_sync, :boolean, default: true
@@ -1752,13 +1771,25 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               </form>
             </div>
             
-    <!-- Device Count Preview -->
+    <!-- Target Count Preview -->
             <div :if={@target_device_count != nil} class="flex items-center gap-2">
               <.icon name="hero-signal" class="size-4 text-base-content/60" />
               <span class="text-sm">
-                <span class="font-semibold">{@target_device_count}</span>
-                <span class="text-base-content/60">interface(s) match this query</span>
+                <%= case @target_device_count do %>
+                  <% {:ok, count} -> %>
+                    <span class="font-semibold">{count}</span>
+                    <span class="text-base-content/60">
+                      device(s) match this
+                      {if @target_entity == "interfaces", do: "interface", else: "device"} query
+                    </span>
+                  <% _ -> %>
+                    <span class="font-semibold">Unknown</span>
+                    <span class="text-base-content/60">targets for this query</span>
+                <% end %>
               </span>
+              <.ui_badge variant="ghost" size="xs">
+                {if @target_entity == "interfaces", do: "Interfaces", else: "Devices"}
+              </.ui_badge>
             </div>
             
     <!-- Priority -->
@@ -2817,7 +2848,84 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     end
   end
 
+  defp assign_profiles_with_counts(socket, scope) do
+    {profiles, profile_target_counts} = load_profiles_with_counts(scope)
+
+    socket
+    |> assign(:profiles, profiles)
+    |> assign(:profile_target_counts, profile_target_counts)
+  end
+
+  defp assign_target_preview(socket, target_query) do
+    scope = socket.assigns.current_scope
+    is_default =
+      case socket.assigns.selected_profile do
+        %{is_default: true} -> true
+        _ -> false
+      end
+
+    normalized_query = normalize_target_query(target_query, is_default)
+
+    if is_nil(normalized_query) do
+      socket
+      |> assign(:target_device_count, nil)
+      |> assign(:target_entity, "devices")
+    else
+      target_entity = extract_srql_entity(normalized_query)
+      device_count = count_target_devices(scope, normalized_query)
+
+      socket
+      |> assign(:target_device_count, device_count)
+      |> assign(:target_entity, target_entity)
+    end
+  end
+
+  defp normalize_target_query(target_query, is_default) do
+    cond do
+      target_query in [nil, ""] and is_default ->
+        "in:devices"
+
+      target_query in [nil, ""] ->
+        nil
+
+      true ->
+        normalize_target_query(target_query)
+    end
+  end
+
+  defp normalize_target_query(query) when is_binary(query) do
+    query = String.trim(query)
+
+    cond do
+      query == "" ->
+        "in:devices"
+
+      String.starts_with?(query, "in:") ->
+        query
+
+      true ->
+        "in:devices " <> query
+    end
+  end
+
+  defp normalize_target_query(_), do: nil
+
+  defp format_target_count({:ok, count}) do
+    label = if count == 1, do: "target", else: "targets"
+    "#{count} #{label}"
+  end
+
+  defp format_target_count(_), do: "Unknown"
+
+  defp target_count_title({:ok, _count}), do: nil
+  defp target_count_title(_), do: "Target count unavailable"
+
   # Helper Functions
+  defp load_profiles_with_counts(scope) do
+    profiles = load_profiles(scope)
+    counts = load_profile_target_counts(scope, profiles)
+    {profiles, counts}
+  end
 
   defp load_profiles(scope) do
     case Ash.read(SNMPProfile, scope: scope) do
@@ -2829,6 +2937,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       {:error, _} ->
         []
     end
+  end
+
+  defp load_profile_target_counts(_scope, []), do: %{}
+
+  defp load_profile_target_counts(scope, profiles) do
+    Enum.reduce(profiles, %{}, fn profile, acc ->
+      target_query = resolve_target_query(profile.target_query, profile.is_default)
+      normalized_query = normalize_target_query(target_query, profile.is_default)
+      count = count_target_devices(scope, normalized_query)
+
+      Map.put(acc, profile.id, count)
+    end)
   end
 
   defp load_profile(scope, id) do
@@ -2929,14 +3049,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   end
 
   # Resolve target query for a profile, using defaults for default profiles
-  defp resolve_target_query(nil, true), do: "in:interfaces"
-  defp resolve_target_query("", true), do: "in:interfaces"
+  defp resolve_target_query(nil, true), do: "in:devices"
+  defp resolve_target_query("", true), do: "in:devices"
   defp resolve_target_query(nil, _is_default), do: nil
   defp resolve_target_query("", _is_default), do: ""
   defp resolve_target_query(query, _is_default), do: query
 
-  defp count_target_devices(_scope, nil), do: nil
-  defp count_target_devices(_scope, ""), do: nil
+  defp count_target_devices(_scope, nil), do: :unknown
+  defp count_target_devices(_scope, ""), do: :unknown
 
   defp count_target_devices(scope, target_query) when is_binary(target_query) do
     # Parse the SRQL query and count matching targets based on entity type
@@ -2946,10 +3066,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
          {:ok, ast} <- Jason.decode(ast_json) do
       count_entity_from_ast(scope, entity, ast)
     else
-      _ -> nil
+      _ -> :unknown
     end
   rescue
-    _ -> nil
+    _ -> :unknown
   end
 
   # Helper to count entities from parsed AST (extracted to reduce nesting depth)
@@ -2966,11 +3086,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
     case Regex.run(~r/^in:(\S+)/, query) do
       [_, entity] -> String.downcase(entity)
-      _ -> "interfaces"
+      _ -> "devices"
     end
   end
 
-  defp extract_srql_entity(_), do: "interfaces"
+  defp extract_srql_entity(_), do: "devices"
 
   defp count_devices_from_ast(scope, ast) do
     filters = extract_srql_filters(ast)
@@ -2982,16 +3102,16 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
     case query do
       {:error, :unsupported_filter} ->
-        nil
+        :unknown
 
       query ->
         case Ash.count(query, scope: scope) do
-          {:ok, count} -> count
-          _ -> nil
+          {:ok, count} -> {:ok, count}
+          _ -> :unknown
         end
     end
   rescue
-    _ -> nil
+    _ -> :unknown
   end
 
   defp count_interfaces_from_ast(scope, ast) do
@@ -3001,15 +3121,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       Interface
       |> Ash.Query.for_read(:read, %{})
       |> apply_srql_filters(filters)
-      # Add distinct on interface_uid to avoid counting historical snapshots
-      |> Ash.Query.distinct(:interface_uid)
+      # Add distinct on device_id to avoid counting historical snapshots
+      |> Ash.Query.distinct(:device_id)
 
     case Ash.count(query, scope: scope) do
-      {:ok, count} -> count
-      _ -> nil
+      {:ok, count} -> {:ok, count}
+      _ -> :unknown
     end
   rescue
-    _ -> nil
+    _ -> :unknown
   end
 
   defp apply_device_filters(query, filters) do
@@ -3340,13 +3460,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         socket.assigns.ash_form
         |> Form.validate(%{"target_query" => query})
 
-      scope = socket.assigns.current_scope
-      device_count = count_target_devices(scope, query)
-
       socket
       |> assign(:ash_form, ash_form)
       |> assign(:form, to_form(ash_form))
-      |> assign(:target_device_count, device_count)
+      |> assign_target_preview(query)
     else
       socket
     end
