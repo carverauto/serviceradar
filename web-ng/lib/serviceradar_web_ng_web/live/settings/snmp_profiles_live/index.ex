@@ -1779,8 +1779,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                   <% {:ok, count} -> %>
                     <span class="font-semibold">{count}</span>
                     <span class="text-base-content/60">
-                      device(s) match this
-                      {if @target_entity == "interfaces", do: "interface", else: "device"} query
+                      device(s) match this {if @target_entity == "interfaces",
+                        do: "interface",
+                        else: "device"} query
                     </span>
                   <% _ -> %>
                     <span class="font-semibold">Unknown</span>
@@ -2858,6 +2859,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
   defp assign_target_preview(socket, target_query) do
     scope = socket.assigns.current_scope
+
     is_default =
       case socket.assigns.selected_profile do
         %{is_default: true} -> true
