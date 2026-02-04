@@ -302,18 +302,13 @@ func (s *MultiSweepService) GetSweepResults(ctx context.Context, _ string) (*pro
 	s.mu.RUnlock()
 
 	if len(groupOrder) == 0 {
-		payload, _ := json.Marshal(map[string]string{
-			"reason": "no_sweep_groups_configured",
-		})
-
-		s.logger.Warn().Msg("No sweep groups configured; reporting sweep status as unavailable")
-
-		return &proto.StatusResponse{
-			Available:    false,
-			Message:      payload,
-			ServiceName:  networkSweepServiceName,
-			ServiceType:  "sweep",
-			ResponseTime: 0,
+		return &proto.ResultsResponse{
+			HasNewData:      false,
+			CurrentSequence: s.aggregateSequence(),
+			ServiceName:     networkSweepServiceName,
+			ServiceType:     "sweep",
+			Available:       false,
+			Timestamp:       time.Now().Unix(),
 		}, nil
 	}
 
@@ -379,7 +374,19 @@ func (s *MultiSweepService) GetStatus(ctx context.Context) (*proto.StatusRespons
 	s.mu.RUnlock()
 
 	if len(groupOrder) == 0 {
-		return nil, nil
+		payload, _ := json.Marshal(map[string]string{
+			"reason": "no_sweep_groups_configured",
+		})
+
+		s.logger.Warn().Msg("No sweep groups configured; reporting sweep status as unavailable")
+
+		return &proto.StatusResponse{
+			Available:    false,
+			Message:      payload,
+			ServiceName:  networkSweepServiceName,
+			ServiceType:  "sweep",
+			ResponseTime: 0,
+		}, nil
 	}
 
 	var bestStatus *proto.StatusResponse
