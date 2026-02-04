@@ -61,6 +61,13 @@ if config_env() == :prod do
 
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
 
+  age_graph_name =
+    System.get_env("SERVICERADAR_AGE_GRAPH_NAME") ||
+      System.get_env("AGE_GRAPH_NAME") ||
+      "platform_graph"
+
+  config :serviceradar_core, :age_graph_name, age_graph_name
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

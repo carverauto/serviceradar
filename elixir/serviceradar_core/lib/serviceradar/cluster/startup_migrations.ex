@@ -320,9 +320,10 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
           []
         )
 
-        # Also grant privileges on the AGE graph schema (named 'serviceradar').
+        # Also grant privileges on the AGE graph schema (configured graph name).
         # AGE creates a schema for each graph to store vertex/edge labels.
-        ensure_age_graph_privileges!(conn, app_user, "serviceradar")
+        graph_name = Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")
+        ensure_age_graph_privileges!(conn, app_user, graph_name)
       end)
     end
   end
@@ -341,7 +342,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
         Postgrex.query!(
           conn,
-          "GRANT USAGE ON SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}",
+          "GRANT USAGE, CREATE ON SCHEMA #{quote_ident(graph_name)} TO #{quote_ident(app_user)}",
           []
         )
 
@@ -369,7 +370,44 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
           "ALTER DEFAULT PRIVILEGES IN SCHEMA #{quote_ident(graph_name)} GRANT ALL ON SEQUENCES TO #{quote_ident(app_user)}",
           []
         )
+
+        # Ensure ownership matches app user to satisfy AGE label-table ownership requirements.
+        ensure_age_graph_ownership!(conn, app_user, graph_name)
     end
+  end
+
+  defp ensure_age_graph_ownership!(conn, app_user, graph_name) do
+    Logger.info("[StartupMigrations] Ensuring ownership for AGE graph schema #{graph_name}")
+
+    Postgrex.query!(
+      conn,
+      "ALTER SCHEMA #{quote_ident(graph_name)} OWNER TO #{quote_ident(app_user)}",
+      []
+    )
+
+    %{rows: rows} =
+      Postgrex.query!(
+        conn,
+        "SELECT c.relkind, c.relname\n" <>
+          "FROM pg_class c\n" <>
+          "JOIN pg_namespace n ON n.oid = c.relnamespace\n" <>
+          "WHERE n.nspname = $1\n" <>
+          "AND c.relkind IN ('r', 'p', 'S')",
+        [graph_name]
+      )
+
+    Enum.each(rows, fn [relkind, relname] ->
+      stmt =
+        case relkind do
+          "S" ->
+            "ALTER SEQUENCE #{quote_ident(graph_name)}.#{quote_ident(relname)} OWNER TO #{quote_ident(app_user)}"
+
+          _ ->
+            "ALTER TABLE #{quote_ident(graph_name)}.#{quote_ident(relname)} OWNER TO #{quote_ident(app_user)}"
+        end
+
+      Postgrex.query!(conn, stmt, [])
+    end)
   end
 
   # Execute a function with a temporary admin (superuser) database connection.

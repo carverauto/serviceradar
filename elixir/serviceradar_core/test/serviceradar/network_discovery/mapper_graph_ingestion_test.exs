@@ -8,18 +8,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
-  @graph_name "serviceradar"
-
   setup_all do
     TestSupport.start_core!()
 
     if age_available?() do
-      case ensure_graph(@graph_name) do
+      graph_name = graph_name()
+
+      case ensure_graph(graph_name) do
         :ok ->
           :ok
 
         {:error, reason} ->
-          {:skip, "Apache AGE graph #{@graph_name} not available: #{inspect(reason)}"}
+          {:skip, "Apache AGE graph #{graph_name} not available: #{inspect(reason)}"}
       end
     else
       {:skip, "Apache AGE is not available (ag_catalog.cypher missing)"}
@@ -132,7 +132,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     _ =
       SQL.query(Repo, "SELECT * FROM ag_catalog.cypher($1, $$#{cypher}$$) AS (v agtype)", [
-        @graph_name
+        graph_name()
       ])
 
     :ok
@@ -142,7 +142,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     sql =
       "SELECT ag_catalog.agtype_to_text(result) FROM ag_catalog.cypher($1, $$#{cypher}$$) AS (result agtype)"
 
-    case SQL.query(Repo, sql, [@graph_name]) do
+    case SQL.query(Repo, sql, [graph_name()]) do
       {:ok, %Postgrex.Result{rows: rows}} ->
         Enum.map(rows, fn
           [text_value] when is_binary(text_value) -> decode_agtype(text_value)
@@ -159,5 +159,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       {:ok, parsed} -> parsed
       {:error, _} -> text_value
     end
+  end
+
+  defp graph_name do
+    Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")
   end
 end

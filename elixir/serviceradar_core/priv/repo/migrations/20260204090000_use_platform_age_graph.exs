@@ -1,0 +1,47 @@
+defmodule ServiceRadar.Repo.Migrations.UsePlatformAgeGraph do
+  @moduledoc """
+  Ensures the canonical AGE graph lives in a dedicated schema and removes legacy graphs.
+  """
+
+  use Ecto.Migration
+
+  def up do
+    execute("""
+    DO $$
+    DECLARE
+      graph_exists boolean;
+      graph_name text := 'platform_graph';
+    BEGIN
+      SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = graph_name) INTO graph_exists;
+      IF NOT graph_exists THEN
+        BEGIN
+          PERFORM ag_catalog.create_graph(graph_name);
+        EXCEPTION
+          WHEN duplicate_schema THEN
+            RAISE EXCEPTION 'Schema % already exists; cannot create AGE graph. Drop or rename the schema before retrying.', graph_name;
+          WHEN duplicate_object THEN
+            NULL;
+        END;
+      END IF;
+
+      SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = graph_name) INTO graph_exists;
+      IF NOT graph_exists THEN
+        RAISE EXCEPTION 'AGE graph "%" is missing after migration', graph_name;
+      END IF;
+    END
+    $$;
+    """)
+  end
+
+  def down do
+    execute("""
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM ag_catalog.ag_graph WHERE name = 'platform_graph') THEN
+        PERFORM ag_catalog.drop_graph('platform_graph', true);
+      END IF;
+    END
+    $$;
+    """)
+  end
+end
