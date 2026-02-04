@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
+  import Bitwise
   require Ash.Query
 
   alias ServiceRadarWebNGWeb.Dashboard.Engine
@@ -13,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPCredential
+  alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.SysmonProfiles.SysmonProfile
@@ -74,6 +76,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:network_interfaces, [])
      |> assign(:interfaces_error, nil)
      |> assign(:has_ifaces, false)
+     |> assign(:discovery_job, nil)
      # Interface selection state
      |> assign(:selected_interfaces, MapSet.new())
      |> assign(:favorited_interfaces, MapSet.new())
@@ -152,6 +155,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     # Load network interfaces via SRQL
     {network_interfaces, interfaces_error} = load_interfaces(srql_module, uid, scope)
 
+    discovery_jobs = load_mapper_jobs_for_device(scope, device_row)
+    discovery_job = pick_discovery_job(discovery_jobs)
+    has_discovery_job = not is_nil(discovery_job)
+
     # Load interface settings (favorites, metrics enabled)
     interface_settings = load_interface_settings(scope, uid)
     favorited_interfaces = interface_settings.favorited
@@ -177,7 +184,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     has_ifaces =
       is_binary(interfaces_error) or
-        (is_list(network_interfaces) and network_interfaces != [])
+        (is_list(network_interfaces) and network_interfaces != []) or has_discovery_job
 
     active_tab =
       if requested_tab == "interfaces" and not has_ifaces,
@@ -199,6 +206,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:network_interfaces, network_interfaces)
      |> assign(:interfaces_error, interfaces_error)
      |> assign(:has_ifaces, has_ifaces)
+     |> assign(:discovery_job, discovery_job)
      |> assign(:favorited_interfaces, favorited_interfaces)
      |> assign(:interface_metrics, interface_metrics)
      |> assign(:ip_aliases, ip_aliases)
@@ -1698,6 +1706,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               favorited_interfaces={@favorited_interfaces}
               device_uid={@device_uid}
               interface_metrics={@interface_metrics}
+              discovery_job={@discovery_job}
             />
           </div>
           
@@ -2095,6 +2104,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :favorited_interfaces, :any, required: true
   attr :device_uid, :string, required: true
   attr :interface_metrics, :map, default: nil
+  attr :discovery_job, :any, default: nil
 
   defp interfaces_tab_content(assigns) do
     selected_count = MapSet.size(assigns.selected_interfaces)
@@ -2121,164 +2131,203 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       device_uid={@device_uid}
     />
 
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
-      <div class="px-4 py-3 border-b border-base-200">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <.icon name="hero-signal" class="size-4 text-primary" />
-            <span class="text-sm font-semibold">Network Interfaces</span>
-            <span class="text-xs text-base-content/50">({length(@interfaces)} interfaces)</span>
+    <%= if @interfaces == [] and is_nil(@error) do %>
+      <div class="rounded-xl border border-base-200 bg-base-100 p-6 text-center shadow-sm">
+        <.icon name="hero-arrows-right-left" class="size-8 text-base-content/30 mx-auto" />
+        <p class="text-sm font-semibold text-base-content/80 mt-3">
+          No interface data yet.
+        </p>
+        <p class="text-xs text-base-content/60 mt-1">
+          Discovery is configured for this device, but no interface observations were returned.
+        </p>
+        <div :if={@discovery_job} class="mt-4 inline-flex flex-col gap-2 text-xs">
+          <div class="flex flex-wrap items-center justify-center gap-2">
+            <span class="font-medium">{@discovery_job.name}</span>
+            <.ui_badge variant={mapper_run_status_variant(@discovery_job)} size="xs">
+              {mapper_run_status_label(@discovery_job)}
+            </.ui_badge>
           </div>
-          <%!-- Bulk action toolbar --%>
-          <div :if={@selected_count > 0} class="flex items-center gap-2">
-            <span class="text-xs text-base-content/70">
-              {@selected_count} selected
-            </span>
-            <button
-              type="button"
-              phx-click="clear_interface_selection"
-              class="btn btn-xs btn-ghost"
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              phx-click="open_interfaces_bulk_edit"
-              class="btn btn-xs btn-primary"
-            >
-              <.icon name="hero-pencil-square" class="size-3" /> Bulk Edit
-            </button>
+          <div class="text-base-content/60">
+            Last run: {format_timestamp(Map.get(@discovery_job, :last_run_at))}
           </div>
+          <div
+            :if={is_integer(@discovery_job.last_run_interface_count)}
+            class="text-base-content/60"
+          >
+            Interfaces observed: {@discovery_job.last_run_interface_count}
+          </div>
+          <div
+            :if={is_binary(@discovery_job.last_run_error)}
+            class="text-error"
+            title={@discovery_job.last_run_error}
+          >
+            {@discovery_job.last_run_error}
+          </div>
+          <.link navigate={~p"/settings/networks/discovery/#{@discovery_job.id}/edit"}>
+            <.ui_button variant="ghost" size="xs">View discovery job</.ui_button>
+          </.link>
         </div>
       </div>
-      <div class="p-4">
-        <div :if={is_binary(@error)} class="mb-3 text-xs text-error">
-          {@error}
+    <% else %>
+      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+        <div class="px-4 py-3 border-b border-base-200">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <.icon name="hero-signal" class="size-4 text-primary" />
+              <span class="text-sm font-semibold">Network Interfaces</span>
+              <span class="text-xs text-base-content/50">({length(@interfaces)} interfaces)</span>
+            </div>
+            <%!-- Bulk action toolbar --%>
+            <div :if={@selected_count > 0} class="flex items-center gap-2">
+              <span class="text-xs text-base-content/70">
+                {@selected_count} selected
+              </span>
+              <button
+                type="button"
+                phx-click="clear_interface_selection"
+                class="btn btn-xs btn-ghost"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                phx-click="open_interfaces_bulk_edit"
+                class="btn btn-xs btn-primary"
+              >
+                <.icon name="hero-pencil-square" class="size-3" /> Bulk Edit
+              </button>
+            </div>
+          </div>
         </div>
-        <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
-          <table class="table table-xs w-full">
-            <thead class="sticky top-0 bg-base-100">
-              <tr>
-                <th class="w-8">
-                  <input
-                    type="checkbox"
-                    class="checkbox checkbox-xs checkbox-primary"
-                    checked={@all_selected}
-                    phx-click="toggle_select_all_interfaces"
-                  />
-                </th>
-                <th class="w-8 text-center" title="Favorite">
-                  <.icon name="hero-star" class="size-3 text-base-content/50" />
-                </th>
-                <th class="w-8 text-center" title="Metrics Collection">
-                  <.icon name="hero-chart-bar" class="size-3 text-base-content/50" />
-                </th>
-                <th class="text-xs">Interface</th>
-                <th class="text-xs">ID</th>
-                <th class="text-xs">IP Addresses</th>
-                <th class="text-xs">MAC</th>
-                <th class="text-xs">Type</th>
-                <th class="text-xs">Speed</th>
-                <th class="text-xs">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <%= for iface <- @interfaces do %>
-                <% iface_uid = Map.get(iface, "interface_uid") %>
-                <% is_selected =
-                  is_binary(iface_uid) and MapSet.member?(@selected_interfaces, iface_uid) %>
-                <% is_favorited =
-                  is_binary(iface_uid) and MapSet.member?(@favorited_interfaces, iface_uid) %>
-                <tr class={["hover:bg-base-200/50", is_selected && "bg-primary/5"]}>
-                  <td class="w-8">
+        <div class="p-4">
+          <div :if={is_binary(@error)} class="mb-3 text-xs text-error">
+            {@error}
+          </div>
+          <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
+            <table class="table table-xs w-full">
+              <thead class="sticky top-0 bg-base-100">
+                <tr>
+                  <th class="w-8">
                     <input
-                      :if={iface_uid}
                       type="checkbox"
                       class="checkbox checkbox-xs checkbox-primary"
-                      checked={is_selected}
-                      phx-click="toggle_interface_select"
-                      phx-value-uid={iface_uid}
+                      checked={@all_selected}
+                      phx-click="toggle_select_all_interfaces"
                     />
-                  </td>
-                  <td class="w-8 text-center">
-                    <button
-                      :if={iface_uid}
-                      type="button"
-                      phx-click="toggle_interface_favorite"
-                      phx-value-uid={iface_uid}
-                      class="btn btn-ghost btn-xs p-0"
-                      title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
-                    >
-                      <.icon
-                        name={if is_favorited, do: "hero-star-solid", else: "hero-star"}
-                        class={[
-                          "size-4",
-                          if(is_favorited,
-                            do: "text-warning",
-                            else: "text-base-content/30 hover:text-warning/70"
-                          )
-                        ]}
-                      />
-                    </button>
-                  </td>
-                  <td class="w-8 text-center">
-                    <% metrics_enabled = Map.get(iface, "metrics_enabled", false) %>
-                    <.link
-                      :if={metrics_enabled && iface_uid}
-                      navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
-                      title="Metrics collection enabled - Click to view details"
-                    >
-                      <.icon
-                        name="hero-chart-bar-solid"
-                        class="size-4 text-success cursor-pointer hover:text-success/80"
-                      />
-                    </.link>
-                    <.icon
-                      :if={metrics_enabled && !iface_uid}
-                      name="hero-chart-bar-solid"
-                      class="size-4 text-success"
-                      title="Metrics collection enabled"
-                    />
-                    <.icon
-                      :if={!metrics_enabled}
-                      name="hero-chart-bar"
-                      class="size-4 text-base-content/20"
-                      title="Metrics collection disabled"
-                    />
-                  </td>
-                  <td class="text-xs">
-                    <.link
-                      :if={iface_uid}
-                      navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
-                      class="font-mono link link-hover link-primary"
-                      title={iface_uid}
-                    >
-                      {interface_label(iface)}
-                    </.link>
-                    <div :if={!iface_uid} class="font-mono" title="">
-                      {interface_label(iface)}
-                    </div>
-                    <div :if={interface_secondary(iface)} class="text-[11px] text-base-content/60">
-                      {interface_secondary(iface)}
-                    </div>
-                  </td>
-                  <td class="text-xs font-mono text-base-content/60">
-                    {format_interface_id(iface)}
-                  </td>
-                  <td class="text-xs font-mono">{format_ip_addresses(iface)}</td>
-                  <td class="text-xs font-mono">{Map.get(iface, "if_phys_address") || "—"}</td>
-                  <td class="text-xs">{format_interface_type(iface)}</td>
-                  <td class="text-xs font-mono">{format_bps(interface_speed(iface))}</td>
-                  <td class="text-xs">
-                    <.interface_status_badges iface={iface} />
-                  </td>
+                  </th>
+                  <th class="w-8 text-center" title="Favorite">
+                    <.icon name="hero-star" class="size-3 text-base-content/50" />
+                  </th>
+                  <th class="w-8 text-center" title="Metrics Collection">
+                    <.icon name="hero-chart-bar" class="size-3 text-base-content/50" />
+                  </th>
+                  <th class="text-xs">Interface</th>
+                  <th class="text-xs">ID</th>
+                  <th class="text-xs">IP Addresses</th>
+                  <th class="text-xs">MAC</th>
+                  <th class="text-xs">Type</th>
+                  <th class="text-xs">Speed</th>
+                  <th class="text-xs">Status</th>
                 </tr>
-              <% end %>
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                <%= for iface <- @interfaces do %>
+                  <% iface_uid = Map.get(iface, "interface_uid") %>
+                  <% is_selected =
+                    is_binary(iface_uid) and MapSet.member?(@selected_interfaces, iface_uid) %>
+                  <% is_favorited =
+                    is_binary(iface_uid) and MapSet.member?(@favorited_interfaces, iface_uid) %>
+                  <tr class={["hover:bg-base-200/50", is_selected && "bg-primary/5"]}>
+                    <td class="w-8">
+                      <input
+                        :if={iface_uid}
+                        type="checkbox"
+                        class="checkbox checkbox-xs checkbox-primary"
+                        checked={is_selected}
+                        phx-click="toggle_interface_select"
+                        phx-value-uid={iface_uid}
+                      />
+                    </td>
+                    <td class="w-8 text-center">
+                      <button
+                        :if={iface_uid}
+                        type="button"
+                        phx-click="toggle_interface_favorite"
+                        phx-value-uid={iface_uid}
+                        class="btn btn-ghost btn-xs p-0"
+                        title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
+                      >
+                        <.icon
+                          name={if is_favorited, do: "hero-star-solid", else: "hero-star"}
+                          class={[
+                            "size-4",
+                            if(is_favorited,
+                              do: "text-warning",
+                              else: "text-base-content/30 hover:text-warning/70"
+                            )
+                          ]}
+                        />
+                      </button>
+                    </td>
+                    <td class="w-8 text-center">
+                      <% metrics_enabled = Map.get(iface, "metrics_enabled", false) %>
+                      <.link
+                        :if={metrics_enabled && iface_uid}
+                        navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
+                        title="Metrics collection enabled - Click to view details"
+                      >
+                        <.icon
+                          name="hero-chart-bar-solid"
+                          class="size-4 text-success cursor-pointer hover:text-success/80"
+                        />
+                      </.link>
+                      <.icon
+                        :if={metrics_enabled && !iface_uid}
+                        name="hero-chart-bar-solid"
+                        class="size-4 text-success"
+                        title="Metrics collection enabled"
+                      />
+                      <.icon
+                        :if={!metrics_enabled}
+                        name="hero-chart-bar"
+                        class="size-4 text-base-content/20"
+                        title="Metrics collection disabled"
+                      />
+                    </td>
+                    <td class="text-xs">
+                      <.link
+                        :if={iface_uid}
+                        navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
+                        class="font-mono link link-hover link-primary"
+                        title={iface_uid}
+                      >
+                        {interface_label(iface)}
+                      </.link>
+                      <div :if={!iface_uid} class="font-mono" title="">
+                        {interface_label(iface)}
+                      </div>
+                      <div :if={interface_secondary(iface)} class="text-[11px] text-base-content/60">
+                        {interface_secondary(iface)}
+                      </div>
+                    </td>
+                    <td class="text-xs font-mono text-base-content/60">
+                      {format_interface_id(iface)}
+                    </td>
+                    <td class="text-xs font-mono">{format_ip_addresses(iface)}</td>
+                    <td class="text-xs font-mono">{Map.get(iface, "if_phys_address") || "—"}</td>
+                    <td class="text-xs">{format_interface_type(iface)}</td>
+                    <td class="text-xs font-mono">{format_bps(interface_speed(iface))}</td>
+                    <td class="text-xs">
+                      <.interface_status_badges iface={iface} />
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
+    <% end %>
     """
   end
 
@@ -3238,6 +3287,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp parse_datetime(_), do: {:error, :invalid_datetime}
+
+  defp mapper_run_status_label(job) do
+    case Map.get(job, :last_run_status) do
+      :success -> "Success"
+      :error -> "Error"
+      _ -> "No runs"
+    end
+  end
+
+  defp mapper_run_status_variant(job) do
+    case Map.get(job, :last_run_status) do
+      :success -> "success"
+      :error -> "error"
+      _ -> "ghost"
+    end
+  end
 
   defp format_timestamp(nil), do: "—"
 
@@ -4434,6 +4499,141 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       row -> Map.get(row, "ip")
     end
   end
+
+  defp load_mapper_jobs_for_device(nil, _device_row), do: []
+  defp load_mapper_jobs_for_device(_scope, nil), do: []
+
+  defp load_mapper_jobs_for_device(scope, device_row) do
+    ip = Map.get(device_row, "ip")
+    hostname = Map.get(device_row, "hostname")
+
+    query =
+      MapperJob
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.load(:seeds)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, jobs} ->
+        jobs
+        |> Enum.filter(&mapper_job_targets_device?(&1, ip, hostname))
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp mapper_job_targets_device?(job, ip, hostname) do
+    job
+    |> mapper_job_seeds()
+    |> Enum.any?(&seed_matches_device?(&1, ip, hostname))
+  end
+
+  defp mapper_job_seeds(%{seeds: %Ash.NotLoaded{}}), do: []
+  defp mapper_job_seeds(%{seeds: seeds}) when is_list(seeds), do: Enum.map(seeds, & &1.seed)
+  defp mapper_job_seeds(_), do: []
+
+  defp seed_matches_device?(seed, ip, hostname) when is_binary(seed) do
+    trimmed = String.trim(seed)
+
+    cond do
+      trimmed == "" ->
+        false
+
+      is_binary(ip) and trimmed == ip ->
+        true
+
+      is_binary(hostname) and String.downcase(trimmed) == String.downcase(hostname) ->
+        true
+
+      is_binary(ip) and ip_in_cidr?(ip, trimmed) ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp seed_matches_device?(_, _ip, _hostname), do: false
+
+  defp ip_in_cidr?(ip, cidr) when is_binary(ip) and is_binary(cidr) do
+    with {:ok, ip_tuple} <- parse_ip(ip),
+         {:ok, cidr_ip, prefix} <- parse_cidr(cidr),
+         true <- tuple_size(ip_tuple) == tuple_size(cidr_ip) do
+      mask_bits = prefix
+      ip_int = ip_tuple |> tuple_to_int()
+      cidr_int = cidr_ip |> tuple_to_int()
+
+      max_bits = tuple_size(ip_tuple) * bits_per_segment(ip_tuple)
+      mask = mask_for_bits(max_bits, mask_bits)
+
+      (ip_int &&& mask) == (cidr_int &&& mask)
+    else
+      _ -> false
+    end
+  end
+
+  defp ip_in_cidr?(_, _), do: false
+
+  defp parse_ip(ip) do
+    case :inet.parse_address(String.to_charlist(ip)) do
+      {:ok, tuple} -> {:ok, tuple}
+      _ -> :error
+    end
+  end
+
+  defp parse_cidr(cidr) do
+    case String.split(cidr, "/") do
+      [ip, prefix_str] ->
+        with {:ok, ip_tuple} <- parse_ip(ip),
+             {prefix, ""} <- Integer.parse(prefix_str) do
+          {:ok, ip_tuple, prefix}
+        else
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp tuple_to_int(tuple) when tuple_size(tuple) == 4 do
+    tuple
+    |> Tuple.to_list()
+    |> Enum.reduce(0, fn octet, acc -> acc * 256 + octet end)
+  end
+
+  defp tuple_to_int(tuple) when tuple_size(tuple) == 8 do
+    tuple
+    |> Tuple.to_list()
+    |> Enum.reduce(0, fn segment, acc -> acc * 65_536 + segment end)
+  end
+
+  defp bits_per_segment(tuple) when tuple_size(tuple) == 4, do: 8
+  defp bits_per_segment(tuple) when tuple_size(tuple) == 8, do: 16
+
+  defp mask_for_bits(_max_bits, 0), do: 0
+
+  defp mask_for_bits(max_bits, bits) when bits >= max_bits do
+    (1 <<< max_bits) - 1
+  end
+
+  defp mask_for_bits(max_bits, bits) do
+    ((1 <<< bits) - 1) <<< (max_bits - bits)
+  end
+
+  defp pick_discovery_job([]), do: nil
+
+  defp pick_discovery_job(jobs) do
+    Enum.max_by(jobs, &mapper_job_sort_key/1, fn -> nil end)
+  end
+
+  defp mapper_job_sort_key(%{last_run_at: %DateTime{} = dt}), do: dt
+
+  defp mapper_job_sort_key(%{last_run_at: %NaiveDateTime{} = dt}) do
+    DateTime.from_naive!(dt, "Etc/UTC")
+  end
+
+  defp mapper_job_sort_key(_), do: DateTime.from_unix!(0)
 
   defp load_sweep_results(_scope, nil), do: nil
 

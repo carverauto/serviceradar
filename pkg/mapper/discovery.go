@@ -161,47 +161,15 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 			continue
 		}
 
-		timeout, err := time.ParseDuration(jobConfig.Timeout)
+		params, err := e.buildDiscoveryParamsForJob(jobConfig)
 		if err != nil {
-			e.logger.Warn().Str("job", jobConfig.Name).Err(err).
-				Msg("Invalid timeout for job, using default config timeout")
-
-			timeout = e.config.Timeout
-		}
-
-		// Map job type to DiscoveryType
-		var discoveryType DiscoveryType
-
-		switch jobConfig.Type {
-		case "full":
-			discoveryType = DiscoveryTypeFull
-		case "basic":
-			discoveryType = DiscoveryTypeBasic
-		case "interfaces":
-			discoveryType = DiscoveryTypeInterfaces
-		case "topology":
-			discoveryType = DiscoveryTypeTopology
-		default:
-			e.logger.Error().Str("job", jobConfig.Name).Str("type", jobConfig.Type).
-				Msg("Invalid type for job, skipping")
-
+			e.logger.Error().Str("job", jobConfig.Name).Err(err).
+				Msg("Invalid job configuration, skipping")
 			continue
 		}
 
-		params := &DiscoveryParams{
-			Seeds:       jobConfig.Seeds,
-			Type:        discoveryType,
-			Credentials: &(jobConfig.Credentials),
-			Options:     jobConfig.Options,
-			Concurrency: jobConfig.Concurrency,
-			Timeout:     timeout,
-			Retries:     jobConfig.Retries,
-			AgentID:     e.config.StreamConfig.AgentID,
-			GatewayID:   e.config.StreamConfig.GatewayID,
-		}
-
 		// Start the job immediately
-		e.startScheduledJob(ctx, jobConfig.Name, params)
+		_, _ = e.startScheduledJob(ctx, jobConfig.Name, params)
 
 		// Create ticker for periodic execution
 		ticker := time.NewTicker(interval)
@@ -230,7 +198,7 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 
 					return
 				case <-ticker.C:
-					e.startScheduledJob(ctx, name, params)
+					_, _ = e.startScheduledJob(ctx, name, params)
 				}
 			}
 		}(jobConfig.Name, params)
@@ -239,14 +207,86 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 	e.logger.Info().Msg("All scheduled jobs initialized")
 }
 
-// startScheduledJob initiates a discovery job
-func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, params *DiscoveryParams) {
+// RunScheduledJob triggers a named scheduled job immediately.
+func (e *DiscoveryEngine) RunScheduledJob(ctx context.Context, name string) (string, error) {
+	var jobConfig *ScheduledJob
+
+	e.mu.RLock()
+	for i := range e.config.ScheduledJobs {
+		if e.config.ScheduledJobs[i].Name == name {
+			jobConfig = e.config.ScheduledJobs[i]
+			break
+		}
+	}
+	e.mu.RUnlock()
+
+	if jobConfig == nil {
+		return "", ErrScheduledJobNotFound
+	}
+
+	params, err := e.buildDiscoveryParamsForJob(jobConfig)
+	if err != nil {
+		return "", err
+	}
+
+	return e.startScheduledJob(ctx, jobConfig.Name, params)
+}
+
+func (e *DiscoveryEngine) buildDiscoveryParamsForJob(jobConfig *ScheduledJob) (*DiscoveryParams, error) {
+	if jobConfig == nil {
+		return nil, ErrConfigNil
+	}
+
+	timeout := e.config.Timeout
+	if jobConfig.Timeout != "" {
+		parsed, err := time.ParseDuration(jobConfig.Timeout)
+		if err != nil {
+			e.logger.Warn().Str("job", jobConfig.Name).Err(err).
+				Msg("Invalid timeout for job, using default config timeout")
+		} else {
+			timeout = parsed
+		}
+	}
+
+	// Map job type to DiscoveryType
+	var discoveryType DiscoveryType
+
+	switch jobConfig.Type {
+	case "full":
+		discoveryType = DiscoveryTypeFull
+	case "basic":
+		discoveryType = DiscoveryTypeBasic
+	case "interfaces":
+		discoveryType = DiscoveryTypeInterfaces
+	case "topology":
+		discoveryType = DiscoveryTypeTopology
+	default:
+		return nil, ErrJobInvalidType
+	}
+
+	params := &DiscoveryParams{
+		Seeds:       jobConfig.Seeds,
+		Type:        discoveryType,
+		Credentials: &(jobConfig.Credentials),
+		Options:     jobConfig.Options,
+		Concurrency: jobConfig.Concurrency,
+		Timeout:     timeout,
+		Retries:     jobConfig.Retries,
+		AgentID:     e.config.StreamConfig.AgentID,
+		GatewayID:   e.config.StreamConfig.GatewayID,
+	}
+
+	return params, nil
+}
+
+// startScheduledJob initiates a discovery job.
+func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, params *DiscoveryParams) (string, error) {
 	e.logger.Info().Str("job", name).Msg("Starting scheduled job")
 
 	discoveryID, err := e.StartDiscovery(ctx, params)
 	if err != nil {
 		e.logger.Error().Str("job", name).Err(err).Msg("Failed to start scheduled job")
-		return
+		return "", err
 	}
 
 	// Add job name to job metadata
@@ -262,6 +302,8 @@ func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, pa
 
 	e.logger.Info().Str("job", name).Str("discovery_id", discoveryID).
 		Msg("Scheduled job started with discovery ID")
+
+	return discoveryID, nil
 }
 
 // StartDiscovery initiates a discovery operation with the given parameters.

@@ -105,6 +105,9 @@ defmodule ServiceRadar.Application do
         # Status handler (legacy) for agent-gateway push results
         status_handler_child(),
 
+        # Agent command status handler (persists command lifecycle updates)
+        command_status_handler_child(),
+
         # Health check runner supervisor (high-frequency gRPC checks)
         health_check_runner_supervisor_child(),
 
@@ -275,6 +278,14 @@ defmodule ServiceRadar.Application do
   defp status_handler_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.StatusHandler
+    else
+      nil
+    end
+  end
+
+  defp command_status_handler_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.AgentCommands.StatusHandler
     else
       nil
     end

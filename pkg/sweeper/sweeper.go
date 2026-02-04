@@ -57,6 +57,7 @@ type NetworkSweeper struct {
 	deviceRegistry    DeviceRegistryService
 	logger            logger.Logger
 	mu                sync.RWMutex
+	runMu             sync.Mutex
 	done              chan struct{}
 	stopped           bool
 	lastSweep         time.Time
@@ -394,7 +395,7 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	s.ensureScannersInitialized()
 
 	initialCtx, initialCancel := context.WithTimeout(ctx, scanTimeout)
-	if err := s.runSweep(initialCtx); err != nil {
+	if err := s.runSweepWithLock(initialCtx); err != nil {
 		initialCancel()
 
 		s.logger.Error().Err(err).Msg("Initial sweep failed")
@@ -433,7 +434,7 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 			s.logger.Debug().Time("tickTime", t).Msg("Ticker fired, starting periodic sweep")
 
 			sweepCtx, sweepCancel := context.WithTimeout(ctx, scanTimeout)
-			if err := s.runSweep(sweepCtx); err != nil {
+			if err := s.runSweepWithLock(sweepCtx); err != nil {
 				s.logger.Error().Err(err).Msg("Periodic sweep failed")
 			} else {
 				s.logger.Debug().Msg("Periodic sweep completed successfully")
@@ -446,6 +447,34 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 			s.mu.Unlock()
 		}
 	}
+}
+
+// RunOnce triggers a single sweep cycle immediately.
+func (s *NetworkSweeper) RunOnce(ctx context.Context) error {
+	done := s.ensureControlChannels()
+
+	select {
+	case <-done:
+		s.logger.Info().Msg("Sweep already stopped, skipping run-once")
+		return nil
+	default:
+	}
+
+	s.ensureScannersInitialized()
+
+	sweepCtx, sweepCancel := context.WithTimeout(ctx, scanTimeout)
+	defer sweepCancel()
+
+	if err := s.runSweepWithLock(sweepCtx); err != nil {
+		s.logger.Error().Err(err).Msg("Run-once sweep failed")
+		return err
+	}
+
+	s.mu.Lock()
+	s.lastSweep = time.Now()
+	s.mu.Unlock()
+
+	return nil
 }
 
 // Stop gracefully stops sweeping.
@@ -965,6 +994,12 @@ func (s *NetworkSweeper) handleContextDone(ctx context.Context, resultBatch []mo
 	s.logger.Info().Str("scanType", scanType).Int("totalResults", count).Int("successful", success).Msg("Scan complete - timeout reached")
 
 	return nil
+}
+
+func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+	return s.runSweep(ctx)
 }
 
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {

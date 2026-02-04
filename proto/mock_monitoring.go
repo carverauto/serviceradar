@@ -237,6 +237,26 @@ func (m *MockAgentGatewayServiceClient) EXPECT() *MockAgentGatewayServiceClientM
 	return m.recorder
 }
 
+// ControlStream mocks base method.
+func (m *MockAgentGatewayServiceClient) ControlStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ControlStreamRequest, ControlStreamResponse], error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ControlStream", varargs...)
+	ret0, _ := ret[0].(grpc.BidiStreamingClient[ControlStreamRequest, ControlStreamResponse])
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ControlStream indicates an expected call of ControlStream.
+func (mr *MockAgentGatewayServiceClientMockRecorder) ControlStream(ctx any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ControlStream", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).ControlStream), varargs...)
+}
+
 // GetConfig mocks base method.
 func (m *MockAgentGatewayServiceClient) GetConfig(ctx context.Context, in *AgentConfigRequest, opts ...grpc.CallOption) (*AgentConfigResponse, error) {
 	m.ctrl.T.Helper()
@@ -338,6 +358,20 @@ func NewMockAgentGatewayServiceServer(ctrl *gomock.Controller) *MockAgentGateway
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockAgentGatewayServiceServer) EXPECT() *MockAgentGatewayServiceServerMockRecorder {
 	return m.recorder
+}
+
+// ControlStream mocks base method.
+func (m *MockAgentGatewayServiceServer) ControlStream(arg0 grpc.BidiStreamingServer[ControlStreamRequest, ControlStreamResponse]) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ControlStream", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ControlStream indicates an expected call of ControlStream.
+func (mr *MockAgentGatewayServiceServerMockRecorder) ControlStream(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ControlStream", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).ControlStream), arg0)
 }
 
 // GetConfig mocks base method.

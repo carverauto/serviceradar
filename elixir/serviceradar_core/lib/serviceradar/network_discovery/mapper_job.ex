@@ -40,6 +40,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
         :retries,
         :options
       ]
+
+      validate ServiceRadar.NetworkDiscovery.Validations.AgentAssignment
     end
 
     update :update do
@@ -57,10 +59,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
         :retries,
         :options
       ]
+
+      validate ServiceRadar.NetworkDiscovery.Validations.AgentAssignment
     end
 
     update :record_run do
-      accept [:last_run_at]
+      accept [:last_run_at, :last_run_status, :last_run_interface_count, :last_run_error]
+    end
+
+    update :run_now do
+      accept []
+      require_atomic? false
+      change ServiceRadar.NetworkDiscovery.Changes.TriggerMapperRun
     end
 
     read :enabled_by_partition do
@@ -199,6 +209,25 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
       allow_nil? true
       public? true
       description "Last execution timestamp for this job"
+    end
+
+    attribute :last_run_status, :atom do
+      allow_nil? true
+      public? true
+      constraints one_of: [:success, :error]
+      description "Last execution status for this job"
+    end
+
+    attribute :last_run_interface_count, :integer do
+      allow_nil? true
+      public? true
+      description "Interface count from the most recent run"
+    end
+
+    attribute :last_run_error, :string do
+      allow_nil? true
+      public? true
+      description "Error summary from the most recent run"
     end
 
     create_timestamp :inserted_at

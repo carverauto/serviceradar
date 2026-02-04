@@ -56,6 +56,7 @@ var (
 	ErrNoSeedsProvided         = errors.New("no seeds provided")
 	ErrJobQueueFull            = errors.New("job queue full, cannot enqueue discovery job")
 	ErrScheduledJobMissingName = errors.New("scheduled job missing name")
+	ErrScheduledJobNotFound    = errors.New("scheduled job not found")
 	ErrJobHasNoSeeds           = errors.New("job has no seeds")
 	ErrJobMissingType          = errors.New("job missing type")
 	ErrJobInvalidType          = errors.New("job has invalid type")

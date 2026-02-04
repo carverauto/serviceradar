@@ -101,6 +101,7 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   def invalidate(config_type) do
     ConfigCache.invalidate(config_type)
     Logger.debug("ConfigServer: invalidated cache for type=#{config_type}")
+    ServiceRadar.Edge.AgentCommandBus.push_config_for_type(config_type)
     :ok
   end
 

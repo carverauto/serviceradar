@@ -36,6 +36,7 @@ var (
 	errMapperConfigRequired    = errors.New("mapper config required")
 	errMapperEngineNotRunning  = errors.New("mapper engine not initialized")
 	errMapperUpdateUnsupported = errors.New("mapper UpdateConfig is not supported")
+	errMapperRunUnsupported    = errors.New("mapper run_now not supported")
 )
 
 // MapperService wraps the mapper discovery engine for embedded agent use.
@@ -174,6 +175,25 @@ func (s *MapperService) GetConfigHash() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.configHash
+}
+
+func (s *MapperService) RunScheduledJob(ctx context.Context, jobName string) (string, error) {
+	s.mu.RLock()
+	engine := s.engine
+	s.mu.RUnlock()
+
+	if engine == nil {
+		return "", errMapperEngineNotRunning
+	}
+
+	runner, ok := engine.(interface {
+		RunScheduledJob(context.Context, string) (string, error)
+	})
+	if !ok {
+		return "", errMapperRunUnsupported
+	}
+
+	return runner.RunScheduledJob(ctx, jobName)
 }
 
 func (s *MapperService) DrainResults(max int) ([]map[string]interface{}, bool) {

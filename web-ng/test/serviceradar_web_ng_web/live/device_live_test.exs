@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
+  alias ServiceRadar.NetworkDiscovery.{MapperJob, MapperSeed}
   import Phoenix.LiveViewTest
 
   setup :register_and_log_in_user
@@ -203,6 +204,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           uid: device_uid,
           type_id: 0,
           hostname: "test-host-interfaces",
+          ip: "192.168.1.55",
           is_available: true,
           first_seen_time: ~U[2100-01-01 00:00:00Z],
           last_seen_time: ~U[2100-01-01 00:00:00Z]
@@ -238,6 +240,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       ])
 
       {:ok, conn: conn, device_uid: device_uid}
+    end
+
+    test "shows interfaces tab empty state for devices targeted by discovery", %{
+      conn: conn,
+      device_uid: device_uid,
+      scope: scope
+    } do
+      {:ok, job} =
+        MapperJob
+        |> Ash.Changeset.for_create(:create, %{name: "mapper-empty-state"})
+        |> Ash.create(scope: scope)
+
+      {:ok, _seed} =
+        MapperSeed
+        |> Ash.Changeset.for_create(:create, %{seed: "192.168.1.0/24", mapper_job_id: job.id})
+        |> Ash.create(scope: scope)
+
+      {:ok, _job} =
+        job
+        |> Ash.Changeset.for_update(:record_run, %{
+          last_run_at: DateTime.utc_now(),
+          last_run_status: :error,
+          last_run_interface_count: 0,
+          last_run_error: "mapper timeout"
+        })
+        |> Ash.update(scope: scope)
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      assert has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='interfaces']")
+
+      view
+      |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
+      |> render_click()
+
+      html = render(view)
+      assert html =~ "No interface data yet."
+      assert html =~ "mapper timeout"
+      assert html =~ job.name
     end
 
     test "renders interfaces table on interfaces tab", %{conn: conn, device_uid: device_uid} do
