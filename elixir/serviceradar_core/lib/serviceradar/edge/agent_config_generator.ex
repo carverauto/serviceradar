@@ -220,6 +220,33 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end)
   end
 
+  @doc """
+  Converts a generated config map into an AgentConfigResponse proto struct.
+  """
+  @spec to_proto_response(agent_config()) :: Monitoring.AgentConfigResponse.t()
+  def to_proto_response(config) do
+    proto_checks = to_proto_checks(config.checks)
+
+    proto_plugins =
+      to_proto_plugin_config(
+        config.plugins || [],
+        Map.get(config, :plugin_engine_limits, %{})
+      )
+
+    %Monitoring.AgentConfigResponse{
+      not_modified: false,
+      config_version: config.config_version,
+      config_timestamp: config.config_timestamp,
+      heartbeat_interval_sec: config.heartbeat_interval_sec,
+      config_poll_interval_sec: config.config_poll_interval_sec,
+      checks: proto_checks,
+      config_json: Map.get(config, :config_json, <<>>),
+      sysmon_config: Map.get(config, :sysmon_config),
+      snmp_config: Map.get(config, :snmp_config),
+      plugin_config: proto_plugins
+    }
+  end
+
   # Load service checks assigned to this agent from the database
   defp load_agent_checks(agent_id) do
     # DB connection's search_path determines the schema

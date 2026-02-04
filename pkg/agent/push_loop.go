@@ -344,6 +344,7 @@ func (p *PushLoop) Start(ctx context.Context) error {
 
 	// Start config polling in a separate goroutine
 	go p.configPollLoop(runCtx)
+	go p.controlStreamLoop(runCtx)
 
 	// Use a resettable timer so updated intervals take effect
 	timer := time.NewTimer(0) // fire immediately for first tick
@@ -2386,6 +2387,14 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		return
 	}
 
+	p.applyConfigResponse(configResp, "poll")
+}
+
+func (p *PushLoop) applyConfigResponse(configResp *proto.AgentConfigResponse, source string) {
+	if configResp == nil {
+		return
+	}
+
 	// If config hasn't changed, nothing to do
 	if configResp.NotModified {
 		p.logger.Debug().Str("version", p.getConfigVersion()).Msg("Config not modified")
@@ -2459,6 +2468,7 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 	p.setConfigVersion(configResp.ConfigVersion)
 	p.logger.Info().
 		Str("version", p.getConfigVersion()).
+		Str("source", source).
 		Msg("Applied new config from gateway")
 }
 

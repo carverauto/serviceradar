@@ -21,6 +21,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     SweepPubSub
   }
 
+  alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandsPubSub
+
   alias ServiceRadar.NetworkDiscovery.{
     MapperJob,
     MapperSeed,
@@ -43,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     if connected?(socket) do
       # Subscribe to sweep updates for this instance
       SweepPubSub.subscribe()
+      AgentCommandsPubSub.subscribe()
 
       # Refresh active scans periodically (fallback for any missed events)
       :timer.send_interval(@refresh_interval, self(), :refresh_active_scans)
@@ -76,6 +79,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:mapper_seeds_text, "")
       |> assign(:mapper_unifi_form, nil)
       |> assign(:mapper_unifi_present, false)
+      |> assign(:mapper_command_statuses, %{})
+      |> assign(:sweep_command_statuses, %{})
       |> assign(:cleanup_settings, cleanup_settings)
       |> assign(:cleanup_form, cleanup_form)
 
@@ -319,6 +324,34 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
+  def handle_event("run_sweep_group", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case load_sweep_group(scope, id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Sweep group not found")}
+
+      group ->
+        case Ash.update(group, %{}, action: :run_now, scope: scope) do
+          {:ok, _updated} ->
+            statuses =
+              socket.assigns.sweep_command_statuses
+              |> mark_command_sent(group.id, "Sweep command queued")
+
+            {:noreply,
+             socket
+             |> assign(:sweep_groups, load_sweep_groups(scope))
+             |> assign(:sweep_command_statuses, statuses)
+             |> put_flash(:info, "Sweep group queued to run now")}
+
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "Failed to run sweep group: #{format_error(reason)}")}
+        end
+    end
+  end
+
   def handle_event("toggle_mapper_job", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
@@ -363,9 +396,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
     with {:ok, job} <- fetch_mapper_job(scope, id),
          {:ok, _updated} <- Ash.update(job, %{}, action: :run_now, scope: scope) do
+      statuses =
+        socket.assigns.mapper_command_statuses
+        |> mark_command_sent(job.id, "Discovery command queued")
+
       {:noreply,
        socket
        |> assign(:mapper_jobs, load_mapper_jobs(scope))
+       |> assign(:mapper_command_statuses, statuses)
        |> put_flash(:info, "Discovery job queued to run now")}
     else
       {:error, :not_found} ->
@@ -867,6 +905,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
      |> assign(:recent_executions, load_recent_executions(scope))}
   end
 
+  def handle_info({:command_ack, data}, socket) do
+    {:noreply, update_command_statuses(socket, :ack, data)}
+  end
+
+  def handle_info({:command_progress, data}, socket) do
+    {:noreply, update_command_statuses(socket, :progress, data)}
+  end
+
+  def handle_info({:command_result, data}, socket) do
+    {:noreply, update_command_statuses(socket, :result, data)}
+  end
+
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
@@ -1049,12 +1099,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                 <th>Type</th>
                 <th>Partition</th>
                 <th>Last Run</th>
+                <th>Run Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               <tr :if={@jobs == []}>
-                <td colspan="7" class="text-center text-base-content/60 py-8">
+                <td colspan="8" class="text-center text-base-content/60 py-8">
                   No discovery jobs configured. Create one to start mapper discovery.
                 </td>
               </tr>
@@ -1081,6 +1132,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                   <td class="text-xs capitalize">{job.discovery_type}</td>
                   <td class="text-xs">{job.partition}</td>
                   <td class="text-xs text-base-content/60">{format_last_run(job.last_run_at)}</td>
+                  <td class="text-xs">
+                    <%= if status = Map.get(@mapper_command_statuses, job.id) do %>
+                      <.ui_badge variant={command_status_variant(status)} size="xs">
+                        {command_status_label(status)}
+                      </.ui_badge>
+                    <% else %>
+                      <span class="text-xs text-base-content/40">—</span>
+                    <% end %>
+                  </td>
                   <td>
                     <div class="flex items-center gap-1">
                       <.ui_button
@@ -1274,12 +1334,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
               <th>Partition</th>
               <th>Agent</th>
               <th>Last Run</th>
+              <th>Run Status</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             <tr :if={@groups == []}>
-              <td colspan="7" class="text-center text-base-content/60 py-8">
+              <td colspan="8" class="text-center text-base-content/60 py-8">
                 No sweep groups configured. Create one to start scanning your network.
               </td>
             </tr>
@@ -1319,8 +1380,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                 <td class="text-xs text-base-content/60">
                   {format_last_run(group.last_run_at)}
                 </td>
+                <td class="text-xs">
+                  <%= if status = Map.get(@sweep_command_statuses, group.id) do %>
+                    <.ui_badge variant={command_status_variant(status)} size="xs">
+                      {command_status_label(status)}
+                    </.ui_badge>
+                  <% else %>
+                    <span class="text-xs text-base-content/40">—</span>
+                  <% end %>
+                </td>
                 <td>
                   <div class="flex items-center gap-1">
+                    <.ui_button
+                      id={"run-sweep-group-#{group.id}"}
+                      variant="ghost"
+                      size="xs"
+                      phx-click="run_sweep_group"
+                      phx-value-id={group.id}
+                    >
+                      <.icon name="hero-play" class="size-3" />
+                    </.ui_button>
                     <.link navigate={~p"/settings/networks/groups/#{group.id}/edit"}>
                       <.ui_button variant="ghost" size="xs">
                         <.icon name="hero-pencil" class="size-3" />
@@ -2840,6 +2919,109 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
+  defp update_command_statuses(socket, event_type, data) do
+    socket
+    |> update_mapper_command_status(event_type, data)
+    |> update_sweep_command_status(event_type, data)
+  end
+
+  defp update_mapper_command_status(socket, event_type, data) do
+    case Map.get(data, :mapper_job_id) do
+      nil ->
+        socket
+
+      job_id ->
+        statuses =
+          socket.assigns.mapper_command_statuses
+          |> update_command_status(job_id, event_type, data)
+
+        assign(socket, :mapper_command_statuses, statuses)
+    end
+  end
+
+  defp update_sweep_command_status(socket, event_type, data) do
+    case Map.get(data, :sweep_group_id) do
+      nil ->
+        socket
+
+      group_id ->
+        statuses =
+          socket.assigns.sweep_command_statuses
+          |> update_command_status(group_id, event_type, data)
+
+        assign(socket, :sweep_command_statuses, statuses)
+    end
+  end
+
+  defp update_command_status(statuses, key, event_type, data) do
+    existing = Map.get(statuses, key, %{})
+
+    updated =
+      existing
+      |> Map.merge(%{
+        message: Map.get(data, :message),
+        updated_at: command_event_timestamp(data)
+      })
+      |> merge_event_status(event_type, data)
+
+    Map.put(statuses, key, updated)
+  end
+
+  defp merge_event_status(status, :ack, _data), do: Map.put(status, :state, :ack)
+
+  defp merge_event_status(status, :progress, data) do
+    status
+    |> Map.put(:state, :progress)
+    |> Map.put(:progress_percent, Map.get(data, :progress_percent))
+  end
+
+  defp merge_event_status(status, :result, data) do
+    state = if Map.get(data, :success), do: :success, else: :error
+
+    status
+    |> Map.put(:state, state)
+    |> Map.put(:result_payload, Map.get(data, :payload))
+  end
+
+  defp merge_event_status(status, _event_type, _data), do: status
+
+  defp command_event_timestamp(data) do
+    Map.get(data, :completed_at) ||
+      Map.get(data, :updated_at) ||
+      Map.get(data, :received_at) ||
+      DateTime.utc_now()
+  end
+
+  defp mark_command_sent(statuses, key, message) do
+    Map.put(statuses, key, %{
+      state: :sent,
+      message: message,
+      updated_at: DateTime.utc_now()
+    })
+  end
+
+  defp command_status_label(nil), do: "—"
+  defp command_status_label(%{state: :sent}), do: "Queued"
+  defp command_status_label(%{state: :ack}), do: "Acked"
+
+  defp command_status_label(%{state: :progress, progress_percent: percent})
+       when is_integer(percent) do
+    "Running #{percent}%"
+  end
+
+  defp command_status_label(%{state: :progress}), do: "Running"
+  defp command_status_label(%{state: :success}), do: "Completed"
+  defp command_status_label(%{state: :error}), do: "Failed"
+  defp command_status_label(_), do: "—"
+
+  defp command_status_variant(nil), do: "ghost"
+  defp command_status_variant(%{state: :sent}), do: "info"
+  defp command_status_variant(%{state: :ack}), do: "info"
+  defp command_status_variant(%{state: :progress}), do: "warning"
+  defp command_status_variant(%{state: :success}), do: "success"
+  defp command_status_variant(%{state: :error}), do: "error"
+  defp command_status_variant(_), do: "ghost"
+
   defp load_or_create_cleanup_settings(scope) do
     case DeviceCleanupSettings.get_settings(scope: scope) do
       {:ok, settings} ->
@@ -3135,6 +3317,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp format_error({:agent_offline, agent_id}),
+    do: "Agent #{agent_id} is offline"
+
+  defp format_error({:agent_partition_mismatch, agent_id, partition}),
+    do: "Agent #{agent_id} is not in partition #{partition}"
+
+  defp format_error({:agent_capability_missing, agent_id, capability}),
+    do: "Agent #{agent_id} does not support #{capability}"
 
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason) when is_atom(reason), do: Atom.to_string(reason)

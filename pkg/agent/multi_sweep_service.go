@@ -130,6 +130,23 @@ func (s *MultiSweepService) Stop(_ context.Context) error {
 	return nil
 }
 
+// RunSweepGroup triggers a single sweep for the specified group.
+func (s *MultiSweepService) RunSweepGroup(ctx context.Context, groupID string) error {
+	if groupID == "" {
+		return errSweepGroupIDRequired
+	}
+
+	s.mu.RLock()
+	svc := s.groups[groupID]
+	s.mu.RUnlock()
+
+	if svc == nil {
+		return errSweepGroupNotFound
+	}
+
+	return svc.RunOnce(ctx)
+}
+
 // UpdateConfig updates the sweep config, treating it as a single group.
 func (s *MultiSweepService) UpdateConfig(config *models.Config) error {
 	if config == nil {

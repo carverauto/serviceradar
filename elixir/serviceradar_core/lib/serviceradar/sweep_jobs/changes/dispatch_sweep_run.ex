@@ -1,6 +1,6 @@
-defmodule ServiceRadar.NetworkDiscovery.Changes.TriggerMapperRun do
+defmodule ServiceRadar.SweepJobs.Changes.DispatchSweepRun do
   @moduledoc """
-  Dispatches an on-demand mapper run over the agent command bus.
+  Dispatches an on-demand sweep run over the agent command bus.
   """
 
   use Ash.Resource.Change
@@ -9,9 +9,8 @@ defmodule ServiceRadar.NetworkDiscovery.Changes.TriggerMapperRun do
 
   @impl true
   def change(changeset, _opts, _context) do
-    changeset
-    |> Ash.Changeset.after_action(fn _changeset, record ->
-      case AgentCommandBus.run_mapper_job(record) do
+    Ash.Changeset.after_action(changeset, fn _changeset, record ->
+      case AgentCommandBus.run_sweep_group(record) do
         {:ok, _command_id} -> {:ok, record}
         {:error, reason} -> {:error, reason}
       end

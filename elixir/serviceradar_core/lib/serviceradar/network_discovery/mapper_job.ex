@@ -69,6 +69,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJob do
 
     update :run_now do
       accept []
+      require_atomic? false
       change ServiceRadar.NetworkDiscovery.Changes.TriggerMapperRun
     end
 

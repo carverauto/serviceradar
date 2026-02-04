@@ -23,6 +23,7 @@ defmodule Monitoring.AgentGatewayService.Service do
   rpc(:GetConfig, Monitoring.AgentConfigRequest, Monitoring.AgentConfigResponse)
   rpc(:PushStatus, Monitoring.GatewayStatusRequest, Monitoring.GatewayStatusResponse)
   rpc(:StreamStatus, stream(Monitoring.GatewayStatusChunk), Monitoring.GatewayStatusResponse)
+  rpc(:ControlStream, stream(Monitoring.ControlStreamRequest), stream(Monitoring.ControlStreamResponse))
 end
 
 defmodule Monitoring.AgentGatewayService.Stub do
