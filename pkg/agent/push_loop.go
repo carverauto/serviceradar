@@ -754,6 +754,9 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 
 		for i, status := range statuses {
 			if status == nil {
+				p.logger.Warn().
+					Int("index", i).
+					Msg("Detected nil status in batch before push")
 				serviceNames = append(serviceNames, "")
 				continue
 			}
@@ -1324,6 +1327,14 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 		pendingSeq := response.CurrentSequence
 
 		if !response.HasNewData || len(response.Data) == 0 {
+			p.logger.Debug().
+				Str("service_name", response.ServiceName).
+				Str("service_type", response.ServiceType).
+				Str("current_sequence", response.CurrentSequence).
+				Bool("has_new_data", response.HasNewData).
+				Int("data_bytes", len(response.Data)).
+				Msg("No sweep results to stream")
+
 			if pendingSeq != "" {
 				p.setSweepResultsSequence(pendingSeq)
 			}
@@ -1683,8 +1694,16 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 				p.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to get status from service")
 				continue
 			}
-
-			statuses = append(statuses, p.convertToGatewayStatus(status, svc.Name(), sweepType))
+			if status == nil {
+				p.logger.Warn().Str("service", svc.Name()).Msg("Status provider returned nil response")
+				continue
+			}
+			converted := p.convertToGatewayStatus(status, svc.Name(), sweepType)
+			if converted == nil {
+				p.logger.Warn().Str("service", svc.Name()).Msg("Converted status is nil")
+				continue
+			}
+			statuses = append(statuses, converted)
 		}
 	}
 
@@ -1703,7 +1722,14 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	}
 
 	if status, err := p.server.GetSNMPStatus(ctx); err == nil && status != nil {
-		statuses = append(statuses, p.convertToGatewayStatus(status, status.ServiceName, status.ServiceType))
+		converted := p.convertToGatewayStatus(status, status.ServiceName, status.ServiceType)
+		if converted == nil {
+			p.logger.Warn().Msg("Converted SNMP status is nil")
+		} else {
+			statuses = append(statuses, converted)
+		}
+	} else if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to get SNMP status")
 	}
 
 	return statuses, sysmonStatus
