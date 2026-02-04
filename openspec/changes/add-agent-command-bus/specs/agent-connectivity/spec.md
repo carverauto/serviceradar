@@ -33,3 +33,23 @@ The system SHALL provide a command bus over the control stream that can trigger 
 - **WHEN** the command is submitted
 - **THEN** the API returns an immediate error indicating the agent is offline
 - **AND** the command is not queued for later delivery
+
+### Requirement: Persistent command lifecycle
+The system SHALL persist agent commands with a stateful lifecycle, including queued, sent, acknowledged/running, completed, failed, expired, canceled, and offline states. Commands SHALL transition to `offline` immediately when submitted for a disconnected agent. Command history SHALL be retained for 2 days before cleanup.
+
+#### Scenario: Command completes successfully
+- **GIVEN** an on-demand command is submitted for a connected agent
+- **WHEN** the agent acknowledges and completes the command
+- **THEN** the command record transitions from `queued` → `sent` → `acknowledged`/`running` → `completed`
+- **AND** the completion result is persisted for audit for 2 days
+
+#### Scenario: Command expires without completion
+- **GIVEN** an on-demand command has exceeded its TTL
+- **WHEN** the command has not completed
+- **THEN** the command record transitions to `expired`
+- **AND** the command is retained for 2 days before cleanup
+
+#### Scenario: Command fails because agent is offline
+- **GIVEN** an on-demand command is submitted for an offline agent
+- **WHEN** the command is dispatched
+- **THEN** the command record transitions immediately to `offline`

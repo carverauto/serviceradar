@@ -14,8 +14,9 @@ Agents currently poll for config updates (default ~5 minutes). “Run now” cap
 ## Decisions
 - Decision: Add a long-lived gRPC stream (agent-initiated) for control messages.
 - Decision: Use the control stream for both config push and command delivery.
-- Decision: Commands are ephemeral; if the agent is offline, the API returns an immediate error.
-- Decision: Command results are surfaced to the UI via the API (in-memory or short-lived storage is acceptable).
+- Decision: Commands are persisted in CNPG as `AgentCommand` records with an AshStateMachine lifecycle.
+- Decision: If the agent is offline, the API returns an immediate error and the command transitions to an `offline` terminal state.
+- Decision: Command results are surfaced to the UI via PubSub and persisted state transitions (2-day retention).
 
 ## Risks / Trade-offs
 - Requires new protocol surface (agent + gateway + core coordination).
@@ -28,5 +29,4 @@ Agents currently poll for config updates (default ~5 minutes). “Run now” cap
 - Phase 3: Optionally reduce polling interval once push-config is proven.
 
 ## Open Questions
-- Should command results be persisted in CNPG or only kept in-memory with TTL?
 - What standard command types should be supported first (mapper discovery, sweeps, config refresh)?

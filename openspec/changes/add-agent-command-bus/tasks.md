@@ -6,3 +6,5 @@
 - [x] 1.5 Implement on-demand command handlers for mapper discovery and sweeps.
 - [x] 1.6 Surface command ack/progress/result to the UI.
 - [ ] 1.7 Add tests for offline failure, command ack/result, and push-config delivery.
+- [x] 1.8 Persist agent commands with AshStateMachine lifecycle + command status handler.
+- [x] 1.9 Add command expiration + 2-day retention cleanup worker.

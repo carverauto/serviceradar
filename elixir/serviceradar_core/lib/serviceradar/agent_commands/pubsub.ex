@@ -8,12 +8,12 @@ defmodule ServiceRadar.AgentCommands.PubSub do
 
   @pubsub ServiceRadar.PubSub
 
-  @doc """Build the agent command topic."""
+  @doc "Build the agent command topic."
   def topic do
     "agent:commands"
   end
 
-  @doc """Subscribe to all agent command updates."""
+  @doc "Subscribe to all agent command updates."
   def subscribe do
     Phoenix.PubSub.subscribe(@pubsub, topic())
   end

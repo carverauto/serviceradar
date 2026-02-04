@@ -5,6 +5,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.ProcessRegistry
 
@@ -12,35 +15,84 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @send_timeout 5_000
 
   def dispatch(agent_id, command_type, payload, opts \\ []) do
-    with {:ok, pid, metadata} <- lookup_control_session(agent_id) do
-      payload_json = encode_payload(payload)
-      ttl_seconds = Keyword.get(opts, :ttl_seconds, @default_ttl_seconds)
-      created_at = System.system_time(:second)
-      command_id = Ash.UUID.generate()
+    ttl_seconds = Keyword.get(opts, :ttl_seconds, @default_ttl_seconds)
+    created_at = System.system_time(:second)
+    required_partition = Keyword.get(opts, :required_partition)
+    required_capability = Keyword.get(opts, :required_capability)
+    partition_id = resolve_partition(opts, required_partition)
+    context = opts |> Keyword.get(:context, %{}) |> normalize_context()
+    payload_json = encode_payload(payload)
+    payload_map = normalize_payload(payload)
 
-      command = %Monitoring.CommandRequest{
-        command_id: command_id,
-        command_type: command_type,
-        payload_json: payload_json,
-        ttl_seconds: ttl_seconds,
-        created_at: created_at
-      }
+    command_attrs = %{
+      command_type: command_type,
+      agent_id: agent_id,
+      partition_id: partition_id,
+      payload: payload_map,
+      context: context,
+      ttl_seconds: ttl_seconds,
+      requested_by: requested_by_id(Keyword.get(opts, :actor))
+    }
 
-      context =
-        opts
-        |> Keyword.get(:context, %{})
-        |> normalize_context()
-        |> Map.put_new(:command_id, command_id)
-        |> Map.put_new(:command_type, command_type)
-        |> Map.put_new(:agent_id, agent_id)
-        |> Map.put_new(:partition_id, partition_from_metadata(metadata))
-        |> Map.put_new(:created_at, created_at)
+    ash_opts = [actor: SystemActor.system(:agent_command_bus)]
 
-      case GenServer.call(pid, {:send_command, command, context}, @send_timeout) do
-        {:ok, _} -> {:ok, command_id}
-        {:error, reason} -> {:error, reason}
-        other -> {:error, other}
-      end
+    case AgentCommand.create_command(command_attrs, ash_opts) do
+      {:ok, command} ->
+        _ = AgentCommandCleanupWorker.ensure_scheduled()
+        command_id = command.id
+
+        command_request = %Monitoring.CommandRequest{
+          command_id: command_id,
+          command_type: command_type,
+          payload_json: payload_json,
+          ttl_seconds: ttl_seconds,
+          created_at: created_at
+        }
+
+        case lookup_control_session(agent_id) do
+          {:ok, pid, metadata} ->
+            case ensure_assignment(agent_id, metadata, required_partition, required_capability) do
+              :ok ->
+                actual_partition = partition_from_metadata(metadata)
+
+                context =
+                  context
+                  |> Map.put_new(:command_id, command_id)
+                  |> Map.put_new(:command_type, command_type)
+                  |> Map.put_new(:agent_id, agent_id)
+                  |> Map.put_new(:partition_id, actual_partition)
+                  |> Map.put_new(:created_at, created_at)
+
+                case GenServer.call(pid, {:send_command, command_request, context}, @send_timeout) do
+                  {:ok, _} ->
+                    _ = AgentCommand.mark_sent(command, [partition_id: actual_partition], ash_opts)
+                    {:ok, command_id}
+
+                  {:error, reason} ->
+                    _ = mark_failed(command, reason, ash_opts)
+                    {:error, reason}
+
+                  other ->
+                    _ = mark_failed(command, other, ash_opts)
+                    {:error, other}
+                end
+
+              {:error, reason} ->
+                _ = mark_failed(command, reason, ash_opts)
+                {:error, reason}
+            end
+
+          {:error, {:agent_offline, _} = reason} ->
+            _ = mark_offline(command, reason, ash_opts)
+            {:error, reason}
+
+          {:error, reason} ->
+            _ = mark_failed(command, reason, ash_opts)
+            {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -48,6 +100,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     partition = normalize_partition(partition)
     capability = normalize_capability(capability)
     agent_id = normalize_agent_id(agent_id)
+    opts = put_assignment_context(opts, partition, capability)
 
     case agent_id do
       nil ->
@@ -60,16 +113,13 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         end
 
       agent_id ->
-        with {:ok, _pid, metadata} <- lookup_control_session(agent_id),
-             :ok <- ensure_partition(agent_id, metadata, partition),
-             :ok <- ensure_capability(agent_id, metadata, capability) do
-          dispatch(agent_id, command_type, payload, opts)
-        end
+        dispatch(agent_id, command_type, payload, opts)
     end
   end
 
-  def run_mapper_job(job) do
+  def run_mapper_job(job, opts \\ []) do
     payload = %{job_id: job.id, job_name: job.name}
+    opts = add_context(opts, %{mapper_job_id: job.id, partition_id: job.partition || "default"})
 
     dispatch_for_assignment(
       job.partition || "default",
@@ -77,12 +127,13 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       "mapper",
       "mapper.run_job",
       payload,
-      context: %{mapper_job_id: job.id}
+      opts
     )
   end
 
-  def run_sweep_group(group) do
+  def run_sweep_group(group, opts \\ []) do
     payload = %{sweep_group_id: group.id}
+    opts = add_context(opts, %{sweep_group_id: group.id, partition_id: group.partition || "default"})
 
     dispatch_for_assignment(
       group.partition || "default",
@@ -90,7 +141,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       "sweep",
       "sweep.run_group",
       payload,
-      context: %{sweep_group_id: group.id}
+      opts
     )
   end
 
@@ -175,6 +226,13 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
+  defp ensure_assignment(agent_id, metadata, partition, capability) do
+    with :ok <- ensure_partition(agent_id, metadata, partition),
+         :ok <- ensure_capability(agent_id, metadata, capability) do
+      :ok
+    end
+  end
+
   defp ensure_partition(_agent_id, _metadata, nil), do: :ok
 
   defp ensure_partition(agent_id, metadata, partition) do
@@ -203,6 +261,20 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp encode_payload(payload) when is_binary(payload), do: payload
   defp encode_payload(payload), do: Jason.encode!(payload)
 
+  defp normalize_payload(nil), do: nil
+
+  defp normalize_payload(payload) when is_binary(payload) do
+    case Jason.decode(payload) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      {:ok, decoded} -> %{"value" => decoded}
+      {:error, _} -> nil
+    end
+  end
+
+  defp normalize_payload(payload) when is_map(payload), do: payload
+  defp normalize_payload(payload) when is_list(payload), do: %{"items" => payload}
+  defp normalize_payload(payload), do: %{"value" => payload}
+
   defp normalize_partition(nil), do: "default"
   defp normalize_partition(""), do: "default"
   defp normalize_partition(value), do: value
@@ -224,6 +296,39 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp normalize_context(context) when is_list(context), do: Map.new(context)
   defp normalize_context(_), do: %{}
 
+  defp add_context(opts, additions) do
+    context =
+      opts
+      |> Keyword.get(:context, %{})
+      |> normalize_context()
+      |> Map.merge(additions)
+
+    Keyword.put(opts, :context, context)
+  end
+
+  defp put_assignment_context(opts, partition, capability) do
+    opts
+    |> add_context(%{partition_id: partition, required_capability: capability})
+    |> Keyword.put(:required_partition, partition)
+    |> Keyword.put(:required_capability, capability)
+  end
+
+  defp resolve_partition(opts, required_partition) do
+    context = opts |> Keyword.get(:context, %{}) |> normalize_context()
+
+    opts
+    |> Keyword.get(:partition_id,
+      Map.get(context, :partition_id) || Map.get(context, "partition_id") || required_partition
+    )
+    |> normalize_partition()
+  end
+
+  defp requested_by_id(nil), do: nil
+  defp requested_by_id(%{id: id}) when is_binary(id), do: id
+  defp requested_by_id(%{id: id}), do: to_string(id)
+  defp requested_by_id(%{email: email}) when is_binary(email), do: email
+  defp requested_by_id(_), do: nil
+
   defp registry_available? do
     Process.whereis(ProcessRegistry.registry_name()) != nil
   end
@@ -238,6 +343,35 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     |> List.wrap()
     |> Enum.map(&to_string/1)
   end
+
+  defp mark_failed(command, reason, ash_opts) do
+    AgentCommand.fail(command,
+      [
+        message: failure_message(reason),
+        failure_reason: failure_reason(reason)
+      ],
+      ash_opts
+    )
+  end
+
+  defp mark_offline(command, reason, ash_opts) do
+    AgentCommand.mark_offline(command,
+      [
+        message: failure_message(reason),
+        failure_reason: failure_reason(reason)
+      ],
+      ash_opts
+    )
+  end
+
+  defp failure_reason({:agent_offline, _}), do: "agent_offline"
+  defp failure_reason({:agent_partition_mismatch, _, _}), do: "agent_partition_mismatch"
+  defp failure_reason({:agent_capability_missing, _, _}), do: "agent_capability_missing"
+  defp failure_reason(:registry_unavailable), do: "registry_unavailable"
+  defp failure_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp failure_reason(reason), do: inspect(reason)
+
+  defp failure_message(reason), do: inspect(reason)
 
   defp capability_for_config_type(:mapper), do: "mapper"
   defp capability_for_config_type(:sweep), do: "sweep"
