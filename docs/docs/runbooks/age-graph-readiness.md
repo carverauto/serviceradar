@@ -1,6 +1,6 @@
 # AGE graph readiness checks
 
-Use this runbook to confirm the Apache AGE graph (`serviceradar`) is present and usable after bootstrap. The checks cover the mTLS Docker Compose stack and the demo Kubernetes namespace.
+Use this runbook to confirm the Apache AGE graph (`platform_graph`) is present and usable after bootstrap. The checks cover the mTLS Docker Compose stack and the demo Kubernetes namespace.
 
 ## Docker Compose
 - Ensure CNPG is up: `docker compose ps cnpg`
@@ -9,10 +9,10 @@ Use this runbook to confirm the Apache AGE graph (`serviceradar`) is present and
   - Expected: `search_path` includes `ag_catalog,"$user",public`. `graph_path` may be empty; ServiceRadar always passes the graph name explicitly.
 - Confirm AGE is ready:
   - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT extname FROM pg_extension WHERE extname='age';"`
-  - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT name FROM ag_catalog.ag_graph WHERE name='serviceradar';"`
-  - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT name, kind FROM ag_catalog.ag_label WHERE graph=(SELECT oid FROM ag_catalog.ag_graph WHERE name='serviceradar') ORDER BY kind, name;"`
-  - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT * FROM ag_catalog.cypher('serviceradar', 'RETURN 1') AS (result agtype);"`
-- If any checks fail, rerun migrations (core connects with AGE defaults) or manually create the graph: `CREATE EXTENSION IF NOT EXISTS age; SELECT ag_catalog.create_graph('serviceradar');`.
+  - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT name FROM ag_catalog.ag_graph WHERE name='platform_graph';"`
+  - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT name, kind FROM ag_catalog.ag_label WHERE graph=(SELECT oid FROM ag_catalog.ag_graph WHERE name='platform_graph') ORDER BY kind, name;"`
+  - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT * FROM ag_catalog.cypher('platform_graph', 'RETURN 1') AS (result agtype);"`
+- If any checks fail, rerun migrations (core connects with AGE defaults) or manually create the graph: `CREATE EXTENSION IF NOT EXISTS age; SELECT ag_catalog.create_graph('platform_graph');`.
 
 ## Demo Kubernetes (namespace demo)
 - Wait for CNPG to be ready: `kubectl -n demo wait --for=condition=Ready pod -l cnpg.io/cluster=cnpg --timeout=300s`.
@@ -20,10 +20,10 @@ Use this runbook to confirm the Apache AGE graph (`serviceradar`) is present and
   - `kubectl -n demo exec deploy/serviceradar-tools -- cnpg-info`
   - `kubectl -n demo exec deploy/serviceradar-tools -- cnpg-sql "SHOW search_path; SHOW graph_path;"`
   - `kubectl -n demo exec deploy/serviceradar-tools -- cnpg-sql "SELECT extname FROM pg_extension WHERE extname='age';"`
-  - `kubectl -n demo exec deploy/serviceradar-tools -- cnpg-sql "SELECT name FROM ag_catalog.ag_graph WHERE name='serviceradar';"`
-  - `kubectl -n demo exec deploy/serviceradar-tools -- cnpg-sql "SELECT name, kind FROM ag_catalog.ag_label WHERE graph=(SELECT oid FROM ag_catalog.ag_graph WHERE name='serviceradar') ORDER BY kind, name;"`
-  - `kubectl -n demo exec deploy/serviceradar-tools -- cnpg-sql "SELECT * FROM ag_catalog.cypher('serviceradar', 'RETURN 1') AS (result agtype);"`
-- If the graph is missing, re-run migrations from the tools pod or issue the manual `CREATE EXTENSION` + `create_graph('serviceradar')` statements above (safe to rerun).
+  - `kubectl -n demo exec deploy/serviceradar-tools -- cnpg-sql "SELECT name FROM ag_catalog.ag_graph WHERE name='platform_graph';"`
+  - `kubectl -n demo exec deploy/serviceradar-tools -- cnpg-sql "SELECT name, kind FROM ag_catalog.ag_label WHERE graph=(SELECT oid FROM ag_catalog.ag_graph WHERE name='platform_graph') ORDER BY kind, name;"`
+  - `kubectl -n demo exec deploy/serviceradar-tools -- cnpg-sql "SELECT * FROM ag_catalog.cypher('platform_graph', 'RETURN 1') AS (result agtype);"`
+- If the graph is missing, re-run migrations from the tools pod or issue the manual `CREATE EXTENSION` + `create_graph('platform_graph')` statements above (safe to rerun).
 
 ## Rebuild/backfill the AGE graph
 - Use the new backfill utility to rehydrate nodes/edges from CNPG tables:
@@ -38,22 +38,22 @@ Use the same `psql` entrypoint above (`docker compose ... exec cnpg psql ... -c 
 - Confirm no collector service IDs leaked into `Device` nodes (expect zero rows):
   ```sql
   SELECT properties->>'id' AS collector_device_node
-  FROM serviceradar."Device"
+  FROM platform_graph."Device"
   WHERE properties->>'id' LIKE 'serviceradar:agent:%'
      OR properties->>'id' LIKE 'serviceradar:gateway:%';
   ```
 - Pick a real device ID (non-`serviceradar:`) and verify collector-owned services are returned without creating a device node for the collector host:
   ```sql
-  SELECT properties->>'id' FROM serviceradar."Device" WHERE properties->>'id' NOT LIKE 'serviceradar:%' LIMIT 1;
+  SELECT properties->>'id' FROM platform_graph."Device" WHERE properties->>'id' NOT LIKE 'serviceradar:%' LIMIT 1;
   SELECT jsonb_pretty(public.age_device_neighborhood('<device_id>', true, false));
   ```
   The `services.collector_owned` flag should be `true`, and no collector IP should appear as a `Device`.
 - Validate SNMP capability badges are attached to targets, not collector hosts:
   ```sql
   SELECT d.properties->>'id' AS device_id
-  FROM serviceradar."Device" d
-  JOIN serviceradar."PROVIDES_CAPABILITY" pc ON pc.start_id = d.id
-  JOIN serviceradar."Capability" cap ON cap.id = pc.end_id
+  FROM platform_graph."Device" d
+  JOIN platform_graph."PROVIDES_CAPABILITY" pc ON pc.start_id = d.id
+  JOIN platform_graph."Capability" cap ON cap.id = pc.end_id
   WHERE cap.properties->>'type' = 'snmp'
   LIMIT 5;
   -- Pick one device_id and ensure the neighborhood shows the snmp badge
@@ -69,15 +69,15 @@ Use the same `psql` entrypoint above (`docker compose ... exec cnpg psql ... -c 
 - For a chosen device ID, confirm interfaces are present and connected:
   ```sql
   SELECT iface.properties->>'id' AS interface_id
-  FROM serviceradar."Interface" iface
-  JOIN serviceradar."HAS_INTERFACE" hi ON hi.end_id = iface.id
-  JOIN serviceradar."Device" d ON d.id = hi.start_id
+  FROM platform_graph."Interface" iface
+  JOIN platform_graph."HAS_INTERFACE" hi ON hi.end_id = iface.id
+  JOIN platform_graph."Device" d ON d.id = hi.start_id
   WHERE d.properties->>'id' = '<device_id>';
 
   SELECT src.properties->>'id' AS from_iface, dst.properties->>'id' AS to_iface
-  FROM serviceradar."CONNECTS_TO" link
-  JOIN serviceradar."Interface" src ON src.id = link.start_id
-  JOIN serviceradar."Interface" dst ON dst.id = link.end_id
+  FROM platform_graph."CONNECTS_TO" link
+  JOIN platform_graph."Interface" src ON src.id = link.start_id
+  JOIN platform_graph."Interface" dst ON dst.id = link.end_id
   WHERE src.properties->>'id' LIKE '<device_id>/%'
   LIMIT 10;
   ```

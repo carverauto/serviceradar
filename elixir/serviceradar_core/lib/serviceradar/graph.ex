@@ -15,13 +15,14 @@ defmodule ServiceRadar.Graph do
 
   ## Graph Name
 
-  All queries target the `serviceradar` graph by default. Use the `:graph` option
+  All queries target the configured AGE graph by default (see
+  `:age_graph_name` in the `:serviceradar_core` config). Use the `:graph` option
   to specify a different graph name.
   """
 
   alias ServiceRadar.Repo
 
-  @default_graph "serviceradar"
+  @default_graph "platform_graph"
 
   @doc """
   Executes a Cypher query for side effects, discarding results.
@@ -31,7 +32,7 @@ defmodule ServiceRadar.Graph do
 
   ## Options
 
-    * `:graph` - The AGE graph name (default: "serviceradar")
+    * `:graph` - The AGE graph name (default: config `:age_graph_name`, fallback "#{@default_graph}")
     * `:repo` - The Ecto repo to use (default: ServiceRadar.Repo)
 
   ## Examples
@@ -45,7 +46,7 @@ defmodule ServiceRadar.Graph do
   """
   @spec execute(String.t(), keyword()) :: :ok | {:error, term()}
   def execute(cypher, opts \\ []) when is_binary(cypher) do
-    graph = Keyword.get(opts, :graph, @default_graph)
+    graph = Keyword.get(opts, :graph, default_graph())
     repo = Keyword.get(opts, :repo, Repo)
 
     query = """
@@ -66,7 +67,7 @@ defmodule ServiceRadar.Graph do
 
   ## Options
 
-    * `:graph` - The AGE graph name (default: "serviceradar")
+    * `:graph` - The AGE graph name (default: config `:age_graph_name`, fallback "#{@default_graph}")
     * `:repo` - The Ecto repo to use (default: ServiceRadar.Repo)
 
   ## Examples
@@ -78,7 +79,7 @@ defmodule ServiceRadar.Graph do
   """
   @spec query(String.t(), keyword()) :: {:ok, list()} | {:error, term()}
   def query(cypher, opts \\ []) when is_binary(cypher) do
-    graph = Keyword.get(opts, :graph, @default_graph)
+    graph = Keyword.get(opts, :graph, default_graph())
     repo = Keyword.get(opts, :repo, Repo)
 
     sql = """
@@ -116,6 +117,10 @@ defmodule ServiceRadar.Graph do
     value
     |> to_string()
     |> String.replace("'", "''")
+  end
+
+  defp default_graph do
+    Application.get_env(:serviceradar_core, :age_graph_name, @default_graph)
   end
 
   # Generate a unique dollar-quote tag to safely embed the Cypher query

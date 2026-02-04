@@ -105,6 +105,7 @@ fn test_config(database_url: String) -> AppConfig {
     AppConfig {
         listen_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
         database_url,
+        age_graph_name: "platform_graph".to_string(),
         max_pool_size: 5,
         pg_ssl_root_cert: env::var("PGSSLROOTCERT").ok(),
         pg_ssl_cert: env::var("PGSSLCERT").ok(),
@@ -499,7 +500,7 @@ async fn check_age_available(database_url: &str) -> anyhow::Result<bool> {
     let (client, _task) = connect_with_env_tls(config, "age-check").await?;
     let result = client
         .query(
-            "SELECT 1 FROM ag_catalog.cypher('serviceradar', 'RETURN 1') AS (result agtype) LIMIT 1",
+            "SELECT 1 FROM ag_catalog.cypher('platform_graph', 'RETURN 1') AS (result agtype) LIMIT 1",
             &[],
         )
         .await;

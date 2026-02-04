@@ -1,14 +1,14 @@
 # AGE graph schema and access
 
-This document captures the canonical AGE graph schema (`serviceradar`), ID formats, and the access expectations for ServiceRadar services (core, SRQL, DIRE).
+This document captures the canonical AGE graph schema (`platform_graph`), ID formats, and the access expectations for ServiceRadar services (core, SRQL, DIRE).
 
 ## Graph and access defaults
-- Graph name: `serviceradar`
+- Graph name: `platform_graph`
 - Extensions: `age` (plus `timescaledb`)
 - Database defaults: `search_path=ag_catalog,"$user",public`; `graph_path` may be absent in the current CNPG build, so Cypher calls must always pass the graph name explicitly.
 - Role grants (Ash rebuild migration `elixir/serviceradar_core/priv/repo/migrations/20260117090000_rebuild_schema.exs`):
   - `GRANT USAGE ON SCHEMA ag_catalog` and `EXECUTE` on its functions to the `serviceradar` role.
-  - `GRANT USAGE` on graph schema `serviceradar`, `ALL PRIVILEGES` on its tables, and default privileges for future tables to the `serviceradar` role.
+  - `GRANT USAGE` on graph schema `platform_graph`, `ALL PRIVILEGES` on its tables, and default privileges for future tables to the `serviceradar` role.
 
 ## Node labels and properties
 - `Device`
@@ -57,7 +57,7 @@ This document captures the canonical AGE graph schema (`serviceradar`), ID forma
 - Mapper/DIRE-resolved interfaces: use DIRE-resolved `device_id` to form `Interface.id = <device_id>/<ifname or ifindex>` and add `HAS_INTERFACE`; topology events add `CONNECTS_TO` between interface IDs derived from DIRE-managed device IDs.
 
 ## Query guidance
-- Always pass the graph name in `cypher` calls: `cypher('serviceradar', $$ ... $$)`.
+- Always pass the graph name in `cypher` calls: `cypher('platform_graph', $$ ... $$)`.
 - Keep `search_path` including `ag_catalog` to expose the `cypher` function and `agtype`.
 
 ## Common queries
@@ -69,7 +69,7 @@ This document captures the canonical AGE graph schema (`serviceradar`), ID forma
   ```sql
   SELECT jsonb_pretty(result)
   FROM ag_catalog.cypher(
-      'serviceradar',
+      'platform_graph',
       $$MATCH (c:Collector {id:'serviceradar:agent:agent-1'})-[:HOSTS_SERVICE]->(svc:Service {id:'serviceradar:service:ssh@agent-1'})-[:TARGETS]->(t:Device)
         OPTIONAL MATCH (t)-[:PROVIDES_CAPABILITY]->(cap:Capability)
         RETURN jsonb_build_object('collector', c, 'service', svc, 'target', t, 'capabilities', collect(cap))$$
