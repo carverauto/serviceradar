@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.91
+
+Docker compose stability fixes for agent enrollment and core-elx builds.
+
+## Whats New
+
+**1.0.91**
+- Docker compose agent now resolves the gateway consistently via `agent-gateway.serviceradar`, preventing enrollment failures.
+- Core-elx Docker build includes the Rust workspace and updated toolchain so SRQL NIFs compile reliably.
+- Startup migrations now set the database search_path before running and avoid changing ownership on AGE sequences owned by tables.
+
 # ServiceRadar v1.0.90
 
 Netflow visibility and log-to-event promotion are now live.
