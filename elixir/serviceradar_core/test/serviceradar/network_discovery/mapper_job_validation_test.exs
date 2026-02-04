@@ -68,4 +68,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperJobValidationTest do
 
     assert Enum.any?(errors, &(&1.field == :agent_id))
   end
+
+  @tag :integration
+  test "rejects updates to unknown agent ids" do
+    actor = SystemActor.system(:test)
+
+    {:ok, _agent} =
+      Agent
+      |> Ash.Changeset.for_create(:register, %{uid: "agent-existing"}, actor: actor)
+      |> Ash.create(actor: actor)
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(:create, %{name: "job-update", agent_id: "agent-existing"},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:error, %Ash.Error.Invalid{errors: errors}} =
+      job
+      |> Ash.Changeset.for_update(:update, %{agent_id: "missing-agent"}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert Enum.any?(errors, &(&1.field == :agent_id))
+  end
 end

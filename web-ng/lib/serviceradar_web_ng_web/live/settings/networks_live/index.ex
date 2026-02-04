@@ -1143,7 +1143,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                         {command_status_label(status)}
                       </.ui_badge>
                     <% else %>
-                      <span class="text-xs text-base-content/40">—</span>
+                      <%= if job.last_run_status do %>
+                        <.ui_badge variant={mapper_run_status_variant(job.last_run_status)} size="xs">
+                          {mapper_run_status_label(job.last_run_status)}
+                        </.ui_badge>
+                      <% else %>
+                        <span class="text-xs text-base-content/40">—</span>
+                      <% end %>
+                      <p
+                        :if={is_integer(job.last_run_interface_count)}
+                        class="text-[10px] text-base-content/50 mt-0.5"
+                      >
+                        {job.last_run_interface_count} interfaces
+                      </p>
+                      <p
+                        :if={is_binary(job.last_run_error)}
+                        class="text-[10px] text-error/80 mt-0.5 truncate max-w-[180px]"
+                        title={job.last_run_error}
+                      >
+                        {job.last_run_error}
+                      </p>
                     <% end %>
                   </td>
                   <td>
@@ -3026,6 +3045,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp command_status_variant(%{state: :success}), do: "success"
   defp command_status_variant(%{state: :error}), do: "error"
   defp command_status_variant(_), do: "ghost"
+
+  defp mapper_run_status_label(:success), do: "Success"
+  defp mapper_run_status_label(:error), do: "Error"
+  defp mapper_run_status_label(_), do: "—"
+
+  defp mapper_run_status_variant(:success), do: "success"
+  defp mapper_run_status_variant(:error), do: "error"
+  defp mapper_run_status_variant(_), do: "ghost"
 
   defp load_or_create_cleanup_settings(scope) do
     case DeviceCleanupSettings.get_settings(scope: scope) do
