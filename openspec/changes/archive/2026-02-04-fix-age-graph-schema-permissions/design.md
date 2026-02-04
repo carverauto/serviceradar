@@ -6,7 +6,8 @@
 ## Goals / Non-Goals
 Goals:
 - Use a single canonical AGE graph name across core-elx and SRQL in a dedicated schema.
-- Ensure the application role has USAGE/ALL privileges on the AGE graph schema at startup.
+- Ensure the application role has USAGE/CREATE/ALL privileges on the AGE graph schema at startup.
+- Ensure the application role owns the AGE label tables created within the graph schema.
 - Retire legacy graph names so reads and writes converge on one graph.
 
 Non-Goals:
@@ -20,10 +21,12 @@ Non-Goals:
 - Add a configuration knob for the graph name with `platform_graph` as the default.
 - Migrations will create the canonical graph (if missing) and leave legacy graphs (`serviceradar`, `serviceradar_topology`) untouched.
 - Startup migrations will grant USAGE/ALL privileges on the `platform_graph` schema to the application role using the admin connection, and log when admin credentials are unavailable.
+- Startup migrations will also transfer ownership of the AGE graph schema and label tables to the application role to satisfy AGE ownership requirements.
 
 ## Risks / Trade-offs
 - Legacy graphs remain for safety; mapper re-projection repopulates the canonical graph.
 - Environments without admin credentials could still miss schema grants; mitigated by ensuring the canonical graph is created by the application role during migrations when possible.
+- Ownership changes require admin privileges; without them, MERGE operations will continue to fail.
 
 ## Migration Plan
 1. Create migration to ensure the `platform_graph` graph exists (legacy graphs remain).
