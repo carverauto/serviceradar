@@ -944,6 +944,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             seeds_text={@mapper_seeds_text}
             unifi_form={@mapper_unifi_form}
             unifi_present={@mapper_unifi_present}
+            mapper_command_statuses={@mapper_command_statuses}
           />
         <% else %>
           <%= if @show_form in [:new_group, :edit_group] do %>
@@ -973,7 +974,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
                 <%= case @active_tab do %>
                   <% :groups -> %>
-                    <.sweep_groups_panel groups={@sweep_groups} />
+                  <.sweep_groups_panel
+                    groups={@sweep_groups}
+                    sweep_command_statuses={@sweep_command_statuses}
+                  />
                   <% :profiles -> %>
                     <.profiles_panel profiles={@sweep_profiles} />
                   <% :active_scans -> %>
@@ -1054,6 +1058,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :seeds_text, :string, default: ""
   attr :unifi_form, :any, default: nil
   attr :unifi_present, :boolean, default: false
+  attr :mapper_command_statuses, :map, default: %{}
 
   defp discovery_panel(assigns) do
     ~H"""
@@ -1304,6 +1309,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   # Sweep Groups Panel
   attr :groups, :list, required: true
+  attr :sweep_command_statuses, :map, default: %{}
 
   defp sweep_groups_panel(assigns) do
     ~H"""
