@@ -35,6 +35,8 @@ const (
 	commandTypeSweepRun  = "sweep.run_group"
 )
 
+var errControlStreamClosed = errors.New("control stream closed")
+
 type mapperRunPayload struct {
 	JobID   string `json:"job_id"`
 	JobName string `json:"job_name"`
@@ -58,7 +60,7 @@ func (s *controlStreamSender) Send(req *proto.ControlStreamRequest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return errors.New("control stream closed")
+		return errControlStreamClosed
 	}
 	return s.stream.Send(req)
 }

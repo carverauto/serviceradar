@@ -39,60 +39,81 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     case AgentCommand.create_command(command_attrs, ash_opts) do
       {:ok, command} ->
         _ = AgentCommandCleanupWorker.ensure_scheduled()
-        command_id = command.id
-
-        command_request = %Monitoring.CommandRequest{
-          command_id: command_id,
+        dispatch_created_command(command, %{
+          agent_id: agent_id,
           command_type: command_type,
           payload_json: payload_json,
           ttl_seconds: ttl_seconds,
-          created_at: created_at
-        }
-
-        case lookup_control_session(agent_id) do
-          {:ok, pid, metadata} ->
-            case ensure_assignment(agent_id, metadata, required_partition, required_capability) do
-              :ok ->
-                actual_partition = partition_from_metadata(metadata)
-
-                context =
-                  context
-                  |> Map.put_new(:command_id, command_id)
-                  |> Map.put_new(:command_type, command_type)
-                  |> Map.put_new(:agent_id, agent_id)
-                  |> Map.put_new(:partition_id, actual_partition)
-                  |> Map.put_new(:created_at, created_at)
-
-                case GenServer.call(pid, {:send_command, command_request, context}, @send_timeout) do
-                  {:ok, _} ->
-                    _ = AgentCommand.mark_sent(command, [partition_id: actual_partition], ash_opts)
-                    {:ok, command_id}
-
-                  {:error, reason} ->
-                    _ = mark_failed(command, reason, ash_opts)
-                    {:error, reason}
-
-                  other ->
-                    _ = mark_failed(command, other, ash_opts)
-                    {:error, other}
-                end
-
-              {:error, reason} ->
-                _ = mark_failed(command, reason, ash_opts)
-                {:error, reason}
-            end
-
-          {:error, {:agent_offline, _} = reason} ->
-            _ = mark_offline(command, reason, ash_opts)
-            {:error, reason}
-
-          {:error, reason} ->
-            _ = mark_failed(command, reason, ash_opts)
-            {:error, reason}
-        end
+          created_at: created_at,
+          required_partition: required_partition,
+          required_capability: required_capability,
+          context: context,
+          ash_opts: ash_opts
+        })
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp dispatch_created_command(command, ctx) do
+    command_request =
+      build_command_request(
+        command.id,
+        ctx.command_type,
+        ctx.payload_json,
+        ctx.ttl_seconds,
+        ctx.created_at
+      )
+
+    case lookup_control_session(ctx.agent_id) do
+      {:ok, pid, metadata} ->
+        dispatch_to_session(
+          command,
+          pid,
+          metadata,
+          command_request,
+          ctx
+        )
+
+      {:error, {:agent_offline, _} = reason} ->
+        _ = mark_offline(command, reason, ctx.ash_opts)
+        {:error, reason}
+
+      {:error, reason} ->
+        _ = mark_failed(command, reason, ctx.ash_opts)
+        {:error, reason}
+    end
+  end
+
+  defp dispatch_to_session(command, pid, metadata, command_request, ctx) do
+    case ensure_assignment(ctx.agent_id, metadata, ctx.required_partition, ctx.required_capability) do
+      :ok ->
+        send_command(command, pid, metadata, command_request, ctx)
+
+      {:error, reason} ->
+        _ = mark_failed(command, reason, ctx.ash_opts)
+        {:error, reason}
+    end
+  end
+
+  defp send_command(command, pid, metadata, command_request, ctx) do
+    actual_partition = partition_from_metadata(metadata)
+    command_context =
+      build_command_context(ctx.context, command, actual_partition, ctx.created_at)
+
+    case GenServer.call(pid, {:send_command, command_request, command_context}, @send_timeout) do
+      {:ok, _} ->
+        _ = AgentCommand.mark_sent(command, [partition_id: actual_partition], ctx.ash_opts)
+        {:ok, command.id}
+
+      {:error, reason} ->
+        _ = mark_failed(command, reason, ctx.ash_opts)
+        {:error, reason}
+
+      other ->
+        _ = mark_failed(command, other, ctx.ash_opts)
+        {:error, other}
     end
   end
 
@@ -176,19 +197,27 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp lookup_control_session(agent_id) do
     if registry_available?() do
-      case ProcessRegistry.lookup({:agent_control, agent_id}) do
-        [{pid, metadata}] when is_pid(pid) ->
-          if Process.alive?(pid) do
-            {:ok, pid, metadata || %{}}
-          else
-            {:error, {:agent_offline, agent_id}}
-          end
-
-        [] ->
-          {:error, {:agent_offline, agent_id}}
-      end
+      lookup_registered_session(agent_id)
     else
       {:error, :registry_unavailable}
+    end
+  end
+
+  defp lookup_registered_session(agent_id) do
+    case ProcessRegistry.lookup({:agent_control, agent_id}) do
+      [{pid, metadata}] when is_pid(pid) ->
+        ensure_session_alive(pid, metadata, agent_id)
+
+      [] ->
+        {:error, {:agent_offline, agent_id}}
+    end
+  end
+
+  defp ensure_session_alive(pid, metadata, agent_id) do
+    if Process.alive?(pid) do
+      {:ok, pid, metadata || %{}}
+    else
+      {:error, {:agent_offline, agent_id}}
     end
   end
 
@@ -321,6 +350,25 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       Map.get(context, :partition_id) || Map.get(context, "partition_id") || required_partition
     )
     |> normalize_partition()
+  end
+
+  defp build_command_request(command_id, command_type, payload_json, ttl_seconds, created_at) do
+    %Monitoring.CommandRequest{
+      command_id: command_id,
+      command_type: command_type,
+      payload_json: payload_json,
+      ttl_seconds: ttl_seconds,
+      created_at: created_at
+    }
+  end
+
+  defp build_command_context(context, command, partition_id, created_at) do
+    context
+    |> Map.put_new(:command_id, command.id)
+    |> Map.put_new(:command_type, command.command_type)
+    |> Map.put_new(:agent_id, command.agent_id)
+    |> Map.put_new(:partition_id, partition_id)
+    |> Map.put_new(:created_at, created_at)
   end
 
   defp requested_by_id(nil), do: nil

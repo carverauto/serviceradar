@@ -90,23 +90,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   defp persist_result(%{command_id: command_id} = data, actor) do
     case AgentCommand.get_by_id(command_id, actor: actor) do
       {:ok, command} ->
-        if command.status in [:completed, :failed, :expired, :canceled, :offline] do
-          :ok
-        else
-          attrs = [
-            message: Map.get(data, :message),
-            result_payload: Map.get(data, :payload)
-          ]
-
-          if Map.get(data, :success) do
-            AgentCommand.complete(command, attrs, actor: actor)
-          else
-            AgentCommand.fail(command,
-              attrs ++ [failure_reason: Map.get(data, :failure_reason) || "command_failed"],
-              actor: actor
-            )
-          end
-        end
+        handle_result(command, data, actor)
 
       {:error, %Ash.Error.Query.NotFound{}} ->
         :ok
@@ -117,5 +101,29 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           reason: inspect(reason)
         )
     end
+  end
+
+  defp handle_result(command, data, actor) do
+    if terminal_status?(command.status) do
+      :ok
+    else
+      attrs = [
+        message: Map.get(data, :message),
+        result_payload: Map.get(data, :payload)
+      ]
+
+      if Map.get(data, :success) do
+        AgentCommand.complete(command, attrs, actor: actor)
+      else
+        AgentCommand.fail(command,
+          attrs ++ [failure_reason: Map.get(data, :failure_reason) || "command_failed"],
+          actor: actor
+        )
+      end
+    end
+  end
+
+  defp terminal_status?(status) do
+    status in [:completed, :failed, :expired, :canceled, :offline]
   end
 end
