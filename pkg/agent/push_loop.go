@@ -748,6 +748,37 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	p.server.mu.RUnlock()
 	gatewayID := p.gateway.GetGatewayID()
 
+	if len(statuses) > 0 {
+		var invalidNames int
+		serviceNames := make([]string, 0, len(statuses))
+
+		for i, status := range statuses {
+			if status == nil {
+				serviceNames = append(serviceNames, "")
+				continue
+			}
+			name := strings.TrimSpace(status.ServiceName)
+			serviceNames = append(serviceNames, name)
+			if name == "" {
+				invalidNames++
+				p.logger.Warn().
+					Int("index", i).
+					Str("service_type", status.ServiceType).
+					Str("source", status.Source).
+					Bool("available", status.Available).
+					Int("message_bytes", len(status.Message)).
+					Msg("Detected status with empty service_name before push")
+			}
+		}
+
+		if invalidNames > 0 {
+			p.logger.Warn().
+				Int("invalid_service_names", invalidNames).
+				Strs("service_names", serviceNames).
+				Msg("Status batch contains empty service_name values")
+		}
+	}
+
 	req := &proto.GatewayStatusRequest{
 		Services:  statuses,
 		GatewayId: gatewayID,

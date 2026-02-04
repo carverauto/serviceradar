@@ -83,18 +83,29 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
     case GRPC.Server.send_reply(state.stream, response) do
       :ok ->
+        log_command_dispatch(state, command)
         {:reply, {:ok, command.command_id}, track_command(state, command, context)}
 
       {:ok, %GRPC.Server.Stream{} = stream} ->
+        log_command_dispatch(state, command)
         {:reply, {:ok, command.command_id}, track_command(%{state | stream: stream}, command, context)}
 
       %GRPC.Server.Stream{} = stream ->
+        log_command_dispatch(state, command)
         {:reply, {:ok, command.command_id}, track_command(%{state | stream: stream}, command, context)}
 
       {:error, reason} ->
+        Logger.warning(
+          "Failed to dispatch command to agent #{state.agent_id}: #{inspect(reason)}"
+        )
+
         {:reply, {:error, reason}, state}
 
       other ->
+        Logger.warning(
+          "Unexpected reply while dispatching command to agent #{state.agent_id}: #{inspect(other)}"
+        )
+
         {:reply, {:error, {:unexpected_reply, other}}, state}
     end
   end
@@ -124,10 +135,12 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   def handle_cast({:message, %Monitoring.ControlStreamRequest{} = message}, state) do
     case message.payload do
       {:command_ack, ack} ->
+        log_command_ack(state, ack)
         broadcast_ack(ack, state)
         {:noreply, state}
 
       {:command_progress, progress} ->
+        log_command_progress(state, progress)
         broadcast_progress(progress, state)
         {:noreply, state}
 
@@ -212,6 +225,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   defp broadcast_result(result, command_meta, state) do
+    payload = decode_payload(result.payload_json)
+
+    log_command_result(state, result, payload)
+
     data =
       command_meta
       |> Map.merge(base_command_metadata(state))
@@ -221,7 +238,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         success: result.success,
         message: result.message,
         timestamp: result.timestamp,
-        payload: decode_payload(result.payload_json)
+        payload: payload
       })
 
     PubSub.broadcast_result(data)
@@ -243,6 +260,45 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       {:ok, decoded} -> decoded
       {:error, _} -> nil
     end
+  end
+
+  defp log_command_dispatch(state, command) do
+    Logger.info(
+      "Dispatching command to agent #{state.agent_id}: #{command.command_type} (#{command.command_id})"
+    )
+  end
+
+  defp log_command_ack(state, ack) do
+    Logger.info(
+      "Command ack from agent #{state.agent_id}: #{ack.command_type} (#{ack.command_id}) #{ack.message}"
+    )
+  end
+
+  defp log_command_progress(state, progress) do
+    Logger.info(
+      "Command progress from agent #{state.agent_id}: #{progress.command_type} (#{progress.command_id}) " <>
+        "#{progress.progress_percent}% #{progress.message}"
+    )
+  end
+
+  defp log_command_result(state, result, payload) do
+    payload_summary =
+      case payload do
+        %{} = data ->
+          %{
+            keys: Map.keys(data),
+            sweep_group_id: Map.get(data, "sweep_group_id"),
+            discovery_id: Map.get(data, "discovery_id")
+          }
+
+        _ ->
+          payload
+      end
+
+    Logger.info(
+      "Command result from agent #{state.agent_id}: #{result.command_type} (#{result.command_id}) " <>
+        "success=#{result.success} message=#{result.message} payload=#{inspect(payload_summary)}"
+    )
   end
 
   defp track_command(state, command, context) do

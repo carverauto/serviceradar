@@ -286,9 +286,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
             acc + 1
           rescue
             e in GRPC.RPCError ->
-              Logger.warning(
-                "Dropping invalid service status from agent #{metadata.agent_id}: #{e.status} #{e.message}"
-              )
+              log_invalid_service_status(metadata, service, e)
 
               acc
 
@@ -441,9 +439,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
             process_service_status(service, metadata)
           rescue
             e in GRPC.RPCError ->
-              Logger.warning(
-                "Dropping invalid service status from agent #{metadata.agent_id}: #{e.status} #{e.message}"
-              )
+              log_invalid_service_status(metadata, service, e)
 
             e ->
               Logger.warning(
@@ -661,6 +657,31 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       "default"
     end
   end
+
+  defp log_invalid_service_status(metadata, service, %GRPC.RPCError{} = error) do
+    Logger.warning(
+      "Dropping invalid service status from agent #{metadata.agent_id}: #{error.status} #{error.message} " <>
+        "#{inspect(service_log_fields(service))}"
+    )
+  end
+
+  defp service_log_fields(service) do
+    %{
+      service_name: normalize_log_value(service.service_name),
+      service_type: normalize_log_value(service.service_type),
+      source: normalize_log_value(service.source),
+      available: service.available,
+      response_time: service.response_time,
+      message_bytes: message_size(service.message)
+    }
+  end
+
+  defp normalize_log_value(nil), do: nil
+  defp normalize_log_value(value) when is_binary(value), do: String.trim(value)
+  defp normalize_log_value(value), do: to_string(value)
+
+  defp message_size(value) when is_binary(value), do: byte_size(value)
+  defp message_size(_), do: 0
 
   defp normalize_partition(_partition), do: "default"
 

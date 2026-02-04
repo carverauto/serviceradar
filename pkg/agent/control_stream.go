@@ -194,6 +194,14 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 		return
 	}
 
+	p.logger.Info().
+		Str("command_id", cmd.CommandId).
+		Str("command_type", cmd.CommandType).
+		Int("payload_bytes", len(cmd.PayloadJson)).
+		Int64("ttl_seconds", cmd.TtlSeconds).
+		Int64("created_at", cmd.CreatedAt).
+		Msg("Received control command")
+
 	_ = sender.Send(&proto.ControlStreamRequest{
 		Payload: &proto.ControlStreamRequest_CommandAck{
 			CommandAck: &proto.CommandAck{
@@ -206,6 +214,10 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 	})
 
 	if commandExpired(cmd) {
+		p.logger.Warn().
+			Str("command_id", cmd.CommandId).
+			Str("command_type", cmd.CommandType).
+			Msg("Dropping expired command")
 		_ = sender.Send(commandResult(cmd, false, "command expired", nil))
 		return
 	}
@@ -264,20 +276,41 @@ func (p *PushLoop) handleSweepRun(ctx context.Context, cmd *proto.CommandRequest
 	payload := sweepRunPayload{}
 	if len(cmd.PayloadJson) > 0 {
 		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			p.logger.Warn().
+				Err(err).
+				Str("command_id", cmd.CommandId).
+				Str("command_type", cmd.CommandType).
+				Msg("Invalid sweep command payload")
 			_ = sender.Send(commandResult(cmd, false, "invalid sweep payload", nil))
 			return
 		}
 	}
 
 	if payload.SweepGroupID == "" {
+		p.logger.Warn().
+			Str("command_id", cmd.CommandId).
+			Str("command_type", cmd.CommandType).
+			Msg("Sweep command missing sweep_group_id")
 		_ = sender.Send(commandResult(cmd, false, "missing sweep_group_id", nil))
 		return
 	}
 
 	if err := p.runSweepGroup(ctx, payload.SweepGroupID); err != nil {
+		p.logger.Warn().
+			Err(err).
+			Str("command_id", cmd.CommandId).
+			Str("command_type", cmd.CommandType).
+			Str("sweep_group_id", payload.SweepGroupID).
+			Msg("Failed to run sweep group")
 		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
 		return
 	}
+
+	p.logger.Info().
+		Str("command_id", cmd.CommandId).
+		Str("command_type", cmd.CommandType).
+		Str("sweep_group_id", payload.SweepGroupID).
+		Msg("Sweep run started")
 
 	resultPayload := map[string]interface{}{
 		"sweep_group_id": payload.SweepGroupID,
@@ -295,9 +328,22 @@ func (p *PushLoop) runSweepGroup(ctx context.Context, groupID string) error {
 		if runner, ok := svc.(interface {
 			RunSweepGroup(context.Context, string) error
 		}); ok {
+			p.logger.Info().
+				Str("sweep_group_id", groupID).
+				Str("service", svc.Name()).
+				Msg("Dispatching on-demand sweep run to service")
 			return runner.RunSweepGroup(ctx, groupID)
 		}
 	}
+
+	serviceNames := make([]string, 0, len(services))
+	for _, svc := range services {
+		serviceNames = append(serviceNames, svc.Name())
+	}
+	p.logger.Warn().
+		Str("sweep_group_id", groupID).
+		Strs("services", serviceNames).
+		Msg("No sweep runner available for on-demand sweep")
 
 	return errSweepRunnerUnavailable
 }
