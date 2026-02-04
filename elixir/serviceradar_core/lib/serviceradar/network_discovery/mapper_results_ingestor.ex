@@ -557,19 +557,23 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp record_job_runs(updates, opts) do
     job_counts = extract_job_counts(updates)
 
-    if job_counts == %{} do
-      :ok
-    else
-      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-      actor = SystemActor.system(:mapper_job_status)
-      status = Keyword.get(opts, :status, :success)
-      error = Keyword.get(opts, :error)
-      include_counts = Keyword.get(opts, :include_interface_counts, false)
+    case map_size(job_counts) do
+      0 ->
+        :ok
 
-      Enum.each(job_counts, fn {job_id, count} ->
-        interface_count = if include_counts, do: count, else: :skip
-        record_job_run(job_id, now, status, interface_count, error, actor)
-      end)
+      _ ->
+        run_context = build_run_context(opts)
+
+        Enum.each(job_counts, fn {job_id, count} ->
+          record_job_run(
+            job_id,
+            run_context.now,
+            run_context.status,
+            interface_count(count, run_context.include_counts),
+            run_context.error,
+            run_context.actor
+          )
+        end)
     end
   rescue
     error ->
@@ -617,6 +621,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp format_run_error(nil), do: nil
   defp format_run_error(value) when is_binary(value), do: value
   defp format_run_error(value), do: inspect(value)
+
+  defp build_run_context(opts) do
+    %{
+      now: DateTime.utc_now() |> DateTime.truncate(:microsecond),
+      actor: SystemActor.system(:mapper_job_status),
+      status: Keyword.get(opts, :status, :success),
+      error: Keyword.get(opts, :error),
+      include_counts: Keyword.get(opts, :include_interface_counts, false)
+    }
+  end
+
+  defp interface_count(count, true), do: count
+  defp interface_count(_count, false), do: :skip
 
   defp extract_job_counts(updates) do
     updates
