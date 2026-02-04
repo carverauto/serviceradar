@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  use ServiceRadarWebNG.AshTestHelpers
+
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.SNMPProfiles.SNMPProfile
@@ -31,6 +33,27 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
              lv,
              "input[name='form[community]'][placeholder='Leave blank to keep existing']"
            )
+  end
+
+  test "renders target counts for SNMP profiles", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+    device_fixture(%{hostname: "target#{unique}"})
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Profile #{unique}",
+        poll_interval: 60,
+        timeout: 5,
+        retries: 3,
+        enabled: true,
+        target_query: "in:devices hostname:target#{unique}"
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp")
+
+    assert has_element?(lv, "#snmp-profile-#{profile.id}-targets", "1 target")
   end
 
   defp register_and_log_in_admin_user(%{conn: conn}) do

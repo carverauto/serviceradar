@@ -157,7 +157,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     profile_targets = load_profile_targets(profile, actor)
 
     # 2. Execute target_query to find matching devices
-    devices = execute_target_query(profile.target_query, actor)
+    target_query = normalize_target_query(profile.target_query, profile.is_default)
+    devices = execute_target_query(target_query, actor)
 
     # 3. Load OIDs from profile's templates
     oids = load_template_oids(profile.oid_template_ids, actor)
@@ -223,6 +224,36 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       _ -> "devices"
     end
   end
+
+  defp normalize_target_query(target_query, is_default) do
+    cond do
+      target_query in [nil, ""] and is_default ->
+        "in:devices"
+
+      target_query in [nil, ""] ->
+        nil
+
+      true ->
+        normalize_target_query(target_query)
+    end
+  end
+
+  defp normalize_target_query(query) when is_binary(query) do
+    query = String.trim(query)
+
+    cond do
+      query == "" ->
+        "in:devices"
+
+      String.starts_with?(query, "in:") ->
+        query
+
+      true ->
+        "in:devices " <> query
+    end
+  end
+
+  defp normalize_target_query(_), do: nil
 
   # Execute query based on entity type
   defp execute_parsed_query("interfaces", ast, actor) do

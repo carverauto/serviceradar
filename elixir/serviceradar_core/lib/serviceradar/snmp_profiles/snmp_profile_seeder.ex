@@ -47,7 +47,8 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileSeeder do
       {:ok, nil} ->
         create_default_profile(opts)
 
-      {:ok, _profile} ->
+      {:ok, profile} ->
+        maybe_update_default_target_query(profile, opts)
         Logger.debug("Default SNMP profile already exists")
         :ok
 
@@ -79,8 +80,31 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileSeeder do
       poll_interval: 60,
       timeout: 5,
       retries: 3,
+      target_query: "in:devices",
       is_default: true,
       enabled: true
     }
+  end
+
+  defp maybe_update_default_target_query(profile, opts) do
+    if profile.target_query in [nil, ""] do
+      changeset =
+        Ash.Changeset.for_update(profile, :update, %{target_query: "in:devices"}, opts)
+
+      case Ash.update(changeset, opts) do
+        {:ok, _profile} ->
+          Logger.info("Updated default SNMP profile target_query to in:devices")
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "Failed to update default SNMP profile target_query: #{inspect(reason)}"
+          )
+
+          :ok
+      end
+    else
+      :ok
+    end
   end
 end
