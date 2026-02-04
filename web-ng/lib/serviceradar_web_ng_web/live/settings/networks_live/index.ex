@@ -982,11 +982,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
                 <%= case @active_tab do %>
                   <% :groups -> %>
-                  <.sweep_groups_panel
-                    groups={@sweep_groups}
-                    sweep_command_statuses={@sweep_command_statuses}
-                    can_manage_networks={@can_manage_networks}
-                  />
+                    <.sweep_groups_panel
+                      groups={@sweep_groups}
+                      sweep_command_statuses={@sweep_command_statuses}
+                      can_manage_networks={@can_manage_networks}
+                    />
                   <% :profiles -> %>
                     <.profiles_panel profiles={@sweep_profiles} />
                   <% :active_scans -> %>
