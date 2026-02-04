@@ -14,7 +14,7 @@ else
 
     alias ServiceRadarWebNGWeb.Dashboard.Plugins.Topology
 
-    @graph_name "serviceradar"
+    @graph_name "platform_graph"
 
     defmodule PostgrexHelpers do
       @moduledoc false

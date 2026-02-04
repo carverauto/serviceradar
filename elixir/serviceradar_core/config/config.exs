@@ -116,6 +116,9 @@ config :serviceradar_core, :plugin_storage,
 config :serviceradar_core,
   run_startup_migrations: false
 
+config :serviceradar_core,
+  age_graph_name: "platform_graph"
+
 # Sweep SRQL paging configuration
 config :serviceradar_core,
   sweep_srql_page_limit: 500

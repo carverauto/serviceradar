@@ -10,13 +10,15 @@ use diesel::sql_types::{Jsonb, Nullable};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
-const GRAPH_NAME: &str = "serviceradar";
-
-pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
+pub(super) async fn execute(
+    conn: &mut AsyncPgConnection,
+    plan: &QueryPlan,
+    graph_name: &str,
+) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
     let cypher = extract_cypher(plan)?;
 
-    let sql = build_sql(&cypher);
+    let sql = build_sql(&cypher, graph_name);
     let mut query = sql_query(rewrite_placeholders(&sql)).into_boxed::<Pg>();
     query = query.bind::<diesel::sql_types::Int8, _>(plan.limit);
     query = query.bind::<diesel::sql_types::Int8, _>(plan.offset);
@@ -29,12 +31,15 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     Ok(rows.into_iter().filter_map(|row| row.result).collect())
 }
 
-pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+pub(super) fn to_sql_and_params(
+    plan: &QueryPlan,
+    graph_name: &str,
+) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
     let cypher = extract_cypher(plan)?;
 
     Ok((
-        rewrite_placeholders(&build_sql(&cypher)),
+        rewrite_placeholders(&build_sql(&cypher, graph_name)),
         vec![BindParam::Int(plan.limit), BindParam::Int(plan.offset)],
     ))
 }
@@ -48,11 +53,12 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     }
 }
 
-fn build_sql(cypher: &str) -> String {
+fn build_sql(cypher: &str, graph_name: &str) -> String {
     let cypher = dollar_quote(cypher);
+    let graph_name = graph_name.replace('\'', "''");
 
     format!(
-        "WITH _config AS (\n  SELECT set_config('search_path', 'ag_catalog,pg_catalog,\"$user\",public', false)\n),\n_rows AS (\n  SELECT (result::text)::jsonb AS r\n  FROM ag_catalog.cypher('{GRAPH_NAME}', {cypher}) AS (result ag_catalog.agtype)\n  LIMIT ? OFFSET ?\n)\nSELECT\n  CASE\n    WHEN jsonb_typeof(r) = 'object' AND (jsonb_exists(r, 'nodes') OR jsonb_exists(r, 'vertices')) AND jsonb_exists(r, 'edges') THEN r\n    WHEN jsonb_typeof(r) = 'object' AND (jsonb_exists(r, 'start_id') OR jsonb_exists(r, 'end_id')) THEN jsonb_build_object(\n      'nodes', jsonb_build_array(\n        jsonb_build_object('id', r->>'start_id', 'label', r->>'start_id'),\n        jsonb_build_object('id', r->>'end_id', 'label', r->>'end_id')\n      ),\n      'edges', jsonb_build_array(r)\n    )\n    WHEN jsonb_typeof(r) = 'object' AND jsonb_exists(r, 'id') THEN jsonb_build_object('nodes', jsonb_build_array(r), 'edges', '[]'::jsonb)\n    ELSE jsonb_build_object('nodes', '[]'::jsonb, 'edges', '[]'::jsonb, 'rows', jsonb_build_array(r))\n  END AS result\nFROM _rows"
+        "WITH _config AS (\n  SELECT set_config('search_path', 'ag_catalog,pg_catalog,\"$user\",public', false)\n),\n_rows AS (\n  SELECT (result::text)::jsonb AS r\n  FROM ag_catalog.cypher('{graph_name}', {cypher}) AS (result ag_catalog.agtype)\n  LIMIT ? OFFSET ?\n)\nSELECT\n  CASE\n    WHEN jsonb_typeof(r) = 'object' AND (jsonb_exists(r, 'nodes') OR jsonb_exists(r, 'vertices')) AND jsonb_exists(r, 'edges') THEN r\n    WHEN jsonb_typeof(r) = 'object' AND (jsonb_exists(r, 'start_id') OR jsonb_exists(r, 'end_id')) THEN jsonb_build_object(\n      'nodes', jsonb_build_array(\n        jsonb_build_object('id', r->>'start_id', 'label', r->>'start_id'),\n        jsonb_build_object('id', r->>'end_id', 'label', r->>'end_id')\n      ),\n      'edges', jsonb_build_array(r)\n    )\n    WHEN jsonb_typeof(r) = 'object' AND jsonb_exists(r, 'id') THEN jsonb_build_object('nodes', jsonb_build_array(r), 'edges', '[]'::jsonb)\n    ELSE jsonb_build_object('nodes', '[]'::jsonb, 'edges', '[]'::jsonb, 'rows', jsonb_build_array(r))\n  END AS result\nFROM _rows"
     )
 }
 
