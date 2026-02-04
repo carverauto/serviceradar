@@ -41,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     scope = socket.assigns.current_scope
     cleanup_settings = load_or_create_cleanup_settings(scope)
     cleanup_form = build_cleanup_form(scope, cleanup_settings)
+    can_manage_networks = can_manage_networks?(scope)
 
     if connected?(socket) do
       # Subscribe to sweep updates for this instance
@@ -74,6 +75,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:show_mapper_form, nil)
       |> assign(:mapper_jobs, load_mapper_jobs(scope))
       |> assign(:agents, load_agents(scope))
+      |> assign(:can_manage_networks, can_manage_networks)
       |> assign(:mapper_job, nil)
       |> assign(:mapper_form, nil)
       |> assign(:mapper_seeds_text, "")
@@ -326,29 +328,34 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("run_sweep_group", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
+    can_manage = can_manage_networks?(scope)
 
-    case load_sweep_group(scope, id) do
-      nil ->
-        {:noreply, put_flash(socket, :error, "Sweep group not found")}
+    if not can_manage do
+      {:noreply, put_flash(socket, :error, "You are not authorized to run sweep groups")}
+    else
+      case load_sweep_group(scope, id) do
+        nil ->
+          {:noreply, put_flash(socket, :error, "Sweep group not found")}
 
-      group ->
-        case Ash.update(group, %{}, action: :run_now, scope: scope) do
-          {:ok, _updated} ->
-            statuses =
-              socket.assigns.sweep_command_statuses
-              |> mark_command_sent(group.id, "Sweep command queued")
+        group ->
+          case Ash.update(group, %{}, action: :run_now, scope: scope) do
+            {:ok, _updated} ->
+              statuses =
+                socket.assigns.sweep_command_statuses
+                |> mark_command_sent(group.id, "Sweep command queued")
 
-            {:noreply,
-             socket
-             |> assign(:sweep_groups, load_sweep_groups(scope))
-             |> assign(:sweep_command_statuses, statuses)
-             |> put_flash(:info, "Sweep group queued to run now")}
+              {:noreply,
+               socket
+               |> assign(:sweep_groups, load_sweep_groups(scope))
+               |> assign(:sweep_command_statuses, statuses)
+               |> put_flash(:info, "Sweep group queued to run now")}
 
-          {:error, reason} ->
-            {:noreply,
-             socket
-             |> put_flash(:error, "Failed to run sweep group: #{format_error(reason)}")}
-        end
+            {:error, reason} ->
+              {:noreply,
+               socket
+               |> put_flash(:error, "Failed to run sweep group: #{format_error(reason)}")}
+          end
+      end
     end
   end
 
@@ -393,26 +400,31 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("run_mapper_job", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
+    can_manage = can_manage_networks?(scope)
 
-    with {:ok, job} <- fetch_mapper_job(scope, id),
-         {:ok, _updated} <- Ash.update(job, %{}, action: :run_now, scope: scope) do
-      statuses =
-        socket.assigns.mapper_command_statuses
-        |> mark_command_sent(job.id, "Discovery command queued")
-
-      {:noreply,
-       socket
-       |> assign(:mapper_jobs, load_mapper_jobs(scope))
-       |> assign(:mapper_command_statuses, statuses)
-       |> put_flash(:info, "Discovery job queued to run now")}
+    if not can_manage do
+      {:noreply, put_flash(socket, :error, "You are not authorized to run discovery jobs")}
     else
-      {:error, :not_found} ->
-        {:noreply, put_flash(socket, :error, "Discovery job not found")}
+      with {:ok, job} <- fetch_mapper_job(scope, id),
+           {:ok, _updated} <- Ash.update(job, %{}, action: :run_now, scope: scope) do
+        statuses =
+          socket.assigns.mapper_command_statuses
+          |> mark_command_sent(job.id, "Discovery command queued")
 
-      {:error, reason} ->
         {:noreply,
          socket
-         |> put_flash(:error, "Failed to run discovery job: #{format_error(reason)}")}
+         |> assign(:mapper_jobs, load_mapper_jobs(scope))
+         |> assign(:mapper_command_statuses, statuses)
+         |> put_flash(:info, "Discovery job queued to run now")}
+      else
+        {:error, :not_found} ->
+          {:noreply, put_flash(socket, :error, "Discovery job not found")}
+
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Failed to run discovery job: #{format_error(reason)}")}
+      end
     end
   end
 
@@ -945,6 +957,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             unifi_form={@mapper_unifi_form}
             unifi_present={@mapper_unifi_present}
             mapper_command_statuses={@mapper_command_statuses}
+            can_manage_networks={@can_manage_networks}
           />
         <% else %>
           <%= if @show_form in [:new_group, :edit_group] do %>
@@ -977,6 +990,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                   <.sweep_groups_panel
                     groups={@sweep_groups}
                     sweep_command_statuses={@sweep_command_statuses}
+                    can_manage_networks={@can_manage_networks}
                   />
                   <% :profiles -> %>
                     <.profiles_panel profiles={@sweep_profiles} />
@@ -1059,6 +1073,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :unifi_form, :any, default: nil
   attr :unifi_present, :boolean, default: false
   attr :mapper_command_statuses, :map, default: %{}
+  attr :can_manage_networks, :boolean, default: false
 
   defp discovery_panel(assigns) do
     ~H"""
@@ -1168,6 +1183,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                   <td>
                     <div class="flex items-center gap-1">
                       <.ui_button
+                        :if={@can_manage_networks}
                         id={"run-mapper-job-#{job.id}"}
                         variant="ghost"
                         size="xs"
@@ -1329,6 +1345,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   # Sweep Groups Panel
   attr :groups, :list, required: true
   attr :sweep_command_statuses, :map, default: %{}
+  attr :can_manage_networks, :boolean, default: false
 
   defp sweep_groups_panel(assigns) do
     ~H"""
@@ -1417,6 +1434,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                 <td>
                   <div class="flex items-center gap-1">
                     <.ui_button
+                      :if={@can_manage_networks}
                       id={"run-sweep-group-#{group.id}"}
                       variant="ghost"
                       size="xs"
@@ -2823,19 +2841,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp load_agents(scope) do
     require Logger
 
-    # Agent data is infrastructure info visible to any authenticated user
-    result = Ash.read(Agent, domain: ServiceRadar.Infrastructure, scope: scope)
+    if not can_manage_networks?(scope) do
+      []
+    else
+      result = Ash.read(Agent, domain: ServiceRadar.Infrastructure, scope: scope)
 
-    case result do
-      {:ok, agents} ->
-        Logger.debug("load_agents: loaded #{length(agents)} agents")
-        agents
+      case result do
+        {:ok, agents} ->
+          Logger.debug("load_agents: loaded #{length(agents)} agents")
+          agents
 
-      {:error, reason} ->
-        Logger.warning("load_agents: failed to load agents - #{inspect(reason)}")
-        []
+        {:error, reason} ->
+          Logger.warning("load_agents: failed to load agents - #{inspect(reason)}")
+          []
+      end
     end
   end
+
+  defp can_manage_networks?(%{user: %{role: role}}) do
+    role in [:admin, :operator]
+  end
+
+  defp can_manage_networks?(_), do: false
 
   defp mapper_agent_options(agents, partition, current_agent_id) do
     partition = normalize_partition(partition)
