@@ -39,6 +39,8 @@ service AgentGatewayService {
   rpc PushStatus(GatewayStatusRequest) returns (GatewayStatusResponse) {}
   // StreamStatus streams service status chunks for large payloads.
   rpc StreamStatus(stream GatewayStatusChunk) returns (GatewayStatusResponse) {}
+  // ControlStream establishes a bidirectional control channel for commands and push-config.
+  rpc ControlStream(stream ControlStreamRequest) returns (stream ControlStreamResponse) {}
 }
 
 message DeviceStatusRequest {
@@ -273,6 +275,79 @@ message AgentConfigResponse {
 
   // Wasm plugin configuration assignments
   PluginConfig plugin_config = 11;
+}
+
+// ============================================================================
+// Agent Control Stream Messages
+// ============================================================================
+
+// ControlStreamHello identifies the agent on the control stream.
+message ControlStreamHello {
+  string agent_id = 1;              // Unique agent identifier
+  string partition = 2;             // Partition/site identifier
+  repeated string capabilities = 3; // Agent capabilities (e.g., ["mapper", "sweep"])
+  string config_version = 4;        // Current config version hash
+}
+
+// CommandRequest represents a command sent to the agent.
+message CommandRequest {
+  string command_id = 1;       // Unique command identifier (UUID)
+  string command_type = 2;     // Command type (e.g., "mapper.run_job")
+  bytes payload_json = 3;      // Command payload as JSON
+  int64 ttl_seconds = 4;       // Time-to-live in seconds
+  int64 created_at = 5;        // Command creation time (unix seconds)
+}
+
+// CommandAck acknowledges receipt of a command.
+message CommandAck {
+  string command_id = 1;       // Command identifier
+  string command_type = 2;     // Command type
+  int64 timestamp = 3;         // Ack time (unix seconds)
+  string message = 4;          // Optional message
+}
+
+// CommandProgress reports intermediate progress for a command.
+message CommandProgress {
+  string command_id = 1;       // Command identifier
+  string command_type = 2;     // Command type
+  int32 progress_percent = 3;  // Progress percentage (0-100)
+  string message = 4;          // Optional progress message
+  int64 timestamp = 5;         // Progress time (unix seconds)
+}
+
+// CommandResult reports completion for a command.
+message CommandResult {
+  string command_id = 1;       // Command identifier
+  string command_type = 2;     // Command type
+  bool success = 3;            // Whether the command succeeded
+  string message = 4;          // Result message or error
+  bytes payload_json = 5;      // Optional result payload as JSON
+  int64 timestamp = 6;         // Completion time (unix seconds)
+}
+
+// ConfigAck acknowledges a pushed config.
+message ConfigAck {
+  string config_version = 1;   // Applied config version
+  int64 timestamp = 2;         // Ack time (unix seconds)
+}
+
+// ControlStreamRequest carries agent → gateway control messages.
+message ControlStreamRequest {
+  oneof payload {
+    ControlStreamHello hello = 1;
+    CommandAck command_ack = 2;
+    CommandProgress command_progress = 3;
+    CommandResult command_result = 4;
+    ConfigAck config_ack = 5;
+  }
+}
+
+// ControlStreamResponse carries gateway → agent control messages.
+message ControlStreamResponse {
+  oneof payload {
+    CommandRequest command = 1;
+    AgentConfigResponse config = 2;
+  }
 }
 
 // PluginConfig defines plugin assignments for the agent.

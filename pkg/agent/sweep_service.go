@@ -97,6 +97,16 @@ func (s *SweepService) Stop(_ context.Context) error {
 	return nil
 }
 
+// RunOnce triggers a single sweep outside the scheduled interval.
+func (s *SweepService) RunOnce(ctx context.Context) error {
+	runner, ok := s.sweeper.(interface{ RunOnce(context.Context) error })
+	if !ok {
+		return errSweepRunnerUnavailable
+	}
+
+	return runner.RunOnce(ctx)
+}
+
 // Name returns the service name.
 func (*SweepService) Name() string {
 	return networkSweepServiceName

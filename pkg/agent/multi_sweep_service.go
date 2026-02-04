@@ -130,6 +130,23 @@ func (s *MultiSweepService) Stop(_ context.Context) error {
 	return nil
 }
 
+// RunSweepGroup triggers a single sweep for the specified group.
+func (s *MultiSweepService) RunSweepGroup(ctx context.Context, groupID string) error {
+	if groupID == "" {
+		return errSweepGroupIDRequired
+	}
+
+	s.mu.RLock()
+	svc := s.groups[groupID]
+	s.mu.RUnlock()
+
+	if svc == nil {
+		return errSweepGroupNotFound
+	}
+
+	return svc.RunOnce(ctx)
+}
+
 // UpdateConfig updates the sweep config, treating it as a single group.
 func (s *MultiSweepService) UpdateConfig(config *models.Config) error {
 	if config == nil {
@@ -285,7 +302,14 @@ func (s *MultiSweepService) GetSweepResults(ctx context.Context, _ string) (*pro
 	s.mu.RUnlock()
 
 	if len(groupOrder) == 0 {
-		return nil, nil
+		return &proto.ResultsResponse{
+			HasNewData:      false,
+			CurrentSequence: s.aggregateSequence(),
+			ServiceName:     networkSweepServiceName,
+			ServiceType:     "sweep",
+			Available:       false,
+			Timestamp:       time.Now().Unix(),
+		}, nil
 	}
 
 	for i := 0; i < len(groupOrder); i++ {
@@ -350,7 +374,19 @@ func (s *MultiSweepService) GetStatus(ctx context.Context) (*proto.StatusRespons
 	s.mu.RUnlock()
 
 	if len(groupOrder) == 0 {
-		return nil, nil
+		payload, _ := json.Marshal(map[string]string{
+			"reason": "no_sweep_groups_configured",
+		})
+
+		s.logger.Warn().Msg("No sweep groups configured; reporting sweep status as unavailable")
+
+		return &proto.StatusResponse{
+			Available:    false,
+			Message:      payload,
+			ServiceName:  networkSweepServiceName,
+			ServiceType:  "sweep",
+			ResponseTime: 0,
+		}, nil
 	}
 
 	var bestStatus *proto.StatusResponse
@@ -372,6 +408,22 @@ func (s *MultiSweepService) GetStatus(ctx context.Context) (*proto.StatusRespons
 			bestStatus = status
 			bestLastSweep = lastSweep
 		}
+	}
+
+	if bestStatus == nil {
+		payload, _ := json.Marshal(map[string]string{
+			"reason": "no_sweep_status_available",
+		})
+
+		s.logger.Warn().Msg("Sweep status unavailable for all sweep groups")
+
+		return &proto.StatusResponse{
+			Available:    false,
+			Message:      payload,
+			ServiceName:  networkSweepServiceName,
+			ServiceType:  "sweep",
+			ResponseTime: 0,
+		}, nil
 	}
 
 	return bestStatus, nil

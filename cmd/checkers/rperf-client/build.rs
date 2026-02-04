@@ -68,6 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .build_client(false)
         .file_descriptor_set_path(&monitoring_descriptor_path)
+        .type_attribute(".", "#[allow(clippy::large_enum_variant)]")
         .compile(&["src/proto/monitoring.proto"], &["src/proto"])?;
 
     println!("cargo:rerun-if-changed=src/proto/rperf.proto");

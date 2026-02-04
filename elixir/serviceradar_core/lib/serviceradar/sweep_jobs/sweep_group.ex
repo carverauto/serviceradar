@@ -112,6 +112,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       change set_attribute(:last_run_at, &DateTime.utc_now/0)
     end
 
+    update :run_now do
+      description "Trigger an on-demand sweep run"
+      require_atomic? false
+      accept []
+      change ServiceRadar.SweepJobs.Changes.DispatchSweepRun
+    end
+
     update :add_targets do
       description "Add IP addresses/CIDRs to static_targets"
       require_atomic? false

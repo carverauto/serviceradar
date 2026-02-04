@@ -482,3 +482,24 @@ func (g *GatewayClient) GetConfig(ctx context.Context, req *proto.AgentConfigReq
 
 	return resp, nil
 }
+
+// ControlStream opens the bidirectional control stream for commands and push-config.
+func (g *GatewayClient) ControlStream(ctx context.Context) (grpc.BidiStreamingClient[proto.ControlStreamRequest, proto.ControlStreamResponse], error) {
+	g.mu.RLock()
+	client := g.client
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	stream, err := client.ControlStream(ctx)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to open control stream to gateway")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to open control stream: %w", err)
+	}
+
+	return stream, nil
+}

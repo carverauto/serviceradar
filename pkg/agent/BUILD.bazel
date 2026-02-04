@@ -4,6 +4,7 @@ go_library(
     name = "agent",
     srcs = [
         "errors.go",
+        "control_stream.go",
         "icmp_checker.go",
         "interfaces.go",
         "ipv4_sorter.go",
@@ -48,6 +49,7 @@ go_library(
         "@com_github_tetratelabs_wazero//imports/wasi_snapshot_preview1",
         "@com_github_tetratelabs_wazero//sys",
         "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//status",
         "@org_uber_go_mock//gomock",
     ],

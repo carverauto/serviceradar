@@ -20,19 +20,30 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          records <- build_interface_records(updates),
          resolved_records <- resolve_device_ids(records),
          classified_records <- InterfaceClassifier.classify_interfaces(resolved_records, actor) do
-      record_job_runs(updates)
-
       if classified_records == [] do
         Logger.debug("No interfaces to ingest after device ID resolution")
+        record_job_runs(updates,
+          status: :error,
+          include_interface_counts: true,
+          error: "no interfaces discovered"
+        )
+
         :ok
       else
         case insert_bulk(classified_records, Interface, actor, "interfaces") do
           :ok ->
             TopologyGraph.upsert_interfaces(classified_records)
             register_interface_identifiers(classified_records, actor)
+            record_job_runs(updates, status: :success, include_interface_counts: true)
             :ok
 
           {:error, reason} ->
+            record_job_runs(updates,
+              status: :error,
+              include_interface_counts: true,
+              error: reason
+            )
+
             {:error, reason}
         end
       end
@@ -50,7 +61,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     with {:ok, updates} <- decode_payload(message),
          records <- build_topology_records(updates),
          resolved_records <- resolve_topology_device_ids(records) do
-      record_job_runs(updates)
+      record_job_runs(updates, status: :success)
 
       if resolved_records == [] do
         Logger.debug("No topology links to ingest after device ID resolution")
@@ -75,7 +86,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   def record_runs_from_payload(message) do
     case decode_payload(message) do
       {:ok, updates} ->
-        record_job_runs(updates)
+        record_job_runs(updates, status: :success)
 
       {:error, reason} ->
         Logger.debug("Mapper job run decode failed: #{inspect(reason)}")
@@ -543,16 +554,26 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp record_job_runs(updates) do
-    job_ids = extract_job_ids(updates)
+  defp record_job_runs(updates, opts) do
+    job_counts = extract_job_counts(updates)
 
-    if job_ids == [] do
-      :ok
-    else
-      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-      actor = SystemActor.system(:mapper_job_status)
+    case map_size(job_counts) do
+      0 ->
+        :ok
 
-      Enum.each(job_ids, &record_job_run(&1, now, actor))
+      _ ->
+        run_context = build_run_context(opts)
+
+        Enum.each(job_counts, fn {job_id, count} ->
+          record_job_run(
+            job_id,
+            run_context.now,
+            run_context.status,
+            interface_count(count, run_context.include_counts),
+            run_context.error,
+            run_context.actor
+          )
+        end)
     end
   rescue
     error ->
@@ -560,11 +581,29 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       :ok
   end
 
-  defp record_job_run(job_id, now, actor) do
+  defp record_job_run(job_id, now, status, interface_count, error, actor) do
     case Ash.get(MapperJob, job_id, actor: actor) do
       {:ok, job} ->
+        attrs = %{
+          last_run_at: now,
+          last_run_status: status
+        }
+
+        attrs =
+          case interface_count do
+            :skip -> attrs
+            value -> Map.put(attrs, :last_run_interface_count, value)
+          end
+
+        attrs =
+          if status == :error do
+            Map.put(attrs, :last_run_error, format_run_error(error))
+          else
+            Map.put(attrs, :last_run_error, nil)
+          end
+
         job
-        |> Ash.Changeset.for_update(:record_run, %{last_run_at: now})
+        |> Ash.Changeset.for_update(:record_run, attrs)
         |> Ash.update(actor: actor)
         |> case do
           {:ok, _} ->
@@ -579,17 +618,33 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp extract_job_ids(updates) do
+  defp format_run_error(nil), do: nil
+  defp format_run_error(value) when is_binary(value), do: value
+  defp format_run_error(value), do: inspect(value)
+
+  defp build_run_context(opts) do
+    %{
+      now: DateTime.utc_now() |> DateTime.truncate(:microsecond),
+      actor: SystemActor.system(:mapper_job_status),
+      status: Keyword.get(opts, :status, :success),
+      error: Keyword.get(opts, :error),
+      include_counts: Keyword.get(opts, :include_interface_counts, false)
+    }
+  end
+
+  defp interface_count(count, true), do: count
+  defp interface_count(_count, false), do: :skip
+
+  defp extract_job_counts(updates) do
     updates
-    |> Enum.reduce(MapSet.new(), fn update, acc ->
+    |> Enum.reduce(%{}, fn update, acc ->
       meta = get_map(update, ["metadata", :metadata])
 
       case get_string(meta, ["mapper_job_id", :mapper_job_id]) do
         nil -> acc
-        job_id -> MapSet.put(acc, job_id)
+        job_id -> Map.update(acc, job_id, 1, &(&1 + 1))
       end
     end)
-    |> MapSet.to_list()
   end
 
   defp get_value(update, keys) do

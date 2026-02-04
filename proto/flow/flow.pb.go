@@ -231,8 +231,10 @@ type FlowMessage struct {
 	LayerSize                  []uint32                 `protobuf:"varint,104,rep,packed,name=layer_size,json=layerSize,proto3" json:"layer_size,omitempty"`
 	Ipv6RoutingHeaderAddresses [][]byte                 `protobuf:"bytes,105,rep,name=ipv6_routing_header_addresses,json=ipv6RoutingHeaderAddresses,proto3" json:"ipv6_routing_header_addresses,omitempty"` // SRv6
 	Ipv6RoutingHeaderSegLeft   uint32                   `protobuf:"varint,106,opt,name=ipv6_routing_header_seg_left,json=ipv6RoutingHeaderSegLeft,proto3" json:"ipv6_routing_header_seg_left,omitempty"`    // SRv6
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// Human-readable protocol name (e.g., "TCP", "UDP", "ICMP")
+	ProtocolName  string `protobuf:"bytes,107,opt,name=protocol_name,json=protocolName,proto3" json:"protocol_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FlowMessage) Reset() {
@@ -615,11 +617,18 @@ func (x *FlowMessage) GetIpv6RoutingHeaderSegLeft() uint32 {
 	return 0
 }
 
+func (x *FlowMessage) GetProtocolName() string {
+	if x != nil {
+		return x.ProtocolName
+	}
+	return ""
+}
+
 var File_flow_flow_proto protoreflect.FileDescriptor
 
 const file_flow_flow_proto_rawDesc = "" +
 	"\n" +
-	"\x0fflow/flow.proto\x12\x06flowpb\"\x9e\x0f\n" +
+	"\x0fflow/flow.proto\x12\x06flowpb\"\xc3\x0f\n" +
 	"\vFlowMessage\x120\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x1c.flowpb.FlowMessage.FlowTypeR\x04type\x12(\n" +
 	"\x10time_received_ns\x18n \x01(\x04R\x0etimeReceivedNs\x12!\n" +
@@ -676,7 +685,8 @@ const file_flow_flow_proto_rawDesc = "" +
 	"\n" +
 	"layer_size\x18h \x03(\rR\tlayerSize\x12A\n" +
 	"\x1dipv6_routing_header_addresses\x18i \x03(\fR\x1aipv6RoutingHeaderAddresses\x12>\n" +
-	"\x1cipv6_routing_header_seg_left\x18j \x01(\rR\x18ipv6RoutingHeaderSegLeft\"S\n" +
+	"\x1cipv6_routing_header_seg_left\x18j \x01(\rR\x18ipv6RoutingHeaderSegLeft\x12#\n" +
+	"\rprotocol_name\x18k \x01(\tR\fprotocolName\"S\n" +
 	"\bFlowType\x12\x0f\n" +
 	"\vFLOWUNKNOWN\x10\x00\x12\v\n" +
 	"\aSFLOW_5\x10\x01\x12\x0e\n" +

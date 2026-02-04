@@ -8,6 +8,7 @@ elixir/datasvc/deps
 elixir/serviceradar_core/deps
 elixir/serviceradar_core_elx/deps
 elixir/serviceradar_poller/deps
+elixir/protobuf/deps
 node_modules
 dist
 target

@@ -216,10 +216,11 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	AgentGatewayService_Hello_FullMethodName        = "/monitoring.AgentGatewayService/Hello"
-	AgentGatewayService_GetConfig_FullMethodName    = "/monitoring.AgentGatewayService/GetConfig"
-	AgentGatewayService_PushStatus_FullMethodName   = "/monitoring.AgentGatewayService/PushStatus"
-	AgentGatewayService_StreamStatus_FullMethodName = "/monitoring.AgentGatewayService/StreamStatus"
+	AgentGatewayService_Hello_FullMethodName         = "/monitoring.AgentGatewayService/Hello"
+	AgentGatewayService_GetConfig_FullMethodName     = "/monitoring.AgentGatewayService/GetConfig"
+	AgentGatewayService_PushStatus_FullMethodName    = "/monitoring.AgentGatewayService/PushStatus"
+	AgentGatewayService_StreamStatus_FullMethodName  = "/monitoring.AgentGatewayService/StreamStatus"
+	AgentGatewayService_ControlStream_FullMethodName = "/monitoring.AgentGatewayService/ControlStream"
 )
 
 // AgentGatewayServiceClient is the client API for AgentGatewayService service.
@@ -239,6 +240,8 @@ type AgentGatewayServiceClient interface {
 	PushStatus(ctx context.Context, in *GatewayStatusRequest, opts ...grpc.CallOption) (*GatewayStatusResponse, error)
 	// StreamStatus streams service status chunks for large payloads.
 	StreamStatus(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[GatewayStatusChunk, GatewayStatusResponse], error)
+	// ControlStream establishes a bidirectional control channel for commands and push-config.
+	ControlStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ControlStreamRequest, ControlStreamResponse], error)
 }
 
 type agentGatewayServiceClient struct {
@@ -292,6 +295,19 @@ func (c *agentGatewayServiceClient) StreamStatus(ctx context.Context, opts ...gr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentGatewayService_StreamStatusClient = grpc.ClientStreamingClient[GatewayStatusChunk, GatewayStatusResponse]
 
+func (c *agentGatewayServiceClient) ControlStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ControlStreamRequest, ControlStreamResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentGatewayService_ServiceDesc.Streams[1], AgentGatewayService_ControlStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ControlStreamRequest, ControlStreamResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentGatewayService_ControlStreamClient = grpc.BidiStreamingClient[ControlStreamRequest, ControlStreamResponse]
+
 // AgentGatewayServiceServer is the server API for AgentGatewayService service.
 // All implementations must embed UnimplementedAgentGatewayServiceServer
 // for forward compatibility.
@@ -309,6 +325,8 @@ type AgentGatewayServiceServer interface {
 	PushStatus(context.Context, *GatewayStatusRequest) (*GatewayStatusResponse, error)
 	// StreamStatus streams service status chunks for large payloads.
 	StreamStatus(grpc.ClientStreamingServer[GatewayStatusChunk, GatewayStatusResponse]) error
+	// ControlStream establishes a bidirectional control channel for commands and push-config.
+	ControlStream(grpc.BidiStreamingServer[ControlStreamRequest, ControlStreamResponse]) error
 	mustEmbedUnimplementedAgentGatewayServiceServer()
 }
 
@@ -330,6 +348,9 @@ func (UnimplementedAgentGatewayServiceServer) PushStatus(context.Context, *Gatew
 }
 func (UnimplementedAgentGatewayServiceServer) StreamStatus(grpc.ClientStreamingServer[GatewayStatusChunk, GatewayStatusResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamStatus not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) ControlStream(grpc.BidiStreamingServer[ControlStreamRequest, ControlStreamResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method ControlStream not implemented")
 }
 func (UnimplementedAgentGatewayServiceServer) mustEmbedUnimplementedAgentGatewayServiceServer() {}
 func (UnimplementedAgentGatewayServiceServer) testEmbeddedByValue()                             {}
@@ -413,6 +434,13 @@ func _AgentGatewayService_StreamStatus_Handler(srv interface{}, stream grpc.Serv
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentGatewayService_StreamStatusServer = grpc.ClientStreamingServer[GatewayStatusChunk, GatewayStatusResponse]
 
+func _AgentGatewayService_ControlStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AgentGatewayServiceServer).ControlStream(&grpc.GenericServerStream[ControlStreamRequest, ControlStreamResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentGatewayService_ControlStreamServer = grpc.BidiStreamingServer[ControlStreamRequest, ControlStreamResponse]
+
 // AgentGatewayService_ServiceDesc is the grpc.ServiceDesc for AgentGatewayService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -437,6 +465,12 @@ var AgentGatewayService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "StreamStatus",
 			Handler:       _AgentGatewayService_StreamStatus_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ControlStream",
+			Handler:       _AgentGatewayService_ControlStream_Handler,
+			ServerStreams: true,
 			ClientStreams: true,
 		},
 	},
