@@ -214,7 +214,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   defp ensure_session_alive(pid, metadata, agent_id) do
-    if Process.alive?(pid) do
+    if process_alive?(pid) do
       {:ok, pid, metadata || %{}}
     else
       {:error, {:agent_offline, agent_id}}
@@ -236,7 +236,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
           capabilities: capabilities_from_metadata(metadata)
         }
       end)
-      |> Enum.filter(fn %{pid: pid} -> Process.alive?(pid) end)
+      |> Enum.filter(fn %{pid: pid} -> process_alive?(pid) end)
     else
       []
     end
@@ -254,6 +254,19 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       [] -> {:error, :agent_offline}
     end
   end
+
+  defp process_alive?(pid) when is_pid(pid) do
+    if node(pid) == node() do
+      Process.alive?(pid)
+    else
+      case :rpc.call(node(pid), Process, :alive?, [pid], 1_000) do
+        true -> true
+        _ -> false
+      end
+    end
+  end
+
+  defp process_alive?(_), do: false
 
   defp ensure_assignment(agent_id, metadata, partition, capability) do
     with :ok <- ensure_partition(agent_id, metadata, partition),

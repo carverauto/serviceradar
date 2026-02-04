@@ -5,6 +5,8 @@ defmodule ServiceRadar.NetworkDiscovery.Validations.AgentAssignment do
 
   use Ash.Resource.Validation
 
+  require Logger
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
 
@@ -47,7 +49,8 @@ defmodule ServiceRadar.NetworkDiscovery.Validations.AgentAssignment do
       {:ok, nil} ->
         {:error, field: :agent_id, message: "agent '#{agent_id}' not found"}
 
-      {:error, _reason} ->
+      {:error, reason} ->
+        Logger.error("Agent lookup failed during validation: #{inspect(reason)}")
         {:error, field: :agent_id, message: "agent lookup failed"}
     end
   end

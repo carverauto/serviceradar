@@ -328,34 +328,30 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("run_sweep_group", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
-    can_manage = can_manage_networks?(scope)
 
-    if not can_manage do
-      {:noreply, put_flash(socket, :error, "You are not authorized to run sweep groups")}
+    with :ok <- require_manage_networks(socket),
+         {:ok, group} <- fetch_sweep_group(scope, id),
+         {:ok, _updated} <- Ash.update(group, %{}, action: :run_now, scope: scope) do
+      statuses =
+        socket.assigns.sweep_command_statuses
+        |> mark_command_sent(group.id, "Sweep command queued")
+
+      {:noreply,
+       socket
+       |> assign(:sweep_groups, load_sweep_groups(scope))
+       |> assign(:sweep_command_statuses, statuses)
+       |> put_flash(:info, "Sweep group queued to run now")}
     else
-      case load_sweep_group(scope, id) do
-        nil ->
-          {:noreply, put_flash(socket, :error, "Sweep group not found")}
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You are not authorized to run sweep groups")}
 
-        group ->
-          case Ash.update(group, %{}, action: :run_now, scope: scope) do
-            {:ok, _updated} ->
-              statuses =
-                socket.assigns.sweep_command_statuses
-                |> mark_command_sent(group.id, "Sweep command queued")
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "Sweep group not found")}
 
-              {:noreply,
-               socket
-               |> assign(:sweep_groups, load_sweep_groups(scope))
-               |> assign(:sweep_command_statuses, statuses)
-               |> put_flash(:info, "Sweep group queued to run now")}
-
-            {:error, reason} ->
-              {:noreply,
-               socket
-               |> put_flash(:error, "Failed to run sweep group: #{format_error(reason)}")}
-          end
-      end
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to run sweep group: #{format_error(reason)}")}
     end
   end
 
@@ -400,31 +396,30 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("run_mapper_job", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
-    can_manage = can_manage_networks?(scope)
 
-    if not can_manage do
-      {:noreply, put_flash(socket, :error, "You are not authorized to run discovery jobs")}
+    with :ok <- require_manage_networks(socket),
+         {:ok, job} <- fetch_mapper_job(scope, id),
+         {:ok, _updated} <- Ash.update(job, %{}, action: :run_now, scope: scope) do
+      statuses =
+        socket.assigns.mapper_command_statuses
+        |> mark_command_sent(job.id, "Discovery command queued")
+
+      {:noreply,
+       socket
+       |> assign(:mapper_jobs, load_mapper_jobs(scope))
+       |> assign(:mapper_command_statuses, statuses)
+       |> put_flash(:info, "Discovery job queued to run now")}
     else
-      with {:ok, job} <- fetch_mapper_job(scope, id),
-           {:ok, _updated} <- Ash.update(job, %{}, action: :run_now, scope: scope) do
-        statuses =
-          socket.assigns.mapper_command_statuses
-          |> mark_command_sent(job.id, "Discovery command queued")
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You are not authorized to run discovery jobs")}
 
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "Discovery job not found")}
+
+      {:error, reason} ->
         {:noreply,
          socket
-         |> assign(:mapper_jobs, load_mapper_jobs(scope))
-         |> assign(:mapper_command_statuses, statuses)
-         |> put_flash(:info, "Discovery job queued to run now")}
-      else
-        {:error, :not_found} ->
-          {:noreply, put_flash(socket, :error, "Discovery job not found")}
-
-        {:error, reason} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "Failed to run discovery job: #{format_error(reason)}")}
-      end
+         |> put_flash(:error, "Failed to run discovery job: #{format_error(reason)}")}
     end
   end
 
@@ -2831,6 +2826,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
+  defp fetch_sweep_group(scope, id) do
+    case load_sweep_group(scope, id) do
+      nil -> {:error, :not_found}
+      group -> {:ok, group}
+    end
+  end
+
   defp load_sweep_profiles(scope) do
     case Ash.read(SweepProfile, scope: scope) do
       {:ok, profiles} -> profiles
@@ -2841,20 +2843,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp load_agents(scope) do
     require Logger
 
-    if not can_manage_networks?(scope) do
-      []
-    else
-      result = Ash.read(Agent, domain: ServiceRadar.Infrastructure, scope: scope)
+    case can_manage_networks?(scope) do
+      false ->
+        []
 
-      case result do
-        {:ok, agents} ->
-          Logger.debug("load_agents: loaded #{length(agents)} agents")
-          agents
+      true ->
+        result = Ash.read(Agent, domain: ServiceRadar.Infrastructure, scope: scope)
 
-        {:error, reason} ->
-          Logger.warning("load_agents: failed to load agents - #{inspect(reason)}")
-          []
-      end
+        case result do
+          {:ok, agents} ->
+            Logger.debug("load_agents: loaded #{length(agents)} agents")
+            agents
+
+          {:error, reason} ->
+            Logger.warning("load_agents: failed to load agents - #{inspect(reason)}")
+            []
+        end
     end
   end
 
@@ -2863,6 +2867,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp can_manage_networks?(_), do: false
+
+  defp require_manage_networks(socket) do
+    if can_manage_networks?(socket.assigns.current_scope) do
+      :ok
+    else
+      {:error, :unauthorized}
+    end
+  end
 
   defp mapper_agent_options(agents, partition, current_agent_id) do
     partition = normalize_partition(partition)
@@ -2882,6 +2894,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp agent_supports_mapper?(agent) do
     (agent.capabilities || [])
+    |> Enum.filter(&(is_binary(&1) || is_atom(&1)))
     |> Enum.map(&to_string/1)
     |> Enum.any?(&(&1 == "mapper"))
   end
