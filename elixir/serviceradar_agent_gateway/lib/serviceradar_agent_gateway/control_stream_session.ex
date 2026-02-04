@@ -32,7 +32,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     GenServer.cast(pid, {:message, message})
   end
 
-  def send_command(pid, %Monitoring.CommandRequest{} = command, context \ %{}) do
+  def send_command(pid, %Monitoring.CommandRequest{} = command, context \\ %{}) do
     GenServer.call(pid, {:send_command, command, context})
   end
 
