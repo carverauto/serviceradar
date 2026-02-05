@@ -265,11 +265,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         |> put_flash(:error, "A device with this IP address already exists.")}
 
       {:error, :invalid_uid} ->
-        Logger.error("Device create failed: generated UID was invalid", device_params: params)
+        Logger.error("Device create failed: generated UID was invalid for #{inspect(params)}")
         {:noreply, put_flash(socket, :error, "Failed to create device: invalid device UID")}
 
       {:error, :missing_scope} ->
-        Logger.error("Device create failed: missing scope", device_params: params)
+        Logger.error("Device create failed: missing scope for #{inspect(params)}")
         {:noreply, put_flash(socket, :error, "Failed to create device: missing user scope")}
 
       {:error, reason} ->
@@ -472,7 +472,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
              |> push_patch(to: path)}
 
           {:error, reason} ->
-            Logger.error("Bulk device delete failed: #{inspect(reason)}", device_uids: uids)
+            Logger.error("Bulk device delete failed for #{inspect(uids)}: #{inspect(reason)}")
             {:noreply,
              socket
              |> assign(:show_bulk_delete_modal, false)
@@ -2626,15 +2626,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     if is_nil(scope) do
       {:error, :missing_scope}
     else
-    # Build device data from form params
-    device_data = %{
-      hostname: params["hostname"],
-      ip: params["ip"],
-      type: params["type"],
-      tags: parse_form_tags(params["tags"])
-    }
+      # Build device data from form params
+      device_data = %{
+        hostname: params["hostname"],
+        ip: params["ip"],
+        type: params["type"],
+        tags: parse_form_tags(params["tags"])
+      }
 
-    create_single_device(device_data, scope)
+      create_single_device(device_data, scope)
     end
   end
 
@@ -2643,24 +2643,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     uid = generate_device_uid(device_data.ip)
 
     if is_nil(uid) or uid == "" do
-      Logger.error("Device create failed: generated UID is empty", device_data: device_data)
+      Logger.error("Device create failed: generated UID is empty for #{inspect(device_data)}")
       {:error, :invalid_uid}
     else
-    # First check if device already exists
-    case Device.get_by_uid(uid, false, scope: scope) do
-      {:ok, nil} ->
-        # Treat nil as not found to avoid false positives
-        create_new_device(uid, device_data, scope)
+      # First check if device already exists
+      case Device.get_by_uid(uid, false, scope: scope) do
+        {:ok, nil} ->
+          # Treat nil as not found to avoid false positives
+          create_new_device(uid, device_data, scope)
 
-      {:ok, _existing} ->
-        {:error, :already_exists}
+        {:ok, _existing} ->
+          {:error, :already_exists}
 
-      {:error, %Ash.Error.Query.NotFound{}} ->
-        create_new_device(uid, device_data, scope)
+        {:error, %Ash.Error.Query.NotFound{}} ->
+          create_new_device(uid, device_data, scope)
 
-      {:error, _} = error ->
-        error
-    end
+        {:error, _} = error ->
+          error
+      end
     end
   end
 
