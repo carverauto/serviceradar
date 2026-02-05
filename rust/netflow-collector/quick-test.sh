@@ -50,7 +50,7 @@ fi
 
 # Send 5 test rounds using netflow_generator Docker image
 for i in {1..5}; do
-    docker run --rm --network host ghcr.io/mikemiles-dev/netflow_generator:0.2.6 \
+    docker run --rm --network host ghcr.io/mikemiles-dev/netflow_generator:0.2.7 \
         --dest 127.0.0.1:2055 --once > /dev/null 2>&1
     sleep 0.5
 done
