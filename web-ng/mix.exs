@@ -65,6 +65,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:swoosh, "~> 1.16"},
       {:req, "~> 0.5"},
+      {:castore, "~> 1.0"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},
@@ -75,6 +76,12 @@ defmodule ServiceRadarWebNG.MixProject do
       {:bandit, "~> 1.5"},
       {:datasvc, path: "../elixir/datasvc"},
       {:protobuf, "~> 0.16.0", override: true},
+      {:permit, "~> 0.3.3"},
+      {:permit_phoenix, "~> 0.4.0"},
+      {:permit_ecto,
+       github: "curiosum-dev/permit_ecto",
+       ref: "3f5aca703893fe453f9d3d27601e2528bb1a82be",
+       override: true},
 
       # Ash Framework - Phoenix integration (UI components)
       {:ash_phoenix, "~> 2.0"},

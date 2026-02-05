@@ -32,7 +32,6 @@ defmodule ServiceRadar.Identity.AuthSettings do
   use Ash.Resource,
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
     extensions: [AshCloak]
 
   postgres do
@@ -291,26 +290,6 @@ defmodule ServiceRadar.Identity.AuthSettings do
     end
 
     timestamps()
-  end
-
-  policies do
-    # System actor bypass for internal operations
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Only admins can read/update auth settings
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
   end
 
   # Helper functions

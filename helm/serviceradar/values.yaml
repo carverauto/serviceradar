@@ -195,6 +195,7 @@ webNg:
     downloadTtlSeconds: 86400
 agent:
   agentId: "k8s-agent"
+  hostNetwork: true
   gatewayAddress: ""
   partitionId: "default"
   pushInterval: "30s"
@@ -403,6 +404,7 @@ spire:
     image: ghcr.io/spiffe/spire-agent:1.11.2
     logLevel: DEBUG
     waitForImage: cgr.dev/chainguard/wait-for-it
+    hostNetwork: true
   tokenAudience: spire-server
   additionalAgentNamespaces: []
   postgres:

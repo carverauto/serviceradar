@@ -2,6 +2,10 @@
 {{- $ns := default .Release.Namespace .Values.spire.namespace }}
 {{- $serverName := default "spire-server" .Values.spire.server.serviceName }}
 {{- $agentVals := .Values.spire.agent }}
+{{- $agentHostNetwork := true }}
+{{- if hasKey $agentVals "hostNetwork" }}
+  {{- $agentHostNetwork = $agentVals.hostNetwork }}
+{{- end }}
 {{- $bundle := default "spire-bundle" .Values.spire.bundleConfigMap }}
 {{- $trustDomain := .Values.spire.trustDomain }}
 {{- $clusterName := .Values.spire.clusterName }}
@@ -103,8 +107,8 @@ spec:
         app: spire-agent
     spec:
       hostPID: true
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      hostNetwork: {{ $agentHostNetwork }}
+      dnsPolicy: {{ ternary "ClusterFirstWithHostNet" "ClusterFirst" $agentHostNetwork }}
       serviceAccountName: {{ .Values.spire.agentServiceAccount }}
       automountServiceAccountToken: true
       initContainers:

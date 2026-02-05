@@ -5,6 +5,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadar.Identity.AuthorizationSettings
+  alias ServiceRadarWebNG.Authorization
+
   attr(:current_path, :string, required: true)
   attr(:class, :any, default: nil)
   slot(:inner_block, required: true)
@@ -21,9 +24,15 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   attr(:current_path, :string, required: true)
   attr(:class, :any, default: nil)
+  attr(:current_scope, :map, default: nil)
 
   def settings_nav(assigns) do
-    assigns = assign(assigns, :tabs, settings_tabs(assigns.current_path))
+    assigns =
+      assign(
+        assigns,
+        :tabs,
+        settings_tabs(assigns.current_path, assigns[:current_scope])
+      )
 
     ~H"""
     <div class={["flex flex-wrap items-center gap-2", @class]}>
@@ -32,10 +41,10 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     """
   end
 
-  def settings_tabs(current_path) do
+  def settings_tabs(current_path, current_scope \\ nil) do
     path = current_path || ""
 
-    [
+    tabs = [
       %{
         label: "Cluster",
         navigate: ~p"/settings/cluster",
@@ -77,12 +86,62 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active: String.starts_with?(path, "/admin/jobs")
       },
       %{
+        label: "Auth",
+        navigate: ~p"/settings/auth/users",
+        active: String.starts_with?(path, "/settings/authentication")
+          or String.starts_with?(path, "/settings/auth/")
+      }
+    ]
+
+    if show_auth_tab?(current_scope) do
+      tabs
+    else
+      Enum.reject(tabs, &(&1.label == "Auth"))
+    end
+  end
+
+  # Auth section sub-navigation
+  attr(:current_path, :string, required: true)
+  attr(:class, :any, default: nil)
+
+  def auth_nav(assigns) do
+    assigns = assign(assigns, :tabs, auth_tabs(assigns.current_path))
+
+    ~H"""
+    <div class={["flex flex-wrap items-center gap-2", @class]}>
+      <.ui_tabs tabs={@tabs} class="flex-wrap" size="sm" />
+    </div>
+    """
+  end
+
+  def auth_tabs(current_path) do
+    path = current_path || ""
+
+    [
+      %{
+        label: "Users",
+        navigate: ~p"/settings/auth/users",
+        active: String.starts_with?(path, "/settings/auth/users")
+      },
+      %{
+        label: "Authorization",
+        navigate: ~p"/settings/auth/authorization",
+        active: String.starts_with?(path, "/settings/auth/authorization")
+      },
+      %{
         label: "Authentication",
         navigate: ~p"/settings/authentication",
         active: String.starts_with?(path, "/settings/authentication")
       }
     ]
   end
+
+  defp show_auth_tab?(%{user: user}) when not is_nil(user) do
+    Authorization.can(user)
+    |> Authorization.read?(AuthorizationSettings)
+  end
+
+  defp show_auth_tab?(_), do: false
 
   # Network section sub-navigation
   attr(:current_path, :string, required: true)
