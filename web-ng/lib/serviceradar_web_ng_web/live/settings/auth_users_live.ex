@@ -163,174 +163,123 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
             <SettingsComponents.auth_nav current_path="/settings/auth/users" current_scope={@current_scope} />
           </div>
 
-          <div class="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Accounts</h1>
-              <p class="text-sm text-slate-500">
-                Assign roles and access profiles without touching raw JSON.
-              </p>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div class="space-y-1">
+              <h1 class="text-2xl font-semibold">Accounts</h1>
+              <p class="text-sm opacity-70">Assign roles and access profiles without touching raw JSON.</p>
             </div>
             <div class="flex items-center gap-2">
-              <span class="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Total {@user_count}
-              </span>
+              <.link navigate={~p"/settings/auth/access"} class="btn btn-sm btn-outline">Access Control</.link>
+              <span class="badge badge-outline">Total {@user_count}</span>
             </div>
           </div>
 
           <div class="grid gap-6 lg:grid-cols-[1.6fr_0.9fr]">
-            <section class="space-y-4">
-              <div class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-                <div class="border-b border-slate-200 bg-slate-50/70 px-4 py-3">
-                  <div class="grid grid-cols-[minmax(180px,1.2fr)_minmax(180px,1fr)_minmax(140px,0.7fr)_minmax(180px,0.9fr)_minmax(120px,0.7fr)_minmax(160px,0.9fr)_minmax(160px,1fr)] gap-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-                    <div>Account</div>
-                    <div>Email</div>
-                    <div>Role</div>
-                    <div>Access</div>
-                    <div>Password</div>
-                    <div>Last Activity</div>
-                    <div class="text-right">Action</div>
-                  </div>
-                </div>
-
-                <div id="users" phx-update="stream" class="divide-y divide-slate-200">
-                  <div class="hidden px-4 py-8 text-sm text-slate-500 only:block">
-                    No users yet.
-                  </div>
-
-                  <div
-                    :for={{id, user} <- @streams.users}
-                    id={id}
-                    class="grid grid-cols-[minmax(180px,1.2fr)_minmax(180px,1fr)_minmax(140px,0.7fr)_minmax(180px,0.9fr)_minmax(120px,0.7fr)_minmax(160px,0.9fr)_minmax(160px,1fr)] items-center gap-3 px-4 py-4 text-sm transition hover:bg-slate-50/70"
-                  >
-                    <div class="flex items-center gap-3">
-                      <div class="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold uppercase text-white">
-                        {user_initials(user)}
-                      </div>
-                      <div>
-                        <div class="font-medium text-slate-900">
-                          {display_name(user)}
-                        </div>
-                        <div class={["mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase", status_class(user.status)]}>
-                          {user.status}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="text-sm text-slate-600">{user.email}</div>
-
-                    <div>
-                      <select
-                        class="h-9 w-full rounded-full border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-slate-400 focus:outline-none"
-                        phx-change="update_role"
-                        phx-value-id={user.id}
-                        name="role"
-                        value={user.role}
-                      >
-                        <option value="viewer">viewer</option>
-                        <option value="operator">operator</option>
-                        <option value="admin">admin</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <select
-                        class="h-9 w-full rounded-full border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-slate-400 focus:outline-none"
-                        phx-change="update_role_profile"
-                        phx-value-id={user.id}
-                        name="role_profile_id"
-                        value={user.role_profile_id || ""}
-                      >
-                        <option value="">Use role default</option>
-                        <%= for {label, id} <- profile_options(@role_profiles) do %>
-                          <option value={id}>{label}</option>
-                        <% end %>
-                      </select>
-                    </div>
-
-                    <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      {password_label(user)}
-                    </div>
-
-                    <div class="text-xs text-slate-500">
-                      {format_last_activity(user)}
-                    </div>
-
-                    <div class="flex items-center justify-end gap-2">
-                      <%= if user.status == :active do %>
-                        <button
-                          class="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-                          phx-click="deactivate"
-                          phx-value-id={user.id}
-                        >
-                          Deactivate
-                        </button>
-                      <% else %>
-                        <button
-                          class="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-                          phx-click="reactivate"
-                          phx-value-id={user.id}
-                        >
-                          Reactivate
-                        </button>
-                      <% end %>
-                    </div>
-                  </div>
-                </div>
+            <section class="space-y-3">
+              <div class="overflow-x-auto rounded-box border border-base-content/5 bg-base-100">
+                <%= if @user_count == 0 do %>
+                  <div class="p-6 text-sm opacity-70">No users yet.</div>
+                <% else %>
+                  <table class="table table-zebra">
+                    <thead>
+                      <tr>
+                        <th>Account</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Access</th>
+                        <th>Password</th>
+                        <th>Last activity</th>
+                        <th class="text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="users" phx-update="stream">
+                      <tr :for={{id, user} <- @streams.users} id={id}>
+                        <td>
+                          <div class="flex items-center gap-3">
+                            <div class="avatar placeholder">
+                              <div class="bg-neutral text-neutral-content w-10 rounded-full">
+                                <span class="text-xs">{user_initials(user)}</span>
+                              </div>
+                            </div>
+                            <div class="space-y-1">
+                              <div class="font-semibold">{display_name(user)}</div>
+                              <span class={status_class(user.status)}>{user.status}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="text-sm opacity-70">{user.email}</td>
+                        <td>
+                          <select
+                            class="select select-bordered select-sm w-full"
+                            phx-change="update_role"
+                            phx-value-id={user.id}
+                            name="role"
+                          >
+                            <option value="viewer" selected={user.role == :viewer}>viewer</option>
+                            <option value="operator" selected={user.role == :operator}>operator</option>
+                            <option value="admin" selected={user.role == :admin}>admin</option>
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            class="select select-bordered select-sm w-full"
+                            phx-change="update_role_profile"
+                            phx-value-id={user.id}
+                            name="role_profile_id"
+                          >
+                            <option value="" selected={is_nil(user.role_profile_id) or user.role_profile_id == ""}>
+                              Use role default
+                            </option>
+                            <%= for {label, id} <- profile_options(@role_profiles) do %>
+                              <option value={id} selected={user.role_profile_id == id}>{label}</option>
+                            <% end %>
+                          </select>
+                        </td>
+                        <td>
+                          <span class="badge badge-ghost">{password_label(user)}</span>
+                        </td>
+                        <td class="text-xs opacity-70">{format_last_activity(user)}</td>
+                        <td class="text-right">
+                          <%= if user.status == :active do %>
+                            <button class="btn btn-xs btn-ghost" phx-click="deactivate" phx-value-id={user.id}>
+                              Deactivate
+                            </button>
+                          <% else %>
+                            <button class="btn btn-xs btn-ghost" phx-click="reactivate" phx-value-id={user.id}>
+                              Reactivate
+                            </button>
+                          <% end %>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                <% end %>
               </div>
             </section>
 
-            <section class="space-y-4">
-              <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div>
-                  <h2 class="text-lg font-semibold text-slate-900">Add Account</h2>
-                  <p class="text-sm text-slate-500">
-                    Create a local operator or admin and assign a starting role.
-                  </p>
+            <section class="space-y-3">
+              <div class="card bg-base-100 shadow-sm border border-base-content/5">
+                <div class="card-body">
+                  <h2 class="card-title">Add Account</h2>
+                  <p class="text-sm opacity-70">Create a local operator or admin and assign a starting role.</p>
+
+                  <.form for={@form} id="user-create-form" phx-change="validate" phx-submit="create" class="mt-2">
+                    <.input field={@form[:email]} type="email" label="Email" required class="w-full input input-bordered" />
+                    <.input field={@form[:display_name]} type="text" label="Display Name" class="w-full input input-bordered" />
+                    <.input
+                      field={@form[:role]}
+                      type="select"
+                      label="Role"
+                      options={[{"viewer", "viewer"}, {"operator", "operator"}, {"admin", "admin"}]}
+                      class="w-full select select-bordered"
+                    />
+                    <.input field={@form[:password]} type="password" label="Temporary Password" class="w-full input input-bordered" />
+
+                    <div class="card-actions justify-end mt-3">
+                      <button class="btn btn-primary btn-block" type="submit">Create Account</button>
+                    </div>
+                  </.form>
                 </div>
-
-                <.form for={@form} id="user-create-form" phx-change="validate" phx-submit="create" class="mt-4 space-y-3">
-                  <.input
-                    field={@form[:email]}
-                    type="email"
-                    label="Email"
-                    required
-                    wrapper_class="space-y-1"
-                    label_class="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                    class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none"
-                  />
-                  <.input
-                    field={@form[:display_name]}
-                    type="text"
-                    label="Display Name"
-                    wrapper_class="space-y-1"
-                    label_class="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                    class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none"
-                  />
-                  <.input
-                    field={@form[:role]}
-                    type="select"
-                    label="Role"
-                    options={[{"viewer", "viewer"}, {"operator", "operator"}, {"admin", "admin"}]}
-                    wrapper_class="space-y-1"
-                    label_class="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                    class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none"
-                  />
-                  <.input
-                    field={@form[:password]}
-                    type="password"
-                    label="Temporary Password"
-                    wrapper_class="space-y-1"
-                    label_class="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                    class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none"
-                  />
-
-                  <button
-                    class="mt-2 inline-flex w-full items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:-translate-y-0.5 hover:bg-slate-800"
-                    type="submit"
-                  >
-                    Create Account
-                  </button>
-                </.form>
               </div>
             </section>
           </div>
@@ -384,9 +333,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     }
   end
 
-  defp status_class(:active), do: "border border-emerald-200 bg-emerald-50 text-emerald-600"
-  defp status_class(:inactive), do: "border border-amber-200 bg-amber-50 text-amber-600"
-  defp status_class(_), do: "border border-slate-200 bg-slate-50 text-slate-500"
+  defp status_class(:active), do: "badge badge-success badge-sm"
+  defp status_class(:inactive), do: "badge badge-warning badge-sm"
+  defp status_class(_), do: "badge badge-ghost badge-sm"
 
   defp user_initials(user) do
     base = display_name(user)
