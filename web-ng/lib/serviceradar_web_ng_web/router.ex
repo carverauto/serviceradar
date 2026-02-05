@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :api_auth do
     plug(:accepts, ["json"])
     plug(:fetch_session)
-    plug(:protect_from_forgery)
+    plug(:maybe_protect_from_forgery)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
     plug(:require_authenticated_user_api)
@@ -426,6 +426,14 @@ defmodule ServiceRadarWebNGWeb.Router do
       conn
       |> Plug.Conn.send_resp(:not_found, "Not Found")
       |> Plug.Conn.halt()
+    end
+  end
+
+  defp maybe_protect_from_forgery(conn, _opts) do
+    case Plug.Conn.get_req_header(conn, "authorization") do
+      ["Bearer " <> _] -> conn
+      ["bearer " <> _] -> conn
+      _ -> Plug.CSRFProtection.call(conn, [])
     end
   end
 
