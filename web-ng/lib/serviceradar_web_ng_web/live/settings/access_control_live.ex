@@ -40,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
        |> assign(:show_new_profile_form, false)
        |> assign(:new_profile_form, to_form(default_profile_form(), as: :profile))
        |> assign(:clone_source_id, nil)
+       |> assign(:confirm_delete_profile, nil)
        |> assign(:grid_template, grid_template(profiles))
        |> maybe_put_flash(settings_flash)
        |> maybe_put_flash(profiles_flash)
@@ -215,7 +216,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
     end
   end
 
-  def handle_event("delete_profile", %{"profile_id" => profile_id}, socket) do
+          def handle_event("delete_profile", %{"profile_id" => profile_id}, socket) do
     if not socket.assigns.can_rbac do
       {:noreply, put_flash(socket, :error, "Not authorized to edit role profiles")}
     else
@@ -239,6 +240,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                |> assign(:profiles, profiles)
                |> assign(:grid_template, grid_template(profiles))
                |> assign(:dirty_profiles, MapSet.delete(socket.assigns.dirty_profiles, profile.id))
+               |> assign(:confirm_delete_profile, nil)
                |> put_flash(:info, "Role profile deleted")}
 
             {:error, error} ->
@@ -246,6 +248,28 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
           end
       end
     end
+  end
+
+  def handle_event("open_delete_profile", %{"profile_id" => profile_id}, socket) do
+    profile = find_profile(socket.assigns.profiles, profile_id)
+
+    cond do
+      not socket.assigns.can_rbac ->
+        {:noreply, put_flash(socket, :error, "Not authorized to edit role profiles")}
+
+      profile == nil ->
+        {:noreply, socket}
+
+      profile.system ->
+        {:noreply, put_flash(socket, :error, "System profiles cannot be deleted")}
+
+      true ->
+        {:noreply, assign(socket, :confirm_delete_profile, profile)}
+    end
+  end
+
+  def handle_event("close_delete_profile", _params, socket) do
+    {:noreply, assign(socket, :confirm_delete_profile, nil)}
   end
 
   @impl true
@@ -449,6 +473,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                 <% end %>
               </div>
 
+              <div class="alert alert-info">
+                <div>
+                  <h3 class="font-bold">Legend</h3>
+                  <div class="text-sm">
+                    <span class="font-semibold">Role</span> is the coarse label users receive at login (viewer/operator/admin).
+                    <span class="font-semibold">Profile</span> is the actual permission set. Users can be assigned a custom profile to override the role defaults.
+                  </div>
+                </div>
+              </div>
+
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <label class="input input-bordered input-sm w-full max-w-xs">
                   <.icon name="hero-magnifying-glass" class="h-[1em] opacity-50" />
@@ -481,24 +515,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                                   {profile.system && "Built-in" || "Custom"}
                                 </span>
                               </div>
-                              <div class="flex flex-wrap items-center gap-1">
-                                <button
-                                  class="btn btn-xs btn-outline"
-                                  phx-click="open_new_profile"
-                                  phx-value-clone-source-id={profile.id}
-                                >
-                                  Clone
-                                </button>
-                                <button
-                                  :if={!profile.system}
-                                  class="btn btn-xs btn-ghost"
-                                  phx-click="delete_profile"
-                                  phx-value-profile-id={profile.id}
-                                >
-                                  Delete
-                                </button>
-                                <button
-                                  :if={MapSet.member?(@dirty_profiles, profile.id)}
+                            <div class="flex flex-wrap items-center gap-1">
+                              <button
+                                class="btn btn-xs btn-outline"
+                                phx-click="open_new_profile"
+                                phx-value-clone-source-id={profile.id}
+                              >
+                                Clone
+                              </button>
+                              <button
+                                :if={!profile.system}
+                                class="btn btn-xs btn-ghost"
+                                phx-click="open_delete_profile"
+                                phx-value-profile-id={profile.id}
+                              >
+                                Delete
+                              </button>
+                              <button
+                                :if={MapSet.member?(@dirty_profiles, profile.id)}
                                   class="btn btn-xs btn-primary"
                                   phx-click="save_profile"
                                   phx-value-profile-id={profile.id}
@@ -597,6 +631,31 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
             </div>
             <div class="modal-backdrop">
               <button type="button" phx-click="close_new_profile">close</button>
+            </div>
+          </div>
+
+          <div :if={@confirm_delete_profile} class="modal modal-open">
+            <div class="modal-box">
+              <h3 class="text-lg font-bold">Delete Role Profile?</h3>
+              <p class="py-2 text-sm opacity-70">
+                This will permanently delete
+                <span class="font-semibold">{@confirm_delete_profile.name}</span>.
+                Users assigned to this profile will fall back to their role defaults.
+              </p>
+              <div class="modal-action">
+                <button type="button" class="btn btn-ghost" phx-click="close_delete_profile">Cancel</button>
+                <button
+                  type="button"
+                  class="btn btn-error"
+                  phx-click="delete_profile"
+                  phx-value-profile-id={@confirm_delete_profile.id}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+            <div class="modal-backdrop">
+              <button type="button" phx-click="close_delete_profile">close</button>
             </div>
           </div>
         </div>

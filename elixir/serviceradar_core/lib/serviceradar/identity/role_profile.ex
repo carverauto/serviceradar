@@ -10,6 +10,8 @@ defmodule ServiceRadar.Identity.RoleProfile do
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer
 
+  require Ash.Query
+
   postgres do
     table "role_profiles"
     repo ServiceRadar.Repo
@@ -20,7 +22,6 @@ defmodule ServiceRadar.Identity.RoleProfile do
   code_interface do
     define :list, action: :read
     define :get_by_id, action: :get_by_id, args: [:id]
-    define :get_by_system_name, action: :get_by_system_name, args: [:system_name]
     define :create_profile, action: :create
     define :create_system_profile, action: :create_system
     define :update_profile, action: :update
@@ -38,7 +39,6 @@ defmodule ServiceRadar.Identity.RoleProfile do
 
     read :get_by_system_name do
       argument :system_name, :string, allow_nil?: false
-      get? true
       filter expr(system_name == ^arg(:system_name))
     end
 
@@ -107,5 +107,14 @@ defmodule ServiceRadar.Identity.RoleProfile do
   identities do
     identity :unique_name, [:name]
     identity :unique_system_name, [:system_name], where: expr(not is_nil(system_name))
+  end
+
+  # NOTE: We intentionally implement this explicitly rather than using Ash's
+  # code_interface for a get-style action. Treating `system_name` like a primary key
+  # can lead to confusing NotFound errors when it is cast as a UUID id.
+  def get_by_system_name(system_name, opts \\ []) when is_binary(system_name) do
+    __MODULE__
+    |> Ash.Query.for_read(:get_by_system_name, %{system_name: system_name})
+    |> Ash.read_one(opts)
   end
 end
