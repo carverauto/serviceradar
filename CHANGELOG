@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.92
+
+Device inventory fixes for create, delete, and restore flows.
+
+## Whats New
+
+**1.0.92**
+- Fixed device creation via the UI by removing the pre-read race and handling unique UID conflicts cleanly.
+- Fixed device delete and restore actions (proper deleted_by/reason handling plus stale-record recovery).
+- Added error logging for device create/delete/restore failures so issues show up in server logs.
+
 # ServiceRadar v1.0.91
 
 Docker compose stability fixes for agent enrollment and core-elx builds.
