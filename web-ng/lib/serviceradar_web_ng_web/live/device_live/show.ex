@@ -311,12 +311,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
           {:error, reason} ->
             Logger.error("Device delete failed for #{device_uid}: #{inspect(reason)}")
+
             {:noreply,
              put_flash(socket, :error, "Failed to delete device: #{format_ash_error(reason)}")}
         end
 
       {:error, reason} ->
         Logger.error("Device load failed for delete #{device_uid}: #{inspect(reason)}")
+
         {:noreply,
          put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
     end
@@ -335,6 +337,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       {:error, reason} ->
         Logger.error("Device restore failed for #{device_uid}: #{inspect(reason)}")
+
         {:noreply,
          put_flash(socket, :error, "Failed to restore device: #{format_ash_error(reason)}")}
     end

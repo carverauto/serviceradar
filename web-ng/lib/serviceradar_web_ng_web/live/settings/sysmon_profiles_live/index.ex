@@ -169,6 +169,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         case Ash.update(changeset, scope: scope) do
           {:ok, _updated} ->
             _ = ConfigServer.invalidate(:sysmon)
+
             {:noreply,
              socket
              |> assign(:profiles, load_profiles(scope))
@@ -194,6 +195,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         case Ash.destroy(profile, scope: scope) do
           :ok ->
             _ = ConfigServer.invalidate(:sysmon)
+
             {:noreply,
              socket
              |> assign(:profiles, load_profiles(scope))

@@ -255,14 +255,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
       {:error, %Ash.Error.Invalid{} = error} ->
         Logger.warning("Device create failed with validation error: #{inspect(error)}")
+
         {:noreply,
          socket
          |> put_flash(:error, format_device_error(error))}
 
       {:error, :already_exists} ->
         {:noreply,
-        socket
-        |> put_flash(:error, "A device with this IP address already exists.")}
+         socket
+         |> put_flash(:error, "A device with this IP address already exists.")}
 
       {:error, :invalid_uid} ->
         Logger.error("Device create failed: generated UID was invalid for #{inspect(params)}")
@@ -274,6 +275,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
       {:error, reason} ->
         Logger.error("Device create failed: #{inspect(reason)}")
+
         {:noreply,
          socket
          |> put_flash(:error, "Failed to create device: #{inspect(reason)}")}
@@ -473,6 +475,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
           {:error, reason} ->
             Logger.error("Bulk device delete failed for #{inspect(uids)}: #{inspect(reason)}")
+
             {:noreply,
              socket
              |> assign(:show_bulk_delete_modal, false)
@@ -481,6 +484,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
       {:error, reason} ->
         Logger.error("Bulk device delete failed: #{inspect(reason)}")
+
         {:noreply,
          socket
          |> assign(:show_bulk_delete_modal, false)
