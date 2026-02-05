@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
 
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Identity.AuthorizationSettings
+  alias ServiceRadarWebNG.AdminApi
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   @impl true
@@ -35,10 +35,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
     scope = socket.assigns.current_scope
 
     with {:ok, attrs} <- normalize_attrs(params),
-         {:ok, updated} <-
-           socket.assigns.settings
-           |> Ash.Changeset.for_update(:update, attrs, scope: scope)
-           |> Ash.update(scope: scope) do
+         {:ok, updated} <- AdminApi.update_authorization_settings(scope, attrs) do
       {:noreply,
        socket
        |> assign(:settings, updated)
@@ -130,20 +127,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   end
 
   defp get_or_create_settings(scope) do
-    case AuthorizationSettings
-         |> Ash.Query.for_read(:get_singleton, %{}, scope: scope)
-         |> Ash.read_one(scope: scope) do
-      {:ok, nil} ->
-        AuthorizationSettings
-        |> Ash.Changeset.for_create(:create, %{}, scope: scope)
-        |> Ash.create(scope: scope)
-
-      {:ok, settings} ->
-        {:ok, settings}
-
-      {:error, error} ->
-        {:error, error}
-    end
+    AdminApi.get_authorization_settings(scope)
   end
 
   defp normalize_attrs(params) do
@@ -206,6 +190,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
       _ -> "Validation error"
     end)
     |> Enum.join(", ")
+  end
+
+  defp format_ash_error({:http_error, status, body}) do
+    message =
+      case body do
+        %{"error" => error} -> error
+        %{"message" => error} -> error
+        _ -> "Request failed"
+      end
+
+    "HTTP #{status}: #{message}"
   end
 
   defp format_ash_error(_), do: "Unexpected error"

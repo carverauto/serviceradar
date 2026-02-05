@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
 
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Identity.User
+  alias ServiceRadarWebNG.AdminApi
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   @impl true
@@ -49,9 +49,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
         attrs
       end
 
-    case User
-         |> Ash.Changeset.for_create(:create, attrs, scope: scope)
-         |> Ash.create(scope: scope) do
+    case AdminApi.create_user(scope, attrs) do
       {:ok, user} ->
         {:noreply,
          socket
@@ -67,13 +65,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   def handle_event("update_role", %{"id" => id, "role" => role}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, user} <- Ash.get(User, id, scope: scope),
-         {:ok, updated} <-
-           user
-           |> Ash.Changeset.for_update(:update_role, %{role: normalize_role(role)},
-             scope: scope
-           )
-           |> Ash.update(scope: scope) do
+    with {:ok, updated} <- AdminApi.update_user(scope, id, %{role: normalize_role(role)}) do
       {:noreply,
        socket
        |> put_flash(:info, "Role updated")
@@ -87,11 +79,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   def handle_event("deactivate", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, user} <- Ash.get(User, id, scope: scope),
-         {:ok, updated} <-
-           user
-           |> Ash.Changeset.for_update(:deactivate, %{}, scope: scope)
-           |> Ash.update(scope: scope) do
+    with {:ok, updated} <- AdminApi.deactivate_user(scope, id) do
       {:noreply,
        socket
        |> put_flash(:info, "User deactivated")
@@ -105,11 +93,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   def handle_event("reactivate", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, user} <- Ash.get(User, id, scope: scope),
-         {:ok, updated} <-
-           user
-           |> Ash.Changeset.for_update(:reactivate, %{}, scope: scope)
-           |> Ash.update(scope: scope) do
+    with {:ok, updated} <- AdminApi.reactivate_user(scope, id) do
       {:noreply,
        socket
        |> put_flash(:info, "User reactivated")
@@ -232,10 +216,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   end
 
   defp list_users(scope) do
-    User
-    |> Ash.Query.for_read(:read, %{}, scope: scope)
-    |> Ash.Query.sort(inserted_at: :desc)
-    |> Ash.read!(scope: scope)
+    case AdminApi.list_users(scope, %{}) do
+      {:ok, users} -> users
+      {:error, _} -> []
+    end
   end
 
   defp ensure_admin(socket) do
@@ -277,6 +261,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
       _ -> "Validation error"
     end)
     |> Enum.join(", ")
+  end
+
+  defp format_ash_error({:http_error, status, body}) do
+    message =
+      case body do
+        %{"error" => error} -> error
+        %{"message" => error} -> error
+        _ -> "Request failed"
+      end
+
+    "HTTP #{status}: #{message}"
   end
 
   defp format_ash_error(_), do: "Unexpected error"
