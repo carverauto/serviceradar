@@ -2584,21 +2584,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp import_devices(scope, devices) do
-    actor = build_device_actor(scope)
-    do_import_devices(devices, actor)
+    do_import_devices(devices, scope)
   end
 
-  defp do_import_devices(devices, actor) do
+  defp do_import_devices(devices, scope) do
     {created, skipped, errors} =
       Enum.reduce(devices, {0, 0, []}, fn device_data, acc ->
-        process_device_import(device_data, actor, acc)
+        process_device_import(device_data, scope, acc)
       end)
 
     if errors == [], do: {:ok, {created, skipped}}, else: {:error, Enum.reverse(errors)}
   end
 
-  defp process_device_import(device_data, actor, {created, skipped, errors}) do
-    case create_single_device(device_data, actor) do
+  defp process_device_import(device_data, scope, {created, skipped, errors}) do
+    case create_single_device(device_data, scope) do
       {:ok, _device} ->
         {created + 1, skipped, errors}
 
@@ -2612,8 +2611,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp create_device(scope, params) do
-    actor = build_device_actor(scope)
-
     # Build device data from form params
     device_data = %{
       hostname: params["hostname"],
@@ -2622,15 +2619,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       tags: parse_form_tags(params["tags"])
     }
 
-    create_single_device(device_data, actor)
+    create_single_device(device_data, scope)
   end
 
-  defp create_single_device(device_data, actor) do
+  defp create_single_device(device_data, scope) do
     # Generate a UID based on IP (or use a UUID)
     uid = generate_device_uid(device_data.ip)
 
     # First check if device already exists
-    case Device.get_by_uid(uid, actor: actor) do
+    case Device.get_by_uid(uid, false, scope: scope) do
       {:ok, _existing} ->
         {:error, :already_exists}
 
@@ -2657,7 +2654,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
         Device
         |> Ash.Changeset.for_create(:create, attrs)
-        |> Ash.create(actor: actor)
+        |> Ash.create(scope: scope)
 
       {:error, _} = error ->
         error
@@ -2712,24 +2709,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> String.split("\n")
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
-  end
-
-  defp build_device_actor(scope) do
-    case scope do
-      %{user: user} when not is_nil(user) ->
-        %{
-          id: user.id,
-          email: user.email,
-          role: user.role
-        }
-
-      _ ->
-        %{
-          id: "system",
-          email: "system@serviceradar",
-          role: :admin
-        }
-    end
   end
 
   defp format_device_error(%Ash.Error.Invalid{errors: errors}) do

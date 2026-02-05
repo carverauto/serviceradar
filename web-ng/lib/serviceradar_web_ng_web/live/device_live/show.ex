@@ -1002,7 +1002,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> Enum.map(fn uid ->
         # First get existing settings to merge tags
         existing_tags =
-          case InterfaceSettings.get_by_interface(device_uid, uid, actor: scope) do
+          case InterfaceSettings.get_by_interface(device_uid, uid, scope: scope) do
             {:ok, settings} -> settings.tags || []
             _ -> []
           end
@@ -4854,7 +4854,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp deleted_device?(_), do: false
 
   defp load_device(scope, device_uid) do
-    case Device.get_by_uid(device_uid, include_deleted: true, scope: scope) do
+    case Device.get_by_uid(device_uid, true, scope: scope) do
       {:ok, nil} -> {:error, :not_found}
       other -> other
     end
@@ -4881,8 +4881,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   # Update device via Ash
   defp update_device(scope, device_uid, params) do
-    actor = build_device_actor(scope)
-
     # Parse tags from newline-separated string to map
     attrs =
       %{
@@ -4898,32 +4896,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> Map.new()
 
     # First get the device, then update it
-    case Device.get_by_uid(device_uid, actor: actor) do
+    case Device.get_by_uid(device_uid, false, scope: scope) do
       {:ok, device} ->
         device
         |> Ash.Changeset.for_update(:update, attrs)
-        |> Ash.update(actor: actor)
+        |> Ash.update(scope: scope)
 
       {:error, _} = error ->
         error
-    end
-  end
-
-  defp build_device_actor(scope) do
-    case scope do
-      %{user: user} when not is_nil(user) ->
-        %{
-          id: user.id,
-          email: user.email,
-          role: user.role
-        }
-
-      _ ->
-        %{
-          id: "system",
-          email: "system@serviceradar",
-          role: :admin
-        }
     end
   end
 
