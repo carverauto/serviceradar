@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
     with {:ok, token, _claims} <- Guardian.create_access_token(scope.user) do
       req =
         Req.new(
-          base_url: Endpoint.url(),
+          base_url: base_url(),
           headers: [{"authorization", "Bearer #{token}"}],
           receive_timeout: 10_000
         )
@@ -82,6 +82,23 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
   defp normalize_body(%{"default_role" => _} = body), do: normalize_settings(body)
   defp normalize_body(%{} = body), do: normalize_user(body)
   defp normalize_body(body), do: body
+
+  defp base_url do
+    System.get_env("ADMIN_API_BASE_URL") ||
+      Application.get_env(:serviceradar_web_ng, :admin_api_base_url) ||
+      internal_base_url()
+  end
+
+  defp internal_base_url do
+    http = Endpoint.config(:http)
+
+    if is_list(http) do
+      port = Keyword.get(http, :port, 4000)
+      "http://127.0.0.1:#{port}"
+    else
+      Endpoint.url()
+    end
+  end
 
   defp normalize_user(%{} = body) do
     %{

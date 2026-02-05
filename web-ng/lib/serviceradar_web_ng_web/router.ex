@@ -309,8 +309,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     live_session :require_authenticated_user,
       on_mount: [
-        {ServiceRadarWebNGWeb.UserAuth, :require_authenticated},
-        Permit.Phoenix.LiveView.AuthorizeHook
+        {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
       ] do
       live("/analytics", AnalyticsLive.Index, :index)
       live("/devices", DeviceLive.Index, :index)
@@ -344,11 +343,6 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/cluster", Settings.ClusterLive.Index, :index)
       live("/settings/cluster/nodes/:node_name", NodeLive.Show, :show)
       live("/settings/rules", Settings.RulesLive.Index, :index)
-
-      # Authentication settings (admin only - enforced by Permit policies)
-      live("/settings/authentication", Settings.AuthenticationLive, :index)
-      live("/settings/auth/users", Settings.AuthUsersLive, :index)
-      live("/settings/auth/authorization", Settings.AuthorizationLive, :index)
 
       # Network sweep configuration
       live("/settings/networks", Settings.NetworksLive.Index, :index)
@@ -390,6 +384,17 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       get("/infrastructure", PageController, :redirect_to_settings_cluster)
       get("/infrastructure/nodes/:node_name", PageController, :redirect_to_settings_cluster_node)
+    end
+
+    live_session :require_authenticated_user_with_permit,
+      on_mount: [
+        {ServiceRadarWebNGWeb.UserAuth, :require_authenticated},
+        Permit.Phoenix.LiveView.AuthorizeHook
+      ] do
+      # Authentication settings (admin only - enforced by Permit policies)
+      live("/settings/authentication", Settings.AuthenticationLive, :index)
+      live("/settings/auth/users", Settings.AuthUsersLive, :index)
+      live("/settings/auth/authorization", Settings.AuthorizationLive, :index)
     end
 
     post("/users/update-password", UserSessionController, :update_password)
