@@ -254,6 +254,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
          |> push_patch(to: ~p"/devices")}
 
       {:error, %Ash.Error.Invalid{} = error} ->
+        Logger.warning("Device create failed with validation error: #{inspect(error)}")
+
         {:noreply,
          socket
          |> put_flash(:error, format_device_error(error))}
@@ -263,7 +265,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
          socket
          |> put_flash(:error, "A device with this IP address already exists.")}
 
+      {:error, :invalid_uid} ->
+        Logger.error("Device create failed: generated UID was invalid for #{inspect(params)}")
+        {:noreply, put_flash(socket, :error, "Failed to create device: invalid device UID")}
+
+      {:error, :missing_scope} ->
+        Logger.error("Device create failed: missing scope for #{inspect(params)}")
+        {:noreply, put_flash(socket, :error, "Failed to create device: missing user scope")}
+
       {:error, reason} ->
+        Logger.error("Device create failed: #{inspect(reason)}")
+
         {:noreply,
          socket
          |> put_flash(:error, "Failed to create device: #{inspect(reason)}")}
@@ -462,6 +474,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
              |> push_patch(to: path)}
 
           {:error, reason} ->
+            Logger.error("Bulk device delete failed for #{inspect(uids)}: #{inspect(reason)}")
+
             {:noreply,
              socket
              |> assign(:show_bulk_delete_modal, false)
@@ -469,6 +483,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         end
 
       {:error, reason} ->
+        Logger.error("Bulk device delete failed: #{inspect(reason)}")
+
         {:noreply,
          socket
          |> assign(:show_bulk_delete_modal, false)
@@ -2584,21 +2600,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp import_devices(scope, devices) do
-    actor = build_device_actor(scope)
-    do_import_devices(devices, actor)
+    do_import_devices(devices, scope)
   end
 
-  defp do_import_devices(devices, actor) do
+  defp do_import_devices(devices, scope) do
     {created, skipped, errors} =
       Enum.reduce(devices, {0, 0, []}, fn device_data, acc ->
-        process_device_import(device_data, actor, acc)
+        process_device_import(device_data, scope, acc)
       end)
 
     if errors == [], do: {:ok, {created, skipped}}, else: {:error, Enum.reverse(errors)}
   end
 
-  defp process_device_import(device_data, actor, {created, skipped, errors}) do
-    case create_single_device(device_data, actor) do
+  defp process_device_import(device_data, scope, {created, skipped, errors}) do
+    case create_single_device(device_data, scope) do
       {:ok, _device} ->
         {created + 1, skipped, errors}
 
@@ -2612,56 +2627,70 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp create_device(scope, params) do
-    actor = build_device_actor(scope)
+    if is_nil(scope) do
+      {:error, :missing_scope}
+    else
+      # Build device data from form params
+      device_data = %{
+        hostname: params["hostname"],
+        ip: params["ip"],
+        type: params["type"],
+        tags: parse_form_tags(params["tags"])
+      }
 
-    # Build device data from form params
-    device_data = %{
-      hostname: params["hostname"],
-      ip: params["ip"],
-      type: params["type"],
-      tags: parse_form_tags(params["tags"])
-    }
-
-    create_single_device(device_data, actor)
+      create_single_device(device_data, scope)
+    end
   end
 
-  defp create_single_device(device_data, actor) do
+  defp create_single_device(device_data, scope) do
     # Generate a UID based on IP (or use a UUID)
     uid = generate_device_uid(device_data.ip)
 
-    # First check if device already exists
-    case Device.get_by_uid(uid, actor: actor) do
-      {:ok, _existing} ->
-        {:error, :already_exists}
-
-      {:error, %Ash.Error.Query.NotFound{}} ->
-        # Device doesn't exist, create it
-        now = DateTime.utc_now()
-
-        attrs =
-          %{
-            uid: uid,
-            hostname: device_data.hostname,
-            ip: device_data.ip,
-            name: device_data.hostname || device_data.ip,
-            type: device_data[:type],
-            type_id: parse_type_id(device_data[:type]),
-            tags: normalize_tags(device_data[:tags]),
-            discovery_sources: ["manual"],
-            first_seen_time: now,
-            last_seen_time: now,
-            created_time: now
-          }
-          |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-          |> Map.new()
-
-        Device
-        |> Ash.Changeset.for_create(:create, attrs)
-        |> Ash.create(actor: actor)
-
-      {:error, _} = error ->
-        error
+    if is_nil(uid) or uid == "" do
+      Logger.error("Device create failed: generated UID is empty for #{inspect(device_data)}")
+      {:error, :invalid_uid}
+    else
+      create_new_device(uid, device_data, scope)
+      |> normalize_create_result()
     end
+  end
+
+  defp normalize_create_result({:ok, device}), do: {:ok, device}
+
+  defp normalize_create_result({:error, %Ash.Error.Invalid{} = error}) do
+    if unique_uid_error?(error) do
+      {:error, :already_exists}
+    else
+      {:error, error}
+    end
+  end
+
+  defp normalize_create_result({:error, error}), do: {:error, error}
+
+  defp create_new_device(uid, device_data, scope) do
+    # Device doesn't exist, create it
+    now = DateTime.utc_now()
+
+    attrs =
+      %{
+        uid: uid,
+        hostname: device_data.hostname,
+        ip: device_data.ip,
+        name: device_data.hostname || device_data.ip,
+        type: device_data[:type],
+        type_id: parse_type_id(device_data[:type]),
+        tags: normalize_tags(device_data[:tags]),
+        discovery_sources: ["manual"],
+        first_seen_time: now,
+        last_seen_time: now,
+        created_time: now
+      }
+      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+      |> Map.new()
+
+    Device
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(scope: scope)
   end
 
   defp generate_device_uid(ip) when is_binary(ip) do
@@ -2714,24 +2743,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> Enum.reject(&(&1 == ""))
   end
 
-  defp build_device_actor(scope) do
-    case scope do
-      %{user: user} when not is_nil(user) ->
-        %{
-          id: user.id,
-          email: user.email,
-          role: user.role
-        }
-
-      _ ->
-        %{
-          id: "system",
-          email: "system@serviceradar",
-          role: :admin
-        }
-    end
-  end
-
   defp format_device_error(%Ash.Error.Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_single_device_error/1)
   end
@@ -2753,9 +2764,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp format_single_device_error(%Ash.Error.Changes.Required{field: field}),
     do: "#{field} is required"
 
+  defp format_single_device_error(%Ash.Error.Query.NotFound{}),
+    do: "Device not found"
+
   defp format_single_device_error(%{message: msg}) when is_binary(msg),
     do: msg
 
   defp format_single_device_error(err),
     do: inspect(err)
+
+  defp unique_uid_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &unique_uid_error_detail?/1)
+  end
+
+  defp unique_uid_error?(_), do: false
+
+  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidAttribute{
+         field: :uid,
+         validation: :unique
+       }),
+       do: true
+
+  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidAttribute{field: :uid, message: msg})
+       when is_binary(msg),
+       do: String.contains?(msg, "has already been taken")
+
+  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidChanges{field: :uid}),
+    do: true
+
+  defp unique_uid_error_detail?(_), do: false
 end
