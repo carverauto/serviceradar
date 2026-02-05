@@ -462,6 +462,21 @@ ingress:
     enabled: false
     secretName: ""
     clusterIssuer: ""
+networkPolicy:
+  enabled: false
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: serviceradar
+  egress:
+    allowDNS: true
+    allowKubeAPIServer: true
+    allowDefaultNamespace: true
+    allowSameNamespace: true
+    allowedCIDRs: []
+  calicoLogDenied:
+    enabled: false
+    selector: "app.kubernetes.io/part-of == 'serviceradar'"
+    order: 1000
 secrets:
   autoGenerate: true
   existingSecretName: serviceradar-secrets

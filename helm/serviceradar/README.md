@@ -71,6 +71,15 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `ingress.enabled` | Enable ingress for web UI | `false` |
 | `ingress.host` | Hostname for ingress | `""` |
 | `ingress.tls.secretName` | TLS secret name | `""` |
+| `networkPolicy.enabled` | Render Kubernetes/Calico network policies | `false` |
+| `networkPolicy.egress.allowDNS` | Allow DNS to kube-system (53/TCP+UDP) | `true` |
+| `networkPolicy.egress.allowKubeAPIServer` | Allow egress to the kube-apiserver endpoints (via Helm lookup) | `true` |
+| `networkPolicy.egress.allowDefaultNamespace` | Allow egress to the `default` namespace (Kubernetes API) | `true` |
+| `networkPolicy.egress.allowSameNamespace` | Allow egress to pods in the release namespace | `true` |
+| `networkPolicy.egress.allowedCIDRs` | Additional egress CIDR allow list | `[]` |
+| `networkPolicy.calicoLogDenied.enabled` | Render Calico policy to log denied egress | `false` |
+| `networkPolicy.calicoLogDenied.selector` | Calico selector for matching pods | `app.kubernetes.io/part-of == 'serviceradar'` |
+| `networkPolicy.calicoLogDenied.order` | Calico policy order (lower is higher priority) | `1000` |
 | `secrets.autoGenerate` | Auto-generate secrets | `true` |
 | `spire.enabled` | Enable SPIRE identity plane | `true` |
 | `agent.resources.limits.cpu` | Agent CPU limit | `500m` |

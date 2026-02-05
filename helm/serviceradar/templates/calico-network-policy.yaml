@@ -1,0 +1,85 @@
+{{- $np := default (dict) .Values.networkPolicy -}}
+{{- $calico := default (dict) $np.calicoLogDenied -}}
+{{- if $calico.enabled -}}
+{{- $egress := default (dict) $np.egress -}}
+{{- $allowDNS := default false $egress.allowDNS -}}
+{{- $allowKubeAPI := default false $egress.allowKubeAPIServer -}}
+{{- $allowDefaultNs := default false $egress.allowDefaultNamespace -}}
+{{- $allowSameNs := default false $egress.allowSameNamespace -}}
+{{- $allowedCIDRs := default (list) $egress.allowedCIDRs -}}
+{{- $hasCIDRs := gt (len $allowedCIDRs) 0 -}}
+{{- $kubeAPICIDRs := list -}}
+{{- if $allowKubeAPI -}}
+  {{- $kubeSvc := (lookup "v1" "Service" "default" "kubernetes") -}}
+  {{- if and $kubeSvc $kubeSvc.spec.clusterIP -}}
+    {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $kubeSvc.spec.clusterIP) -}}
+  {{- end -}}
+  {{- $kubeEps := (lookup "v1" "Endpoints" "default" "kubernetes") -}}
+  {{- if $kubeEps -}}
+    {{- range $subset := $kubeEps.subsets -}}
+      {{- range $addr := $subset.addresses -}}
+        {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $addr.ip) -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- $hasKubeAPICIDRs := gt (len $kubeAPICIDRs) 0 -}}
+{{- $selector := default "app.kubernetes.io/part-of == 'serviceradar'" $calico.selector -}}
+---
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-egress-log-deny
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  selector: {{ $selector | quote }}
+  types:
+    - Egress
+{{- if $calico.order }}
+  order: {{ $calico.order }}
+{{- end }}
+  egress:
+{{- if $allowDNS }}
+    - action: Allow
+      protocol: UDP
+      destination:
+        namespaceSelector: {{ printf "kubernetes.io/metadata.name == '%s'" "kube-system" | quote }}
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        namespaceSelector: {{ printf "kubernetes.io/metadata.name == '%s'" "kube-system" | quote }}
+        ports:
+          - 53
+{{- end }}
+{{- if and $allowKubeAPI $hasKubeAPICIDRs }}
+    - action: Allow
+      destination:
+        nets:
+{{- range $cidr := $kubeAPICIDRs }}
+          - {{ $cidr | quote }}
+{{- end }}
+{{- end }}
+{{- if $allowDefaultNs }}
+    - action: Allow
+      destination:
+        namespaceSelector: {{ printf "kubernetes.io/metadata.name == '%s'" "default" | quote }}
+{{- end }}
+{{- if $allowSameNs }}
+    - action: Allow
+      destination:
+        namespaceSelector: {{ printf "kubernetes.io/metadata.name == '%s'" .Release.Namespace | quote }}
+{{- end }}
+{{- if $hasCIDRs }}
+    - action: Allow
+      destination:
+        nets:
+{{- range $cidr := $allowedCIDRs }}
+          - {{ $cidr | quote }}
+{{- end }}
+{{- end }}
+    - action: Log
+    - action: Deny
+{{- end }}

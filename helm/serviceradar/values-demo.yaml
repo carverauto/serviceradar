@@ -45,6 +45,21 @@ ingress:
     # when namespaces are frequently recreated.
     secretName: ""
     clusterIssuer: ""
+networkPolicy:
+  enabled: true
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: serviceradar
+  egress:
+    allowDNS: true
+    allowKubeAPIServer: true
+    allowDefaultNamespace: true
+    allowSameNamespace: true
+    allowedCIDRs: []
+  calicoLogDenied:
+    enabled: true
+    selector: "app.kubernetes.io/part-of == 'serviceradar'"
+    order: 1000
 
 webNg:
   devRoutes: "true"
