@@ -42,6 +42,19 @@ async fn main() -> Result<()> {
     log::info!("  Channel size: {}", config.channel_size);
     log::info!("  Batch size: {}", config.batch_size);
     log::info!("  Drop policy: {:?}", config.drop_policy);
+    match &config.pending_flows {
+        Some(pf) => {
+            log::info!(
+                "  Pending flow cache: enabled (max_pending_flows={}, max_entries_per_template={}, max_entry_size_bytes={})",
+                pf.max_pending_flows,
+                pf.max_entries_per_template,
+                pf.max_entry_size_bytes
+            );
+        }
+        None => {
+            log::info!("  Pending flow cache: disabled");
+        }
+    }
 
     // Create bounded channel between listener and publisher
     let (tx, rx) = mpsc::channel(config.channel_size);

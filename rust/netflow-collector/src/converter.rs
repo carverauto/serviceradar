@@ -105,148 +105,157 @@ impl Converter {
         let mut messages = Vec::new();
 
         for flowset in &packet.flowsets {
-            if let FlowSetBody::Data(data) = &flowset.body {
-                for fields in &data.fields {
-                    let mut msg = flowpb::FlowMessage {
-                        r#type: i32::from(flowpb::flow_message::FlowType::NetflowV9),
-                        time_received_ns: self.receive_time_ns,
-                        sampler_address: ip_to_bytes(&self.sampler_addr.ip()),
-                        sequence_num: packet.header.sequence_number,
-                        ..Default::default()
-                    };
+            match &flowset.body {
+                FlowSetBody::Data(data) => {
+                    for fields in &data.fields {
+                        let mut msg = flowpb::FlowMessage {
+                            r#type: i32::from(flowpb::flow_message::FlowType::NetflowV9),
+                            time_received_ns: self.receive_time_ns,
+                            sampler_address: ip_to_bytes(&self.sampler_addr.ip()),
+                            sequence_num: packet.header.sequence_number,
+                            ..Default::default()
+                        };
 
-                    // Extract fields using helper
-                    for (field_type, field_value) in fields {
-                        match field_type {
-                            // IP Addresses - prefer IPv4, fallback handled separately
-                            V9Field::Ipv4SrcAddr => {
-                                if msg.src_addr.is_empty() {
-                                    msg.src_addr = field_value_to_ip_bytes(field_value);
+                        // Extract fields using helper
+                        for (field_type, field_value) in fields {
+                            match field_type {
+                                // IP Addresses - prefer IPv4, fallback handled separately
+                                V9Field::Ipv4SrcAddr => {
+                                    if msg.src_addr.is_empty() {
+                                        msg.src_addr = field_value_to_ip_bytes(field_value);
+                                    }
                                 }
-                            }
-                            V9Field::Ipv6SrcAddr => {
-                                if msg.src_addr.is_empty() {
-                                    msg.src_addr = field_value_to_ip_bytes(field_value);
+                                V9Field::Ipv6SrcAddr => {
+                                    if msg.src_addr.is_empty() {
+                                        msg.src_addr = field_value_to_ip_bytes(field_value);
+                                    }
                                 }
-                            }
-                            V9Field::Ipv4DstAddr => {
-                                if msg.dst_addr.is_empty() {
-                                    msg.dst_addr = field_value_to_ip_bytes(field_value);
+                                V9Field::Ipv4DstAddr => {
+                                    if msg.dst_addr.is_empty() {
+                                        msg.dst_addr = field_value_to_ip_bytes(field_value);
+                                    }
                                 }
-                            }
-                            V9Field::Ipv6DstAddr => {
-                                if msg.dst_addr.is_empty() {
-                                    msg.dst_addr = field_value_to_ip_bytes(field_value);
+                                V9Field::Ipv6DstAddr => {
+                                    if msg.dst_addr.is_empty() {
+                                        msg.dst_addr = field_value_to_ip_bytes(field_value);
+                                    }
                                 }
-                            }
 
-                            // Ports
-                            V9Field::L4SrcPort => msg.src_port = field_value_to_u32(field_value),
-                            V9Field::L4DstPort => msg.dst_port = field_value_to_u32(field_value),
+                                // Ports
+                                V9Field::L4SrcPort => msg.src_port = field_value_to_u32(field_value),
+                                V9Field::L4DstPort => msg.dst_port = field_value_to_u32(field_value),
 
-                            // Protocol
-                            V9Field::Protocol => {
-                                msg.proto = field_value_to_u32(field_value);
-                                msg.protocol_name = field_value_to_protocol_name(field_value);
-                            }
-
-                            // Volume
-                            V9Field::InBytes => msg.bytes = field_value_to_u64(field_value),
-                            V9Field::InPkts => msg.packets = field_value_to_u64(field_value),
-
-                            // Timing (relative to uptime)
-                            V9Field::FirstSwitched => {
-                                let flow_uptime = field_value_to_u32(field_value);
-                                let uptime_ms = packet.header.sys_up_time;
-                                let unix_secs = packet.header.unix_secs;
-                                let base_time_ns = (u64::from(unix_secs))
-                                    .checked_mul(1_000_000_000)
-                                    .unwrap_or(0);
-                                msg.time_flow_start_ns =
-                                    calculate_flow_time(base_time_ns, uptime_ms, flow_uptime);
-                            }
-                            V9Field::LastSwitched => {
-                                let flow_uptime = field_value_to_u32(field_value);
-                                let uptime_ms = packet.header.sys_up_time;
-                                let unix_secs = packet.header.unix_secs;
-                                let base_time_ns = (u64::from(unix_secs))
-                                    .checked_mul(1_000_000_000)
-                                    .unwrap_or(0);
-                                msg.time_flow_end_ns =
-                                    calculate_flow_time(base_time_ns, uptime_ms, flow_uptime);
-                            }
-
-                            // Interfaces
-                            V9Field::InputSnmp => msg.in_if = field_value_to_u32(field_value),
-                            V9Field::OutputSnmp => msg.out_if = field_value_to_u32(field_value),
-
-                            // MAC addresses
-                            V9Field::InSrcMac => msg.src_mac = field_value_to_mac_u64(field_value),
-                            V9Field::InDstMac | V9Field::OutDstMac => {
-                                if msg.dst_mac == 0 {
-                                    msg.dst_mac = field_value_to_mac_u64(field_value);
+                                // Protocol
+                                V9Field::Protocol => {
+                                    msg.proto = field_value_to_u32(field_value);
+                                    msg.protocol_name = field_value_to_protocol_name(field_value);
                                 }
-                            }
 
-                            // AS numbers
-                            V9Field::SrcAs => msg.src_as = field_value_to_u32(field_value),
-                            V9Field::DstAs => msg.dst_as = field_value_to_u32(field_value),
+                                // Volume
+                                V9Field::InBytes => msg.bytes = field_value_to_u64(field_value),
+                                V9Field::InPkts => msg.packets = field_value_to_u64(field_value),
 
-                            // Next hop
-                            V9Field::Ipv4NextHop => {
-                                if msg.next_hop.is_empty() {
-                                    msg.next_hop = field_value_to_ip_bytes(field_value);
+                                // Timing (relative to uptime)
+                                V9Field::FirstSwitched => {
+                                    let flow_uptime = field_value_to_u32(field_value);
+                                    let uptime_ms = packet.header.sys_up_time;
+                                    let unix_secs = packet.header.unix_secs;
+                                    let base_time_ns = (u64::from(unix_secs))
+                                        .checked_mul(1_000_000_000)
+                                        .unwrap_or(0);
+                                    msg.time_flow_start_ns =
+                                        calculate_flow_time(base_time_ns, uptime_ms, flow_uptime);
                                 }
-                            }
-                            V9Field::Ipv6NextHop => {
-                                if msg.next_hop.is_empty() {
-                                    msg.next_hop = field_value_to_ip_bytes(field_value);
+                                V9Field::LastSwitched => {
+                                    let flow_uptime = field_value_to_u32(field_value);
+                                    let uptime_ms = packet.header.sys_up_time;
+                                    let unix_secs = packet.header.unix_secs;
+                                    let base_time_ns = (u64::from(unix_secs))
+                                        .checked_mul(1_000_000_000)
+                                        .unwrap_or(0);
+                                    msg.time_flow_end_ns =
+                                        calculate_flow_time(base_time_ns, uptime_ms, flow_uptime);
                                 }
-                            }
 
-                            // Network masks
-                            V9Field::SrcMask => msg.src_net = field_value_to_u32(field_value),
-                            V9Field::DstMask => msg.dst_net = field_value_to_u32(field_value),
-                            V9Field::Ipv6SrcMask => {
-                                if msg.src_net == 0 {
-                                    msg.src_net = field_value_to_u32(field_value);
+                                // Interfaces
+                                V9Field::InputSnmp => msg.in_if = field_value_to_u32(field_value),
+                                V9Field::OutputSnmp => msg.out_if = field_value_to_u32(field_value),
+
+                                // MAC addresses
+                                V9Field::InSrcMac => msg.src_mac = field_value_to_mac_u64(field_value),
+                                V9Field::InDstMac | V9Field::OutDstMac => {
+                                    if msg.dst_mac == 0 {
+                                        msg.dst_mac = field_value_to_mac_u64(field_value);
+                                    }
                                 }
-                            }
-                            V9Field::Ipv6DstMask => {
-                                if msg.dst_net == 0 {
-                                    msg.dst_net = field_value_to_u32(field_value);
+
+                                // AS numbers
+                                V9Field::SrcAs => msg.src_as = field_value_to_u32(field_value),
+                                V9Field::DstAs => msg.dst_as = field_value_to_u32(field_value),
+
+                                // Next hop
+                                V9Field::Ipv4NextHop => {
+                                    if msg.next_hop.is_empty() {
+                                        msg.next_hop = field_value_to_ip_bytes(field_value);
+                                    }
                                 }
-                            }
+                                V9Field::Ipv6NextHop => {
+                                    if msg.next_hop.is_empty() {
+                                        msg.next_hop = field_value_to_ip_bytes(field_value);
+                                    }
+                                }
 
-                            // Flags and ToS
-                            V9Field::TcpFlags => msg.tcp_flags = field_value_to_u32(field_value),
-                            V9Field::SrcTos => msg.ip_tos = field_value_to_u32(field_value),
+                                // Network masks
+                                V9Field::SrcMask => msg.src_net = field_value_to_u32(field_value),
+                                V9Field::DstMask => msg.dst_net = field_value_to_u32(field_value),
+                                V9Field::Ipv6SrcMask => {
+                                    if msg.src_net == 0 {
+                                        msg.src_net = field_value_to_u32(field_value);
+                                    }
+                                }
+                                V9Field::Ipv6DstMask => {
+                                    if msg.dst_net == 0 {
+                                        msg.dst_net = field_value_to_u32(field_value);
+                                    }
+                                }
 
-                            // VLAN
-                            V9Field::SrcVlan => msg.src_vlan = field_value_to_u32(field_value),
-                            V9Field::DstVlan => msg.dst_vlan = field_value_to_u32(field_value),
+                                // Flags and ToS
+                                V9Field::TcpFlags => msg.tcp_flags = field_value_to_u32(field_value),
+                                V9Field::SrcTos => msg.ip_tos = field_value_to_u32(field_value),
 
-                            // IPv6 Flow Label
-                            V9Field::Ipv6FlowLabel => {
-                                msg.ipv6_flow_label = field_value_to_u32(field_value)
-                            }
+                                // VLAN
+                                V9Field::SrcVlan => msg.src_vlan = field_value_to_u32(field_value),
+                                V9Field::DstVlan => msg.dst_vlan = field_value_to_u32(field_value),
 
-                            // ICMP
-                            V9Field::IcmpType => {
-                                // ICMP type/code are combined in one field sometimes
-                                let val = field_value_to_u32(field_value);
-                                msg.icmp_type = (val >> 8) & 0xFF;
-                                msg.icmp_code = val & 0xFF;
-                            }
+                                // IPv6 Flow Label
+                                V9Field::Ipv6FlowLabel => {
+                                    msg.ipv6_flow_label = field_value_to_u32(field_value)
+                                }
 
-                            _ => {
-                                // Ignore unhandled fields for now
+                                // ICMP
+                                V9Field::IcmpType => {
+                                    // ICMP type/code are combined in one field sometimes
+                                    let val = field_value_to_u32(field_value);
+                                    msg.icmp_type = (val >> 8) & 0xFF;
+                                    msg.icmp_code = val & 0xFF;
+                                }
+
+                                _ => {
+                                    // Ignore unhandled fields for now
+                                }
                             }
                         }
-                    }
 
-                    messages.push(msg);
+                        messages.push(msg);
+                    }
                 }
+                FlowSetBody::NoTemplate(info) => {
+                    debug!(
+                        "V9 flowset skipped - no template for ID {} (available: {:?}, {} bytes raw data)",
+                        info.template_id, info.available_templates, info.raw_data.len()
+                    );
+                }
+                _ => {}
             }
         }
 
@@ -262,232 +271,241 @@ impl Converter {
         let mut messages = Vec::new();
 
         for flowset in &packet.flowsets {
-            if let FlowSetBody::Data(data) = &flowset.body {
-                for fields in &data.fields {
-                    let mut msg = flowpb::FlowMessage {
-                        r#type: i32::from(flowpb::flow_message::FlowType::Ipfix),
-                        time_received_ns: self.receive_time_ns,
-                        sampler_address: ip_to_bytes(&self.sampler_addr.ip()),
-                        sequence_num: packet.header.sequence_number,
-                        observation_domain_id: packet.header.observation_domain_id,
-                        ..Default::default()
-                    };
+            match &flowset.body {
+                FlowSetBody::Data(data) => {
+                    for fields in &data.fields {
+                        let mut msg = flowpb::FlowMessage {
+                            r#type: i32::from(flowpb::flow_message::FlowType::Ipfix),
+                            time_received_ns: self.receive_time_ns,
+                            sampler_address: ip_to_bytes(&self.sampler_addr.ip()),
+                            sequence_num: packet.header.sequence_number,
+                            observation_domain_id: packet.header.observation_domain_id,
+                            ..Default::default()
+                        };
 
-                    // Extract fields
-                    for (field_type, field_value) in fields {
-                        match field_type {
-                            // IP Addresses - prefer IPv4, fallback to IPv6
-                            IPFixField::IANA(IANAIPFixField::SourceIpv4address) => {
-                                if msg.src_addr.is_empty() {
-                                    msg.src_addr = field_value_to_ip_bytes(field_value);
+                        // Extract fields
+                        for (field_type, field_value) in fields {
+                            match field_type {
+                                // IP Addresses - prefer IPv4, fallback to IPv6
+                                IPFixField::IANA(IANAIPFixField::SourceIpv4address) => {
+                                    if msg.src_addr.is_empty() {
+                                        msg.src_addr = field_value_to_ip_bytes(field_value);
+                                    }
                                 }
-                            }
-                            IPFixField::IANA(IANAIPFixField::SourceIpv6address) => {
-                                if msg.src_addr.is_empty() {
-                                    msg.src_addr = field_value_to_ip_bytes(field_value);
+                                IPFixField::IANA(IANAIPFixField::SourceIpv6address) => {
+                                    if msg.src_addr.is_empty() {
+                                        msg.src_addr = field_value_to_ip_bytes(field_value);
+                                    }
                                 }
-                            }
-                            IPFixField::IANA(IANAIPFixField::DestinationIpv4address) => {
-                                if msg.dst_addr.is_empty() {
-                                    msg.dst_addr = field_value_to_ip_bytes(field_value);
+                                IPFixField::IANA(IANAIPFixField::DestinationIpv4address) => {
+                                    if msg.dst_addr.is_empty() {
+                                        msg.dst_addr = field_value_to_ip_bytes(field_value);
+                                    }
                                 }
-                            }
-                            IPFixField::IANA(IANAIPFixField::DestinationIpv6address) => {
-                                if msg.dst_addr.is_empty() {
-                                    msg.dst_addr = field_value_to_ip_bytes(field_value);
+                                IPFixField::IANA(IANAIPFixField::DestinationIpv6address) => {
+                                    if msg.dst_addr.is_empty() {
+                                        msg.dst_addr = field_value_to_ip_bytes(field_value);
+                                    }
                                 }
-                            }
 
-                            // Ports
-                            IPFixField::IANA(IANAIPFixField::SourceTransportPort) => {
-                                msg.src_port = field_value_to_u32(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::DestinationTransportPort) => {
-                                msg.dst_port = field_value_to_u32(field_value)
-                            }
+                                // Ports
+                                IPFixField::IANA(IANAIPFixField::SourceTransportPort) => {
+                                    msg.src_port = field_value_to_u32(field_value)
+                                }
+                                IPFixField::IANA(IANAIPFixField::DestinationTransportPort) => {
+                                    msg.dst_port = field_value_to_u32(field_value)
+                                }
 
-                            // Protocol
-                            IPFixField::IANA(IANAIPFixField::ProtocolIdentifier) => {
-                                msg.proto = field_value_to_u32(field_value);
-                                msg.protocol_name = field_value_to_protocol_name(field_value);
-                            }
+                                // Protocol
+                                IPFixField::IANA(IANAIPFixField::ProtocolIdentifier) => {
+                                    msg.proto = field_value_to_u32(field_value);
+                                    msg.protocol_name = field_value_to_protocol_name(field_value);
+                                }
 
-                            // Volume - prefer Delta counts
-                            IPFixField::IANA(IANAIPFixField::OctetDeltaCount) => {
-                                msg.bytes = field_value_to_u64(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::OctetTotalCount) => {
-                                if msg.bytes == 0 {
+                                // Volume - prefer Delta counts
+                                IPFixField::IANA(IANAIPFixField::OctetDeltaCount) => {
                                     msg.bytes = field_value_to_u64(field_value)
                                 }
-                            }
-                            IPFixField::IANA(IANAIPFixField::PacketDeltaCount) => {
-                                msg.packets = field_value_to_u64(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::PacketTotalCount) => {
-                                if msg.packets == 0 {
+                                IPFixField::IANA(IANAIPFixField::OctetTotalCount) => {
+                                    if msg.bytes == 0 {
+                                        msg.bytes = field_value_to_u64(field_value)
+                                    }
+                                }
+                                IPFixField::IANA(IANAIPFixField::PacketDeltaCount) => {
                                     msg.packets = field_value_to_u64(field_value)
                                 }
-                            }
+                                IPFixField::IANA(IANAIPFixField::PacketTotalCount) => {
+                                    if msg.packets == 0 {
+                                        msg.packets = field_value_to_u64(field_value)
+                                    }
+                                }
 
-                            // Timing - handle both absolute and relative timestamps
-                            IPFixField::IANA(IANAIPFixField::FlowStartMilliseconds) => {
-                                msg.time_flow_start_ns = field_value_to_u64(field_value)
-                                    .checked_mul(1_000_000)
-                                    .unwrap_or(0);
-                            }
-                            IPFixField::IANA(IANAIPFixField::FlowStartSysUpTime) => {
-                                if msg.time_flow_start_ns == 0 {
-                                    let flow_uptime = field_value_to_u32(field_value);
-                                    let export_time = packet.header.export_time;
-                                    let base_time_ns = (u64::from(export_time))
-                                        .checked_mul(1_000_000_000)
+                                // Timing - handle both absolute and relative timestamps
+                                IPFixField::IANA(IANAIPFixField::FlowStartMilliseconds) => {
+                                    msg.time_flow_start_ns = field_value_to_u64(field_value)
+                                        .checked_mul(1_000_000)
                                         .unwrap_or(0);
-                                    // Note: For IPFIX, we'd need system uptime from the header
-                                    // For now, use a simplified calculation
-                                    msg.time_flow_start_ns = base_time_ns.saturating_sub(
-                                        (u64::from(flow_uptime)).saturating_mul(1_000_000),
-                                    );
                                 }
-                            }
-                            IPFixField::IANA(IANAIPFixField::FlowEndMilliseconds) => {
-                                msg.time_flow_end_ns = field_value_to_u64(field_value)
-                                    .checked_mul(1_000_000)
-                                    .unwrap_or(0);
-                            }
-                            IPFixField::IANA(IANAIPFixField::FlowEndSysUpTime) => {
-                                if msg.time_flow_end_ns == 0 {
-                                    let flow_uptime = field_value_to_u32(field_value);
-                                    let export_time = packet.header.export_time;
-                                    let base_time_ns = (u64::from(export_time))
-                                        .checked_mul(1_000_000_000)
+                                IPFixField::IANA(IANAIPFixField::FlowStartSysUpTime) => {
+                                    if msg.time_flow_start_ns == 0 {
+                                        let flow_uptime = field_value_to_u32(field_value);
+                                        let export_time = packet.header.export_time;
+                                        let base_time_ns = (u64::from(export_time))
+                                            .checked_mul(1_000_000_000)
+                                            .unwrap_or(0);
+                                        // Note: For IPFIX, we'd need system uptime from the header
+                                        // For now, use a simplified calculation
+                                        msg.time_flow_start_ns = base_time_ns.saturating_sub(
+                                            (u64::from(flow_uptime)).saturating_mul(1_000_000),
+                                        );
+                                    }
+                                }
+                                IPFixField::IANA(IANAIPFixField::FlowEndMilliseconds) => {
+                                    msg.time_flow_end_ns = field_value_to_u64(field_value)
+                                        .checked_mul(1_000_000)
                                         .unwrap_or(0);
-                                    msg.time_flow_end_ns = base_time_ns.saturating_sub(
-                                        (u64::from(flow_uptime)).saturating_mul(1_000_000),
-                                    );
                                 }
-                            }
-
-                            // Interfaces
-                            IPFixField::IANA(IANAIPFixField::IngressInterface) => {
-                                msg.in_if = field_value_to_u32(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::EgressInterface) => {
-                                msg.out_if = field_value_to_u32(field_value)
-                            }
-
-                            // MAC addresses
-                            IPFixField::IANA(IANAIPFixField::SourceMacaddress) => {
-                                msg.src_mac = field_value_to_mac_u64(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::DestinationMacaddress) => {
-                                msg.dst_mac = field_value_to_mac_u64(field_value)
-                            }
-
-                            // AS numbers
-                            IPFixField::IANA(IANAIPFixField::BgpSourceAsNumber) => {
-                                msg.src_as = field_value_to_u32(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::BgpDestinationAsNumber) => {
-                                msg.dst_as = field_value_to_u32(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::BgpNextAdjacentAsNumber) => {
-                                msg.next_hop_as = field_value_to_u32(field_value)
-                            }
-
-                            // Next hop
-                            IPFixField::IANA(IANAIPFixField::IpNextHopIpv4address) => {
-                                if msg.next_hop.is_empty() {
-                                    msg.next_hop = field_value_to_ip_bytes(field_value);
+                                IPFixField::IANA(IANAIPFixField::FlowEndSysUpTime) => {
+                                    if msg.time_flow_end_ns == 0 {
+                                        let flow_uptime = field_value_to_u32(field_value);
+                                        let export_time = packet.header.export_time;
+                                        let base_time_ns = (u64::from(export_time))
+                                            .checked_mul(1_000_000_000)
+                                            .unwrap_or(0);
+                                        msg.time_flow_end_ns = base_time_ns.saturating_sub(
+                                            (u64::from(flow_uptime)).saturating_mul(1_000_000),
+                                        );
+                                    }
                                 }
-                            }
-                            IPFixField::IANA(IANAIPFixField::IpNextHopIpv6address) => {
-                                if msg.next_hop.is_empty() {
-                                    msg.next_hop = field_value_to_ip_bytes(field_value);
+
+                                // Interfaces
+                                IPFixField::IANA(IANAIPFixField::IngressInterface) => {
+                                    msg.in_if = field_value_to_u32(field_value)
                                 }
-                            }
-                            IPFixField::IANA(IANAIPFixField::BgpNextHopIpv4address) => {
-                                msg.bgp_next_hop = field_value_to_ip_bytes(field_value);
-                            }
-                            IPFixField::IANA(IANAIPFixField::BgpNextHopIpv6address) => {
-                                if msg.bgp_next_hop.is_empty() {
+                                IPFixField::IANA(IANAIPFixField::EgressInterface) => {
+                                    msg.out_if = field_value_to_u32(field_value)
+                                }
+
+                                // MAC addresses
+                                IPFixField::IANA(IANAIPFixField::SourceMacaddress) => {
+                                    msg.src_mac = field_value_to_mac_u64(field_value)
+                                }
+                                IPFixField::IANA(IANAIPFixField::DestinationMacaddress) => {
+                                    msg.dst_mac = field_value_to_mac_u64(field_value)
+                                }
+
+                                // AS numbers
+                                IPFixField::IANA(IANAIPFixField::BgpSourceAsNumber) => {
+                                    msg.src_as = field_value_to_u32(field_value)
+                                }
+                                IPFixField::IANA(IANAIPFixField::BgpDestinationAsNumber) => {
+                                    msg.dst_as = field_value_to_u32(field_value)
+                                }
+                                IPFixField::IANA(IANAIPFixField::BgpNextAdjacentAsNumber) => {
+                                    msg.next_hop_as = field_value_to_u32(field_value)
+                                }
+
+                                // Next hop
+                                IPFixField::IANA(IANAIPFixField::IpNextHopIpv4address) => {
+                                    if msg.next_hop.is_empty() {
+                                        msg.next_hop = field_value_to_ip_bytes(field_value);
+                                    }
+                                }
+                                IPFixField::IANA(IANAIPFixField::IpNextHopIpv6address) => {
+                                    if msg.next_hop.is_empty() {
+                                        msg.next_hop = field_value_to_ip_bytes(field_value);
+                                    }
+                                }
+                                IPFixField::IANA(IANAIPFixField::BgpNextHopIpv4address) => {
                                     msg.bgp_next_hop = field_value_to_ip_bytes(field_value);
                                 }
-                            }
+                                IPFixField::IANA(IANAIPFixField::BgpNextHopIpv6address) => {
+                                    if msg.bgp_next_hop.is_empty() {
+                                        msg.bgp_next_hop = field_value_to_ip_bytes(field_value);
+                                    }
+                                }
 
-                            // Network masks / prefix lengths
-                            IPFixField::IANA(IANAIPFixField::SourceIpv4prefixLength) => {
-                                msg.src_net = field_value_to_u32(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::DestinationIpv4prefixLength) => {
-                                msg.dst_net = field_value_to_u32(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::SourceIpv6prefixLength) => {
-                                if msg.src_net == 0 {
+                                // Network masks / prefix lengths
+                                IPFixField::IANA(IANAIPFixField::SourceIpv4prefixLength) => {
                                     msg.src_net = field_value_to_u32(field_value)
                                 }
-                            }
-                            IPFixField::IANA(IANAIPFixField::DestinationIpv6prefixLength) => {
-                                if msg.dst_net == 0 {
+                                IPFixField::IANA(IANAIPFixField::DestinationIpv4prefixLength) => {
                                     msg.dst_net = field_value_to_u32(field_value)
                                 }
-                            }
+                                IPFixField::IANA(IANAIPFixField::SourceIpv6prefixLength) => {
+                                    if msg.src_net == 0 {
+                                        msg.src_net = field_value_to_u32(field_value)
+                                    }
+                                }
+                                IPFixField::IANA(IANAIPFixField::DestinationIpv6prefixLength) => {
+                                    if msg.dst_net == 0 {
+                                        msg.dst_net = field_value_to_u32(field_value)
+                                    }
+                                }
 
-                            // Flags and ToS
-                            IPFixField::IANA(IANAIPFixField::TcpControlBits) => {
-                                msg.tcp_flags = field_value_to_u32(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::IpClassOfService) => {
-                                msg.ip_tos = field_value_to_u32(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::MinimumTtl) => {
-                                msg.ip_ttl = field_value_to_u32(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::MaximumTtl) => {
-                                if msg.ip_ttl == 0 {
+                                // Flags and ToS
+                                IPFixField::IANA(IANAIPFixField::TcpControlBits) => {
+                                    msg.tcp_flags = field_value_to_u32(field_value)
+                                }
+                                IPFixField::IANA(IANAIPFixField::IpClassOfService) => {
+                                    msg.ip_tos = field_value_to_u32(field_value)
+                                }
+                                IPFixField::IANA(IANAIPFixField::MinimumTtl) => {
                                     msg.ip_ttl = field_value_to_u32(field_value)
                                 }
-                            }
+                                IPFixField::IANA(IANAIPFixField::MaximumTtl) => {
+                                    if msg.ip_ttl == 0 {
+                                        msg.ip_ttl = field_value_to_u32(field_value)
+                                    }
+                                }
 
-                            // VLAN
-                            IPFixField::IANA(IANAIPFixField::VlanId) => {
-                                msg.vlan_id = field_value_to_u32(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::Dot1qVlanId) => {
-                                msg.src_vlan = field_value_to_u32(field_value)
-                            }
-                            IPFixField::IANA(IANAIPFixField::PostDot1qVlanId) => {
-                                msg.dst_vlan = field_value_to_u32(field_value)
-                            }
+                                // VLAN
+                                IPFixField::IANA(IANAIPFixField::VlanId) => {
+                                    msg.vlan_id = field_value_to_u32(field_value)
+                                }
+                                IPFixField::IANA(IANAIPFixField::Dot1qVlanId) => {
+                                    msg.src_vlan = field_value_to_u32(field_value)
+                                }
+                                IPFixField::IANA(IANAIPFixField::PostDot1qVlanId) => {
+                                    msg.dst_vlan = field_value_to_u32(field_value)
+                                }
 
-                            // IPv6 Flow Label
-                            IPFixField::IANA(IANAIPFixField::FlowLabelIpv6) => {
-                                msg.ipv6_flow_label = field_value_to_u32(field_value)
-                            }
+                                // IPv6 Flow Label
+                                IPFixField::IANA(IANAIPFixField::FlowLabelIpv6) => {
+                                    msg.ipv6_flow_label = field_value_to_u32(field_value)
+                                }
 
-                            // ICMP
-                            IPFixField::IANA(IANAIPFixField::IcmpTypeCodeIpv4) => {
-                                let val = field_value_to_u32(field_value);
-                                msg.icmp_type = (val >> 8) & 0xFF;
-                                msg.icmp_code = val & 0xFF;
-                            }
-                            IPFixField::IANA(IANAIPFixField::IcmpTypeCodeIpv6) => {
-                                if msg.icmp_type == 0 && msg.icmp_code == 0 {
+                                // ICMP
+                                IPFixField::IANA(IANAIPFixField::IcmpTypeCodeIpv4) => {
                                     let val = field_value_to_u32(field_value);
                                     msg.icmp_type = (val >> 8) & 0xFF;
                                     msg.icmp_code = val & 0xFF;
                                 }
-                            }
+                                IPFixField::IANA(IANAIPFixField::IcmpTypeCodeIpv6) => {
+                                    if msg.icmp_type == 0 && msg.icmp_code == 0 {
+                                        let val = field_value_to_u32(field_value);
+                                        msg.icmp_type = (val >> 8) & 0xFF;
+                                        msg.icmp_code = val & 0xFF;
+                                    }
+                                }
 
-                            _ => {
-                                // Ignore unhandled fields
-                                debug!("Unhandled IPFIX field: {:?}", field_type);
+                                _ => {
+                                    // Ignore unhandled fields
+                                    debug!("Unhandled IPFIX field: {:?}", field_type);
+                                }
                             }
                         }
-                    }
 
-                    messages.push(msg);
+                        messages.push(msg);
+                    }
                 }
+                FlowSetBody::NoTemplate(info) => {
+                    debug!(
+                        "IPFIX flowset skipped - no template for ID {} (available: {:?}, {} bytes raw data)",
+                        info.template_id, info.available_templates, info.raw_data.len()
+                    );
+                }
+                _ => {}
             }
         }
 
