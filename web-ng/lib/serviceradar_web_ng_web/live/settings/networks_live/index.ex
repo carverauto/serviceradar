@@ -949,6 +949,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             show_form={@show_mapper_form}
             form={@mapper_form}
             seeds_text={@mapper_seeds_text}
+            agents={@agents}
             unifi_form={@mapper_unifi_form}
             unifi_present={@mapper_unifi_present}
             mapper_command_statuses={@mapper_command_statuses}
@@ -1065,6 +1066,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :show_form, :any, default: nil
   attr :form, :any, default: nil
   attr :seeds_text, :string, default: ""
+  attr :agents, :list, default: []
   attr :unifi_form, :any, default: nil
   attr :unifi_present, :boolean, default: false
   attr :mapper_command_statuses, :map, default: %{}
