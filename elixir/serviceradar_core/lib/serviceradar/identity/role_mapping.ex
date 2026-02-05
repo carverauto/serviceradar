@@ -132,11 +132,9 @@ defmodule ServiceRadar.Identity.RoleMapping do
   defp get_key(map, key) when is_map(map), do: Map.get(map, key)
 
   defp get_atom_key(map, key) do
-    try do
-      atom_key = String.to_existing_atom(key)
-      Map.get(map, atom_key)
-    rescue
-      ArgumentError -> nil
-    end
+    atom_key = String.to_existing_atom(key)
+    Map.get(map, atom_key)
+  rescue
+    ArgumentError -> nil
   end
 end

@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:fetch_session)
     plug(:protect_from_forgery)
     plug(:fetch_current_scope_for_user)
+    plug(:set_ash_actor)
     plug(:require_authenticated_user_api)
   end
 

@@ -7,6 +7,7 @@ defmodule ServiceRadar.Identity.Changes.RevokeUserAccess do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.ApiToken
   alias ServiceRadar.Identity.OAuthClient
 
@@ -25,25 +26,23 @@ defmodule ServiceRadar.Identity.Changes.RevokeUserAccess do
   @spec revoke_user_access(map(), map() | nil) :: :ok
   def revoke_user_access(user, actor) do
     revoked_by = actor_email(actor) || "system"
+    policy_actor = SystemActor.system(:revoke_user_access)
 
-    revoke_api_tokens(user.id, actor, revoked_by)
-    revoke_oauth_clients(user.id, actor)
+    revoke_api_tokens(user.id, policy_actor, revoked_by)
+    revoke_oauth_clients(user.id, policy_actor)
 
     :ok
   end
 
   defp revoke_api_tokens(user_id, actor, revoked_by) do
     ApiToken
-    |> Ash.Query.for_read(:by_user, %{user_id: user_id}, actor: actor, authorize?: false)
+    |> Ash.Query.for_read(:by_user, %{user_id: user_id}, actor: actor)
     |> Ash.read()
     |> case do
       {:ok, tokens} ->
         Enum.each(tokens, fn token ->
           token
-          |> Ash.Changeset.for_update(:revoke, %{revoked_by: revoked_by},
-            actor: actor,
-            authorize?: false
-          )
+          |> Ash.Changeset.for_update(:revoke, %{revoked_by: revoked_by}, actor: actor)
           |> Ash.update()
         end)
 
@@ -54,13 +53,13 @@ defmodule ServiceRadar.Identity.Changes.RevokeUserAccess do
 
   defp revoke_oauth_clients(user_id, actor) do
     OAuthClient
-    |> Ash.Query.for_read(:by_user, %{user_id: user_id}, actor: actor, authorize?: false)
+    |> Ash.Query.for_read(:by_user, %{user_id: user_id}, actor: actor)
     |> Ash.read()
     |> case do
       {:ok, clients} ->
         Enum.each(clients, fn client ->
           client
-          |> Ash.Changeset.for_update(:revoke, %{}, actor: actor, authorize?: false)
+          |> Ash.Changeset.for_update(:revoke, %{}, actor: actor)
           |> Ash.update()
         end)
 
