@@ -2650,26 +2650,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       Logger.error("Device create failed: generated UID is empty for #{inspect(device_data)}")
       {:error, :invalid_uid}
     else
-      Device.get_by_uid(uid, false, scope: scope)
-      |> handle_existing_device(uid, device_data, scope)
+      create_new_device(uid, device_data, scope)
+      |> normalize_create_result()
     end
   end
 
-  defp handle_existing_device({:ok, nil}, uid, device_data, scope) do
-    # Treat nil as not found to avoid false positives
-    create_new_device(uid, device_data, scope)
-  end
+  defp normalize_create_result({:ok, device}), do: {:ok, device}
 
-  defp handle_existing_device({:ok, _existing}, _uid, _device_data, _scope),
-    do: {:error, :already_exists}
-
-  defp handle_existing_device({:error, error}, uid, device_data, scope) do
-    if not_found_error?(error) do
-      create_new_device(uid, device_data, scope)
+  defp normalize_create_result({:error, %Ash.Error.Invalid{} = error}) do
+    if unique_uid_error?(error) do
+      {:error, :already_exists}
     else
       {:error, error}
     end
   end
+
+  defp normalize_create_result({:error, error}), do: {:error, error}
 
   defp create_new_device(uid, device_data, scope) do
     # Device doesn't exist, create it
@@ -2777,11 +2773,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp format_single_device_error(err),
     do: inspect(err)
 
-  defp not_found_error?(%Ash.Error.Query.NotFound{}), do: true
-
-  defp not_found_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1))
+  defp unique_uid_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &unique_uid_error_detail?/1)
   end
 
-  defp not_found_error?(_), do: false
+  defp unique_uid_error?(_), do: false
+
+  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidAttribute{
+         field: :uid,
+         validation: :unique
+       }),
+       do: true
+
+  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidAttribute{field: :uid, message: msg})
+       when is_binary(msg),
+       do: String.contains?(msg, "has already been taken")
+
+  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidChanges{field: :uid}),
+    do: true
+
+  defp unique_uid_error_detail?(_), do: false
 end
