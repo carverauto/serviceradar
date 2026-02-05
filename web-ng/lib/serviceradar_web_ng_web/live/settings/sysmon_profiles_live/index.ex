@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   import ServiceRadarWebNGWeb.QueryBuilderComponents
 
   alias AshPhoenix.Form
+  alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.SysmonProfiles.SysmonProfile
   alias ServiceRadarWebNGWeb.SRQL.Catalog
@@ -138,11 +139,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     case Form.submit(ash_form, params: params) do
       {:ok, _profile} ->
         action = if socket.assigns.show_form == :new_profile, do: "created", else: "updated"
+        _ = ConfigServer.invalidate(:sysmon)
 
         {:noreply,
          socket
          |> assign(:profiles, load_profiles(scope))
-         |> put_flash(:info, "Profile #{action} successfully")
+         |> put_flash(:info, "Profile #{action}. Pushed config to connected agents.")
          |> push_navigate(to: ~p"/settings/sysmon")}
 
       {:error, ash_form} ->
@@ -166,10 +168,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
         case Ash.update(changeset, scope: scope) do
           {:ok, _updated} ->
+            _ = ConfigServer.invalidate(:sysmon)
             {:noreply,
              socket
              |> assign(:profiles, load_profiles(scope))
-             |> put_flash(:info, "Profile #{if new_enabled, do: "enabled", else: "disabled"}")}
+             |> put_flash(
+               :info,
+               "Profile #{if new_enabled, do: "enabled", else: "disabled"}. Pushed config to connected agents."
+             )}
 
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Failed to update profile")}
@@ -187,10 +193,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       profile ->
         case Ash.destroy(profile, scope: scope) do
           :ok ->
+            _ = ConfigServer.invalidate(:sysmon)
             {:noreply,
              socket
              |> assign(:profiles, load_profiles(scope))
-             |> put_flash(:info, "Profile deleted")}
+             |> put_flash(:info, "Profile deleted. Pushed config to connected agents.")}
 
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Failed to delete profile")}
