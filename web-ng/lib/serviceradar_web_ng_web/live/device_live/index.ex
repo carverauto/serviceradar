@@ -2779,18 +2779,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp unique_uid_error?(_), do: false
 
-  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidAttribute{
-         field: :uid,
-         validation: :unique
-       }),
-       do: true
+  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidAttribute{} = error) do
+    field = Map.get(error, :field)
+    validation = Map.get(error, :validation)
+    message = Map.get(error, :message)
 
-  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidAttribute{field: :uid, message: msg})
-       when is_binary(msg),
-       do: String.contains?(msg, "has already been taken")
+    field == :uid and
+      (unique_validation?(validation) or
+         (is_binary(message) and String.contains?(message, "has already been taken")))
+  end
 
-  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidChanges{field: :uid}),
-    do: true
+  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidChanges{} = error) do
+    fields = Map.get(error, :fields, [])
+    validation = Map.get(error, :validation)
+    message = Map.get(error, :message)
+
+    Enum.member?(List.wrap(fields), :uid) and
+      (unique_validation?(validation) or
+         (is_binary(message) and String.contains?(message, "has already been taken")))
+  end
 
   defp unique_uid_error_detail?(_), do: false
+
+  defp unique_validation?(:unique), do: true
+
+  defp unique_validation?({Ash.Resource.Validation.Uniqueness, _opts}), do: true
+
+  defp unique_validation?(_), do: false
 end
