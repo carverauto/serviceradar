@@ -47,9 +47,7 @@ ingress:
     clusterIssuer: ""
 networkPolicy:
   enabled: true
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/part-of: serviceradar
+  podSelectorMatchAll: true
   egress:
     allowDNS: true
     allowKubeAPIServer: true
@@ -58,7 +56,7 @@ networkPolicy:
     allowedCIDRs: []
   calicoLogDenied:
     enabled: true
-    selector: "app.kubernetes.io/part-of == 'serviceradar'"
+    selector: "all()"
     order: 1000
 
 webNg:

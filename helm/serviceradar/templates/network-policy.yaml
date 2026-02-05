@@ -23,7 +23,12 @@
   {{- end -}}
 {{- end -}}
 {{- $hasKubeAPICIDRs := gt (len $kubeAPICIDRs) 0 -}}
-{{- $podSelector := default (dict "matchLabels" (dict "app.kubernetes.io/part-of" "serviceradar")) $np.podSelector -}}
+{{- $podSelector := dict "matchLabels" (dict "app.kubernetes.io/part-of" "serviceradar") -}}
+{{- if $np.podSelectorMatchAll -}}
+  {{- $podSelector = dict -}}
+{{- else if hasKey $np "podSelector" -}}
+  {{- $podSelector = $np.podSelector -}}
+{{- end -}}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

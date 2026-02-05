@@ -464,6 +464,7 @@ ingress:
     clusterIssuer: ""
 networkPolicy:
   enabled: false
+  podSelectorMatchAll: false
   podSelector:
     matchLabels:
       app.kubernetes.io/part-of: serviceradar
