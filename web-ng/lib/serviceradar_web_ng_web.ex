@@ -94,6 +94,7 @@ defmodule ServiceRadarWebNGWeb do
       # Common modules used in templates
       alias Phoenix.LiveView.JS
       alias ServiceRadarWebNGWeb.Layouts
+      alias ServiceRadarWebNG.RBAC
 
       # Routes generation with the ~p sigil
       unquote(verified_routes())

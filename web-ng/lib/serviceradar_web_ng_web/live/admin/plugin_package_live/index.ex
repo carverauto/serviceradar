@@ -16,44 +16,52 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    socket =
-      socket
-      |> assign(:page_title, "Plugins")
-      |> assign(:current_path, nil)
-      |> assign(:plugins_base_path, "/admin/plugins")
-      |> assign(:packages, list_packages(%{}, scope))
-      |> assign(:filter_status, nil)
-      |> assign(:filter_source_type, nil)
-      |> assign(:show_create_modal, false)
-      |> assign(:show_details_modal, false)
-      |> assign(:create_form, default_create_form())
-      |> assign(:create_errors, [])
-      |> assign(:selected_package, nil)
-      |> assign(:review_form, default_review_form())
-      |> assign(:assignment_form, default_assignment_form())
-      |> assign(:assignments, [])
-      |> assign(:versions, [])
-      |> assign(:agents, list_agents(scope))
-      |> assign_capacity(scope)
-      |> assign(:verification_policy, plugin_verification_policy())
-      |> assign(:upload_url, nil)
-      |> assign(:upload_expires_at, nil)
-      |> assign(:download_url, nil)
-      |> assign(:download_expires_at, nil)
-      |> assign(:blob_present, nil)
-      |> assign(:upload_errors, [])
-      |> allow_upload(:wasm_blob,
-        accept: ~w(.wasm),
-        max_entries: 1,
-        max_file_size: Storage.max_upload_bytes()
-      )
+    if not RBAC.can?(scope, "settings.plugins.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "Admin access required")
+       |> redirect(to: ~p"/settings/profile")}
+    else
+      socket =
+        socket
+        |> assign(:page_title, "Plugins")
+        |> assign(:current_path, nil)
+        |> assign(:plugins_base_path, "/admin/plugins")
+        |> assign(:packages, list_packages(%{}, scope))
+        |> assign(:filter_status, nil)
+        |> assign(:filter_source_type, nil)
+        |> assign(:show_create_modal, false)
+        |> assign(:show_details_modal, false)
+        |> assign(:create_form, default_create_form())
+        |> assign(:create_errors, [])
+        |> assign(:selected_package, nil)
+        |> assign(:review_form, default_review_form())
+        |> assign(:assignment_form, default_assignment_form())
+        |> assign(:assignments, [])
+        |> assign(:versions, [])
+        |> assign(:agents, list_agents(scope))
+        |> assign_capacity(scope)
+        |> assign(:verification_policy, plugin_verification_policy())
+        |> assign(:upload_url, nil)
+        |> assign(:upload_expires_at, nil)
+        |> assign(:download_url, nil)
+        |> assign(:download_expires_at, nil)
+        |> assign(:blob_present, nil)
+        |> assign(:upload_errors, [])
+        |> allow_upload(:wasm_blob,
+          accept: ~w(.wasm),
+          max_entries: 1,
+          max_file_size: Storage.max_upload_bytes()
+        )
 
-    {:ok, socket}
+      {:ok, socket}
+    end
   end
 
   @impl true
@@ -629,7 +637,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       <.settings_shell current_path={@current_path || @plugins_base_path}>
         <.settings_nav current_path={@current_path || @plugins_base_path} current_scope={@current_scope} />
         <%= if @plugins_base_path == "/settings/agents/plugins" do %>
-          <.agents_nav current_path={@current_path || @plugins_base_path} class="mt-2" />
+          <.agents_nav
+            current_path={@current_path || @plugins_base_path}
+            class="mt-2"
+            current_scope={@current_scope}
+          />
         <% else %>
           <.edge_nav current_path={@current_path || @plugins_base_path} class="mt-2" />
         <% end %>

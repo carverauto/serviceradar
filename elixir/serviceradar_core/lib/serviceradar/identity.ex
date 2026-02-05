@@ -38,6 +38,7 @@ defmodule ServiceRadar.Identity do
 
   resources do
     resource ServiceRadar.Identity.User
+    resource ServiceRadar.Identity.RoleProfile
     resource ServiceRadar.Identity.ApiToken
     resource ServiceRadar.Identity.OAuthClient
     resource ServiceRadar.Identity.DeviceAliasState

@@ -123,4 +123,50 @@ defmodule ServiceRadar.Policies.Checks do
 
     def match?(_actor, _opts, _context), do: false
   end
+
+  defmodule ActorHasPermission do
+    @moduledoc """
+    Check if the actor has a specific RBAC permission key.
+
+    ## Options
+
+      * `:permission` - Permission key string (e.g., \"devices.delete\")
+    """
+    use Ash.Policy.SimpleCheck
+
+    alias ServiceRadar.Identity.RBAC
+
+    @impl true
+    def describe(opts) do
+      permission = Keyword.get(opts, :permission, "unknown")
+      "actor has permission #{permission}"
+    end
+
+    @impl true
+    def match?(nil, _opts, _context), do: false
+
+    def match?(actor, opts, _context) do
+      permission = Keyword.get(opts, :permission)
+
+      if is_binary(permission) do
+        RBAC.has_permission?(actor, permission)
+      else
+        false
+      end
+    end
+  end
+
+  defmodule ActorIsNil do
+    @moduledoc """
+    Check if the actor is missing (used for internal/system-triggered actions).
+    """
+    use Ash.Policy.SimpleCheck
+
+    @impl true
+    def describe(_opts), do: "actor is nil"
+
+    @impl true
+    def match?(nil, _opts, _context), do: true
+    def match?(_, _opts, _context), do: false
+  end
 end

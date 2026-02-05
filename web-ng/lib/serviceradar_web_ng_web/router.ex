@@ -104,6 +104,13 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/authorization-settings", AuthorizationSettingsController, :show)
     put("/authorization-settings", AuthorizationSettingsController, :update)
+
+    get("/role-profiles/catalog", RoleProfileController, :catalog)
+    get("/role-profiles", RoleProfileController, :index)
+    get("/role-profiles/:id", RoleProfileController, :show)
+    post("/role-profiles", RoleProfileController, :create)
+    patch("/role-profiles/:id", RoleProfileController, :update)
+    delete("/role-profiles/:id", RoleProfileController, :delete)
   end
 
   # Edge onboarding admin API (API key or bearer token auth)
@@ -339,6 +346,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/profile", UserLive.Settings, :edit)
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
+      live("/settings/auth/access", Settings.AccessControlLive, :index)
 
       # Cluster visibility for all authenticated users
       live("/settings/cluster", Settings.ClusterLive.Index, :index)
@@ -395,7 +403,6 @@ defmodule ServiceRadarWebNGWeb.Router do
       # Authentication settings (admin only - enforced by Permit policies)
       live("/settings/authentication", Settings.AuthenticationLive, :index)
       live("/settings/auth/users", Settings.AuthUsersLive, :index)
-      live("/settings/auth/authorization", Settings.AuthorizationLive, :index)
     end
 
     post("/users/update-password", UserSessionController, :update_password)
@@ -433,7 +440,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     case Plug.Conn.get_req_header(conn, "authorization") do
       ["Bearer " <> _] -> conn
       ["bearer " <> _] -> conn
-      _ -> Plug.CSRFProtection.call(conn, [])
+      _ -> Plug.CSRFProtection.call(conn, Plug.CSRFProtection.init([]))
     end
   end
 
@@ -444,10 +451,14 @@ defmodule ServiceRadarWebNGWeb.Router do
       %Scope{user: user} when not is_nil(user) ->
         partition_id = get_partition_id_from_request(conn)
 
+        permissions = ServiceRadar.Identity.RBAC.permissions_for_user(user)
+
         actor = %{
           id: user.id,
           role: user.role,
-          email: user.email
+          email: user.email,
+          role_profile_id: user.role_profile_id,
+          permissions: permissions
         }
 
         actor = if partition_id, do: Map.put(actor, :partition_id, partition_id), else: actor

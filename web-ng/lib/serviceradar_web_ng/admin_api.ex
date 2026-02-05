@@ -14,6 +14,12 @@ defmodule ServiceRadarWebNG.AdminApi do
   @callback reactivate_user(scope(), String.t()) :: {:ok, map()} | {:error, term()}
   @callback get_authorization_settings(scope()) :: {:ok, map()} | {:error, term()}
   @callback update_authorization_settings(scope(), map()) :: {:ok, map()} | {:error, term()}
+  @callback list_role_profiles(scope()) :: {:ok, list()} | {:error, term()}
+  @callback get_role_profile(scope(), String.t()) :: {:ok, map()} | {:error, term()}
+  @callback create_role_profile(scope(), map()) :: {:ok, map()} | {:error, term()}
+  @callback update_role_profile(scope(), String.t(), map()) :: {:ok, map()} | {:error, term()}
+  @callback delete_role_profile(scope(), String.t()) :: {:ok, map()} | {:error, term()}
+  @callback get_rbac_catalog(scope()) :: {:ok, list()} | {:error, term()}
 
   def list_users(scope, params \\ %{}) do
     client().list_users(scope, params)
@@ -41,6 +47,30 @@ defmodule ServiceRadarWebNG.AdminApi do
 
   def update_authorization_settings(scope, attrs) do
     client().update_authorization_settings(scope, attrs)
+  end
+
+  def list_role_profiles(scope) do
+    client().list_role_profiles(scope)
+  end
+
+  def get_role_profile(scope, id) do
+    client().get_role_profile(scope, id)
+  end
+
+  def create_role_profile(scope, attrs) do
+    client().create_role_profile(scope, attrs)
+  end
+
+  def update_role_profile(scope, id, attrs) do
+    client().update_role_profile(scope, id, attrs)
+  end
+
+  def delete_role_profile(scope, id) do
+    client().delete_role_profile(scope, id)
+  end
+
+  def get_rbac_catalog(scope) do
+    client().get_rbac_catalog(scope)
   end
 
   defp client do

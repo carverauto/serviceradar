@@ -45,6 +45,7 @@ defmodule ServiceRadar.Identity.User do
     define :deactivate
     define :reactivate
     define :update_role
+    define :update_role_profile, action: :update_role_profile
   end
 
   actions do
@@ -98,7 +99,7 @@ defmodule ServiceRadar.Identity.User do
 
     create :create do
       description "Create a new user (admin or system use)"
-      accept [:email, :display_name, :role]
+      accept [:email, :display_name, :role, :role_profile_id]
 
       argument :password, :string do
         allow_nil? true
@@ -205,6 +206,10 @@ defmodule ServiceRadar.Identity.User do
 
     update :update_role do
       accept [:role]
+    end
+
+    update :update_role_profile do
+      accept [:role_profile_id]
     end
 
     update :change_password do
@@ -344,6 +349,12 @@ defmodule ServiceRadar.Identity.User do
       description "User's role for authorization"
     end
 
+    attribute :role_profile_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Role profile assignment for RBAC"
+    end
+
     attribute :status, :atom do
       allow_nil? false
       default :active
@@ -380,6 +391,13 @@ defmodule ServiceRadar.Identity.User do
 
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+
+  relationships do
+    belongs_to :role_profile, ServiceRadar.Identity.RoleProfile do
+      allow_nil? true
+      attribute_writable? true
+    end
   end
 
   calculations do

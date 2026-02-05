@@ -138,6 +138,9 @@ defmodule ServiceRadar.Application do
         # Default SNMP profile seed
         snmp_profile_seeder_child(),
 
+        # Default RBAC role profiles seed
+        role_profile_seeder_child(),
+
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
@@ -366,6 +369,14 @@ defmodule ServiceRadar.Application do
   defp snmp_profile_seeder_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.SNMPProfiles.SNMPProfileSeeder
+    else
+      nil
+    end
+  end
+
+  defp role_profile_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Identity.RoleProfileSeeder
     else
       nil
     end

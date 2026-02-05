@@ -337,32 +337,26 @@ defmodule ServiceRadar.Inventory.Device do
 
     # Read access: authenticated users (schema isolation via search_path)
     policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.view"}
     end
 
     # Create devices: operators/admins (schema isolation via search_path)
     policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.create"}
     end
 
     # Update devices: operators/admins (schema isolation via search_path)
     policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.update"}
     end
 
     # Destroy devices: operators/admins (schema isolation via search_path)
     policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.delete"}
     end
 
     policy action(:bulk_soft_delete) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.bulk_delete"}
     end
   end
 

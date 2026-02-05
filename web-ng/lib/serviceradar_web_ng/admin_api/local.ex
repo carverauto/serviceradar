@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   @behaviour ServiceRadarWebNG.AdminApi
 
   alias ServiceRadar.Identity.AuthorizationSettings
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
 
   require Ash.Query
@@ -43,10 +45,13 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   def update_user(scope, id, attrs) do
     with {:ok, user} <- Ash.get(User, id, scope: scope) do
       role = role_from_attrs(attrs)
+      role_profile_id = role_profile_id_from_attrs(attrs)
       display_name = Map.get(attrs, :display_name) || Map.get(attrs, "display_name")
 
-      with {:ok, user} <- maybe_update_display_name(user, display_name, scope) do
-        maybe_update_role(user, role, scope)
+      with {:ok, user} <- maybe_update_role(user, role, scope),
+           {:ok, user} <- maybe_update_role_profile(user, role_profile_id, scope),
+           {:ok, user} <- maybe_update_display_name(user, display_name, scope) do
+        {:ok, user}
       end
     end
   end
@@ -96,6 +101,52 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
     end
   end
 
+  @impl true
+  def list_role_profiles(scope) do
+    query =
+      RoleProfile
+      |> Ash.Query.sort(system: :desc, name: :asc)
+
+    Ash.read(query, scope: scope)
+  end
+
+  @impl true
+  def get_role_profile(scope, id) do
+    Ash.get(RoleProfile, id, scope: scope)
+  end
+
+  @impl true
+  def create_role_profile(scope, attrs) do
+    RoleProfile
+    |> Ash.Changeset.for_create(:create, attrs, scope: scope)
+    |> Ash.create(scope: scope)
+  end
+
+  @impl true
+  def update_role_profile(scope, id, attrs) do
+    with {:ok, profile} <- Ash.get(RoleProfile, id, scope: scope) do
+      profile
+      |> Ash.Changeset.for_update(:update, attrs, scope: scope)
+      |> Ash.update(scope: scope)
+    end
+  end
+
+  @impl true
+  def delete_role_profile(scope, id) do
+    with {:ok, profile} <- Ash.get(RoleProfile, id, scope: scope) do
+      case Ash.destroy(profile, scope: scope) do
+        :ok -> {:ok, %{status: "deleted"}}
+        {:ok, _} -> {:ok, %{status: "deleted"}}
+        {:error, error} -> {:error, error}
+      end
+    end
+  end
+
+  @impl true
+  def get_rbac_catalog(_scope) do
+    {:ok, RBAC.catalog()}
+  end
+
   defp parse_int(nil), do: nil
 
   defp parse_int(value) when is_binary(value) do
@@ -132,6 +183,14 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   defp role_from_attrs(%{"role" => role}), do: role
   defp role_from_attrs(_), do: nil
 
+  defp role_profile_id_from_attrs(%{role_profile_id: role_profile_id}),
+    do: normalize_profile_id(role_profile_id)
+
+  defp role_profile_id_from_attrs(%{"role_profile_id" => role_profile_id}),
+    do: normalize_profile_id(role_profile_id)
+
+  defp role_profile_id_from_attrs(_), do: nil
+
   defp maybe_update_display_name(user, nil, _scope), do: {:ok, user}
   defp maybe_update_display_name(user, "", _scope), do: {:ok, user}
 
@@ -148,4 +207,18 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
     |> Ash.Changeset.for_update(:update_role, %{role: role}, scope: scope)
     |> Ash.update(scope: scope)
   end
+
+  defp maybe_update_role_profile(user, nil, _scope), do: {:ok, user}
+
+  defp maybe_update_role_profile(user, role_profile_id, scope) do
+    user
+    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id},
+      scope: scope
+    )
+    |> Ash.update(scope: scope)
+  end
+
+  defp normalize_profile_id(nil), do: nil
+  defp normalize_profile_id(""), do: nil
+  defp normalize_profile_id(value), do: value
 end

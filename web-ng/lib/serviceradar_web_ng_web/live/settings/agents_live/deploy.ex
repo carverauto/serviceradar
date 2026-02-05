@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/agents/deploy">
         <.settings_nav current_path="/settings/agents/deploy" current_scope={@current_scope} />
-        <.agents_nav current_path="/settings/agents/deploy" />
+        <.agents_nav current_path="/settings/agents/deploy" current_scope={@current_scope} />
 
         <div class="space-y-6">
           <div class="flex flex-wrap items-center justify-between gap-4">

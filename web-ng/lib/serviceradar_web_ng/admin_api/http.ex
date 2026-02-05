@@ -43,6 +43,36 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
     request(scope, :put, "/api/admin/authorization-settings", attrs)
   end
 
+  @impl true
+  def list_role_profiles(scope) do
+    request(scope, :get, "/api/admin/role-profiles", %{})
+  end
+
+  @impl true
+  def get_role_profile(scope, id) do
+    request(scope, :get, "/api/admin/role-profiles/#{id}", %{})
+  end
+
+  @impl true
+  def create_role_profile(scope, attrs) do
+    request(scope, :post, "/api/admin/role-profiles", attrs)
+  end
+
+  @impl true
+  def update_role_profile(scope, id, attrs) do
+    request(scope, :patch, "/api/admin/role-profiles/#{id}", attrs)
+  end
+
+  @impl true
+  def delete_role_profile(scope, id) do
+    request(scope, :delete, "/api/admin/role-profiles/#{id}", %{})
+  end
+
+  @impl true
+  def get_rbac_catalog(scope) do
+    request(scope, :get, "/api/admin/role-profiles/catalog", %{})
+  end
+
   defp request(scope, method, path, params) do
     with {:ok, token, _claims} <- Guardian.create_access_token(scope.user) do
       req =
@@ -58,6 +88,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
           :post -> Req.post(req, url: path, json: params)
           :patch -> Req.patch(req, url: path, json: params)
           :put -> Req.put(req, url: path, json: params)
+          :delete -> Req.delete(req, url: path, json: params)
         end
 
       normalize_response(response)
@@ -76,7 +107,11 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
   defp normalize_response({:error, error}), do: {:error, error}
 
   defp normalize_body(body) when is_list(body) do
-    Enum.map(body, &normalize_user/1)
+    case body do
+      [%{"section" => _} | _] -> body
+      [%{"system_name" => _} | _] -> Enum.map(body, &normalize_role_profile/1)
+      _ -> Enum.map(body, &normalize_user/1)
+    end
   end
 
   defp normalize_body(%{"default_role" => _} = body), do: normalize_settings(body)
@@ -106,6 +141,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
       email: body["email"],
       display_name: body["display_name"],
       role: parse_role(body["role"]),
+      role_profile_id: body["role_profile_id"],
       status: parse_status(body["status"]),
       confirmed_at: body["confirmed_at"],
       last_login_at: body["last_login_at"],
@@ -120,6 +156,17 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
     %{
       default_role: parse_role(body["default_role"]),
       role_mappings: body["role_mappings"] || []
+    }
+  end
+
+  defp normalize_role_profile(%{} = body) do
+    %{
+      id: body["id"],
+      system_name: body["system_name"],
+      name: body["name"],
+      description: body["description"],
+      permissions: body["permissions"] || [],
+      system: body["system"] || false
     }
   end
 

@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   require Ash.Query
   require Logger
 
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadar.Inventory.Device
@@ -352,11 +353,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("open_bulk_edit_modal", _params, socket) do
-    {:noreply, assign(socket, :show_bulk_edit_modal, true)}
+    if RBAC.can?(socket.assigns.current_scope, "devices.bulk_edit") do
+      {:noreply, assign(socket, :show_bulk_edit_modal, true)}
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to bulk edit devices")}
+    end
   end
 
   def handle_event("open_bulk_delete_modal", _params, socket) do
-    {:noreply, assign(socket, :show_bulk_delete_modal, true)}
+    if RBAC.can?(socket.assigns.current_scope, "devices.bulk_delete") do
+      {:noreply, assign(socket, :show_bulk_delete_modal, true)}
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to bulk delete devices")}
+    end
   end
 
   def handle_event("close_bulk_edit_modal", _params, socket) do
@@ -395,6 +404,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("apply_bulk_tags", %{"bulk" => params}, socket) do
+    if RBAC.can?(socket.assigns.current_scope, "devices.bulk_edit") do
+      apply_bulk_tags(params, socket)
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to bulk edit devices")}
+    end
+  end
+
+  def handle_event("bulk_delete_devices", _params, socket) do
+    handle_confirm_bulk_delete(socket)
+  end
+
+  def handle_event("confirm_bulk_delete", _params, socket) do
+    handle_confirm_bulk_delete(socket)
+  end
+
+  defp apply_bulk_tags(params, socket) do
     scope = socket.assigns.current_scope
     tags_input = Map.get(params, "tags", "")
     tags = parse_bulk_tags(tags_input)
@@ -425,17 +450,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  def handle_event("bulk_delete_devices", _params, socket) do
-    handle_confirm_bulk_delete(socket)
-  end
-
-  def handle_event("confirm_bulk_delete", _params, socket) do
-    handle_confirm_bulk_delete(socket)
-  end
-
   defp handle_confirm_bulk_delete(socket) do
     scope = socket.assigns.current_scope
 
+    if not RBAC.can?(scope, "devices.bulk_delete") do
+      {:noreply, put_flash(socket, :error, "You are not authorized to bulk delete devices")}
+    else
+      do_bulk_delete(socket, scope)
+    end
+  end
+
+  defp do_bulk_delete(socket, scope) do
+    
     case bulk_delete_uids(socket) do
       {:ok, uids} ->
         case Device.bulk_soft_delete(uids, "bulk_delete", scope: scope) do
@@ -750,10 +776,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </button>
           </div>
           <div class="flex items-center gap-2">
-            <.ui_button variant="primary" size="sm" phx-click="open_bulk_edit_modal">
+            <.ui_button
+              :if={RBAC.can?(@current_scope, "devices.bulk_edit")}
+              variant="primary"
+              size="sm"
+              phx-click="open_bulk_edit_modal"
+            >
               <.icon name="hero-tag" class="size-4" /> Bulk Edit
             </.ui_button>
             <.ui_button
+              :if={RBAC.can?(@current_scope, "devices.bulk_delete")}
               variant="outline"
               class="btn-error"
               size="sm"

@@ -5,8 +5,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   use ServiceRadarWebNGWeb, :html
 
-  alias ServiceRadar.Identity.AuthorizationSettings
-  alias ServiceRadarWebNG.Authorization
+  alias ServiceRadarWebNG.RBAC
 
   attr(:current_path, :string, required: true)
   attr(:class, :any, default: nil)
@@ -104,8 +103,10 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   attr(:current_path, :string, required: true)
   attr(:class, :any, default: nil)
 
+  attr(:current_scope, :map, default: nil)
+
   def auth_nav(assigns) do
-    assigns = assign(assigns, :tabs, auth_tabs(assigns.current_path))
+    assigns = assign(assigns, :tabs, auth_tabs(assigns.current_path, assigns[:current_scope]))
 
     ~H"""
     <div class={["flex flex-wrap items-center gap-2", @class]}>
@@ -114,31 +115,40 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     """
   end
 
-  def auth_tabs(current_path) do
+  def auth_tabs(current_path, current_scope) do
     path = current_path || ""
 
-    [
-      %{
-        label: "Users",
-        navigate: ~p"/settings/auth/users",
-        active: String.starts_with?(path, "/settings/auth/users")
-      },
-      %{
-        label: "Authorization",
-        navigate: ~p"/settings/auth/authorization",
-        active: String.starts_with?(path, "/settings/auth/authorization")
-      },
-      %{
-        label: "Authentication",
-        navigate: ~p"/settings/authentication",
-        active: String.starts_with?(path, "/settings/authentication")
-      }
-    ]
+    can_auth = RBAC.can?(current_scope, "settings.auth.manage")
+    can_rbac = RBAC.can?(current_scope, "settings.rbac.manage")
+
+    tabs =
+      [
+        %{
+          label: "Users",
+          navigate: ~p"/settings/auth/users",
+          active: String.starts_with?(path, "/settings/auth/users"),
+          show: can_auth
+        },
+        %{
+          label: "Access Control",
+          navigate: ~p"/settings/auth/access",
+          active: String.starts_with?(path, "/settings/auth/access"),
+          show: can_auth or can_rbac
+        },
+        %{
+          label: "Authentication",
+          navigate: ~p"/settings/authentication",
+          active: String.starts_with?(path, "/settings/authentication"),
+          show: can_auth
+        }
+      ]
+      |> Enum.filter(&Map.get(&1, :show, true))
+
+    tabs
   end
 
-  defp show_auth_tab?(%{user: user}) when not is_nil(user) do
-    Authorization.can(user)
-    |> Authorization.read?(AuthorizationSettings)
+  defp show_auth_tab?(%{user: user} = scope) when not is_nil(user) do
+    RBAC.can?(scope, "settings.auth.manage") or RBAC.can?(scope, "settings.rbac.manage")
   end
 
   defp show_auth_tab?(_), do: false
@@ -190,9 +200,10 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   # Agents section sub-navigation
   attr(:current_path, :string, required: true)
   attr(:class, :any, default: nil)
+  attr(:current_scope, :map, default: nil)
 
   def agents_nav(assigns) do
-    assigns = assign(assigns, :tabs, agents_tabs(assigns.current_path))
+    assigns = assign(assigns, :tabs, agents_tabs(assigns.current_path, assigns[:current_scope]))
 
     ~H"""
     <div class={["flex flex-wrap items-center gap-2 mb-4", @class]}>
@@ -201,10 +212,10 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     """
   end
 
-  def agents_tabs(current_path) do
+  def agents_tabs(current_path, current_scope \\ nil) do
     path = current_path || ""
 
-    [
+    tabs = [
       %{
         label: "Host Health",
         navigate: ~p"/settings/sysmon",
@@ -225,6 +236,12 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             String.starts_with?(path, "/admin/plugins")
       }
     ]
+
+    if RBAC.can?(current_scope, "settings.plugins.manage") do
+      tabs
+    else
+      Enum.reject(tabs, &(&1.label == "Plugins"))
+    end
   end
 
   # Edge Ops section sub-navigation

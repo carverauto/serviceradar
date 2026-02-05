@@ -176,6 +176,8 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
   attr :multiple, :boolean, default: false, doc: "the multiple flag for select inputs"
   attr :class, :any, default: nil, doc: "the input class to use over defaults"
   attr :error_class, :any, default: nil, doc: "the input error class to use over defaults"
+  attr :wrapper_class, :any, default: nil, doc: "override the wrapper class for the input"
+  attr :label_class, :any, default: nil, doc: "override the label class for the input"
 
   attr :rest, :global,
     include: ~w(accept autocomplete capture cols disabled form list max maxlength min minlength
@@ -207,7 +209,7 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
       end)
 
     ~H"""
-    <div class="fieldset mb-2">
+    <div class={@wrapper_class || "fieldset mb-2"}>
       <label>
         <input
           type="hidden"
@@ -216,7 +218,7 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
           disabled={@rest[:disabled]}
           form={@rest[:form]}
         />
-        <span class="label">
+        <span class={@label_class || "label"}>
           <input
             type="checkbox"
             id={@id}
@@ -235,9 +237,9 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
 
   def input(%{type: "select"} = assigns) do
     ~H"""
-    <div class="fieldset mb-2">
+    <div class={@wrapper_class || "fieldset mb-2"}>
       <label>
-        <span :if={@label} class="label mb-1">{@label}</span>
+        <span :if={@label} class={@label_class || "label mb-1"}>{@label}</span>
         <select
           id={@id}
           name={@name}
@@ -256,9 +258,9 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
 
   def input(%{type: "textarea"} = assigns) do
     ~H"""
-    <div class="fieldset mb-2">
+    <div class={@wrapper_class || "fieldset mb-2"}>
       <label>
-        <span :if={@label} class="label mb-1">{@label}</span>
+        <span :if={@label} class={@label_class || "label mb-1"}>{@label}</span>
         <textarea
           id={@id}
           name={@name}
@@ -277,9 +279,9 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
   # All other inputs text, datetime-local, url, password, etc. are handled here...
   def input(assigns) do
     ~H"""
-    <div class="fieldset mb-2">
+    <div class={@wrapper_class || "fieldset mb-2"}>
       <label>
-        <span :if={@label} class="label mb-1">{@label}</span>
+        <span :if={@label} class={@label_class || "label mb-1"}>{@label}</span>
         <input
           type={@type}
           name={@name}
