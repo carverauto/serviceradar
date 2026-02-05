@@ -8,7 +8,7 @@ use netflow_parser::{AutoScopedParser, NetflowParserBuilder, PendingFlowsConfig,
 use prost::Message;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
@@ -61,7 +61,7 @@ fn make_template_event_callback(pending_enabled: bool) -> impl Fn(&TemplateEvent
                 if pending_enabled {
                     debug!(
                         "Missing template - ID: {}, Protocol: {:?}. \
-                         Flow data buffered for replay when template arrives.",
+                         Pending flow cache enabled; data queued if capacity allows.",
                         template_id, protocol
                     );
                 } else {
@@ -98,7 +98,7 @@ impl Listener {
                 max_pending_flows: pf.max_pending_flows,
                 max_entries_per_template: pf.max_entries_per_template,
                 max_entry_size_bytes: pf.max_entry_size_bytes,
-                ttl: None,
+                ttl: Some(Duration::from_secs(pf.ttl_secs)),
             });
         }
 

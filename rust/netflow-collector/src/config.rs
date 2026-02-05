@@ -73,6 +73,8 @@ pub struct PendingFlowsCacheConfig {
     pub max_entries_per_template: usize,
     #[serde(default = "default_max_entry_size_bytes")]
     pub max_entry_size_bytes: usize,
+    #[serde(default = "default_pending_ttl_secs")]
+    pub ttl_secs: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -162,6 +164,10 @@ fn default_max_entry_size_bytes() -> usize {
     65535
 }
 
+fn default_pending_ttl_secs() -> u64 {
+    300
+}
+
 impl Config {
     pub fn from_file(path: &str) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
@@ -184,14 +190,17 @@ impl Config {
             anyhow::bail!("subject cannot be empty");
         }
         if let Some(pf) = &self.pending_flows {
-            if pf.max_pending_flows == 0 {
-                anyhow::bail!("pending_flows.max_pending_flows must be > 0");
+            if pf.max_pending_flows == 0 || pf.max_pending_flows > 10_000 {
+                anyhow::bail!("pending_flows.max_pending_flows must be 1..=10,000");
             }
-            if pf.max_entries_per_template == 0 {
-                anyhow::bail!("pending_flows.max_entries_per_template must be > 0");
+            if pf.max_entries_per_template == 0 || pf.max_entries_per_template > 100_000 {
+                anyhow::bail!("pending_flows.max_entries_per_template must be 1..=100,000");
             }
-            if pf.max_entry_size_bytes == 0 {
-                anyhow::bail!("pending_flows.max_entry_size_bytes must be > 0");
+            if pf.max_entry_size_bytes == 0 || pf.max_entry_size_bytes > 1_048_576 {
+                anyhow::bail!("pending_flows.max_entry_size_bytes must be 1..=1,048,576");
+            }
+            if pf.ttl_secs == 0 || pf.ttl_secs > 3600 {
+                anyhow::bail!("pending_flows.ttl_secs must be 1..=3,600");
             }
         }
         Ok(())

@@ -45,10 +45,11 @@ async fn main() -> Result<()> {
     match &config.pending_flows {
         Some(pf) => {
             log::info!(
-                "  Pending flow cache: enabled (max_pending_flows={}, max_entries_per_template={}, max_entry_size_bytes={})",
+                "  Pending flow cache: enabled (max_pending_flows={}, max_entries_per_template={}, max_entry_size_bytes={}, ttl_secs={})",
                 pf.max_pending_flows,
                 pf.max_entries_per_template,
-                pf.max_entry_size_bytes
+                pf.max_entry_size_bytes,
+                pf.ttl_secs
             );
         }
         None => {
