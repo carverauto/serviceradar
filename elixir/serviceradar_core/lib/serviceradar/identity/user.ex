@@ -166,6 +166,12 @@ defmodule ServiceRadar.Identity.User do
       description "Create a user from SSO claims (JIT provisioning)"
       accept [:email, :display_name]
 
+      argument :role, :atom do
+        allow_nil? true
+        default :viewer
+        constraints one_of: [:viewer, :operator, :admin]
+      end
+
       argument :external_id, :string do
         allow_nil? false
         description "IdP subject identifier"
@@ -177,7 +183,7 @@ defmodule ServiceRadar.Identity.User do
       end
 
       # Set default role and mark as confirmed (SSO = verified email)
-      change set_attribute(:role, :viewer)
+      change set_attribute(:role, arg(:role))
       change set_attribute(:status, :active)
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)
 

@@ -65,38 +65,39 @@ defmodule ServiceRadarWebNG.Api.UserController do
     with :ok <- require_admin(conn) do
       scope = conn.assigns.current_scope
 
-      with {:ok, role} <- normalize_role(params["role"]) do
-        attrs = %{
-          email: params["email"],
-          display_name: params["display_name"]
-        }
+      case normalize_role(params["role"]) do
+        {:ok, role} ->
+          attrs = %{
+            email: params["email"],
+            display_name: params["display_name"]
+          }
 
-        attrs =
-          if is_nil(role) do
-            attrs
-          else
-            Map.put(attrs, :role, role)
+          attrs =
+            if is_nil(role) do
+              attrs
+            else
+              Map.put(attrs, :role, role)
+            end
+
+          attrs =
+            if password = params["password"] do
+              Map.put(attrs, :password, password)
+            else
+              attrs
+            end
+
+          case User
+               |> Ash.Changeset.for_create(:create, attrs, scope: scope)
+               |> Ash.create(scope: scope) do
+            {:ok, user} ->
+              conn
+              |> put_status(:created)
+              |> json(user_to_json(user))
+
+            {:error, error} ->
+              {:error, error}
           end
 
-        attrs =
-          if password = params["password"] do
-            Map.put(attrs, :password, password)
-          else
-            attrs
-          end
-
-        case User
-             |> Ash.Changeset.for_create(:create, attrs, scope: scope)
-             |> Ash.create(scope: scope) do
-          {:ok, user} ->
-            conn
-            |> put_status(:created)
-            |> json(user_to_json(user))
-
-          {:error, error} ->
-            {:error, error}
-        end
-      else
         {:error, :invalid_role} ->
           return_error(conn, :bad_request, "role must be one of: viewer, operator, admin")
       end

@@ -42,16 +42,12 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   @impl true
   def update_user(scope, id, attrs) do
     with {:ok, user} <- Ash.get(User, id, scope: scope) do
-      case role_from_attrs(attrs) do
-        nil ->
-          user
-          |> Ash.Changeset.for_update(:update, attrs, scope: scope)
-          |> Ash.update(scope: scope)
+      role = role_from_attrs(attrs)
+      display_name = Map.get(attrs, :display_name) || Map.get(attrs, "display_name")
 
-        role ->
-          user
-          |> Ash.Changeset.for_update(:update_role, %{role: role}, scope: scope)
-          |> Ash.update(scope: scope)
+      with {:ok, user} <- maybe_update_display_name(user, display_name, scope),
+           {:ok, user} <- maybe_update_role(user, role, scope) do
+        {:ok, user}
       end
     end
   end
@@ -136,4 +132,21 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   defp role_from_attrs(%{role: role}), do: role
   defp role_from_attrs(%{"role" => role}), do: role
   defp role_from_attrs(_), do: nil
+
+  defp maybe_update_display_name(user, nil, _scope), do: {:ok, user}
+  defp maybe_update_display_name(user, "", _scope), do: {:ok, user}
+
+  defp maybe_update_display_name(user, display_name, scope) do
+    user
+    |> Ash.Changeset.for_update(:update, %{display_name: display_name}, scope: scope)
+    |> Ash.update(scope: scope)
+  end
+
+  defp maybe_update_role(user, nil, _scope), do: {:ok, user}
+
+  defp maybe_update_role(user, role, scope) do
+    user
+    |> Ash.Changeset.for_update(:update_role, %{role: role}, scope: scope)
+    |> Ash.update(scope: scope)
+  end
 end

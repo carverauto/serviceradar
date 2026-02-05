@@ -37,11 +37,13 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       description "Create authorization settings"
       accept [:default_role, :role_mappings]
       change set_attribute(:key, "default")
+      validate ServiceRadar.Identity.Validations.RoleMappings
     end
 
     update :update do
       description "Update authorization settings"
       accept [:default_role, :role_mappings]
+      validate ServiceRadar.Identity.Validations.RoleMappings
     end
   end
 

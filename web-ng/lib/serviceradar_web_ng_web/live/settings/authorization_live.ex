@@ -12,17 +12,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   def mount(_params, _session, socket) do
     socket = assign(socket, :page_title, "Authorization Settings")
 
-    with {:ok, socket} <- ensure_admin(socket) do
-      scope = socket.assigns.current_scope
-      {:ok, settings} = get_or_create_settings(scope)
+    case ensure_admin(socket) do
+      {:ok, socket} ->
+        scope = socket.assigns.current_scope
+        {:ok, settings} = get_or_create_settings(scope)
 
-      {:ok,
-       socket
-       |> assign(:settings, settings)
-       |> assign(:form, to_form(settings_form(settings), as: :settings))
-       |> assign(:json_error, nil)}
-    else
-      {:error, socket} -> {:ok, socket}
+        {:ok,
+         socket
+         |> assign(:settings, settings)
+         |> assign(:form, to_form(settings_form(settings), as: :settings))
+         |> assign(:json_error, nil)}
+
+      {:error, socket} ->
+        {:ok, socket}
     end
   end
 
@@ -184,12 +186,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   end
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
-    errors
-    |> Enum.map(fn
+    Enum.map_join(errors, ", ", fn
       %{message: message} -> message
       _ -> "Validation error"
     end)
-    |> Enum.join(", ")
   end
 
   defp format_ash_error({:http_error, status, body}) do

@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNGWeb.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
@@ -173,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
     with {:ok, tokens} <- OIDCClient.exchange_code(code),
          {:ok, claims} <- OIDCClient.verify_id_token(tokens["id_token"], nonce: nonce),
          user_info <- OIDCClient.extract_user_info(claims),
-         {:ok, user} <- find_or_create_user(user_info) do
+         {:ok, user} <- find_or_create_user(user_info, claims) do
       # Record authentication timestamp
       actor = SystemActor.system(:oidc_auth)
       User.record_authentication(user, actor: actor)
@@ -211,14 +212,16 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
     end
   end
 
-  defp find_or_create_user(%{email: email, name: name, external_id: external_id}) do
+  defp find_or_create_user(%{email: email, name: name, external_id: external_id}, claims) do
     actor = SystemActor.system(:oidc_auth)
+    resolved_role = RoleMapping.resolve_role(claims, actor: actor)
 
     # First, try to find by external_id
     case find_user_by_external_id(external_id, actor) do
       {:ok, user} ->
         # Update display name if changed
         maybe_update_user(user, name, actor)
+        |> maybe_update_role(resolved_role, actor)
 
       {:error, :not_found} ->
         # Try to find by email
@@ -226,10 +229,11 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
           {:ok, user} ->
             # Link existing user to OIDC
             update_user_external_id(user, external_id, name, actor)
+            |> maybe_update_role(resolved_role, actor)
 
           {:error, _} ->
             # Create new user (JIT provisioning)
-            create_sso_user(email, name, external_id, actor)
+            create_sso_user(email, name, external_id, resolved_role, actor)
         end
     end
   end
@@ -279,11 +283,12 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
     end
   end
 
-  defp create_sso_user(email, name, external_id, actor) do
+  defp create_sso_user(email, name, external_id, role, actor) do
     params = %{
       email: email,
       display_name: name,
       external_id: external_id,
+      role: role,
       provider: :oidc
     }
 
@@ -296,6 +301,28 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
       {:error, error} ->
         Logger.error("Failed to create SSO user: #{inspect(error)}")
         {:error, :user_creation_failed}
+    end
+  end
+
+  defp maybe_update_role({:ok, user}, role, actor) do
+    apply_role_mapping(user, role, actor)
+  end
+
+  defp maybe_update_role(result, _role, _actor), do: result
+
+  defp apply_role_mapping(user, role, actor) do
+    cond do
+      is_nil(role) ->
+        {:ok, user}
+
+      user.role == :admin and role != :admin ->
+        {:ok, user}
+
+      user.role == role ->
+        {:ok, user}
+
+      true ->
+        User.update_role(user, role, actor: actor)
     end
   end
 end

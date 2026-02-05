@@ -12,15 +12,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   def mount(_params, _session, socket) do
     socket = assign(socket, :page_title, "Auth Users")
 
-    with {:ok, socket} <- ensure_admin(socket) do
-      users = list_users(socket.assigns.current_scope)
+    case ensure_admin(socket) do
+      {:ok, socket} ->
+        users = list_users(socket.assigns.current_scope)
 
-      {:ok,
-       socket
-       |> assign(:form, to_form(default_user_form(), as: :user))
-       |> stream(:users, users, reset: true)}
-    else
-      {:error, socket} -> {:ok, socket}
+        {:ok,
+         socket
+         |> assign(:form, to_form(default_user_form(), as: :user))
+         |> stream(:users, users, reset: true)}
+
+      {:error, socket} ->
+        {:ok, socket}
     end
   end
 
@@ -65,12 +67,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   def handle_event("update_role", %{"id" => id, "role" => role}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, updated} <- AdminApi.update_user(scope, id, %{role: normalize_role(role)}) do
-      {:noreply,
-       socket
-       |> put_flash(:info, "Role updated")
-       |> stream_insert(:users, updated)}
-    else
+    case AdminApi.update_user(scope, id, %{role: normalize_role(role)}) do
+      {:ok, updated} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Role updated")
+         |> stream_insert(:users, updated)}
+
       {:error, error} ->
         {:noreply, put_flash(socket, :error, format_ash_error(error))}
     end
@@ -79,12 +82,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   def handle_event("deactivate", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, updated} <- AdminApi.deactivate_user(scope, id) do
-      {:noreply,
-       socket
-       |> put_flash(:info, "User deactivated")
-       |> stream_insert(:users, updated)}
-    else
+    case AdminApi.deactivate_user(scope, id) do
+      {:ok, updated} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "User deactivated")
+         |> stream_insert(:users, updated)}
+
       {:error, error} ->
         {:noreply, put_flash(socket, :error, format_ash_error(error))}
     end
@@ -93,12 +97,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   def handle_event("reactivate", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, updated} <- AdminApi.reactivate_user(scope, id) do
-      {:noreply,
-       socket
-       |> put_flash(:info, "User reactivated")
-       |> stream_insert(:users, updated)}
-    else
+    case AdminApi.reactivate_user(scope, id) do
+      {:ok, updated} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "User reactivated")
+         |> stream_insert(:users, updated)}
+
       {:error, error} ->
         {:noreply, put_flash(socket, :error, format_ash_error(error))}
     end
@@ -255,12 +260,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   defp status_class(_), do: "text-base-content/60"
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
-    errors
-    |> Enum.map(fn
+    Enum.map_join(errors, ", ", fn
       %{message: message} -> message
       _ -> "Validation error"
     end)
-    |> Enum.join(", ")
   end
 
   defp format_ash_error({:http_error, status, body}) do
