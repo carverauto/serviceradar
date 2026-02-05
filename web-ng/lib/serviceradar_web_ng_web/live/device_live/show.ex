@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
   import Bitwise
   require Ash.Query
+  require Logger
 
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
@@ -301,9 +302,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:ok, device} ->
         deleted_by = deleted_by_from_scope(scope)
 
-        case Device.soft_delete(device, %{deleted_reason: "ui_delete", deleted_by: deleted_by},
-               scope: scope
-             ) do
+        case Device.soft_delete(device, "ui_delete", deleted_by, scope: scope) do
           {:ok, _} ->
             {:noreply,
              socket
@@ -311,11 +310,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
              |> push_patch(to: device_show_path(socket, device_uid))}
 
           {:error, reason} ->
+            Logger.error("Device delete failed: #{inspect(reason)}", device_uid: device_uid)
             {:noreply,
              put_flash(socket, :error, "Failed to delete device: #{format_ash_error(reason)}")}
         end
 
       {:error, reason} ->
+        Logger.error("Device load failed for delete: #{inspect(reason)}", device_uid: device_uid)
         {:noreply,
          put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
     end
@@ -334,7 +335,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
              |> put_flash(:info, "Device restored")
              |> push_patch(to: device_show_path(socket, device_uid))}
 
+          {:error, %Ash.Error.Invalid{} = error} ->
+            if stale_record_error?(error) do
+              case force_restore_device(scope, device_uid) do
+                :ok ->
+                  {:noreply,
+                   socket
+                   |> put_flash(:info, "Device restored")
+                   |> push_patch(to: device_show_path(socket, device_uid))}
+
+                {:error, force_reason} ->
+                  Logger.error("Device restore failed after stale record", device_uid: device_uid)
+                  {:noreply,
+                   put_flash(
+                     socket,
+                     :error,
+                     "Failed to restore device: #{format_ash_error(force_reason)}"
+                   )}
+              end
+            else
+              Logger.error("Device restore failed: #{inspect(error)}", device_uid: device_uid)
+              {:noreply,
+               put_flash(socket, :error, "Failed to restore device: #{format_ash_error(error)}")}
+            end
+
           {:error, reason} ->
+            Logger.error("Device restore failed: #{inspect(reason)}", device_uid: device_uid)
             {:noreply,
              put_flash(socket, :error, "Failed to restore device: #{format_ash_error(reason)}")}
         end
@@ -4990,4 +5016,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp deleted_by_from_scope(_), do: nil
+
+  defp stale_record_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+  end
+
+  defp stale_record_error?(_), do: false
+
+  defp force_restore_device(scope, device_uid) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid == ^device_uid)
+
+    case Ash.bulk_update(query, :restore, %{},
+           scope: scope,
+           return_errors?: true,
+           return_records?: false
+         ) do
+      %Ash.BulkResult{status: :success} ->
+        :ok
+
+      %Ash.BulkResult{status: :partial_success, errors: errors} ->
+        {:error, List.first(errors) || :partial_failure}
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        {:error, List.first(errors) || :bulk_update_failed}
+
+      other ->
+        {:error, other}
+    end
+  end
 end
