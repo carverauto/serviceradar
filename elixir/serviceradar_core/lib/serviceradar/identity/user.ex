@@ -24,7 +24,8 @@ defmodule ServiceRadar.Identity.User do
   use Ash.Resource,
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    notifiers: [ServiceRadar.Identity.UserNotifier]
 
   postgres do
     table "ng_users"
@@ -41,6 +42,10 @@ defmodule ServiceRadar.Identity.User do
     define :update
     define :change_password
     define :record_authentication
+    define :record_login
+    define :deactivate
+    define :reactivate
+    define :update_role
   end
 
   actions do
@@ -59,7 +64,7 @@ defmodule ServiceRadar.Identity.User do
     end
 
     read :admins do
-      filter expr(role == :admin)
+      filter expr(role == :admin and status == :active)
     end
 
     # Password authentication action
@@ -69,7 +74,7 @@ defmodule ServiceRadar.Identity.User do
       argument :email, :ci_string, allow_nil?: false
       argument :password, :string, allow_nil?: false, sensitive?: true
       get? true
-      filter expr(email == ^arg(:email))
+      filter expr(email == ^arg(:email) and status == :active)
 
       prepare fn query, _context ->
         Ash.Query.after_action(query, fn _query, results ->
@@ -173,6 +178,7 @@ defmodule ServiceRadar.Identity.User do
 
       # Set default role and mark as confirmed (SSO = verified email)
       change set_attribute(:role, :viewer)
+      change set_attribute(:status, :active)
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)
 
       change fn changeset, _context ->
@@ -280,6 +286,28 @@ defmodule ServiceRadar.Identity.User do
       description "Record authentication timestamp for sudo mode"
       change set_attribute(:authenticated_at, &DateTime.utc_now/0)
     end
+
+    update :record_login do
+      description "Record user login timestamp and method"
+
+      argument :auth_method, :atom do
+        allow_nil? false
+        constraints one_of: [:password, :oidc, :saml, :gateway, :api_token, :oauth_client]
+      end
+
+      change set_attribute(:last_login_at, &DateTime.utc_now/0)
+      change set_attribute(:last_auth_method, arg(:auth_method))
+    end
+
+    update :deactivate do
+      description "Deactivate a user account and revoke access"
+      change set_attribute(:status, :inactive)
+    end
+
+    update :reactivate do
+      description "Reactivate a user account"
+      change set_attribute(:status, :active)
+    end
   end
 
   policies do
@@ -319,6 +347,7 @@ defmodule ServiceRadar.Identity.User do
     # Users can update their own non-role fields
     policy action(:update) do
       authorize_if expr(id == ^actor(:id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action(:update_email) do
@@ -337,6 +366,15 @@ defmodule ServiceRadar.Identity.User do
     # Only admins can change roles
     policy action(:update_role) do
       authorize_if actor_attribute_equals(:role, :admin)
+    end
+
+    policy action([:deactivate, :reactivate]) do
+      authorize_if actor_attribute_equals(:role, :admin)
+    end
+
+    policy action(:record_login) do
+      authorize_if expr(id == ^actor(:id))
+      authorize_if actor_attribute_equals(:role, :system)
     end
   end
 
@@ -369,6 +407,14 @@ defmodule ServiceRadar.Identity.User do
       description "User's role for authorization"
     end
 
+    attribute :status, :atom do
+      allow_nil? false
+      default :active
+      public? true
+      constraints one_of: [:active, :inactive]
+      description "User account status"
+    end
+
     attribute :external_id, :string do
       public? false
       description "External IdP subject identifier (for SSO users)"
@@ -382,6 +428,17 @@ defmodule ServiceRadar.Identity.User do
     attribute :authenticated_at, :utc_datetime do
       public? true
       description "When the user last authenticated (for sudo mode)"
+    end
+
+    attribute :last_login_at, :utc_datetime do
+      public? true
+      description "When the user last logged in"
+    end
+
+    attribute :last_auth_method, :atom do
+      public? true
+      constraints one_of: [:password, :oidc, :saml, :gateway, :api_token, :oauth_client]
+      description "Last authentication method used by the user"
     end
 
     create_timestamp :inserted_at
@@ -416,4 +473,5 @@ defmodule ServiceRadar.Identity.User do
   defp verify_password(_password, nil), do: false
   defp verify_password(_password, ""), do: false
   defp verify_password(password, hash), do: Bcrypt.verify_pass(password, hash)
+
 end

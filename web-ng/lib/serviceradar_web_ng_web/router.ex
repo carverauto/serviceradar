@@ -90,6 +90,21 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/devices/:uid", DeviceController, :show)
   end
 
+  # Admin API (session/JWT auth)
+  scope "/api/admin", ServiceRadarWebNG.Api do
+    pipe_through(:api_auth)
+
+    get("/users", UserController, :index)
+    get("/users/:id", UserController, :show)
+    post("/users", UserController, :create)
+    patch("/users/:id", UserController, :update)
+    post("/users/:id/deactivate", UserController, :deactivate)
+    post("/users/:id/reactivate", UserController, :reactivate)
+
+    get("/authorization-settings", AuthorizationSettingsController, :show)
+    put("/authorization-settings", AuthorizationSettingsController, :update)
+  end
+
   # Edge onboarding admin API (API key or bearer token auth)
   scope "/api/admin", ServiceRadarWebNG.Api do
     pipe_through(:api_key_auth)
@@ -329,6 +344,8 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       # Authentication settings (admin only - enforced by resource policies)
       live("/settings/authentication", Settings.AuthenticationLive, :index)
+      live("/settings/auth/users", Settings.AuthUsersLive, :index)
+      live("/settings/auth/authorization", Settings.AuthorizationLive, :index)
 
       # Network sweep configuration
       live("/settings/networks", Settings.NetworksLive.Index, :index)

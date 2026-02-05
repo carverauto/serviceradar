@@ -77,6 +77,43 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active: String.starts_with?(path, "/admin/jobs")
       },
       %{
+        label: "Auth",
+        navigate: ~p"/settings/auth/users",
+        active: String.starts_with?(path, "/settings/authentication")
+          or String.starts_with?(path, "/settings/auth/")
+      }
+    ]
+  end
+
+  # Auth section sub-navigation
+  attr(:current_path, :string, required: true)
+  attr(:class, :any, default: nil)
+
+  def auth_nav(assigns) do
+    assigns = assign(assigns, :tabs, auth_tabs(assigns.current_path))
+
+    ~H"""
+    <div class={["flex flex-wrap items-center gap-2", @class]}>
+      <.ui_tabs tabs={@tabs} class="flex-wrap" size="sm" />
+    </div>
+    """
+  end
+
+  def auth_tabs(current_path) do
+    path = current_path || ""
+
+    [
+      %{
+        label: "Users",
+        navigate: ~p"/settings/auth/users",
+        active: String.starts_with?(path, "/settings/auth/users")
+      },
+      %{
+        label: "Authorization",
+        navigate: ~p"/settings/auth/authorization",
+        active: String.starts_with?(path, "/settings/auth/authorization")
+      },
+      %{
         label: "Authentication",
         navigate: ~p"/settings/authentication",
         active: String.starts_with?(path, "/settings/authentication")
