@@ -163,6 +163,22 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
     # Check if device exists
     case Device.get_by_uid(device_uid, true, actor: actor) do
+      {:ok, nil} ->
+        # No record found (get? actions can return nil), fall through to create
+        create_device_for_agent(
+          %{
+            device_uid: device_uid,
+            agent_id: agent_id,
+            hostname: hostname,
+            source_ip: source_ip,
+            partition: partition,
+            os_info: os_info,
+            capabilities: capabilities
+          },
+          actor,
+          now
+        )
+
       {:ok, device} ->
         # Update existing device
         update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now)
@@ -267,6 +283,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       {:ok, _device} ->
         Logger.debug("Updated device #{device.uid} for agent #{agent_id}")
         :ok
+
+      {:error, %Ash.Error.Invalid{} = error} ->
+        if stale_record_error?(error) do
+          force_gateway_sync_update(device.uid, update_attrs, actor)
+        else
+          {:error, error}
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -415,6 +438,38 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       _ -> false
     end)
     |> Map.new()
+  end
+
+  defp stale_record_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+  end
+
+  defp stale_record_error?(_), do: false
+
+  defp force_gateway_sync_update(device_uid, update_attrs, actor) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid == ^device_uid)
+
+    case Ash.bulk_update(query, :gateway_sync, update_attrs,
+           actor: actor,
+           return_errors?: true,
+           return_records?: false
+         ) do
+      %Ash.BulkResult{status: :success} ->
+        Logger.debug("Force-updated device #{device_uid} via gateway_sync")
+        :ok
+
+      %Ash.BulkResult{status: :partial_success, errors: errors} ->
+        {:error, List.first(errors) || :partial_failure}
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        {:error, List.first(errors) || :bulk_update_failed}
+
+      other ->
+        {:error, other}
+    end
   end
 
   defp not_found_error?(%Ash.Error.Query.NotFound{}), do: true

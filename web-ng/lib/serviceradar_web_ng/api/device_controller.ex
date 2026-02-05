@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
       {:ok, parsed_uid} ->
         scope = get_scope(conn)
 
-        case Device.get_by_uid(parsed_uid, scope: scope) do
+        case Device.get_by_uid(parsed_uid, false, scope: scope) do
           {:ok, device} ->
             json(conn, %{"data" => device_to_map(device)})
 
