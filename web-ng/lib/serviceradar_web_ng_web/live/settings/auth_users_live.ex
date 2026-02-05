@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   """
 
   use ServiceRadarWebNGWeb, :live_view
+
   use Permit.Phoenix.LiveView,
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.User
@@ -19,10 +20,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
 
     {:ok,
      socket
-      |> assign(:form, to_form(default_user_form(), as: :user))
-      |> assign(:role_profiles, role_profiles)
-      |> assign(:user_count, length(users))
-      |> stream(:users, users, reset: true)}
+     |> assign(:form, to_form(default_user_form(), as: :user))
+     |> assign(:role_profiles, role_profiles)
+     |> assign(:user_count, length(users))
+     |> stream(:users, users, reset: true)}
   end
 
   @impl true
@@ -159,19 +160,26 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
       <SettingsComponents.settings_shell current_path="/settings/auth/users">
         <div class="space-y-8">
           <div class="space-y-4">
-            <SettingsComponents.settings_nav current_path="/settings/auth/users" current_scope={@current_scope} />
-            <SettingsComponents.auth_nav current_path="/settings/auth/users" current_scope={@current_scope} />
+            <SettingsComponents.settings_nav
+              current_path="/settings/auth/users"
+              current_scope={@current_scope}
+            />
+            <SettingsComponents.auth_nav
+              current_path="/settings/auth/users"
+              current_scope={@current_scope}
+            />
           </div>
 
           <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div class="space-y-1">
               <h1 class="text-2xl font-bold">Accounts</h1>
-              <p class="text-base opacity-70">Assign roles and access profiles without touching raw JSON.</p>
+              <p class="text-base opacity-70">
+                Assign roles and access profiles without touching raw JSON.
+              </p>
             </div>
             <div class="flex items-center gap-2">
               <.link navigate={~p"/settings/auth/access"} class="btn btn-outline">
-                <.icon name="hero-shield-check" class="size-4" />
-                Access Control
+                <.icon name="hero-shield-check" class="size-4" /> Access Control
               </.link>
               <div class="badge badge-lg badge-neutral">Total {@user_count}</div>
             </div>
@@ -179,117 +187,136 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
 
           <div class="grid gap-8 xl:grid-cols-[1fr_400px]">
             <section class="min-w-0">
-               <div class="card bg-base-100 shadow-sm border border-base-200">
+              <div class="card bg-base-100 shadow-sm border border-base-200">
                 <div class="overflow-x-auto">
-                    <table class="table table-zebra w-full" :if={@user_count > 0}>
-                      <thead>
-                        <tr>
-                          <th>Account</th>
-                          <th>Role</th>
-                          <th>Access Profile</th>
-                          <th>Authentication</th>
-                          <th>Last Activity</th>
-                          <th class="text-right">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody id="users" phx-update="stream">
-                        <tr :for={{id, user} <- @streams.users} id={id} class="group">
-                          <td>
-                            <div class="flex items-center gap-3">
-                              <div class="avatar placeholder">
-                                <div class="bg-primary/10 text-primary w-10 rounded-full">
-                                  <span class="text-xs font-bold">{user_initials(user)}</span>
-                                </div>
+                  <table :if={@user_count > 0} class="table table-zebra w-full">
+                    <thead>
+                      <tr>
+                        <th>Account</th>
+                        <th>Role</th>
+                        <th>Access Profile</th>
+                        <th>Authentication</th>
+                        <th>Last Activity</th>
+                        <th class="text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="users" phx-update="stream">
+                      <tr :for={{id, user} <- @streams.users} id={id} class="group">
+                        <td>
+                          <div class="flex items-center gap-3">
+                            <div class="avatar placeholder">
+                              <div class="bg-primary/10 text-primary w-10 rounded-full">
+                                <span class="text-xs font-bold">{user_initials(user)}</span>
                               </div>
-                              <div class="flex flex-col">
-                                <div class="font-bold text-sm">{display_name(user)}</div>
-                                <div class="text-xs opacity-60 font-mono scale-90 origin-left">{user.email}</div>
-                              </div>
-                               <%= if user.status != :active do %>
-                                 <span class="badge badge-warning badge-xs">inactive</span>
-                               <% end %>
                             </div>
-                          </td>
-                          <td>
+                            <div class="flex flex-col">
+                              <div class="font-bold text-sm">{display_name(user)}</div>
+                              <div class="text-xs opacity-60 font-mono scale-90 origin-left">
+                                {user.email}
+                              </div>
+                            </div>
+                            <%= if user.status != :active do %>
+                              <span class="badge badge-warning badge-xs">inactive</span>
+                            <% end %>
+                          </div>
+                        </td>
+                        <td>
+                          <select
+                            class="select select-bordered select-xs w-full max-w-[120px] font-medium"
+                            phx-change="update_role"
+                            phx-value-id={user.id}
+                            name="role"
+                          >
+                            <option value="viewer" selected={user.role == :viewer}>Viewer</option>
+                            <option value="operator" selected={user.role == :operator}>
+                              Operator
+                            </option>
+                            <option value="admin" selected={user.role == :admin}>Admin</option>
+                          </select>
+                        </td>
+                        <td>
+                          <div class="flex items-center gap-2">
                             <select
-                              class="select select-bordered select-xs w-full max-w-[120px] font-medium"
-                              phx-change="update_role"
+                              class={[
+                                "select select-bordered select-xs w-full font-medium",
+                                (is_nil(user.role_profile_id) or user.role_profile_id == "") &&
+                                  "opacity-70"
+                              ]}
+                              phx-change="update_role_profile"
                               phx-value-id={user.id}
-                              name="role"
+                              name="role_profile_id"
                             >
-                              <option value="viewer" selected={user.role == :viewer}>Viewer</option>
-                              <option value="operator" selected={user.role == :operator}>Operator</option>
-                              <option value="admin" selected={user.role == :admin}>Admin</option>
-                            </select>
-                          </td>
-                          <td>
-                            <div class="flex items-center gap-2">
-                               <select
-                                class={[
-                                  "select select-bordered select-xs w-full font-medium",
-                                  (is_nil(user.role_profile_id) or user.role_profile_id == "") && "opacity-70"
-                                ]}
-                                phx-change="update_role_profile"
-                                phx-value-id={user.id}
-                                name="role_profile_id"
+                              <option
+                                value=""
+                                selected={is_nil(user.role_profile_id) or user.role_profile_id == ""}
                               >
-                                <option value="" selected={is_nil(user.role_profile_id) or user.role_profile_id == ""}>
-                                  (Role Default)
+                                (Role Default)
+                              </option>
+                              <%= for {label, id} <- profile_options(@role_profiles) do %>
+                                <option value={id} selected={user.role_profile_id == id}>
+                                  {label}
                                 </option>
-                                <%= for {label, id} <- profile_options(@role_profiles) do %>
-                                  <option value={id} selected={user.role_profile_id == id}>{label}</option>
-                                <% end %>
-                              </select>
-                               <.link
-                                :if={user.role_profile_id && user.role_profile_id != ""}
-                                navigate={~p"/settings/auth/access?filter=#{user.role_profile_id}"}
-                                class="btn btn-xs btn-ghost btn-square"
-                                data-tip="View permissions"
-                               >
-                                  <.icon name="hero-arrow-top-right-on-square" class="size-3" />
-                               </.link>
-                            </div>
-                          </td>
-                          <td>
-                            <div class="badge badge-ghost badge-sm font-mono text-xs">
-                              {password_label(user)}
-                            </div>
-                          </td>
-                          <td class="text-xs font-mono opacity-70 whitespace-nowrap">
-                            {format_last_activity(user)}
-                          </td>
-                          <td class="text-right">
-                             <div class="dropdown dropdown-end">
-                                <button tabindex="0" class="btn btn-ghost btn-xs btn-square">
-                                  <.icon name="hero-ellipsis-vertical" class="size-4" />
-                                </button>
-                                <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40 border border-base-200">
-                                   <%= if user.status == :active do %>
-                                     <li>
-                                       <button class="text-error" phx-click="deactivate" phx-value-id={user.id}>
-                                         <.icon name="hero-no-symbol" class="size-4" />
-                                         Deactivate
-                                       </button>
-                                     </li>
-                                   <% else %>
-                                     <li>
-                                        <button class="text-success" phx-click="reactivate" phx-value-id={user.id}>
-                                           <.icon name="hero-check-circle" class="size-4" />
-                                           Reactivate
-                                        </button>
-                                     </li>
-                                   <% end %>
-                                </ul>
-                             </div>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    <div :if={@user_count == 0} class="p-12 text-center opacity-50 space-y-2">
-                       <.icon name="hero-users" class="size-8 mx-auto mb-2" />
-                       <p class="font-medium">No accounts found.</p>
-                       <p class="text-sm">Create an account to get started.</p>
-                    </div>
+                              <% end %>
+                            </select>
+                            <.link
+                              :if={user.role_profile_id && user.role_profile_id != ""}
+                              navigate={~p"/settings/auth/access?filter=#{user.role_profile_id}"}
+                              class="btn btn-xs btn-ghost btn-square"
+                              data-tip="View permissions"
+                            >
+                              <.icon name="hero-arrow-top-right-on-square" class="size-3" />
+                            </.link>
+                          </div>
+                        </td>
+                        <td>
+                          <div class="badge badge-ghost badge-sm font-mono text-xs">
+                            {password_label(user)}
+                          </div>
+                        </td>
+                        <td class="text-xs font-mono opacity-70 whitespace-nowrap">
+                          {format_last_activity(user)}
+                        </td>
+                        <td class="text-right">
+                          <div class="dropdown dropdown-end">
+                            <button tabindex="0" class="btn btn-ghost btn-xs btn-square">
+                              <.icon name="hero-ellipsis-vertical" class="size-4" />
+                            </button>
+                            <ul
+                              tabindex="0"
+                              class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40 border border-base-200"
+                            >
+                              <%= if user.status == :active do %>
+                                <li>
+                                  <button
+                                    class="text-error"
+                                    phx-click="deactivate"
+                                    phx-value-id={user.id}
+                                  >
+                                    <.icon name="hero-no-symbol" class="size-4" /> Deactivate
+                                  </button>
+                                </li>
+                              <% else %>
+                                <li>
+                                  <button
+                                    class="text-success"
+                                    phx-click="reactivate"
+                                    phx-value-id={user.id}
+                                  >
+                                    <.icon name="hero-check-circle" class="size-4" /> Reactivate
+                                  </button>
+                                </li>
+                              <% end %>
+                            </ul>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div :if={@user_count == 0} class="p-12 text-center opacity-50 space-y-2">
+                    <.icon name="hero-users" class="size-8 mx-auto mb-2" />
+                    <p class="font-medium">No accounts found.</p>
+                    <p class="text-sm">Create an account to get started.</p>
+                  </div>
                 </div>
               </div>
             </section>
@@ -297,17 +324,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
             <section class="space-y-6">
               <div class="card bg-base-100 shadow-sm border border-base-200 sticky top-6">
                 <div class="card-body">
-                   <div class="flex items-center gap-3 mb-2">
-                      <div class="p-2 bg-primary/10 rounded-lg text-primary">
-                        <.icon name="hero-user-plus" class="size-5" />
-                      </div>
-                      <h2 class="card-title text-lg">Add Account</h2>
-                   </div>
+                  <div class="flex items-center gap-3 mb-2">
+                    <div class="p-2 bg-primary/10 rounded-lg text-primary">
+                      <.icon name="hero-user-plus" class="size-5" />
+                    </div>
+                    <h2 class="card-title text-lg">Add Account</h2>
+                  </div>
                   <p class="text-sm opacity-70 mb-4">
                     Create a local operator or admin and assign a starting role.
                   </p>
 
-                  <.form for={@form} id="user-create-form" phx-change="validate" phx-submit="create" class="space-y-4">
+                  <.form
+                    for={@form}
+                    id="user-create-form"
+                    phx-change="validate"
+                    phx-submit="create"
+                    class="space-y-4"
+                  >
                     <.input
                       field={@form[:email]}
                       type="email"
@@ -398,8 +431,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     }
   end
 
-
-
   defp user_initials(user) do
     base = display_name(user)
 
@@ -460,7 +491,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   end
 
   defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %d, %Y %H:%M")
-  defp format_datetime(%NaiveDateTime{} = dt), do: Calendar.strftime(DateTime.from_naive!(dt, "Etc/UTC"), "%b %d, %Y %H:%M")
+
+  defp format_datetime(%NaiveDateTime{} = dt),
+    do: Calendar.strftime(DateTime.from_naive!(dt, "Etc/UTC"), "%b %d, %Y %H:%M")
+
   defp format_datetime(_), do: "—"
 
   defp format_naive_datetime(value) when is_binary(value) do

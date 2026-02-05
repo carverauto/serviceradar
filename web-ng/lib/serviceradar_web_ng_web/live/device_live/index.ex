@@ -461,7 +461,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp do_bulk_delete(socket, scope) do
-    
     case bulk_delete_uids(socket) do
       {:ok, uids} ->
         case Device.bulk_soft_delete(uids, "bulk_delete", scope: scope) do

@@ -7,11 +7,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   """
 
   use ServiceRadarWebNGWeb, :live_view
+
   use Permit.Phoenix.LiveView,
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.RoleProfile
 
-  alias ServiceRadarWebNG.AdminApi
+  require Ash.Query
+
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadarWebNG.RBAC, as: WebRBAC
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   @action_order ~w(view create update delete manage manage_queries bulk_edit bulk_delete import export run)
@@ -22,34 +27,30 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    {profiles, profile_flash} =
-      case AdminApi.list_role_profiles(scope) do
-        {:ok, list} -> {list, nil}
-        {:error, error} -> {[], format_ash_error(error)}
-      end
+    if not WebRBAC.can?(scope, "settings.rbac.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "Admin access required")
+       |> redirect(to: ~p"/settings/profile")}
+    else
+      {profiles, profile_flash} = load_role_profiles(scope)
+      catalog = RBAC.catalog()
+      grid = build_permission_grid(catalog)
 
-    {catalog, catalog_flash} =
-      case AdminApi.get_rbac_catalog(scope) do
-        {:ok, list} -> {list, nil}
-        {:error, error} -> {[], format_ash_error(error)}
-      end
-
-    grid = build_permission_grid(catalog)
-
-    {:ok,
-     socket
-     |> assign(:page_title, "Policy Editor")
-     |> assign(:profiles, profiles)
-     |> assign(:catalog, catalog)
-     |> assign(:grid, grid)
-     |> assign(:filter, "")
-     |> assign(:dirty_profiles, MapSet.new())
-     |> assign(:show_new_profile_modal, false)
-     |> assign(:new_profile_form, to_form(default_profile_form(), as: :profile))
-     |> assign(:clone_source_id, nil)
-     |> assign(:confirm_delete_profile, nil)
-     |> maybe_put_flash(profile_flash)
-     |> maybe_put_flash(catalog_flash)}
+      {:ok,
+       socket
+       |> assign(:page_title, "Policy Editor")
+       |> assign(:profiles, profiles)
+       |> assign(:catalog, catalog)
+       |> assign(:grid, grid)
+       |> assign(:filter, "")
+       |> assign(:dirty_profiles, MapSet.new())
+       |> assign(:show_new_profile_modal, false)
+       |> assign(:new_profile_form, to_form(default_profile_form(), as: :profile))
+       |> assign(:clone_source_id, nil)
+       |> assign(:confirm_delete_profile, nil)
+       |> maybe_put_flash(profile_flash)}
+    end
   end
 
   # ── Events ────────────────────────────────────────────────────
@@ -59,7 +60,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     {:noreply, assign(socket, :filter, value || "")}
   end
 
-  def handle_event("toggle_permission", %{"profile-id" => profile_id, "permission" => permission}, socket) do
+  def handle_event(
+        "toggle_permission",
+        %{"profile-id" => profile_id, "permission" => permission},
+        socket
+      ) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile.system do
@@ -74,7 +79,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
-  def handle_event("toggle_resource", %{"profile-id" => profile_id, "resource" => resource}, socket) do
+  def handle_event(
+        "toggle_resource",
+        %{"profile-id" => profile_id, "resource" => resource},
+        socket
+      ) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile.system do
@@ -113,17 +122,50 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     if profile == nil do
       {:noreply, socket}
     else
-      case AdminApi.update_role_profile(scope, profile.id, %{permissions: profile.permissions}) do
-        {:ok, updated} ->
-          {:noreply,
-           socket
-           |> assign(:profiles, replace_profile(socket.assigns.profiles, updated))
-           |> assign(:dirty_profiles, MapSet.delete(socket.assigns.dirty_profiles, updated.id))
-           |> put_flash(:info, "Role profile updated")}
+      {:noreply, persist_profile(socket, scope, profile)}
+    end
+  end
 
-        {:error, error} ->
-          {:noreply, put_flash(socket, :error, format_ash_error(error))}
-      end
+  def handle_event("save_all", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    socket =
+      Enum.reduce(MapSet.to_list(socket.assigns.dirty_profiles), socket, fn profile_id, acc ->
+        profile = find_profile(acc.assigns.profiles, profile_id)
+
+        if profile == nil do
+          acc
+        else
+          persist_profile(acc, scope, profile)
+        end
+      end)
+
+    {:noreply, socket}
+  end
+
+  def handle_event(
+        "set_profile_permissions",
+        %{"profile-id" => profile_id, "mode" => mode},
+        socket
+      ) do
+    profile = find_profile(socket.assigns.profiles, profile_id)
+
+    if profile == nil or profile.system do
+      {:noreply, socket}
+    else
+      permissions =
+        case mode do
+          "all" -> MapSet.to_list(socket.assigns.grid.valid_permissions)
+          "none" -> []
+          _ -> profile.permissions || []
+        end
+
+      updated = %{profile | permissions: permissions}
+
+      {:noreply,
+       socket
+       |> assign(:profiles, replace_profile(socket.assigns.profiles, updated))
+       |> assign(:dirty_profiles, MapSet.put(socket.assigns.dirty_profiles, updated.id))}
     end
   end
 
@@ -143,7 +185,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   def handle_event("create_profile", %{"profile" => params}, socket) do
     scope = socket.assigns.current_scope
-    base_permissions = permissions_from_clone(socket.assigns.profiles, socket.assigns.clone_source_id)
+
+    base_permissions =
+      permissions_from_clone(socket.assigns.profiles, socket.assigns.clone_source_id)
 
     attrs = %{
       name: Map.get(params, "name"),
@@ -151,7 +195,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       permissions: base_permissions
     }
 
-    case AdminApi.create_role_profile(scope, attrs) do
+    case create_role_profile(scope, attrs) do
       {:ok, profile} ->
         {:noreply,
          socket
@@ -191,7 +235,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         {:noreply, put_flash(socket, :error, "System profiles cannot be deleted")}
 
       true ->
-        case AdminApi.delete_role_profile(scope, profile.id) do
+        case delete_role_profile(scope, profile.id) do
+          :ok ->
+            {:noreply,
+             socket
+             |> assign(:profiles, Enum.reject(socket.assigns.profiles, &(&1.id == profile.id)))
+             |> assign(:dirty_profiles, MapSet.delete(socket.assigns.dirty_profiles, profile.id))
+             |> assign(:confirm_delete_profile, nil)
+             |> put_flash(:info, "Role profile deleted")}
+
           {:ok, _} ->
             {:noreply,
              socket
@@ -216,6 +268,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       "toggle_resource" => :update,
       "toggle_action" => :update,
       "save_profile" => :update,
+      "save_all" => :update,
+      "set_profile_permissions" => :update,
       "create_profile" => :create,
       "delete_profile" => :delete,
       "open_delete_profile" => :delete,
@@ -245,47 +299,76 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   @impl true
   def render(assigns) do
-    assigns = assign(assigns, :filtered_profiles, filter_profiles(assigns.profiles, assigns.filter))
+    assigns =
+      assign(assigns, :filtered_profiles, filter_profiles(assigns.profiles, assigns.filter))
+
+    assigns = assign(assigns, :has_dirty?, MapSet.size(assigns.dirty_profiles) > 0)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <SettingsComponents.settings_shell current_path="/settings/auth/rbac">
         <div class="space-y-4">
-          <SettingsComponents.settings_nav current_path="/settings/auth/rbac" current_scope={@current_scope} />
-          <SettingsComponents.auth_nav current_path="/settings/auth/rbac" current_scope={@current_scope} />
-        </div>
-
-        <div class="flex flex-wrap items-center justify-between gap-4">
-          <label class="input input-bordered input-sm flex items-center gap-2 w-full max-w-sm">
-            <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
-            <input
-              type="search"
-              name="filter"
-              value={@filter}
-              placeholder="Filter Policies"
-              phx-change="filter_policies"
-              phx-debounce="300"
-              class="grow"
+          <div class="space-y-2">
+            <SettingsComponents.settings_nav
+              current_path="/settings/auth/rbac"
+              current_scope={@current_scope}
             />
-          </label>
-          <div class="flex items-center gap-2">
-            <button class="btn btn-primary btn-sm gap-1" phx-click="open_new_profile">
-              Create <.icon name="hero-plus-mini" class="h-4 w-4" />
-            </button>
+            <SettingsComponents.auth_nav
+              current_path="/settings/auth/rbac"
+              current_scope={@current_scope}
+            />
           </div>
-        </div>
 
-        <div class="space-y-8">
-          <.profile_card
-            :for={profile <- @filtered_profiles}
-            profile={profile}
-            grid={@grid}
-            dirty={MapSet.member?(@dirty_profiles, profile.id)}
-          />
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="space-y-1">
+              <div class="badge badge-outline">Policy Editor</div>
+              <h1 class="text-2xl font-semibold">RBAC</h1>
+              <p class="text-sm text-base-content/60">
+                Edit role profiles using a compact permissions grid. Built-in profiles are clone-only.
+              </p>
+            </div>
 
-          <div :if={@filtered_profiles == []} class="text-center py-16 text-base-content/50">
-            <.icon name="hero-shield-exclamation" class="h-12 w-12 mx-auto mb-3 opacity-30" />
-            <p class="text-sm">No profiles match your filter.</p>
+            <div class="flex items-center gap-2">
+              <button :if={@has_dirty?} class="btn btn-primary btn-sm" phx-click="save_all">
+                Save all
+              </button>
+              <button class="btn btn-primary btn-sm gap-1" phx-click="open_new_profile">
+                Create <.icon name="hero-plus-mini" class="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <label class="input input-bordered input-sm flex items-center gap-2 w-full max-w-sm">
+              <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
+              <input
+                type="search"
+                name="filter"
+                value={@filter}
+                placeholder="Filter profiles"
+                phx-change="filter_policies"
+                phx-debounce="300"
+                class="grow"
+              />
+            </label>
+          </div>
+
+          <div class="flex gap-5 overflow-x-auto pb-4">
+            <div
+              :for={profile <- @filtered_profiles}
+              class="min-w-[720px] max-w-[900px] shrink-0"
+            >
+              <.profile_card
+                profile={profile}
+                grid={@grid}
+                dirty={MapSet.member?(@dirty_profiles, profile.id)}
+              />
+            </div>
+
+            <div :if={@filtered_profiles == []} class="w-full text-center py-16 text-base-content/50">
+              <.icon name="hero-shield-exclamation" class="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p class="text-sm">No profiles match your filter.</p>
+            </div>
           </div>
         </div>
 
@@ -303,6 +386,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   attr :dirty, :boolean, default: false
 
   defp profile_card(assigns) do
+    assigns = assign(assigns, :unmapped, unmapped_permissions(assigns.profile, assigns.grid))
+
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <%!-- Card header --%>
@@ -317,6 +402,28 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
           <span :if={@dirty} class="badge badge-warning badge-sm gap-1">unsaved</span>
         </div>
         <div class="flex items-center gap-2">
+          <div class={["join", @profile.system && "opacity-50"]}>
+            <button
+              type="button"
+              class="btn btn-xs join-item"
+              disabled={@profile.system}
+              phx-click="set_profile_permissions"
+              phx-value-profile-id={@profile.id}
+              phx-value-mode="all"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs join-item"
+              disabled={@profile.system}
+              phx-click="set_profile_permissions"
+              phx-value-profile-id={@profile.id}
+              phx-value-mode="none"
+            >
+              None
+            </button>
+          </div>
           <button
             :if={@dirty}
             class="btn btn-primary btn-xs"
@@ -329,14 +436,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-square">
               <.icon name="hero-ellipsis-vertical" class="h-5 w-5" />
             </div>
-            <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-100 rounded-box w-44 border border-base-200">
+            <ul
+              tabindex="0"
+              class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-100 rounded-box w-44 border border-base-200"
+            >
               <li>
                 <button phx-click="open_new_profile" phx-value-clone-source-id={@profile.id}>
                   <.icon name="hero-document-duplicate" class="h-4 w-4" /> Clone
                 </button>
               </li>
               <li :if={!@profile.system}>
-                <button phx-click="open_delete_profile" phx-value-profile-id={@profile.id} class="text-error">
+                <button
+                  phx-click="open_delete_profile"
+                  phx-value-profile-id={@profile.id}
+                  class="text-error"
+                >
                   <.icon name="hero-trash" class="h-4 w-4" /> Delete
                 </button>
               </li>
@@ -346,7 +460,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       </div>
 
       <%!-- Permission grid --%>
-      <div class="overflow-x-auto">
+      <div class="max-h-[70vh] overflow-auto">
         <table class="table table-sm table-pin-rows">
           <thead>
             <tr>
@@ -442,6 +556,20 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             <% end %>
           </tbody>
         </table>
+      </div>
+
+      <div :if={@unmapped != []} class="px-5 py-4 border-t border-base-200 bg-base-200/30">
+        <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+          Unmapped permissions
+        </div>
+        <div class="text-xs text-base-content/60">
+          These permissions exist on the profile but are not present in the current RBAC catalog.
+        </div>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <span :for={perm <- @unmapped} class="badge badge-outline font-mono text-[11px]">
+            {perm}
+          </span>
+        </div>
       </div>
     </div>
     """
@@ -567,9 +695,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp split_permission_key(key) do
     parts = String.split(key, ".")
-    action = List.last(parts)
-    resource = parts |> Enum.drop(-1) |> Enum.join(".")
-    {resource, action}
+
+    case parts do
+      [single] ->
+        {single, ""}
+
+      _ ->
+        action = List.last(parts)
+        resource = parts |> Enum.drop(-1) |> Enum.join(".")
+        {resource, action}
+    end
   end
 
   defp action_sort_index(action) do
@@ -605,7 +740,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   end
 
   defp group_border_class(grid, resource_index) do
-    if MapSet.member?(grid.group_starts, resource_index), do: "border-l border-base-200", else: nil
+    if MapSet.member?(grid.group_starts, resource_index),
+      do: "border-l border-base-200",
+      else: nil
   end
 
   defp resource_permission_keys(grid, resource) do
@@ -692,6 +829,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
+  defp unmapped_permissions(profile, grid) do
+    (profile.permissions || [])
+    |> Enum.reject(&MapSet.member?(grid.valid_permissions, &1))
+    |> Enum.sort()
+  end
+
   defp profile_badge_class(profile) do
     case to_string(profile.system_name || "") do
       "admin" -> "badge-error"
@@ -703,8 +846,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp profile_identifier(profile) do
     cond do
-      profile.system_name -> profile.system_name
-      true -> profile.name |> to_string() |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_")
+      profile.system_name ->
+        profile.system_name
+
+      true ->
+        profile.name |> to_string() |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_")
     end
   end
 
@@ -725,6 +871,54 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp maybe_put_flash(socket, nil), do: socket
   defp maybe_put_flash(socket, message), do: put_flash(socket, :error, message)
+
+  defp load_role_profiles(scope) do
+    query =
+      RoleProfile
+      |> Ash.Query.for_read(:read, %{}, scope: scope)
+      |> Ash.Query.sort(system: :desc, name: :asc)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, profiles} -> {profiles, nil}
+      {:error, error} -> {[], format_ash_error(error)}
+    end
+  end
+
+  defp create_role_profile(scope, attrs) do
+    RoleProfile
+    |> Ash.Changeset.for_create(:create, attrs, scope: scope)
+    |> Ash.create(scope: scope)
+  end
+
+  defp delete_role_profile(scope, id) do
+    with {:ok, profile} <- Ash.get(RoleProfile, id, scope: scope) do
+      Ash.destroy(profile, scope: scope)
+    end
+  end
+
+  defp persist_profile(socket, scope, profile) do
+    result =
+      with {:ok, record} <- Ash.get(RoleProfile, profile.id, scope: scope),
+           {:ok, updated} <-
+             record
+             |> Ash.Changeset.for_update(:update, %{permissions: profile.permissions},
+               scope: scope
+             )
+             |> Ash.update(scope: scope) do
+        {:ok, updated}
+      end
+
+    case result do
+      {:ok, updated} ->
+        socket
+        |> assign(:profiles, replace_profile(socket.assigns.profiles, updated))
+        |> assign(:dirty_profiles, MapSet.delete(socket.assigns.dirty_profiles, updated.id))
+        |> put_flash(:info, "Role profile updated")
+
+      {:error, error} ->
+        put_flash(socket, :error, format_ash_error(error))
+    end
+  end
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", fn

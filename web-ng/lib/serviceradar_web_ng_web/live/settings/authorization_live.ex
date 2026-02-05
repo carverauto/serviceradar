@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   """
 
   use ServiceRadarWebNGWeb, :live_view
+
   use Permit.Phoenix.LiveView,
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.AuthorizationSettings
@@ -15,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   def mount(_params, _session, socket) do
     socket = assign(socket, :page_title, "Authorization Settings")
     scope = socket.assigns.current_scope
+
     {settings, settings_flash} =
       case get_or_create_settings(scope) do
         {:ok, settings} -> {settings, nil}
@@ -84,7 +86,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <SettingsComponents.settings_shell current_path="/settings/auth/authorization">
         <div class="space-y-4">
-          <SettingsComponents.settings_nav current_path="/settings/auth/authorization" current_scope={@current_scope} />
+          <SettingsComponents.settings_nav
+            current_path="/settings/auth/authorization"
+            current_scope={@current_scope}
+          />
           <SettingsComponents.auth_nav
             current_path="/settings/auth/authorization"
             current_scope={@current_scope}

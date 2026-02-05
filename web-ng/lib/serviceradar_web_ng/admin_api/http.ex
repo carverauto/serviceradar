@@ -104,6 +104,9 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
     {:error, {:http_error, status, body}}
   end
 
+  # Permit endpoints may return an empty JSON list `[]` on success.
+  defp normalize_response({:ok, %Req.Response{status: 204}}), do: {:ok, %{status: "ok"}}
+
   defp normalize_response({:error, error}), do: {:error, error}
 
   defp normalize_body(body) when is_list(body) do

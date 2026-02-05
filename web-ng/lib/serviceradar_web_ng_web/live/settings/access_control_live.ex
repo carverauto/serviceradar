@@ -66,7 +66,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
     else
       scope = socket.assigns.current_scope
       mappings = Map.get(payload, "mappings")
-      role_mappings = if mappings, do: mappings_from_params(mappings), else: socket.assigns.role_mappings
+
+      role_mappings =
+        if mappings, do: mappings_from_params(mappings), else: socket.assigns.role_mappings
 
       with {:ok, attrs} <- normalize_auth_attrs(params, role_mappings),
            {:ok, updated} <- AdminApi.update_authorization_settings(scope, attrs) do
@@ -107,7 +109,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
     {:noreply, assign(socket, :filter, value || "")}
   end
 
-  def handle_event("toggle_permission", %{"profile_id" => profile_id, "permission" => permission}, socket) do
+  def handle_event(
+        "toggle_permission",
+        %{"profile_id" => profile_id, "permission" => permission},
+        socket
+      ) do
     if not socket.assigns.can_rbac do
       {:noreply, put_flash(socket, :error, "Not authorized to edit role profiles")}
     else
@@ -126,7 +132,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
     end
   end
 
-  def handle_event("toggle_section", %{"profile_id" => profile_id, "section" => section_id}, socket) do
+  def handle_event(
+        "toggle_section",
+        %{"profile_id" => profile_id, "section" => section_id},
+        socket
+      ) do
     if not socket.assigns.can_rbac do
       {:noreply, put_flash(socket, :error, "Not authorized to edit role profiles")}
     else
@@ -190,7 +200,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
       {:noreply, put_flash(socket, :error, "Not authorized to edit role profiles")}
     else
       scope = socket.assigns.current_scope
-      base_permissions = permissions_from_clone(socket.assigns.profiles, socket.assigns.clone_source_id)
+
+      base_permissions =
+        permissions_from_clone(socket.assigns.profiles, socket.assigns.clone_source_id)
 
       attrs = %{
         name: Map.get(params, "name"),
@@ -216,7 +228,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
     end
   end
 
-          def handle_event("delete_profile", %{"profile_id" => profile_id}, socket) do
+  def handle_event("delete_profile", %{"profile_id" => profile_id}, socket) do
     if not socket.assigns.can_rbac do
       {:noreply, put_flash(socket, :error, "Not authorized to edit role profiles")}
     else
@@ -239,7 +251,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                socket
                |> assign(:profiles, profiles)
                |> assign(:grid_template, grid_template(profiles))
-               |> assign(:dirty_profiles, MapSet.delete(socket.assigns.dirty_profiles, profile.id))
+               |> assign(
+                 :dirty_profiles,
+                 MapSet.delete(socket.assigns.dirty_profiles, profile.id)
+               )
                |> assign(:confirm_delete_profile, nil)
                |> put_flash(:info, "Role profile deleted")}
 
@@ -281,8 +296,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
       <SettingsComponents.settings_shell current_path="/settings/auth/access">
         <div class="space-y-6">
           <div class="space-y-4">
-            <SettingsComponents.settings_nav current_path="/settings/auth/access" current_scope={@current_scope} />
-            <SettingsComponents.auth_nav current_path="/settings/auth/access" current_scope={@current_scope} />
+            <SettingsComponents.settings_nav
+              current_path="/settings/auth/access"
+              current_scope={@current_scope}
+            />
+            <SettingsComponents.auth_nav
+              current_path="/settings/auth/access"
+              current_scope={@current_scope}
+            />
           </div>
 
           <div class="card bg-neutral text-neutral-content shadow-sm">
@@ -299,7 +320,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                   <.link navigate={~p"/settings/auth/users"} class="btn btn-sm btn-outline">
                     Manage Users
                   </.link>
-                  <button class="btn btn-sm btn-primary" phx-click="open_new_profile">New Profile</button>
+                  <button class="btn btn-sm btn-primary" phx-click="open_new_profile">
+                    New Profile
+                  </button>
                 </div>
               </div>
 
@@ -378,11 +401,25 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                     <div class="space-y-2">
                       <%= for {mapping, index} <- Enum.with_index(@role_mappings) do %>
                         <div class="join join-vertical md:join-horizontal w-full">
-                          <select name={"mappings[#{index}][source]"} class="select select-bordered select-sm join-item w-full">
-                            <option value="groups" selected={mapping["source"] == "groups"}>groups</option>
-                            <option value="email_domain" selected={mapping["source"] == "email_domain"}>email_domain</option>
-                            <option value="email" selected={mapping["source"] == "email"}>email</option>
-                            <option value="claim" selected={mapping["source"] == "claim"}>claim</option>
+                          <select
+                            name={"mappings[#{index}][source]"}
+                            class="select select-bordered select-sm join-item w-full"
+                          >
+                            <option value="groups" selected={mapping["source"] == "groups"}>
+                              groups
+                            </option>
+                            <option
+                              value="email_domain"
+                              selected={mapping["source"] == "email_domain"}
+                            >
+                              email_domain
+                            </option>
+                            <option value="email" selected={mapping["source"] == "email"}>
+                              email
+                            </option>
+                            <option value="claim" selected={mapping["source"] == "claim"}>
+                              claim
+                            </option>
                           </select>
 
                           <input
@@ -402,9 +439,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                             value={mapping["value"] || ""}
                           />
 
-                          <select name={"mappings[#{index}][role]"} class="select select-bordered select-sm join-item w-full">
-                            <option value="viewer" selected={mapping["role"] == "viewer"}>viewer</option>
-                            <option value="operator" selected={mapping["role"] == "operator"}>operator</option>
+                          <select
+                            name={"mappings[#{index}][role]"}
+                            class="select select-bordered select-sm join-item w-full"
+                          >
+                            <option value="viewer" selected={mapping["role"] == "viewer"}>
+                              viewer
+                            </option>
+                            <option value="operator" selected={mapping["role"] == "operator"}>
+                              operator
+                            </option>
                             <option value="admin" selected={mapping["role"] == "admin"}>admin</option>
                           </select>
 
@@ -442,11 +486,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
               <div class="flex flex-wrap items-end justify-between gap-4">
                 <div>
                   <h2 class="text-lg font-semibold">Role Profiles and Permissions</h2>
-                  <p class="text-sm opacity-70">Built-in profiles are clone-only. Customize copies and assign them to users.</p>
+                  <p class="text-sm opacity-70">
+                    Built-in profiles are clone-only. Customize copies and assign them to users.
+                  </p>
                 </div>
                 <div class="flex items-center gap-2">
-                  <.link navigate={~p"/settings/auth/users"} class="btn btn-sm btn-outline">Assign Users</.link>
-                  <button class="btn btn-sm btn-primary" phx-click="open_new_profile">New Profile</button>
+                  <.link navigate={~p"/settings/auth/users"} class="btn btn-sm btn-outline">
+                    Assign Users
+                  </.link>
+                  <button class="btn btn-sm btn-primary" phx-click="open_new_profile">
+                    New Profile
+                  </button>
                 </div>
               </div>
 
@@ -477,8 +527,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                 <div>
                   <h3 class="font-bold">Legend</h3>
                   <div class="text-sm">
-                    <span class="font-semibold">Role</span> is the coarse label users receive at login (viewer/operator/admin).
-                    <span class="font-semibold">Profile</span> is the actual permission set. Users can be assigned a custom profile to override the role defaults.
+                    <span class="font-semibold">Role</span>
+                    is the coarse label users receive at login (viewer/operator/admin).
+                    <span class="font-semibold">Profile</span>
+                    is the actual permission set. Users can be assigned a custom profile to override the role defaults.
                   </div>
                 </div>
               </div>
@@ -511,28 +563,31 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                             <div class="flex flex-col gap-2">
                               <div class="flex items-center justify-between gap-2">
                                 <span class="font-semibold">{profile.name}</span>
-                                <span class={["badge badge-xs", profile.system && "badge-neutral" || "badge-outline"]}>
-                                  {profile.system && "Built-in" || "Custom"}
+                                <span class={[
+                                  "badge badge-xs",
+                                  (profile.system && "badge-neutral") || "badge-outline"
+                                ]}>
+                                  {(profile.system && "Built-in") || "Custom"}
                                 </span>
                               </div>
-                            <div class="flex flex-wrap items-center gap-1">
-                              <button
-                                class="btn btn-xs btn-outline"
-                                phx-click="open_new_profile"
-                                phx-value-clone-source-id={profile.id}
-                              >
-                                Clone
-                              </button>
-                              <button
-                                :if={!profile.system}
-                                class="btn btn-xs btn-ghost"
-                                phx-click="open_delete_profile"
-                                phx-value-profile-id={profile.id}
-                              >
-                                Delete
-                              </button>
-                              <button
-                                :if={MapSet.member?(@dirty_profiles, profile.id)}
+                              <div class="flex flex-wrap items-center gap-1">
+                                <button
+                                  class="btn btn-xs btn-outline"
+                                  phx-click="open_new_profile"
+                                  phx-value-clone-source-id={profile.id}
+                                >
+                                  Clone
+                                </button>
+                                <button
+                                  :if={!profile.system}
+                                  class="btn btn-xs btn-ghost"
+                                  phx-click="open_delete_profile"
+                                  phx-value-profile-id={profile.id}
+                                >
+                                  Delete
+                                </button>
+                                <button
+                                  :if={MapSet.member?(@dirty_profiles, profile.id)}
                                   class="btn btn-xs btn-primary"
                                   phx-click="save_profile"
                                   phx-value-profile-id={profile.id}
@@ -570,8 +625,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                           <tr>
                             <th>
                               <div class="font-medium">{permission_label(permission)}</div>
-                              <div class="text-xs opacity-70">{permission_description(permission)}</div>
-                              <div class="text-xs font-mono opacity-60">{permission_key(permission)}</div>
+                              <div class="text-xs opacity-70">
+                                {permission_description(permission)}
+                              </div>
+                              <div class="text-xs font-mono opacity-60">
+                                {permission_key(permission)}
+                              </div>
                             </th>
                             <%= for profile <- @profiles do %>
                               <td class="text-center">
@@ -579,7 +638,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                                   type="checkbox"
                                   class={[
                                     "checkbox checkbox-sm",
-                                    permission_assigned?(profile, permission_key(permission)) && "checkbox-success"
+                                    permission_assigned?(profile, permission_key(permission)) &&
+                                      "checkbox-success"
                                   ]}
                                   checked={permission_assigned?(profile, permission_key(permission))}
                                   disabled={profile.system}
@@ -606,7 +666,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
                 Create a custom profile. Permissions are copied from the selected profile (if any).
               </p>
 
-              <.form for={@new_profile_form} id="new-profile-form" phx-submit="create_profile" class="space-y-3">
+              <.form
+                for={@new_profile_form}
+                id="new-profile-form"
+                phx-submit="create_profile"
+                class="space-y-3"
+              >
                 <.input
                   field={@new_profile_form[:name]}
                   type="text"
@@ -638,12 +703,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
             <div class="modal-box">
               <h3 class="text-lg font-bold">Delete Role Profile?</h3>
               <p class="py-2 text-sm opacity-70">
-                This will permanently delete
-                <span class="font-semibold">{@confirm_delete_profile.name}</span>.
+                This will permanently delete <span class="font-semibold">{@confirm_delete_profile.name}</span>.
                 Users assigned to this profile will fall back to their role defaults.
               </p>
               <div class="modal-action">
-                <button type="button" class="btn btn-ghost" phx-click="close_delete_profile">Cancel</button>
+                <button type="button" class="btn btn-ghost" phx-click="close_delete_profile">
+                  Cancel
+                </button>
                 <button
                   type="button"
                   class="btn btn-error"
@@ -728,9 +794,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
     |> Enum.filter(&is_map/1)
     |> Enum.map(fn mapping ->
       %{
-        "source" => normalize_string(Map.get(mapping, "source") || Map.get(mapping, :source) || "groups"),
+        "source" =>
+          normalize_string(Map.get(mapping, "source") || Map.get(mapping, :source) || "groups"),
         "value" => Map.get(mapping, "value") || Map.get(mapping, :value) || "",
-        "role" => normalize_string(Map.get(mapping, "role") || Map.get(mapping, :role) || "viewer"),
+        "role" =>
+          normalize_string(Map.get(mapping, "role") || Map.get(mapping, :role) || "viewer"),
         "claim" => Map.get(mapping, "claim") || Map.get(mapping, :claim) || ""
       }
     end)
@@ -797,7 +865,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
   defp mapping_placeholder(_), do: "value"
 
   defp maybe_assign_mappings(socket, nil), do: socket
-  defp maybe_assign_mappings(socket, mappings), do: assign(socket, :role_mappings, mappings_from_params(mappings))
+
+  defp maybe_assign_mappings(socket, mappings),
+    do: assign(socket, :role_mappings, mappings_from_params(mappings))
 
   defp normalize_string(value) when is_binary(value), do: value
   defp normalize_string(value) when is_atom(value), do: Atom.to_string(value)
@@ -910,13 +980,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AccessControlLive do
     Map.get(section, :permissions) || Map.get(section, "permissions") || []
   end
 
-  defp permission_label(permission), do: Map.get(permission, :label) || Map.get(permission, "label") || ""
+  defp permission_label(permission),
+    do: Map.get(permission, :label) || Map.get(permission, "label") || ""
 
   defp permission_description(permission) do
     Map.get(permission, :description) || Map.get(permission, "description") || ""
   end
 
-  defp permission_key(permission), do: Map.get(permission, :key) || Map.get(permission, "key") || ""
+  defp permission_key(permission),
+    do: Map.get(permission, :key) || Map.get(permission, "key") || ""
 
   defp catalog_permission_count(catalog) do
     catalog

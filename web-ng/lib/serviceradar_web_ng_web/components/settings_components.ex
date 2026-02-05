@@ -87,8 +87,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       %{
         label: "Auth",
         navigate: ~p"/settings/auth/users",
-        active: String.starts_with?(path, "/settings/authentication")
-          or String.starts_with?(path, "/settings/auth/")
+        active:
+          String.starts_with?(path, "/settings/authentication") or
+            String.starts_with?(path, "/settings/auth/")
       }
     ]
 

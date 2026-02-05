@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Api.UserController do
   """
 
   use ServiceRadarWebNGWeb, :controller
+
   use Permit.Phoenix.Controller,
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.User

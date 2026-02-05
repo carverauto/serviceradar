@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.Api.RoleProfileController do
   """
 
   use ServiceRadarWebNGWeb, :controller
+
   use Permit.Phoenix.Controller,
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.RoleProfile
@@ -14,6 +15,19 @@ defmodule ServiceRadarWebNG.Api.RoleProfileController do
   alias ServiceRadar.Identity.RoleProfile
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
+
+  @impl true
+  # Permit.Phoenix.Controller defaults to preloading records for actions like
+  # :index/:show using Ecto-based loaders. These endpoints use Ash reads/writes
+  # instead, so we opt out of Permit preloading to avoid RecordNotFoundError
+  # 404s when the loader cannot resolve Ash resources.
+  def skip_preload do
+    [:index, :show, :create, :update, :delete, :catalog]
+  end
+
+  @impl true
+  def fetch_subject(%{assigns: %{current_scope: %{user: user}}}) when not is_nil(user), do: user
+  def fetch_subject(_conn), do: :anonymous
 
   def index(conn, _params) do
     scope = conn.assigns.current_scope
@@ -100,6 +114,7 @@ defmodule ServiceRadarWebNG.Api.RoleProfileController do
     conn
     |> put_status(:forbidden)
     |> json(%{error: "forbidden", message: "Not authorized"})
+    |> halt()
   end
 
   defp normalize_permissions(nil), do: nil
