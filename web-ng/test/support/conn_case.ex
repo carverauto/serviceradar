@@ -34,6 +34,13 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   setup tags do
     ServiceRadarWebNG.DataCase.setup_sandbox(tags)
     ServiceRadarWebNG.DataCase.ensure_test_schema()
+    previous = Application.get_env(:serviceradar_web_ng, :admin_api_client)
+    Application.put_env(:serviceradar_web_ng, :admin_api_client, ServiceRadarWebNG.AdminApi.Local)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_web_ng, :admin_api_client, previous)
+    end)
+
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 

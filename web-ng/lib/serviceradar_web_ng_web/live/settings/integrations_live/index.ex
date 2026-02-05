@@ -416,7 +416,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/networks/integrations">
-        <.settings_nav current_path="/settings/networks/integrations" />
+        <.settings_nav current_path="/settings/networks/integrations" current_scope={@current_scope} />
         <.network_nav current_path="/settings/networks/integrations" />
 
         <div class="flex flex-wrap items-center justify-between gap-4">

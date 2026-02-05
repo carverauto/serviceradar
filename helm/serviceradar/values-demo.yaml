@@ -21,6 +21,7 @@ agentGateway:
       external-dns.alpha.kubernetes.io/hostname: "demo-gw.serviceradar.cloud."
 
 agent:
+  hostNetwork: false
   pushInterval: "30s"
   statusDebounceInterval: "30s"
   statusHeartbeatInterval: "5m"
@@ -53,7 +54,9 @@ networkPolicy:
     allowKubeAPIServer: true
     allowDefaultNamespace: true
     allowSameNamespace: true
-    allowedCIDRs: []
+    allowedCIDRs:
+      - "10.0.0.0/8"
+      - "192.168.0.0/16"
   calicoLogDenied:
     enabled: true
     selector: "all()"
@@ -97,6 +100,8 @@ spire:
   enabled: true
   trustDomain: carverauto.dev
   clusterName: carverauto-cluster
+  agent:
+    hostNetwork: false
   postgres:
     enabled: true
     clusterName: cnpg

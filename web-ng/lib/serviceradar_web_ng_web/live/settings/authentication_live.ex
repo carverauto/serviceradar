@@ -10,11 +10,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   - Claim mappings
   """
   use ServiceRadarWebNGWeb, :live_view
+  use Permit.Phoenix.LiveView,
+    authorization_module: ServiceRadarWebNG.Authorization,
+    resource_module: ServiceRadar.Identity.AuthSettings
 
   require Logger
 
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
+  alias ServiceRadarWebNGWeb.SettingsComponents
 
   @modes [
     {"Password Only", :password_only, "Users authenticate with email and password."},
@@ -28,10 +32,42 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   ]
 
   @impl true
+  def event_mapping do
+    Permit.Phoenix.LiveView.default_event_mapping()
+    |> Map.merge(%{
+      "save" => :update,
+      "validate" => :read,
+      "reset" => :update,
+      "test_oidc" => :update,
+      "test_saml" => :update
+    })
+  end
+
+  @impl true
+  def skip_preload do
+    [:index, :read, :create, :update, :delete]
+  end
+
+  @impl true
+  def handle_unauthorized(_action, socket) do
+    socket =
+      socket
+      |> put_flash(:error, "Admin access required")
+      |> push_navigate(to: ~p"/settings/profile")
+
+    {:halt, socket}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="mx-auto w-full max-w-4xl p-6 space-y-6">
+      <SettingsComponents.settings_shell current_path="/settings/authentication">
+        <div class="space-y-4">
+          <SettingsComponents.settings_nav current_path="/settings/authentication" current_scope={@current_scope} />
+          <SettingsComponents.auth_nav current_path="/settings/authentication" />
+        </div>
+
         <div>
           <h1 class="text-2xl font-semibold text-base-content">Authentication Settings</h1>
           <p class="text-sm text-base-content/60">
@@ -208,7 +244,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             </div>
           </.form>
         <% end %>
-      </div>
+      </SettingsComponents.settings_shell>
     </Layouts.app>
     """
   end

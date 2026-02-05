@@ -209,7 +209,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/rules">
-        <.settings_nav current_path="/settings/rules" />
+        <.settings_nav current_path="/settings/rules" current_scope={@current_scope} />
 
         <div class="flex items-center justify-between">
           <div>

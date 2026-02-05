@@ -354,7 +354,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/admin/edge-packages">
-        <.settings_nav current_path="/admin/edge-packages" />
+        <.settings_nav current_path="/admin/edge-packages" current_scope={@current_scope} />
         <.agents_nav current_path="/admin/edge-packages" class="mt-2" />
 
         <div class="flex flex-wrap items-center justify-between gap-4">

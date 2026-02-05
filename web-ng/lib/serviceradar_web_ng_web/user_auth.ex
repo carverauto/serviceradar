@@ -177,6 +177,14 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     end
   end
 
+  defp bearer_token(conn) do
+    case get_req_header(conn, "authorization") do
+      ["Bearer " <> token] -> {:ok, String.trim(token)}
+      ["bearer " <> token] -> {:ok, String.trim(token)}
+      _ -> :error
+    end
+  end
+
   defp log_session_failure(conn, reason) do
     Logger.info("Session token rejected",
       reason: inspect(reason),
@@ -210,22 +218,39 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   The token is stored under "user_token" key by `log_in_user/3`.
   """
   def fetch_current_scope_for_user(conn, _opts) do
-    token = get_session(conn, @user_token_key)
+    case bearer_token(conn) do
+      {:ok, token} ->
+        authenticate_with_token(conn, token, :bearer)
 
-    if is_binary(token) do
-      authenticate_with_token(conn, token)
-    else
-      assign(conn, :current_scope, Scope.for_user(nil))
+      :error ->
+        token = get_session(conn, @user_token_key)
+
+        if is_binary(token) do
+          authenticate_with_token(conn, token, :session)
+        else
+          assign(conn, :current_scope, Scope.for_user(nil))
+        end
     end
   end
 
-  defp authenticate_with_token(conn, token) do
+  defp authenticate_with_token(conn, token, :session) do
     case Guardian.verify_token(token, token_type: "access") do
       {:ok, user, claims} ->
         refresh_and_assign_scope(conn, user, claims)
 
       {:error, reason} ->
         handle_session_failure(conn, reason)
+    end
+  end
+
+  defp authenticate_with_token(conn, token, :bearer) do
+    case Guardian.verify_token(token, token_type: "access") do
+      {:ok, user, _claims} ->
+        assign(conn, :current_scope, Scope.for_user(user))
+
+      {:error, reason} ->
+        log_session_failure(conn, reason)
+        assign(conn, :current_scope, Scope.for_user(nil))
     end
   end
 
@@ -349,6 +374,22 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
       |> put_flash(:error, "You must log in to access this page.")
       |> maybe_store_return_to()
       |> redirect(to: ~p"/users/log-in")
+      |> halt()
+    end
+  end
+
+  @doc """
+  Plug for API routes that require the user to be authenticated.
+
+  Returns JSON errors instead of redirecting so API consumers don't need flash.
+  """
+  def require_authenticated_user_api(conn, _opts) do
+    if conn.assigns.current_scope && conn.assigns.current_scope.user do
+      conn
+    else
+      conn
+      |> put_status(:unauthorized)
+      |> json(%{error: "authentication_required"})
       |> halt()
     end
   end

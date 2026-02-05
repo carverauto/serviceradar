@@ -931,7 +931,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path={@current_path}>
-        <.settings_nav current_path={@current_path} />
+        <.settings_nav current_path={@current_path} current_scope={@current_scope} />
         <.network_nav current_path={@current_path} />
 
         <div class="flex flex-wrap items-center justify-between gap-4">

@@ -1181,7 +1181,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/snmp">
-        <.settings_nav current_path="/settings/snmp" />
+        <.settings_nav current_path="/settings/snmp" current_scope={@current_scope} />
         <.network_nav current_path="/settings/snmp" />
 
         <div class="space-y-4">

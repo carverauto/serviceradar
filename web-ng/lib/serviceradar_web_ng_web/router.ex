@@ -37,9 +37,10 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :api_auth do
     plug(:accepts, ["json"])
     plug(:fetch_session)
-    plug(:protect_from_forgery)
+    plug(:maybe_protect_from_forgery)
     plug(:fetch_current_scope_for_user)
-    plug(:require_authenticated_user)
+    plug(:set_ash_actor)
+    plug(:require_authenticated_user_api)
   end
 
   # API authentication for CLI/external tools (API key or bearer token)
@@ -88,6 +89,21 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/devices", DeviceController, :index)
     get("/devices/ocsf/export", DeviceController, :ocsf_export)
     get("/devices/:uid", DeviceController, :show)
+  end
+
+  # Admin API (session/JWT auth)
+  scope "/api/admin", ServiceRadarWebNG.Api do
+    pipe_through(:api_auth)
+
+    get("/users", UserController, :index)
+    get("/users/:id", UserController, :show)
+    post("/users", UserController, :create)
+    patch("/users/:id", UserController, :update)
+    post("/users/:id/deactivate", UserController, :deactivate)
+    post("/users/:id/reactivate", UserController, :reactivate)
+
+    get("/authorization-settings", AuthorizationSettingsController, :show)
+    put("/authorization-settings", AuthorizationSettingsController, :update)
   end
 
   # Edge onboarding admin API (API key or bearer token auth)
@@ -293,7 +309,9 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/users/settings", PageController, :redirect_to_settings_profile)
 
     live_session :require_authenticated_user,
-      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
+      on_mount: [
+        {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
+      ] do
       live("/analytics", AnalyticsLive.Index, :index)
       live("/devices", DeviceLive.Index, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
@@ -326,9 +344,6 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/cluster", Settings.ClusterLive.Index, :index)
       live("/settings/cluster/nodes/:node_name", NodeLive.Show, :show)
       live("/settings/rules", Settings.RulesLive.Index, :index)
-
-      # Authentication settings (admin only - enforced by resource policies)
-      live("/settings/authentication", Settings.AuthenticationLive, :index)
 
       # Network sweep configuration
       live("/settings/networks", Settings.NetworksLive.Index, :index)
@@ -372,6 +387,17 @@ defmodule ServiceRadarWebNGWeb.Router do
       get("/infrastructure/nodes/:node_name", PageController, :redirect_to_settings_cluster_node)
     end
 
+    live_session :require_authenticated_user_with_permit,
+      on_mount: [
+        {ServiceRadarWebNGWeb.UserAuth, :require_authenticated},
+        Permit.Phoenix.LiveView.AuthorizeHook
+      ] do
+      # Authentication settings (admin only - enforced by Permit policies)
+      live("/settings/authentication", Settings.AuthenticationLive, :index)
+      live("/settings/auth/users", Settings.AuthUsersLive, :index)
+      live("/settings/auth/authorization", Settings.AuthorizationLive, :index)
+    end
+
     post("/users/update-password", UserSessionController, :update_password)
   end
 
@@ -400,6 +426,14 @@ defmodule ServiceRadarWebNGWeb.Router do
       conn
       |> Plug.Conn.send_resp(:not_found, "Not Found")
       |> Plug.Conn.halt()
+    end
+  end
+
+  defp maybe_protect_from_forgery(conn, _opts) do
+    case Plug.Conn.get_req_header(conn, "authorization") do
+      ["Bearer " <> _] -> conn
+      ["bearer " <> _] -> conn
+      _ -> Plug.CSRFProtection.call(conn, [])
     end
   end
 

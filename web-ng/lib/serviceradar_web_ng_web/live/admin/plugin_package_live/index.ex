@@ -627,7 +627,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path={@current_path || @plugins_base_path}>
-        <.settings_nav current_path={@current_path || @plugins_base_path} />
+        <.settings_nav current_path={@current_path || @plugins_base_path} current_scope={@current_scope} />
         <%= if @plugins_base_path == "/settings/agents/plugins" do %>
           <.agents_nav current_path={@current_path || @plugins_base_path} class="mt-2" />
         <% else %>

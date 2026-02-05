@@ -14,6 +14,7 @@ defmodule ServiceRadar.Identity do
   - `ServiceRadar.Identity.ApiToken` - API tokens for programmatic access
   - `ServiceRadar.Identity.OAuthClient` - OAuth2 client credentials for self-service API access
   - `ServiceRadar.Identity.AuthSettings` - Instance-level SSO configuration
+  - `ServiceRadar.Identity.AuthorizationSettings` - Default role and role mapping configuration
 
   ## Authentication
 
@@ -41,6 +42,7 @@ defmodule ServiceRadar.Identity do
     resource ServiceRadar.Identity.OAuthClient
     resource ServiceRadar.Identity.DeviceAliasState
     resource ServiceRadar.Identity.AuthSettings
+    resource ServiceRadar.Identity.AuthorizationSettings
   end
 
   authorization do

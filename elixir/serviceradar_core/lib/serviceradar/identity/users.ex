@@ -61,7 +61,7 @@ defmodule ServiceRadar.Identity.Users do
       when is_binary(email) and is_binary(password) do
     user = get_by_email(email, opts)
 
-    if user && valid_password?(user, password) do
+    if user && user.status == :active && valid_password?(user, password) do
       user
     else
       # Perform a dummy password check to prevent timing attacks
@@ -192,6 +192,48 @@ defmodule ServiceRadar.Identity.Users do
   end
 
   @doc """
+  Deactivates a user account and revokes access.
+  """
+  @spec deactivate(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def deactivate(user, opts \\ []) do
+    actor = Keyword.get(opts, :actor)
+    authorize? = Keyword.get(opts, :authorize?, true)
+
+    user
+    |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor, authorize?: authorize?)
+    |> Ash.update()
+  end
+
+  @doc """
+  Reactivates a user account.
+  """
+  @spec reactivate(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def reactivate(user, opts \\ []) do
+    actor = Keyword.get(opts, :actor)
+    authorize? = Keyword.get(opts, :authorize?, true)
+
+    user
+    |> Ash.Changeset.for_update(:reactivate, %{}, actor: actor, authorize?: authorize?)
+    |> Ash.update()
+  end
+
+  @doc """
+  Records a user login and authentication method.
+  """
+  @spec record_login(User.t(), atom(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def record_login(user, auth_method, opts \\ []) do
+    actor = Keyword.get(opts, :actor, user)
+    authorize? = Keyword.get(opts, :authorize?, false)
+
+    user
+    |> Ash.Changeset.for_update(:record_login, %{auth_method: auth_method},
+      actor: actor,
+      authorize?: authorize?
+    )
+    |> Ash.update()
+  end
+
+  @doc """
   Confirms a user's email address.
   """
   @spec confirm(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
@@ -213,6 +255,7 @@ defmodule ServiceRadar.Identity.Users do
   ## Options
 
     * `:role` - Filter by role
+    * `:status` - Filter by status
     * `:limit` - Maximum number of results (default: 100)
     * `:actor` - The actor performing the query
 
@@ -223,10 +266,12 @@ defmodule ServiceRadar.Identity.Users do
     authorize? = Keyword.get(opts, :authorize?, false)
     limit = Keyword.get(opts, :limit, 100)
     role = Keyword.get(opts, :role)
+    status = Keyword.get(opts, :status)
 
     User
     |> Ash.Query.for_read(:read, %{}, actor: actor, authorize?: authorize?)
     |> maybe_filter_role(role)
+    |> maybe_filter_status(status)
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.Query.limit(limit)
     |> Ash.read()
@@ -239,5 +284,12 @@ defmodule ServiceRadar.Identity.Users do
   defp maybe_filter_role(query, role) do
     import Ash.Expr
     Ash.Query.filter(query, expr(role == ^role))
+  end
+
+  defp maybe_filter_status(query, nil), do: query
+
+  defp maybe_filter_status(query, status) do
+    import Ash.Expr
+    Ash.Query.filter(query, expr(status == ^status))
   end
 end
