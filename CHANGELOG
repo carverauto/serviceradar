@@ -8,6 +8,7 @@ Device inventory fixes for create, delete, and restore flows.
 - Fixed device creation via the UI by removing the pre-read race and handling unique UID conflicts cleanly.
 - Fixed device delete and restore actions (proper deleted_by/reason handling plus stale-record recovery).
 - Added error logging for device create/delete/restore failures so issues show up in server logs.
+- Updated the netflow collector to parser 0.9.0 with cached flows, capped pending flows, and refreshed test fixtures.
 
 # ServiceRadar v1.0.91
 
