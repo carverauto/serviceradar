@@ -4,64 +4,74 @@ use crate::converter::flowpb;
 use crate::error::GetCurrentTimeError;
 use anyhow::Result;
 use log::{debug, error, info, warn};
-use netflow_parser::{AutoScopedParser, NetflowParserBuilder, TemplateEvent};
+use netflow_parser::{AutoScopedParser, NetflowParserBuilder, PendingFlowsConfig, TemplateEvent};
 use prost::Message;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
 type CacheStatsVec = Vec<(String, netflow_parser::ParserCacheStats)>;
 
-fn template_event_callback(event: &TemplateEvent) {
-    use TemplateEvent::*;
-    match event {
-        Learned {
-            template_id,
-            protocol,
-        } => {
-            info!(
-                "Template learned - ID: {}, Protocol: {:?}",
-                template_id, protocol
-            );
-        }
-        Collision {
-            template_id,
-            protocol,
-        } => {
-            warn!(
-                "Template collision - ID: {}, Protocol: {:?}",
-                template_id, protocol
-            );
-        }
-        Evicted {
-            template_id,
-            protocol,
-        } => {
-            debug!(
-                "Template evicted - ID: {}, Protocol: {:?}",
-                template_id, protocol
-            );
-        }
-        Expired {
-            template_id,
-            protocol,
-        } => {
-            debug!(
-                "Template expired - ID: {}, Protocol: {:?}",
-                template_id, protocol
-            );
-        }
-        MissingTemplate {
-            template_id,
-            protocol,
-        } => {
-            warn!(
-                "Missing template - ID: {}, Protocol: {:?}. \
-                   Flow data received before template definition.",
-                template_id, protocol
-            );
+fn make_template_event_callback(pending_enabled: bool) -> impl Fn(&TemplateEvent) {
+    move |event: &TemplateEvent| {
+        use TemplateEvent::*;
+        match event {
+            Learned {
+                template_id,
+                protocol,
+            } => {
+                info!(
+                    "Template learned - ID: {}, Protocol: {:?}",
+                    template_id, protocol
+                );
+            }
+            Collision {
+                template_id,
+                protocol,
+            } => {
+                warn!(
+                    "Template collision - ID: {}, Protocol: {:?}",
+                    template_id, protocol
+                );
+            }
+            Evicted {
+                template_id,
+                protocol,
+            } => {
+                debug!(
+                    "Template evicted - ID: {}, Protocol: {:?}",
+                    template_id, protocol
+                );
+            }
+            Expired {
+                template_id,
+                protocol,
+            } => {
+                debug!(
+                    "Template expired - ID: {}, Protocol: {:?}",
+                    template_id, protocol
+                );
+            }
+            MissingTemplate {
+                template_id,
+                protocol,
+            } => {
+                if pending_enabled {
+                    debug!(
+                        "Missing template - ID: {}, Protocol: {:?}. \
+                         Pending flow cache enabled; data queued if capacity allows.",
+                        template_id, protocol
+                    );
+                } else {
+                    warn!(
+                        "Missing template - ID: {}, Protocol: {:?}. \
+                         Flow data received before template definition - data lost.",
+                        template_id, protocol
+                    );
+                }
+            }
         }
     }
 }
@@ -78,9 +88,19 @@ impl Listener {
         let socket = UdpSocket::bind(&config.listen_addr).await?;
         info!("NetFlow collector listening on {}", config.listen_addr);
 
-        let builder = NetflowParserBuilder::default()
+        let pending_enabled = config.pending_flows.is_some();
+        let mut builder = NetflowParserBuilder::default()
             .with_cache_size(config.max_templates)
-            .on_template_event(template_event_callback);
+            .on_template_event(make_template_event_callback(pending_enabled));
+
+        if let Some(pf) = &config.pending_flows {
+            builder = builder.with_pending_flows(PendingFlowsConfig {
+                max_pending_flows: pf.max_pending_flows,
+                max_entries_per_template: pf.max_entries_per_template,
+                max_entry_size_bytes: pf.max_entry_size_bytes,
+                ttl: Some(Duration::from_secs(pf.ttl_secs)),
+            });
+        }
 
         let parser = AutoScopedParser::with_builder(builder);
 

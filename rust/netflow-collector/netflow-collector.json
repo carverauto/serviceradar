@@ -24,5 +24,11 @@
       "ca_file": "ca.crt"
     }
   },
+  "pending_flows": {
+    "max_pending_flows": 256,
+    "max_entries_per_template": 1024,
+    "max_entry_size_bytes": 65535,
+    "ttl_secs": 300
+  },
   "metrics_addr": "0.0.0.0:50046"
 }

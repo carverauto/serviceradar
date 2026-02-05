@@ -14,7 +14,7 @@ cd /Users/michaelmileusnich/Code/serviceradar/rust/netflow-collector
 cargo run -- --config netflow-collector.json
 
 # 2. Send a test packet using Docker (in another terminal)
-docker run --rm --network host ghcr.io/mikemiles-dev/netflow_generator:0.2.6 \
+docker run --rm --network host ghcr.io/mikemiles-dev/netflow_generator:0.2.7 \
   --dest 127.0.0.1:2055 --once
 ```
 
@@ -70,7 +70,7 @@ Each `--once` execution sends 6 packets: NetFlow v5, v7, v9 (template + data), a
 netflow_generator --dest 127.0.0.1:2055
 
 # Or with Docker:
-docker run --rm --network host ghcr.io/mikemiles-dev/netflow_generator:0.2.6 \
+docker run --rm --network host ghcr.io/mikemiles-dev/netflow_generator:0.2.7 \
   --dest 127.0.0.1:2055
 
 # Custom interval
@@ -83,7 +83,7 @@ netflow_generator --dest 127.0.0.1:2055 --interval 0.1
 for i in {1..5}; do netflow_generator --dest 127.0.0.1:2055 --once; sleep 1; done
 
 # Or with Docker:
-for i in {1..5}; do docker run --rm --network host ghcr.io/mikemiles-dev/netflow_generator:0.2.6 \
+for i in {1..5}; do docker run --rm --network host ghcr.io/mikemiles-dev/netflow_generator:0.2.7 \
   --dest 127.0.0.1:2055 --once; sleep 1; done
 ```
 

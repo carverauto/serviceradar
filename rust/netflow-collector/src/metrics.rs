@@ -44,6 +44,21 @@ impl MetricsReporter {
                     stats.ipfix.metrics.hits,
                     stats.ipfix.metrics.misses
                 );
+                let pending = &stats.v9.metrics;
+                if pending.pending_cached > 0
+                    || pending.pending_replayed > 0
+                    || pending.pending_dropped > 0
+                    || pending.pending_replay_failed > 0
+                {
+                    info!(
+                        "V9 Pending Flows [{}] - cached: {}, replayed: {}, dropped: {}, replay_failed: {}",
+                        source,
+                        pending.pending_cached,
+                        pending.pending_replayed,
+                        pending.pending_dropped,
+                        pending.pending_replay_failed
+                    );
+                }
             }
 
             // Log IPFIX cache stats per source
@@ -60,6 +75,21 @@ impl MetricsReporter {
                     stats.ipfix.metrics.hits,
                     stats.ipfix.metrics.misses
                 );
+                let pending = &stats.ipfix.metrics;
+                if pending.pending_cached > 0
+                    || pending.pending_replayed > 0
+                    || pending.pending_dropped > 0
+                    || pending.pending_replay_failed > 0
+                {
+                    info!(
+                        "IPFIX Pending Flows [{}] - cached: {}, replayed: {}, dropped: {}, replay_failed: {}",
+                        source,
+                        pending.pending_cached,
+                        pending.pending_replayed,
+                        pending.pending_dropped,
+                        pending.pending_replay_failed
+                    );
+                }
             }
 
             if v9_stats.is_empty() && ipfix_stats.is_empty() {
