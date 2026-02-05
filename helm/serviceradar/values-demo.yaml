@@ -45,6 +45,19 @@ ingress:
     # when namespaces are frequently recreated.
     secretName: ""
     clusterIssuer: ""
+networkPolicy:
+  enabled: true
+  podSelectorMatchAll: true
+  egress:
+    allowDNS: true
+    allowKubeAPIServer: true
+    allowDefaultNamespace: true
+    allowSameNamespace: true
+    allowedCIDRs: []
+  calicoLogDenied:
+    enabled: true
+    selector: "all()"
+    order: 1000
 
 webNg:
   devRoutes: "true"
