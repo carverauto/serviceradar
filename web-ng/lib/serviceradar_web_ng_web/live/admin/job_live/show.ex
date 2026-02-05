@@ -120,7 +120,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/admin/jobs">
-        <.settings_nav current_path="/admin/jobs" />
+        <.settings_nav current_path="/admin/jobs" current_scope={@current_scope} />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div class="flex items-center gap-3">

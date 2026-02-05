@@ -4,6 +4,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   """
 
   use ServiceRadarWebNGWeb, :live_view
+  use Permit.Phoenix.LiveView,
+    authorization_module: ServiceRadarWebNG.Authorization,
+    resource_module: ServiceRadar.Identity.AuthorizationSettings
 
   alias ServiceRadarWebNG.AdminApi
   alias ServiceRadarWebNGWeb.SettingsComponents
@@ -11,21 +14,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   @impl true
   def mount(_params, _session, socket) do
     socket = assign(socket, :page_title, "Authorization Settings")
+    scope = socket.assigns.current_scope
+    {:ok, settings} = get_or_create_settings(scope)
 
-    case ensure_admin(socket) do
-      {:ok, socket} ->
-        scope = socket.assigns.current_scope
-        {:ok, settings} = get_or_create_settings(scope)
-
-        {:ok,
-         socket
-         |> assign(:settings, settings)
-         |> assign(:form, to_form(settings_form(settings), as: :settings))
-         |> assign(:json_error, nil)}
-
-      {:error, socket} ->
-        {:ok, socket}
-    end
+    {:ok,
+     socket
+     |> assign(:settings, settings)
+     |> assign(:form, to_form(settings_form(settings), as: :settings))
+     |> assign(:json_error, nil)}
   end
 
   @impl true
@@ -57,12 +53,33 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   end
 
   @impl true
+  def event_mapping do
+    Permit.Phoenix.LiveView.default_event_mapping()
+    |> Map.merge(%{"save" => :update, "validate" => :read})
+  end
+
+  @impl true
+  def skip_preload do
+    [:index, :read, :create, :update, :delete]
+  end
+
+  @impl true
+  def handle_unauthorized(_action, socket) do
+    socket =
+      socket
+      |> put_flash(:error, "Admin access required")
+      |> push_navigate(to: ~p"/settings/profile")
+
+    {:halt, socket}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <SettingsComponents.settings_shell current_path="/settings/auth/authorization">
         <div class="space-y-4">
-          <SettingsComponents.settings_nav current_path="/settings/auth/authorization" />
+          <SettingsComponents.settings_nav current_path="/settings/auth/authorization" current_scope={@current_scope} />
           <SettingsComponents.auth_nav current_path="/settings/auth/authorization" />
         </div>
 
@@ -172,17 +189,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
       "default_role" => Atom.to_string(settings.default_role || :viewer),
       "role_mappings" => Jason.encode!(settings.role_mappings || [], pretty: true)
     }
-  end
-
-  defp ensure_admin(socket) do
-    case socket.assigns.current_scope do
-      %{user: %{role: :admin}} -> {:ok, socket}
-      _ ->
-        {:error,
-         socket
-         |> put_flash(:error, "Admin access required")
-         |> push_navigate(to: ~p"/settings/profile")}
-    end
   end
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do

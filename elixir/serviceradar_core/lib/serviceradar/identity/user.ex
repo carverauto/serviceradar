@@ -24,7 +24,6 @@ defmodule ServiceRadar.Identity.User do
   use Ash.Resource,
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
     notifiers: [ServiceRadar.Identity.UserNotifier]
 
   postgres do
@@ -313,74 +312,6 @@ defmodule ServiceRadar.Identity.User do
     update :reactivate do
       description "Reactivate a user account"
       change set_attribute(:status, :active)
-    end
-  end
-
-  policies do
-    # System actors can perform all operations (schema isolation via search_path)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Users can read themselves or admins can read any user
-    policy action_type(:read) do
-      authorize_if expr(id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Authentication action is public (no actor required)
-    policy action(:authenticate) do
-      authorize_if always()
-    end
-
-    # Registration is restricted to system/admin actors (bootstrap or admin workflow)
-    policy action(:register_with_password) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # SSO provisioning is system-only
-    policy action(:provision_sso_user) do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Admin user creation
-    policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Users can update their own non-role fields
-    policy action(:update) do
-      authorize_if expr(id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action(:update_email) do
-      authorize_if expr(id == ^actor(:id))
-    end
-
-    policy action(:change_password) do
-      authorize_if expr(id == ^actor(:id))
-    end
-
-    policy action(:record_authentication) do
-      authorize_if expr(id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # Only admins can change roles
-    policy action(:update_role) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action([:deactivate, :reactivate]) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    policy action(:record_login) do
-      authorize_if expr(id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :system)
     end
   end
 

@@ -10,6 +10,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   - Claim mappings
   """
   use ServiceRadarWebNGWeb, :live_view
+  use Permit.Phoenix.LiveView,
+    authorization_module: ServiceRadarWebNG.Authorization,
+    resource_module: ServiceRadar.Identity.AuthSettings
 
   require Logger
 
@@ -29,12 +32,39 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   ]
 
   @impl true
+  def event_mapping do
+    Permit.Phoenix.LiveView.default_event_mapping()
+    |> Map.merge(%{
+      "save" => :update,
+      "validate" => :read,
+      "reset" => :update,
+      "test_oidc" => :update,
+      "test_saml" => :update
+    })
+  end
+
+  @impl true
+  def skip_preload do
+    [:index, :read, :create, :update, :delete]
+  end
+
+  @impl true
+  def handle_unauthorized(_action, socket) do
+    socket =
+      socket
+      |> put_flash(:error, "Admin access required")
+      |> push_navigate(to: ~p"/settings/profile")
+
+    {:halt, socket}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <SettingsComponents.settings_shell current_path="/settings/authentication">
         <div class="space-y-4">
-          <SettingsComponents.settings_nav current_path="/settings/authentication" />
+          <SettingsComponents.settings_nav current_path="/settings/authentication" current_scope={@current_scope} />
           <SettingsComponents.auth_nav current_path="/settings/authentication" />
         </div>
 

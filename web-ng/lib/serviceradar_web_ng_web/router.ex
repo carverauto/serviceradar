@@ -308,7 +308,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/users/settings", PageController, :redirect_to_settings_profile)
 
     live_session :require_authenticated_user,
-      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
+      on_mount: [
+        {ServiceRadarWebNGWeb.UserAuth, :require_authenticated},
+        Permit.Phoenix.LiveView.AuthorizeHook
+      ] do
       live("/analytics", AnalyticsLive.Index, :index)
       live("/devices", DeviceLive.Index, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
@@ -342,7 +345,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/cluster/nodes/:node_name", NodeLive.Show, :show)
       live("/settings/rules", Settings.RulesLive.Index, :index)
 
-      # Authentication settings (admin only - enforced by resource policies)
+      # Authentication settings (admin only - enforced by Permit policies)
       live("/settings/authentication", Settings.AuthenticationLive, :index)
       live("/settings/auth/users", Settings.AuthUsersLive, :index)
       live("/settings/auth/authorization", Settings.AuthorizationLive, :index)

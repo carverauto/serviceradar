@@ -6,11 +6,13 @@ defmodule ServiceRadarWebNG.Api.AuthorizationSettingsController do
   """
 
   use ServiceRadarWebNGWeb, :controller
+  use Permit.Phoenix.Controller,
+    authorization_module: ServiceRadarWebNG.Authorization,
+    resource_module: ServiceRadar.Identity.AuthorizationSettings
 
   require Ash.Query
 
   alias ServiceRadar.Identity.AuthorizationSettings
-  alias ServiceRadarWebNG.Accounts.Scope
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -20,13 +22,11 @@ defmodule ServiceRadarWebNG.Api.AuthorizationSettingsController do
   Returns the singleton authorization settings (creates defaults if missing).
   """
   def show(conn, _params) do
-    with :ok <- require_admin(conn) do
-      scope = conn.assigns.current_scope
+    scope = conn.assigns.current_scope
 
-      case get_or_create_settings(scope) do
-        {:ok, settings} -> json(conn, settings_to_json(settings))
-        {:error, error} -> {:error, error}
-      end
+    case get_or_create_settings(scope) do
+      {:ok, settings} -> json(conn, settings_to_json(settings))
+      {:error, error} -> {:error, error}
     end
   end
 
@@ -36,25 +36,23 @@ defmodule ServiceRadarWebNG.Api.AuthorizationSettingsController do
   Updates default role and role mappings.
   """
   def update(conn, params) do
-    with :ok <- require_admin(conn) do
-      scope = conn.assigns.current_scope
+    scope = conn.assigns.current_scope
 
-      with {:ok, settings} <- get_or_create_settings(scope),
-           {:ok, attrs} <- normalize_attrs(params) do
-        settings
-        |> Ash.Changeset.for_update(:update, attrs, scope: scope)
-        |> Ash.update(scope: scope)
-        |> case do
-          {:ok, updated} -> json(conn, settings_to_json(updated))
-          {:error, error} -> {:error, error}
-        end
-      else
-        {:error, :invalid_role} ->
-          return_error(conn, :bad_request, "default_role must be one of: viewer, operator, admin")
-
-        {:error, error} ->
-          {:error, error}
+    with {:ok, settings} <- get_or_create_settings(scope),
+         {:ok, attrs} <- normalize_attrs(params) do
+      settings
+      |> Ash.Changeset.for_update(:update, attrs, scope: scope)
+      |> Ash.update(scope: scope)
+      |> case do
+        {:ok, updated} -> json(conn, settings_to_json(updated))
+        {:error, error} -> {:error, error}
       end
+    else
+      {:error, :invalid_role} ->
+        return_error(conn, :bad_request, "default_role must be one of: viewer, operator, admin")
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 
@@ -104,12 +102,22 @@ defmodule ServiceRadarWebNG.Api.AuthorizationSettingsController do
   defp normalize_role("admin"), do: {:ok, :admin}
   defp normalize_role(_), do: {:error, :invalid_role}
 
-  defp require_admin(conn) do
-    case conn.assigns[:current_scope] do
-      %Scope{user: %{role: :admin}} -> :ok
-      %Scope{} -> {:error, :forbidden}
-      _ -> {:error, :unauthorized}
-    end
+  @impl true
+  def skip_preload do
+    [:show, :update]
+  end
+
+  @impl true
+  def fetch_subject(%{assigns: %{current_scope: %{user: user}}}) when not is_nil(user), do: user
+  def fetch_subject(_conn), do: :anonymous
+
+  @impl true
+  def handle_unauthorized(_action, conn) do
+    conn
+    |> put_status(:forbidden)
+    |> put_view(json: ServiceRadarWebNGWeb.ErrorJSON)
+    |> render(:"403")
+    |> halt()
   end
 
   defp settings_to_json(settings) do

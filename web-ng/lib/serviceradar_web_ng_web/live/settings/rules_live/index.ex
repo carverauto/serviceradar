@@ -249,7 +249,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/rules">
-        <.settings_nav current_path="/settings/rules" />
+        <.settings_nav current_path="/settings/rules" current_scope={@current_scope} />
 
         <div>
           <h1 class="text-2xl font-semibold text-base-content">Events</h1>

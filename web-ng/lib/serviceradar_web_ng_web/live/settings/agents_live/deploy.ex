@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/agents/deploy">
-        <.settings_nav current_path="/settings/agents/deploy" />
+        <.settings_nav current_path="/settings/agents/deploy" current_scope={@current_scope} />
         <.agents_nav current_path="/settings/agents/deploy" />
 
         <div class="space-y-6">

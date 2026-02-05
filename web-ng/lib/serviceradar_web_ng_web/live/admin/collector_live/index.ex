@@ -222,7 +222,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/admin/collectors">
-        <.settings_nav current_path="/admin/collectors" />
+        <.settings_nav current_path="/admin/collectors" current_scope={@current_scope} />
         <.edge_nav current_path="/admin/collectors" class="mt-2" />
 
         <div class="flex flex-wrap items-center justify-between gap-4">

@@ -131,7 +131,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/admin/cluster">
-        <.settings_nav current_path="/admin/cluster" />
+        <.settings_nav current_path="/admin/cluster" current_scope={@current_scope} />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
