@@ -2650,21 +2650,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       Logger.error("Device create failed: generated UID is empty for #{inspect(device_data)}")
       {:error, :invalid_uid}
     else
-      # First check if device already exists
-      case Device.get_by_uid(uid, false, scope: scope) do
-        {:ok, nil} ->
-          # Treat nil as not found to avoid false positives
-          create_new_device(uid, device_data, scope)
+      Device.get_by_uid(uid, false, scope: scope)
+      |> handle_existing_device(uid, device_data, scope)
+    end
+  end
 
-        {:ok, _existing} ->
-          {:error, :already_exists}
+  defp handle_existing_device({:ok, nil}, uid, device_data, scope) do
+    # Treat nil as not found to avoid false positives
+    create_new_device(uid, device_data, scope)
+  end
 
-        {:error, %Ash.Error.Query.NotFound{}} ->
-          create_new_device(uid, device_data, scope)
+  defp handle_existing_device({:ok, _existing}, _uid, _device_data, _scope),
+    do: {:error, :already_exists}
 
-        {:error, _} = error ->
-          error
-      end
+  defp handle_existing_device({:error, error}, uid, device_data, scope) do
+    if not_found_error?(error) do
+      create_new_device(uid, device_data, scope)
+    else
+      {:error, error}
     end
   end
 
@@ -2765,9 +2768,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp format_single_device_error(%Ash.Error.Changes.Required{field: field}),
     do: "#{field} is required"
 
+  defp format_single_device_error(%Ash.Error.Query.NotFound{}),
+    do: "Device not found"
+
   defp format_single_device_error(%{message: msg}) when is_binary(msg),
     do: msg
 
   defp format_single_device_error(err),
     do: inspect(err)
+
+  defp not_found_error?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp not_found_error?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1))
+  end
+
+  defp not_found_error?(_), do: false
 end
