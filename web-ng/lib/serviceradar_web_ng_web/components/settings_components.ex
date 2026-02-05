@@ -130,9 +130,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           show: can_auth
         },
         %{
-          label: "Access Control",
-          navigate: ~p"/settings/auth/access",
-          active: String.starts_with?(path, "/settings/auth/access"),
+          label: "Policy Editor",
+          navigate: ~p"/settings/auth/rbac",
+          active: String.starts_with?(path, "/settings/auth/rbac"),
           show: can_auth or can_rbac
         },
         %{

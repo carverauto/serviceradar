@@ -1,6 +1,9 @@
 defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   @moduledoc """
-  RBAC policy editor for role profiles.
+  RBAC policy editor.
+
+  Displays a per-profile permission grid with catalog sections as column groups,
+  resources as sub-columns, and actions as rows.
   """
 
   use ServiceRadarWebNGWeb, :live_view
@@ -10,6 +13,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   alias ServiceRadarWebNG.AdminApi
   alias ServiceRadarWebNGWeb.SettingsComponents
+
+  @action_order ~w(view create update delete manage manage_queries bulk_edit bulk_delete import export run)
+
+  # ── Mount ─────────────────────────────────────────────────────
 
   @impl true
   def mount(_params, _session, socket) do
@@ -27,26 +34,32 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         {:error, error} -> {[], format_ash_error(error)}
       end
 
+    grid = build_permission_grid(catalog)
+
     {:ok,
      socket
-     |> assign(:page_title, "RBAC")
+     |> assign(:page_title, "Policy Editor")
      |> assign(:profiles, profiles)
      |> assign(:catalog, catalog)
+     |> assign(:grid, grid)
      |> assign(:filter, "")
      |> assign(:dirty_profiles, MapSet.new())
      |> assign(:show_new_profile_modal, false)
      |> assign(:new_profile_form, to_form(default_profile_form(), as: :profile))
      |> assign(:clone_source_id, nil)
+     |> assign(:confirm_delete_profile, nil)
      |> maybe_put_flash(profile_flash)
      |> maybe_put_flash(catalog_flash)}
   end
 
+  # ── Events ────────────────────────────────────────────────────
+
   @impl true
-  def handle_event("filter_permissions", %{"filter" => value}, socket) do
+  def handle_event("filter_policies", %{"filter" => value}, socket) do
     {:noreply, assign(socket, :filter, value || "")}
   end
 
-  def handle_event("toggle_permission", %{"profile_id" => profile_id, "permission" => permission}, socket) do
+  def handle_event("toggle_permission", %{"profile-id" => profile_id, "permission" => permission}, socket) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile.system do
@@ -61,7 +74,39 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
-  def handle_event("save_profile", %{"profile_id" => profile_id}, socket) do
+  def handle_event("toggle_resource", %{"profile-id" => profile_id, "resource" => resource}, socket) do
+    profile = find_profile(socket.assigns.profiles, profile_id)
+
+    if profile == nil or profile.system do
+      {:noreply, socket}
+    else
+      keys = resource_permission_keys(socket.assigns.grid, resource)
+      updated = toggle_permissions_bulk(profile, keys)
+
+      {:noreply,
+       socket
+       |> assign(:profiles, replace_profile(socket.assigns.profiles, updated))
+       |> assign(:dirty_profiles, MapSet.put(socket.assigns.dirty_profiles, updated.id))}
+    end
+  end
+
+  def handle_event("toggle_action", %{"profile-id" => profile_id, "action" => action}, socket) do
+    profile = find_profile(socket.assigns.profiles, profile_id)
+
+    if profile == nil or profile.system do
+      {:noreply, socket}
+    else
+      keys = action_permission_keys(socket.assigns.grid, action)
+      updated = toggle_permissions_bulk(profile, keys)
+
+      {:noreply,
+       socket
+       |> assign(:profiles, replace_profile(socket.assigns.profiles, updated))
+       |> assign(:dirty_profiles, MapSet.put(socket.assigns.dirty_profiles, updated.id))}
+    end
+  end
+
+  def handle_event("save_profile", %{"profile-id" => profile_id}, socket) do
     scope = socket.assigns.current_scope
     profile = find_profile(socket.assigns.profiles, profile_id)
 
@@ -83,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   end
 
   def handle_event("open_new_profile", params, socket) do
-    clone_source_id = Map.get(params, "clone_source_id")
+    clone_source_id = Map.get(params, "clone-source-id")
 
     {:noreply,
      socket
@@ -98,7 +143,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   def handle_event("create_profile", %{"profile" => params}, socket) do
     scope = socket.assigns.current_scope
-
     base_permissions = permissions_from_clone(socket.assigns.profiles, socket.assigns.clone_source_id)
 
     attrs = %{
@@ -121,7 +165,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
-  def handle_event("delete_profile", %{"profile_id" => profile_id}, socket) do
+  def handle_event("open_delete_profile", %{"profile-id" => profile_id}, socket) do
+    profile = find_profile(socket.assigns.profiles, profile_id)
+
+    cond do
+      profile == nil -> {:noreply, socket}
+      profile.system -> {:noreply, put_flash(socket, :error, "System profiles cannot be deleted")}
+      true -> {:noreply, assign(socket, :confirm_delete_profile, profile)}
+    end
+  end
+
+  def handle_event("close_delete_profile", _params, socket) do
+    {:noreply, assign(socket, :confirm_delete_profile, nil)}
+  end
+
+  def handle_event("delete_profile", %{"profile-id" => profile_id}, socket) do
     scope = socket.assigns.current_scope
     profile = find_profile(socket.assigns.profiles, profile_id)
 
@@ -139,6 +197,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
              socket
              |> assign(:profiles, Enum.reject(socket.assigns.profiles, &(&1.id == profile.id)))
              |> assign(:dirty_profiles, MapSet.delete(socket.assigns.dirty_profiles, profile.id))
+             |> assign(:confirm_delete_profile, nil)
              |> put_flash(:info, "Role profile deleted")}
 
           {:error, error} ->
@@ -147,15 +206,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
+  # ── Permit callbacks ──────────────────────────────────────────
+
   @impl true
   def event_mapping do
     Permit.Phoenix.LiveView.default_event_mapping()
     |> Map.merge(%{
       "toggle_permission" => :update,
+      "toggle_resource" => :update,
+      "toggle_action" => :update,
       "save_profile" => :update,
       "create_profile" => :create,
       "delete_profile" => :delete,
-      "filter_permissions" => :read
+      "open_delete_profile" => :delete,
+      "filter_policies" => :read,
+      "open_new_profile" => :read,
+      "close_new_profile" => :read,
+      "close_delete_profile" => :read
     })
   end
 
@@ -174,10 +241,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     {:halt, socket}
   end
 
+  # ── Render ────────────────────────────────────────────────────
+
   @impl true
   def render(assigns) do
-    assigns =
-      assign(assigns, :filtered_catalog, filter_catalog(assigns.catalog, assigns.filter))
+    assigns = assign(assigns, :filtered_profiles, filter_profiles(assigns.profiles, assigns.filter))
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
@@ -187,158 +255,380 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
           <SettingsComponents.auth_nav current_path="/settings/auth/rbac" current_scope={@current_scope} />
         </div>
 
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 class="text-xl font-semibold">RBAC Policy Editor</h1>
-            <p class="text-sm text-base-content/60">
-              Configure role profiles and permissions for each section of the platform.
-            </p>
-          </div>
-          <button class="btn btn-primary" phx-click="open_new_profile">
-            New Profile
-          </button>
-        </div>
-
-        <div class="mt-6 space-y-4">
-          <div class="flex flex-wrap items-center gap-3">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <label class="input input-bordered input-sm flex items-center gap-2 w-full max-w-sm">
+            <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
             <input
-              type="text"
+              type="search"
               name="filter"
               value={@filter}
-              placeholder="Filter permissions"
-              class="input input-bordered input-sm w-full max-w-xs"
-              phx-change="filter_permissions"
+              placeholder="Filter Policies"
+              phx-change="filter_policies"
+              phx-debounce="300"
+              class="grow"
             />
-            <div class="text-xs text-base-content/60">
-              Showing {catalog_permission_count(@filtered_catalog)} permissions
-            </div>
-          </div>
-
-          <div class="overflow-x-auto rounded-xl border border-base-200">
-            <table class="table table-sm">
-              <thead>
-                <tr>
-                  <th class="min-w-[260px]">Permission</th>
-                  <%= for profile <- @profiles do %>
-                    <th class="min-w-[160px]">
-                      <div class="flex flex-col gap-2">
-                        <div class="flex items-center justify-between">
-                          <div class="space-y-1">
-                            <div class="text-sm font-semibold">
-                              {profile.name}
-                            </div>
-                            <div class="text-xs text-base-content/60">
-                              {profile.system && "Built-in" || "Custom"}
-                            </div>
-                          </div>
-                          <div class="flex items-center gap-1">
-                            <button
-                              class="btn btn-ghost btn-xs"
-                              phx-click="open_new_profile"
-                              phx-value-clone-source-id={profile.id}
-                            >
-                              Clone
-                            </button>
-                            <button
-                              :if={!profile.system}
-                              class="btn btn-ghost btn-xs"
-                              phx-click="delete_profile"
-                              phx-value-profile-id={profile.id}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                          <button
-                            :if={MapSet.member?(@dirty_profiles, profile.id)}
-                            class="btn btn-primary btn-xs"
-                            phx-click="save_profile"
-                            phx-value-profile-id={profile.id}
-                          >
-                            Save
-                          </button>
-                          <span :if={MapSet.member?(@dirty_profiles, profile.id)} class="text-xs text-warning">
-                            Unsaved changes
-                          </span>
-                        </div>
-                      </div>
-                    </th>
-                  <% end %>
-                </tr>
-              </thead>
-              <tbody>
-                <%= for section <- @filtered_catalog do %>
-                  <tr class="bg-base-200/50">
-                    <td colspan={Enum.count(@profiles) + 1} class="text-xs font-semibold uppercase">
-                      {section_label(section)}
-                    </td>
-                  </tr>
-                  <%= for permission <- section_permissions(section) do %>
-                    <tr>
-                      <td>
-                        <div class="text-sm font-medium">{permission_label(permission)}</div>
-                        <div class="text-xs text-base-content/60">{permission_description(permission)}</div>
-                        <div class="text-[11px] text-base-content/40 font-mono">{permission_key(permission)}</div>
-                      </td>
-                      <%= for profile <- @profiles do %>
-                        <td>
-                          <input
-                            type="checkbox"
-                            class="checkbox checkbox-sm"
-                            checked={permission_assigned?(profile, permission_key(permission))}
-                            disabled={profile.system}
-                            phx-click="toggle_permission"
-                            phx-value-profile-id={profile.id}
-                            phx-value-permission={permission_key(permission)}
-                          />
-                        </td>
-                      <% end %>
-                    </tr>
-                  <% end %>
-                <% end %>
-              </tbody>
-            </table>
+          </label>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-primary btn-sm gap-1" phx-click="open_new_profile">
+              Create <.icon name="hero-plus-mini" class="h-4 w-4" />
+            </button>
           </div>
         </div>
 
-        <%= if @show_new_profile_modal do %>
-          <dialog class="modal modal-open">
-            <div class="modal-box">
-              <h3 class="font-semibold text-lg">Create Role Profile</h3>
-              <.form for={@new_profile_form} id="new-profile-form" phx-submit="create_profile" class="mt-4 space-y-4">
-                <.input field={@new_profile_form[:name]} type="text" label="Profile Name" required />
-                <.input field={@new_profile_form[:description]} type="text" label="Description" />
-                <div class="text-xs text-base-content/60">
-                  Permissions are copied from the selected profile (if any). You can edit them after creation.
-                </div>
-                <div class="modal-action">
-                  <button type="button" class="btn btn-ghost" phx-click="close_new_profile">
-                    Cancel
-                  </button>
-                  <button type="submit" class="btn btn-primary">Create</button>
-                </div>
-              </.form>
-            </div>
-          </dialog>
-        <% end %>
+        <div class="space-y-8">
+          <.profile_card
+            :for={profile <- @filtered_profiles}
+            profile={profile}
+            grid={@grid}
+            dirty={MapSet.member?(@dirty_profiles, profile.id)}
+          />
+
+          <div :if={@filtered_profiles == []} class="text-center py-16 text-base-content/50">
+            <.icon name="hero-shield-exclamation" class="h-12 w-12 mx-auto mb-3 opacity-30" />
+            <p class="text-sm">No profiles match your filter.</p>
+          </div>
+        </div>
+
+        <.new_profile_modal :if={@show_new_profile_modal} form={@new_profile_form} />
+        <.delete_profile_modal :if={@confirm_delete_profile} profile={@confirm_delete_profile} />
       </SettingsComponents.settings_shell>
     </Layouts.app>
     """
   end
 
-  defp default_profile_form do
-    %{"name" => "", "description" => ""}
+  # ── Component: profile_card ───────────────────────────────────
+
+  attr :profile, :map, required: true
+  attr :grid, :map, required: true
+  attr :dirty, :boolean, default: false
+
+  defp profile_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <%!-- Card header --%>
+      <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-base-200">
+        <div class="flex items-center gap-3">
+          <span class={["badge gap-1", profile_badge_class(@profile)]}>
+            {@profile.name}
+          </span>
+          <span class="text-sm text-base-content/50">
+            {profile_identifier(@profile)}
+          </span>
+          <span :if={@dirty} class="badge badge-warning badge-sm gap-1">unsaved</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            :if={@dirty}
+            class="btn btn-primary btn-xs"
+            phx-click="save_profile"
+            phx-value-profile-id={@profile.id}
+          >
+            Save
+          </button>
+          <div class="dropdown dropdown-end">
+            <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-square">
+              <.icon name="hero-ellipsis-vertical" class="h-5 w-5" />
+            </div>
+            <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-100 rounded-box w-44 border border-base-200">
+              <li>
+                <button phx-click="open_new_profile" phx-value-clone-source-id={@profile.id}>
+                  <.icon name="hero-document-duplicate" class="h-4 w-4" /> Clone
+                </button>
+              </li>
+              <li :if={!@profile.system}>
+                <button phx-click="open_delete_profile" phx-value-profile-id={@profile.id} class="text-error">
+                  <.icon name="hero-trash" class="h-4 w-4" /> Delete
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Permission grid --%>
+      <div class="overflow-x-auto">
+        <table class="table table-sm table-pin-rows">
+          <thead>
+            <tr>
+              <th
+                rowspan={if has_sub_columns?(@grid), do: 2, else: 1}
+                class="min-w-[100px] sticky left-0 z-20 bg-base-100 border-r border-base-200"
+              >
+              </th>
+              <%= for group <- @grid.resource_groups do %>
+                <%= if length(group.resources) == 1 do %>
+                  <th
+                    rowspan={if has_sub_columns?(@grid), do: 2, else: 1}
+                    class={[
+                      "text-center text-xs font-semibold normal-case min-w-[80px] border-l border-base-200",
+                      !@profile.system && "cursor-pointer hover:bg-base-200/50"
+                    ]}
+                    phx-click={if(!@profile.system, do: "toggle_resource")}
+                    phx-value-profile-id={@profile.id}
+                    phx-value-resource={hd(group.resources).key}
+                    title={"Toggle all #{group.label} permissions"}
+                  >
+                    {group.label}
+                  </th>
+                <% else %>
+                  <th
+                    colspan={length(group.resources)}
+                    class="text-center text-[11px] font-bold uppercase tracking-wider bg-base-200/40 border-l border-base-200"
+                  >
+                    {group.label}
+                  </th>
+                <% end %>
+              <% end %>
+            </tr>
+            <%= if has_sub_columns?(@grid) do %>
+              <tr>
+                <%= for group <- @grid.resource_groups, length(group.resources) > 1 do %>
+                  <%= for {resource, idx} <- Enum.with_index(group.resources) do %>
+                    <th
+                      class={[
+                        "text-center text-xs font-medium normal-case min-w-[80px]",
+                        idx == 0 && "border-l border-base-200",
+                        !@profile.system && "cursor-pointer hover:bg-base-200/50"
+                      ]}
+                      phx-click={if(!@profile.system, do: "toggle_resource")}
+                      phx-value-profile-id={@profile.id}
+                      phx-value-resource={resource.key}
+                      title={"Toggle all #{resource.label} permissions"}
+                    >
+                      {resource.label}
+                    </th>
+                  <% end %>
+                <% end %>
+              </tr>
+            <% end %>
+          </thead>
+          <tbody>
+            <%= for action <- @grid.actions do %>
+              <tr class="hover:bg-base-200/30">
+                <td
+                  class={[
+                    "font-medium text-sm bg-base-100 sticky left-0 z-10 border-r border-base-200",
+                    !@profile.system && "cursor-pointer hover:bg-base-200/50"
+                  ]}
+                  phx-click={if(!@profile.system, do: "toggle_action")}
+                  phx-value-profile-id={@profile.id}
+                  phx-value-action={action}
+                  title={"Toggle #{humanize_action(action)} for all resources"}
+                >
+                  {humanize_action(action)}
+                </td>
+                <%= for {resource, r_idx} <- Enum.with_index(@grid.flat_resources) do %>
+                  <td class={[
+                    "text-center",
+                    group_border_class(@grid, r_idx)
+                  ]}>
+                    <%= if permission_exists?(@grid, resource.key, action) do %>
+                      <input
+                        type="checkbox"
+                        class={[
+                          "checkbox checkbox-sm",
+                          permission_checked?(@profile, resource.key, action) && "checkbox-primary"
+                        ]}
+                        checked={permission_checked?(@profile, resource.key, action)}
+                        disabled={@profile.system}
+                        phx-click="toggle_permission"
+                        phx-value-profile-id={@profile.id}
+                        phx-value-permission={"#{resource.key}.#{action}"}
+                      />
+                    <% end %>
+                  </td>
+                <% end %>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
   end
 
-  defp permissions_from_clone(_profiles, nil), do: []
+  # ── Component: new_profile_modal ──────────────────────────────
 
-  defp permissions_from_clone(profiles, clone_source_id) do
-    case find_profile(profiles, clone_source_id) do
-      nil -> []
-      profile -> profile.permissions || []
+  attr :form, :any, required: true
+
+  defp new_profile_modal(assigns) do
+    ~H"""
+    <dialog class="modal modal-open">
+      <div class="modal-box">
+        <h3 class="text-lg font-bold">Create Role Profile</h3>
+        <p class="py-2 text-sm text-base-content/60">
+          Create a custom profile. Permissions are copied from the selected source (if any).
+        </p>
+        <.form for={@form} id="new-profile-form" phx-submit="create_profile" class="space-y-4">
+          <.input field={@form[:name]} type="text" label="Profile Name" required />
+          <.input field={@form[:description]} type="text" label="Description" />
+          <div class="modal-action">
+            <button type="button" class="btn btn-ghost" phx-click="close_new_profile">Cancel</button>
+            <button type="submit" class="btn btn-primary">Create</button>
+          </div>
+        </.form>
+      </div>
+      <div class="modal-backdrop">
+        <button type="button" phx-click="close_new_profile">close</button>
+      </div>
+    </dialog>
+    """
+  end
+
+  # ── Component: delete_profile_modal ───────────────────────────
+
+  attr :profile, :map, required: true
+
+  defp delete_profile_modal(assigns) do
+    ~H"""
+    <dialog class="modal modal-open">
+      <div class="modal-box">
+        <h3 class="text-lg font-bold">Delete Role Profile?</h3>
+        <p class="py-2 text-sm text-base-content/60">
+          This will permanently delete <span class="font-semibold">{@profile.name}</span>.
+          Users assigned to this profile will fall back to their role defaults.
+        </p>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost" phx-click="close_delete_profile">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-error"
+            phx-click="delete_profile"
+            phx-value-profile-id={@profile.id}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+      <div class="modal-backdrop">
+        <button type="button" phx-click="close_delete_profile">close</button>
+      </div>
+    </dialog>
+    """
+  end
+
+  # ── Grid building ─────────────────────────────────────────────
+
+  defp build_permission_grid(catalog) do
+    resource_groups =
+      Enum.map(catalog, fn section ->
+        section_key = sect_id(section)
+        perms = sect_permissions(section)
+
+        resources =
+          perms
+          |> Enum.map(fn perm ->
+            {resource, _action} = split_permission_key(perm_key(perm))
+            resource
+          end)
+          |> Enum.uniq()
+          |> Enum.map(fn res ->
+            %{key: res, label: resource_short_label(res, section_key)}
+          end)
+
+        %{
+          section: section_key,
+          label: sect_label(section),
+          resources: resources
+        }
+      end)
+
+    flat_resources = Enum.flat_map(resource_groups, & &1.resources)
+
+    all_permissions = Enum.flat_map(catalog, &sect_permissions/1)
+
+    actions =
+      all_permissions
+      |> Enum.map(fn perm ->
+        {_res, action} = split_permission_key(perm_key(perm))
+        action
+      end)
+      |> Enum.uniq()
+      |> Enum.sort_by(&action_sort_index/1)
+
+    valid_permissions = MapSet.new(Enum.map(all_permissions, &perm_key/1))
+
+    # Pre-compute group boundary indices for left-border styling
+    group_starts =
+      resource_groups
+      |> Enum.reduce({0, MapSet.new()}, fn group, {offset, acc} ->
+        {offset + length(group.resources), MapSet.put(acc, offset)}
+      end)
+      |> elem(1)
+
+    %{
+      resource_groups: resource_groups,
+      flat_resources: flat_resources,
+      actions: actions,
+      valid_permissions: valid_permissions,
+      group_starts: group_starts
+    }
+  end
+
+  defp split_permission_key(key) do
+    parts = String.split(key, ".")
+    action = List.last(parts)
+    resource = parts |> Enum.drop(-1) |> Enum.join(".")
+    {resource, action}
+  end
+
+  defp action_sort_index(action) do
+    case Enum.find_index(@action_order, &(&1 == action)) do
+      nil -> 999
+      i -> i
     end
   end
+
+  defp resource_short_label(resource_key, section_key) do
+    if resource_key == section_key do
+      section_key
+    else
+      resource_key
+      |> String.replace_prefix(section_key <> ".", "")
+      |> String.replace("_profiles", "")
+      |> String.replace("_", " ")
+    end
+  end
+
+  # ── Grid helpers ──────────────────────────────────────────────
+
+  defp permission_exists?(grid, resource_key, action) do
+    MapSet.member?(grid.valid_permissions, "#{resource_key}.#{action}")
+  end
+
+  defp permission_checked?(profile, resource_key, action) do
+    "#{resource_key}.#{action}" in (profile.permissions || [])
+  end
+
+  defp has_sub_columns?(grid) do
+    Enum.any?(grid.resource_groups, fn group -> length(group.resources) > 1 end)
+  end
+
+  defp group_border_class(grid, resource_index) do
+    if MapSet.member?(grid.group_starts, resource_index), do: "border-l border-base-200", else: nil
+  end
+
+  defp resource_permission_keys(grid, resource) do
+    grid.valid_permissions
+    |> MapSet.to_list()
+    |> Enum.filter(fn key ->
+      {res, _action} = split_permission_key(key)
+      res == resource
+    end)
+  end
+
+  defp action_permission_keys(grid, action) do
+    grid.valid_permissions
+    |> MapSet.to_list()
+    |> Enum.filter(fn key ->
+      {_res, act} = split_permission_key(key)
+      act == action
+    end)
+  end
+
+  defp humanize_action(action), do: String.replace(action, "_", " ")
+
+  # ── Profile helpers ───────────────────────────────────────────
 
   defp find_profile(profiles, profile_id) do
     Enum.find(profiles, fn profile ->
@@ -363,54 +653,75 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     %{profile | permissions: MapSet.to_list(permissions)}
   end
 
-  defp permission_assigned?(profile, permission) do
-    permission in (profile.permissions || [])
+  defp toggle_permissions_bulk(profile, keys) do
+    permissions = MapSet.new(profile.permissions || [])
+    all_selected = Enum.all?(keys, &MapSet.member?(permissions, &1))
+
+    updated =
+      if all_selected do
+        Enum.reduce(keys, permissions, fn key, acc -> MapSet.delete(acc, key) end)
+      else
+        Enum.reduce(keys, permissions, fn key, acc -> MapSet.put(acc, key) end)
+      end
+
+    %{profile | permissions: MapSet.to_list(updated)}
   end
 
-  defp filter_catalog(catalog, filter) do
+  defp filter_profiles(profiles, filter) do
     filter = String.trim(filter || "")
 
     if filter == "" do
-      catalog
+      profiles
     else
-      Enum.flat_map(catalog, fn section ->
-        permissions =
-          section_permissions(section)
-          |> Enum.filter(fn permission ->
-            label = permission_label(permission) |> String.downcase()
-            key = permission_key(permission) |> String.downcase()
+      downcased = String.downcase(filter)
 
-            String.contains?(label, String.downcase(filter)) or String.contains?(key, String.downcase(filter))
-          end)
-
-        if permissions == [] do
-          []
-        else
-          [Map.put(section, :permissions, permissions)]
-        end
+      Enum.filter(profiles, fn profile ->
+        name = String.downcase(profile.name || "")
+        sys = String.downcase(to_string(profile.system_name || ""))
+        String.contains?(name, downcased) or String.contains?(sys, downcased)
       end)
     end
   end
 
-  defp section_label(section), do: Map.get(section, :label) || Map.get(section, "label") || ""
+  defp permissions_from_clone(_profiles, nil), do: []
 
-  defp section_permissions(section) do
+  defp permissions_from_clone(profiles, clone_source_id) do
+    case find_profile(profiles, clone_source_id) do
+      nil -> []
+      profile -> profile.permissions || []
+    end
+  end
+
+  defp profile_badge_class(profile) do
+    case to_string(profile.system_name || "") do
+      "admin" -> "badge-error"
+      "operator" -> "badge-warning"
+      "viewer" -> "badge-info"
+      _ -> "badge-secondary"
+    end
+  end
+
+  defp profile_identifier(profile) do
+    cond do
+      profile.system_name -> profile.system_name
+      true -> profile.name |> to_string() |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_")
+    end
+  end
+
+  # ── Catalog accessors ─────────────────────────────────────────
+
+  defp sect_id(section), do: Map.get(section, :section) || Map.get(section, "section") || ""
+  defp sect_label(section), do: Map.get(section, :label) || Map.get(section, "label") || ""
+
+  defp sect_permissions(section) do
     Map.get(section, :permissions) || Map.get(section, "permissions") || []
   end
 
-  defp permission_label(permission), do: Map.get(permission, :label) || Map.get(permission, "label") || ""
+  defp perm_key(permission), do: Map.get(permission, :key) || Map.get(permission, "key") || ""
 
-  defp permission_description(permission) do
-    Map.get(permission, :description) || Map.get(permission, "description") || ""
-  end
+  # ── Formatting ────────────────────────────────────────────────
 
-  defp permission_key(permission), do: Map.get(permission, :key) || Map.get(permission, "key") || ""
-
-  defp catalog_permission_count(catalog) do
-    catalog
-    |> Enum.flat_map(&section_permissions/1)
-    |> Enum.count()
-  end
+  defp default_profile_form, do: %{"name" => "", "description" => ""}
 
   defp maybe_put_flash(socket, nil), do: socket
   defp maybe_put_flash(socket, message), do: put_flash(socket, :error, message)
