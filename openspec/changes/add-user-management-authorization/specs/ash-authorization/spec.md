@@ -1,5 +1,20 @@
 ## ADDED Requirements
 
+### Requirement: Permit-Based Authorization
+Authorization checks for admin UI and API access management SHALL be enforced through Permit policies.
+
+#### Scenario: Permit denies unauthorized admin API access
+- **GIVEN** an authenticated user without admin role
+- **WHEN** they request an admin-only API endpoint
+- **THEN** Permit SHALL deny the request
+- **AND** the system SHALL return a 403 Forbidden response
+
+#### Scenario: Permit allows admin settings navigation
+- **GIVEN** an authenticated user with admin role
+- **WHEN** they access Settings -> Auth routes
+- **THEN** Permit SHALL authorize the request
+- **AND** the UI SHALL render the authorized content
+
 ### Requirement: Admin-Only Access Management
 User management actions and authorization settings SHALL be restricted to admin and super_user roles.
 

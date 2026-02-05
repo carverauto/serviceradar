@@ -10,13 +10,14 @@ ServiceRadar installs with a single bootstrapped admin user. After install, admi
 - Non-Goals:
   - Implement authentication provider configuration (handled by `add-enterprise-sso-authentication`).
   - Introduce multi-tenant features or cross-instance user federation.
-  - Replace Ash policy enforcement with a new authorization engine (Permit integration remains future work).
 
 ## Decisions
 - Use Ash resources/actions in the Identity domain for all user lifecycle changes (create, update, deactivate, role change).
 - Store role mapping configuration in platform schema and apply it on login (SSO and local).
 - Soft-deactivate users rather than hard delete; deactivation revokes active sessions and API tokens.
 - Surface role mapping and user management in a single Settings -> Auth section with clear admin-only UI.
+- Adopt Permit (`permit`, `permit_phoenix`, `permit_ecto`) as the authorization engine for admin UI and API actions.
+- Remove Ash policy enforcement for user management and authorization settings; Permit becomes the source of truth.
 
 ## Risks / Trade-offs
 - Risk: Misconfigured role mapping could grant overly broad access.
@@ -28,6 +29,7 @@ ServiceRadar installs with a single bootstrapped admin user. After install, admi
 - Add database migrations (Elixir) for any new user status fields and role mapping configuration storage in the platform schema.
 - Backfill existing users with default role and active status if missing.
 - Deploy UI + API; no breaking changes to existing sessions besides role evaluation on next request.
+- Introduce Permit permissions module and wire controller/LiveView authorization checks prior to removing Ash policies.
 
 ## Open Questions
 - Should admin-created users receive a temporary password or a magic-link invite by default?

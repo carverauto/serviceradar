@@ -6,6 +6,7 @@ defmodule ServiceRadar.Identity.Validations.RoleMappings do
   use Ash.Resource.Validation
 
   @allowed_sources ["groups", "email_domain", "email", "claim"]
+  @allowed_keys ["source", "value", "role", "claim"]
   @allowed_roles [:viewer, :operator, :admin]
 
   @impl true
@@ -60,10 +61,13 @@ defmodule ServiceRadar.Identity.Validations.RoleMappings do
     role = get_key(mapping, "role")
     claim = get_key(mapping, "claim")
 
-    with :ok <- validate_source(source),
+    with :ok <- validate_keys(mapping),
+         :ok <- validate_source(source),
          :ok <- validate_value(value),
          :ok <- validate_role(role),
-         :ok <- validate_claim(source, claim) do
+         :ok <- validate_claim(source, claim),
+         :ok <- validate_value_format(source, value),
+         :ok <- validate_claim_format(source, claim) do
       :ok
     end
   end
@@ -107,6 +111,54 @@ defmodule ServiceRadar.Identity.Validations.RoleMappings do
   end
 
   defp validate_claim(_, _), do: :ok
+
+  defp validate_keys(mapping) when is_map(mapping) do
+    keys =
+      mapping
+      |> Map.keys()
+      |> Enum.map(fn key ->
+        case key do
+          atom when is_atom(atom) -> Atom.to_string(atom)
+          other -> to_string(other)
+        end
+      end)
+
+    case Enum.reject(keys, &(&1 in @allowed_keys)) do
+      [] -> :ok
+      extras -> {:error, "unexpected keys: #{Enum.join(Enum.sort(extras), ", ")}"}
+    end
+  end
+
+  defp validate_keys(_), do: {:error, "role_mappings must be a list of objects"}
+
+  defp validate_value_format("email_domain", value) when is_binary(value) do
+    if String.contains?(value, "@") do
+      {:error, "value must be a domain (no @) for source 'email_domain'"}
+    else
+      :ok
+    end
+  end
+
+  defp validate_value_format("email", value) when is_binary(value) do
+    if String.contains?(value, "@") do
+      :ok
+    else
+      {:error, "value must be an email address for source 'email'"}
+    end
+  end
+
+  defp validate_value_format(_, _), do: :ok
+
+  defp validate_claim_format(source, claim)
+       when source in ["email", "email_domain"] and is_binary(claim) do
+    if String.trim(claim) == "" do
+      :ok
+    else
+      {:error, "claim is not allowed for source '#{source}'"}
+    end
+  end
+
+  defp validate_claim_format(_, _), do: :ok
 
   defp get_key(map, key) when is_map(map) and is_binary(key) do
     Map.get(map, key) || get_atom_key(map, key)

@@ -45,9 +45,8 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
       role = role_from_attrs(attrs)
       display_name = Map.get(attrs, :display_name) || Map.get(attrs, "display_name")
 
-      with {:ok, user} <- maybe_update_display_name(user, display_name, scope),
-           {:ok, user} <- maybe_update_role(user, role, scope) do
-        {:ok, user}
+      with {:ok, user} <- maybe_update_display_name(user, display_name, scope) do
+        maybe_update_role(user, role, scope)
       end
     end
   end
