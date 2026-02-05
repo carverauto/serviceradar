@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:fetch_session)
     plug(:protect_from_forgery)
     plug(:fetch_current_scope_for_user)
-    plug(:require_authenticated_user)
+    plug(:require_authenticated_user_api)
   end
 
   # API authentication for CLI/external tools (API key or bearer token)
