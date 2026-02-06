@@ -123,7 +123,9 @@ config :serviceradar_web_ng, :plugin_verification,
 # web-ng only processes jobs, it does NOT schedule them
 # core-elx is the Oban coordinator and handles all scheduled/cron jobs
 config :serviceradar_core, Oban,
+  engine: Oban.Engines.Basic,
   repo: ServiceRadar.Repo,
+  prefix: "platform",
   queues: [
     default: 10,
     maintenance: 2,

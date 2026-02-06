@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
 
       result = OIDCClient.extract_user_info(claims)
 
-      assert result.email == "user@example.com"
+      assert to_string(result.email) == "user@example.com"
       assert result.name == "Test User"
       assert result.external_id == "oidc|12345"
     end
@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
 
       result = OIDCClient.extract_user_info(claims)
 
-      assert result.email == "user@example.com"
+      assert to_string(result.email) == "user@example.com"
       assert result.name == nil
       assert result.external_id == "oidc|12345"
     end
@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
       }
 
       result = OIDCClient.extract_user_info(claims)
-      assert result.email == "test@example.com"
+      assert to_string(result.email) == "test@example.com"
     end
   end
 

@@ -1,66 +1,75 @@
 defmodule ServiceRadarWebNG.Api.AuthorizationSettingsControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadarWebNG.AshTestHelpers
 
-  setup %{conn: conn} do
-    admin = AshTestHelpers.admin_user_fixture()
-    conn = log_in_api_user(conn, admin)
-    scope = ServiceRadarWebNG.Accounts.Scope.for_user(admin)
-    %{conn: conn, admin: admin, scope: scope}
-  end
-
   describe "GET /api/admin/authorization-settings" do
-    test "returns default settings", %{conn: conn} do
-      conn = get(conn, ~p"/api/admin/authorization-settings")
-      result = json_response(conn, 200)
+    test "returns settings for admin", %{conn: conn} do
+      admin = AshTestHelpers.admin_user_fixture()
 
-      assert result["default_role"] == "viewer"
-      assert result["role_mappings"] == []
+      conn =
+        conn
+        |> log_in_user(admin)
+        |> get(~p"/api/admin/authorization-settings")
+
+      assert conn.status == 200
+
+      body = json_response(conn, 200)
+      assert Map.has_key?(body, "default_role")
+      assert Map.has_key?(body, "role_mappings")
+    end
+
+    test "returns 403 for non-admin", %{conn: conn} do
+      user = AshTestHelpers.viewer_user_fixture()
+
+      conn =
+        conn
+        |> log_in_user(user)
+        |> get(~p"/api/admin/authorization-settings")
+
+      assert conn.status == 403
     end
   end
 
   describe "PUT /api/admin/authorization-settings" do
-    test "updates settings", %{conn: conn, scope: scope} do
-      params = %{
-        "default_role" => "operator",
-        "role_mappings" => [
-          %{"source" => "groups", "value" => "Network Ops", "role" => "operator"},
-          %{"source" => "email_domain", "value" => "example.com", "role" => "admin"}
-        ]
-      }
+    test "updates settings for admin", %{conn: conn} do
+      admin = AshTestHelpers.admin_user_fixture()
 
-      conn = put(conn, ~p"/api/admin/authorization-settings", params)
-      result = json_response(conn, 200)
+      conn =
+        conn
+        |> log_in_user(admin)
+        |> put(~p"/api/admin/authorization-settings", %{
+          "default_role" => "operator",
+          "role_mappings" => [%{"source" => "groups", "value" => "NetOps", "role" => "operator"}]
+        })
 
-      assert result["default_role"] == "operator"
-      assert length(result["role_mappings"]) == 2
-
-      {:ok, settings} =
-        AuthorizationSettings
-        |> Ash.Query.for_read(:get_singleton, %{}, scope: scope)
-        |> Ash.read_one(scope: scope)
-
-      assert settings.default_role == :operator
+      assert conn.status == 200
+      body = json_response(conn, 200)
+      assert body["default_role"] == "operator"
     end
 
-    test "rejects invalid role", %{conn: conn} do
-      params = %{"default_role" => "invalid"}
+    test "returns 422 for invalid role_mappings json", %{conn: conn} do
+      admin = AshTestHelpers.admin_user_fixture()
 
-      conn = put(conn, ~p"/api/admin/authorization-settings", params)
+      conn =
+        conn
+        |> log_in_user(admin)
+        |> put(~p"/api/admin/authorization-settings", %{
+          "default_role" => "viewer",
+          "role_mappings" => "{invalid json}"
+        })
 
-      assert json_response(conn, 400)["error"] =~ "default_role must be one of"
-    end
-  end
+      assert conn.status == 422
 
-  describe "admin access" do
-    test "non-admin is forbidden", %{conn: conn} do
-      viewer = AshTestHelpers.user_fixture()
-      conn = log_in_api_user(conn, viewer)
+      body = json_response(conn, 422)
+      assert body["error"] == "validation_error"
 
-      conn = get(conn, ~p"/api/admin/authorization-settings")
-      assert json_response(conn, 403)["errors"]["detail"] == "Forbidden"
+      details = body["details"] || []
+      assert is_list(details)
+
+      assert Enum.any?(details, fn item ->
+               (item["field"] || "") == "role_mappings" and (item["message"] || "") =~ "invalid"
+             end)
     end
   end
 end

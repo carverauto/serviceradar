@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
       }
 
       assert {:ok, user} = User.provision_sso_user(params, actor: actor)
-      assert user.email == "oidc_user@example.com"
+      assert to_string(user.email) == "oidc_user@example.com"
       assert user.display_name == "OIDC User"
       assert user.external_id == "oidc|12345"
       assert user.role == :viewer
@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
       }
 
       assert {:ok, user} = User.provision_sso_user(params, actor: actor)
-      assert user.email == "saml_user@example.com"
+      assert to_string(user.email) == "saml_user@example.com"
       assert user.external_id == "saml:nameid:67890"
     end
 
@@ -60,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
       }
 
       assert {:ok, user} = User.provision_sso_user(params, actor: actor)
-      assert user.email == "gateway_user@example.com"
+      assert to_string(user.email) == "gateway_user@example.com"
     end
 
     test "fails with invalid provider", %{actor: actor} do
@@ -99,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
       existing = user_fixture()
 
       params = %{
-        email: existing.email,
+        email: to_string(existing.email),
         display_name: "Duplicate",
         external_id: "new:external:id",
         provider: :oidc

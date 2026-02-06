@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
 
   use ExUnit.Case, async: true
 
+  import Phoenix.Component, only: [to_form: 2]
+
   # Tag this test module to run even without database
   @moduletag :unit
 

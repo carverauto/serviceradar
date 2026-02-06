@@ -150,7 +150,7 @@ defmodule ServiceRadarWebNGWeb.Auth.HooksTest do
       # Pass invalid data that might cause issues
       result = Hooks.on_user_created(%{id: nil, email: nil}, :oidc)
       # Should return :ok or {:error, _} but not crash
-      assert result in [:ok, {:error, _}] or match?({:error, _}, result)
+      assert result == :ok or match?({:error, _}, result)
     end
 
     test "enrich_claims returns original claims on error" do
