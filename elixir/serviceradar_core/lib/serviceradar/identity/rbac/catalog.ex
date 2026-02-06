@@ -179,6 +179,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: [:operator, :admin]
         },
         %{
+          key: "settings.integrations.manage",
+          label: "Manage integrations",
+          description: "Manage integration sources and sync configuration",
+          default_roles: [:operator, :admin]
+        },
+        %{
           key: "settings.snmp_profiles.manage",
           label: "Manage SNMP profiles",
           description: "Manage SNMP profiles",
@@ -207,6 +213,54 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Manage edge packages",
           description: "Manage edge onboarding packages",
           default_roles: [:admin]
+        }
+      ]
+    },
+    %{
+      section: "plugins",
+      label: "Plugins",
+      permissions: [
+        %{
+          key: "plugins.view",
+          label: "View plugins",
+          description: "View plugins and plugin packages",
+          default_roles: [:operator, :admin]
+        },
+        %{
+          key: "plugins.stage",
+          label: "Stage plugin packages",
+          description: "Stage (upload/import) plugin packages for review",
+          default_roles: [:admin]
+        },
+        %{
+          key: "plugins.approve",
+          label: "Approve plugin packages",
+          description: "Approve/deny/revoke plugin packages",
+          default_roles: [:admin]
+        },
+        %{
+          key: "plugins.assign",
+          label: "Assign plugins",
+          description: "Assign plugins to agents and resources",
+          default_roles: [:admin]
+        }
+      ]
+    },
+    %{
+      section: "networks",
+      label: "Network Ops",
+      permissions: [
+        %{
+          key: "networks.sweeps.run",
+          label: "Run sweeps now",
+          description: "Trigger on-demand network sweeps",
+          default_roles: [:operator, :admin]
+        },
+        %{
+          key: "networks.discovery.run",
+          label: "Run discovery now",
+          description: "Trigger on-demand discovery jobs",
+          default_roles: [:operator, :admin]
         }
       ]
     }

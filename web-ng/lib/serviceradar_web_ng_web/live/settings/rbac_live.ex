@@ -799,8 +799,18 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             resource
           end)
           |> Enum.uniq()
-          |> Enum.map(fn res ->
-            %{key: res, label: resource_short_label(res, section_key)}
+          |> then(fn resources ->
+            has_sub_resources? = Enum.any?(resources, &(&1 != section_key))
+
+            Enum.map(resources, fn res ->
+              label =
+                cond do
+                  res == section_key and has_sub_resources? -> "General"
+                  true -> resource_short_label(res, section_key)
+                end
+
+              %{key: res, label: label}
+            end)
           end)
 
         %{

@@ -487,6 +487,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   end
 
   defp password_label(user) do
+    # `last_auth_method` is only populated after an auth event; for newly created
+    # users we derive a reasonable label from server-provided hints.
     case user.last_auth_method do
       :password -> "Local"
       :oidc -> "SSO (OIDC)"
@@ -494,7 +496,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
       :gateway -> "Gateway"
       :api_token -> "API Token"
       :oauth_client -> "OAuth"
-      _ -> "—"
+      _ ->
+        cond do
+          Map.get(user, :has_password) -> "Local"
+          Map.get(user, :has_external_id) -> "SSO"
+          true -> "—"
+        end
     end
   end
 
@@ -535,14 +542,41 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   end
 
   defp format_ash_error({:http_error, status, body}) do
-    message =
+    base =
       case body do
-        %{"error" => error} -> error
-        %{"message" => error} -> error
+        %{"message" => message} when is_binary(message) and message != "" -> message
+        %{"error" => error} when is_binary(error) and error != "" -> error
         _ -> "Request failed"
       end
 
-    "HTTP #{status}: #{message}"
+    details =
+      case body do
+        %{"details" => list} when is_list(list) ->
+          list
+          |> Enum.map(fn
+            %{"field" => field, "message" => message} ->
+              field = to_string(field)
+              message = to_string(message)
+              if field != "", do: "#{field}: #{message}", else: message
+
+            %{"message" => message} ->
+              to_string(message)
+
+            other ->
+              inspect(other)
+          end)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.join("; ")
+
+        _ ->
+          ""
+      end
+
+    if details != "" do
+      "HTTP #{status}: #{base} (#{details})"
+    else
+      "HTTP #{status}: #{base}"
+    end
   end
 
   defp format_ash_error(_), do: "Unexpected error"

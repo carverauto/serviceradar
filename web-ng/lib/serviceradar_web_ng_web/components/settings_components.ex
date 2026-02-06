@@ -157,9 +157,10 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   # Network section sub-navigation
   attr(:current_path, :string, required: true)
   attr(:class, :any, default: nil)
+  attr(:current_scope, :map, default: nil)
 
   def network_nav(assigns) do
-    assigns = assign(assigns, :tabs, network_tabs(assigns.current_path))
+    assigns = assign(assigns, :tabs, network_tabs(assigns.current_path, assigns[:current_scope]))
 
     ~H"""
     <div class={["flex flex-wrap items-center gap-2 mb-4", @class]}>
@@ -168,8 +169,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     """
   end
 
-  def network_tabs(current_path) do
+  def network_tabs(current_path, current_scope \\ nil) do
     path = current_path || ""
+
+    can_networks = RBAC.can?(current_scope, "settings.networks.manage")
+    can_integrations = RBAC.can?(current_scope, "settings.integrations.manage")
 
     [
       %{
@@ -196,6 +200,12 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active: String.starts_with?(path, "/settings/networks/integrations")
       }
     ]
+    |> Enum.filter(fn tab ->
+      case tab.label do
+        "Integrations" -> can_integrations or can_networks or is_nil(current_scope)
+        _ -> can_networks or is_nil(current_scope)
+      end
+    end)
   end
 
   # Agents section sub-navigation

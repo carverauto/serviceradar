@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not RBAC.can?(scope, "settings.plugins.manage") do
+    if not RBAC.can?(scope, "plugins.view") do
       {:ok,
        socket
        |> put_flash(:error, "Admin access required")
@@ -30,6 +30,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     else
       socket =
         socket
+        |> assign(:can_stage_plugins, RBAC.can?(scope, "plugins.stage"))
+        |> assign(:can_approve_plugins, RBAC.can?(scope, "plugins.approve"))
+        |> assign(:can_assign_plugins, RBAC.can?(scope, "plugins.assign"))
         |> assign(:page_title, "Plugins")
         |> assign(:current_path, nil)
         |> assign(:plugins_base_path, "/admin/plugins")
@@ -660,7 +663,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <.ui_button variant="ghost" size="sm" phx-click="refresh">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
             </.ui_button>
-            <.ui_button variant="primary" size="sm" phx-click="open_create_modal">
+            <.ui_button :if={@can_stage_plugins} variant="primary" size="sm" phx-click="open_create_modal">
               <.icon name="hero-plus" class="size-4" /> New Plugin
             </.ui_button>
           </div>
@@ -1402,15 +1405,21 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
           <div class="flex flex-wrap justify-end gap-2 pt-2">
             <%= if @package.status == :staged do %>
-              <button type="submit" class="btn btn-primary">Approve</button>
+              <button type="submit" class="btn btn-primary" disabled={!@can_approve_plugins}>
+                Approve
+              </button>
               <button
                 type="button"
                 class="btn btn-outline btn-error"
                 phx-click="deny_package"
                 phx-value-id={@package.id}
+                disabled={!@can_approve_plugins}
               >
                 Deny
               </button>
+              <p :if={!@can_approve_plugins} class="w-full text-right text-xs text-base-content/60">
+                You do not have permission to approve or deny plugin packages.
+              </p>
             <% end %>
 
             <%= if @package.status == :approved do %>

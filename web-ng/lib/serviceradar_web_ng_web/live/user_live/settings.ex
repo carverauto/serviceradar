@@ -206,20 +206,21 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
       socket.assigns.password_ash_form
       |> AshPhoenix.Form.validate(user_params)
 
-    case AshPhoenix.Form.submit(ash_form, params: user_params) do
-      {:ok, _updated_user} ->
-        # Trigger the form submit action for session handling
-        {:noreply,
-         socket
-         |> assign(:password_ash_form, ash_form)
-         |> assign(:password_form, to_form(ash_form))
-         |> assign(:trigger_submit, true)}
-
-      {:error, ash_form} ->
-        {:noreply,
-         socket
-         |> assign(:password_ash_form, ash_form)
-         |> assign(:password_form, to_form(ash_form))}
+    # Important: do not submit the Ash action here.
+    # The browser POSTs to UserSessionController, which performs the password
+    # change and then revokes sessions/tokens.
+    if ash_form.valid? do
+      {:noreply,
+       socket
+       |> assign(:password_ash_form, ash_form)
+       |> assign(:password_form, to_form(ash_form))
+       |> assign(:trigger_submit, true)}
+    else
+      {:noreply,
+       socket
+       |> assign(:password_ash_form, ash_form)
+       |> assign(:password_form, to_form(ash_form))
+       |> assign(:trigger_submit, false)}
     end
   end
 end

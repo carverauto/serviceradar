@@ -13,9 +13,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(_params, _session, socket) do
+    scope = socket.assigns.current_scope
+
+    if not RBAC.can?(scope, "settings.integrations.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "Not authorized to manage integrations")
+       |> redirect(to: ~p"/settings/profile")}
+    else
     actor = get_actor(socket)
     partitions = list_partitions(actor)
     agents = list_agents(actor)
@@ -45,7 +54,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       |> assign(:form_queries, [default_query()])
       |> assign(:form_network_blacklist, "")
 
-    {:ok, socket}
+      {:ok, socket}
+    end
   end
 
   defp default_query do
@@ -417,7 +427,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/networks/integrations">
         <.settings_nav current_path="/settings/networks/integrations" current_scope={@current_scope} />
-        <.network_nav current_path="/settings/networks/integrations" />
+        <.network_nav current_path="/settings/networks/integrations" current_scope={@current_scope} />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -428,6 +438,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
           <div class="flex flex-col items-end gap-2">
             <.ui_button
+              :if={RBAC.can?(@current_scope, "settings.integrations.manage")}
               variant="primary"
               size="sm"
               phx-click="open_create_modal"

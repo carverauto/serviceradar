@@ -146,6 +146,8 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
       role: parse_role(body["role"]),
       role_profile_id: body["role_profile_id"],
       status: parse_status(body["status"]),
+      has_password: body["has_password"] || false,
+      has_external_id: body["has_external_id"] || false,
       confirmed_at: body["confirmed_at"],
       last_login_at: body["last_login_at"],
       last_auth_method: parse_auth_method(body["last_auth_method"]),
@@ -175,6 +177,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
 
   defp parse_role("admin"), do: :admin
   defp parse_role("operator"), do: :operator
+  defp parse_role("helpdesk"), do: :helpdesk
   defp parse_role("viewer"), do: :viewer
   defp parse_role(role) when is_atom(role), do: role
   defp parse_role(_), do: :viewer

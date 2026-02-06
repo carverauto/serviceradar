@@ -103,7 +103,7 @@ defmodule ServiceRadarWebNG.Api.UserController do
         end
 
       {:error, :invalid_role} ->
-        return_error(conn, :bad_request, "role must be one of: viewer, operator, admin")
+        return_error(conn, :bad_request, "role must be one of: viewer, helpdesk, operator, admin")
     end
   end
 
@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNG.Api.UserController do
 
     case normalize_role(role) do
       {:error, :invalid_role} ->
-        return_error(conn, :bad_request, "role must be one of: viewer, operator, admin")
+        return_error(conn, :bad_request, "role must be one of: viewer, helpdesk, operator, admin")
 
       {:ok, role_atom} ->
         case Ash.get(User, id, scope: scope) do
@@ -268,6 +268,8 @@ defmodule ServiceRadarWebNG.Api.UserController do
   end
 
   defp user_to_json(user) do
+    # Avoid exposing sensitive fields, but still provide enough UX hints to render
+    # auth state clearly (e.g. "Local" for users with a password set).
     %{
       id: user.id,
       email: user.email,
@@ -275,6 +277,8 @@ defmodule ServiceRadarWebNG.Api.UserController do
       role: user.role,
       role_profile_id: user.role_profile_id,
       status: user.status,
+      has_password: not is_nil(user.hashed_password) and to_string(user.hashed_password) != "",
+      has_external_id: not is_nil(user.external_id) and to_string(user.external_id) != "",
       confirmed_at: format_datetime(user.confirmed_at),
       last_login_at: format_datetime(user.last_login_at),
       last_auth_method: user.last_auth_method,
