@@ -15,20 +15,29 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    socket = assign(socket, :page_title, "Auth Users")
-    users = list_users(socket.assigns.current_scope)
-    role_profiles = list_role_profiles(socket.assigns.current_scope)
-    default_profile_id = default_system_profile_id(role_profiles, "viewer")
-    active_admin_count = count_active_admins(users)
+    scope = socket.assigns.current_scope
 
-    {:ok,
-     socket
-     |> assign(:form, to_form(default_user_form(default_profile_id), as: :user))
-     |> assign(:show_add_user_modal, false)
-     |> assign(:role_profiles, role_profiles)
-     |> assign(:user_count, length(users))
-     |> assign(:active_admin_count, active_admin_count)
-     |> stream(:users, users, reset: true)}
+    if ServiceRadarWebNG.RBAC.can?(scope, "settings.auth.manage") do
+      socket = assign(socket, :page_title, "Auth Users")
+      users = list_users(scope)
+      role_profiles = list_role_profiles(scope)
+      default_profile_id = default_system_profile_id(role_profiles, "viewer")
+      active_admin_count = count_active_admins(users)
+
+      {:ok,
+       socket
+       |> assign(:form, to_form(default_user_form(default_profile_id), as: :user))
+       |> assign(:show_add_user_modal, false)
+       |> assign(:role_profiles, role_profiles)
+       |> assign(:user_count, length(users))
+       |> assign(:active_admin_count, active_admin_count)
+       |> stream(:users, users, reset: true)}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Settings.")
+       |> push_navigate(to: ~p"/analytics")}
+    end
   end
 
   @impl true
@@ -153,8 +162,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   def handle_unauthorized(_action, socket) do
     socket =
       socket
-      |> put_flash(:error, "Admin access required")
-      |> push_navigate(to: ~p"/settings/profile")
+      |> put_flash(:error, "You don't have permission to access Settings.")
+      |> push_navigate(to: ~p"/analytics")
 
     {:halt, socket}
   end
