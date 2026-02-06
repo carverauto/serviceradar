@@ -142,8 +142,8 @@ spec:
 
 1. **Agent**: Lightweight Go service on monitored hosts; manages WASM execution and local collection.
 2. **Agent-Gateway**: Ingestion point that receives gRPC streams from edge agents.
-3. **Core (core-elx)**: Control plane (Elixir/Phoenix) for orchestration, APIs, and alerts.
-4. **Web UI (web-ng)**: Real-time LiveView dashboard for configuration and visualization.
+3. **Core (core-elx)**: Control plane (Elixir/Phoenix/Ash) for orchestration, ERTS, and job scheduling (Oban).
+4. **Web UI (web-ng)**: Real-time LiveView dashboard and APIs for configuration and visualization.
 5. **NATS**: [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream) Message broker, Object Storage, and KV.
 6. **Collectors**: Collect bulk data (netflow, logs, SNMP, etc.).
 
