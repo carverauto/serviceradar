@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNGWeb.Auth.Hooks
   alias ServiceRadarWebNGWeb.UserAuth
+  alias ServiceRadarWebNGWeb.ClientIP
 
   plug :fetch_session
 
@@ -78,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   def local_sign_in(conn, %{"user" => %{"email" => email, "password" => password}}) do
     alias ServiceRadarWebNGWeb.Auth.RateLimiter
 
-    client_ip = get_client_ip(conn)
+    client_ip = ClientIP.get(conn)
 
     # Check rate limit
     case RateLimiter.check_rate_limit("local_auth", client_ip, limit: 5, window_seconds: 60) do
@@ -124,20 +125,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     end
   end
 
-  defp get_client_ip(conn) do
-    case Plug.Conn.get_req_header(conn, "x-forwarded-for") do
-      [forwarded | _] ->
-        forwarded
-        |> String.split(",")
-        |> List.first()
-        |> String.trim()
-
-      [] ->
-        conn.remote_ip
-        |> :inet.ntoa()
-        |> to_string()
-    end
-  end
+  defp get_client_ip(conn), do: ClientIP.get(conn)
 
   @doc """
   Initiates password reset flow.

@@ -58,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadarWebNG.Auth.Guardian
+  alias ServiceRadarWebNGWeb.ClientIP
 
   # Default token TTL: 1 hour
   @default_ttl_seconds 3600
@@ -171,16 +172,25 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
 
     case ServiceRadar.Identity.User.get_by_id(client.user_id, actor: actor) do
       {:ok, user} ->
-        # Create claims for the token
-        claims = %{
-          "typ" => "api",
-          "sub" => to_string(user.id),
+        scopes_atoms =
+          scopes
+          |> Enum.map(fn scope ->
+            case scope do
+              s when is_atom(s) -> s
+              s when is_binary(s) -> String.to_existing_atom(s)
+              _ -> :read
+            end
+          end)
+
+        extra_claims = %{
           "client_id" => to_string(client.id),
+          # Keep OAuth-compatible scope string for convenience.
           "scope" => Enum.join(scopes, " ")
         }
 
-        case Guardian.create_access_token(user,
-               claims: claims,
+        case Guardian.create_api_token(user,
+               scopes: scopes_atoms,
+               claims: extra_claims,
                ttl: {@default_ttl_seconds, :second}
              ) do
           {:ok, token, _full_claims} ->
@@ -210,20 +220,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   end
 
   defp get_client_ip(conn) do
-    # Check X-Forwarded-For header first (for proxied requests)
-    case get_req_header(conn, "x-forwarded-for") do
-      [forwarded | _] ->
-        forwarded
-        |> String.split(",")
-        |> List.first()
-        |> String.trim()
-
-      [] ->
-        # Fall back to remote_ip
-        conn.remote_ip
-        |> :inet.ntoa()
-        |> to_string()
-    end
+    ClientIP.get(conn)
   end
 
   defp error_response(conn, status, error, description) do

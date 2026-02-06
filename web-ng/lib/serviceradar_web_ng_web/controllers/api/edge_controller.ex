@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   alias ServiceRadarWebNG.Edge.ComponentTemplates
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNGWeb.ClientIP
+  alias ServiceRadarWebNG.RBAC
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -26,12 +28,15 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   Returns default selectors and metadata for package creation.
   """
   def defaults(conn, _params) do
-    defaults = OnboardingPackages.defaults()
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
+      defaults = OnboardingPackages.defaults()
 
-    json(conn, %{
-      selectors: defaults.selectors,
-      metadata: defaults.metadata
-    })
+      json(conn, %{
+        selectors: defaults.selectors,
+        metadata: defaults.metadata
+      })
+    end
   end
 
   @doc """
@@ -50,8 +55,10 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   def index(conn, params) do
     filters = build_filters(params)
 
-    with :ok <- require_authenticated(conn) do
-      packages = OnboardingPackages.list(filters)
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
+      actor = get_user_actor(conn)
+      packages = OnboardingPackages.list(filters, actor: actor)
       json(conn, Enum.map(packages, &package_to_json/1))
     end
   end
@@ -62,8 +69,8 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   Creates a new edge onboarding package.
   """
   def create(conn, params) do
-    actor = get_actor(conn)
-    source_ip = get_client_ip(conn)
+    actor = get_user_actor(conn)
+    source_ip = ClientIP.get(conn)
 
     attrs = %{
       label: params["label"],
@@ -83,7 +90,8 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
       downstream_spiffe_id: params["downstream_spiffe_id"]
     }
 
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
       opts = [
         join_token_ttl_seconds: params["join_token_ttl_seconds"] || 86_400,
         download_token_ttl_seconds: params["download_token_ttl_seconds"] || 86_400,
@@ -114,8 +122,11 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   Gets a single package by ID.
   """
   def show(conn, %{"id" => id}) do
-    with :ok <- require_authenticated(conn) do
-      case OnboardingPackages.get(id) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
+      actor = get_user_actor(conn)
+
+      case OnboardingPackages.get(id, actor: actor) do
         {:ok, package} ->
           json(conn, package_to_json(package))
 
@@ -131,10 +142,11 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   Soft-deletes a package.
   """
   def delete(conn, %{"id" => id}) do
-    actor = get_actor(conn)
-    source_ip = get_client_ip(conn)
+    actor = get_user_actor(conn)
+    source_ip = ClientIP.get(conn)
 
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
       opts = [actor: actor, source_ip: source_ip]
 
       case OnboardingPackages.delete(id, opts) do
@@ -162,10 +174,13 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
   defp events_list(conn, package_id, limit) do
     # First verify package exists
-    with :ok <- require_authenticated(conn) do
-      case OnboardingPackages.get(package_id) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
+      actor = get_user_actor(conn)
+
+      case OnboardingPackages.get(package_id, actor: actor) do
         {:ok, _package} ->
-          events = OnboardingEvents.list_for_package(package_id, limit: limit)
+          events = OnboardingEvents.list_for_package(package_id, actor: actor, limit: limit)
           json(conn, Enum.map(events, &event_to_json/1))
 
         {:error, :not_found} ->
@@ -188,8 +203,8 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
       |> put_status(:bad_request)
       |> json(%{error: "download_token is required"})
     else
-      source_ip = get_client_ip(conn)
-      actor = get_actor(conn)
+      source_ip = ClientIP.get(conn)
+      actor = nil
 
       case download_with_token(id, download_token, source_ip, actor) do
         {:ok, result} ->
@@ -212,7 +227,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   end
 
   defp deliver_package(id, download_token, source_ip, actor) do
-    opts = [actor: actor, source_ip: source_ip]
+    opts = [actor: actor, source_ip: source_ip, authorize?: false]
 
     case OnboardingPackages.deliver(id, download_token, opts) do
       {:ok, result} ->
@@ -281,7 +296,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   Returns: application/gzip tarball
   """
   def bundle(conn, %{"id" => id, "token" => download_token}) when byte_size(download_token) > 0 do
-    source_ip = get_client_ip(conn)
+    source_ip = ClientIP.get(conn)
     base_url = request_base_url(conn)
 
     case bundle_with_token(id, download_token, source_ip, base_url) do
@@ -303,7 +318,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   end
 
   defp bundle_with_token(id, download_token, source_ip, base_url) do
-    opts = [actor: nil, source_ip: source_ip]
+    opts = [actor: nil, source_ip: source_ip, authorize?: false]
 
     with {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} <-
            OnboardingPackages.deliver(id, download_token, opts),
@@ -347,11 +362,12 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   Revokes a package, preventing further delivery.
   """
   def revoke(conn, %{"id" => id} = params) do
-    actor = get_actor(conn)
-    source_ip = get_client_ip(conn)
+    actor = get_user_actor(conn)
+    source_ip = ClientIP.get(conn)
     reason = params["reason"]
 
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
       opts = [actor: actor, source_ip: source_ip, reason: reason]
 
       case OnboardingPackages.revoke(id, opts) do
@@ -385,8 +401,11 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     component_type = params["component_type"]
     security_mode = params["security_mode"]
 
-    templates = list_templates(component_type, security_mode)
-    json(conn, templates)
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
+      templates = list_templates(component_type, security_mode)
+      json(conn, templates)
+    end
   end
 
   defp list_templates(nil, nil) do
@@ -469,33 +488,36 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   end
 
   defp get_actor(conn) do
+    # retained for backwards compatibility with audit-only call sites
     case conn.assigns[:current_scope] do
       %{user: %{email: email}} -> email
       _ -> nil
     end
   end
 
-  # Check that user is authenticated
+  defp get_user_actor(conn) do
+    case conn.assigns[:current_scope] do
+      %Scope{user: user} when not is_nil(user) ->
+        conn.assigns[:ash_actor] || user
+
+      _ ->
+        nil
+    end
+  end
+
+  # Check that user is authenticated (must have a principal, not a legacy static key)
   defp require_authenticated(conn) do
     case conn.assigns[:current_scope] do
-      %Scope{} -> :ok
+      %Scope{user: user} when not is_nil(user) ->
+        :ok
+
       _ -> {:error, :unauthorized}
     end
   end
 
-  defp get_client_ip(conn) do
-    case get_req_header(conn, "x-forwarded-for") do
-      [forwarded | _] ->
-        forwarded
-        |> String.split(",")
-        |> List.first()
-        |> String.trim()
-
-      [] ->
-        conn.remote_ip
-        |> :inet.ntoa()
-        |> to_string()
-    end
+  defp require_permission(conn, permission) do
+    scope = conn.assigns[:current_scope]
+    if RBAC.can?(scope, permission), do: :ok, else: {:error, :forbidden}
   end
 
   defp find_package(package_id) do
