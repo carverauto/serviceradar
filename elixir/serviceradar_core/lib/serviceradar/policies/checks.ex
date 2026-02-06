@@ -40,6 +40,12 @@ defmodule ServiceRadar.Policies.Checks do
     @impl true
     def match?(nil, _opts, _context), do: false
 
+    # Ash may call match?/3 with the authorizer as the 2nd arg and the opts as the 3rd arg.
+    # Normalize that shape so our checks don't crash.
+    def match?(actor, %Ash.Policy.Authorizer{}, opts) when is_list(opts) do
+      match?(actor, opts, %{})
+    end
+
     def match?(actor, opts, _context) do
       opts = if is_list(opts), do: opts, else: []
       role = Keyword.get(opts, :role)
@@ -116,6 +122,12 @@ defmodule ServiceRadar.Policies.Checks do
     @impl true
     def match?(nil, _opts, _context), do: false
 
+    # Ash may call match?/3 with the authorizer as the 2nd arg and the opts as the 3rd arg.
+    # When that happens, use the authorizer's changeset as the context.
+    def match?(actor, %Ash.Policy.Authorizer{} = authorizer, opts) when is_list(opts) do
+      match?(actor, opts, %{changeset: Map.get(authorizer, :changeset)})
+    end
+
     def match?(actor, opts, %{changeset: %{data: resource}}) do
       opts = if is_list(opts), do: opts, else: []
       attr = Keyword.get(opts, :attribute, :user_id)
@@ -149,6 +161,11 @@ defmodule ServiceRadar.Policies.Checks do
 
     @impl true
     def match?(nil, _opts, _context), do: false
+
+    # Ash may call match?/3 with the authorizer as the 2nd arg and the opts as the 3rd arg.
+    def match?(actor, %Ash.Policy.Authorizer{}, opts) when is_list(opts) do
+      match?(actor, opts, %{})
+    end
 
     def match?(actor, opts, _context) do
       opts = if is_list(opts), do: opts, else: []
