@@ -5,14 +5,14 @@ title: Edge Agents
 
 # Edge Agents
 
-Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster. They communicate with the Agent-Gateway via gRPC with mTLS for secure monitoring.
+Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster. They communicate with `agent-gateway` via outbound mTLS gRPC for secure monitoring and stream results into the control plane.
 
 ## Architecture
 
 ```mermaid
 graph LR
   Agent[Agent] -->|gRPC mTLS| Gateway[Agent-Gateway]
-  Gateway --> Core[core-elx]
+  Gateway --> Core[Core Platform (ERTS)]
 ```
 
 ## Security Model
@@ -22,7 +22,7 @@ graph LR
 | **Transport** | gRPC with mTLS (TLS 1.3) |
 | **Identity** | Workload-scoped X.509 certificates |
 | **Isolation** | No ERTS/Erlang distribution access |
-| **Authorization** | SPIFFE ID verification |
+| **Authorization** | Certificate-based workload identity |
 
 ### What Edge Agents CANNOT Do
 
@@ -46,8 +46,7 @@ spiffe://serviceradar.local/agent/<partition_id>/<agent_id>
 ## Deployment
 
 Use the edge onboarding flow to generate an agent package and configuration. See:
-- [Edge Onboarding](./edge-onboarding.md)
-- [Installation Guide](./installation.md)
+- [Edge Agent Onboarding](./edge-agent-onboarding.md)
 
 ## Firewall Requirements
 
@@ -58,5 +57,5 @@ Use the edge onboarding flow to generate an agent package and configuration. See
 ## Troubleshooting
 
 - Check agent logs: `journalctl -u serviceradar-agent -f`
-- Verify gRPC connectivity with `grpcurl` against the Agent-Gateway endpoint
+- Verify network reachability to the gateway: `nc -zv <gateway-host> 50052`
 - Confirm cert validity with `openssl x509 -in svid.pem -noout -dates`

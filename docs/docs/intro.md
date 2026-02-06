@@ -60,16 +60,16 @@ Navigate through our documentation to get ServiceRadar up and running:
 - **[Docker Setup Guide](./docker-setup.md)** - Complete Docker deployment guide with automatic configuration
 - **[Device Configuration](./device-configuration.md)** - Configure network devices for SNMP, Syslog, and trap collection
 
-### Manual Installation
-1. **[Installation Guide](./installation.md)** - Install edge agents and optional checkers
-2. **[Configuration Basics](./configuration.md)** - Configure your ServiceRadar deployment
-3. **[TLS Security](./tls-security.md)** - Secure your ServiceRadar communications
-4. **[Authentication Configuration](./auth-configuration.md)** - Set up user authentication
-5. **[Web UI Configuration](./web-ui.md)** - Set up the web interface and dashboard
-6. **[Sync Runtime Configuration](./sync.md)** - Integrate with external systems
+### Deploy + Secure
+1. **[Kubernetes (Helm)](./helm-configuration.md)** - Production-style deployments
+2. **[TLS / mTLS](./tls-security.md)** - Secure service-to-service and agent connectivity
+3. **[Authentication](./auth-configuration.md)** - Users, sessions, and SSO integration
 
 ### Advanced Topics
-7. **[Architecture](./architecture.md)** - Understand the system architecture
-8. **[Custom Checkers](./custom-checkers.md)** - Create custom checkers for specific services
+4. **[Architecture](./architecture.md)** - Understand the system architecture
+5. **[Edge Model](./edge-model.md)** - Agent lifecycle, config flow, and command bus
+6. **[Data Pipeline](./data-pipeline.md)** - JetStream consumers and CNPG persistence
+7. **[Tools Pod](./tools.md)** - Preconfigured operational CLI environment
+8. **[Wasm Plugins](./wasm-plugins.md)** - Sandboxed plugin system and SDKs
 
 **Recommended**: Start with the [Docker Setup Guide](./docker-setup.md) for the fastest and most reliable deployment experience.

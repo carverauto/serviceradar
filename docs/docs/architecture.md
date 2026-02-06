@@ -17,7 +17,7 @@ flowchart TB
 
   subgraph Core["Core Platform (Kubernetes or Docker Compose)"]
     Ingress["Edge proxy (Ingress/Caddy)"]
-    Web["web-ng (Phoenix LiveView)\nSRQL embedded (Rustler/NIF)"]
+    Web["web-ng (Phoenix LiveView)<br/>SRQL embedded (Rustler/NIF)"]
     CoreElx["core-elx (Elixir control plane)"]
     GW["agent-gateway (Elixir)"]
 
@@ -30,12 +30,12 @@ flowchart TB
   end
 
   subgraph Edge["Edge Site / Monitored Network"]
-    Agent["serviceradar-agent (Go)\ncollectors + embedded engines + wazero plugins"]
+    Agent["serviceradar-agent (Go)<br/>collectors + embedded engines + wazero plugins"]
   end
 
   User -->|HTTPS| Ingress --> Web
 
-  Agent <-->|mTLS gRPC\n(streaming + chunking + command bus)| GW
+  Agent <-->|mTLS gRPC<br/>streaming, chunking, control stream| GW
   GW <-->|mTLS ERTS/RPC/PubSub| CoreElx
   Web <-->|mTLS ERTS/RPC/PubSub| CoreElx
 
@@ -65,7 +65,7 @@ These components communicate internally over mTLS-secured Erlang distribution (E
 - runs built-in collectors and engines (for example sync integrations, SNMP polling, discovery/mapping, mDNS)
 - executes sandboxed Wasm plugins using `wazero`
 - streams results using unary and streaming gRPC (chunked payloads for large datasets)
-- participates in a bidirectional command bus for control-plane signaling
+- participates in a bidirectional control stream for control-plane signaling
 
 See [Edge Model](./edge-model.md).
 
@@ -86,4 +86,3 @@ See [Data Pipeline](./data-pipeline.md).
 - Docker Compose uses non-SPIFFE mTLS bootstrapping (cert generation + distribution via volumes).
 
 See [TLS / mTLS](./tls-security.md).
-
