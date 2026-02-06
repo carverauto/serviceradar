@@ -124,7 +124,7 @@ Important notes:
 - This policy applies to pods selected by `networkPolicy.podSelector` (or all pods in the namespace when `podSelectorMatchAll: true`).
 - Edge hosts running `serviceradar-agent` outside Kubernetes need their own egress controls (host firewall/VPC/NACL). This policy only governs Kubernetes workloads.
 
-Example (based on the demo namespace):
+Example:
 
 ```yaml
 networkPolicy:

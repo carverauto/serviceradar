@@ -10,6 +10,13 @@ Use SRQL to:
 - Control result shape with sorting, limiting, aggregation statistics, and windowing
 - Switch between point-in-time results and streaming updates
 
+## Runtime
+
+SRQL is embedded in `web-ng` and runs in-process via Rust (Rustler/NIF). There is no separate SRQL microservice to deploy.
+
+- SRQL queries execute within the web runtime and read from CNPG.
+- SRQL endpoints are served by `web-ng` (make sure your ingress/proxy supports WebSockets and large responses).
+
 ## Target Entities and OCSF Alignment
 
 Target data with the `in:` selector. Each logical entity routes to one or more OCSF tables or streams introduced in the Ash rebuild migration (`20260117090000_rebuild_schema.exs`).

@@ -8,9 +8,9 @@ ServiceRadar collects log events through a stateless gateway that forwards messa
 
 ## Provision the Gateway
 
-1. Expose the syslog listener (`service/serviceradar-syslog`) on UDP/TCP 514. In Docker Compose, this maps to the host automatically; in Kubernetes, create a `LoadBalancer` or `NodePort`.
+1. Expose the syslog listener (`serviceradar-flowgger`) on UDP 514. In Kubernetes (Helm), enable `flowgger.externalService.enabled` to publish syslog outside the cluster; in Docker Compose, publish `514/udp` to the `flowgger` container.
 2. Allocate dedicated volumes if you need to buffer bursts; CNPG ingests events in near real time, but disk headroom protects against traffic spikes.
-3. Tag syslog inputs with `account`, `site`, or `device` metadata using the [sync runtime configuration](./sync.md) so SRQL queries stay filterable.
+3. Attach `site`, `account`, or other metadata using Zen rules or **Settings → Integrations** so logs stay filterable in SRQL and dashboards.
 
 ## Configure Devices
 
@@ -20,7 +20,7 @@ ServiceRadar collects log events through a stateless gateway that forwards messa
 
 ## Event Pipeline
 
-1. The `serviceradar-flowgger` gateway accepts syslog over UDP/TCP 514 and publishes each message to the NATS JetStream stream named `events` on the `logs.syslog` subject.
+1. The `serviceradar-flowgger` gateway accepts syslog over UDP 514 and publishes each message to the NATS JetStream stream named `events` on the `logs.syslog` subject.
 2. JetStream retains the raw envelope while `serviceradar-zen` (the zen engine) consumes the same stream using the `zen-consumer` durable. The consumer appends a `.processed` suffix (for example `logs.syslog.processed`) after rules execute so downstream writers can subscribe without reprocessing the original payload.
 3. The `serviceradar-db-event-writer` deployment reads the `.processed` subjects and batches inserts into the CNPG/Timescale tables. Because both the raw and processed subjects live in the `events` stream you can replay either layer during troubleshooting.
 
@@ -31,7 +31,7 @@ The default decision group for syslog chains two GoRules/zen flows that focus on
 - `strip_full_message` removes the duplicated `full_message` field that UniFi devices emit so only the structured payload remains.
 - `cef_severity` inspects the CEF header segment and maps the embedded numeric severity into the ServiceRadar priority scale (`Low`, `Medium`, `High`, `Very High`, or `Unknown`).
 
-You can inspect the JSON definitions in `packaging/zen/rules/` or the rendered ConfigMap `k8s/demo/base/serviceradar-zen-rules.yaml`. The Rule Builder UI now manages these flows without touching JSON; see the [Rule Builder](./rule-builder.md) guide.
+You can inspect the JSON definitions in `packaging/zen/rules/` (and the rendered Helm ConfigMap in your cluster). The Rule Builder UI now manages these flows without touching JSON; see the [Rule Builder](./rule-builder.md) guide.
 
 ## Managing Rules
 
@@ -40,7 +40,7 @@ You can inspect the JSON definitions in `packaging/zen/rules/` or the rendered C
 - For advanced debugging, the `zen-put-rule` helper (packaged in the `serviceradar-tools` container) can publish rule updates. Launch the toolbox pod and run:
 
   ```bash
-  kubectl -n demo exec deploy/serviceradar-tools -- \
+  kubectl -n <namespace> exec deploy/serviceradar-tools -- \
     zen-put-rule --agent default-agent --stream events \
     --subject logs.syslog --rule strip_full_message \
     --file /etc/serviceradar/zen/rules/strip_full_message.json
@@ -56,6 +56,14 @@ You can inspect the JSON definitions in `packaging/zen/rules/` or the rendered C
 
 ## Verification Checklist
 
-- Confirm throughput via `kubectl logs deploy/serviceradar-syslog -n demo`.
-- Run SRQL queries such as `SELECT message FROM syslog.events ORDER BY timestamp DESC LIMIT 20;`.
+- If running in Kubernetes, confirm throughput via `kubectl logs deploy/serviceradar-flowgger -n <namespace>`.
+- Syslog logs land in the `logs` hypertable (CNPG/Timescale). Filter on `source = 'syslog'`, for example:
+
+  ```sql
+  SELECT timestamp, body
+  FROM logs
+  WHERE source = 'syslog'
+  ORDER BY timestamp DESC
+  LIMIT 20;
+  ```
 - Cross-link syslog and SNMP data in dashboards to highlight correlation during incidents.

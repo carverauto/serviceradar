@@ -49,15 +49,6 @@ const sidebars: SidebarsConfig = {
       items: [
         {type: 'doc', id: 'tools', label: 'Tools Pod'},
         {type: 'doc', id: 'troubleshooting-guide', label: 'Troubleshooting'},
-        {type: 'doc', id: 'agents', label: 'Demo Ops'},
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Runbooks',
-      items: [
-        {type: 'doc', id: 'runbooks/docker-compose-login-500', label: 'Docker Login 500'},
-        {type: 'doc', id: 'runbooks/age-graph-readiness', label: 'AGE Graph Readiness'},
       ],
     },
   ],

@@ -54,7 +54,7 @@ These and the syslog-focused rules share the same GoRules/zen runtime. Use the R
 - For advanced debugging, you can update or add rules with the `zen-put-rule` helper inside the `serviceradar-tools` container. Example:
 
   ```bash
-  kubectl -n demo exec deploy/serviceradar-tools -- \
+  kubectl -n <namespace> exec deploy/serviceradar-tools -- \
     zen-put-rule --agent default-agent --stream events \
     --subject logs.snmp --rule snmp_severity \
     --file /etc/serviceradar/zen/rules/snmp_severity.json

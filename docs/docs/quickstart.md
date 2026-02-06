@@ -43,4 +43,3 @@ When the core deployment is stable, connect inventory and security feeds:
 
 - Run smoketests (or your own synthetic checks) to confirm alerting.
 - Review the [Troubleshooting Guide](./troubleshooting-guide.md) for quick fixes to common onboarding blockers.
-- Keep the demo namespace tidy with the reset steps in [Agents & Demo Operations](./agents.md).
