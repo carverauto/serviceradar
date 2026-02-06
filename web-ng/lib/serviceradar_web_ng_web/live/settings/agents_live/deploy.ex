@@ -11,13 +11,25 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias ServiceRadarWebNG.RBAC
+
   @impl true
   def mount(_params, _session, socket) do
-    socket =
-      socket
-      |> assign(:page_title, "Deploy Agent")
+    scope = socket.assigns.current_scope
 
-    {:ok, socket}
+    if RBAC.can?(scope, "settings.edge.manage") do
+      socket =
+        socket
+        |> assign(:page_title, "Deploy Agent")
+        |> assign(:can_manage_edge, true)
+
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to agent deployment tools")
+       |> push_navigate(to: ~p"/settings/profile")}
+    end
   end
 
   @impl true
@@ -31,7 +43,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/agents/deploy">
         <.settings_nav current_path="/settings/agents/deploy" current_scope={@current_scope} />
-        <.agents_nav current_path="/settings/agents/deploy" />
+        <.agents_nav current_path="/settings/agents/deploy" current_scope={@current_scope} />
 
         <div class="space-y-6">
           <div class="flex flex-wrap items-center justify-between gap-4">
@@ -63,12 +75,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
                   credentials and points the agent at the gateway endpoint.
                 </p>
                 <div class="flex flex-col gap-2">
-                  <.link navigate={~p"/admin/edge-packages/new?component_type=agent"}>
+                  <.link
+                    :if={@can_manage_edge}
+                    navigate={~p"/admin/edge-packages/new?component_type=agent"}
+                  >
                     <.ui_button variant="primary" size="sm" class="w-full">
                       <.icon name="hero-plus" class="size-4" /> Create Agent Package
                     </.ui_button>
                   </.link>
-                  <.link navigate={~p"/admin/edge-packages"}>
+                  <.link :if={@can_manage_edge} navigate={~p"/admin/edge-packages"}>
                     <.ui_button variant="ghost" size="sm" class="w-full">
                       View existing packages
                     </.ui_button>

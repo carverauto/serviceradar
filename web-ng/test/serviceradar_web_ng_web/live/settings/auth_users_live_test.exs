@@ -14,9 +14,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLiveTest do
         |> log_in_user(admin)
         |> live(~p"/settings/auth/users")
 
-      assert html =~ "Users"
-      assert html =~ "Add User"
-      assert html =~ "user-create-form"
+      assert html =~ "Accounts"
+      assert html =~ "Add account"
       assert html =~ "id=\"users\""
     end
 
@@ -28,13 +27,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLiveTest do
         |> log_in_user(admin)
         |> live(~p"/settings/auth/users")
 
+      {:ok, operator_profile} =
+        ServiceRadar.Identity.RoleProfile.get_by_system_name("operator",
+          actor: AshTestHelpers.system_actor()
+        )
+
+      _ =
+        lv
+        |> element("button[phx-click='open_add_user_modal']")
+        |> render_click()
+
       result =
         lv
         |> form("#user-create-form", %{
           "user" => %{
             "email" => "lv-user@example.com",
             "display_name" => "LV User",
-            "role" => "operator"
+            "role_profile_id" => operator_profile.id,
+            "password" => ""
           }
         })
         |> render_submit()
@@ -44,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLiveTest do
     end
 
     test "redirects non-admins", %{conn: conn} do
-      user = AshTestHelpers.user_fixture()
+      user = AshTestHelpers.viewer_user_fixture()
 
       assert {:error, redirect} =
                conn

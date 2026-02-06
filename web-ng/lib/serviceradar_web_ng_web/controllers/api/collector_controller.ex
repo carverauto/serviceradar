@@ -10,11 +10,12 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
   require Ash.Query
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
+  alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.ClientIP
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -48,10 +49,17 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         query
       end
 
-    with :ok <- require_authenticated(conn) do
-      actor = SystemActor.system(:collector_controller)
-      packages = Ash.read!(query, actor: actor)
-      json(conn, Enum.map(packages, &package_to_json/1))
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
+      actor = get_user_actor(conn)
+
+      case Ash.read(query, actor: actor) do
+        {:ok, packages} ->
+          json(conn, Enum.map(packages, &package_to_json/1))
+
+        {:error, error} ->
+          {:error, error}
+      end
     end
   end
 
@@ -68,12 +76,11 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     - edge_site_id: ID of edge site for local NATS leaf connection (optional)
   """
   def create(conn, params) do
-    _actor = get_actor(conn)
-
     collector_type = params["collector_type"]
 
     if collector_type in ["flowgger", "trapd", "netflow", "otel"] do
-      with :ok <- require_authenticated(conn) do
+      with :ok <- require_authenticated(conn),
+           :ok <- require_permission(conn, "settings.edge.manage") do
         attrs = %{
           collector_type: String.to_existing_atom(collector_type),
           site: params["site"],
@@ -82,7 +89,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
           edge_site_id: params["edge_site_id"]
         }
 
-        actor = SystemActor.system(:collector_controller)
+        actor = get_user_actor(conn)
         opts = [actor: actor]
 
         case CollectorPackage
@@ -112,8 +119,9 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   Gets a single collector package by ID.
   """
   def show(conn, %{"id" => id}) do
-    with :ok <- require_authenticated(conn) do
-      actor = SystemActor.system(:collector_controller)
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
+      actor = get_user_actor(conn)
 
       case CollectorPackage
            |> Ash.Query.for_read(:read)
@@ -134,7 +142,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   """
   def download(conn, %{"id" => id} = params) do
     download_token = params["download_token"]
-    source_ip = get_client_ip(conn)
+    source_ip = ClientIP.get(conn)
 
     if download_token in [nil, ""] do
       return_error(conn, :bad_request, "download_token is required")
@@ -163,7 +171,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   """
   def bundle(conn, %{"id" => id} = params) do
     download_token = params["token"]
-    source_ip = get_client_ip(conn)
+    source_ip = ClientIP.get(conn)
 
     if download_token in [nil, ""] do
       return_error(conn, :bad_request, "token query parameter is required")
@@ -189,8 +197,9 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   def revoke(conn, %{"id" => id} = params) do
     reason = params["reason"]
 
-    with :ok <- require_authenticated(conn) do
-      actor = SystemActor.system(:collector_controller)
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
+      actor = get_user_actor(conn)
       opts = [actor: actor]
 
       case CollectorPackage
@@ -248,10 +257,34 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         query
       end
 
-    with :ok <- require_authenticated(conn) do
-      actor = SystemActor.system(:collector_controller)
-      credentials = Ash.read!(query, actor: actor)
-      json(conn, Enum.map(credentials, &credential_to_json/1))
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
+      actor = get_user_actor(conn)
+
+      case Ash.read(query, actor: actor) do
+        {:ok, credentials} ->
+          json(conn, Enum.map(credentials, &credential_to_json/1))
+
+        {:error, error} ->
+          {:error, error}
+      end
+    end
+  end
+
+  @doc """
+  GET /api/admin/nats/account
+
+  Returns basic readiness and configured account public key.
+  """
+  def account_status(conn, _params) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
+      nats_configured? = Application.get_env(:serviceradar, :nats_url) != nil
+
+      json(conn, %{
+        status: if(nats_configured?, do: "ready", else: "pending"),
+        account_public_key: Application.get_env(:serviceradar, :nats_account_public_key)
+      })
     end
   end
 
@@ -296,14 +329,11 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   end
 
   defp get_package(package_id) do
-    actor = SystemActor.system(:collector_controller)
-    opts = [actor: actor]
-
     case CollectorPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^package_id)
          |> Ash.Query.load(:edge_site)
-         |> Ash.read_one(opts) do
+         |> Ash.read_one(actor: nil, authorize?: false) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
       {:error, error} -> {:error, error}
@@ -389,13 +419,10 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   defp decrypt_tls_key(_), do: {:error, :tls_key_invalid}
 
   defp mark_downloaded(package, source_ip) do
-    actor = SystemActor.system(:collector_controller)
-    opts = [actor: actor]
-
     package
     |> Ash.Changeset.for_update(:download)
     |> Ash.Changeset.set_argument(:downloaded_by_ip, source_ip)
-    |> Ash.update(opts)
+    |> Ash.update(actor: nil, authorize?: false)
   end
 
   defp generate_collector_config(package) do
@@ -530,30 +557,23 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
   defp require_authenticated(conn) do
     case conn.assigns[:current_scope] do
-      %Scope{} -> :ok
+      %Scope{user: user} when not is_nil(user) -> :ok
       _ -> {:error, :unauthorized}
     end
   end
 
-  defp get_actor(conn) do
-    case conn.assigns[:current_scope] do
-      %{user: %{email: email}} -> email
-      _ -> nil
-    end
+  defp require_permission(conn, permission) do
+    scope = conn.assigns[:current_scope]
+    if RBAC.can?(scope, permission), do: :ok, else: {:error, :forbidden}
   end
 
-  defp get_client_ip(conn) do
-    case get_req_header(conn, "x-forwarded-for") do
-      [forwarded | _] ->
-        forwarded
-        |> String.split(",")
-        |> List.first()
-        |> String.trim()
+  defp get_user_actor(conn) do
+    case conn.assigns[:current_scope] do
+      %Scope{user: user} when not is_nil(user) ->
+        conn.assigns[:ash_actor] || user
 
-      [] ->
-        conn.remote_ip
-        |> :inet.ntoa()
-        |> to_string()
+      _ ->
+        nil
     end
   end
 

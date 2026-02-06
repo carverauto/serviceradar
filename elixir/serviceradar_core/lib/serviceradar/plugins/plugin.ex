@@ -32,15 +32,18 @@ defmodule ServiceRadar.Plugins.Plugin do
     end
 
     policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.plugins.manage"}
     end
 
     policy action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.plugins.manage"}
     end
 
     policy action_type(:destroy) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.plugins.manage"}
     end
 
     policy action_type(:read) do

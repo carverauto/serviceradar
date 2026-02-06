@@ -301,7 +301,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
       authorize_if actor_attribute_equals(:role, :admin)
 
       # Allow system (AshOban/orchestrator) to create jobs
-      authorize_if always()
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
     end
 
     policy action_type(:update) do
@@ -309,7 +309,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
       authorize_if actor_attribute_equals(:role, :admin)
 
       # Allow system transitions
-      authorize_if always()
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
     end
   end
 

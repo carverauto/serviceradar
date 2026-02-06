@@ -24,24 +24,33 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
   @impl true
   def mount(%{"id" => encoded_id}, _session, socket) do
-    case decode_job_id(encoded_id) do
-      {:ok, id} ->
-        case JobCatalog.get_job(id) do
-          {:ok, job} ->
-            {:ok, assign_job(socket, job)}
+    scope = socket.assigns.current_scope
 
-          {:error, :not_found} ->
-            {:ok,
-             socket
-             |> put_flash(:error, "Job not found")
-             |> push_navigate(to: ~p"/admin/jobs")}
-        end
+    if ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage") do
+      case load_job(encoded_id) do
+        {:ok, job} ->
+          {:ok,
+           socket
+           |> assign(:can_trigger, true)
+           |> assign_job(job)}
 
-      :error ->
-        {:ok,
-         socket
-         |> put_flash(:error, "Invalid job ID")
-         |> push_navigate(to: ~p"/admin/jobs")}
+        {:error, :not_found} ->
+          {:ok,
+           socket
+           |> put_flash(:error, "Job not found")
+           |> push_navigate(to: ~p"/admin/jobs")}
+
+        {:error, :invalid_id} ->
+          {:ok,
+           socket
+           |> put_flash(:error, "Invalid job ID")
+           |> push_navigate(to: ~p"/admin/jobs")}
+      end
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Jobs.")
+       |> push_navigate(to: ~p"/analytics")}
     end
   end
 
@@ -89,6 +98,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
     {:noreply, socket}
   end
 
+  def handle_event("trigger_job", _params, %{assigns: %{can_trigger: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to trigger jobs.")}
+  end
+
   def handle_event("trigger_job", _params, socket) do
     job = socket.assigns.job
 
@@ -113,6 +126,16 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
       |> load_chart_data()
 
     {:noreply, socket}
+  end
+
+  defp load_job(encoded_id) do
+    with {:ok, id} <- decode_job_id(encoded_id),
+         {:ok, job} <- JobCatalog.get_job(id) do
+      {:ok, job}
+    else
+      :error -> {:error, :invalid_id}
+      {:error, :not_found} -> {:error, :not_found}
+    end
   end
 
   @impl true
@@ -307,6 +330,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
               </:header>
               <div class="space-y-2">
                 <.ui_button
+                  :if={@can_trigger}
                   variant="primary"
                   size="sm"
                   class="w-full"
@@ -731,10 +755,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
     end
   end
 
-  # In a single deployment, admin users can see Oban Web
-  defp show_oban_web?(%{user: %{role: role}}) do
-    role in [:admin]
-  end
+  defp show_oban_web?(%{user: _} = scope),
+    do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
 
   defp show_oban_web?(_), do: false
 end

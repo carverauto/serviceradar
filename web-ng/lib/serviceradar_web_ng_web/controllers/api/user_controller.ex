@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Api.UserController do
   """
 
   use ServiceRadarWebNGWeb, :controller
+
   use Permit.Phoenix.Controller,
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.User
@@ -83,6 +84,12 @@ defmodule ServiceRadarWebNG.Api.UserController do
             attrs
           end
 
+        attrs =
+          case normalize_profile_id(params["role_profile_id"]) do
+            nil -> attrs
+            profile_id -> Map.put(attrs, :role_profile_id, profile_id)
+          end
+
         case User
              |> Ash.Changeset.for_create(:create, attrs, scope: scope)
              |> Ash.create(scope: scope) do
@@ -96,7 +103,7 @@ defmodule ServiceRadarWebNG.Api.UserController do
         end
 
       {:error, :invalid_role} ->
-        return_error(conn, :bad_request, "role must be one of: viewer, operator, admin")
+        return_error(conn, :bad_request, "role must be one of: viewer, helpdesk, operator, admin")
     end
   end
 
@@ -111,7 +118,7 @@ defmodule ServiceRadarWebNG.Api.UserController do
 
     case normalize_role(role) do
       {:error, :invalid_role} ->
-        return_error(conn, :bad_request, "role must be one of: viewer, operator, admin")
+        return_error(conn, :bad_request, "role must be one of: viewer, helpdesk, operator, admin")
 
       {:ok, role_atom} ->
         case Ash.get(User, id, scope: scope) do
@@ -172,8 +179,10 @@ defmodule ServiceRadarWebNG.Api.UserController do
 
   defp update_user(user, params, role, scope, conn) do
     display_name = params["display_name"]
+    role_profile_id = normalize_profile_id(params["role_profile_id"])
 
     with {:ok, user} <- maybe_update_role(user, role, scope),
+         {:ok, user} <- maybe_update_role_profile(user, role_profile_id, scope),
          {:ok, user} <- maybe_update_display_name(user, display_name, scope) do
       json(conn, user_to_json(user))
     else
@@ -186,6 +195,16 @@ defmodule ServiceRadarWebNG.Api.UserController do
   defp maybe_update_role(user, role, scope) do
     user
     |> Ash.Changeset.for_update(:update_role, %{role: role}, scope: scope)
+    |> Ash.update(scope: scope)
+  end
+
+  defp maybe_update_role_profile(user, nil, _scope), do: {:ok, user}
+
+  defp maybe_update_role_profile(user, role_profile_id, scope) do
+    user
+    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id},
+      scope: scope
+    )
     |> Ash.update(scope: scope)
   end
 
@@ -221,9 +240,14 @@ defmodule ServiceRadarWebNG.Api.UserController do
   defp normalize_role(nil), do: {:ok, nil}
   defp normalize_role(""), do: {:ok, nil}
   defp normalize_role("viewer"), do: {:ok, :viewer}
+  defp normalize_role("helpdesk"), do: {:ok, :helpdesk}
   defp normalize_role("operator"), do: {:ok, :operator}
   defp normalize_role("admin"), do: {:ok, :admin}
   defp normalize_role(_), do: {:error, :invalid_role}
+
+  defp normalize_profile_id(nil), do: nil
+  defp normalize_profile_id(""), do: nil
+  defp normalize_profile_id(value), do: value
 
   @impl true
   def skip_preload do
@@ -244,12 +268,17 @@ defmodule ServiceRadarWebNG.Api.UserController do
   end
 
   defp user_to_json(user) do
+    # Avoid exposing sensitive fields, but still provide enough UX hints to render
+    # auth state clearly (e.g. "Local" for users with a password set).
     %{
       id: user.id,
       email: user.email,
       display_name: user.display_name,
       role: user.role,
+      role_profile_id: user.role_profile_id,
       status: user.status,
+      has_password: not is_nil(user.hashed_password) and to_string(user.hashed_password) != "",
+      has_external_id: not is_nil(user.external_id) and to_string(user.external_id) != "",
       confirmed_at: format_datetime(user.confirmed_at),
       last_login_at: format_datetime(user.last_login_at),
       last_auth_method: user.last_auth_method,

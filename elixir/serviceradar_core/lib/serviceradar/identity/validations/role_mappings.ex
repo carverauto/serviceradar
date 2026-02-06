@@ -7,7 +7,7 @@ defmodule ServiceRadar.Identity.Validations.RoleMappings do
 
   @allowed_sources ["groups", "email_domain", "email", "claim"]
   @allowed_keys ["source", "value", "role", "claim"]
-  @allowed_roles [:viewer, :operator, :admin]
+  @allowed_roles [:viewer, :helpdesk, :operator, :admin]
 
   @impl true
   def atomic(_changeset, _opts, _context), do: :ok
@@ -96,11 +96,11 @@ defmodule ServiceRadar.Identity.Validations.RoleMappings do
     role_atom = String.to_existing_atom(role)
     validate_role(role_atom)
   rescue
-    ArgumentError -> {:error, "role must be one of: viewer, operator, admin"}
+    ArgumentError -> {:error, "role must be one of: viewer, helpdesk, operator, admin"}
   end
 
   defp validate_role(role) when role in @allowed_roles, do: :ok
-  defp validate_role(_), do: {:error, "role must be one of: viewer, operator, admin"}
+  defp validate_role(_), do: {:error, "role must be one of: viewer, helpdesk, operator, admin"}
 
   defp validate_claim("claim", claim) do
     if is_binary(claim) and String.trim(claim) != "" do

@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   - Claim mappings
   """
   use ServiceRadarWebNGWeb, :live_view
+
   use Permit.Phoenix.LiveView,
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.AuthSettings
@@ -64,8 +65,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <SettingsComponents.settings_shell current_path="/settings/authentication">
         <div class="space-y-4">
-          <SettingsComponents.settings_nav current_path="/settings/authentication" current_scope={@current_scope} />
-          <SettingsComponents.auth_nav current_path="/settings/authentication" />
+          <SettingsComponents.settings_nav
+            current_path="/settings/authentication"
+            current_scope={@current_scope}
+          />
+          <SettingsComponents.auth_nav
+            current_path="/settings/authentication"
+            current_scope={@current_scope}
+          />
         </div>
 
         <div>

@@ -31,6 +31,9 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   alias ServiceRadar.Monitoring.{Alert, ServiceCheck, PollingSchedule}
   alias ServiceRadar.Edge.OnboardingPackage
 
+  import Ash.Expr
+  require Ash.Query
+
   @doc """
   Import all Ash test helpers into the using module.
   """
@@ -142,14 +145,46 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     |> Ash.update!()
   end
 
+  def ensure_admin_user do
+    admin =
+      User
+      |> Ash.Query.filter(expr(role == :admin))
+      |> Ash.read_one(actor: system_actor())
+
+    case admin do
+      {:ok, %User{}} -> :ok
+      {:ok, nil} -> _admin = admin_user_fixture()
+      {:error, _} -> _admin = admin_user_fixture()
+    end
+
+    :ok
+  end
+
   @doc """
   Creates a user with operator role.
   """
   def operator_user_fixture(attrs \\ %{}) do
+    # Some flows bootstrap the first user as admin; ensure there's at least one
+    # admin before demoting a user to operator to avoid "last active admin" errors.
+    :ok = ensure_admin_user()
+
     user = user_fixture(attrs)
 
     user
     |> Ash.Changeset.for_update(:update_role, %{role: :operator}, actor: system_actor())
+    |> Ash.update!()
+  end
+
+  @doc """
+  Creates a user with viewer role.
+  """
+  def viewer_user_fixture(attrs \\ %{}) do
+    :ok = ensure_admin_user()
+
+    user = user_fixture(attrs)
+
+    user
+    |> Ash.Changeset.for_update(:update_role, %{role: :viewer}, actor: system_actor())
     |> Ash.update!()
   end
 

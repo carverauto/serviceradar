@@ -138,13 +138,20 @@ defmodule ServiceRadar.Inventory.Interface do
     end
 
     policy action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.update"}
     end
 
     # Read access for authenticated users
     policy action_type(:read) do
-      authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.view"}
+    end
+
+    policy action_type(:update) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.update"}
+    end
+
+    policy action_type(:destroy) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.delete"}
     end
   end
 

@@ -1,8 +1,10 @@
 defmodule ServiceRadarWebNG.InfrastructureTest do
   use ServiceRadarWebNG.DataCase, async: true
 
-  alias ServiceRadarWebNG.Infrastructure
+  alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadarWebNG.Repo
+
+  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   test "list_gateways returns gateways ordered by last_seen desc" do
     Repo.insert_all("gateways", [
@@ -16,7 +18,12 @@ defmodule ServiceRadarWebNG.InfrastructureTest do
       }
     ])
 
-    gateways = Infrastructure.list_gateways(limit: 10)
+    gateways =
+      Gateway
+      |> Ash.Query.sort(last_seen: :desc)
+      |> Ash.Query.limit(10)
+      |> Ash.read!(actor: system_actor())
+
     ids = Enum.map(gateways, & &1.id)
 
     assert "test-gateway-2" in ids

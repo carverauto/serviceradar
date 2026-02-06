@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNG.Api.CollectorEnrollController do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNG.Edge.EnrollmentToken
+  alias ServiceRadarWebNGWeb.ClientIP
 
   @doc """
   GET /api/enroll/collector/:package_id
@@ -316,12 +317,6 @@ defmodule ServiceRadarWebNG.Api.CollectorEnrollController do
   end
 
   defp get_client_ip(conn) do
-    case get_req_header(conn, "x-forwarded-for") do
-      [forwarded | _] ->
-        forwarded |> String.split(",") |> List.first() |> String.trim()
-
-      [] ->
-        conn.remote_ip |> :inet.ntoa() |> to_string()
-    end
+    ClientIP.get(conn)
   end
 end

@@ -217,11 +217,13 @@ defmodule ServiceRadarWebNGWeb.Auth.Hooks.Default do
 
   @impl true
   def on_user_created(user, source) do
+    email = if is_nil(user.email), do: nil, else: to_string(user.email)
+
     Logger.info(
       "auth_event: user_created",
       event_type: :user_created,
       user_id: user.id,
-      email: user.email,
+      email: email,
       method: source,
       timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
     )
@@ -232,12 +234,13 @@ defmodule ServiceRadarWebNGWeb.Auth.Hooks.Default do
   @impl true
   def on_user_authenticated(user, claims) do
     method = claims["method"] || claims[:method] || detect_auth_method(claims)
+    email = if is_nil(user.email), do: nil, else: to_string(user.email)
 
     Logger.info(
       "auth_event: auth_success",
       event_type: :auth_success,
       user_id: user.id,
-      email: user.email,
+      email: email,
       method: method,
       timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
     )

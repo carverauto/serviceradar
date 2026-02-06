@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadarWebNG.Collectors.PubSub, as: CollectorPubSub
+  alias ServiceRadarWebNG.RBAC
 
   @collector_types [
     {"Syslog Collector (Flowgger)", :flowgger},
@@ -30,31 +31,40 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    actor = get_actor(socket)
+    scope = socket.assigns.current_scope
 
-    # Subscribe to real-time updates for collectors
-    if connected?(socket) do
-      CollectorPubSub.subscribe_collectors()
-      CollectorPubSub.subscribe_nats()
+    if RBAC.can?(scope, "settings.edge.manage") do
+      actor = get_actor(socket)
+
+      # Subscribe to real-time updates for collectors
+      if connected?(socket) do
+        CollectorPubSub.subscribe_collectors()
+        CollectorPubSub.subscribe_nats()
+      end
+
+      socket =
+        socket
+        |> assign(:page_title, "Collectors")
+        |> assign(:collector_types, @collector_types)
+        |> assign(:show_create_modal, false)
+        |> assign(:show_details_modal, false)
+        |> assign(:selected_package, nil)
+        |> assign(:created_package, nil)
+        |> assign(:created_download_token, nil)
+        |> assign(:filter_status, nil)
+        |> assign(:filter_type, nil)
+        |> load_account_status(actor)
+        |> load_packages(actor)
+        |> load_credentials(actor)
+        |> load_edge_sites(actor)
+
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Edge Ops.")
+       |> push_navigate(to: ~p"/analytics")}
     end
-
-    socket =
-      socket
-      |> assign(:page_title, "Collectors")
-      |> assign(:collector_types, @collector_types)
-      |> assign(:show_create_modal, false)
-      |> assign(:show_details_modal, false)
-      |> assign(:selected_package, nil)
-      |> assign(:created_package, nil)
-      |> assign(:created_download_token, nil)
-      |> assign(:filter_status, nil)
-      |> assign(:filter_type, nil)
-      |> load_account_status(actor)
-      |> load_packages(actor)
-      |> load_credentials(actor)
-      |> load_edge_sites(actor)
-
-    {:ok, socket}
   end
 
   @impl true

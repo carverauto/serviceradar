@@ -207,11 +207,18 @@ defmodule ServiceRadar.Inventory.DeviceTest do
         device =
           device_fixture(%{uid: "type-test-#{type_id}-#{unique}", type_id: type_id})
 
-        {:ok, [loaded]} =
+        {:ok, result} =
           Device
           |> Ash.Query.filter(uid == ^device.uid)
           |> Ash.Query.load(:type_name)
           |> Ash.read(actor: actor)
+
+        loaded =
+          case result do
+            %Ash.Page.Keyset{results: [first | _]} -> first
+            [first | _] -> first
+            _ -> flunk("expected device result")
+          end
 
         assert loaded.type_name == expected_name
       end
@@ -229,11 +236,18 @@ defmodule ServiceRadar.Inventory.DeviceTest do
           ip: "1.2.3.4"
         })
 
-      {:ok, [loaded]} =
+      {:ok, result} =
         Device
         |> Ash.Query.filter(uid == ^device_full.uid)
         |> Ash.Query.load(:display_name)
         |> Ash.read(actor: actor)
+
+      loaded =
+        case result do
+          %Ash.Page.Keyset{results: [first | _]} -> first
+          [first | _] -> first
+          _ -> flunk("expected device result")
+        end
 
       # Should use name first
       assert loaded.display_name == "Display Name"
@@ -245,11 +259,18 @@ defmodule ServiceRadar.Inventory.DeviceTest do
           hostname: "just-hostname.local"
         })
 
-      {:ok, [loaded]} =
+      {:ok, result} =
         Device
         |> Ash.Query.filter(uid == ^device_hostname.uid)
         |> Ash.Query.load(:display_name)
         |> Ash.read(actor: actor)
+
+      loaded =
+        case result do
+          %Ash.Page.Keyset{results: [first | _]} -> first
+          [first | _] -> first
+          _ -> flunk("expected device result")
+        end
 
       assert loaded.display_name == "just-hostname.local"
     end

@@ -25,7 +25,16 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign_defaults(socket)}
+    scope = socket.assigns.current_scope
+
+    if ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage") do
+      {:ok, assign_defaults(socket)}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Jobs.")
+       |> push_navigate(to: ~p"/analytics")}
+    end
   end
 
   @impl true
@@ -567,24 +576,18 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     |> assign(:can_trigger, can_trigger)
   end
 
-  # In a single deployment, admin users can trigger jobs
-  defp can_trigger_jobs?(%{user: %{role: role}}) do
-    role in [:admin]
-  end
+  defp can_trigger_jobs?(%{user: _} = scope),
+    do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
 
   defp can_trigger_jobs?(_), do: false
 
-  # In a single deployment, all authenticated users can see Oban Web
-  defp show_oban_web?(%{user: %{role: role}}) do
-    role in [:admin]
-  end
+  defp show_oban_web?(%{user: _} = scope),
+    do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
 
   defp show_oban_web?(_), do: false
 
-  # In a single deployment, admin users can see leader info
-  defp show_leader_info?(%{user: %{role: role}}) do
-    role in [:admin]
-  end
+  defp show_leader_info?(%{user: _} = scope),
+    do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
 
   defp show_leader_info?(_), do: false
 

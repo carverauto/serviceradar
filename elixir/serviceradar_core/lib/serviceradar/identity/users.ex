@@ -59,14 +59,18 @@ defmodule ServiceRadar.Identity.Users do
   @spec get_by_email_and_password(String.t(), String.t(), keyword()) :: User.t() | nil
   def get_by_email_and_password(email, password, opts \\ [])
       when is_binary(email) and is_binary(password) do
-    user = get_by_email(email, opts)
+    actor = Keyword.get(opts, :actor)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
-    if user && user.status == :active && valid_password?(user, password) do
-      user
-    else
-      # Perform a dummy password check to prevent timing attacks
-      unless user, do: Bcrypt.no_user_verify()
-      nil
+    case User.authenticate(email, password, actor: actor, authorize?: authorize?) do
+      {:ok, %User{} = user} ->
+        user
+
+      {:ok, nil} ->
+        nil
+
+      {:error, _} ->
+        nil
     end
   end
 
@@ -139,7 +143,7 @@ defmodule ServiceRadar.Identity.Users do
   @spec update_email(User.t(), map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def update_email(user, attrs, opts \\ []) do
     actor = Keyword.get(opts, :actor, user)
-    authorize? = Keyword.get(opts, :authorize?, false)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
     user
     |> Ash.Changeset.for_update(:update_email, attrs, actor: actor, authorize?: authorize?)
@@ -154,7 +158,7 @@ defmodule ServiceRadar.Identity.Users do
   @spec update_password(User.t(), map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def update_password(user, attrs, opts \\ []) do
     actor = Keyword.get(opts, :actor, user)
-    authorize? = Keyword.get(opts, :authorize?, false)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
     # Filter to only valid arguments for change_password action
     valid_keys = [
@@ -223,7 +227,7 @@ defmodule ServiceRadar.Identity.Users do
   @spec record_login(User.t(), atom(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
   def record_login(user, auth_method, opts \\ []) do
     actor = Keyword.get(opts, :actor, user)
-    authorize? = Keyword.get(opts, :authorize?, false)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
     user
     |> Ash.Changeset.for_update(:record_login, %{auth_method: auth_method},

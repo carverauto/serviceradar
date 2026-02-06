@@ -33,7 +33,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec list_for_package(String.t(), keyword()) :: [OnboardingEvent.t()]
   def list_for_package(package_id, opts \\ []) do
-    opts = build_opts(opts)
+    actor = Keyword.get(opts, :actor)
+
+    if is_nil(actor) do
+      raise ArgumentError, "edge onboarding event reads require an explicit :actor"
+    end
+
     AshEvents.list_for_package!(package_id, opts)
   end
 
@@ -100,7 +105,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec recent(keyword()) :: [OnboardingEvent.t()]
   def recent(opts \\ []) do
-    opts = build_opts(opts)
+    actor = Keyword.get(opts, :actor)
+
+    if is_nil(actor) do
+      raise ArgumentError, "edge onboarding event reads require an explicit :actor"
+    end
+
     AshEvents.recent!(opts)
   end
 

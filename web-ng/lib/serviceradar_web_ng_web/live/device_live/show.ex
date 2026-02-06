@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries, as: TimeseriesPlugin
   alias ServiceRadarWebNGWeb.SRQL.Viz
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPCredential
@@ -4830,19 +4831,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   # RBAC helper - check if user can edit devices
-  defp can_edit_device?(%{user: %{role: role}}) do
-    admin_role?(role)
-  end
+  defp can_edit_device?(scope), do: RBAC.can?(scope, "devices.update")
 
-  defp can_edit_device?(_), do: false
-
-  defp can_manage_device?(%{user: %{role: role}}) do
-    role in [:admin, :operator]
-  end
-
-  defp can_manage_device?(_), do: false
-
-  defp admin_role?(role), do: role in [:admin]
+  defp can_manage_device?(scope), do: RBAC.can?(scope, "devices.update")
 
   defp deleted_device?(row) when is_map(row) do
     value = Map.get(row, "deleted_at")

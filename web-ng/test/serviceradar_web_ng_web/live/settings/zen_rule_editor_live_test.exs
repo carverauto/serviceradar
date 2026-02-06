@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLiveTest do
           order: 120,
           jdm_definition: %{"nodes" => [], "edges" => []}
         },
+        action: :create,
         scope: scope
       )
 

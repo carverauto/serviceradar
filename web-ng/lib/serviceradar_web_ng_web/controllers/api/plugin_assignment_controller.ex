@@ -7,11 +7,13 @@ defmodule ServiceRadarWebNG.Api.PluginAssignmentController do
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins
+  alias ServiceRadarWebNG.RBAC
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
   def index(conn, params) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.view") do
       scope = get_scope(conn)
       assignments = Plugins.list_assignments(params, scope: scope)
       json(conn, Enum.map(assignments, &assignment_to_json/1))
@@ -19,7 +21,8 @@ defmodule ServiceRadarWebNG.Api.PluginAssignmentController do
   end
 
   def create(conn, params) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.assign") do
       scope = get_scope(conn)
 
       attrs = %{
@@ -46,7 +49,8 @@ defmodule ServiceRadarWebNG.Api.PluginAssignmentController do
   end
 
   def update(conn, %{"id" => id} = params) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.assign") do
       scope = get_scope(conn)
 
       attrs = %{
@@ -66,7 +70,8 @@ defmodule ServiceRadarWebNG.Api.PluginAssignmentController do
   end
 
   def delete(conn, %{"id" => id}) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.assign") do
       scope = get_scope(conn)
 
       case Plugins.delete_assignment(id, scope: scope) do
@@ -101,8 +106,13 @@ defmodule ServiceRadarWebNG.Api.PluginAssignmentController do
 
   defp require_authenticated(conn) do
     case conn.assigns[:current_scope] do
-      %Scope{} -> :ok
+      %Scope{user: user} when not is_nil(user) -> :ok
       _ -> {:error, :unauthorized}
     end
+  end
+
+  defp require_permission(conn, permission) do
+    scope = conn.assigns[:current_scope]
+    if RBAC.can?(scope, permission), do: :ok, else: {:error, :forbidden}
   end
 end

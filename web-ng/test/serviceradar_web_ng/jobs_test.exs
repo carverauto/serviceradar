@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.JobsTest do
 
   alias ServiceRadarWebNG.Jobs
   alias ServiceRadarWebNG.Jobs.Schedule
-  alias ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker
+  alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadarWebNG.Repo
 
   describe "schedules" do

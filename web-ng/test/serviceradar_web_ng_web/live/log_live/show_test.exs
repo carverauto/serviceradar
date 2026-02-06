@@ -26,16 +26,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
 
-      # Mock SRQL module for testing
-      Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQL)
+      # Mock SRQL module for testing (must return a log so the action button can render)
+      Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithLog)
 
       # Visit a log details page (we need a valid log_id format)
       log_id = "550e8400-e29b-41d4-a716-446655440000"
-      {:ok, lv, html} = live(conn, ~p"/observability/logs/#{log_id}")
+      {:ok, lv, html} = live(conn, ~p"/logs/#{log_id}")
 
       # The button should be visible for operators
-      # Note: This will show an error since we're using mock SRQL
-      # but we can still check for button presence in assigns
       assert has_element?(lv, "button", "Create Event Rule") or
                String.contains?(html, "Create Event Rule")
     after
@@ -47,10 +45,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       user = admin_user_fixture()
       conn = log_in_user(conn, user)
 
-      Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQL)
+      Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithLog)
 
       log_id = "550e8400-e29b-41d4-a716-446655440000"
-      {:ok, lv, html} = live(conn, ~p"/observability/logs/#{log_id}")
+      {:ok, lv, html} = live(conn, ~p"/logs/#{log_id}")
 
       # The button should be visible for admins
       assert has_element?(lv, "button", "Create Event Rule") or
@@ -60,14 +58,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
     end
 
     test "viewer cannot see Create Event Rule button", %{conn: conn} do
-      # Create viewer user (default role) and log them in
-      user = user_fixture()
+      # Create viewer user and log them in.
+      # Note: user_fixture/0 may bootstrap the *first* user as admin in some flows.
+      user = viewer_user_fixture()
       conn = log_in_user(conn, user)
 
-      Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQL)
+      Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithLog)
 
       log_id = "550e8400-e29b-41d4-a716-446655440000"
-      {:ok, lv, html} = live(conn, ~p"/observability/logs/#{log_id}")
+      {:ok, lv, html} = live(conn, ~p"/logs/#{log_id}")
 
       # The button should NOT be visible for viewers
       refute has_element?(lv, "button", "Create Event Rule")
@@ -85,7 +84,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithLog)
 
       log_id = "550e8400-e29b-41d4-a716-446655440000"
-      {:ok, lv, _html} = live(conn, ~p"/observability/logs/#{log_id}")
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
 
       # Click the Create Event Rule button
       lv
@@ -106,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithLog)
 
       log_id = "550e8400-e29b-41d4-a716-446655440000"
-      {:ok, lv, _html} = live(conn, ~p"/observability/logs/#{log_id}")
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
 
       # Click the Create Event Rule button
       lv
@@ -132,7 +131,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithLog)
 
       log_id = "550e8400-e29b-41d4-a716-446655440000"
-      {:ok, lv, _html} = live(conn, ~p"/observability/logs/#{log_id}")
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
 
       lv
       |> element("button", "Create Event Rule")
@@ -157,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
       assert_redirect(lv, ~p"/settings/rules?#{%{tab: "events"}}")
 
-      rules = unwrap_page(Ash.read(ServiceRadar.Observability.LogPromotionRule, scope: scope))
+      rules = unwrap_page(Ash.read(ServiceRadar.Observability.EventRule, scope: scope))
       rule = Enum.find(rules, &(&1.name == rule_name))
       assert rule
       assert rule.match["body_contains"] == "Test error message"
@@ -174,7 +173,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithLog)
 
       log_id = "550e8400-e29b-41d4-a716-446655440000"
-      {:ok, lv, _html} = live(conn, ~p"/observability/logs/#{log_id}")
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
 
       # Open modal
       lv
@@ -203,7 +202,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithLog)
 
       log_id = "550e8400-e29b-41d4-a716-446655440000"
-      {:ok, lv, _html} = live(conn, ~p"/observability/logs/#{log_id}")
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
 
       assert has_element?(lv, "span", "Resource Attributes")
       assert has_element?(lv, "span", "service.name")
@@ -219,7 +218,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithNestedAttributes)
 
       log_id = "b661cddf-7e67-4fb4-873d-68e9dde54bf3"
-      {:ok, lv, _html} = live(conn, ~p"/observability/logs/#{log_id}")
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
 
       assert has_element?(lv, "span", "Resource Attributes")
       assert has_element?(lv, "span", "service.name")

@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.ObanResolver do
   Resolver for Oban Web dashboard authentication and authorization.
 
   This is a single-deployment UI.
-  Access is controlled by user role only - no routing needed.
+  Access is controlled by RBAC permission keys.
   """
 
   @behaviour Oban.Web.Resolver
@@ -24,7 +24,8 @@ defmodule ServiceRadarWebNGWeb.ObanResolver do
   @impl true
   def resolve_refresh(_user), do: 5
 
-  # Admin users can access Oban dashboard
-  defp admin_access?(%{user: %{role: role}}) when role in [:admin], do: true
+  defp admin_access?(%{user: _} = scope),
+    do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
+
   defp admin_access?(_), do: false
 end

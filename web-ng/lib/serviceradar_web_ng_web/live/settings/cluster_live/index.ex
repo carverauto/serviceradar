@@ -16,55 +16,63 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Jobs.JobCatalog
   alias ServiceRadar.Cluster.ClusterStatus
+  alias ServiceRadarWebNG.RBAC
 
   @refresh_interval :timer.seconds(10)
   @stale_threshold_ms :timer.minutes(2)
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket) do
-      # Subscribe to cluster events (same topics used by AgentRegistry)
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "cluster:events")
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:status")
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "gateway:platform")
+    scope = socket.assigns.current_scope
 
-      # Schedule periodic refresh
-      schedule_refresh()
-    end
+    if RBAC.can?(scope, "settings.view") do
+      if connected?(socket) do
+        # Subscribe to cluster events (same topics used by AgentRegistry)
+        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "cluster:events")
+        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
+        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:status")
+        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "gateway:platform")
 
-    current_scope = socket.assigns.current_scope
-
-    is_admin =
-      case current_scope do
-        nil -> false
-        scope -> Scope.admin?(scope)
+        # Schedule periodic refresh
+        schedule_refresh()
       end
 
-    gateways_cache = load_initial_gateways_cache()
-    agents_cache = load_initial_agents_cache()
-    gateways = compute_gateways(gateways_cache)
-    agents = compute_connected_agents(agents_cache)
+      is_admin =
+        case scope do
+          nil -> false
+          scope -> Scope.admin?(scope)
+        end
 
-    cluster_status = load_cluster_status()
-    cluster_health = build_cluster_health(gateways, agents)
-    job_counts = load_job_counts(current_scope)
+      gateways_cache = load_initial_gateways_cache()
+      agents_cache = load_initial_agents_cache()
+      gateways = compute_gateways(gateways_cache)
+      agents = compute_connected_agents(agents_cache)
 
-    socket =
-      socket
-      |> assign(:page_title, "Cluster Status")
-      |> assign(:cluster_status, cluster_status)
-      |> assign(:cluster_health, cluster_health)
-      |> assign(:gateways_cache, gateways_cache)
-      |> assign(:agents_cache, agents_cache)
-      |> assign(:gateways, gateways)
-      |> assign(:agents, agents)
-      |> assign(:is_admin, is_admin)
-      |> assign(:job_counts, job_counts)
-      |> assign(:oban_stats, load_oban_stats())
-      |> assign(:events, [])
+      cluster_status = load_cluster_status()
+      cluster_health = build_cluster_health(gateways, agents)
+      job_counts = load_job_counts(scope)
 
-    {:ok, socket}
+      socket =
+        socket
+        |> assign(:page_title, "Cluster Status")
+        |> assign(:cluster_status, cluster_status)
+        |> assign(:cluster_health, cluster_health)
+        |> assign(:gateways_cache, gateways_cache)
+        |> assign(:agents_cache, agents_cache)
+        |> assign(:gateways, gateways)
+        |> assign(:agents, agents)
+        |> assign(:is_admin, is_admin)
+        |> assign(:job_counts, job_counts)
+        |> assign(:oban_stats, load_oban_stats())
+        |> assign(:events, [])
+
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to Settings")
+       |> push_navigate(to: ~p"/settings/profile")}
+    end
   end
 
   @impl true

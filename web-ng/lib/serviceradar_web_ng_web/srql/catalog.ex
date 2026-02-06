@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       label: "Devices",
       route: "/devices",
       default_time: "",
-      default_sort_field: "is_available",
+      default_sort_field: "last_seen",
       default_sort_dir: "desc",
       default_filter_field: "hostname",
       filter_fields: [
