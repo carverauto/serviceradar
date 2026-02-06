@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:events, [])
      |> assign(:alerts, [])
      |> assign(:netflows, [])
+     |> assign(:selected_netflow, nil)
      |> assign(:sparklines, %{})
      |> assign(:summary, %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0})
      |> assign(:event_summary, empty_event_summary())
@@ -87,6 +88,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:events, [])
       |> assign(:alerts, [])
       |> assign(:netflows, [])
+      |> assign(:selected_netflow, nil)
       |> ensure_srql_entity(entity, default_limit)
       |> SRQLPage.load_list(params, uri, list_key,
         default_limit: default_limit,
@@ -104,6 +106,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @impl true
   def handle_event("srql_change", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("netflow_open", %{"idx" => idx}, socket) do
+    selected =
+      case Integer.parse(to_string(idx)) do
+        {i, _} when i >= 0 -> Enum.at(socket.assigns.netflows, i)
+        _ -> nil
+      end
+
+    {:noreply, assign(socket, :selected_netflow, selected)}
+  end
+
+  def handle_event("netflow_close", _params, socket) do
+    {:noreply, assign(socket, :selected_netflow, nil)}
   end
 
   def handle_event("srql_submit", params, socket) do
@@ -232,7 +248,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               count={length(@events)}
             />
             <.alerts_table :if={@active_tab == "alerts"} id="alerts" alerts={@alerts} />
-            <.netflows_table :if={@active_tab == "netflows"} flows={@netflows} />
+            <.netflows_table
+              :if={@active_tab == "netflows"}
+              flows={@netflows}
+              base_path={Map.get(@srql, :page_path) || "/observability"}
+              query={Map.get(@srql, :query, "")}
+              limit={@limit}
+            />
 
             <div class="mt-4 pt-4 border-t border-base-200">
               <.ui_pagination
@@ -256,6 +278,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               />
             </div>
           </.ui_panel>
+
+          <.netflow_details_modal
+            :if={@active_tab == "netflows" and is_map(@selected_netflow)}
+            flow={@selected_netflow}
+            base_path={Map.get(@srql, :page_path) || "/observability"}
+            query={Map.get(@srql, :query, "")}
+            limit={@limit}
+          />
         </div>
       </div>
     </Layouts.app>
@@ -1618,6 +1648,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   attr(:flows, :list, default: [])
+  attr(:base_path, :string, required: true)
+  attr(:query, :string, required: true)
+  attr(:limit, :integer, required: true)
 
   defp netflows_table(assigns) do
     ~H"""
@@ -1646,23 +1679,51 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
               Bytes
             </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-10 text-right">
+            </th>
           </tr>
         </thead>
         <tbody>
-          <%= for flow <- @flows do %>
+          <%= for {flow, idx} <- Enum.with_index(@flows) do %>
             <tr class="hover:bg-base-200/40">
               <td class="whitespace-nowrap text-xs font-mono">
                 {format_netflow_timestamp(flow)}
               </td>
               <td class="whitespace-nowrap text-xs font-mono">
-                {netflow_addr(flow, :src)}{if netflow_port(flow, :src),
-                  do: ":#{netflow_port(flow, :src)}",
-                  else: ""}
+                {src_ip = netflow_addr(flow, :src)}
+                <.link
+                  :if={netflow_present?(src_ip)}
+                  patch={netflow_filter_patch(@base_path, @query, @limit, "src_ip", src_ip)}
+                  class="hover:underline"
+                >
+                  {src_ip}
+                </.link>
+                <span :if={not netflow_present?(src_ip)}>{src_ip}</span>
+                {if netflow_port(flow, :src), do: ":#{netflow_port(flow, :src)}", else: ""}
               </td>
-              <td class="whitespace-nowrap text-xs font-mono">
-                {netflow_addr(flow, :dst)}{if netflow_port(flow, :dst),
-                  do: ":#{netflow_port(flow, :dst)}",
-                  else: ""}
+              <td class="whitespace-nowrap text-xs">
+                <div class="flex items-center gap-2">
+                  <div class="font-mono">
+                    {dst_ip = netflow_addr(flow, :dst)}
+                    <.link
+                      :if={netflow_present?(dst_ip)}
+                      patch={netflow_filter_patch(@base_path, @query, @limit, "dst_ip", dst_ip)}
+                      class="hover:underline"
+                    >
+                      {dst_ip}
+                    </.link>
+                    <span :if={not netflow_present?(dst_ip)}>{dst_ip}</span>
+                    {if netflow_port(flow, :dst), do: ":#{netflow_port(flow, :dst)}", else: ""}
+                  </div>
+                  <div
+                    :if={service_label = netflow_service_label(netflow_port(flow, :dst))}
+                    class="shrink-0"
+                  >
+                    <.ui_badge variant="ghost" size="xs" class="font-mono">
+                      {service_label}
+                    </.ui_badge>
+                  </div>
+                </div>
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.netflow_protocol_badge
@@ -1679,6 +1740,71 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <td class="whitespace-nowrap text-xs text-right font-mono">
                 {format_netflow_bytes(netflow_bytes(flow))}
               </td>
+              <td class="whitespace-nowrap text-xs text-right">
+                <.ui_dropdown align="end">
+                  <:trigger>
+                    <.ui_icon_button variant="ghost" size="xs" aria-label="Flow actions">
+                      <.icon name="hero-ellipsis-vertical" class="size-4" />
+                    </.ui_icon_button>
+                  </:trigger>
+                  <:item>
+                    <.link phx-click="netflow_open" phx-value-idx={idx} class="text-xs">
+                      Open details
+                    </.link>
+                  </:item>
+                  <:item>
+                    <.link
+                      patch={
+                        netflow_filter_patch(
+                          @base_path,
+                          @query,
+                          @limit,
+                          "src_ip",
+                          netflow_addr(flow, :src)
+                        )
+                      }
+                      class="text-xs"
+                    >
+                      Filter source
+                    </.link>
+                  </:item>
+                  <:item>
+                    <.link
+                      patch={
+                        netflow_filter_patch(
+                          @base_path,
+                          @query,
+                          @limit,
+                          "dst_ip",
+                          netflow_addr(flow, :dst)
+                        )
+                      }
+                      class="text-xs"
+                    >
+                      Filter destination
+                    </.link>
+                  </:item>
+                  <:item :if={
+                    is_integer(to_int(netflow_port(flow, :dst))) and
+                      to_int(netflow_port(flow, :dst)) > 0
+                  }>
+                    <.link
+                      patch={
+                        netflow_filter_patch(
+                          @base_path,
+                          @query,
+                          @limit,
+                          "dst_port",
+                          to_string(netflow_port(flow, :dst))
+                        )
+                      }
+                      class="text-xs"
+                    >
+                      Filter port
+                    </.link>
+                  </:item>
+                </.ui_dropdown>
+              </td>
             </tr>
           <% end %>
         </tbody>
@@ -1688,6 +1814,203 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         No network flows found. Generate some NetFlow data to see it here!
       </div>
     </div>
+    """
+  end
+
+  attr(:flow, :map, required: true)
+  attr(:base_path, :string, required: true)
+  attr(:query, :string, required: true)
+  attr(:limit, :integer, required: true)
+
+  defp netflow_details_modal(assigns) do
+    assigns =
+      assigns
+      |> assign(:src_ip, netflow_addr(assigns.flow, :src))
+      |> assign(:dst_ip, netflow_addr(assigns.flow, :dst))
+      |> assign(:src_port, netflow_port(assigns.flow, :src))
+      |> assign(:dst_port, netflow_port(assigns.flow, :dst))
+      |> assign(:service_label, netflow_service_label(netflow_port(assigns.flow, :dst)))
+
+    ~H"""
+    <dialog class="modal modal-open" phx-window-keydown="netflow_close" phx-key="escape">
+      <div class="modal-box max-w-4xl">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="text-sm font-semibold">Flow details</div>
+            <div class="text-xs text-base-content/70 font-mono">
+              {format_netflow_timestamp(@flow)}
+            </div>
+          </div>
+          <.ui_icon_button variant="ghost" size="sm" phx-click="netflow_close" aria-label="Close">
+            <.icon name="hero-x-mark" class="size-5" />
+          </.ui_icon_button>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <.ui_panel class="lg:col-span-2" body_class="p-0">
+            <div class="divide-y divide-base-200">
+              <div class="p-4">
+                <div class="text-xs uppercase tracking-wider text-base-content/50">Endpoints</div>
+                <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Source
+                    </div>
+                    <div class="mt-1 font-mono text-sm">
+                      {@src_ip}{if @src_port, do: ":#{@src_port}", else: ""}
+                    </div>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                      <.ui_button
+                        size="xs"
+                        variant="ghost"
+                        patch={netflow_filter_patch(@base_path, @query, @limit, "src_ip", @src_ip)}
+                      >
+                        Filter src
+                      </.ui_button>
+                    </div>
+                  </div>
+
+                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Destination
+                    </div>
+                    <div class="mt-1 font-mono text-sm">
+                      {@dst_ip}{if @dst_port, do: ":#{@dst_port}", else: ""}
+                    </div>
+                    <div :if={@service_label} class="mt-1 text-xs text-base-content/60">
+                      Service: <span class="font-mono">{@service_label}</span>
+                    </div>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                      <.ui_button
+                        size="xs"
+                        variant="ghost"
+                        patch={netflow_filter_patch(@base_path, @query, @limit, "dst_ip", @dst_ip)}
+                      >
+                        Filter dst
+                      </.ui_button>
+                      <.ui_button
+                        :if={@dst_port}
+                        size="xs"
+                        variant="ghost"
+                        patch={
+                          netflow_filter_patch(
+                            @base_path,
+                            @query,
+                            @limit,
+                            "dst_port",
+                            to_string(@dst_port)
+                          )
+                        }
+                      >
+                        Filter port
+                      </.ui_button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="p-4">
+                <div class="text-xs uppercase tracking-wider text-base-content/50">Traffic</div>
+                <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Protocol
+                    </div>
+                    <div class="mt-1">
+                      <.netflow_protocol_badge
+                        protocol={netflow_protocol_num(@flow)}
+                        name={netflow_protocol_name(@flow)}
+                      />
+                    </div>
+                  </div>
+                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Version
+                    </div>
+                    <div class="mt-1">
+                      <.netflow_flow_type_badge flow_type={netflow_flow_type(@flow)} />
+                    </div>
+                  </div>
+                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Packets
+                    </div>
+                    <div class="mt-1 font-mono text-sm">
+                      {format_netflow_number(netflow_packets(@flow))}
+                    </div>
+                  </div>
+                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Bytes</div>
+                    <div class="mt-1 font-mono text-sm">
+                      {format_netflow_bytes(netflow_bytes(@flow))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </.ui_panel>
+
+          <.ui_panel class="lg:col-span-1">
+            <div class="text-xs uppercase tracking-wider text-base-content/50">Quick pivots</div>
+            <div class="mt-3 space-y-2">
+              <.ui_button
+                size="sm"
+                variant="outline"
+                class="w-full justify-start"
+                patch={
+                  netflow_filter_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    "src_ip",
+                    @src_ip
+                  )
+                }
+              >
+                <.icon name="hero-arrow-left-end-on-rectangle" class="size-4" /> Source traffic
+              </.ui_button>
+              <.ui_button
+                size="sm"
+                variant="outline"
+                class="w-full justify-start"
+                patch={
+                  netflow_filter_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    "dst_ip",
+                    @dst_ip
+                  )
+                }
+              >
+                <.icon name="hero-arrow-right-end-on-rectangle" class="size-4" /> Destination traffic
+              </.ui_button>
+              <.ui_button
+                :if={@dst_port}
+                size="sm"
+                variant="outline"
+                class="w-full justify-start"
+                patch={
+                  netflow_filter_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    "dst_port",
+                    to_string(@dst_port)
+                  )
+                }
+              >
+                <.icon name="hero-funnel" class="size-4" /> Port {@dst_port}
+              </.ui_button>
+            </div>
+          </.ui_panel>
+        </div>
+      </div>
+
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="netflow_close">close</button>
+      </form>
+    </dialog>
     """
   end
 
@@ -1801,6 +2124,86 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp format_netflow_timestamp(nil), do: "—"
   defp format_netflow_timestamp(ts) when is_binary(ts), do: String.slice(ts, 0..18)
   defp format_netflow_timestamp(_), do: "—"
+
+  defp netflow_present?(nil), do: false
+  defp netflow_present?(""), do: false
+
+  defp netflow_present?(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> false
+      "—" -> false
+      "-" -> false
+      _ -> true
+    end
+  end
+
+  defp netflow_present?(_), do: true
+
+  defp netflow_filter_patch(base_path, query, limit, field, value) do
+    value = to_string(value || "") |> String.trim()
+    value = if value in ["—", "-"], do: "", else: value
+
+    params =
+      %{tab: "netflows", limit: limit}
+      |> maybe_put_param(:q, upsert_query_filter(query || "", field, value))
+
+    base_path <> "?" <> URI.encode_query(params)
+  end
+
+  defp upsert_query_filter(query, _field, ""), do: query
+
+  defp upsert_query_filter(query, field, value) when is_binary(query) and is_binary(field) do
+    pattern = ~r/(?:^|\s)#{Regex.escape(field)}:(?:"([^"]+)"|(\S+))/
+
+    query =
+      query
+      |> String.replace(pattern, "")
+      |> String.replace(~r/\s+/, " ")
+      |> String.trim()
+
+    (query <> " " <> "#{field}:#{value}")
+    |> String.trim()
+  end
+
+  defp netflow_service_label(nil), do: nil
+  defp netflow_service_label(""), do: nil
+
+  defp netflow_service_label(port) do
+    port = to_int(port)
+
+    case port do
+      22 -> "SSH"
+      25 -> "SMTP"
+      53 -> "DNS"
+      67 -> "DHCP"
+      68 -> "DHCP"
+      80 -> "HTTP"
+      110 -> "POP3"
+      123 -> "NTP"
+      143 -> "IMAP"
+      161 -> "SNMP"
+      162 -> "SNMPTRAP"
+      389 -> "LDAP"
+      443 -> "HTTPS"
+      445 -> "SMB"
+      465 -> "SMTPS"
+      514 -> "SYSLOG"
+      587 -> "SMTP"
+      636 -> "LDAPS"
+      1433 -> "MSSQL"
+      3306 -> "MYSQL"
+      3389 -> "RDP"
+      5432 -> "POSTGRES"
+      6379 -> "REDIS"
+      8080 -> "HTTP-ALT"
+      8443 -> "HTTPS-ALT"
+      9200 -> "ELASTIC"
+      27017 -> "MONGO"
+      _ -> nil
+    end
+  end
 
   defp format_netflow_bytes(nil), do: "0 B"
 
