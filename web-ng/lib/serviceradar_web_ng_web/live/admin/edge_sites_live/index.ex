@@ -14,17 +14,27 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   require Ash.Query
 
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(_params, _session, socket) do
-    socket =
-      socket
-      |> assign(:page_title, "Edge Sites & NATS")
-      |> assign(:show_create_modal, false)
-      |> assign(:filter_status, nil)
-      |> load_sites()
+    scope = socket.assigns.current_scope
 
-    {:ok, socket}
+    if RBAC.can?(scope, "settings.edge.manage") do
+      socket =
+        socket
+        |> assign(:page_title, "Edge Sites & NATS")
+        |> assign(:show_create_modal, false)
+        |> assign(:filter_status, nil)
+        |> load_sites()
+
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Edge Sites.")
+       |> redirect(to: ~p"/analytics")}
+    end
   end
 
   @impl true

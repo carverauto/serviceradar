@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Accounts do
   Session management is handled by Guardian JWT tokens.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.Users, as: AshUsers
   alias ServiceRadarWebNG.Accounts.UserNotifier
 
@@ -24,7 +25,9 @@ defmodule ServiceRadarWebNG.Accounts do
 
   """
   def get_user_by_email(email) when is_binary(email) do
-    AshUsers.get_by_email(email)
+    # Used by unauthenticated flows (login/reset); run as a system actor so
+    # Identity policy hardening doesn't break lookups.
+    AshUsers.get_by_email(email, actor: SystemActor.system(:accounts))
   end
 
   def get_user_by_email(%Ash.CiString{} = email) do
@@ -45,7 +48,7 @@ defmodule ServiceRadarWebNG.Accounts do
   """
   def get_user_by_email_and_password(email, password)
       when is_binary(email) and is_binary(password) do
-    AshUsers.get_by_email_and_password(email, password)
+    AshUsers.get_by_email_and_password(email, password, actor: SystemActor.system(:accounts))
   end
 
   def get_user_by_email_and_password(%Ash.CiString{} = email, password)

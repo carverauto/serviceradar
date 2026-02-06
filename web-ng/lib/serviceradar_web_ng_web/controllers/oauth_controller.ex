@@ -58,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadarWebNG.Auth.Guardian
+  alias ServiceRadarWebNGWeb.ClientIP
 
   # Default token TTL: 1 hour
   @default_ttl_seconds 3600
@@ -165,22 +166,29 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
     Enum.filter(requested, &(&1 in client_scopes))
   end
 
+  defp scope_to_atom(scope) when is_atom(scope), do: scope
+  defp scope_to_atom(scope) when is_binary(scope), do: String.to_existing_atom(scope)
+  defp scope_to_atom(_), do: :read
+
   defp issue_token(conn, client, scopes) do
     # Load the user for the token
     actor = SystemActor.system(:oauth_token)
 
     case ServiceRadar.Identity.User.get_by_id(client.user_id, actor: actor) do
       {:ok, user} ->
-        # Create claims for the token
-        claims = %{
-          "typ" => "api",
-          "sub" => to_string(user.id),
+        scopes_atoms =
+          scopes
+          |> Enum.map(&scope_to_atom/1)
+
+        extra_claims = %{
           "client_id" => to_string(client.id),
+          # Keep OAuth-compatible scope string for convenience.
           "scope" => Enum.join(scopes, " ")
         }
 
-        case Guardian.create_access_token(user,
-               claims: claims,
+        case Guardian.create_api_token(user,
+               scopes: scopes_atoms,
+               claims: extra_claims,
                ttl: {@default_ttl_seconds, :second}
              ) do
           {:ok, token, _full_claims} ->
@@ -210,20 +218,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   end
 
   defp get_client_ip(conn) do
-    # Check X-Forwarded-For header first (for proxied requests)
-    case get_req_header(conn, "x-forwarded-for") do
-      [forwarded | _] ->
-        forwarded
-        |> String.split(",")
-        |> List.first()
-        |> String.trim()
-
-      [] ->
-        # Fall back to remote_ip
-        conn.remote_ip
-        |> :inet.ntoa()
-        |> to_string()
-    end
+    ClientIP.get(conn)
   end
 
   defp error_response(conn, status, error, description) do

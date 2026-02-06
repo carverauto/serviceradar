@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   require Ash.Query
   require Logger
 
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadar.Inventory.Device
@@ -146,7 +147,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   # Device management modal handlers
   def handle_event("open_add_device_modal", _params, socket) do
-    {:noreply, assign(socket, :show_add_device_modal, true)}
+    if RBAC.can?(socket.assigns.current_scope, "devices.create") do
+      {:noreply, assign(socket, :show_add_device_modal, true)}
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to add devices")}
+    end
   end
 
   def handle_event("close_add_device_modal", _params, socket) do
@@ -157,12 +162,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("open_import_modal", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_import_modal, true)
-     |> assign(:csv_preview, nil)
-     |> assign(:csv_errors, [])
-     |> assign(:import_status, nil)}
+    if RBAC.can?(socket.assigns.current_scope, "devices.import") do
+      {:noreply,
+       socket
+       |> assign(:show_import_modal, true)
+       |> assign(:csv_preview, nil)
+       |> assign(:csv_errors, [])
+       |> assign(:import_status, nil)}
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
+    end
   end
 
   def handle_event("close_import_modal", _params, socket) do
@@ -180,60 +189,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("preview_csv", _params, socket) do
-    # Parse uploaded CSV and show preview
-    case uploaded_entries(socket, :csv_file) do
-      [] ->
-        {:noreply, assign(socket, :csv_errors, ["No file selected"])}
-
-      [entry | _] ->
-        result =
-          consume_uploaded_entry(socket, entry, fn %{path: path} ->
-            parse_csv_file(path)
-          end)
-
-        case result do
-          {:ok, devices} ->
-            {:noreply,
-             socket
-             |> assign(:csv_preview, devices)
-             |> assign(:csv_errors, [])}
-
-          {:error, errors} ->
-            {:noreply,
-             socket
-             |> assign(:csv_preview, nil)
-             |> assign(:csv_errors, errors)}
-        end
+    if RBAC.can?(socket.assigns.current_scope, "devices.import") do
+      preview_csv_upload(socket)
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
     end
   end
 
   def handle_event("import_csv", _params, socket) do
-    case socket.assigns.csv_preview do
-      nil ->
-        {:noreply, assign(socket, :csv_errors, ["No CSV data to import. Preview first."])}
-
-      devices when is_list(devices) and devices != [] ->
-        scope = socket.assigns.current_scope
-
-        case import_devices(scope, devices) do
-          {:ok, {created, skipped}} ->
-            {:noreply,
-             socket
-             |> assign(:show_import_modal, false)
-             |> assign(:csv_preview, nil)
-             |> assign(:csv_errors, [])
-             |> put_flash(:info, import_success_message(created, skipped))
-             |> push_patch(to: ~p"/devices")}
-
-          {:error, errors} when is_list(errors) ->
-            {:noreply, assign(socket, :csv_errors, errors)}
-
-          {:error, reason} ->
-            {:noreply, assign(socket, :csv_errors, ["Import failed: #{inspect(reason)}"])}
-        end
-
-      _ ->
-        {:noreply, assign(socket, :csv_errors, ["No valid devices in CSV"])}
+    if RBAC.can?(socket.assigns.current_scope, "devices.import") do
+      import_csv_preview(socket)
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
     end
   end
 
@@ -242,43 +209,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("save_device", %{"device" => params}, socket) do
-    scope = socket.assigns.current_scope
+    if RBAC.can?(socket.assigns.current_scope, "devices.create") do
+      scope = socket.assigns.current_scope
 
-    case create_device(scope, params) do
-      {:ok, device} ->
-        {:noreply,
-         socket
-         |> assign(:show_add_device_modal, false)
-         |> assign(:add_device_form, to_form(%{}, as: :device))
-         |> put_flash(:info, "Device '#{device.hostname || device.ip}' created successfully.")
-         |> push_patch(to: ~p"/devices")}
+      case create_device(scope, params) do
+        {:ok, device} ->
+          {:noreply,
+           socket
+           |> assign(:show_add_device_modal, false)
+           |> assign(:add_device_form, to_form(%{}, as: :device))
+           |> put_flash(:info, "Device '#{device.hostname || device.ip}' created successfully.")
+           |> push_patch(to: ~p"/devices")}
 
-      {:error, %Ash.Error.Invalid{} = error} ->
-        Logger.warning("Device create failed with validation error: #{inspect(error)}")
+        {:error, %Ash.Error.Invalid{} = error} ->
+          Logger.warning("Device create failed with validation error: #{inspect(error)}")
 
-        {:noreply,
-         socket
-         |> put_flash(:error, format_device_error(error))}
+          {:noreply,
+           socket
+           |> put_flash(:error, format_device_error(error))}
 
-      {:error, :already_exists} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "A device with this IP address already exists.")}
+        {:error, %Ash.Error.Forbidden{}} ->
+          {:noreply, put_flash(socket, :error, "You are not authorized to add devices")}
 
-      {:error, :invalid_uid} ->
-        Logger.error("Device create failed: generated UID was invalid for #{inspect(params)}")
-        {:noreply, put_flash(socket, :error, "Failed to create device: invalid device UID")}
+        {:error, :already_exists} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "A device with this IP address already exists.")}
 
-      {:error, :missing_scope} ->
-        Logger.error("Device create failed: missing scope for #{inspect(params)}")
-        {:noreply, put_flash(socket, :error, "Failed to create device: missing user scope")}
+        {:error, :invalid_uid} ->
+          Logger.error("Device create failed: generated UID was invalid for #{inspect(params)}")
+          {:noreply, put_flash(socket, :error, "Failed to create device: invalid device UID")}
 
-      {:error, reason} ->
-        Logger.error("Device create failed: #{inspect(reason)}")
+        {:error, :missing_scope} ->
+          Logger.error("Device create failed: missing scope for #{inspect(params)}")
+          {:noreply, put_flash(socket, :error, "Failed to create device: missing user scope")}
 
-        {:noreply,
-         socket
-         |> put_flash(:error, "Failed to create device: #{inspect(reason)}")}
+        {:error, reason} ->
+          Logger.error("Device create failed: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, "Failed to create device")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to add devices")}
     end
   end
 
@@ -352,11 +323,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("open_bulk_edit_modal", _params, socket) do
-    {:noreply, assign(socket, :show_bulk_edit_modal, true)}
+    if RBAC.can?(socket.assigns.current_scope, "devices.bulk_edit") do
+      {:noreply, assign(socket, :show_bulk_edit_modal, true)}
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to bulk edit devices")}
+    end
   end
 
   def handle_event("open_bulk_delete_modal", _params, socket) do
-    {:noreply, assign(socket, :show_bulk_delete_modal, true)}
+    if RBAC.can?(socket.assigns.current_scope, "devices.bulk_delete") do
+      {:noreply, assign(socket, :show_bulk_delete_modal, true)}
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to bulk delete devices")}
+    end
   end
 
   def handle_event("close_bulk_edit_modal", _params, socket) do
@@ -395,6 +374,80 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("apply_bulk_tags", %{"bulk" => params}, socket) do
+    if RBAC.can?(socket.assigns.current_scope, "devices.bulk_edit") do
+      apply_bulk_tags(params, socket)
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to bulk edit devices")}
+    end
+  end
+
+  def handle_event("bulk_delete_devices", _params, socket) do
+    handle_confirm_bulk_delete(socket)
+  end
+
+  def handle_event("confirm_bulk_delete", _params, socket) do
+    handle_confirm_bulk_delete(socket)
+  end
+
+  defp preview_csv_upload(socket) do
+    # Parse uploaded CSV and show preview
+    case uploaded_entries(socket, :csv_file) do
+      [] ->
+        {:noreply, assign(socket, :csv_errors, ["No file selected"])}
+
+      [entry | _] ->
+        result =
+          consume_uploaded_entry(socket, entry, fn %{path: path} ->
+            parse_csv_file(path)
+          end)
+
+        case result do
+          {:ok, devices} ->
+            {:noreply,
+             socket
+             |> assign(:csv_preview, devices)
+             |> assign(:csv_errors, [])}
+
+          {:error, errors} ->
+            {:noreply,
+             socket
+             |> assign(:csv_preview, nil)
+             |> assign(:csv_errors, errors)}
+        end
+    end
+  end
+
+  defp import_csv_preview(socket) do
+    case socket.assigns.csv_preview do
+      nil ->
+        {:noreply, assign(socket, :csv_errors, ["No CSV data to import. Preview first."])}
+
+      devices when is_list(devices) and devices != [] ->
+        scope = socket.assigns.current_scope
+
+        case import_devices(scope, devices) do
+          {:ok, {created, skipped}} ->
+            {:noreply,
+             socket
+             |> assign(:show_import_modal, false)
+             |> assign(:csv_preview, nil)
+             |> assign(:csv_errors, [])
+             |> put_flash(:info, import_success_message(created, skipped))
+             |> push_patch(to: ~p"/devices")}
+
+          {:error, errors} when is_list(errors) ->
+            {:noreply, assign(socket, :csv_errors, errors)}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, :csv_errors, ["Import failed: #{inspect(reason)}"])}
+        end
+
+      _ ->
+        {:noreply, assign(socket, :csv_errors, ["No valid devices in CSV"])}
+    end
+  end
+
+  defp apply_bulk_tags(params, socket) do
     scope = socket.assigns.current_scope
     tags_input = Map.get(params, "tags", "")
     tags = parse_bulk_tags(tags_input)
@@ -425,17 +478,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  def handle_event("bulk_delete_devices", _params, socket) do
-    handle_confirm_bulk_delete(socket)
-  end
-
-  def handle_event("confirm_bulk_delete", _params, socket) do
-    handle_confirm_bulk_delete(socket)
-  end
-
   defp handle_confirm_bulk_delete(socket) do
     scope = socket.assigns.current_scope
 
+    if RBAC.can?(scope, "devices.bulk_delete") do
+      do_bulk_delete(socket, scope)
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to bulk delete devices")}
+    end
+  end
+
+  defp do_bulk_delete(socket, scope) do
     case bulk_delete_uids(socket) do
       {:ok, uids} ->
         case Device.bulk_soft_delete(uids, "bulk_delete", scope: scope) do
@@ -662,13 +715,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <.ui_button phx-click="open_add_device_modal" variant="primary" size="sm">
+            <.ui_button
+              :if={RBAC.can?(@current_scope, "devices.create")}
+              phx-click="open_add_device_modal"
+              variant="primary"
+              size="sm"
+            >
               <.icon name="hero-plus" class="size-4" /> Add Device
             </.ui_button>
-            <.ui_button phx-click="open_import_modal" variant="outline" size="sm">
+            <.ui_button
+              :if={RBAC.can?(@current_scope, "devices.import")}
+              phx-click="open_import_modal"
+              variant="outline"
+              size="sm"
+            >
               <.icon name="hero-arrow-up-tray" class="size-4" /> Import CSV
             </.ui_button>
-            <.link navigate={~p"/settings/networks"}>
+            <.link
+              :if={RBAC.can?(@current_scope, "settings.networks.manage")}
+              navigate={~p"/settings/networks"}
+            >
               <.ui_button variant="ghost" size="sm">
                 <.icon name="hero-signal" class="size-4" /> Network Discovery
               </.ui_button>
@@ -750,10 +816,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </button>
           </div>
           <div class="flex items-center gap-2">
-            <.ui_button variant="primary" size="sm" phx-click="open_bulk_edit_modal">
+            <.ui_button
+              :if={RBAC.can?(@current_scope, "devices.bulk_edit")}
+              variant="primary"
+              size="sm"
+              phx-click="open_bulk_edit_modal"
+            >
               <.icon name="hero-tag" class="size-4" /> Bulk Edit
             </.ui_button>
             <.ui_button
+              :if={RBAC.can?(@current_scope, "devices.bulk_delete")}
               variant="outline"
               class="btn-error"
               size="sm"
@@ -886,11 +958,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       <span :if={not is_map(icmp)} class="text-base-content/40">—</span>
                     </td>
                     <td class="text-xs">
-                      <.metrics_presence
-                        device_uid={device_uid}
-                        has_snmp={has_snmp}
-                        has_sysmon={has_sysmon}
-                      />
+                      <div class="flex flex-col gap-1">
+                        <.metrics_presence
+                          device_uid={device_uid}
+                          has_snmp={has_snmp}
+                          has_sysmon={has_sysmon}
+                        />
+                        <.sysmon_profile_badge
+                          :if={has_sysmon}
+                          profile={Map.get(@sysmon_profiles_by_device, device_uid)}
+                        />
+                      </div>
                     </td>
                     <td class="text-xs">
                       <.risk_level_badge risk_level={Map.get(row, "risk_level")} />

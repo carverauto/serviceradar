@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   alias ServiceRadar.Inventory.{DeviceCleanupSettings, DeviceCleanupWorker}
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadarWebNG.RBAC
 
   @refresh_interval :timer.seconds(15)
 
@@ -43,50 +44,57 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     cleanup_form = build_cleanup_form(scope, cleanup_settings)
     can_manage_networks = can_manage_networks?(scope)
 
-    if connected?(socket) do
-      # Subscribe to sweep updates for this instance
-      SweepPubSub.subscribe()
-      AgentCommandsPubSub.subscribe()
+    if can_manage_networks do
+      if connected?(socket) do
+        # Subscribe to sweep updates for this instance
+        SweepPubSub.subscribe()
+        AgentCommandsPubSub.subscribe()
 
-      # Refresh active scans periodically (fallback for any missed events)
-      :timer.send_interval(@refresh_interval, self(), :refresh_active_scans)
+        # Refresh active scans periodically (fallback for any missed events)
+        :timer.send_interval(@refresh_interval, self(), :refresh_active_scans)
+      end
+
+      socket =
+        socket
+        |> assign(:page_title, "Network Sweeps")
+        |> assign(:current_path, "/settings/networks")
+        |> assign(:active_tab, :groups)
+        |> assign(:sweep_groups, load_sweep_groups(scope))
+        |> assign(:sweep_profiles, load_sweep_profiles(scope))
+        |> assign(:running_executions, load_running_executions(scope))
+        |> assign(:recent_executions, load_recent_executions(scope))
+        # Track real-time progress for running executions (execution_id -> progress_data)
+        |> assign(:execution_progress, %{})
+        |> assign(:selected_group, nil)
+        |> assign(:selected_profile, nil)
+        |> assign(:show_form, nil)
+        |> assign(:ash_form, nil)
+        |> assign(:form, nil)
+        |> assign(:target_device_count, nil)
+        |> assign(:builder_open, false)
+        |> assign(:builder, default_builder_state())
+        |> assign(:builder_sync, true)
+        |> assign(:show_mapper_form, nil)
+        |> assign(:mapper_jobs, load_mapper_jobs(scope))
+        |> assign(:agents, load_agents(scope))
+        |> assign(:can_manage_networks, can_manage_networks)
+        |> assign(:mapper_job, nil)
+        |> assign(:mapper_form, nil)
+        |> assign(:mapper_seeds_text, "")
+        |> assign(:mapper_unifi_form, nil)
+        |> assign(:mapper_unifi_present, false)
+        |> assign(:mapper_command_statuses, %{})
+        |> assign(:sweep_command_statuses, %{})
+        |> assign(:cleanup_settings, cleanup_settings)
+        |> assign(:cleanup_form, cleanup_form)
+
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "Not authorized to manage network settings")
+       |> redirect(to: ~p"/settings/profile")}
     end
-
-    socket =
-      socket
-      |> assign(:page_title, "Network Sweeps")
-      |> assign(:current_path, "/settings/networks")
-      |> assign(:active_tab, :groups)
-      |> assign(:sweep_groups, load_sweep_groups(scope))
-      |> assign(:sweep_profiles, load_sweep_profiles(scope))
-      |> assign(:running_executions, load_running_executions(scope))
-      |> assign(:recent_executions, load_recent_executions(scope))
-      # Track real-time progress for running executions (execution_id -> progress_data)
-      |> assign(:execution_progress, %{})
-      |> assign(:selected_group, nil)
-      |> assign(:selected_profile, nil)
-      |> assign(:show_form, nil)
-      |> assign(:ash_form, nil)
-      |> assign(:form, nil)
-      |> assign(:target_device_count, nil)
-      |> assign(:builder_open, false)
-      |> assign(:builder, default_builder_state())
-      |> assign(:builder_sync, true)
-      |> assign(:show_mapper_form, nil)
-      |> assign(:mapper_jobs, load_mapper_jobs(scope))
-      |> assign(:agents, load_agents(scope))
-      |> assign(:can_manage_networks, can_manage_networks)
-      |> assign(:mapper_job, nil)
-      |> assign(:mapper_form, nil)
-      |> assign(:mapper_seeds_text, "")
-      |> assign(:mapper_unifi_form, nil)
-      |> assign(:mapper_unifi_present, false)
-      |> assign(:mapper_command_statuses, %{})
-      |> assign(:sweep_command_statuses, %{})
-      |> assign(:cleanup_settings, cleanup_settings)
-      |> assign(:cleanup_form, cleanup_form)
-
-    {:ok, socket}
   end
 
   @impl true
@@ -329,7 +337,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   def handle_event("run_sweep_group", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    with :ok <- require_manage_networks(socket),
+    with :ok <- require_run_sweeps(socket),
          {:ok, group} <- fetch_sweep_group(scope, id),
          {:ok, _updated} <- Ash.update(group, %{}, action: :run_now, scope: scope) do
       statuses =
@@ -397,7 +405,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   def handle_event("run_mapper_job", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    with :ok <- require_manage_networks(socket),
+    with :ok <- require_run_discovery(socket),
          {:ok, job} <- fetch_mapper_job(scope, id),
          {:ok, _updated} <- Ash.update(job, %{}, action: :run_now, scope: scope) do
       statuses =
@@ -932,7 +940,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path={@current_path}>
         <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-        <.network_nav current_path={@current_path} />
+        <.network_nav current_path={@current_path} current_scope={@current_scope} />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -2864,18 +2872,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
-  defp can_manage_networks?(%{user: %{role: role}}) do
-    role in [:admin, :operator]
+  defp can_manage_networks?(scope) do
+    RBAC.can?(scope, "settings.networks.manage")
   end
 
-  defp can_manage_networks?(_), do: false
+  defp can_run_sweeps?(scope), do: RBAC.can?(scope, "networks.sweeps.run")
+  defp can_run_discovery?(scope), do: RBAC.can?(scope, "networks.discovery.run")
 
-  defp require_manage_networks(socket) do
-    if can_manage_networks?(socket.assigns.current_scope) do
-      :ok
-    else
-      {:error, :unauthorized}
-    end
+  defp require_run_sweeps(socket) do
+    if can_run_sweeps?(socket.assigns.current_scope), do: :ok, else: {:error, :unauthorized}
+  end
+
+  defp require_run_discovery(socket) do
+    if can_run_discovery?(socket.assigns.current_scope), do: :ok, else: {:error, :unauthorized}
   end
 
   defp mapper_agent_options(agents, partition, current_agent_id) do

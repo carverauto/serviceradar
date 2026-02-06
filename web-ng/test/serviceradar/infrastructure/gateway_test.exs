@@ -95,8 +95,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
         |> Ash.Changeset.for_update(:update, %{agent_count: 1}, actor: actor)
         |> Ash.update()
 
-      assert {:ok, updated} = result
-      assert updated.agent_count == 1
+      assert {:error, %Ash.Error.Forbidden{}} = result
     end
 
     test "heartbeat updates last_seen and health status", %{gateway: gateway} do
@@ -172,7 +171,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       # Create a degraded gateway
       {:ok, gateway_degraded} =
         gateway_fixture(%{id: "gateway-degraded"})
-        |> Ash.Changeset.for_update(:mark_unhealthy, %{}, actor: system_actor())
+        |> Ash.Changeset.for_update(:degrade, %{}, actor: system_actor())
         |> Ash.update()
 
       {:ok, gateway_active: gateway_active, gateway_degraded: gateway_degraded}

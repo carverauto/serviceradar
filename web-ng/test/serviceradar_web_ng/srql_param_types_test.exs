@@ -42,8 +42,8 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       assert length(results) == 1
 
       log = hd(results)
-      # Note: id is returned as binary, compare with binary format
-      assert log["id"] == log_id_binary
+      # SRQL results are JSON maps; UUIDs come back stringified.
+      assert log["id"] == log_id
       assert log["severity_text"] == "INFO"
       assert log["body"] == "Test log message"
     end
@@ -191,8 +191,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       results = Map.get(response, "results", [])
 
       # Should find the log we just inserted
-      # Note: id is returned as binary, need to compare with binary format
-      assert Enum.any?(results, fn log -> log["id"] == log_id_binary end)
+      assert Enum.any?(results, fn log -> log["id"] == log_id end)
     end
   end
 end

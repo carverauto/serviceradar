@@ -15,26 +15,34 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.SysmonProfiles.SysmonProfile
   alias ServiceRadarWebNGWeb.SRQL.Catalog
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    socket =
-      socket
-      |> assign(:page_title, "Host Health Profiles")
-      |> assign(:profiles, load_profiles(scope))
-      |> assign(:selected_profile, nil)
-      |> assign(:show_form, nil)
-      |> assign(:ash_form, nil)
-      |> assign(:form, nil)
-      |> assign(:json_preview, nil)
-      |> assign(:target_device_count, nil)
-      |> assign(:builder_open, false)
-      |> assign(:builder, default_builder_state())
-      |> assign(:builder_sync, true)
+    if RBAC.can?(scope, "settings.sysmon_profiles.manage") do
+      socket =
+        socket
+        |> assign(:page_title, "Host Health Profiles")
+        |> assign(:profiles, load_profiles(scope))
+        |> assign(:selected_profile, nil)
+        |> assign(:show_form, nil)
+        |> assign(:ash_form, nil)
+        |> assign(:form, nil)
+        |> assign(:json_preview, nil)
+        |> assign(:target_device_count, nil)
+        |> assign(:builder_open, false)
+        |> assign(:builder, default_builder_state())
+        |> assign(:builder_sync, true)
 
-    {:ok, socket}
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to Host Health profiles")
+       |> push_navigate(to: ~p"/settings/profile")}
+    end
   end
 
   @impl true
@@ -342,7 +350,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/sysmon">
         <.settings_nav current_path="/settings/sysmon" current_scope={@current_scope} />
-        <.agents_nav current_path="/settings/sysmon" />
+        <.agents_nav current_path="/settings/sysmon" current_scope={@current_scope} />
 
         <div class="space-y-4">
           <!-- Content based on form state -->

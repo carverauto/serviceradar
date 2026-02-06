@@ -16,22 +16,31 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   }
 
   alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    socket =
-      socket
-      |> assign(:page_title, "Events")
-      |> assign(:active_tab, "logs")
-      |> assign(:zen_rules, list_zen_rules(scope))
-      |> assign(:event_rules, list_event_rules(scope))
-      |> assign(:stateful_rules, list_stateful_rules(scope))
-      |> assign(:show_rule_builder, false)
-      |> assign(:editing_rule, nil)
+    if RBAC.can?(scope, "observability.rules.update") or
+         RBAC.can?(scope, "observability.rules.create") do
+      socket =
+        socket
+        |> assign(:page_title, "Events")
+        |> assign(:active_tab, "logs")
+        |> assign(:zen_rules, list_zen_rules(scope))
+        |> assign(:event_rules, list_event_rules(scope))
+        |> assign(:stateful_rules, list_stateful_rules(scope))
+        |> assign(:show_rule_builder, false)
+        |> assign(:editing_rule, nil)
 
-    {:ok, socket}
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to Events rules")
+       |> push_navigate(to: ~p"/settings/profile")}
+    end
   end
 
   @impl true
@@ -54,8 +63,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         {:noreply, socket}
 
       rule ->
-        case Ash.destroy(rule, scope: scope) do
+        case Ash.destroy(rule, action: :destroy, scope: scope) do
           :ok ->
+            {:noreply,
+             socket
+             |> assign(:zen_rules, list_zen_rules(scope))
+             |> put_flash(:info, "Rule deleted")}
+
+          {:ok, _destroyed} ->
             {:noreply,
              socket
              |> assign(:zen_rules, list_zen_rules(scope))
@@ -148,8 +163,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         {:noreply, socket}
 
       rule ->
-        case Ash.destroy(rule, scope: scope) do
+        case Ash.destroy(rule, action: :destroy, scope: scope) do
           :ok ->
+            {:noreply,
+             socket
+             |> assign(:stateful_rules, list_stateful_rules(scope))
+             |> put_flash(:info, "Rule deleted")}
+
+          {:ok, _destroyed} ->
             {:noreply,
              socket
              |> assign(:stateful_rules, list_stateful_rules(scope))

@@ -138,6 +138,9 @@ defmodule ServiceRadar.Application do
         # Default SNMP profile seed
         snmp_profile_seeder_child(),
 
+        # Default RBAC role profiles seed
+        role_profile_seeder_child(),
+
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
@@ -316,7 +319,8 @@ defmodule ServiceRadar.Application do
   end
 
   defp template_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.TemplateSeeder
     else
       nil
@@ -324,7 +328,8 @@ defmodule ServiceRadar.Application do
   end
 
   defp zen_rule_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.ZenRuleSeeder
     else
       nil
@@ -340,7 +345,8 @@ defmodule ServiceRadar.Application do
   end
 
   defp rule_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Observability.RuleSeeder
     else
       nil
@@ -348,7 +354,8 @@ defmodule ServiceRadar.Application do
   end
 
   defp job_schedule_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Jobs.JobScheduleSeeder
     else
       nil
@@ -356,7 +363,8 @@ defmodule ServiceRadar.Application do
   end
 
   defp device_cleanup_settings_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Inventory.DeviceCleanupSettingsSeeder
     else
       nil
@@ -364,8 +372,18 @@ defmodule ServiceRadar.Application do
   end
 
   defp snmp_profile_seeder_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.SNMPProfiles.SNMPProfileSeeder
+    else
+      nil
+    end
+  end
+
+  defp role_profile_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and
+         Application.get_env(:serviceradar_core, :seeders_enabled, true) do
+      ServiceRadar.Identity.RoleProfileSeeder
     else
       nil
     end

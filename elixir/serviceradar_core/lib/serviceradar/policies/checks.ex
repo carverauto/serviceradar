@@ -31,6 +31,7 @@ defmodule ServiceRadar.Policies.Checks do
 
     @impl true
     def describe(opts) do
+      opts = if is_list(opts), do: opts, else: []
       role = Keyword.get(opts, :role)
       roles = Keyword.get(opts, :roles, [role])
       "actor has role in #{inspect(roles)}"
@@ -39,7 +40,14 @@ defmodule ServiceRadar.Policies.Checks do
     @impl true
     def match?(nil, _opts, _context), do: false
 
+    # Ash may call match?/3 with the authorizer as the 2nd arg and the opts as the 3rd arg.
+    # Normalize that shape so our checks don't crash.
+    def match?(actor, %Ash.Policy.Authorizer{}, opts) when is_list(opts) do
+      match?(actor, opts, %{})
+    end
+
     def match?(actor, opts, _context) do
+      opts = if is_list(opts), do: opts, else: []
       role = Keyword.get(opts, :role)
       roles = Keyword.get(opts, :roles, if(role, do: [role], else: []))
 
@@ -106,6 +114,7 @@ defmodule ServiceRadar.Policies.Checks do
 
     @impl true
     def describe(opts) do
+      opts = if is_list(opts), do: opts, else: []
       attr = Keyword.get(opts, :attribute, :user_id)
       "actor owns resource (#{attr} matches)"
     end
@@ -113,7 +122,14 @@ defmodule ServiceRadar.Policies.Checks do
     @impl true
     def match?(nil, _opts, _context), do: false
 
+    # Ash may call match?/3 with the authorizer as the 2nd arg and the opts as the 3rd arg.
+    # When that happens, use the authorizer's changeset as the context.
+    def match?(actor, %Ash.Policy.Authorizer{} = authorizer, opts) when is_list(opts) do
+      match?(actor, opts, %{changeset: Map.get(authorizer, :changeset)})
+    end
+
     def match?(actor, opts, %{changeset: %{data: resource}}) do
+      opts = if is_list(opts), do: opts, else: []
       attr = Keyword.get(opts, :attribute, :user_id)
       actor_id = Map.get(actor, :id)
       resource_owner = Map.get(resource, attr)
@@ -122,5 +138,58 @@ defmodule ServiceRadar.Policies.Checks do
     end
 
     def match?(_actor, _opts, _context), do: false
+  end
+
+  defmodule ActorHasPermission do
+    @moduledoc """
+    Check if the actor has a specific RBAC permission key.
+
+    ## Options
+
+      * `:permission` - Permission key string (e.g., \"devices.delete\")
+    """
+    use Ash.Policy.SimpleCheck
+
+    alias ServiceRadar.Identity.RBAC
+
+    @impl true
+    def describe(opts) do
+      opts = if is_list(opts), do: opts, else: []
+      permission = Keyword.get(opts, :permission, "unknown")
+      "actor has permission #{permission}"
+    end
+
+    @impl true
+    def match?(nil, _opts, _context), do: false
+
+    # Ash may call match?/3 with the authorizer as the 2nd arg and the opts as the 3rd arg.
+    def match?(actor, %Ash.Policy.Authorizer{}, opts) when is_list(opts) do
+      match?(actor, opts, %{})
+    end
+
+    def match?(actor, opts, _context) do
+      opts = if is_list(opts), do: opts, else: []
+      permission = Keyword.get(opts, :permission)
+
+      if is_binary(permission) do
+        RBAC.has_permission?(actor, permission)
+      else
+        false
+      end
+    end
+  end
+
+  defmodule ActorIsNil do
+    @moduledoc """
+    Check if the actor is missing (used for internal/system-triggered actions).
+    """
+    use Ash.Policy.SimpleCheck
+
+    @impl true
+    def describe(_opts), do: "actor is nil"
+
+    @impl true
+    def match?(nil, _opts, _context), do: true
+    def match?(_, _opts, _context), do: false
   end
 end

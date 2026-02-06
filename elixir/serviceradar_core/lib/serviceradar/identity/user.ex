@@ -7,6 +7,7 @@ defmodule ServiceRadar.Identity.User do
   ## Roles
 
   - `:viewer` - Read-only access to instance data
+  - `:helpdesk` - Read-only access plus alert response capabilities
   - `:operator` - Can create and modify resources
   - `:admin` - Full instance management including user management
 
@@ -24,7 +25,8 @@ defmodule ServiceRadar.Identity.User do
   use Ash.Resource,
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
-    notifiers: [ServiceRadar.Identity.UserNotifier]
+    notifiers: [ServiceRadar.Identity.UserNotifier],
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "ng_users"
@@ -45,6 +47,8 @@ defmodule ServiceRadar.Identity.User do
     define :deactivate
     define :reactivate
     define :update_role
+    define :update_role_profile, action: :update_role_profile
+    define :admin_set_password, action: :admin_set_password
   end
 
   actions do
@@ -98,7 +102,7 @@ defmodule ServiceRadar.Identity.User do
 
     create :create do
       description "Create a new user (admin or system use)"
-      accept [:email, :display_name, :role]
+      accept [:email, :display_name, :role, :role_profile_id]
 
       argument :password, :string do
         allow_nil? true
@@ -168,7 +172,7 @@ defmodule ServiceRadar.Identity.User do
       argument :role, :atom do
         allow_nil? true
         default :viewer
-        constraints one_of: [:viewer, :operator, :admin]
+        constraints one_of: [:viewer, :helpdesk, :operator, :admin]
       end
 
       argument :external_id, :string do
@@ -205,6 +209,12 @@ defmodule ServiceRadar.Identity.User do
 
     update :update_role do
       accept [:role]
+      require_atomic? false
+      change ServiceRadar.Identity.Changes.DisallowLastAdminLockout
+    end
+
+    update :update_role_profile do
+      accept [:role_profile_id]
     end
 
     update :change_password do
@@ -287,6 +297,23 @@ defmodule ServiceRadar.Identity.User do
       end
     end
 
+    update :admin_set_password do
+      description "Set a user's password without requiring the current password (admin-only flow)"
+      require_atomic? false
+
+      argument :password, :string do
+        allow_nil? false
+        sensitive? true
+        constraints min_length: 12
+      end
+
+      change fn changeset, _context ->
+        password = Ash.Changeset.get_argument(changeset, :password)
+        hashed = Bcrypt.hash_pwd_salt(password)
+        Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
+      end
+    end
+
     update :record_authentication do
       description "Record authentication timestamp for sudo mode"
       change set_attribute(:authenticated_at, &DateTime.utc_now/0)
@@ -306,12 +333,68 @@ defmodule ServiceRadar.Identity.User do
 
     update :deactivate do
       description "Deactivate a user account and revoke access"
+      require_atomic? false
+      change ServiceRadar.Identity.Changes.DisallowLastAdminLockout
       change set_attribute(:status, :inactive)
     end
 
     update :reactivate do
       description "Reactivate a user account"
       change set_attribute(:status, :active)
+    end
+  end
+
+  policies do
+    # System actors can perform all operations (schema isolation via search_path)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    # Public reads used by authentication flows (no actor available yet)
+    policy action([:by_email, :authenticate]) do
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+    end
+
+    # Read access:
+    # - Admins (settings.auth.manage) can read any user
+    # - Users can read themselves
+    policy action_type(:read) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+      authorize_if expr(id == ^actor(:id))
+    end
+
+    # Public registration (no actor available)
+    policy action(:register_with_password) do
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
+    end
+
+    # Admin-managed user creation
+    policy action(:create) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+    end
+
+    # JIT provisioning is performed as a SystemActor in the web layer.
+    # Allow admins to use it intentionally; deny regular users.
+    policy action(:provision_sso_user) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+    end
+
+    # Self-service updates and audit markers
+    policy action([:update, :update_email, :change_password, :record_authentication, :record_login]) do
+      authorize_if expr(id == ^actor(:id))
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+    end
+
+    # Admin-only user management
+    policy action([
+             :update_role,
+             :update_role_profile,
+             :admin_set_password,
+             :deactivate,
+             :reactivate
+           ]) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
     end
   end
 
@@ -340,8 +423,14 @@ defmodule ServiceRadar.Identity.User do
       allow_nil? false
       default :viewer
       public? true
-      constraints one_of: [:viewer, :operator, :admin]
+      constraints one_of: [:viewer, :helpdesk, :operator, :admin]
       description "User's role for authorization"
+    end
+
+    attribute :role_profile_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Role profile assignment for RBAC"
     end
 
     attribute :status, :atom do
@@ -380,6 +469,13 @@ defmodule ServiceRadar.Identity.User do
 
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+
+  relationships do
+    belongs_to :role_profile, ServiceRadar.Identity.RoleProfile do
+      allow_nil? true
+      attribute_writable? true
+    end
   end
 
   calculations do

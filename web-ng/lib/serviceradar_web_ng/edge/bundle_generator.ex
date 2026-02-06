@@ -177,10 +177,18 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp parse_bundle_pem(_), do: {"", "", ""}
 
   defp generate_config_yaml(package, join_token, opts) do
-    generate_config_json(package, join_token, opts)
+    package
+    |> build_config_map(join_token, opts)
+    |> encode_config_yaml()
   end
 
   defp generate_config_json(package, _join_token, opts) do
+    package
+    |> build_config_map(nil, opts)
+    |> Jason.encode!(pretty: true)
+  end
+
+  defp build_config_map(package, _join_token, opts) do
     component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
     metadata = metadata_map(package)
@@ -212,6 +220,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     }
 
     config = %{
+      "component_type" => component_type,
       "agent_id" => component_id,
       "gateway_addr" => gateway_addr,
       "gateway_security" => gateway_security
@@ -226,8 +235,47 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
         config
       end
 
-    Jason.encode!(config, pretty: true)
+    config
   end
+
+  # We intentionally implement a tiny YAML serializer here rather than adding a
+  # write-capable YAML dependency. The config shape is stable and small.
+  defp encode_config_yaml(config) when is_map(config) do
+    component_type = Map.fetch!(config, "component_type")
+    agent_id = Map.fetch!(config, "agent_id")
+    gateway_addr = Map.fetch!(config, "gateway_addr")
+    gateway_security = Map.fetch!(config, "gateway_security")
+    tls = Map.get(gateway_security, "tls", %{})
+
+    base =
+      [
+        "component_type: #{component_type}",
+        "agent_id: #{agent_id}",
+        "gateway_addr: #{gateway_addr}",
+        "gateway_security:",
+        "  mode: #{Map.get(gateway_security, "mode")}",
+        "  cert_dir: #{Map.get(gateway_security, "cert_dir")}",
+        "  server_name: #{Map.get(gateway_security, "server_name")}",
+        "  role: #{Map.get(gateway_security, "role")}",
+        "  tls:",
+        "    cert_file: #{Map.get(tls, "cert_file")}",
+        "    key_file: #{Map.get(tls, "key_file")}",
+        "    ca_file: #{Map.get(tls, "ca_file")}",
+        "    client_ca_file: #{Map.get(tls, "client_ca_file")}"
+      ]
+
+    extra =
+      []
+      |> maybe_add_yaml_kv("partition", Map.get(config, "partition"))
+      |> maybe_add_yaml_kv("host_ip", Map.get(config, "host_ip"))
+
+    (base ++ extra)
+    |> Enum.join("\n")
+    |> Kernel.<>("\n")
+  end
+
+  defp maybe_add_yaml_kv(lines, _key, nil), do: lines
+  defp maybe_add_yaml_kv(lines, key, value), do: lines ++ ["#{key}: #{value}"]
 
   defp generate_install_script(package, opts) do
     component_type = effective_component_type(package.component_type)

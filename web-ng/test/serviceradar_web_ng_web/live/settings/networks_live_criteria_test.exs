@@ -10,18 +10,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CriteriaConversionTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
+  require Ash.Query
+
   setup :register_and_log_in_admin_user
 
   describe "SRQL targeting persistence" do
     test "target_query persists through save/edit cycle", %{conn: conn, scope: scope} do
       unique = System.unique_integer([:positive])
+      target_name = "SRQL Test #{unique}"
 
       {:ok, lv, _html} = live(conn, ~p"/settings/networks/groups/new")
 
       lv
       |> form("#sweep-group-form", %{
         "form" => %{
-          "name" => "SRQL Test #{unique}",
+          "name" => target_name,
           "interval" => "1h",
           "partition" => "default",
           "target_query" => "in:devices ip:10.0.0.0/8"
@@ -33,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CriteriaConversionTest do
 
       {:ok, [group]} =
         SweepGroup
-        |> Ash.Query.filter(name == ^"SRQL Test #{unique}")
+        |> Ash.Query.filter(name == ^target_name)
         |> Ash.read(scope: scope)
 
       assert group.target_query == "in:devices ip:10.0.0.0/8"

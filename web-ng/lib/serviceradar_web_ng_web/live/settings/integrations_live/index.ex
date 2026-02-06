@@ -13,39 +13,49 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(_params, _session, socket) do
-    actor = get_actor(socket)
-    partitions = list_partitions(actor)
-    agents = list_agents(actor)
-    agent_index = build_agent_index(agents)
-    agent_options = build_agent_options(agents)
-    sync_agent_available = sync_agent_available?(actor)
+    scope = socket.assigns.current_scope
 
-    socket =
-      socket
-      |> assign(:page_title, "Integration Sources")
-      |> assign(:sources, list_sources(actor))
-      |> assign(:partitions, partitions)
-      |> assign(:partition_options, build_partition_options(partitions))
-      |> assign(:agents, agents)
-      |> assign(:agent_index, agent_index)
-      |> assign(:agent_options, agent_options)
-      |> assign(:sync_agent_available, sync_agent_available)
-      |> assign(:show_create_modal, false)
-      |> assign(:show_edit_modal, false)
-      |> assign(:show_details_modal, false)
-      |> assign(:selected_source, nil)
-      |> assign(:create_form, build_create_form(actor))
-      |> assign(:edit_form, nil)
-      |> assign(:filter_type, nil)
-      |> assign(:filter_enabled, nil)
-      # Query management for forms
-      |> assign(:form_queries, [default_query()])
-      |> assign(:form_network_blacklist, "")
+    if RBAC.can?(scope, "settings.integrations.manage") do
+      actor = get_actor(socket)
+      partitions = list_partitions(actor)
+      agents = list_agents(actor)
+      agent_index = build_agent_index(agents)
+      agent_options = build_agent_options(agents)
+      sync_agent_available = sync_agent_available?(actor)
 
-    {:ok, socket}
+      socket =
+        socket
+        |> assign(:page_title, "Integration Sources")
+        |> assign(:sources, list_sources(actor))
+        |> assign(:partitions, partitions)
+        |> assign(:partition_options, build_partition_options(partitions))
+        |> assign(:agents, agents)
+        |> assign(:agent_index, agent_index)
+        |> assign(:agent_options, agent_options)
+        |> assign(:sync_agent_available, sync_agent_available)
+        |> assign(:show_create_modal, false)
+        |> assign(:show_edit_modal, false)
+        |> assign(:show_details_modal, false)
+        |> assign(:selected_source, nil)
+        |> assign(:create_form, build_create_form(actor))
+        |> assign(:edit_form, nil)
+        |> assign(:filter_type, nil)
+        |> assign(:filter_enabled, nil)
+        # Query management for forms
+        |> assign(:form_queries, [default_query()])
+        |> assign(:form_network_blacklist, "")
+
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "Not authorized to manage integrations")
+       |> redirect(to: ~p"/settings/profile")}
+    end
   end
 
   defp default_query do
@@ -417,7 +427,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/networks/integrations">
         <.settings_nav current_path="/settings/networks/integrations" current_scope={@current_scope} />
-        <.network_nav current_path="/settings/networks/integrations" />
+        <.network_nav current_path="/settings/networks/integrations" current_scope={@current_scope} />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -428,6 +438,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
           <div class="flex flex-col items-end gap-2">
             <.ui_button
+              :if={RBAC.can?(@current_scope, "settings.integrations.manage")}
               variant="primary"
               size="sm"
               phx-click="open_create_modal"

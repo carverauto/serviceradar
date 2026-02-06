@@ -145,9 +145,16 @@ defmodule ServiceRadar.Jobs.JobSchedule do
   end
 
   policies do
-    # Allow all authenticated users to read schedules
+    # System actors can perform all operations (schema isolation via search_path)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    # Read access: authenticated users with appropriate roles
     policy action_type(:read) do
-      authorize_if always()
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     # Operators and admins can create and update
@@ -162,7 +169,7 @@ defmodule ServiceRadar.Jobs.JobSchedule do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
       # Allow system operations (no actor)
-      authorize_if always()
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
     end
   end
 

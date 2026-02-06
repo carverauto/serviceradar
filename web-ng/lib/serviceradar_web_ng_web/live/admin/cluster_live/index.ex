@@ -36,30 +36,40 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
   alias ServiceRadar.Cluster.ClusterStatus
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadarWebNG.RBAC
 
   @refresh_interval :timer.seconds(10)
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket) do
-      # Subscribe to cluster events
-      Phoenix.PubSub.subscribe(ServiceRadarWebNG.PubSub, "cluster:events")
-      Phoenix.PubSub.subscribe(ServiceRadarWebNG.PubSub, "agent:registrations")
+    scope = socket.assigns.current_scope
 
-      # Schedule periodic refresh
-      schedule_refresh()
+    if RBAC.can?(scope, "settings.jobs.manage") do
+      if connected?(socket) do
+        # Subscribe to cluster events
+        Phoenix.PubSub.subscribe(ServiceRadarWebNG.PubSub, "cluster:events")
+        Phoenix.PubSub.subscribe(ServiceRadarWebNG.PubSub, "agent:registrations")
+
+        # Schedule periodic refresh
+        schedule_refresh()
+      end
+
+      socket =
+        socket
+        |> assign(:page_title, "Cluster Dashboard")
+        |> assign(:cluster_status, load_cluster_status())
+        |> assign(:cluster_health, load_cluster_health())
+        |> assign(:gateways, load_gateways())
+        |> assign(:agents, load_agents())
+        |> assign(:events, [])
+
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Cluster.")
+       |> redirect(to: ~p"/analytics")}
     end
-
-    socket =
-      socket
-      |> assign(:page_title, "Cluster Dashboard")
-      |> assign(:cluster_status, load_cluster_status())
-      |> assign(:cluster_health, load_cluster_health())
-      |> assign(:gateways, load_gateways())
-      |> assign(:agents, load_agents())
-      |> assign(:events, [])
-
-    {:ok, socket}
   end
 
   @impl true

@@ -12,11 +12,13 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins
   alias ServiceRadarWebNG.Plugins.Storage
+  alias ServiceRadarWebNG.RBAC
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
   def index(conn, params) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.view") do
       scope = get_scope(conn)
       packages = Plugins.list_packages(params, scope: scope)
       json(conn, Enum.map(packages, &package_to_json/1))
@@ -24,7 +26,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   end
 
   def show(conn, %{"id" => id}) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.view") do
       scope = get_scope(conn)
 
       case Plugins.get_package(id, scope: scope) do
@@ -36,7 +39,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   end
 
   def create(conn, params) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.stage") do
       scope = get_scope(conn)
 
       attrs = %{
@@ -106,7 +110,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   end
 
   def upload_url(conn, %{"id" => id} = params) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.stage") do
       scope = get_scope(conn)
       ttl = parse_ttl_seconds(params["ttl_seconds"], Storage.upload_ttl_seconds())
 
@@ -124,7 +129,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   end
 
   def download_url(conn, %{"id" => id} = params) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.view") do
       scope = get_scope(conn)
       ttl = parse_ttl_seconds(params["ttl_seconds"], Storage.download_ttl_seconds())
 
@@ -218,7 +224,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   end
 
   def approve(conn, %{"id" => id} = params) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.approve") do
       scope = get_scope(conn)
       approved_by = get_actor(conn)
 
@@ -249,7 +256,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   end
 
   def deny(conn, %{"id" => id} = params) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.approve") do
       scope = get_scope(conn)
 
       attrs = %{
@@ -264,7 +272,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   end
 
   def revoke(conn, %{"id" => id} = params) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.approve") do
       scope = get_scope(conn)
 
       attrs = %{
@@ -279,7 +288,8 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
   end
 
   def restage(conn, %{"id" => id}) do
-    with :ok <- require_authenticated(conn) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.stage") do
       scope = get_scope(conn)
 
       case Plugins.restage_package(id, scope: scope) do
@@ -463,8 +473,18 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
 
   defp require_authenticated(conn) do
     case conn.assigns[:current_scope] do
-      %Scope{} -> :ok
+      %Scope{user: user} when not is_nil(user) -> :ok
       _ -> {:error, :unauthorized}
+    end
+  end
+
+  defp require_permission(conn, permission) when is_binary(permission) do
+    scope = conn.assigns[:current_scope]
+
+    if RBAC.can?(scope, permission) do
+      :ok
+    else
+      {:error, :forbidden}
     end
   end
 end

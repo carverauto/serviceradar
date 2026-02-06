@@ -42,8 +42,11 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   require Logger
 
   alias Ash.PlugHelpers
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
+  alias ServiceRadarWebNGWeb.ClientIP
 
   def init(opts), do: opts
 
@@ -100,18 +103,22 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp validate_guardian_jwt(conn, token) do
-    # Try access token first, then API token
-    case Guardian.verify_token(token, []) do
+    # Only accept bearer tokens intended for API authentication.
+    # This prevents password reset tokens (typ=reset) and refresh tokens (typ=refresh)
+    # from being used to call admin APIs.
+    case verify_api_bearer_token(token) do
       {:ok, user, claims} ->
         scope = Scope.for_user(user)
         conn = assign_scope(conn, scope, user)
 
-        # Check if this is an OAuth client credential token
+        # Check if this is an OAuth client credential token (typ=api with client_id)
         conn =
           if claims["typ"] == "api" && claims["client_id"] do
             conn
             |> assign(:oauth_client_id, claims["client_id"])
-            |> assign(:oauth_token_scope, claims["scope"])
+            # OAuth uses a space-separated scope string in responses; internally we
+            # use the Guardian "scopes" claim (list), so normalize.
+            |> assign(:oauth_token_scope, oauth_scope_string(claims))
           else
             conn
           end
@@ -121,6 +128,26 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       {:error, reason} ->
         Logger.debug("JWT validation failed: #{inspect(reason)}")
         {:error, :unauthorized}
+    end
+  end
+
+  defp verify_api_bearer_token(token) do
+    # Try access token first, then API token.
+    with {:error, _} <- Guardian.verify_token(token, token_type: "access") do
+      Guardian.verify_token(token, token_type: "api")
+    end
+  end
+
+  defp oauth_scope_string(claims) do
+    cond do
+      is_binary(claims["scope"]) ->
+        claims["scope"]
+
+      is_list(claims["scopes"]) ->
+        claims["scopes"] |> Enum.join(" ")
+
+      true ->
+        ""
     end
   end
 
@@ -170,18 +197,14 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp record_token_usage(api_token, conn) do
-    # Get client IP
-    client_ip =
-      case get_req_header(conn, "x-forwarded-for") do
-        [ip | _] -> ip
-        _ -> conn.remote_ip |> :inet.ntoa() |> to_string()
-      end
+    client_ip = ClientIP.get(conn)
+    actor = SystemActor.system(:api_auth)
 
     # Record usage asynchronously to not block the request
     Task.start(fn ->
       api_token
       |> Ash.Changeset.for_update(:record_use, %{last_used_ip: client_ip})
-      |> Ash.update()
+      |> Ash.update(actor: actor, authorize?: false)
     end)
   end
 
@@ -222,7 +245,11 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       )
       |> Ash.Query.load(:user)
 
-    case Ash.read(query) do
+    # This read is part of authentication. Use an explicit internal actor so ApiToken
+    # policies don't cause us to silently fall back to legacy static keys.
+    actor = SystemActor.system(:api_auth)
+
+    case Ash.read(query, actor: actor, authorize?: false) do
       {:ok, [api_token | _]} ->
         {:ok, api_token}
 
@@ -239,10 +266,14 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
     actor =
       if user do
+        permissions = RBAC.permissions_for_user(user)
+
         actor = %{
           id: user.id,
           role: user.role,
-          email: user.email
+          email: user.email,
+          role_profile_id: user.role_profile_id,
+          permissions: permissions
         }
 
         if partition_id do

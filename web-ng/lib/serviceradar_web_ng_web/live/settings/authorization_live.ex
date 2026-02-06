@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   """
 
   use ServiceRadarWebNGWeb, :live_view
+
   use Permit.Phoenix.LiveView,
     authorization_module: ServiceRadarWebNG.Authorization,
     resource_module: ServiceRadar.Identity.AuthorizationSettings
@@ -15,13 +16,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   def mount(_params, _session, socket) do
     socket = assign(socket, :page_title, "Authorization Settings")
     scope = socket.assigns.current_scope
-    {:ok, settings} = get_or_create_settings(scope)
+
+    {settings, settings_flash} =
+      case get_or_create_settings(scope) do
+        {:ok, settings} -> {settings, nil}
+        {:error, error} -> {%{default_role: :viewer, role_mappings: []}, format_ash_error(error)}
+      end
 
     {:ok,
      socket
      |> assign(:settings, settings)
      |> assign(:form, to_form(settings_form(settings), as: :settings))
-     |> assign(:json_error, nil)}
+     |> assign(:json_error, nil)
+     |> maybe_put_flash(settings_flash)}
   end
 
   @impl true
@@ -79,8 +86,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <SettingsComponents.settings_shell current_path="/settings/auth/authorization">
         <div class="space-y-4">
-          <SettingsComponents.settings_nav current_path="/settings/auth/authorization" current_scope={@current_scope} />
-          <SettingsComponents.auth_nav current_path="/settings/auth/authorization" />
+          <SettingsComponents.settings_nav
+            current_path="/settings/auth/authorization"
+            current_scope={@current_scope}
+          />
+          <SettingsComponents.auth_nav
+            current_path="/settings/auth/authorization"
+            current_scope={@current_scope}
+          />
         </div>
 
         <div class="grid gap-6 lg:grid-cols-[1fr,1fr]">
@@ -170,6 +183,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   defp normalize_role(nil), do: {:ok, nil}
   defp normalize_role(""), do: {:ok, nil}
   defp normalize_role("viewer"), do: {:ok, :viewer}
+  defp normalize_role("helpdesk"), do: {:ok, :helpdesk}
   defp normalize_role("operator"), do: {:ok, :operator}
   defp normalize_role("admin"), do: {:ok, :admin}
   defp normalize_role(_), do: {:error, :invalid_role}
@@ -190,6 +204,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
       "role_mappings" => Jason.encode!(settings.role_mappings || [], pretty: true)
     }
   end
+
+  defp maybe_put_flash(socket, nil), do: socket
+  defp maybe_put_flash(socket, message), do: put_flash(socket, :error, message)
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", fn

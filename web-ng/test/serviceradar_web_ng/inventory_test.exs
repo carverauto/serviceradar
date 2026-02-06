@@ -1,8 +1,10 @@
 defmodule ServiceRadarWebNG.InventoryTest do
   use ServiceRadarWebNG.DataCase, async: true
 
-  alias ServiceRadarWebNG.Inventory
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.Repo
+
+  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   test "list_devices returns devices ordered by last_seen_time desc" do
     suffix = System.unique_integer([:positive])
@@ -25,8 +27,19 @@ defmodule ServiceRadarWebNG.InventoryTest do
       }
     ])
 
-    # Query using Ash through the Inventory context
-    devices = Inventory.list_devices(limit: 1_000)
+    # Query using Ash directly (the old ServiceRadarWebNG.Inventory context was removed).
+    devices =
+      Device
+      |> Ash.Query.sort(last_seen_time: :desc)
+      |> Ash.Query.limit(1_000)
+      |> Ash.read!(actor: system_actor())
+
+    devices =
+      case devices do
+        %Ash.Page.Keyset{results: results} -> results
+        results when is_list(results) -> results
+      end
+
     uids = Enum.map(devices, & &1.uid)
 
     assert uid2 in uids

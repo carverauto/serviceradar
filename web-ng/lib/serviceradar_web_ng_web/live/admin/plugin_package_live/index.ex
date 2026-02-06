@@ -16,44 +16,55 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    socket =
-      socket
-      |> assign(:page_title, "Plugins")
-      |> assign(:current_path, nil)
-      |> assign(:plugins_base_path, "/admin/plugins")
-      |> assign(:packages, list_packages(%{}, scope))
-      |> assign(:filter_status, nil)
-      |> assign(:filter_source_type, nil)
-      |> assign(:show_create_modal, false)
-      |> assign(:show_details_modal, false)
-      |> assign(:create_form, default_create_form())
-      |> assign(:create_errors, [])
-      |> assign(:selected_package, nil)
-      |> assign(:review_form, default_review_form())
-      |> assign(:assignment_form, default_assignment_form())
-      |> assign(:assignments, [])
-      |> assign(:versions, [])
-      |> assign(:agents, list_agents(scope))
-      |> assign_capacity(scope)
-      |> assign(:verification_policy, plugin_verification_policy())
-      |> assign(:upload_url, nil)
-      |> assign(:upload_expires_at, nil)
-      |> assign(:download_url, nil)
-      |> assign(:download_expires_at, nil)
-      |> assign(:blob_present, nil)
-      |> assign(:upload_errors, [])
-      |> allow_upload(:wasm_blob,
-        accept: ~w(.wasm),
-        max_entries: 1,
-        max_file_size: Storage.max_upload_bytes()
-      )
+    if RBAC.can?(scope, "plugins.view") do
+      socket =
+        socket
+        |> assign(:can_stage_plugins, RBAC.can?(scope, "plugins.stage"))
+        |> assign(:can_approve_plugins, RBAC.can?(scope, "plugins.approve"))
+        |> assign(:can_assign_plugins, RBAC.can?(scope, "plugins.assign"))
+        |> assign(:page_title, "Plugins")
+        |> assign(:current_path, nil)
+        |> assign(:plugins_base_path, "/admin/plugins")
+        |> assign(:packages, list_packages(%{}, scope))
+        |> assign(:filter_status, nil)
+        |> assign(:filter_source_type, nil)
+        |> assign(:show_create_modal, false)
+        |> assign(:show_details_modal, false)
+        |> assign(:create_form, default_create_form())
+        |> assign(:create_errors, [])
+        |> assign(:selected_package, nil)
+        |> assign(:review_form, default_review_form())
+        |> assign(:assignment_form, default_assignment_form())
+        |> assign(:assignments, [])
+        |> assign(:versions, [])
+        |> assign(:agents, list_agents(scope))
+        |> assign_capacity(scope)
+        |> assign(:verification_policy, plugin_verification_policy())
+        |> assign(:upload_url, nil)
+        |> assign(:upload_expires_at, nil)
+        |> assign(:download_url, nil)
+        |> assign(:download_expires_at, nil)
+        |> assign(:blob_present, nil)
+        |> assign(:upload_errors, [])
+        |> allow_upload(:wasm_blob,
+          accept: ~w(.wasm),
+          max_entries: 1,
+          max_file_size: Storage.max_upload_bytes()
+        )
 
-    {:ok, socket}
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Plugins.")
+       |> redirect(to: ~p"/analytics")}
+    end
   end
 
   @impl true
@@ -169,6 +180,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      |> assign(:agents, list_agents(scope))
      |> assign_capacity(scope)
      |> assign(:verification_policy, plugin_verification_policy())}
+  end
+
+  def handle_event(
+        "create_package",
+        %{"create" => _params},
+        %{assigns: %{can_stage_plugins: false}} = socket
+      ) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
   end
 
   def handle_event("create_package", %{"create" => params}, socket) do
@@ -307,6 +326,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply, assign(socket, :review_form, Map.merge(socket.assigns.review_form, params))}
   end
 
+  def handle_event("upload_wasm", _params, %{assigns: %{can_stage_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
+  end
+
   def handle_event("upload_wasm", _params, socket) do
     scope = socket.assigns.current_scope
     package = socket.assigns.selected_package
@@ -330,6 +353,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   def handle_event("assignment_change", %{"assignment" => params}, socket) do
     {:noreply,
      assign(socket, :assignment_form, Map.merge(socket.assigns.assignment_form, params))}
+  end
+
+  def handle_event(
+        "approve_package",
+        %{"review" => _params},
+        %{assigns: %{can_approve_plugins: false}} = socket
+      ) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
   end
 
   def handle_event("approve_package", %{"review" => params}, socket) do
@@ -367,6 +398,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
+  def handle_event("deny_package", _params, %{assigns: %{can_approve_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
+  end
+
   def handle_event("deny_package", _params, socket) do
     scope = socket.assigns.current_scope
     reason = socket.assigns.review_form["denied_reason"]
@@ -383,6 +418,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, error} ->
         {:noreply, socket |> put_flash(:error, "Failed to deny: #{format_error(error)}")}
     end
+  end
+
+  def handle_event("revoke_package", _params, %{assigns: %{can_approve_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
   end
 
   def handle_event("revoke_package", _params, socket) do
@@ -409,6 +448,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply, socket}
   end
 
+  def handle_event(
+        "create_assignment",
+        %{"assignment" => _params},
+        %{assigns: %{can_assign_plugins: false}} = socket
+      ) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
+  end
+
   def handle_event("create_assignment", %{"assignment" => params}, socket) do
     scope = socket.assigns.current_scope
     config_schema = socket.assigns.selected_package.config_schema
@@ -425,6 +472,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         Logger.error("Plugin assignment failed: #{inspect(error)}")
         {:noreply, socket |> put_flash(:error, "Failed to assign: #{format_error(error)}")}
     end
+  end
+
+  def handle_event(
+        "delete_assignment",
+        %{"id" => _id},
+        %{assigns: %{can_assign_plugins: false}} = socket
+      ) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
   end
 
   def handle_event("delete_assignment", %{"id" => id}, socket) do
@@ -449,6 +504,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
+  def handle_event(
+        "restage_package",
+        _params,
+        %{assigns: %{can_approve_plugins: false}} = socket
+      ) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
+  end
+
   def handle_event("restage_package", _params, socket) do
     scope = socket.assigns.current_scope
 
@@ -466,63 +529,67 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
+  def handle_event(
+        "delete_package",
+        %{"id" => _id},
+        %{assigns: %{can_approve_plugins: false}} = socket
+      ) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
+  end
+
   def handle_event("delete_package", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
+    package = socket.assigns.selected_package
 
-    assignments = list_assignments(id, scope)
+    case delete_package_and_assignments(id, package, scope) do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign(:show_details_modal, false)
+         |> assign(:selected_package, nil)
+         |> assign(:assignments, [])
+         |> assign(:assignment_form, default_assignment_form())
+         |> assign(:versions, [])
+         |> assign(:upload_url, nil)
+         |> assign(:download_url, nil)
+         |> assign(:blob_present, nil)
+         |> put_flash(:info, "Package deleted")}
 
+      {:error, {:assignment_errors, errors}} ->
+        {:noreply,
+         socket |> put_flash(:error, "Failed to remove assignments: #{Enum.join(errors, "; ")}")}
+
+      {:error, error} ->
+        {:noreply,
+         socket |> put_flash(:error, "Failed to delete package: #{format_error(error)}")}
+    end
+  end
+
+  defp delete_package_and_assignments(id, package, scope) do
     assignment_errors =
-      assignments
-      |> Enum.map(fn assignment ->
+      id
+      |> list_assignments(scope)
+      |> Enum.reduce([], fn assignment, errors ->
         case Assignments.delete(assignment.id, scope: scope) do
-          :ok -> nil
-          {:ok, _} -> nil
-          {:error, error} -> format_error(error)
+          :ok -> errors
+          {:ok, _} -> errors
+          {:error, error} -> [format_error(error) | errors]
         end
       end)
-      |> Enum.reject(&is_nil/1)
 
-    if assignment_errors != [] do
-      {:noreply,
-       socket
-       |> put_flash(:error, "Failed to remove assignments: #{Enum.join(assignment_errors, "; ")}")}
-    else
-      package = socket.assigns.selected_package
-      _ = maybe_delete_blob(package)
+    case assignment_errors do
+      [] ->
+        _ = maybe_delete_blob(package)
 
-      case Packages.delete(id, scope: scope) do
-        :ok ->
-          {:noreply,
-           socket
-           |> assign(:packages, list_packages(current_filters(socket), scope))
-           |> assign(:show_details_modal, false)
-           |> assign(:selected_package, nil)
-           |> assign(:assignments, [])
-           |> assign(:assignment_form, default_assignment_form())
-           |> assign(:versions, [])
-           |> assign(:upload_url, nil)
-           |> assign(:download_url, nil)
-           |> assign(:blob_present, nil)
-           |> put_flash(:info, "Package deleted")}
+        case Packages.delete(id, scope: scope) do
+          :ok -> :ok
+          {:ok, _package} -> :ok
+          {:error, error} -> {:error, error}
+        end
 
-        {:ok, _package} ->
-          {:noreply,
-           socket
-           |> assign(:packages, list_packages(current_filters(socket), scope))
-           |> assign(:show_details_modal, false)
-           |> assign(:selected_package, nil)
-           |> assign(:assignments, [])
-           |> assign(:assignment_form, default_assignment_form())
-           |> assign(:versions, [])
-           |> assign(:upload_url, nil)
-           |> assign(:download_url, nil)
-           |> assign(:blob_present, nil)
-           |> put_flash(:info, "Package deleted")}
-
-        {:error, error} ->
-          {:noreply,
-           socket |> put_flash(:error, "Failed to delete package: #{format_error(error)}")}
-      end
+      errors ->
+        {:error, {:assignment_errors, Enum.reverse(errors)}}
     end
   end
 
@@ -627,9 +694,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path={@current_path || @plugins_base_path}>
-        <.settings_nav current_path={@current_path || @plugins_base_path} current_scope={@current_scope} />
+        <.settings_nav
+          current_path={@current_path || @plugins_base_path}
+          current_scope={@current_scope}
+        />
         <%= if @plugins_base_path == "/settings/agents/plugins" do %>
-          <.agents_nav current_path={@current_path || @plugins_base_path} class="mt-2" />
+          <.agents_nav
+            current_path={@current_path || @plugins_base_path}
+            class="mt-2"
+            current_scope={@current_scope}
+          />
         <% else %>
           <.edge_nav current_path={@current_path || @plugins_base_path} class="mt-2" />
         <% end %>
@@ -645,7 +719,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <.ui_button variant="ghost" size="sm" phx-click="refresh">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
             </.ui_button>
-            <.ui_button variant="primary" size="sm" phx-click="open_create_modal">
+            <.ui_button
+              :if={@can_stage_plugins}
+              variant="primary"
+              size="sm"
+              phx-click="open_create_modal"
+            >
               <.icon name="hero-plus" class="size-4" /> New Plugin
             </.ui_button>
           </div>
@@ -1387,15 +1466,21 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
           <div class="flex flex-wrap justify-end gap-2 pt-2">
             <%= if @package.status == :staged do %>
-              <button type="submit" class="btn btn-primary">Approve</button>
+              <button type="submit" class="btn btn-primary" disabled={!@can_approve_plugins}>
+                Approve
+              </button>
               <button
                 type="button"
                 class="btn btn-outline btn-error"
                 phx-click="deny_package"
                 phx-value-id={@package.id}
+                disabled={!@can_approve_plugins}
               >
                 Deny
               </button>
+              <p :if={!@can_approve_plugins} class="w-full text-right text-xs text-base-content/60">
+                You do not have permission to approve or deny plugin packages.
+              </p>
             <% end %>
 
             <%= if @package.status == :approved do %>

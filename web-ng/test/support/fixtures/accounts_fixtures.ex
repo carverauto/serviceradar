@@ -25,6 +25,11 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
   Creates a user without confirming their email.
   """
   def unconfirmed_user_fixture(attrs \\ %{}) do
+    # User.register_with_password does not accept arbitrary inputs; some tests
+    # still pass `role:` expecting a role-specific fixture.
+    role = Map.get(attrs, :role) || Map.get(attrs, "role")
+    attrs = Map.drop(attrs, [:role, "role"])
+
     password = Map.get(attrs, :password, valid_user_password())
 
     {:ok, user} =
@@ -34,7 +39,27 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
       |> Map.put(:password_confirmation, password)
       |> ServiceRadar.Identity.Users.register_with_password(actor: AshTestHelpers.system_actor())
 
-    user
+    case role do
+      nil ->
+        user
+
+      role when role in [:viewer, :helpdesk, :operator, :admin] ->
+        # Avoid "cannot remove the last active admin account" when demoting a user.
+        if role != :admin do
+          :ok = AshTestHelpers.ensure_admin_user()
+        end
+
+        {:ok, updated} =
+          ServiceRadar.Identity.Users.update_role(user, role,
+            actor: AshTestHelpers.system_actor(),
+            authorize?: false
+          )
+
+        updated
+
+      _ ->
+        user
+    end
   end
 
   @doc """

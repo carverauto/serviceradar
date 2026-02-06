@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadar.Observability.ZenRule
+  alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
 
@@ -23,38 +24,60 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
   def mount(%{"id" => id}, _session, socket) do
     scope = socket.assigns.current_scope
 
-    case find_rule(scope, id) do
-      nil ->
-        {:ok,
-         socket
-         |> put_flash(:error, "Rule not found")
-         |> redirect(to: ~p"/settings/rules?tab=logs")}
+    if can_manage_rules?(scope) do
+      case find_rule(scope, id) do
+        nil ->
+          {:ok,
+           socket
+           |> put_flash(:error, "Rule not found")
+           |> redirect(to: ~p"/settings/rules?tab=logs")}
 
-      rule ->
-        {:ok, init_editor(socket, scope, rule, :edit)}
+        rule ->
+          {:ok, init_editor(socket, scope, rule, :edit)}
+      end
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to Events rules")
+       |> redirect(to: ~p"/settings/profile")}
     end
   end
 
   def mount(%{"clone_id" => clone_id}, _session, socket) do
     scope = socket.assigns.current_scope
 
-    case find_rule(scope, clone_id) do
-      nil ->
-        {:ok,
-         socket
-         |> put_flash(:error, "Rule not found")
-         |> redirect(to: ~p"/settings/rules?tab=logs")}
+    if can_manage_rules?(scope) do
+      case find_rule(scope, clone_id) do
+        nil ->
+          {:ok,
+           socket
+           |> put_flash(:error, "Rule not found")
+           |> redirect(to: ~p"/settings/rules?tab=logs")}
 
-      rule ->
-        # Clone the rule (new record with copied values)
-        cloned = %{rule | id: nil, name: "#{rule.name} (copy)"}
-        {:ok, init_editor(socket, scope, cloned, :create)}
+        rule ->
+          # Clone the rule (new record with copied values)
+          cloned = %{rule | id: nil, name: "#{rule.name} (copy)"}
+          {:ok, init_editor(socket, scope, cloned, :create)}
+      end
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to Events rules")
+       |> redirect(to: ~p"/settings/profile")}
     end
   end
 
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
-    {:ok, init_editor(socket, scope, nil, :create)}
+
+    if can_manage_rules?(scope) do
+      {:ok, init_editor(socket, scope, nil, :create)}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to Events rules")
+       |> redirect(to: ~p"/settings/profile")}
+    end
   end
 
   @impl true
@@ -90,6 +113,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
       :new ->
         {:noreply, init_editor(socket, scope, nil, :create)}
     end
+  end
+
+  defp can_manage_rules?(scope) do
+    RBAC.can?(scope, "observability.rules.update") or
+      RBAC.can?(scope, "observability.rules.create")
   end
 
   defp init_editor(socket, scope, rule, mode) do

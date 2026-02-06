@@ -79,7 +79,17 @@ config :serviceradar_core, ServiceRadar.Repo,
       (System.get_env("MIX_TEST_PARTITION") || ""),
   ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2,
+  pool_size:
+    (case System.get_env("TEST_CNPG_POOL_SIZE") do
+       nil -> min(max(System.schedulers_online() * 2, 10), 30)
+       "" -> min(max(System.schedulers_online() * 2, 10), 30)
+       value -> min(String.to_integer(value), 40)
+     end),
+  # Reduce flakiness under `mix test` with higher concurrency when using a remote CNPG DB.
+  queue_target: 1_000,
+  queue_interval: 1_000,
+  # Some migrations (Timescale hypertables, indexes) can take > 2 minutes on CI/dev hardware.
+  ownership_timeout: 300_000,
   parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
   types: ServiceRadar.PostgresTypes
 
@@ -105,10 +115,10 @@ config :serviceradar_web_ng, ServiceRadarWebNG.Mailer, adapter: Swoosh.Adapters.
 # Configure ServiceRadar.Mailer (used by AshAuthentication in serviceradar_core)
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
 
-# AshAuthentication token signing secret for tests
-config :serviceradar_web_ng,
-       :token_signing_secret,
-       "test_token_signing_secret_at_least_32_chars_long!"
+# Token signing secret for tests (runtime.exs isn't loaded under `mix test`)
+token_signing_secret = "test_token_signing_secret_at_least_32_chars_long!"
+config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
+config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian, secret_key: token_signing_secret
 
 config :serviceradar_web_ng, :base_url, "http://localhost:4002"
 
@@ -131,9 +141,14 @@ config :phoenix,
 
 # Oban test configuration for serviceradar_core
 config :serviceradar_core, Oban,
+  repo: ServiceRadar.Repo,
+  prefix: "platform",
   testing: :manual,
   queues: false,
   plugins: false
+
+# Avoid SQL sandbox ownership errors from delayed seeders that run on application start.
+config :serviceradar_core, :seeders_enabled, false
 
 # Set env for serviceradar_core (enables Vault fallback key in tests)
 config :serviceradar_core, env: :test

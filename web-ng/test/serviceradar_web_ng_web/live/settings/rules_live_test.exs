@@ -4,31 +4,37 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Observability.ZenRule
-  alias ServiceRadar.Observability.LogPromotionRule
+  alias ServiceRadar.Observability.EventRule
 
   setup :register_and_log_in_user
 
   describe "log normalization rules" do
     test "creates and deletes a Zen rule", %{conn: conn, scope: scope} do
-      {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=logs")
+      {:ok, editor_lv, _html} = live(conn, ~p"/settings/rules/zen/new")
       unique = System.unique_integer([:positive])
       rule_name = "syslog-clean-#{unique}"
 
-      lv
+      editor_lv
       |> form("#zen_rule_form",
         zen_rule: %{
-          name: rule_name,
-          subject: "logs.syslog",
-          template: "passthrough",
-          order: "10"
+          "name" => rule_name,
+          "subject" => "logs.syslog",
+          "template" => "passthrough",
+          "stream_name" => "events",
+          "agent_id" => "default-agent",
+          "enabled" => "true",
+          "order" => "10"
         }
       )
       |> render_submit()
+
+      assert render(editor_lv) =~ "Rule saved successfully"
 
       rules = unwrap_page(Ash.read(ZenRule, scope: scope))
       rule = Enum.find(rules, &(&1.name == rule_name))
 
       assert rule
+      {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=logs")
       assert render(lv) =~ rule_name
 
       lv
@@ -41,69 +47,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
   end
 
   describe "event and alert rules" do
-    test "creates promotion and stateful rules", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=events")
-      unique = System.unique_integer([:positive])
+    test "renders events and alerts tabs", %{conn: conn} do
+      {:ok, _lv, html} = live(conn, ~p"/settings/rules?tab=events")
+      assert html =~ "Event Rules"
 
-      promotion_name = "promote-errors-#{unique}"
-
-      lv
-      |> form("#promotion_rule_form",
-        promotion_rule: %{
-          name: promotion_name,
-          priority: "10",
-          enabled: "true",
-          match: %{
-            subject_prefix: "logs.syslog",
-            severity_text: "ERROR"
-          },
-          event: %{
-            message: "Syslog error"
-          }
-        }
-      )
-      |> render_submit()
-
-      assert render(lv) =~ promotion_name
-
-      stateful_name = "repeat-errors-#{unique}"
-
-      {:ok, lv_alerts, _html} = live(conn, ~p"/settings/rules?tab=alerts")
-
-      lv_alerts
-      |> form("#stateful_rule_form",
-        stateful_rule: %{
-          name: stateful_name,
-          signal: "log",
-          threshold: "5",
-          window_seconds: "600",
-          bucket_seconds: "60",
-          cooldown_seconds: "300",
-          renotify_seconds: "21600",
-          match: %{
-            subject_prefix: "logs.syslog",
-            severity_text: "ERROR"
-          }
-        }
-      )
-      |> render_submit()
-
-      assert render(lv_alerts) =~ stateful_name
+      {:ok, _lv, html} = live(conn, ~p"/settings/rules?tab=alerts")
+      assert html =~ "Alert Rules"
     end
   end
 
   describe "rule templates" do
-    test "template management is available via presets modal", %{conn: conn} do
+    test "log normalization tab links to the Zen rule editor", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=logs")
 
-      refute has_element?(lv, "#zen_presets_modal")
-
-      lv
-      |> element("#open_zen_presets")
-      |> render_click()
-
-      assert has_element?(lv, "#zen_presets_modal")
-      assert has_element?(lv, "#zen_template_form")
+      assert has_element?(lv, "a", "New Rule")
+      assert render(lv) =~ "/settings/rules/zen/new"
     end
   end
 
@@ -113,7 +71,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
       # Click the New Rule button
       lv
-      |> element("button", "New Rule")
+      |> element("button[phx-click=new_promotion_rule]", "New Log Rule")
       |> render_click()
 
       # Modal should be visible
@@ -128,8 +86,28 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
       # Open the rule builder
       lv
-      |> element("button", "New Rule")
+      |> element("button[phx-click=new_promotion_rule]", "New Log Rule")
       |> render_click()
+
+      # Enable the condition so the input is no longer disabled (LiveViewTest won't fill disabled inputs)
+      lv
+      |> form("#rule-builder-form", %{
+        "rule" => %{
+          "name" => rule_name,
+          "body_contains_enabled" => "true"
+        }
+      })
+      |> render_change()
+
+      lv
+      |> form("#rule-builder-form", %{
+        "rule" => %{
+          "name" => rule_name,
+          "body_contains_enabled" => "true",
+          "severity_enabled" => "true"
+        }
+      })
+      |> render_change()
 
       # Fill in the form
       lv
@@ -149,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
       assert render(lv) =~ rule_name
 
       # Verify rule was created
-      rules = unwrap_page(Ash.read(LogPromotionRule, scope: scope))
+      rules = unwrap_page(Ash.read(EventRule, scope: scope))
       rule = Enum.find(rules, &(&1.name == rule_name))
       assert rule
       assert rule.match["body_contains"] == "test error"
@@ -163,13 +141,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
       {:ok, rule} =
         Ash.create(
-          LogPromotionRule,
+          EventRule,
           %{
             name: rule_name,
             enabled: true,
             priority: 100,
             match: %{"body_contains" => "original error"}
           },
+          action: :create,
           scope: scope
         )
 
@@ -196,7 +175,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
       |> render_submit()
 
       # Verify rule was updated
-      {:ok, updated_rule} = Ash.get(LogPromotionRule, rule.id, scope: scope)
+      updated_rule =
+        EventRule
+        |> Ash.read!(scope: scope)
+        |> case do
+          %Ash.Page.Keyset{results: results} -> results
+          results when is_list(results) -> results
+          _ -> []
+        end
+        |> Enum.find(&(&1.id == rule.id))
+
+      assert updated_rule
       assert updated_rule.match["body_contains"] == "updated error"
     end
 
@@ -206,13 +195,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
       {:ok, rule} =
         Ash.create(
-          LogPromotionRule,
+          EventRule,
           %{
             name: "toggle-test-#{unique}",
             enabled: true,
             priority: 100,
             match: %{"body_contains" => "test"}
           },
+          action: :create,
           scope: scope
         )
 
@@ -224,7 +214,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
       |> render_click()
 
       # Verify rule was disabled
-      {:ok, updated_rule} = Ash.get(LogPromotionRule, rule.id, scope: scope)
+      updated_rule =
+        EventRule
+        |> Ash.read!(scope: scope)
+        |> case do
+          %Ash.Page.Keyset{results: results} -> results
+          results when is_list(results) -> results
+          _ -> []
+        end
+        |> Enum.find(&(&1.id == rule.id))
+
+      assert updated_rule
       refute updated_rule.enabled
     end
 
@@ -233,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
       {:ok, _rule} =
         Ash.create(
-          LogPromotionRule,
+          EventRule,
           %{
             name: "summary-test-#{unique}",
             enabled: true,
@@ -244,6 +244,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
               "service_name" => "test-service"
             }
           },
+          action: :create,
           scope: scope
         )
 
@@ -261,18 +262,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
       # Open the rule builder
       lv
-      |> element("button", "New Rule")
+      |> element("button[phx-click=new_promotion_rule]", "New Log Rule")
       |> render_click()
 
       # Try to submit without enabling any conditions
       lv
       |> form("#rule-builder-form", %{
         "rule" => %{
-          "name" => "invalid-rule-#{unique}",
-          "body_contains_enabled" => "false",
-          "severity_enabled" => "false",
-          "service_name_enabled" => "false",
-          "attribute_enabled" => "false"
+          "name" => "invalid-rule-#{unique}"
         }
       })
       |> render_submit()

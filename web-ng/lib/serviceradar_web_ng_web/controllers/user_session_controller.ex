@@ -34,10 +34,45 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
         |> put_flash(:info, "Password updated successfully! Please sign in again.")
         |> UserAuth.log_out_user()
 
-      {:error, _changeset} ->
+      {:error, changeset} ->
         conn
-        |> put_flash(:error, "Failed to update password.")
-        |> redirect(to: ~p"/settings/profile")
+        |> put_flash(:error, "Failed to update password: #{format_password_error(changeset)}")
+        |> redirect(to: ~p"/users/settings")
+    end
+  end
+
+  defp format_password_error(%Ash.Error.Invalid{} = error) do
+    # Keep this user-facing and non-technical.
+    error.errors
+    |> Enum.map_join("; ", fn
+      %{field: field, message: message} when not is_nil(field) ->
+        "#{field}: #{message}"
+
+      %{message: message} ->
+        message
+
+      _ ->
+        "validation error"
+    end)
+  end
+
+  defp format_password_error(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
+      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
+    |> Enum.flat_map(fn {field, messages} ->
+      Enum.map(messages, fn message -> "#{field}: #{message}" end)
+    end)
+    |> Enum.join("; ")
+  end
+
+  defp format_password_error(other) do
+    case other do
+      {:http_error, status, body} -> "HTTP #{status}: #{inspect(body)}"
+      _ -> "unexpected error"
     end
   end
 
