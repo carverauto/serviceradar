@@ -125,8 +125,6 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     end
   end
 
-  defp get_client_ip(conn), do: ClientIP.get(conn)
-
   @doc """
   Initiates password reset flow.
 

@@ -473,7 +473,7 @@ defmodule ServiceRadarWebNG.Api.PluginPackageController do
 
   defp require_authenticated(conn) do
     case conn.assigns[:current_scope] do
-      %Scope{} -> :ok
+      %Scope{user: user} when not is_nil(user) -> :ok
       _ -> {:error, :unauthorized}
     end
   end

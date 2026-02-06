@@ -9,7 +9,6 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   PostgreSQL search_path set by infrastructure.
   """
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.GatewayCertificateIssuer
@@ -275,10 +274,15 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   # Private helpers
 
   defp build_opts(opts) do
-    actor = Keyword.get(opts, :actor) || system_actor()
+    authorize? = Keyword.get(opts, :authorize?, true)
+    actor = Keyword.get(opts, :actor)
+
+    if authorize? && is_nil(actor) do
+      raise ArgumentError,
+            "edge onboarding operations require an explicit :actor (set authorize?: false for token-gated flows)"
+    end
 
     opts
-    |> Keyword.put(:actor, actor)
   end
 
   defp normalize_filters(filters) do
@@ -304,7 +308,4 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   defp to_atom_if_string(value) when is_binary(value), do: String.to_existing_atom(value)
   defp to_atom_if_string(value), do: value
 
-  defp system_actor do
-    SystemActor.system(:onboarding_packages)
-  end
 end

@@ -33,6 +33,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNGWeb.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.RateLimiter
+  alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.Auth.SAMLStrategy
   alias ServiceRadarWebNGWeb.UserAuth
 
@@ -70,17 +71,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   end
 
   defp get_client_ip(conn) do
-    # Check for forwarded IP headers (proxy/load balancer)
-    forwarded_for =
-      conn
-      |> get_req_header("x-forwarded-for")
-      |> List.first()
-
-    if forwarded_for do
-      forwarded_for |> String.split(",") |> List.first() |> String.trim()
-    else
-      conn.remote_ip |> :inet.ntoa() |> to_string()
-    end
+    ClientIP.get(conn)
   end
 
   @doc """

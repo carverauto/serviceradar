@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Audit.UserAuthEvents do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.UserAuthEvent
+  alias ServiceRadarWebNGWeb.ClientIP
 
   def record_login(%Plug.Conn{} = conn, user, auth_method) do
     record(conn, user, "login", auth_method)
@@ -36,16 +37,7 @@ defmodule ServiceRadarWebNG.Audit.UserAuthEvents do
   end
 
   defp client_ip(conn) do
-    forwarded_for =
-      conn
-      |> Plug.Conn.get_req_header("x-forwarded-for")
-      |> List.first()
-
-    if forwarded_for do
-      forwarded_for |> String.split(",") |> List.first() |> String.trim()
-    else
-      conn.remote_ip |> :inet.ntoa() |> to_string()
-    end
+    ClientIP.get(conn)
   end
 
   defp user_agent(conn) do
@@ -54,4 +46,3 @@ defmodule ServiceRadarWebNG.Audit.UserAuthEvents do
     |> List.first()
   end
 end
-

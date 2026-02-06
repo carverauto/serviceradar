@@ -10,7 +10,6 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
   require Ash.Query
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingEvents
@@ -487,14 +486,6 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     end
   end
 
-  defp get_actor(conn) do
-    # retained for backwards compatibility with audit-only call sites
-    case conn.assigns[:current_scope] do
-      %{user: %{email: email}} -> email
-      _ -> nil
-    end
-  end
-
   defp get_user_actor(conn) do
     case conn.assigns[:current_scope] do
       %Scope{user: user} when not is_nil(user) ->
@@ -521,12 +512,10 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   end
 
   defp find_package(package_id) do
-    actor = SystemActor.system(:edge_controller)
-
     case OnboardingPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^package_id)
-         |> Ash.read_one(actor: actor) do
+         |> Ash.read_one(actor: nil, authorize?: false) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
       {:error, error} -> {:error, error}

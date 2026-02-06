@@ -3,11 +3,15 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
 
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
+  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+
+  @actor system_actor()
+
   describe "create/2" do
     test "creates a package with generated tokens", _context do
       attrs = %{label: "test-gateway-1", component_type: :gateway}
 
-      assert {:ok, result} = OnboardingPackages.create(attrs)
+      assert {:ok, result} = OnboardingPackages.create(attrs, actor: @actor)
 
       assert result.package.id != nil
       assert result.package.label == "test-gateway-1"
@@ -25,7 +29,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
 
     test "creates a package with custom TTLs", _context do
       attrs = %{label: "test-checker", component_type: :checker}
-      opts = [join_token_ttl_seconds: 3600, download_token_ttl_seconds: 7200]
+      opts = [actor: @actor, join_token_ttl_seconds: 3600, download_token_ttl_seconds: 7200]
 
       assert {:ok, result} = OnboardingPackages.create(attrs, opts)
 
@@ -41,30 +45,30 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     test "fails with missing label", _context do
       attrs = %{component_type: :gateway}
 
-      assert {:error, error} = OnboardingPackages.create(attrs)
+      assert {:error, error} = OnboardingPackages.create(attrs, actor: @actor)
       assert is_struct(error, Ash.Error.Invalid)
     end
 
     test "fails with invalid component_type", _context do
       attrs = %{label: "test", component_type: :invalid}
 
-      assert {:error, error} = OnboardingPackages.create(attrs)
+      assert {:error, error} = OnboardingPackages.create(attrs, actor: @actor)
       assert is_struct(error, Ash.Error.Invalid)
     end
   end
 
   describe "get/1" do
     test "returns {:ok, package} for existing package", _context do
-      {:ok, result} = OnboardingPackages.create(%{label: "test"})
+      {:ok, result} = OnboardingPackages.create(%{label: "test"}, actor: @actor)
 
-      assert {:ok, package} = OnboardingPackages.get(result.package.id)
+      assert {:ok, package} = OnboardingPackages.get(result.package.id, actor: @actor)
       assert package.id == result.package.id
       assert package.label == "test"
     end
 
     test "returns {:error, :not_found} for non-existent package", _context do
       assert {:error, :not_found} =
-               OnboardingPackages.get(Ecto.UUID.generate())
+               OnboardingPackages.get(Ecto.UUID.generate(), actor: @actor)
     end
 
     test "returns {:error, :not_found} for nil", _context do
@@ -76,23 +80,23 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     setup _context do
       # Create some test packages
       {:ok, r1} =
-        OnboardingPackages.create(%{label: "gateway-1", component_type: :gateway})
+        OnboardingPackages.create(%{label: "gateway-1", component_type: :gateway}, actor: @actor)
 
       {:ok, r2} =
-        OnboardingPackages.create(%{label: "checker-1", component_type: :checker})
+        OnboardingPackages.create(%{label: "checker-1", component_type: :checker}, actor: @actor)
 
       {:ok, r3} =
         OnboardingPackages.create(%{
           label: "agent-1",
           component_type: :agent,
           gateway_id: "gateway-123"
-        })
+        }, actor: @actor)
 
       %{packages: [r1.package, r2.package, r3.package]}
     end
 
     test "lists all packages", %{packages: packages} do
-      result = OnboardingPackages.list(%{})
+      result = OnboardingPackages.list(%{}, actor: @actor)
       assert length(result) >= 3
 
       ids = Enum.map(packages, & &1.id)
@@ -104,34 +108,35 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     end
 
     test "filters by status", _context do
-      result = OnboardingPackages.list(%{status: [:issued]})
+      result = OnboardingPackages.list(%{status: [:issued]}, actor: @actor)
       assert Enum.all?(result, &(&1.status == :issued))
     end
 
     test "filters by component_type", _context do
-      result = OnboardingPackages.list(%{component_type: [:checker]})
+      result = OnboardingPackages.list(%{component_type: [:checker]}, actor: @actor)
       assert Enum.all?(result, &(&1.component_type == :checker))
     end
 
     test "filters by gateway_id", _context do
-      result = OnboardingPackages.list(%{gateway_id: "gateway-123"})
+      result = OnboardingPackages.list(%{gateway_id: "gateway-123"}, actor: @actor)
       assert Enum.all?(result, &(&1.gateway_id == "gateway-123"))
     end
 
     test "respects limit", _context do
-      result = OnboardingPackages.list(%{limit: 1})
+      result = OnboardingPackages.list(%{limit: 1}, actor: @actor)
       assert length(result) == 1
     end
   end
 
   describe "deliver/3" do
     test "delivers package with valid token", _context do
-      {:ok, created} = OnboardingPackages.create(%{label: "test-deliver"})
+      {:ok, created} = OnboardingPackages.create(%{label: "test-deliver"}, actor: @actor)
 
       assert {:ok, result} =
                OnboardingPackages.deliver(
                  created.package.id,
-                 created.download_token
+                 created.download_token,
+                 authorize?: false
                )
 
       assert result.package.status == :delivered
@@ -140,36 +145,39 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     end
 
     test "fails with invalid token", _context do
-      {:ok, created} = OnboardingPackages.create(%{label: "test"})
+      {:ok, created} = OnboardingPackages.create(%{label: "test"}, actor: @actor)
 
       assert {:error, :invalid_token} =
                OnboardingPackages.deliver(
                  created.package.id,
-                 "wrong-token"
+                 "wrong-token",
+                 authorize?: false
                )
     end
 
     test "fails for already delivered package", _context do
-      {:ok, created} = OnboardingPackages.create(%{label: "test"})
+      {:ok, created} = OnboardingPackages.create(%{label: "test"}, actor: @actor)
 
       {:ok, _} =
-        OnboardingPackages.deliver(created.package.id, created.download_token)
+        OnboardingPackages.deliver(created.package.id, created.download_token, authorize?: false)
 
       assert {:error, :already_delivered} =
                OnboardingPackages.deliver(
                  created.package.id,
-                 created.download_token
+                 created.download_token,
+                 authorize?: false
                )
     end
 
     test "fails for revoked package", _context do
-      {:ok, created} = OnboardingPackages.create(%{label: "test"})
-      {:ok, _} = OnboardingPackages.revoke(created.package.id)
+      {:ok, created} = OnboardingPackages.create(%{label: "test"}, actor: @actor)
+      {:ok, _} = OnboardingPackages.revoke(created.package.id, actor: @actor)
 
       assert {:error, :revoked} =
                OnboardingPackages.deliver(
                  created.package.id,
-                 created.download_token
+                 created.download_token,
+                 authorize?: false
                )
     end
 
@@ -178,23 +186,26 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
         OnboardingPackages.create(
           %{label: "test"},
           # Already expired
+          actor: @actor,
           download_token_ttl_seconds: -1
         )
 
       assert {:error, :expired} =
                OnboardingPackages.deliver(
                  created.package.id,
-                 created.download_token
+                 created.download_token,
+                 authorize?: false
                )
     end
   end
 
   describe "revoke/2" do
     test "revokes an issued package", _context do
-      {:ok, created} = OnboardingPackages.create(%{label: "test-revoke"})
+      {:ok, created} = OnboardingPackages.create(%{label: "test-revoke"}, actor: @actor)
 
       assert {:ok, package} =
                OnboardingPackages.revoke(created.package.id,
+                 actor: @actor,
                  reason: "test reason"
                )
 
@@ -203,27 +214,28 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     end
 
     test "fails to revoke already revoked package", _context do
-      {:ok, created} = OnboardingPackages.create(%{label: "test"})
-      {:ok, _} = OnboardingPackages.revoke(created.package.id)
+      {:ok, created} = OnboardingPackages.create(%{label: "test"}, actor: @actor)
+      {:ok, _} = OnboardingPackages.revoke(created.package.id, actor: @actor)
 
       assert {:error, :already_revoked} =
-               OnboardingPackages.revoke(created.package.id)
+               OnboardingPackages.revoke(created.package.id, actor: @actor)
     end
 
     test "fails for non-existent package", _context do
       assert {:error, :not_found} =
-               OnboardingPackages.revoke(Ecto.UUID.generate())
+               OnboardingPackages.revoke(Ecto.UUID.generate(), actor: @actor)
     end
   end
 
   describe "delete/2" do
     test "soft-deletes a package", _context do
-      {:ok, created} = OnboardingPackages.create(%{label: "test-delete"})
+      actor = %{id: Ecto.UUID.generate(), role: :admin, email: "admin@test.com"}
+      {:ok, created} = OnboardingPackages.create(%{label: "test-delete"}, actor: actor)
 
       assert {:ok, package} =
                OnboardingPackages.delete(
                  created.package.id,
-                 actor: "admin@test.com",
+                 actor: actor,
                  reason: "cleanup"
                )
 
@@ -235,11 +247,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
 
     test "soft-deleted packages are excluded from list", _context do
       {:ok, created} =
-        OnboardingPackages.create(%{label: "test-delete-exclude"})
+        OnboardingPackages.create(%{label: "test-delete-exclude"}, actor: @actor)
 
-      {:ok, _} = OnboardingPackages.delete(created.package.id)
+      {:ok, _} = OnboardingPackages.delete(created.package.id, actor: @actor)
 
-      result = OnboardingPackages.list(%{})
+      result = OnboardingPackages.list(%{}, actor: @actor)
       ids = Enum.map(result, & &1.id)
       refute created.package.id in ids
     end
@@ -262,7 +274,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
         component_id: "gateway-test-cert"
       }
 
-      result = OnboardingPackages.create_with_platform_cert(attrs)
+      result = OnboardingPackages.create_with_platform_cert(attrs, actor: @actor)
 
       case result do
         {:ok, package_result} ->
@@ -292,7 +304,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       attrs = %{label: "test-delegation", component_type: :gateway}
 
       # The function should either succeed or fail gracefully
-      result = OnboardingPackages.create_with_platform_cert(attrs)
+      result = OnboardingPackages.create_with_platform_cert(attrs, actor: @actor)
 
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
@@ -301,7 +313,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       attrs = %{label: "test-options", component_type: :checker}
 
       # Call with options - should not raise
-      result = OnboardingPackages.create_with_platform_cert(attrs)
+      result = OnboardingPackages.create_with_platform_cert(attrs, actor: @actor)
 
       # Verify the function completed without argument errors
       assert is_tuple(result)
@@ -330,7 +342,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       }
 
       # In single-deployment mode, this should return an error since CA generation is not available
-      result = OnboardingPackages.create_with_platform_cert(attrs)
+      result = OnboardingPackages.create_with_platform_cert(attrs, actor: @actor)
 
       assert match?({:error, _}, result)
     end

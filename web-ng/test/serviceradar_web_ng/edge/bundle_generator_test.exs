@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
+  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+
   setup do
     # Create a test package
     {:ok, result} =
@@ -13,7 +15,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
           component_type: :gateway,
           component_id: "gateway-test-bundle"
         },
-        []
+        actor: system_actor()
       )
 
     %{

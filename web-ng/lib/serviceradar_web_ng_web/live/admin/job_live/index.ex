@@ -25,7 +25,16 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign_defaults(socket)}
+    scope = socket.assigns.current_scope
+
+    if not ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Jobs.")
+       |> push_navigate(to: ~p"/analytics")}
+    else
+      {:ok, assign_defaults(socket)}
+    end
   end
 
   @impl true

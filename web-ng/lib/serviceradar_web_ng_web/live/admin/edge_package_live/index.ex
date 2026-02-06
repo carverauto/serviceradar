@@ -14,21 +14,31 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.GatewayRegistry
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.GatewayHelpers
 
   require Logger
 
   @impl true
   def mount(_params, _session, socket) do
+    scope = socket.assigns.current_scope
+
+    if not RBAC.can?(scope, "settings.edge.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Edge Ops.")
+       |> push_navigate(to: ~p"/analytics")}
+    else
     security_mode = OnboardingPackages.configured_security_mode()
 
     {gateway_options, default_gateway_id} = load_gateway_state()
     base_url = request_base_url(socket)
+    actor = user_actor(socket)
 
     socket =
       socket
       |> assign(:page_title, "Edge Onboarding")
-      |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
+      |> assign(:packages, OnboardingPackages.list(%{limit: 50}, actor: actor))
       |> assign(:show_create_modal, false)
       |> assign(:show_details_modal, false)
       |> assign(:selected_package, nil)
@@ -50,6 +60,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     end
 
     {:ok, socket}
+    end
   end
 
   @impl true
@@ -66,9 +77,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp apply_action(socket, :show, %{"id" => id}) do
-    case OnboardingPackages.get(id) do
+    actor = user_actor(socket)
+
+    case OnboardingPackages.get(id, actor: actor) do
       {:ok, package} ->
-        events = OnboardingEvents.list_for_package(id, limit: 20)
+        events = OnboardingEvents.list_for_package(id, actor: actor, limit: 20)
 
         socket
         |> assign(:selected_package, package)
@@ -180,7 +193,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
            socket
            |> assign(:creating, false)
            |> assign(:created_tokens, package_result)
-           |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
+           |> assign(:packages, OnboardingPackages.list(%{limit: 50}, actor: user_actor(socket)))
            |> assign(:create_form, build_create_form(security_mode))
            |> put_flash(:info, "Package created with gateway-issued certificates")}
 
@@ -262,7 +275,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       {:ok, _package} ->
         {:noreply,
          socket
-         |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
+         |> assign(:packages, OnboardingPackages.list(%{limit: 50}, actor: user_actor(socket)))
          |> assign(:show_details_modal, false)
          |> assign(:selected_package, nil)
          |> put_flash(:info, "Package revoked successfully")}
@@ -285,7 +298,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       {:ok, _package} ->
         {:noreply,
          socket
-         |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
+         |> assign(:packages, OnboardingPackages.list(%{limit: 50}, actor: user_actor(socket)))
          |> assign(:show_details_modal, false)
          |> assign(:selected_package, nil)
          |> put_flash(:info, "Package deleted successfully")}
@@ -302,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     {:noreply,
      socket
      |> assign(:filter_status, if(status == "", do: nil, else: status))
-     |> assign(:packages, OnboardingPackages.list(filters))}
+     |> assign(:packages, OnboardingPackages.list(filters, actor: user_actor(socket)))}
   end
 
   def handle_event("copy_token", %{"token" => token}, socket) do
@@ -894,7 +907,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp refresh_packages(socket) do
-    assign(socket, :packages, OnboardingPackages.list(%{limit: 50}))
+    assign(socket, :packages, OnboardingPackages.list(%{limit: 50}, actor: user_actor(socket)))
   end
 
   defp cert_cn(%{spiffe_id: spiffe_id}) when is_binary(spiffe_id) do
@@ -1118,6 +1131,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       %{user: user} when not is_nil(user) -> user
       _ -> nil
     end
+  end
+
+  defp user_actor(socket) do
+    socket.assigns[:ash_actor] || get_actor(socket)
   end
 
   defp build_package_attrs_from_form(params, security_mode) do

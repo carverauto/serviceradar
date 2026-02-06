@@ -24,11 +24,22 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
   @impl true
   def mount(%{"id" => encoded_id}, _session, socket) do
+    scope = socket.assigns.current_scope
+
+    if not ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Jobs.")
+       |> push_navigate(to: ~p"/analytics")}
+    else
     case decode_job_id(encoded_id) do
       {:ok, id} ->
         case JobCatalog.get_job(id) do
           {:ok, job} ->
-            {:ok, assign_job(socket, job)}
+            {:ok,
+             socket
+             |> assign(:can_trigger, true)
+             |> assign_job(job)}
 
           {:error, :not_found} ->
             {:ok,
@@ -42,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
          socket
          |> put_flash(:error, "Invalid job ID")
          |> push_navigate(to: ~p"/admin/jobs")}
+    end
     end
   end
 
@@ -92,15 +104,19 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   def handle_event("trigger_job", _params, socket) do
     job = socket.assigns.job
 
-    case JobCatalog.trigger_job(job) do
-      {:ok, _oban_job} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Job '#{job.name}' triggered successfully")
-         |> assign_job(job)}
+    if not socket.assigns[:can_trigger] do
+      {:noreply, put_flash(socket, :error, "You don't have permission to trigger jobs.")}
+    else
+      case JobCatalog.trigger_job(job) do
+        {:ok, _oban_job} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Job '#{job.name}' triggered successfully")
+           |> assign_job(job)}
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to trigger job: #{inspect(reason)}")}
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to trigger job: #{inspect(reason)}")}
+      end
     end
   end
 
@@ -307,6 +323,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
               </:header>
               <div class="space-y-2">
                 <.ui_button
+                  :if={@can_trigger}
                   variant="primary"
                   size="sm"
                   class="w-full"

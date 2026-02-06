@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
   alias ServiceRadarWebNGWeb.Auth.RateLimiter
+  alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
 
   plug :fetch_session
@@ -61,17 +62,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   end
 
   defp get_client_ip(conn) do
-    # Check for forwarded IP headers (proxy/load balancer)
-    forwarded_for =
-      conn
-      |> get_req_header("x-forwarded-for")
-      |> List.first()
-
-    if forwarded_for do
-      forwarded_for |> String.split(",") |> List.first() |> String.trim()
-    else
-      conn.remote_ip |> :inet.ntoa() |> to_string()
-    end
+    ClientIP.get(conn)
   end
 
   @doc """

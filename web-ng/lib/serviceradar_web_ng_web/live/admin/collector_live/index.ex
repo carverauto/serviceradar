@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadarWebNG.Collectors.PubSub, as: CollectorPubSub
+  alias ServiceRadarWebNG.RBAC
 
   @collector_types [
     {"Syslog Collector (Flowgger)", :flowgger},
@@ -30,6 +31,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
+    scope = socket.assigns.current_scope
+
+    if not RBAC.can?(scope, "settings.edge.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Edge Ops.")
+       |> push_navigate(to: ~p"/analytics")}
+    else
     actor = get_actor(socket)
 
     # Subscribe to real-time updates for collectors
@@ -55,6 +64,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       |> load_edge_sites(actor)
 
     {:ok, socket}
+    end
   end
 
   @impl true
