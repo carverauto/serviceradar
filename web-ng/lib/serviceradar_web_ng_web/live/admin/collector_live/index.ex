@@ -33,37 +33,37 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not RBAC.can?(scope, "settings.edge.manage") do
+    if RBAC.can?(scope, "settings.edge.manage") do
+      actor = get_actor(socket)
+
+      # Subscribe to real-time updates for collectors
+      if connected?(socket) do
+        CollectorPubSub.subscribe_collectors()
+        CollectorPubSub.subscribe_nats()
+      end
+
+      socket =
+        socket
+        |> assign(:page_title, "Collectors")
+        |> assign(:collector_types, @collector_types)
+        |> assign(:show_create_modal, false)
+        |> assign(:show_details_modal, false)
+        |> assign(:selected_package, nil)
+        |> assign(:created_package, nil)
+        |> assign(:created_download_token, nil)
+        |> assign(:filter_status, nil)
+        |> assign(:filter_type, nil)
+        |> load_account_status(actor)
+        |> load_packages(actor)
+        |> load_credentials(actor)
+        |> load_edge_sites(actor)
+
+      {:ok, socket}
+    else
       {:ok,
        socket
        |> put_flash(:error, "You don't have permission to access Edge Ops.")
        |> push_navigate(to: ~p"/analytics")}
-    else
-    actor = get_actor(socket)
-
-    # Subscribe to real-time updates for collectors
-    if connected?(socket) do
-      CollectorPubSub.subscribe_collectors()
-      CollectorPubSub.subscribe_nats()
-    end
-
-    socket =
-      socket
-      |> assign(:page_title, "Collectors")
-      |> assign(:collector_types, @collector_types)
-      |> assign(:show_create_modal, false)
-      |> assign(:show_details_modal, false)
-      |> assign(:selected_package, nil)
-      |> assign(:created_package, nil)
-      |> assign(:created_download_token, nil)
-      |> assign(:filter_status, nil)
-      |> assign(:filter_type, nil)
-      |> load_account_status(actor)
-      |> load_packages(actor)
-      |> load_credentials(actor)
-      |> load_edge_sites(actor)
-
-    {:ok, socket}
     end
   end
 

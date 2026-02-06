@@ -72,11 +72,9 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   defp stringify_value(%Date{} = value), do: Date.to_iso8601(value)
   # Avoid treating structs (e.g. Ash.CiString) as maps, since they don't implement Enumerable.
   defp stringify_value(%_{} = value) do
-    try do
-      to_string(value)
-    rescue
-      _ -> inspect(value)
-    end
+    to_string(value)
+  rescue
+    _ -> inspect(value)
   end
   defp stringify_value(value) when is_map(value), do: stringify_keys(value)
   defp stringify_value(value) when is_list(value), do: Enum.map(value, &stringify_value/1)

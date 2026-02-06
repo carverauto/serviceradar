@@ -23,43 +23,43 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not RBAC.can?(scope, "settings.edge.manage") do
+    if RBAC.can?(scope, "settings.edge.manage") do
+      security_mode = OnboardingPackages.configured_security_mode()
+
+      {gateway_options, default_gateway_id} = load_gateway_state()
+      base_url = request_base_url(socket)
+      actor = user_actor(socket)
+
+      socket =
+        socket
+        |> assign(:page_title, "Edge Onboarding")
+        |> assign(:packages, OnboardingPackages.list(%{limit: 50}, actor: actor))
+        |> assign(:show_create_modal, false)
+        |> assign(:show_details_modal, false)
+        |> assign(:selected_package, nil)
+        |> assign(:package_events, [])
+        |> assign(:created_tokens, nil)
+        |> assign(:creating, false)
+        |> assign(:create_form, build_create_form(security_mode))
+        |> assign(:filter_status, nil)
+        |> assign(:security_mode, security_mode)
+        |> assign(:selected_component_type, "agent")
+        |> assign(:partition_value, "default")
+        |> assign(:host_ip_value, "")
+        |> assign(:gateway_options, gateway_options)
+        |> assign(:default_gateway_id, default_gateway_id)
+        |> assign(:base_url, base_url)
+
+      if connected?(socket) do
+        EdgePubSub.subscribe_packages()
+      end
+
+      {:ok, socket}
+    else
       {:ok,
        socket
        |> put_flash(:error, "You don't have permission to access Edge Ops.")
        |> push_navigate(to: ~p"/analytics")}
-    else
-    security_mode = OnboardingPackages.configured_security_mode()
-
-    {gateway_options, default_gateway_id} = load_gateway_state()
-    base_url = request_base_url(socket)
-    actor = user_actor(socket)
-
-    socket =
-      socket
-      |> assign(:page_title, "Edge Onboarding")
-      |> assign(:packages, OnboardingPackages.list(%{limit: 50}, actor: actor))
-      |> assign(:show_create_modal, false)
-      |> assign(:show_details_modal, false)
-      |> assign(:selected_package, nil)
-      |> assign(:package_events, [])
-      |> assign(:created_tokens, nil)
-      |> assign(:creating, false)
-      |> assign(:create_form, build_create_form(security_mode))
-      |> assign(:filter_status, nil)
-      |> assign(:security_mode, security_mode)
-      |> assign(:selected_component_type, "agent")
-      |> assign(:partition_value, "default")
-      |> assign(:host_ip_value, "")
-      |> assign(:gateway_options, gateway_options)
-      |> assign(:default_gateway_id, default_gateway_id)
-      |> assign(:base_url, base_url)
-
-    if connected?(socket) do
-      EdgePubSub.subscribe_packages()
-    end
-
-    {:ok, socket}
     end
   end
 

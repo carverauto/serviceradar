@@ -166,6 +166,10 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
     Enum.filter(requested, &(&1 in client_scopes))
   end
 
+  defp scope_to_atom(scope) when is_atom(scope), do: scope
+  defp scope_to_atom(scope) when is_binary(scope), do: String.to_existing_atom(scope)
+  defp scope_to_atom(_), do: :read
+
   defp issue_token(conn, client, scopes) do
     # Load the user for the token
     actor = SystemActor.system(:oauth_token)
@@ -174,13 +178,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
       {:ok, user} ->
         scopes_atoms =
           scopes
-          |> Enum.map(fn scope ->
-            case scope do
-              s when is_atom(s) -> s
-              s when is_binary(s) -> String.to_existing_atom(s)
-              _ -> :read
-            end
-          end)
+          |> Enum.map(&scope_to_atom/1)
 
         extra_claims = %{
           "client_id" => to_string(client.id),

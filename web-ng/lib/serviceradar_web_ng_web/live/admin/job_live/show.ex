@@ -26,34 +26,31 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   def mount(%{"id" => encoded_id}, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage") do
+    if ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage") do
+      case load_job(encoded_id) do
+        {:ok, job} ->
+          {:ok,
+           socket
+           |> assign(:can_trigger, true)
+           |> assign_job(job)}
+
+        {:error, :not_found} ->
+          {:ok,
+           socket
+           |> put_flash(:error, "Job not found")
+           |> push_navigate(to: ~p"/admin/jobs")}
+
+        {:error, :invalid_id} ->
+          {:ok,
+           socket
+           |> put_flash(:error, "Invalid job ID")
+           |> push_navigate(to: ~p"/admin/jobs")}
+      end
+    else
       {:ok,
        socket
        |> put_flash(:error, "You don't have permission to access Jobs.")
        |> push_navigate(to: ~p"/analytics")}
-    else
-    case decode_job_id(encoded_id) do
-      {:ok, id} ->
-        case JobCatalog.get_job(id) do
-          {:ok, job} ->
-            {:ok,
-             socket
-             |> assign(:can_trigger, true)
-             |> assign_job(job)}
-
-          {:error, :not_found} ->
-            {:ok,
-             socket
-             |> put_flash(:error, "Job not found")
-             |> push_navigate(to: ~p"/admin/jobs")}
-        end
-
-      :error ->
-        {:ok,
-         socket
-         |> put_flash(:error, "Invalid job ID")
-         |> push_navigate(to: ~p"/admin/jobs")}
-    end
     end
   end
 
@@ -101,22 +98,32 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
     {:noreply, socket}
   end
 
+  def handle_event("trigger_job", _params, %{assigns: %{can_trigger: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to trigger jobs.")}
+  end
+
   def handle_event("trigger_job", _params, socket) do
     job = socket.assigns.job
 
-    if not socket.assigns[:can_trigger] do
-      {:noreply, put_flash(socket, :error, "You don't have permission to trigger jobs.")}
-    else
-      case JobCatalog.trigger_job(job) do
-        {:ok, _oban_job} ->
-          {:noreply,
-           socket
-           |> put_flash(:info, "Job '#{job.name}' triggered successfully")
-           |> assign_job(job)}
+    case JobCatalog.trigger_job(job) do
+      {:ok, _oban_job} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Job '#{job.name}' triggered successfully")
+         |> assign_job(job)}
 
-        {:error, reason} ->
-          {:noreply, put_flash(socket, :error, "Failed to trigger job: #{inspect(reason)}")}
-      end
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to trigger job: #{inspect(reason)}")}
+    end
+  end
+
+  defp load_job(encoded_id) do
+    with {:ok, id} <- decode_job_id(encoded_id),
+         {:ok, job} <- JobCatalog.get_job(id) do
+      {:ok, job}
+    else
+      :error -> {:error, :invalid_id}
+      {:error, :not_found} -> {:error, :not_found}
     end
   end
 

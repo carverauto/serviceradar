@@ -17,29 +17,29 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   def mount(%{"id" => id}, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not RBAC.can?(scope, "settings.edge.manage") do
+    if RBAC.can?(scope, "settings.edge.manage") do
+      case load_site(id, scope) do
+        {:ok, site} ->
+          socket =
+            socket
+            |> assign(:page_title, site.name)
+            |> assign(:site, site)
+            |> assign(:leaf_server, site.nats_leaf_server)
+            |> load_collectors(id, scope)
+
+          {:ok, socket}
+
+        {:error, :not_found} ->
+          {:ok,
+           socket
+           |> put_flash(:error, "Edge site not found")
+           |> push_navigate(to: ~p"/admin/edge-sites")}
+      end
+    else
       {:ok,
        socket
        |> put_flash(:error, "You don't have permission to access Edge Sites.")
        |> push_navigate(to: ~p"/analytics")}
-    else
-    case load_site(id, scope) do
-      {:ok, site} ->
-        socket =
-          socket
-          |> assign(:page_title, site.name)
-          |> assign(:site, site)
-          |> assign(:leaf_server, site.nats_leaf_server)
-          |> load_collectors(id, scope)
-
-        {:ok, socket}
-
-      {:error, :not_found} ->
-        {:ok,
-         socket
-         |> put_flash(:error, "Edge site not found")
-         |> push_navigate(to: ~p"/admin/edge-sites")}
-    end
     end
   end
 
