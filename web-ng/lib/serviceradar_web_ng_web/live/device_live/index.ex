@@ -189,68 +189,76 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("preview_csv", _params, socket) do
-    if not RBAC.can?(socket.assigns.current_scope, "devices.import") do
-      {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
+    if RBAC.can?(socket.assigns.current_scope, "devices.import") do
+      preview_csv_upload(socket)
     else
-      # Parse uploaded CSV and show preview
-      case uploaded_entries(socket, :csv_file) do
-        [] ->
-          {:noreply, assign(socket, :csv_errors, ["No file selected"])}
+      {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
+    end
+  end
 
-        [entry | _] ->
-          result =
-            consume_uploaded_entry(socket, entry, fn %{path: path} ->
-              parse_csv_file(path)
-            end)
+  defp preview_csv_upload(socket) do
+    # Parse uploaded CSV and show preview
+    case uploaded_entries(socket, :csv_file) do
+      [] ->
+        {:noreply, assign(socket, :csv_errors, ["No file selected"])}
 
-          case result do
-            {:ok, devices} ->
-              {:noreply,
-               socket
-               |> assign(:csv_preview, devices)
-               |> assign(:csv_errors, [])}
+      [entry | _] ->
+        result =
+          consume_uploaded_entry(socket, entry, fn %{path: path} ->
+            parse_csv_file(path)
+          end)
 
-            {:error, errors} ->
-              {:noreply,
-               socket
-               |> assign(:csv_preview, nil)
-               |> assign(:csv_errors, errors)}
-          end
-      end
+        case result do
+          {:ok, devices} ->
+            {:noreply,
+             socket
+             |> assign(:csv_preview, devices)
+             |> assign(:csv_errors, [])}
+
+          {:error, errors} ->
+            {:noreply,
+             socket
+             |> assign(:csv_preview, nil)
+             |> assign(:csv_errors, errors)}
+        end
     end
   end
 
   def handle_event("import_csv", _params, socket) do
-    if not RBAC.can?(socket.assigns.current_scope, "devices.import") do
-      {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
+    if RBAC.can?(socket.assigns.current_scope, "devices.import") do
+      import_csv_preview(socket)
     else
-      case socket.assigns.csv_preview do
-        nil ->
-          {:noreply, assign(socket, :csv_errors, ["No CSV data to import. Preview first."])}
+      {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
+    end
+  end
 
-        devices when is_list(devices) and devices != [] ->
-          scope = socket.assigns.current_scope
+  defp import_csv_preview(socket) do
+    case socket.assigns.csv_preview do
+      nil ->
+        {:noreply, assign(socket, :csv_errors, ["No CSV data to import. Preview first."])}
 
-          case import_devices(scope, devices) do
-            {:ok, {created, skipped}} ->
-              {:noreply,
-               socket
-               |> assign(:show_import_modal, false)
-               |> assign(:csv_preview, nil)
-               |> assign(:csv_errors, [])
-               |> put_flash(:info, import_success_message(created, skipped))
-               |> push_patch(to: ~p"/devices")}
+      devices when is_list(devices) and devices != [] ->
+        scope = socket.assigns.current_scope
 
-            {:error, errors} when is_list(errors) ->
-              {:noreply, assign(socket, :csv_errors, errors)}
+        case import_devices(scope, devices) do
+          {:ok, {created, skipped}} ->
+            {:noreply,
+             socket
+             |> assign(:show_import_modal, false)
+             |> assign(:csv_preview, nil)
+             |> assign(:csv_errors, [])
+             |> put_flash(:info, import_success_message(created, skipped))
+             |> push_patch(to: ~p"/devices")}
 
-            {:error, reason} ->
-              {:noreply, assign(socket, :csv_errors, ["Import failed: #{inspect(reason)}"])}
-          end
+          {:error, errors} when is_list(errors) ->
+            {:noreply, assign(socket, :csv_errors, errors)}
 
-        _ ->
-          {:noreply, assign(socket, :csv_errors, ["No valid devices in CSV"])}
-      end
+          {:error, reason} ->
+            {:noreply, assign(socket, :csv_errors, ["Import failed: #{inspect(reason)}"])}
+        end
+
+      _ ->
+        {:noreply, assign(socket, :csv_errors, ["No valid devices in CSV"])}
     end
   end
 
@@ -259,9 +267,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("save_device", %{"device" => params}, socket) do
-    if not RBAC.can?(socket.assigns.current_scope, "devices.create") do
-      {:noreply, put_flash(socket, :error, "You are not authorized to add devices")}
-    else
+    if RBAC.can?(socket.assigns.current_scope, "devices.create") do
       scope = socket.assigns.current_scope
 
       case create_device(scope, params) do
@@ -300,6 +306,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           Logger.error("Device create failed: #{inspect(reason)}")
           {:noreply, put_flash(socket, :error, "Failed to create device")}
       end
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to add devices")}
     end
   end
 
@@ -473,10 +481,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp handle_confirm_bulk_delete(socket) do
     scope = socket.assigns.current_scope
 
-    if not RBAC.can?(scope, "devices.bulk_delete") do
-      {:noreply, put_flash(socket, :error, "You are not authorized to bulk delete devices")}
-    else
+    if RBAC.can?(scope, "devices.bulk_delete") do
       do_bulk_delete(socket, scope)
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to bulk delete devices")}
     end
   end
 

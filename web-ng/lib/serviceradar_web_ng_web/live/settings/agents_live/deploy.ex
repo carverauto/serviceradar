@@ -17,18 +17,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not RBAC.can?(scope, "settings.edge.manage") do
+    if RBAC.can?(scope, "settings.edge.manage") do
+      socket =
+        socket
+        |> assign(:page_title, "Deploy Agent")
+        |> assign(:can_manage_edge, true)
+
+      {:ok, socket}
+    else
       {:ok,
        socket
        |> put_flash(:error, "You do not have access to agent deployment tools")
        |> push_navigate(to: ~p"/settings/profile")}
-    else
-    socket =
-      socket
-      |> assign(:page_title, "Deploy Agent")
-      |> assign(:can_manage_edge, true)
-
-    {:ok, socket}
     end
   end
 

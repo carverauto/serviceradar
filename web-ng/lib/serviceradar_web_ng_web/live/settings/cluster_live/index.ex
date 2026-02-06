@@ -25,53 +25,53 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not RBAC.can?(scope, "settings.view") do
+    if RBAC.can?(scope, "settings.view") do
+      if connected?(socket) do
+        # Subscribe to cluster events (same topics used by AgentRegistry)
+        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "cluster:events")
+        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
+        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:status")
+        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "gateway:platform")
+
+        # Schedule periodic refresh
+        schedule_refresh()
+      end
+
+      is_admin =
+        case scope do
+          nil -> false
+          scope -> Scope.admin?(scope)
+        end
+
+      gateways_cache = load_initial_gateways_cache()
+      agents_cache = load_initial_agents_cache()
+      gateways = compute_gateways(gateways_cache)
+      agents = compute_connected_agents(agents_cache)
+
+      cluster_status = load_cluster_status()
+      cluster_health = build_cluster_health(gateways, agents)
+      job_counts = load_job_counts(scope)
+
+      socket =
+        socket
+        |> assign(:page_title, "Cluster Status")
+        |> assign(:cluster_status, cluster_status)
+        |> assign(:cluster_health, cluster_health)
+        |> assign(:gateways_cache, gateways_cache)
+        |> assign(:agents_cache, agents_cache)
+        |> assign(:gateways, gateways)
+        |> assign(:agents, agents)
+        |> assign(:is_admin, is_admin)
+        |> assign(:job_counts, job_counts)
+        |> assign(:oban_stats, load_oban_stats())
+        |> assign(:events, [])
+
+      {:ok, socket}
+    else
       {:ok,
        socket
        |> put_flash(:error, "You do not have access to Settings")
        |> push_navigate(to: ~p"/settings/profile")}
-    else
-    if connected?(socket) do
-      # Subscribe to cluster events (same topics used by AgentRegistry)
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "cluster:events")
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:status")
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "gateway:platform")
-
-      # Schedule periodic refresh
-      schedule_refresh()
-    end
-
-    is_admin =
-      case scope do
-        nil -> false
-        scope -> Scope.admin?(scope)
-      end
-
-    gateways_cache = load_initial_gateways_cache()
-    agents_cache = load_initial_agents_cache()
-    gateways = compute_gateways(gateways_cache)
-    agents = compute_connected_agents(agents_cache)
-
-    cluster_status = load_cluster_status()
-    cluster_health = build_cluster_health(gateways, agents)
-    job_counts = load_job_counts(scope)
-
-    socket =
-      socket
-      |> assign(:page_title, "Cluster Status")
-      |> assign(:cluster_status, cluster_status)
-      |> assign(:cluster_health, cluster_health)
-      |> assign(:gateways_cache, gateways_cache)
-      |> assign(:agents_cache, agents_cache)
-      |> assign(:gateways, gateways)
-      |> assign(:agents, agents)
-      |> assign(:is_admin, is_admin)
-      |> assign(:job_counts, job_counts)
-      |> assign(:oban_stats, load_oban_stats())
-      |> assign(:events, [])
-
-    {:ok, socket}
     end
   end
 

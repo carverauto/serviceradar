@@ -44,56 +44,56 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     cleanup_form = build_cleanup_form(scope, cleanup_settings)
     can_manage_networks = can_manage_networks?(scope)
 
-    if not can_manage_networks do
+    if can_manage_networks do
+      if connected?(socket) do
+        # Subscribe to sweep updates for this instance
+        SweepPubSub.subscribe()
+        AgentCommandsPubSub.subscribe()
+
+        # Refresh active scans periodically (fallback for any missed events)
+        :timer.send_interval(@refresh_interval, self(), :refresh_active_scans)
+      end
+
+      socket =
+        socket
+        |> assign(:page_title, "Network Sweeps")
+        |> assign(:current_path, "/settings/networks")
+        |> assign(:active_tab, :groups)
+        |> assign(:sweep_groups, load_sweep_groups(scope))
+        |> assign(:sweep_profiles, load_sweep_profiles(scope))
+        |> assign(:running_executions, load_running_executions(scope))
+        |> assign(:recent_executions, load_recent_executions(scope))
+        # Track real-time progress for running executions (execution_id -> progress_data)
+        |> assign(:execution_progress, %{})
+        |> assign(:selected_group, nil)
+        |> assign(:selected_profile, nil)
+        |> assign(:show_form, nil)
+        |> assign(:ash_form, nil)
+        |> assign(:form, nil)
+        |> assign(:target_device_count, nil)
+        |> assign(:builder_open, false)
+        |> assign(:builder, default_builder_state())
+        |> assign(:builder_sync, true)
+        |> assign(:show_mapper_form, nil)
+        |> assign(:mapper_jobs, load_mapper_jobs(scope))
+        |> assign(:agents, load_agents(scope))
+        |> assign(:can_manage_networks, can_manage_networks)
+        |> assign(:mapper_job, nil)
+        |> assign(:mapper_form, nil)
+        |> assign(:mapper_seeds_text, "")
+        |> assign(:mapper_unifi_form, nil)
+        |> assign(:mapper_unifi_present, false)
+        |> assign(:mapper_command_statuses, %{})
+        |> assign(:sweep_command_statuses, %{})
+        |> assign(:cleanup_settings, cleanup_settings)
+        |> assign(:cleanup_form, cleanup_form)
+
+      {:ok, socket}
+    else
       {:ok,
        socket
        |> put_flash(:error, "Not authorized to manage network settings")
        |> redirect(to: ~p"/settings/profile")}
-    else
-    if connected?(socket) do
-      # Subscribe to sweep updates for this instance
-      SweepPubSub.subscribe()
-      AgentCommandsPubSub.subscribe()
-
-      # Refresh active scans periodically (fallback for any missed events)
-      :timer.send_interval(@refresh_interval, self(), :refresh_active_scans)
-    end
-
-    socket =
-      socket
-      |> assign(:page_title, "Network Sweeps")
-      |> assign(:current_path, "/settings/networks")
-      |> assign(:active_tab, :groups)
-      |> assign(:sweep_groups, load_sweep_groups(scope))
-      |> assign(:sweep_profiles, load_sweep_profiles(scope))
-      |> assign(:running_executions, load_running_executions(scope))
-      |> assign(:recent_executions, load_recent_executions(scope))
-      # Track real-time progress for running executions (execution_id -> progress_data)
-      |> assign(:execution_progress, %{})
-      |> assign(:selected_group, nil)
-      |> assign(:selected_profile, nil)
-      |> assign(:show_form, nil)
-      |> assign(:ash_form, nil)
-      |> assign(:form, nil)
-      |> assign(:target_device_count, nil)
-      |> assign(:builder_open, false)
-      |> assign(:builder, default_builder_state())
-      |> assign(:builder_sync, true)
-      |> assign(:show_mapper_form, nil)
-      |> assign(:mapper_jobs, load_mapper_jobs(scope))
-      |> assign(:agents, load_agents(scope))
-      |> assign(:can_manage_networks, can_manage_networks)
-      |> assign(:mapper_job, nil)
-      |> assign(:mapper_form, nil)
-      |> assign(:mapper_seeds_text, "")
-      |> assign(:mapper_unifi_form, nil)
-      |> assign(:mapper_unifi_present, false)
-      |> assign(:mapper_command_statuses, %{})
-      |> assign(:sweep_command_statuses, %{})
-      |> assign(:cleanup_settings, cleanup_settings)
-      |> assign(:cleanup_form, cleanup_form)
-
-      {:ok, socket}
     end
   end
 

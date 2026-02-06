@@ -417,8 +417,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     base
     |> String.split(~r/\s+/, trim: true)
     |> Enum.take(2)
-    |> Enum.map(fn segment -> segment |> String.first() |> to_string() end)
-    |> Enum.join()
+    |> Enum.map_join(fn segment -> segment |> String.first() |> to_string() end)
     |> String.upcase()
     |> case do
       "" -> "SR"
@@ -506,28 +505,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
         _ -> "Request failed"
       end
 
-    details =
-      case body do
-        %{"details" => list} when is_list(list) ->
-          list
-          |> Enum.map(fn
-            %{"field" => field, "message" => message} ->
-              field = to_string(field)
-              message = to_string(message)
-              if field != "", do: "#{field}: #{message}", else: message
-
-            %{"message" => message} ->
-              to_string(message)
-
-            other ->
-              inspect(other)
-          end)
-          |> Enum.reject(&(&1 == ""))
-          |> Enum.join("; ")
-
-        _ ->
-          ""
-      end
+    details = format_http_error_details(body)
 
     if details != "" do
       "HTTP #{status}: #{base} (#{details})"
@@ -536,23 +514,39 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     end
   end
 
+  defp format_http_error_details(%{"details" => list}) when is_list(list) do
+    list
+    |> Enum.map(&format_http_error_detail_item/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("; ")
+  end
+
+  defp format_http_error_details(_), do: ""
+
+  defp format_http_error_detail_item(%{"field" => field, "message" => message}) do
+    field = to_string(field)
+    message = to_string(message)
+    if field != "", do: "#{field}: #{message}", else: message
+  end
+
+  defp format_http_error_detail_item(%{"message" => message}), do: to_string(message)
+  defp format_http_error_detail_item(other), do: inspect(other)
+
   defp format_ash_error(_), do: "Unexpected error"
 
   defp effective_profile_id(user, profiles) do
     profile_id = Map.get(user, :role_profile_id)
 
-    cond do
-      is_binary(profile_id) and profile_id != "" ->
-        profile_id
+    if is_binary(profile_id) and profile_id != "" do
+      profile_id
+    else
+      role = Map.get(user, :role, :viewer)
+      system_name = to_string(role)
 
-      true ->
-        role = Map.get(user, :role, :viewer)
-        system_name = role |> to_string()
-
-        case Enum.find(profiles, &(&1.system_name == system_name)) do
-          nil -> nil
-          profile -> profile.id
-        end
+      case Enum.find(profiles, &(&1.system_name == system_name)) do
+        nil -> nil
+        profile -> profile.id
+      end
     end
   end
 
@@ -562,38 +556,41 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   defp resolve_access_profile(profile_id, legacy_role, profiles) do
     profile_id = normalize_profile_id(profile_id)
 
-    cond do
-      is_binary(profile_id) and profile_id != "" ->
-        case Enum.find(profiles, &(&1.id == profile_id)) do
-          nil ->
-            {:viewer, nil}
-
-          profile ->
-            role = role_from_profile(profile)
-            {role, profile.id}
-        end
-
-      true ->
-        role =
-          case legacy_role do
-            "admin" -> :admin
-            "operator" -> :operator
-            "helpdesk" -> :helpdesk
-            "viewer" -> :viewer
-            _ -> :viewer
-          end
-
-        system_name = to_string(role)
-
-        profile =
-          Enum.find(profiles, fn profile ->
-            profile.system and to_string(profile.system_name || "") == system_name
-          end)
-
-        role_profile_id = if profile, do: profile.id, else: nil
-        {role, role_profile_id}
+    if is_binary(profile_id) and profile_id != "" do
+      resolve_profile_from_id(profile_id, profiles)
+    else
+      resolve_profile_from_legacy_role(legacy_role, profiles)
     end
   end
+
+  defp resolve_profile_from_id(profile_id, profiles) do
+    case Enum.find(profiles, &(&1.id == profile_id)) do
+      nil ->
+        {:viewer, nil}
+
+      profile ->
+        role = role_from_profile(profile)
+        {role, profile.id}
+    end
+  end
+
+  defp resolve_profile_from_legacy_role(legacy_role, profiles) do
+    role = role_from_legacy(legacy_role)
+    system_name = to_string(role)
+
+    profile =
+      Enum.find(profiles, fn profile ->
+        profile.system and to_string(profile.system_name || "") == system_name
+      end)
+
+    {role, if(profile, do: profile.id, else: nil)}
+  end
+
+  defp role_from_legacy("admin"), do: :admin
+  defp role_from_legacy("operator"), do: :operator
+  defp role_from_legacy("helpdesk"), do: :helpdesk
+  defp role_from_legacy("viewer"), do: :viewer
+  defp role_from_legacy(_), do: :viewer
 
   defp role_from_profile(profile) do
     case to_string(profile.system_name || "") do
@@ -654,9 +651,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   end
 
   defp show_actions_menu?(user, active_admin_count) do
-    cond do
-      user.status == :active -> can_deactivate?(user, active_admin_count)
-      true -> true
+    if user.status == :active do
+      can_deactivate?(user, active_admin_count)
+    else
+      true
     end
   end
 end

@@ -22,12 +22,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not RBAC.can?(scope, "plugins.view") do
-      {:ok,
-       socket
-       |> put_flash(:error, "Admin access required")
-       |> redirect(to: ~p"/settings/profile")}
-    else
+    if RBAC.can?(scope, "plugins.view") do
       socket =
         socket
         |> assign(:can_stage_plugins, RBAC.can?(scope, "plugins.stage"))
@@ -64,6 +59,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         )
 
       {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "Admin access required")
+       |> redirect(to: ~p"/settings/profile")}
     end
   end
 

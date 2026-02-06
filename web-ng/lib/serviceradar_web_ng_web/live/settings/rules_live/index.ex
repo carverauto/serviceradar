@@ -22,23 +22,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not (RBAC.can?(scope, "observability.rules.update") or RBAC.can?(scope, "observability.rules.create")) do
+    if RBAC.can?(scope, "observability.rules.update") or RBAC.can?(scope, "observability.rules.create") do
+      socket =
+        socket
+        |> assign(:page_title, "Events")
+        |> assign(:active_tab, "logs")
+        |> assign(:zen_rules, list_zen_rules(scope))
+        |> assign(:event_rules, list_event_rules(scope))
+        |> assign(:stateful_rules, list_stateful_rules(scope))
+        |> assign(:show_rule_builder, false)
+        |> assign(:editing_rule, nil)
+
+      {:ok, socket}
+    else
       {:ok,
        socket
        |> put_flash(:error, "You do not have access to Events rules")
        |> push_navigate(to: ~p"/settings/profile")}
-    else
-    socket =
-      socket
-      |> assign(:page_title, "Events")
-      |> assign(:active_tab, "logs")
-      |> assign(:zen_rules, list_zen_rules(scope))
-      |> assign(:event_rules, list_event_rules(scope))
-      |> assign(:stateful_rules, list_stateful_rules(scope))
-      |> assign(:show_rule_builder, false)
-      |> assign(:editing_rule, nil)
-
-    {:ok, socket}
     end
   end
 

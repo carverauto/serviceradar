@@ -21,27 +21,27 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not RBAC.can?(scope, "settings.sysmon_profiles.manage") do
+    if RBAC.can?(scope, "settings.sysmon_profiles.manage") do
+      socket =
+        socket
+        |> assign(:page_title, "Host Health Profiles")
+        |> assign(:profiles, load_profiles(scope))
+        |> assign(:selected_profile, nil)
+        |> assign(:show_form, nil)
+        |> assign(:ash_form, nil)
+        |> assign(:form, nil)
+        |> assign(:json_preview, nil)
+        |> assign(:target_device_count, nil)
+        |> assign(:builder_open, false)
+        |> assign(:builder, default_builder_state())
+        |> assign(:builder_sync, true)
+
+      {:ok, socket}
+    else
       {:ok,
        socket
        |> put_flash(:error, "You do not have access to Host Health profiles")
        |> push_navigate(to: ~p"/settings/profile")}
-    else
-    socket =
-      socket
-      |> assign(:page_title, "Host Health Profiles")
-      |> assign(:profiles, load_profiles(scope))
-      |> assign(:selected_profile, nil)
-      |> assign(:show_form, nil)
-      |> assign(:ash_form, nil)
-      |> assign(:form, nil)
-      |> assign(:json_preview, nil)
-      |> assign(:target_device_count, nil)
-      |> assign(:builder_open, false)
-      |> assign(:builder, default_builder_state())
-      |> assign(:builder_sync, true)
-
-    {:ok, socket}
     end
   end
 

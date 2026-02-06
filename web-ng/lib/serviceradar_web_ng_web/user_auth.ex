@@ -59,8 +59,13 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   Revokes the JWT token, clears the session, and broadcasts disconnect to LiveViews.
   """
   def log_out_user(conn) do
-    if user = conn.assigns |> Map.get(:current_scope) |> then(&(&1 && &1.user)) do
-      _ = ServiceRadarWebNG.Audit.UserAuthEvents.record_logout(conn, user, user.last_auth_method)
+    case conn.assigns |> Map.get(:current_scope) |> then(&(&1 && &1.user)) do
+      nil ->
+        :ok
+
+      user ->
+        _ = ServiceRadarWebNG.Audit.UserAuthEvents.record_logout(conn, user, user.last_auth_method)
+        :ok
     end
 
     # Revoke the JWT token to prevent reuse

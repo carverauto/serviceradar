@@ -166,32 +166,30 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
     user = socket.assigns.user
     password = (params["password"] || "") |> to_string()
 
-    cond do
-      String.length(password) < 12 ->
-        {:noreply, put_flash(socket, :error, "Password must be at least 12 characters")}
-
-      true ->
-        result =
-          with {:ok, record} <- Ash.get(User, user.id, scope: scope),
-               {:ok, _updated} <-
-                 record
-                 |> Ash.Changeset.for_update(:admin_set_password, %{password: password},
-                   scope: scope
-                 )
-                 |> Ash.update(scope: scope) do
-            :ok
-          end
-
-        case result do
-          :ok ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Password updated")
-             |> assign(:show_password_modal, false)}
-
-          {:error, error} ->
-            {:noreply, put_flash(socket, :error, format_ash_error(error))}
+    if String.length(password) < 12 do
+      {:noreply, put_flash(socket, :error, "Password must be at least 12 characters")}
+    else
+      result =
+        with {:ok, record} <- Ash.get(User, user.id, scope: scope),
+             {:ok, _updated} <-
+               record
+               |> Ash.Changeset.for_update(:admin_set_password, %{password: password},
+                 scope: scope
+               )
+               |> Ash.update(scope: scope) do
+          :ok
         end
+
+      case result do
+        :ok ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Password updated")
+           |> assign(:show_password_modal, false)}
+
+        {:error, error} ->
+          {:noreply, put_flash(socket, :error, format_ash_error(error))}
+      end
     end
   end
 
@@ -452,18 +450,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
   defp effective_profile_id(user, profiles) do
     profile_id = Map.get(user, :role_profile_id)
 
-    cond do
-      is_binary(profile_id) and profile_id != "" ->
-        profile_id
+    if is_binary(profile_id) and profile_id != "" do
+      profile_id
+    else
+      role = Map.get(user, :role, :viewer)
+      system_name = to_string(role)
 
-      true ->
-        role = Map.get(user, :role, :viewer)
-        system_name = role |> to_string()
-
-        case Enum.find(profiles, &(&1.system_name == system_name)) do
-          nil -> nil
-          profile -> profile.id
-        end
+      case Enum.find(profiles, &(&1.system_name == system_name)) do
+        nil -> nil
+        profile -> profile.id
+      end
     end
   end
 

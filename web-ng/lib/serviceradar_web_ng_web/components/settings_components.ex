@@ -43,87 +43,106 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   def settings_tabs(current_path, current_scope \\ nil) do
     path = current_path || ""
 
-    can_settings_view = RBAC.can?(current_scope, "settings.view")
+    [
+      cluster_tab(path, current_scope),
+      network_tab(path, current_scope),
+      agents_tab(path, current_scope),
+      events_tab(path, current_scope),
+      edge_ops_tab(path, current_scope),
+      jobs_tab(path, current_scope),
+      auth_tab(path, current_scope)
+    ]
+    |> Enum.filter(&Map.get(&1, :show, true))
+  end
 
-    can_networks =
-      RBAC.can?(current_scope, "settings.networks.manage") or
-        RBAC.can?(current_scope, "settings.integrations.manage") or
-        RBAC.can?(current_scope, "settings.snmp_profiles.manage")
+  defp cluster_tab(path, current_scope) do
+    %{
+      label: "Cluster",
+      navigate: ~p"/settings/cluster",
+      active: String.starts_with?(path, "/settings/cluster") or String.starts_with?(path, "/admin/cluster"),
+      show: RBAC.can?(current_scope, "settings.view")
+    }
+  end
 
-    can_agents =
-      RBAC.can?(current_scope, "settings.sysmon_profiles.manage") or
-        RBAC.can?(current_scope, "settings.edge.manage") or
-        RBAC.can?(current_scope, "plugins.view") or
-        RBAC.can?(current_scope, "settings.plugins.manage")
+  defp network_tab(path, current_scope) do
+    %{
+      label: "Network",
+      navigate: ~p"/settings/networks",
+      active: String.starts_with?(path, "/settings/networks") or String.starts_with?(path, "/settings/snmp"),
+      show: can_networks_tab?(current_scope)
+    }
+  end
 
-    can_events =
-      RBAC.can?(current_scope, "observability.rules.update") or
-        RBAC.can?(current_scope, "observability.rules.create")
+  defp can_networks_tab?(current_scope) do
+    RBAC.can?(current_scope, "settings.networks.manage") or
+      RBAC.can?(current_scope, "settings.integrations.manage") or
+      RBAC.can?(current_scope, "settings.snmp_profiles.manage")
+  end
 
-    can_edge_ops = RBAC.can?(current_scope, "settings.edge.manage")
-    can_jobs = RBAC.can?(current_scope, "settings.jobs.manage")
+  defp agents_tab(path, current_scope) do
+    %{
+      label: "Agents",
+      navigate: ~p"/settings/sysmon",
+      active:
+        String.starts_with?(path, "/settings/sysmon") or
+          String.starts_with?(path, "/settings/agents") or
+          String.starts_with?(path, "/admin/edge-packages") or
+          String.starts_with?(path, "/admin/plugins"),
+      show: can_agents_tab?(current_scope)
+    }
+  end
 
-    tabs =
-      [
-        %{
-          label: "Cluster",
-          navigate: ~p"/settings/cluster",
-          active:
-            String.starts_with?(path, "/settings/cluster") or
-              String.starts_with?(path, "/admin/cluster"),
-          show: can_settings_view
-        },
-        %{
-          label: "Network",
-          navigate: ~p"/settings/networks",
-          active:
-            String.starts_with?(path, "/settings/networks") or
-              String.starts_with?(path, "/settings/snmp"),
-          show: can_networks
-        },
-        %{
-          label: "Agents",
-          navigate: ~p"/settings/sysmon",
-          active:
-            String.starts_with?(path, "/settings/sysmon") or
-              String.starts_with?(path, "/settings/agents") or
-              String.starts_with?(path, "/admin/edge-packages") or
-              String.starts_with?(path, "/admin/plugins"),
-          show: can_agents
-        },
-        %{
-          label: "Events",
-          navigate: ~p"/settings/rules",
-          active: String.starts_with?(path, "/settings/rules"),
-          show: can_events
-        },
-        %{
-          label: "Edge Ops",
-          navigate: ~p"/admin/edge-sites",
-          active:
-            String.starts_with?(path, "/admin/collectors") or
-              String.starts_with?(path, "/admin/edge-sites") or
-              String.starts_with?(path, "/admin/nats"),
-          show: can_edge_ops
-        },
-        %{
-          label: "Jobs",
-          navigate: ~p"/admin/jobs",
-          active: String.starts_with?(path, "/admin/jobs"),
-          show: can_jobs
-        },
-        %{
-          label: "Auth",
-          navigate: ~p"/settings/auth/users",
-          active:
-            String.starts_with?(path, "/settings/authentication") or
-              String.starts_with?(path, "/settings/auth/"),
-          show: show_auth_tab?(current_scope)
-        }
-      ]
-      |> Enum.filter(&Map.get(&1, :show, true))
+  defp can_agents_tab?(current_scope) do
+    RBAC.can?(current_scope, "settings.sysmon_profiles.manage") or
+      RBAC.can?(current_scope, "settings.edge.manage") or
+      RBAC.can?(current_scope, "plugins.view") or
+      RBAC.can?(current_scope, "settings.plugins.manage")
+  end
 
-    tabs
+  defp events_tab(path, current_scope) do
+    %{
+      label: "Events",
+      navigate: ~p"/settings/rules",
+      active: String.starts_with?(path, "/settings/rules"),
+      show: can_events_tab?(current_scope)
+    }
+  end
+
+  defp can_events_tab?(current_scope) do
+    RBAC.can?(current_scope, "observability.rules.update") or
+      RBAC.can?(current_scope, "observability.rules.create")
+  end
+
+  defp edge_ops_tab(path, current_scope) do
+    %{
+      label: "Edge Ops",
+      navigate: ~p"/admin/edge-sites",
+      active:
+        String.starts_with?(path, "/admin/collectors") or
+          String.starts_with?(path, "/admin/edge-sites") or
+          String.starts_with?(path, "/admin/nats"),
+      show: RBAC.can?(current_scope, "settings.edge.manage")
+    }
+  end
+
+  defp jobs_tab(path, current_scope) do
+    %{
+      label: "Jobs",
+      navigate: ~p"/admin/jobs",
+      active: String.starts_with?(path, "/admin/jobs"),
+      show: RBAC.can?(current_scope, "settings.jobs.manage")
+    }
+  end
+
+  defp auth_tab(path, current_scope) do
+    %{
+      label: "Auth",
+      navigate: ~p"/settings/auth/users",
+      active:
+        String.starts_with?(path, "/settings/authentication") or
+          String.starts_with?(path, "/settings/auth/"),
+      show: show_auth_tab?(current_scope)
+    }
   end
 
   # Auth section sub-navigation

@@ -27,12 +27,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not WebRBAC.can?(scope, "settings.rbac.manage") do
-      {:ok,
-       socket
-       |> put_flash(:error, "Admin access required")
-       |> redirect(to: ~p"/settings/profile")}
-    else
+    if WebRBAC.can?(scope, "settings.rbac.manage") do
       {profiles, profile_flash} = load_role_profiles(scope)
       catalog = RBAC.catalog()
       grid = build_permission_grid(catalog)
@@ -56,6 +51,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
        |> assign(:renaming_profile_id, nil)
        |> assign(:rename_form, to_form(%{"name" => ""}, as: :profile))
        |> maybe_put_flash(profile_flash)}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "Admin access required")
+       |> redirect(to: ~p"/settings/profile")}
     end
   end
 
@@ -394,12 +394,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     assigns = assign(assigns, :has_dirty?, MapSet.size(assigns.dirty_profiles) > 0)
 
     active_profile =
-      cond do
-        assigns.active_profile_id ->
-          find_profile(assigns.filtered_profiles, assigns.active_profile_id)
-
-        true ->
-          List.first(assigns.filtered_profiles)
+      if assigns.active_profile_id do
+        find_profile(assigns.filtered_profiles, assigns.active_profile_id)
+      else
+        List.first(assigns.filtered_profiles)
       end
 
     assigns = assign(assigns, :active_profile, active_profile)
@@ -829,27 +827,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       Enum.map(catalog, fn section ->
         section_key = sect_id(section)
         perms = sect_permissions(section)
-
-        resources =
-          perms
-          |> Enum.map(fn perm ->
-            {resource, _action} = split_permission_key(perm_key(perm))
-            resource
-          end)
-          |> Enum.uniq()
-          |> then(fn resources ->
-            has_sub_resources? = Enum.any?(resources, &(&1 != section_key))
-
-            Enum.map(resources, fn res ->
-              label =
-                cond do
-                  res == section_key and has_sub_resources? -> "All"
-                  true -> resource_short_label(res, section_key)
-                end
-
-              %{key: res, label: label}
-            end)
-          end)
+        resources = build_section_resources(perms, section_key)
 
         %{
           section: section_key,
@@ -869,10 +847,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
     actions =
       all_permissions
-      |> Enum.map(fn perm ->
-        {_res, action} = split_permission_key(perm_key(perm))
-        action
-      end)
+      |> Enum.map(&perm_key/1)
+      |> Enum.map(fn key -> elem(split_permission_key(key), 1) end)
       |> Enum.uniq()
       |> Enum.sort_by(&action_sort_index/1)
 
@@ -895,6 +871,26 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       group_starts: group_starts
     }
   end
+
+  defp build_section_resources(perms, section_key) do
+    resources =
+      perms
+      |> Enum.map(&perm_key/1)
+      |> Enum.map(fn key -> elem(split_permission_key(key), 0) end)
+      |> Enum.uniq()
+
+    has_sub_resources? = Enum.any?(resources, &(&1 != section_key))
+
+    Enum.map(resources, fn resource_key ->
+      %{
+        key: resource_key,
+        label: resource_label(resource_key, section_key, has_sub_resources?)
+      }
+    end)
+  end
+
+  defp resource_label(section_key, section_key, true), do: "All"
+  defp resource_label(resource_key, section_key, _), do: resource_short_label(resource_key, section_key)
 
   defp split_permission_key(key) do
     parts = String.split(key, ".")
@@ -1048,12 +1044,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   end
 
   defp profile_identifier(profile) do
-    cond do
-      profile.system_name ->
-        profile.system_name
-
-      true ->
-        profile.name |> to_string() |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_")
+    if profile.system_name do
+      profile.system_name
+    else
+      profile.name |> to_string() |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_")
     end
   end
 
@@ -1103,14 +1097,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp persist_profile(socket, scope, profile) do
     result =
-      with {:ok, record} <- Ash.get(RoleProfile, profile.id, scope: scope),
-           {:ok, updated} <-
-             record
-             |> Ash.Changeset.for_update(:update, %{permissions: profile.permissions},
-               scope: scope
-             )
-             |> Ash.update(scope: scope) do
-        {:ok, updated}
+      case Ash.get(RoleProfile, profile.id, scope: scope) do
+        {:ok, record} ->
+          record
+          |> Ash.Changeset.for_update(:update, %{permissions: profile.permissions}, scope: scope)
+          |> Ash.update(scope: scope)
+
+        {:error, error} ->
+          {:error, error}
       end
 
     case result do

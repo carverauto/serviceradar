@@ -48,16 +48,21 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
 
   @impl true
   def update_user(scope, id, attrs) do
-    with {:ok, user} <- Ash.get(User, id, scope: scope) do
-      role = role_from_attrs(attrs)
-      role_profile_id = role_profile_id_from_attrs(attrs)
-      display_name = Map.get(attrs, :display_name) || Map.get(attrs, "display_name")
+    role = role_from_attrs(attrs)
+    role_profile_id = role_profile_id_from_attrs(attrs)
+    display_name = Map.get(attrs, :display_name) || Map.get(attrs, "display_name")
 
-      with {:ok, user} <- maybe_update_role(user, role, scope),
+    result =
+      with {:ok, user} <- Ash.get(User, id, scope: scope),
+           {:ok, user} <- maybe_update_role(user, role, scope),
            {:ok, user} <- maybe_update_role_profile(user, role_profile_id, scope),
            {:ok, user} <- maybe_update_display_name(user, display_name, scope) do
-        {:ok, user}
+        user
       end
+
+    case result do
+      %User{} = user -> {:ok, user}
+      other -> other
     end
   end
 

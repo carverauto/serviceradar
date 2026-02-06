@@ -38,52 +38,52 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not RBAC.can?(scope, "settings.snmp_profiles.manage") do
+    if RBAC.can?(scope, "settings.snmp_profiles.manage") do
+      {profiles, profile_target_counts} = load_profiles_with_counts(scope)
+
+      socket =
+        socket
+        |> assign(:page_title, "SNMP Profiles")
+        |> assign(:profiles, profiles)
+        |> assign(:profile_target_counts, profile_target_counts)
+        |> assign(:selected_profile, nil)
+        |> assign(:show_form, nil)
+        |> assign(:ash_form, nil)
+        |> assign(:form, nil)
+        |> assign(:target_device_count, nil)
+        |> assign(:target_entity, "devices")
+        |> assign(:builder_open, false)
+        |> assign(:builder, default_builder_state())
+        |> assign(:builder_sync, true)
+        # Target modal state
+        |> assign(:targets, [])
+        |> assign(:show_target_modal, false)
+        |> assign(:target_form, nil)
+        |> assign(:editing_target, nil)
+        |> assign(:show_password, false)
+        |> assign(:test_connection_result, nil)
+        |> assign(:test_connection_loading, false)
+        # OID management state
+        |> assign(:target_oids, [])
+        |> assign(:show_template_browser, false)
+        |> assign(:template_search, "")
+        |> assign(:selected_vendor, "standard")
+        # Custom template modal state
+        |> assign(:show_custom_template_modal, false)
+        |> assign(:custom_template_form, nil)
+        |> assign(:custom_template_oids, [])
+        |> assign(:editing_custom_template, nil)
+        |> assign(:custom_templates, load_custom_templates(scope))
+        # OID template selection state (for profile form)
+        |> assign(:available_templates, load_all_templates(scope))
+        |> assign(:selected_template_ids, [])
+
+      {:ok, socket}
+    else
       {:ok,
        socket
        |> put_flash(:error, "You do not have access to SNMP profiles")
        |> push_navigate(to: ~p"/settings/profile")}
-    else
-    {profiles, profile_target_counts} = load_profiles_with_counts(scope)
-
-    socket =
-      socket
-      |> assign(:page_title, "SNMP Profiles")
-      |> assign(:profiles, profiles)
-      |> assign(:profile_target_counts, profile_target_counts)
-      |> assign(:selected_profile, nil)
-      |> assign(:show_form, nil)
-      |> assign(:ash_form, nil)
-      |> assign(:form, nil)
-      |> assign(:target_device_count, nil)
-      |> assign(:target_entity, "devices")
-      |> assign(:builder_open, false)
-      |> assign(:builder, default_builder_state())
-      |> assign(:builder_sync, true)
-      # Target modal state
-      |> assign(:targets, [])
-      |> assign(:show_target_modal, false)
-      |> assign(:target_form, nil)
-      |> assign(:editing_target, nil)
-      |> assign(:show_password, false)
-      |> assign(:test_connection_result, nil)
-      |> assign(:test_connection_loading, false)
-      # OID management state
-      |> assign(:target_oids, [])
-      |> assign(:show_template_browser, false)
-      |> assign(:template_search, "")
-      |> assign(:selected_vendor, "standard")
-      # Custom template modal state
-      |> assign(:show_custom_template_modal, false)
-      |> assign(:custom_template_form, nil)
-      |> assign(:custom_template_oids, [])
-      |> assign(:editing_custom_template, nil)
-      |> assign(:custom_templates, load_custom_templates(scope))
-      # OID template selection state (for profile form)
-      |> assign(:available_templates, load_all_templates(scope))
-      |> assign(:selected_template_ids, [])
-
-    {:ok, socket}
     end
   end
 

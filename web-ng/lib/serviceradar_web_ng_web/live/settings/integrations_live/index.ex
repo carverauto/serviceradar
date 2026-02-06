@@ -19,42 +19,42 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if not RBAC.can?(scope, "settings.integrations.manage") do
+    if RBAC.can?(scope, "settings.integrations.manage") do
+      actor = get_actor(socket)
+      partitions = list_partitions(actor)
+      agents = list_agents(actor)
+      agent_index = build_agent_index(agents)
+      agent_options = build_agent_options(agents)
+      sync_agent_available = sync_agent_available?(actor)
+
+      socket =
+        socket
+        |> assign(:page_title, "Integration Sources")
+        |> assign(:sources, list_sources(actor))
+        |> assign(:partitions, partitions)
+        |> assign(:partition_options, build_partition_options(partitions))
+        |> assign(:agents, agents)
+        |> assign(:agent_index, agent_index)
+        |> assign(:agent_options, agent_options)
+        |> assign(:sync_agent_available, sync_agent_available)
+        |> assign(:show_create_modal, false)
+        |> assign(:show_edit_modal, false)
+        |> assign(:show_details_modal, false)
+        |> assign(:selected_source, nil)
+        |> assign(:create_form, build_create_form(actor))
+        |> assign(:edit_form, nil)
+        |> assign(:filter_type, nil)
+        |> assign(:filter_enabled, nil)
+        # Query management for forms
+        |> assign(:form_queries, [default_query()])
+        |> assign(:form_network_blacklist, "")
+
+      {:ok, socket}
+    else
       {:ok,
        socket
        |> put_flash(:error, "Not authorized to manage integrations")
        |> redirect(to: ~p"/settings/profile")}
-    else
-    actor = get_actor(socket)
-    partitions = list_partitions(actor)
-    agents = list_agents(actor)
-    agent_index = build_agent_index(agents)
-    agent_options = build_agent_options(agents)
-    sync_agent_available = sync_agent_available?(actor)
-
-    socket =
-      socket
-      |> assign(:page_title, "Integration Sources")
-      |> assign(:sources, list_sources(actor))
-      |> assign(:partitions, partitions)
-      |> assign(:partition_options, build_partition_options(partitions))
-      |> assign(:agents, agents)
-      |> assign(:agent_index, agent_index)
-      |> assign(:agent_options, agent_options)
-      |> assign(:sync_agent_available, sync_agent_available)
-      |> assign(:show_create_modal, false)
-      |> assign(:show_edit_modal, false)
-      |> assign(:show_details_modal, false)
-      |> assign(:selected_source, nil)
-      |> assign(:create_form, build_create_form(actor))
-      |> assign(:edit_form, nil)
-      |> assign(:filter_type, nil)
-      |> assign(:filter_enabled, nil)
-      # Query management for forms
-      |> assign(:form_queries, [default_query()])
-      |> assign(:form_network_blacklist, "")
-
-      {:ok, socket}
     end
   end
 

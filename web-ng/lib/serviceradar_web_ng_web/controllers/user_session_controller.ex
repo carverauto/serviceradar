@@ -44,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
   defp format_password_error(%Ash.Error.Invalid{} = error) do
     # Keep this user-facing and non-technical.
     error.errors
-    |> Enum.map(fn
+    |> Enum.map_join("; ", fn
       %{field: field, message: message} when not is_nil(field) ->
         "#{field}: #{message}"
 
@@ -54,7 +54,6 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
       _ ->
         "validation error"
     end)
-    |> Enum.join("; ")
   end
 
   defp format_password_error(%Ecto.Changeset{} = changeset) do
