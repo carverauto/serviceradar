@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       {profiles, profile_flash} = load_role_profiles(scope)
       catalog = RBAC.catalog()
       grid = build_permission_grid(catalog)
+      active_profile_id = profiles |> List.first() |> then(&(&1 && &1.id))
 
       {:ok,
        socket
@@ -44,11 +45,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
        |> assign(:catalog, catalog)
        |> assign(:grid, grid)
        |> assign(:filter, "")
+       |> assign(:active_profile_id, active_profile_id)
        |> assign(:dirty_profiles, MapSet.new())
        |> assign(:show_new_profile_modal, false)
        |> assign(:new_profile_form, to_form(default_profile_form(), as: :profile))
        |> assign(:clone_source_id, nil)
        |> assign(:confirm_delete_profile, nil)
+       |> assign(:renaming_profile_id, nil)
+       |> assign(:rename_form, to_form(%{"name" => ""}, as: :profile))
        |> maybe_put_flash(profile_flash)}
     end
   end
@@ -57,7 +61,80 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   @impl true
   def handle_event("filter_policies", %{"filter" => value}, socket) do
-    {:noreply, assign(socket, :filter, value || "")}
+    filter = value || ""
+    filtered = filter_profiles(socket.assigns.profiles, filter)
+
+    active_profile_id =
+      if socket.assigns.active_profile_id &&
+           Enum.any?(filtered, &(&1.id == socket.assigns.active_profile_id)) do
+        socket.assigns.active_profile_id
+      else
+        filtered |> List.first() |> then(&(&1 && &1.id))
+      end
+
+    {:noreply,
+     socket
+     |> assign(:filter, filter)
+     |> assign(:active_profile_id, active_profile_id)}
+  end
+
+  def handle_event("select_profile", %{"profile-id" => profile_id}, socket) do
+    {:noreply,
+     socket
+     |> assign(:active_profile_id, profile_id)
+     |> assign(:renaming_profile_id, nil)}
+  end
+
+  def handle_event("start_rename_profile", %{"profile-id" => profile_id}, socket) do
+    profile = find_profile(socket.assigns.profiles, profile_id)
+
+    cond do
+      profile == nil ->
+        {:noreply, socket}
+
+      profile.system ->
+        {:noreply, socket}
+
+      true ->
+        {:noreply,
+         socket
+         |> assign(:renaming_profile_id, profile.id)
+         |> assign(:rename_form, to_form(%{"name" => profile.name || ""}, as: :profile))}
+    end
+  end
+
+  def handle_event("cancel_rename_profile", _params, socket) do
+    {:noreply, assign(socket, :renaming_profile_id, nil)}
+  end
+
+  def handle_event("rename_profile", %{"profile" => params, "profile_id" => profile_id}, socket) do
+    scope = socket.assigns.current_scope
+    profile = find_profile(socket.assigns.profiles, profile_id)
+    name = (params["name"] || "") |> String.trim()
+
+    cond do
+      profile == nil ->
+        {:noreply, socket}
+
+      profile.system ->
+        {:noreply, socket}
+
+      name == "" ->
+        {:noreply, put_flash(socket, :error, "Name is required")}
+
+      true ->
+        case update_role_profile(scope, profile, %{name: name}) do
+          {:ok, updated} ->
+            {:noreply,
+             socket
+             |> assign(:profiles, replace_profile(socket.assigns.profiles, updated))
+             |> assign(:renaming_profile_id, nil)
+             |> put_flash(:info, "Profile renamed")}
+
+          {:error, error} ->
+            {:noreply, put_flash(socket, :error, format_ash_error(error))}
+        end
+    end
   end
 
   def handle_event(
@@ -67,7 +144,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       ) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
-    if profile == nil or profile.system do
+    if profile == nil or profile_locked?(profile) do
       {:noreply, socket}
     else
       updated = toggle_permission(profile, permission)
@@ -86,7 +163,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       ) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
-    if profile == nil or profile.system do
+    if profile == nil or profile_locked?(profile) do
       {:noreply, socket}
     else
       keys = resource_permission_keys(socket.assigns.grid, resource)
@@ -102,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   def handle_event("toggle_action", %{"profile-id" => profile_id, "action" => action}, socket) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
-    if profile == nil or profile.system do
+    if profile == nil or profile_locked?(profile) do
       {:noreply, socket}
     else
       keys = action_permission_keys(socket.assigns.grid, action)
@@ -150,7 +227,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       ) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
-    if profile == nil or profile.system do
+    if profile == nil or profile_locked?(profile) do
       {:noreply, socket}
     else
       permissions =
@@ -200,6 +277,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         {:noreply,
          socket
          |> assign(:profiles, socket.assigns.profiles ++ [profile])
+         |> assign(:active_profile_id, profile.id)
          |> assign(:show_new_profile_modal, false)
          |> assign(:clone_source_id, nil)
          |> put_flash(:info, "Role profile created")}
@@ -264,6 +342,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   def event_mapping do
     Permit.Phoenix.LiveView.default_event_mapping()
     |> Map.merge(%{
+      "select_profile" => :read,
+      "start_rename_profile" => :update,
+      "cancel_rename_profile" => :read,
+      "rename_profile" => :update,
       "toggle_permission" => :update,
       "toggle_resource" => :update,
       "toggle_action" => :update,
@@ -303,6 +385,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       assign(assigns, :filtered_profiles, filter_profiles(assigns.profiles, assigns.filter))
 
     assigns = assign(assigns, :has_dirty?, MapSet.size(assigns.dirty_profiles) > 0)
+
+    active_profile =
+      cond do
+        assigns.active_profile_id ->
+          find_profile(assigns.filtered_profiles, assigns.active_profile_id)
+
+        true ->
+          List.first(assigns.filtered_profiles)
+      end
+
+    assigns = assign(assigns, :active_profile, active_profile)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
@@ -353,15 +446,35 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             </label>
           </div>
 
-          <div class="flex gap-5 overflow-x-auto pb-4">
-            <div
-              :for={profile <- @filtered_profiles}
-              class="min-w-[720px] max-w-[900px] shrink-0"
-            >
+          <div class="space-y-4">
+            <div :if={@filtered_profiles != []} class="flex flex-wrap items-center gap-2">
+              <span class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+                Profiles
+              </span>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  :for={profile <- @filtered_profiles}
+                  type="button"
+                  class={[
+                    "btn btn-xs",
+                    @active_profile && profile.id == @active_profile.id && "btn-primary",
+                    @active_profile && profile.id != @active_profile.id && "btn-ghost"
+                  ]}
+                  phx-click="select_profile"
+                  phx-value-profile-id={profile.id}
+                >
+                  {profile.name}
+                </button>
+              </div>
+            </div>
+
+            <div :if={@active_profile} class="w-full max-w-5xl">
               <.profile_card
-                profile={profile}
+                profile={@active_profile}
                 grid={@grid}
-                dirty={MapSet.member?(@dirty_profiles, profile.id)}
+                dirty={MapSet.member?(@dirty_profiles, @active_profile.id)}
+                renaming_profile_id={@renaming_profile_id}
+                rename_form={@rename_form}
               />
             </div>
 
@@ -384,29 +497,62 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   attr :profile, :map, required: true
   attr :grid, :map, required: true
   attr :dirty, :boolean, default: false
+  attr :renaming_profile_id, :any, default: nil
+  attr :rename_form, :any, required: true
 
   defp profile_card(assigns) do
     assigns = assign(assigns, :unmapped, unmapped_permissions(assigns.profile, assigns.grid))
+    assigns = assign(assigns, :locked, profile_locked?(assigns.profile))
+    assigns = assign(assigns, :renaming?, assigns.renaming_profile_id == assigns.profile.id)
 
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <%!-- Card header --%>
       <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-base-200">
         <div class="flex items-center gap-3">
-          <span class={["badge gap-1", profile_badge_class(@profile)]}>
-            {@profile.name}
-          </span>
+          <%= if @renaming? do %>
+            <.form for={@rename_form} phx-submit="rename_profile" class="flex items-center gap-2">
+              <input type="hidden" name="profile_id" value={@profile.id} />
+              <input
+                type="text"
+                name={@rename_form[:name].name}
+                value={@rename_form[:name].value}
+                class="input input-bordered input-sm w-56"
+                autocomplete="off"
+              />
+              <button type="submit" class="btn btn-primary btn-xs">Save</button>
+              <button type="button" class="btn btn-ghost btn-xs" phx-click="cancel_rename_profile">
+                Cancel
+              </button>
+            </.form>
+          <% else %>
+            <%= if @profile.system do %>
+              <span class={["badge gap-1", profile_badge_class(@profile)]}>
+                {@profile.name}
+              </span>
+            <% else %>
+              <button
+                type="button"
+                class={["badge gap-1 cursor-text hover:opacity-80", profile_badge_class(@profile)]}
+                phx-click="start_rename_profile"
+                phx-value-profile-id={@profile.id}
+                title="Click to rename"
+              >
+                {@profile.name}
+              </button>
+            <% end %>
+          <% end %>
           <span class="text-sm text-base-content/50">
             {profile_identifier(@profile)}
           </span>
           <span :if={@dirty} class="badge badge-warning badge-sm gap-1">unsaved</span>
         </div>
         <div class="flex items-center gap-2">
-          <div class={["join", @profile.system && "opacity-50"]}>
+          <div class={["join", @locked && "opacity-50"]}>
             <button
               type="button"
               class="btn btn-xs join-item"
-              disabled={@profile.system}
+              disabled={@locked}
               phx-click="set_profile_permissions"
               phx-value-profile-id={@profile.id}
               phx-value-mode="all"
@@ -416,7 +562,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             <button
               type="button"
               class="btn btn-xs join-item"
-              disabled={@profile.system}
+              disabled={@locked}
               phx-click="set_profile_permissions"
               phx-value-profile-id={@profile.id}
               phx-value-mode="none"
@@ -468,6 +614,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                 rowspan={if has_sub_columns?(@grid), do: 2, else: 1}
                 class="min-w-[100px] sticky left-0 z-20 bg-base-100 border-r border-base-200"
               >
+                <span class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+                  Action
+                </span>
               </th>
               <%= for group <- @grid.resource_groups do %>
                 <%= if length(group.resources) == 1 do %>
@@ -475,9 +624,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                     rowspan={if has_sub_columns?(@grid), do: 2, else: 1}
                     class={[
                       "text-center text-xs font-semibold normal-case min-w-[80px] border-l border-base-200",
-                      !@profile.system && "cursor-pointer hover:bg-base-200/50"
+                      !@locked && "cursor-pointer hover:bg-base-200/50"
                     ]}
-                    phx-click={if(!@profile.system, do: "toggle_resource")}
+                    phx-click={if(!@locked, do: "toggle_resource")}
                     phx-value-profile-id={@profile.id}
                     phx-value-resource={hd(group.resources).key}
                     title={"Toggle all #{group.label} permissions"}
@@ -502,9 +651,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                       class={[
                         "text-center text-xs font-medium normal-case min-w-[80px]",
                         idx == 0 && "border-l border-base-200",
-                        !@profile.system && "cursor-pointer hover:bg-base-200/50"
+                        !@locked && "cursor-pointer hover:bg-base-200/50"
                       ]}
-                      phx-click={if(!@profile.system, do: "toggle_resource")}
+                      phx-click={if(!@locked, do: "toggle_resource")}
                       phx-value-profile-id={@profile.id}
                       phx-value-resource={resource.key}
                       title={"Toggle all #{resource.label} permissions"}
@@ -522,9 +671,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                 <td
                   class={[
                     "font-medium text-sm bg-base-100 sticky left-0 z-10 border-r border-base-200",
-                    !@profile.system && "cursor-pointer hover:bg-base-200/50"
+                    !@locked && "cursor-pointer hover:bg-base-200/50"
                   ]}
-                  phx-click={if(!@profile.system, do: "toggle_action")}
+                  phx-click={if(!@locked, do: "toggle_action")}
                   phx-value-profile-id={@profile.id}
                   phx-value-action={action}
                   title={"Toggle #{humanize_action(action)} for all resources"}
@@ -544,7 +693,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                           permission_checked?(@profile, resource.key, action) && "checkbox-primary"
                         ]}
                         checked={permission_checked?(@profile, resource.key, action)}
-                        disabled={@profile.system}
+                        disabled={@locked}
                         phx-click="toggle_permission"
                         phx-value-profile-id={@profile.id}
                         phx-value-permission={"#{resource.key}.#{action}"}
@@ -918,6 +1067,18 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       {:error, error} ->
         put_flash(socket, :error, format_ash_error(error))
     end
+  end
+
+  defp update_role_profile(scope, profile, attrs) do
+    with {:ok, record} <- Ash.get(RoleProfile, profile.id, scope: scope) do
+      record
+      |> Ash.Changeset.for_update(:update, attrs, scope: scope)
+      |> Ash.update(scope: scope)
+    end
+  end
+
+  defp profile_locked?(profile) do
+    profile.system && to_string(profile.system_name || "") == "admin"
   end
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do

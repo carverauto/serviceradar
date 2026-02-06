@@ -14,7 +14,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "analytics.view",
           label: "View analytics",
           description: "View analytics dashboards and queries",
-          default_roles: [:viewer, :operator, :admin]
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
         },
         %{
           key: "analytics.manage_queries",
@@ -32,7 +32,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "devices.view",
           label: "View devices",
           description: "View device inventory and details",
-          default_roles: [:viewer, :operator, :admin]
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
         },
         %{
           key: "devices.create",
@@ -74,7 +74,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "devices.export",
           label: "Export devices",
           description: "Export device inventory",
-          default_roles: [:viewer, :operator, :admin]
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
         }
       ]
     },
@@ -86,7 +86,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "services.view",
           label: "View services",
           description: "View service checks and status",
-          default_roles: [:viewer, :operator, :admin]
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
         },
         %{
           key: "services.create",
@@ -122,7 +122,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "observability.view",
           label: "View observability",
           description: "View observability signals, alerts, and logs",
-          default_roles: [:viewer, :operator, :admin]
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
         },
         %{
           key: "observability.rules.create",
@@ -146,7 +146,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "observability.alerts.manage",
           label: "Manage alerts",
           description: "Acknowledge and resolve alerts",
-          default_roles: [:operator, :admin]
+          default_roles: [:helpdesk, :operator, :admin]
         }
       ]
     },
@@ -219,6 +219,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
       name: "Operator",
       description: "Create and update resources without destructive deletes",
       role: :operator
+    },
+    %{
+      system_name: "helpdesk",
+      name: "Helpdesk",
+      description: "Respond to alerts with read-only access to inventory and dashboards",
+      role: :helpdesk
     },
     %{system_name: "viewer", name: "Viewer", description: "Read-only access", role: :viewer}
   ]

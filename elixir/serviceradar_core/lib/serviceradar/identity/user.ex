@@ -7,6 +7,7 @@ defmodule ServiceRadar.Identity.User do
   ## Roles
 
   - `:viewer` - Read-only access to instance data
+  - `:helpdesk` - Read-only access plus alert response capabilities
   - `:operator` - Can create and modify resources
   - `:admin` - Full instance management including user management
 
@@ -169,7 +170,7 @@ defmodule ServiceRadar.Identity.User do
       argument :role, :atom do
         allow_nil? true
         default :viewer
-        constraints one_of: [:viewer, :operator, :admin]
+        constraints one_of: [:viewer, :helpdesk, :operator, :admin]
       end
 
       argument :external_id, :string do
@@ -345,7 +346,7 @@ defmodule ServiceRadar.Identity.User do
       allow_nil? false
       default :viewer
       public? true
-      constraints one_of: [:viewer, :operator, :admin]
+      constraints one_of: [:viewer, :helpdesk, :operator, :admin]
       description "User's role for authorization"
     end
 

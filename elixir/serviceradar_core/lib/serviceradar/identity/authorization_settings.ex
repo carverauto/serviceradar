@@ -58,7 +58,7 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       allow_nil? false
       default :viewer
       public? true
-      constraints one_of: [:viewer, :operator, :admin]
+      constraints one_of: [:viewer, :helpdesk, :operator, :admin]
       description "Default role assigned when no mapping matches"
     end
 

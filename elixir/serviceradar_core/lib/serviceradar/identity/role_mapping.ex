@@ -114,11 +114,12 @@ defmodule ServiceRadar.Identity.RoleMapping do
   defp normalize_value(value), do: to_string(value)
 
   defp normalize_role(nil), do: nil
-  defp normalize_role(role) when role in [:viewer, :operator, :admin], do: role
+  defp normalize_role(role) when role in [:viewer, :helpdesk, :operator, :admin], do: role
 
   defp normalize_role(role) when is_binary(role) do
     case role do
       "viewer" -> :viewer
+      "helpdesk" -> :helpdesk
       "operator" -> :operator
       "admin" -> :admin
       _ -> nil

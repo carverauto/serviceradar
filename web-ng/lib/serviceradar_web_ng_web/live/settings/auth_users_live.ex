@@ -237,6 +237,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                           name="role"
                         >
                           <option value="viewer" selected={user.role == :viewer}>Viewer</option>
+                          <option value="helpdesk" selected={user.role == :helpdesk}>
+                            Helpdesk
+                          </option>
                           <option value="operator" selected={user.role == :operator}>
                             Operator
                           </option>
@@ -369,7 +372,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                   field={@form[:role]}
                   type="select"
                   label="Role"
-                  options={[{"Viewer", "viewer"}, {"Operator", "operator"}, {"Admin", "admin"}]}
+                  options={[
+                    {"Viewer", "viewer"},
+                    {"Helpdesk", "helpdesk"},
+                    {"Operator", "operator"},
+                    {"Admin", "admin"}
+                  ]}
                   class="select select-bordered w-full"
                 />
                 <.input
@@ -411,6 +419,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   defp normalize_role(nil), do: :viewer
   defp normalize_role(""), do: :viewer
   defp normalize_role("viewer"), do: :viewer
+  defp normalize_role("helpdesk"), do: :helpdesk
   defp normalize_role("operator"), do: :operator
   defp normalize_role("admin"), do: :admin
   defp normalize_role(role) when is_atom(role), do: role

@@ -99,6 +99,7 @@ defmodule ServiceRadarWebNG.Api.AuthorizationSettingsController do
   defp normalize_role(nil), do: {:ok, nil}
   defp normalize_role(""), do: {:ok, nil}
   defp normalize_role("viewer"), do: {:ok, :viewer}
+  defp normalize_role("helpdesk"), do: {:ok, :helpdesk}
   defp normalize_role("operator"), do: {:ok, :operator}
   defp normalize_role("admin"), do: {:ok, :admin}
   defp normalize_role(_), do: {:error, :invalid_role}
