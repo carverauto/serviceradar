@@ -5302,24 +5302,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serviceradar-mdns-collector"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-nats",
- "clap 4.5.56",
- "env_logger 0.11.8",
- "log 0.4.29",
- "prost 0.13.5",
- "serde 1.0.228",
- "serde_json 1.0.149",
- "simple-dns",
- "socket2 0.5.10",
- "tokio",
- "tonic-build 0.12.3",
-]
-
-[[package]]
 name = "serviceradar-netflow-collector"
 version = "0.1.0"
 dependencies = [
@@ -5506,15 +5488,6 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
-
-[[package]]
-name = "simple-dns"
-version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dee851d0e5e7af3721faea1843e8015e820a234f81fda3dea9247e15bac9a86a"
-dependencies = [
- "bitflags 2.10.0",
-]
 
 [[package]]
 name = "simple-error"

@@ -317,6 +317,9 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/nats_account.proto
+	@protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
+		proto/mdns/mdns.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
 .PHONY: build-binaries

@@ -39,6 +39,8 @@ require (
 	google.golang.org/protobuf v1.36.11
 )
 
+require github.com/miekg/dns v1.1.72
+
 require (
 	github.com/antithesishq/antithesis-sdk-go v0.5.0-default-no-op // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect

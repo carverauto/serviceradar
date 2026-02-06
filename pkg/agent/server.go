@@ -70,6 +70,11 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 		log.Warn().Err(err).Msg("Failed to initialize SNMP service, continuing without it")
 	}
 
+	// Initialize embedded mDNS service
+	if err := s.initMdnsService(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize mDNS service, continuing without it")
+	}
+
 	return s, nil
 }
 
@@ -268,6 +273,40 @@ func (s *Server) GetSNMPStatus(ctx context.Context) (*proto.StatusResponse, erro
 	return svc.GetStatus(ctx)
 }
 
+// initMdnsService creates and initializes the embedded mDNS service.
+func (s *Server) initMdnsService(ctx context.Context) error {
+	mdnsSvc, err := NewMdnsAgentService(MdnsAgentServiceConfig{
+		AgentID:   s.config.AgentID,
+		Partition: s.config.Partition,
+		ConfigDir: s.configDir,
+		Logger:    s.logger,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create mDNS service: %w", err)
+	}
+
+	if err := mdnsSvc.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start mDNS service: %w", err)
+	}
+
+	s.mdnsService = mdnsSvc
+	s.logger.Info().Msg("mDNS service initialized and started")
+	return nil
+}
+
+// GetMdnsStatus returns the current mDNS status if the service is running.
+func (s *Server) GetMdnsStatus(ctx context.Context) (*proto.StatusResponse, error) {
+	s.mu.RLock()
+	svc := s.mdnsService
+	s.mu.RUnlock()
+
+	if svc == nil || !svc.IsEnabled() {
+		return nil, nil
+	}
+
+	return svc.GetStatus(ctx)
+}
+
 func (s *Server) initPluginManager(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -320,6 +359,13 @@ func (s *Server) Stop(_ context.Context) error {
 	if s.snmpService != nil {
 		if err := s.snmpService.Stop(context.Background()); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop SNMP service")
+		}
+	}
+
+	// Stop mDNS service if running
+	if s.mdnsService != nil {
+		if err := s.mdnsService.Stop(context.Background()); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop mDNS service")
 		}
 	}
 
