@@ -51,10 +51,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
          |> assign(:events, events)
          |> assign(:events_page, events_page)}
 
-      {:error, _} ->
+      {:error, error} ->
         {:ok,
          socket
-         |> put_flash(:error, "User not found")
+         |> put_flash(:error, user_load_error_message(error))
          |> push_navigate(to: ~p"/settings/auth/users")}
     end
   end
@@ -559,4 +559,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
   end
 
   defp format_ash_error(_), do: "Unexpected error"
+
+  defp user_load_error_message({:http_error, 404, _}), do: "User not found"
+  defp user_load_error_message({:http_error, 403, _}), do: "Not authorized"
+  defp user_load_error_message({:http_error, status, _}) when is_integer(status),
+    do: "Failed to load user (HTTP #{status})"
+
+  defp user_load_error_message(_), do: "Failed to load user"
 end

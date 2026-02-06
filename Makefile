@@ -107,6 +107,14 @@ compose-upgrade: ## Pull images and recreate containers without destroying volum
 build: ## Build the full workspace with Bazel (remote)
 	@bazel build --config=remote //...
 
+.PHONY: build-web-ng
+build-web-ng: ## Build just the web-ng OCI image with Bazel (remote)
+	@bazel build --config=remote //docker/images:web_ng_image_amd64
+
+.PHONY: push-web-ng
+push-web-ng: ## Build and push just the web-ng OCI image to GHCR (remote)
+	@bazel run --config=remote --stamp //docker/images:web_ng_image_amd64_push
+
 .PHONY: push_all
 push_all: ## Build and push all OCI images to GHCR (CI only, see issue #2517)
 	@bazel run --config=remote --stamp //docker/images:push_all

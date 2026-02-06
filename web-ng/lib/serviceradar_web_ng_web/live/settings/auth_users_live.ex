@@ -249,38 +249,39 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                         {format_last_activity(user)}
                       </td>
                       <td class="text-right">
-                        <div class="dropdown dropdown-end">
-                          <button tabindex="0" class="btn btn-ghost btn-xs btn-square">
-                            <.icon name="hero-ellipsis-vertical" class="size-4" />
-                          </button>
-                          <ul
-                            tabindex="0"
-                            class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40 border border-base-200"
-                          >
-                            <%= if user.status == :active do %>
-                              <li>
-                                <button
-                                  :if={can_deactivate?(user, @active_admin_count)}
-                                  class="text-error"
-                                  phx-click="deactivate"
-                                  phx-value-id={user.id}
-                                >
-                                  <.icon name="hero-no-symbol" class="size-4" /> Deactivate
-                                </button>
-                              </li>
-                            <% else %>
-                              <li>
-                                <button
-                                  class="text-success"
-                                  phx-click="reactivate"
-                                  phx-value-id={user.id}
-                                >
-                                  <.icon name="hero-check-circle" class="size-4" /> Reactivate
-                                </button>
-                              </li>
-                            <% end %>
-                          </ul>
-                        </div>
+                        <%= if show_actions_menu?(user, @active_admin_count) do %>
+                          <div class="dropdown dropdown-end">
+                            <button tabindex="0" class="btn btn-ghost btn-xs btn-square">
+                              <.icon name="hero-ellipsis-vertical" class="size-4" />
+                            </button>
+                            <ul
+                              tabindex="0"
+                              class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40 border border-base-200"
+                            >
+                              <%= if user.status == :active do %>
+                                <li :if={can_deactivate?(user, @active_admin_count)}>
+                                  <button
+                                    class="text-error"
+                                    phx-click="deactivate"
+                                    phx-value-id={user.id}
+                                  >
+                                    <.icon name="hero-no-symbol" class="size-4" /> Deactivate
+                                  </button>
+                                </li>
+                              <% else %>
+                                <li>
+                                  <button
+                                    class="text-success"
+                                    phx-click="reactivate"
+                                    phx-value-id={user.id}
+                                  >
+                                    <.icon name="hero-check-circle" class="size-4" /> Reactivate
+                                  </button>
+                                </li>
+                              <% end %>
+                            </ul>
+                          </div>
+                        <% end %>
                       </td>
                     </tr>
                   </tbody>
@@ -649,5 +650,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     |> assign(:user_count, length(users))
     |> assign(:active_admin_count, active_admin_count)
     |> stream(:users, users, reset: true)
+  end
+
+  defp show_actions_menu?(user, active_admin_count) do
+    cond do
+      user.status == :active -> can_deactivate?(user, active_admin_count)
+      true -> true
+    end
   end
 end
