@@ -9,7 +9,7 @@ OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cl
 ## Endpoint Overview
 
 - **Protocol**: OTLP over gRPC (`0.0.0.0:4317`) and OTLP over HTTP (`0.0.0.0:4318`).
-- **Kubernetes**: Access the service via `serviceradar-otel` in the demo namespace. For internet exposure, front it with an ingress that terminates TLS.
+- **Kubernetes**: Access the service via `serviceradar-otel` (`ClusterIP` by default). For internet exposure, front it with an ingress or load balancer that terminates TLS.
 - **Docker Compose**: Ports 4317/4318 map directly to the host for local deployments.
 
 ## Authentication
@@ -34,7 +34,7 @@ Use the [CNPG Monitoring dashboards](./cnpg-monitoring.md) to watch ingestion vo
 ## Troubleshooting
 
 - Validate connectivity with `otelcol --config test-collector.yaml --dry-run`.
-- Check the gateway logs (`kubectl logs deploy/serviceradar-otel -n demo`) for schema rejection or TLS errors.
+- If running in Kubernetes, check the gateway logs (`kubectl logs deploy/serviceradar-otel -n <namespace>`) for schema rejection or TLS errors.
 - Refer to the [Troubleshooting Guide](./troubleshooting-guide.md#otel) for rate limiting and export lag scenarios.
 
 ## Core Capability Metrics

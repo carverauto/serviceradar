@@ -118,7 +118,7 @@ Cross-Origin Resource Sharing (CORS) settings control which domains can access y
 
 ```json
 "cors": {
-    "allowed_origins": ["https://demo-staging.serviceradar.cloud", "http://localhost:3000"],
+    "allowed_origins": ["https://<your-ui-host>", "http://localhost:3000"],
     "allow_credentials": true
 }
 ```
