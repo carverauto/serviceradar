@@ -17,10 +17,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     socket = assign(socket, :page_title, "Auth Users")
     users = list_users(socket.assigns.current_scope)
     role_profiles = list_role_profiles(socket.assigns.current_scope)
+    default_profile_id = default_system_profile_id(role_profiles, "viewer")
 
     {:ok,
      socket
-     |> assign(:form, to_form(default_user_form(), as: :user))
+     |> assign(:form, to_form(default_user_form(default_profile_id), as: :user))
      |> assign(:show_add_user_modal, false)
      |> assign(:role_profiles, role_profiles)
      |> assign(:user_count, length(users))
@@ -43,10 +44,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   def handle_event("create", %{"user" => params}, socket) do
     scope = socket.assigns.current_scope
 
+    {role, role_profile_id} =
+      resolve_access_profile(params["role_profile_id"], params["role"], socket.assigns.role_profiles)
+
     attrs = %{
       email: params["email"],
       display_name: params["display_name"],
-      role: normalize_role(params["role"])
+      role: role,
+      role_profile_id: role_profile_id
     }
 
     attrs =
@@ -65,25 +70,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
         {:noreply,
          socket
          |> put_flash(:info, "User created")
-         |> assign(:form, to_form(default_user_form(), as: :user))
+         |> assign(
+           :form,
+           to_form(default_user_form(default_system_profile_id(socket.assigns.role_profiles, "viewer")),
+             as: :user
+           )
+         )
          |> assign(:show_add_user_modal, false)
          |> assign(:user_count, socket.assigns.user_count + 1)
          |> stream_insert(:users, user, at: 0)}
-
-      {:error, error} ->
-        {:noreply, put_flash(socket, :error, format_ash_error(error))}
-    end
-  end
-
-  def handle_event("update_role", %{"id" => id, "role" => role}, socket) do
-    scope = socket.assigns.current_scope
-
-    case AdminApi.update_user(scope, id, %{role: normalize_role(role)}) do
-      {:ok, updated} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Role updated")
-         |> stream_insert(:users, updated)}
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, format_ash_error(error))}
@@ -94,11 +89,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     scope = socket.assigns.current_scope
     profile_id = normalize_profile_id(profile_id)
 
-    case AdminApi.update_user(scope, id, %{role_profile_id: profile_id}) do
+    {role, profile_id} = resolve_access_profile(profile_id, nil, socket.assigns.role_profiles)
+
+    case AdminApi.update_user(scope, id, %{role_profile_id: profile_id, role: role}) do
       {:ok, updated} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Role profile updated")
+         |> put_flash(:info, "Access updated")
          |> stream_insert(:users, updated)}
 
       {:error, error} ->
@@ -140,7 +137,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   def event_mapping do
     Permit.Phoenix.LiveView.default_event_mapping()
     |> Map.merge(%{
-      "update_role" => :update,
       "update_role_profile" => :update,
       "deactivate" => :update,
       "reactivate" => :update,
@@ -184,7 +180,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
             <div class="space-y-1">
               <h1 class="text-2xl font-bold">Accounts</h1>
               <p class="text-base opacity-70">
-                Assign roles and access profiles without touching raw JSON.
+                Assign roles.
               </p>
             </div>
             <div class="flex items-center gap-2">
@@ -202,7 +198,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                   <thead>
                     <tr>
                       <th>Account</th>
-                      <th>Role</th>
                       <th>Access Profile</th>
                       <th>Authentication</th>
                       <th>Last Activity</th>
@@ -212,7 +207,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                   <tbody id="users" phx-update="stream">
                     <tr :for={{id, user} <- @streams.users} id={id} class="group">
                       <td>
-                        <div class="flex items-center gap-3">
+                        <.link
+                          navigate={~p"/settings/auth/users/#{user.id}"}
+                          class="flex items-center gap-3 hover:opacity-90"
+                        >
                           <div class="avatar placeholder">
                             <div class="bg-primary/10 text-primary w-10 rounded-full">
                               <span class="text-xs font-bold">{user_initials(user)}</span>
@@ -227,45 +225,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                           <%= if user.status != :active do %>
                             <span class="badge badge-warning badge-xs">inactive</span>
                           <% end %>
-                        </div>
-                      </td>
-                      <td>
-                        <select
-                          class="select select-bordered select-xs w-full max-w-[120px] font-medium"
-                          phx-change="update_role"
-                          phx-value-id={user.id}
-                          name="role"
-                        >
-                          <option value="viewer" selected={user.role == :viewer}>Viewer</option>
-                          <option value="helpdesk" selected={user.role == :helpdesk}>
-                            Helpdesk
-                          </option>
-                          <option value="operator" selected={user.role == :operator}>
-                            Operator
-                          </option>
-                          <option value="admin" selected={user.role == :admin}>Admin</option>
-                        </select>
+                        </.link>
                       </td>
                       <td>
                         <div class="flex items-center gap-2">
                           <select
                             class={[
                               "select select-bordered select-xs w-full font-medium",
-                              (is_nil(user.role_profile_id) or user.role_profile_id == "") &&
-                                "opacity-70"
+                              is_nil(effective_profile_id(user, @role_profiles)) && "opacity-70"
                             ]}
                             phx-change="update_role_profile"
                             phx-value-id={user.id}
                             name="role_profile_id"
                           >
-                            <option
-                              value=""
-                              selected={is_nil(user.role_profile_id) or user.role_profile_id == ""}
-                            >
-                              (Role Default)
-                            </option>
                             <%= for {label, id} <- profile_options(@role_profiles) do %>
-                              <option value={id} selected={user.role_profile_id == id}>
+                              <option
+                                value={id}
+                                selected={effective_profile_id(user, @role_profiles) == id}
+                              >
                                 {label}
                               </option>
                             <% end %>
@@ -369,15 +346,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                   class="input input-bordered w-full"
                 />
                 <.input
-                  field={@form[:role]}
+                  field={@form[:role_profile_id]}
                   type="select"
-                  label="Role"
-                  options={[
-                    {"Viewer", "viewer"},
-                    {"Helpdesk", "helpdesk"},
-                    {"Operator", "operator"},
-                    {"Admin", "admin"}
-                  ]}
+                  label="Access Profile"
+                  options={profile_options(@role_profiles)}
                   class="select select-bordered w-full"
                 />
                 <.input
@@ -416,15 +388,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     end
   end
 
-  defp normalize_role(nil), do: :viewer
-  defp normalize_role(""), do: :viewer
-  defp normalize_role("viewer"), do: :viewer
-  defp normalize_role("helpdesk"), do: :helpdesk
-  defp normalize_role("operator"), do: :operator
-  defp normalize_role("admin"), do: :admin
-  defp normalize_role(role) when is_atom(role), do: role
-  defp normalize_role(_), do: :viewer
-
   defp normalize_profile_id(nil), do: nil
   defp normalize_profile_id(""), do: nil
   defp normalize_profile_id(value), do: value
@@ -445,11 +408,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     end)
   end
 
-  defp default_user_form do
+  defp default_user_form(default_profile_id) do
     %{
       "email" => "",
       "display_name" => "",
-      "role" => "viewer",
+      "role_profile_id" => default_profile_id || "",
       "password" => ""
     }
   end
@@ -580,4 +543,80 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   end
 
   defp format_ash_error(_), do: "Unexpected error"
+
+  defp effective_profile_id(user, profiles) do
+    profile_id = Map.get(user, :role_profile_id)
+
+    cond do
+      is_binary(profile_id) and profile_id != "" ->
+        profile_id
+
+      true ->
+        role = Map.get(user, :role, :viewer)
+        system_name = role |> to_string()
+
+        case Enum.find(profiles, &(&1.system_name == system_name)) do
+          nil -> nil
+          profile -> profile.id
+        end
+    end
+  end
+
+  # Backwards-compat: accept either legacy `role` string or new `role_profile_id`.
+  # We always persist both `role` and `role_profile_id` so the app doesn't rely on
+  # base role for permissions, but legacy role checks won't accidentally escalate.
+  defp resolve_access_profile(profile_id, legacy_role, profiles) do
+    profile_id = normalize_profile_id(profile_id)
+
+    cond do
+      is_binary(profile_id) and profile_id != "" ->
+        case Enum.find(profiles, &(&1.id == profile_id)) do
+          nil ->
+            {:viewer, nil}
+
+          profile ->
+            role = role_from_profile(profile)
+            {role, profile.id}
+        end
+
+      true ->
+        role =
+          case legacy_role do
+            "admin" -> :admin
+            "operator" -> :operator
+            "helpdesk" -> :helpdesk
+            "viewer" -> :viewer
+            _ -> :viewer
+          end
+
+        system_name = to_string(role)
+
+        profile =
+          Enum.find(profiles, fn profile ->
+            profile.system and to_string(profile.system_name || "") == system_name
+          end)
+
+        role_profile_id = if profile, do: profile.id, else: nil
+        {role, role_profile_id}
+    end
+  end
+
+  defp role_from_profile(profile) do
+    case to_string(profile.system_name || "") do
+      "admin" -> :admin
+      "operator" -> :operator
+      "helpdesk" -> :helpdesk
+      "viewer" -> :viewer
+      _ -> :viewer
+    end
+  end
+
+  defp default_system_profile_id(profiles, system_name) when is_list(profiles) do
+    system_name = to_string(system_name || "")
+
+    case Enum.find(profiles, fn profile -> to_string(profile.system_name || "") == system_name end) do
+      nil -> nil
+      profile -> profile.id
+    end
+  end
 end

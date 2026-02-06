@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.User
+  alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNGWeb.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
@@ -181,6 +182,8 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
       # Trigger auth hooks
       Hooks.on_user_authenticated(user, claims)
+
+      _ = UserAuthEvents.record_login(conn, user, :oidc)
 
       conn
       |> put_flash(:info, "Signed in successfully via SSO.")

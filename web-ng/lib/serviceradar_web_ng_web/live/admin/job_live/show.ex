@@ -731,10 +731,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
     end
   end
 
-  # In a single deployment, admin users can see Oban Web
-  defp show_oban_web?(%{user: %{role: role}}) do
-    role in [:admin]
-  end
+  defp show_oban_web?(%{user: _} = scope),
+    do: ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
 
   defp show_oban_web?(_), do: false
 end

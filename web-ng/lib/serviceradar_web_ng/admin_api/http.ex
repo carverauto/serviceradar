@@ -14,6 +14,11 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
   end
 
   @impl true
+  def get_user(scope, id) do
+    request(scope, :get, "/api/admin/users/#{id}", %{})
+  end
+
+  @impl true
   def create_user(scope, attrs) do
     request(scope, :post, "/api/admin/users", attrs)
   end

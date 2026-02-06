@@ -47,6 +47,7 @@ defmodule ServiceRadar.Identity.User do
     define :reactivate
     define :update_role
     define :update_role_profile, action: :update_role_profile
+    define :admin_set_password, action: :admin_set_password
   end
 
   actions do
@@ -290,6 +291,23 @@ defmodule ServiceRadar.Identity.User do
         else
           changeset
         end
+      end
+    end
+
+    update :admin_set_password do
+      description "Set a user's password without requiring the current password (admin-only flow)"
+      require_atomic? false
+
+      argument :password, :string do
+        allow_nil? false
+        sensitive? true
+        constraints min_length: 12
+      end
+
+      change fn changeset, _context ->
+        password = Ash.Changeset.get_argument(changeset, :password)
+        hashed = Bcrypt.hash_pwd_salt(password)
+        Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
       end
     end
 

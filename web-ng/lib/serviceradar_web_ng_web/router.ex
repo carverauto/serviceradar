@@ -402,6 +402,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       # Authentication settings (admin only - enforced by Permit policies)
       live("/settings/authentication", Settings.AuthenticationLive, :index)
       live("/settings/auth/users", Settings.AuthUsersLive, :index)
+      live("/settings/auth/users/:id", Settings.AuthUserLive.Show, :show)
       live("/settings/auth/rbac", Settings.RbacLive, :index)
     end
 

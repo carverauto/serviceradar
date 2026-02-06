@@ -35,6 +35,11 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   end
 
   @impl true
+  def get_user(scope, id) do
+    Ash.get(User, id, scope: scope)
+  end
+
+  @impl true
   def create_user(scope, attrs) do
     User
     |> Ash.Changeset.for_create(:create, attrs, scope: scope)

@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
+  alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNGWeb.Auth.Hooks
   alias ServiceRadarWebNGWeb.UserAuth
@@ -43,6 +44,8 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
         # Trigger auth hooks
         Hooks.on_user_authenticated(user, %{"method" => "password"})
+
+        _ = UserAuthEvents.record_login(conn, user, :password)
 
         conn
         |> put_flash(:info, "Signed in successfully.")
@@ -104,6 +107,8 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
             # Trigger auth hooks
             Hooks.on_user_authenticated(user, %{"method" => "local_password"})
+
+            _ = UserAuthEvents.record_login(conn, user, :password)
 
             conn
             |> put_flash(:info, "Signed in successfully.")

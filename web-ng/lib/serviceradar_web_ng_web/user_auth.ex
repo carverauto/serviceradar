@@ -59,6 +59,10 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   Revokes the JWT token, clears the session, and broadcasts disconnect to LiveViews.
   """
   def log_out_user(conn) do
+    if user = conn.assigns |> Map.get(:current_scope) |> then(&(&1 && &1.user)) do
+      _ = ServiceRadarWebNG.Audit.UserAuthEvents.record_logout(conn, user, user.last_auth_method)
+    end
+
     # Revoke the JWT token to prevent reuse
     revoke_current_token(conn)
 
@@ -397,7 +401,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   @doc """
   Plug for routes that require Oban Web access.
 
-  Access is allowed for admin users.
+  Access is allowed for users with Jobs management permission.
   """
   def require_oban_access(conn, _opts) do
     scope = conn.assigns[:current_scope]
@@ -433,9 +437,9 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
   defp maybe_store_return_to(conn), do: conn
 
-  # In a single-deployment UI, Oban access is granted to admin users
-  defp oban_access?(%Scope{user: %{role: role}}) do
-    role in [:admin]
+  # In a single-deployment UI, Oban access is granted via RBAC, not base role.
+  defp oban_access?(%Scope{} = scope) do
+    ServiceRadarWebNG.RBAC.can?(scope, "settings.jobs.manage")
   end
 
   defp oban_access?(_), do: false

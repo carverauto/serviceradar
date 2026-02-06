@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.AdminApi do
   @type scope :: ServiceRadarWebNG.Accounts.Scope.t()
 
   @callback list_users(scope(), map()) :: {:ok, list()} | {:error, term()}
+  @callback get_user(scope(), String.t()) :: {:ok, map()} | {:error, term()}
   @callback create_user(scope(), map()) :: {:ok, map()} | {:error, term()}
   @callback update_user(scope(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   @callback deactivate_user(scope(), String.t()) :: {:ok, map()} | {:error, term()}
@@ -23,6 +24,10 @@ defmodule ServiceRadarWebNG.AdminApi do
 
   def list_users(scope, params \\ %{}) do
     client().list_users(scope, params)
+  end
+
+  def get_user(scope, id) do
+    client().get_user(scope, id)
   end
 
   def create_user(scope, attrs) do
