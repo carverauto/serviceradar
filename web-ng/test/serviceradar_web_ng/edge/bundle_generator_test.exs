@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
         end)
 
       assert install_sh =~ "COMPONENT_TYPE=\"gateway\""
-      assert install_sh =~ "Platform-detecting installer"
+      assert install_sh =~ "ServiceRadar Edge Component Installer"
       assert install_sh =~ "docker"
       assert install_sh =~ "systemd"
     end
@@ -82,7 +82,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
         end)
 
       assert config_yaml =~ "component_type:"
-      assert config_yaml =~ "join_token:"
+      assert config_yaml =~ "gateway_security:"
       assert config_yaml =~ "tls:"
       assert config_yaml =~ "component.pem"
     end
