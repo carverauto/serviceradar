@@ -1,5 +1,6 @@
 defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
-  use ServiceRadarWebNGWeb.ConnCase, async: true
+  # Writes to shared tables; keep serial to avoid deadlocks in CNPG-backed tests.
+  use ServiceRadarWebNGWeb.ConnCase, async: false
 
   alias ServiceRadarWebNG.Repo
   import Phoenix.LiveViewTest

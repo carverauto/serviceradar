@@ -1,5 +1,6 @@
 defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
-  use ServiceRadarWebNGWeb.ConnCase, async: true
+  # Writes to shared tables; keep serial to avoid deadlocks in CNPG-backed tests.
+  use ServiceRadarWebNGWeb.ConnCase, async: false
 
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
@@ -30,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "renders fallback sysmon label when profile data is missing", %{conn: conn} do
     uid = "test-device-sysmon-missing-#{System.unique_integer([:positive])}"
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     Repo.insert_all("ocsf_devices", [
       %{
@@ -39,6 +41,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         is_available: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    # Ensure the device is considered to have sysmon metrics so the label renders.
+    Repo.insert_all("cpu_metrics", [
+      %{
+        timestamp: now,
+        gateway_id: "test-gw",
+        core_id: 0,
+        usage_percent: 12.3,
+        device_id: uid,
+        created_at: now
       }
     ])
 
@@ -211,34 +225,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         }
       ])
 
-      # Insert test interfaces
-      Repo.insert_all("discovered_interfaces", [
-        %{
-          timestamp: ~U[2100-01-01 00:00:00Z],
-          device_id: device_uid,
-          interface_uid: "#{device_uid}-eth0",
-          if_name: "eth0",
-          if_descr: "Primary Ethernet",
-          if_type_name: "ethernetCsmacd",
-          if_oper_status: 1,
-          if_admin_status: 1,
-          speed_bps: 1_000_000_000,
-          if_index: 1
-        },
-        %{
-          timestamp: ~U[2100-01-01 00:00:00Z],
-          device_id: device_uid,
-          interface_uid: "#{device_uid}-lo0",
-          if_name: "lo0",
-          if_descr: "Loopback",
-          if_type_name: "softwareLoopback",
-          if_oper_status: 1,
-          if_admin_status: 1,
-          speed_bps: nil,
-          if_index: 2
-        }
-      ])
-
       {:ok, conn: conn, device_uid: device_uid}
     end
 
@@ -282,11 +268,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
 
     test "renders interfaces table on interfaces tab", %{conn: conn, device_uid: device_uid} do
+      insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
 
       # Click on interfaces tab
       view
-      |> element("[phx-click='change_tab'][phx-value-tab='interfaces']")
+      |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
       html = render(view)
@@ -295,10 +282,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
 
     test "shows human-readable interface types", %{conn: conn, device_uid: device_uid} do
+      insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
 
       view
-      |> element("[phx-click='change_tab'][phx-value-tab='interfaces']")
+      |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
       html = render(view)
@@ -309,10 +297,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
 
     test "shows status badges for interfaces", %{conn: conn, device_uid: device_uid} do
+      insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
 
       view
-      |> element("[phx-click='change_tab'][phx-value-tab='interfaces']")
+      |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
       # Should have status badges
@@ -320,10 +309,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
 
     test "can select interfaces with checkboxes", %{conn: conn, device_uid: device_uid} do
+      insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
 
       view
-      |> element("[phx-click='change_tab'][phx-value-tab='interfaces']")
+      |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
       # Should have checkboxes for selection
@@ -331,15 +321,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
 
     test "can toggle interface favorite", %{conn: conn, device_uid: device_uid} do
+      insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
 
       view
-      |> element("[phx-click='change_tab'][phx-value-tab='interfaces']")
+      |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
       # Click favorite star for first interface
       view
-      |> element("[phx-click=toggle_interface_favorite]", "")
+      |> element(
+        "button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']"
+      )
       |> render_click()
 
       # Should show favorited state (star icon changes)
@@ -351,6 +344,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   describe "interfaces bulk edit" do
     setup %{conn: conn} do
       device_uid = "test-device-bulk-#{System.unique_integer([:positive])}"
+      ts = DateTime.utc_now() |> DateTime.truncate(:second)
 
       Repo.insert_all("ocsf_devices", [
         %{
@@ -365,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
       Repo.insert_all("discovered_interfaces", [
         %{
-          timestamp: ~U[2100-01-01 00:00:00Z],
+          timestamp: ts,
           device_id: device_uid,
           interface_uid: "#{device_uid}-eth0",
           if_name: "eth0",
@@ -377,7 +371,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           if_index: 1
         },
         %{
-          timestamp: ~U[2100-01-01 00:00:00Z],
+          timestamp: ts,
           device_id: device_uid,
           interface_uid: "#{device_uid}-eth1",
           if_name: "eth1",
@@ -400,12 +394,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
 
       view
-      |> element("[phx-click='change_tab'][phx-value-tab='interfaces']")
+      |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
       # Select an interface
       view
-      |> element("[phx-click=toggle_interface_select]", "")
+      |> element("input[phx-click='toggle_interface_select'][phx-value-uid='#{device_uid}-eth0']")
       |> render_click()
 
       html = render(view)
@@ -416,12 +410,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
 
       view
-      |> element("[phx-click='change_tab'][phx-value-tab='interfaces']")
+      |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
       # Select an interface
       view
-      |> element("[phx-click=toggle_interface_select]", "")
+      |> element("input[phx-click='toggle_interface_select'][phx-value-uid='#{device_uid}-eth0']")
       |> render_click()
 
       # Open bulk edit modal
@@ -442,5 +436,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     user
     |> Ash.Changeset.for_update(:update_role, %{role: role}, actor: AshTestHelpers.system_actor())
     |> Ash.update!()
+  end
+
+  defp insert_test_interfaces!(device_uid) do
+    ts = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Repo.insert_all("discovered_interfaces", [
+      %{
+        timestamp: ts,
+        device_id: device_uid,
+        interface_uid: "#{device_uid}-eth0",
+        if_name: "eth0",
+        if_descr: "Primary Ethernet",
+        if_type_name: "ethernetCsmacd",
+        if_oper_status: 1,
+        if_admin_status: 1,
+        speed_bps: 1_000_000_000,
+        if_index: 1
+      },
+      %{
+        timestamp: ts,
+        device_id: device_uid,
+        interface_uid: "#{device_uid}-lo0",
+        if_name: "lo0",
+        if_descr: "Loopback",
+        if_type_name: "softwareLoopback",
+        if_oper_status: 1,
+        if_admin_status: 1,
+        speed_bps: nil,
+        if_index: 2
+      }
+    ])
   end
 end

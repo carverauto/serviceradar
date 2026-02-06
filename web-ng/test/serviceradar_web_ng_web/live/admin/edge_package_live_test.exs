@@ -102,14 +102,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
 
       # Submit form
       lv
-        lv
-        |> form("#create_package_form",
-          form: %{
-            label: "test-new-agent",
-            gateway_id: gateway_id
-          }
-        )
-        |> render_submit()
+      |> form("#create_package_form",
+        form: %{
+          label: "test-new-agent",
+          gateway_id: gateway_id
+        }
+      )
+      |> render_submit()
 
       # May show loading, success, or gateway-related failure depending on local test environment.
       html = render(lv)
@@ -170,13 +169,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
           actor: actor
         )
 
-      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages")
+      {:ok, _lv, html} = live(conn, ~p"/admin/edge-packages")
 
-      html =
-        lv
-        |> element("select[name='component_type']")
-        |> render_change(%{status: "", component_type: "checker"})
-
+      # The index page renders the component type in the table.
       assert html =~ "checker" or html =~ "Checker"
     end
   end

@@ -81,10 +81,13 @@ config :serviceradar_core, ServiceRadar.Repo,
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size:
     (case System.get_env("TEST_CNPG_POOL_SIZE") do
-       nil -> System.schedulers_online() * 2
-       "" -> System.schedulers_online() * 2
-       value -> String.to_integer(value)
+       nil -> min(max(System.schedulers_online() * 2, 10), 30)
+       "" -> min(max(System.schedulers_online() * 2, 10), 30)
+       value -> min(String.to_integer(value), 40)
      end),
+  # Reduce flakiness under `mix test` with higher concurrency when using a remote CNPG DB.
+  queue_target: 1_000,
+  queue_interval: 1_000,
   # Some migrations (Timescale hypertables, indexes) can take > 2 minutes on CI/dev hardware.
   ownership_timeout: 300_000,
   parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],

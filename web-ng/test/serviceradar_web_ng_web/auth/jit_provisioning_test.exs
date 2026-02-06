@@ -249,7 +249,8 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
     end
 
     test "confirmed_at is set to current time", %{actor: actor} do
-      before = DateTime.utc_now()
+      # confirmed_at is persisted through Postgres, which may truncate precision (seconds).
+      before = DateTime.utc_now() |> DateTime.truncate(:second)
 
       params = %{
         email: "timestamp_test@example.com",
@@ -259,7 +260,7 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
       }
 
       {:ok, user} = User.provision_sso_user(params, actor: actor)
-      after_time = DateTime.utc_now()
+      after_time = DateTime.utc_now() |> DateTime.truncate(:second)
 
       assert DateTime.compare(user.confirmed_at, before) in [:gt, :eq]
       assert DateTime.compare(user.confirmed_at, after_time) in [:lt, :eq]

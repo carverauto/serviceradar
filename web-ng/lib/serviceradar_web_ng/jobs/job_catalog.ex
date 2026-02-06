@@ -366,26 +366,44 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   # Get Oban.Plugins.Cron configuration
   defp get_cron_config do
-    plugins = get_oban_plugins()
+    plugins =
+      case get_oban_plugins() do
+        plugins when is_list(plugins) -> plugins
+        _ -> []
+      end
 
-    Enum.find_value(plugins, fn
-      {Oban.Plugins.Cron, opts} -> Keyword.get(opts, :crontab, [])
+    plugins
+    |> Enum.find_value(fn
+      {Oban.Plugins.Cron, opts} when is_list(opts) -> Keyword.get(opts, :crontab, [])
       _ -> nil
     end)
+    |> case do
+      crontab when is_list(crontab) -> crontab
+      _ -> nil
+    end
   end
 
   defp get_oban_plugins do
-    case coordinator_node() do
+    plugins =
+      case coordinator_node() do
       {:ok, node} ->
         case :rpc.call(node, Oban, :config, [Oban]) do
-          %Oban.Config{plugins: plugins} -> plugins
+          %Oban.Config{plugins: plugins} when is_list(plugins) -> plugins
           _ -> []
         end
 
       :error ->
-        oban_config = Application.get_env(:serviceradar_core, Oban, [])
-        Keyword.get(oban_config, :plugins, [])
+        case Application.get_env(:serviceradar_core, Oban, []) do
+          oban_config when is_list(oban_config) ->
+            Keyword.get(oban_config, :plugins, [])
+
+          _ ->
+            # Some environments set `config :serviceradar_core, Oban, false` to disable Oban.
+            []
+        end
     end
+
+    if is_list(plugins), do: plugins, else: []
   rescue
     _ -> []
   end

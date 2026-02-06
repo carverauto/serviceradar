@@ -955,11 +955,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       <span :if={not is_map(icmp)} class="text-base-content/40">—</span>
                     </td>
                     <td class="text-xs">
-                      <.metrics_presence
-                        device_uid={device_uid}
-                        has_snmp={has_snmp}
-                        has_sysmon={has_sysmon}
-                      />
+                      <div class="flex flex-col gap-1">
+                        <.metrics_presence
+                          device_uid={device_uid}
+                          has_snmp={has_snmp}
+                          has_sysmon={has_sysmon}
+                        />
+                        <.sysmon_profile_badge
+                          :if={has_sysmon}
+                          profile={Map.get(@sysmon_profiles_by_device, device_uid)}
+                        />
+                      </div>
                     </td>
                     <td class="text-xs">
                       <.risk_level_badge risk_level={Map.get(row, "risk_level")} />

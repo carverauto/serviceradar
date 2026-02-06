@@ -38,4 +38,4 @@
 
 ## 8. Validation
 - [x] 8.1 Run `openspec validate update-rbac-api-authorization --strict`.
-- [ ] 8.2 Run `cd web-ng && mix test` and any targeted `elixir/serviceradar_core` tests affected by policy hardening.
+- [x] 8.2 Run `cd web-ng && mix test` and any targeted `elixir/serviceradar_core` tests affected by policy hardening.
