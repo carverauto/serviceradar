@@ -10,7 +10,7 @@ ServiceRadar now stores every telemetry signal (events, OTEL logs/metrics/traces
 
 Add the CNPG reader as a PostgreSQL data source in Grafana (or any SQL-friendly dashboarding tool):
 
-1. **Host / Port**: `cnpg-rw.<namespace>.svc.cluster.local:5432` (the RW service from the demo manifests).
+1. **Host / Port**: `cnpg-rw.<namespace>.svc.cluster.local:5432` (the CNPG RW service in your cluster).
 2. **Database**: `telemetry`.
 3. **User**: `postgres` (or a scoped read-only role).
 4. **TLS**: enable `verify-full` with the CA/cert pair that ships in `/etc/serviceradar/certs` or the `cnpg-ca` secret.

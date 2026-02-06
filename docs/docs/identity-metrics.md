@@ -22,7 +22,7 @@ Use these OpenTelemetry gauges to monitor promotion health and cardinality drift
 - **Run staleness**: `identity_promotion_run_age_ms > 900000` (15 minutes) signals reconciliation is not running; WARN at 10 minutes.
 - **Throughput dip**: `identity_promotions_last_batch == 0 AND identity_promotions_blocked_policy_last_batch > 0` for 2 runs suggests policy misconfiguration.
 - **Volume surge**: sudden jump in `identity_promotions_attempted_last_batch` (>2x baseline) may indicate flood of sightings or replay; add a high-watermark alert tailored to environment.
-- **Cardinality drift**: alert when `identity_cardinality_drift_percent` exceeds your tolerance (demo: 50k baseline with 2–3% tolerance) or when `identity_cardinality_blocked` stays at 1 for more than a few minutes.
+- **Cardinality drift**: alert when `identity_cardinality_drift_percent` exceeds your tolerance (example: 50k baseline with 2–3% tolerance) or when `identity_cardinality_blocked` stays at 1 for more than a few minutes.
 
 ### Dashboard panels
 

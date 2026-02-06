@@ -38,8 +38,8 @@ groups:
 ```
 
 ## Operational Guidance
-- Set `core.identity.drift.baselineDevices` to your expected strong-ID cardinality (demo: 50k) with `tolerancePercent` for minor fluctuations.
-- Keep `pauseOnDrift` enabled in demo/labs; in prod, pair alerts with runbooks before disabling pause.
+- Set `core.identity.drift.baselineDevices` to your expected strong-ID cardinality, and set `tolerancePercent` to allow minor fluctuations.
+- Keep `pauseOnDrift` enabled in labs; in production, pair alerts with an incident playbook before disabling pause.
 - Correlate with `identity_cardinality_blocked` and promotion run metrics (`identity_promotions_*`) to see if drift coincides with blocked promotions.
-- If drift is intentional (e.g., temporary load), raise baseline and restart core with updated config; otherwise, investigate faker or embedded sync sources for duplicate strong IDs or promotion misconfig.
+- If drift is intentional (e.g., temporary load), raise baseline and restart core with updated config; otherwise, investigate embedded sync sources, discovery, and onboarding for duplicate strong IDs or promotion misconfiguration.
 - If scraping via the Prometheus bridge, confirm `/metrics` is enabled on core and scraped successfully before trusting drift alerts.

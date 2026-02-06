@@ -1,10 +1,10 @@
 ---
-title: ServiceRadar Cluster
+title: Platform Services
 ---
 
-# ServiceRadar Cluster
+# Platform Services
 
-The ServiceRadar demo cluster bundles the core platform services into a single Kubernetes namespace so you can explore the full data path end to end. Use this page when you need to understand which workloads are running, how they communicate, and where to look during incident response.
+This page describes the standard ServiceRadar deployment topology (Kubernetes/Helm or Docker Compose): which workloads run, what they do, and where to look when debugging.
 
 ## Core Services
 
@@ -22,20 +22,18 @@ Each deployment surfaces the `serviceradar.io/component` label; use it to filter
 
 ## Supporting Data Plane
 
-- **CNPG / Timescale**: CloudNativePG cluster that stores registry state plus every telemetry hypertable (events, logs, OTEL metrics/traces). The demo namespace creates it via `cnpg-cluster.yaml` and exposes the RW service at `cnpg-rw.<namespace>.svc`.
-- **Faker**: Generates synthetic Armis datasets for demos and developer testing. Deployed as `deploy/serviceradar-faker` and backed by `pvc/serviceradar-faker-data`.
+- **CNPG / Timescale**: CloudNativePG cluster that stores registry state plus telemetry hypertables (events, logs, OTEL metrics/traces). In Kubernetes, the RW service is typically `cnpg-rw.<namespace>.svc` (or `<clusterName>-rw.<namespace>.svc`).
 - **Edge proxy**: Caddy (Compose) or Ingress (Kubernetes) exposes HTTPS endpoints for the web UI and API; mutual TLS is enforced between internal components via `serviceradar-ca`.
 
 ## Observability Hooks
 
-- **Logs**: All pods write to STDOUT/STDERR; aggregate with `kubectl logs -n demo -l serviceradar.io/component=<name>`.
+- **Logs**: All pods write to STDOUT/STDERR; aggregate with `kubectl logs -n <namespace> -l serviceradar.io/component=<name>`.
 - **Metrics**: Ensure sysmon exporters are scraped within the five-minute hostfreq retention window.
 - **Tracing**: Distributed traces flow through the OTLP gateway (`service/serviceradar-otel`) and land in CNPG/Timescale for correlation with SRQL queries.
 
 ## Operational Tips
 
-- Use `kubectl get pods -n demo` to verify rollouts. Most deployments support at least two replicas; scale `serviceradar-agent` during heavy reconciliation.
-- Persistent stores (`registry`, `cnpg`, `faker`) rely on PVCs; confirm volume mounts before recycling pods.
-- The demo namespace is designed for experimentation. When you need a clean slate, the fastest path is to recreate the namespace and reinstall the chart (or for Docker Compose, remove the relevant volumes and bring the stack back up).
+- Use `kubectl get pods -n <namespace>` to verify rollouts.
+- Persistent stores (`cnpg`, plugin storage) rely on PVCs; confirm volume mounts before recycling pods.
 
 For component-specific configuration, see the guides under **Deployment** and **Get Data In**. SRQL-specific authentication and rate limit settings live in the [SRQL Service Configuration](./srql-service.md) guide.

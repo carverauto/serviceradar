@@ -56,7 +56,7 @@ groups:
           summary: "Sighting volume surge"
           description: "Attempted promotions jumped above 2x the 1h baseline. Check for replay or discovery floods."
 
-      # Drift over baseline (50k demo default; adjust per env)
+      # Drift over baseline (example; adjust per env)
       - alert: IdentityDriftExceeded
         expr: identity_cardinality_drift_percent > 3
         for: 10m
@@ -64,7 +64,7 @@ groups:
           severity: warning
         annotations:
           summary: "Identity drift above tolerance"
-          description: "Device inventory is {{ printf \"%.0f\" $value }}%% over baseline. Check faker inputs, promotion policy, and blocked merges."
+          description: "Device inventory is {{ printf \"%.0f\" $value }}%% over baseline. Check sync sources, promotion policy, and blocked merges."
 
       # Promotion paused because drift guard is on
       - alert: IdentityPromotionPausedOnDrift

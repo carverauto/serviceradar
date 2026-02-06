@@ -8,8 +8,8 @@ registration, and the fallbacks available for non-Kubernetes installs.
 
 ## High-Level Overview
 
-- **SPIRE Server StatefulSet** – Runs in-cluster inside the `demo` namespace
-  (and via Helm for customer namespaces). The pod now hosts two containers:
+- **SPIRE Server StatefulSet** – Runs in-cluster in your Kubernetes namespace
+  (deployed via the Helm chart). The pod hosts two containers:
   the upstream `spire-server` binary and the `spire-controller-manager`
   sidecar that owns workload registration.
 - **Postgres datastore** – SPIRE persists state in the shared `cnpg` CloudNativePG
@@ -34,8 +34,8 @@ keep the admin socket scoped to the pod. Key configuration details:
   ignore list. The controller dials the server using the shared socket under
   `/spire-server/api.sock`.
 - Validating webhooks are disabled by default (`ENABLE_WEBHOOKS=false`)
-  because the demo environment does not yet supply the webhook service and TLS
-  assets. If you enable webhooks in a hardened cluster, set
+  because some environments do not supply the webhook service and TLS assets by
+  default. If you enable webhooks in a hardened cluster, set
   `enableWebhooks=true` and ensure cert-manager injects the required
   certificates.
 - RBAC binds the server’s service account to the controller role so the
@@ -49,7 +49,7 @@ Workload identities are declared via `ClusterSPIFFEID` resources. Each
 resource defines:
 
 - `spiffeIDTemplate` – The SVID URI issued to matching workloads (for
-  example `spiffe://carverauto.dev/ns/demo/sa/serviceradar-core`).
+  example `spiffe://carverauto.dev/ns/<namespace>/sa/serviceradar-core`).
 - `namespaceSelector` and `podSelector` – Label selectors that determine which
   pods receive the SVID.
 - Optional extras such as `federatesWith`, `workloadSelectorTemplates`, or
@@ -63,10 +63,10 @@ kind: ClusterSPIFFEID
 metadata:
   name: serviceradar-core
 spec:
-  spiffeIDTemplate: spiffe://carverauto.dev/ns/demo/sa/serviceradar-core
+  spiffeIDTemplate: spiffe://carverauto.dev/ns/<namespace>/sa/serviceradar-core
   namespaceSelector:
     matchLabels:
-      kubernetes.io/metadata.name: demo
+      kubernetes.io/metadata.name: <namespace>
   podSelector:
     matchLabels:
       app: serviceradar-core
@@ -90,7 +90,7 @@ their base configuration (kept in ConfigMaps/Helm chart values). Important
 runtime expectations:
 
 1. **Socket mount** – Pods mount `/run/spire/sockets` from the host. Our Helm
-   chart and demo manifests add the hostPath volume automatically.
+   chart adds the hostPath volume automatically.
 2. **Config immutability** – SPIFFE mode is set in the on-disk config and
    should not be overridden by remote configuration.
 3. **RBAC checks** – Datasvc and other control-plane services inspect the
@@ -102,7 +102,7 @@ Sync/checkers are queued for migration.
 
 ## Operational Notes
 
-- Applying `k8s/demo/base/spire` (or `helm upgrade`) is idempotent. The
+- Applying the SPIRE manifests (or running `helm upgrade`) is idempotent. The
   StatefulSet restarts to pick up controller config changes and immediately
   replays the declarative entries.
 - Inspect current identities with `kubectl get clusterspiffeids.spire.spiffe.io`

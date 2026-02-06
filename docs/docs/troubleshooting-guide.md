@@ -4,7 +4,7 @@ title: Troubleshooting Guide
 
 # Troubleshooting Guide
 
-Use this guide as a first stop when onboarding ServiceRadar or operating the demo cluster. Each section lists fast diagnostics, common failure modes, and references for deeper dives.
+Use this guide as a first stop when onboarding or operating ServiceRadar. Each section lists fast diagnostics, common failure modes, and references for deeper dives.
 
 ## Edge Agents
 
@@ -59,7 +59,7 @@ For detailed edge agent documentation, see [Edge Agents](./edge-agents.md).
 
 ## Core Services
 
-- **Check pod health**: `kubectl get pods -n demo` (or the equivalent Docker Compose status). Pods stuck in `CrashLoopBackOff` usually point to missing secrets or PVC mounts.
+- **Check pod health**: `kubectl get pods -n <namespace>` (or the equivalent Docker Compose status). Pods stuck in `CrashLoopBackOff` usually point to missing secrets or PVC mounts.
 - **Verify API availability**: `curl -k https://<core-host>/healthz`. TLS errors tie back to mismatched certificates—reissue them with the [Self-Signed Certificates guide](./self-signed.md).
 - **Configuration drift**: Reconcile changes with the [Configuration Basics](./configuration.md) checklist and update the on-disk configs.
 
@@ -71,7 +71,7 @@ For detailed edge agent documentation, see [Edge Agents](./edge-agents.md).
 
 ## Syslog
 
-- **No events**: Ensure devices forward to the correct address and protocol (`UDP/TCP 514`). Validate listener status via `kubectl logs deploy/serviceradar-syslog -n demo`.
+- **No events**: Ensure devices forward to the correct address and protocol (`UDP/TCP 514`). Validate listener status via `kubectl logs deploy/serviceradar-syslog -n <namespace>`.
 - **Parsing issues**: Update CNPG grok rules when new vendors join; refer to the [Syslog ingest guide](./syslog.md).
 - **Clock drift**: Systems with unsynchronized NTP create out-of-order events; align to UTC.
 

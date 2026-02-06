@@ -15,7 +15,7 @@ The NetBox connector keeps ServiceRadar's registry synchronized with your source
 ## Configuration Steps
 
 1. Create a NetBox integration source in **Integrations → New Source** (Armis/NetBox). Provide the endpoint, token, prefix, and partition.
-2. Ensure a sync-capable agent is connected. Tail `kubectl logs deploy/serviceradar-agent -n demo` and look for `netbox_sync` entries confirming pulls.
+2. Ensure a sync-capable agent is connected. If running in Kubernetes, tail `kubectl logs deploy/serviceradar-agent -n <namespace>` and look for `netbox_sync` entries confirming pulls.
 
 ## How Data Flows
 
