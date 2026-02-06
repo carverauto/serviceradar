@@ -127,7 +127,7 @@ Any sustained growth indicates the pgx pool is undersized or a migration locked 
 | PVC Growth | `hypertable_detailed_size.total_bytes` | >10% growth per hour |
 | pgx Errors | `kubectl logs deploy/serviceradar-db-event-writer | grep "cnpg"` | any non-zero error rate should alert |
 
-Reuse your existing Prometheus stack to alert on pod restarts (`kube_pod_container_status_restarts_total`) and container CPU saturation (`container_cpu_usage_seconds_total`) for the CNPG and db-event-writer pods. Use this doc in tandem with the **Timescale Retention & Compression Checks** section in `agents.md` for the CLI-based playbook.
+Reuse your existing Prometheus stack to alert on pod restarts (`kube_pod_container_status_restarts_total`) and container CPU saturation (`container_cpu_usage_seconds_total`) for the CNPG and db-event-writer pods.
 
 ## Trigram Indexes for Text Search
 

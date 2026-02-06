@@ -579,6 +579,5 @@ sudo timeout 30 tcpdump -i any -n port 2055 -w netflow-capture.pcap
 
 ## Still Stuck?
 
-- Review the operational runbooks in [Agents & Demo Operations](./agents.md) for environment resets.
 - Capture failing commands, logs, and SRQL queries before escalating to the core team.
 - File follow-up work items in Beads (`bd`) so the broader team can track remediations.

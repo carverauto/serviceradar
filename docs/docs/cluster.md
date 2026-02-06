@@ -36,6 +36,6 @@ Each deployment surfaces the `serviceradar.io/component` label; use it to filter
 
 - Use `kubectl get pods -n demo` to verify rollouts. Most deployments support at least two replicas; scale `serviceradar-agent` during heavy reconciliation.
 - Persistent stores (`registry`, `cnpg`, `faker`) rely on PVCs; confirm volume mounts before recycling pods.
-- The demo namespace is designed for experimentation. When you need a clean slate, follow the runbooks in `agents.md` to reset Faker, truncate the CNPG hypertables, and rebuild materialized views.
+- The demo namespace is designed for experimentation. When you need a clean slate, the fastest path is to recreate the namespace and reinstall the chart (or for Docker Compose, remove the relevant volumes and bring the stack back up).
 
 For component-specific configuration, see the guides under **Deployment** and **Get Data In**. SRQL-specific authentication and rate limit settings live in the [SRQL Service Configuration](./srql-service.md) guide.
