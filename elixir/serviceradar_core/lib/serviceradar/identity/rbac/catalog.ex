@@ -323,6 +323,46 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
 
   def system_profiles, do: @system_profiles
 
+  @doc """
+  Permission key aliases for retired keys.
+
+  We keep this for forward-compatibility with already-stored role profiles, so
+  admins can still edit/sanitize profiles created before the catalog was
+  refined.
+  """
+  def permission_key_aliases do
+    %{
+      # `observability.view` used to be a coarse, section-wide permission. It was
+      # split into per-surface view permissions.
+      "observability.view" => [
+        "observability.logs.view",
+        "observability.metrics.view",
+        "observability.traces.view",
+        "observability.events.view",
+        "observability.netflow.view",
+        "observability.alerts.view",
+        "observability.rules.view"
+      ]
+    }
+  end
+
+  @doc """
+  Normalizes permission keys by expanding deprecated aliases and removing
+  duplicates.
+  """
+  def normalize_permission_keys(keys) when is_list(keys) do
+    aliases = permission_key_aliases()
+
+    keys
+    |> Enum.flat_map(fn key ->
+      case Map.get(aliases, key) do
+        nil -> [key]
+        expanded when is_list(expanded) -> expanded
+      end
+    end)
+    |> Enum.uniq()
+  end
+
   def permission_keys do
     @catalog
     |> Enum.flat_map(& &1.permissions)

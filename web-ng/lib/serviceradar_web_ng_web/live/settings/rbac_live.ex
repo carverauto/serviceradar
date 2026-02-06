@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   require Ash.Query
 
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.RBAC, as: WebRBAC
   alias ServiceRadarWebNGWeb.SettingsComponents
@@ -240,7 +241,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         case mode do
           "all" -> MapSet.to_list(socket.assigns.grid.valid_permissions)
           "none" -> []
-          _ -> profile.permissions || []
+          _ -> Catalog.normalize_permission_keys(profile.permissions || [])
         end
 
       updated = %{profile | permissions: permissions}
@@ -1028,12 +1029,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   defp permissions_from_clone(profiles, clone_source_id) do
     case find_profile(profiles, clone_source_id) do
       nil -> []
-      profile -> profile.permissions || []
+      profile -> Catalog.normalize_permission_keys(profile.permissions || [])
     end
   end
 
   defp unmapped_permissions(profile, grid) do
-    (profile.permissions || [])
+    profile.permissions
+    |> Kernel.||([])
+    |> Catalog.normalize_permission_keys()
     |> Enum.reject(&MapSet.member?(grid.valid_permissions, &1))
     |> Enum.sort()
   end
@@ -1082,7 +1085,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       |> Ash.Query.sort(system: :desc, name: :asc)
 
     case Ash.read(query, scope: scope) do
-      {:ok, profiles} -> {profiles, nil}
+      {:ok, profiles} ->
+        profiles =
+          Enum.map(profiles, fn profile ->
+            %{profile | permissions: Catalog.normalize_permission_keys(profile.permissions || [])}
+          end)
+
+        {profiles, nil}
+
       {:error, error} -> {[], format_ash_error(error)}
     end
   end
@@ -1100,11 +1110,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   end
 
   defp persist_profile(socket, scope, profile) do
+    permissions = Catalog.normalize_permission_keys(profile.permissions || [])
+
     result =
       with {:ok, record} <- Ash.get(RoleProfile, profile.id, scope: scope),
            {:ok, updated} <-
              record
-             |> Ash.Changeset.for_update(:update, %{permissions: profile.permissions},
+             |> Ash.Changeset.for_update(:update, %{permissions: permissions},
                scope: scope
              )
              |> Ash.update(scope: scope) do
@@ -1125,6 +1137,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp update_role_profile(scope, profile, attrs) do
     with {:ok, record} <- Ash.get(RoleProfile, profile.id, scope: scope) do
+      attrs =
+        case Map.fetch(attrs, :permissions) do
+          {:ok, perms} when is_list(perms) ->
+            Map.put(attrs, :permissions, Catalog.normalize_permission_keys(perms))
+
+          _ ->
+            attrs
+        end
+
       record
       |> Ash.Changeset.for_update(:update, attrs, scope: scope)
       |> Ash.update(scope: scope)

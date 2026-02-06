@@ -18,6 +18,7 @@ defmodule ServiceRadar.Identity.Validations.PermissionKeys do
 
     case normalize_permissions(permissions) do
       {:ok, normalized} ->
+        normalized = Catalog.normalize_permission_keys(normalized)
         validate_permissions(normalized)
 
       {:error, message} ->

@@ -46,18 +46,21 @@ defmodule ServiceRadar.Identity.RoleProfile do
       accept [:name, :description, :permissions]
       change set_attribute(:system, false)
       change set_attribute(:system_name, nil)
+      change ServiceRadar.Identity.Changes.NormalizePermissionKeys
       validate ServiceRadar.Identity.Validations.PermissionKeys
     end
 
     create :create_system do
       accept [:system_name, :name, :description, :permissions]
       change set_attribute(:system, true)
+      change ServiceRadar.Identity.Changes.NormalizePermissionKeys
       validate ServiceRadar.Identity.Validations.PermissionKeys
     end
 
     update :update do
       accept [:name, :description, :permissions]
       change ServiceRadar.Identity.Changes.DisallowSystemProfileEdit
+      change ServiceRadar.Identity.Changes.NormalizePermissionKeys
       validate ServiceRadar.Identity.Validations.PermissionKeys
     end
 

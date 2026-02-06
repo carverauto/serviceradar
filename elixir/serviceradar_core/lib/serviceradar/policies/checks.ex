@@ -31,6 +31,7 @@ defmodule ServiceRadar.Policies.Checks do
 
     @impl true
     def describe(opts) do
+      opts = if is_list(opts), do: opts, else: []
       role = Keyword.get(opts, :role)
       roles = Keyword.get(opts, :roles, [role])
       "actor has role in #{inspect(roles)}"
@@ -40,6 +41,7 @@ defmodule ServiceRadar.Policies.Checks do
     def match?(nil, _opts, _context), do: false
 
     def match?(actor, opts, _context) do
+      opts = if is_list(opts), do: opts, else: []
       role = Keyword.get(opts, :role)
       roles = Keyword.get(opts, :roles, if(role, do: [role], else: []))
 
@@ -106,6 +108,7 @@ defmodule ServiceRadar.Policies.Checks do
 
     @impl true
     def describe(opts) do
+      opts = if is_list(opts), do: opts, else: []
       attr = Keyword.get(opts, :attribute, :user_id)
       "actor owns resource (#{attr} matches)"
     end
@@ -114,6 +117,7 @@ defmodule ServiceRadar.Policies.Checks do
     def match?(nil, _opts, _context), do: false
 
     def match?(actor, opts, %{changeset: %{data: resource}}) do
+      opts = if is_list(opts), do: opts, else: []
       attr = Keyword.get(opts, :attribute, :user_id)
       actor_id = Map.get(actor, :id)
       resource_owner = Map.get(resource, attr)
@@ -138,6 +142,7 @@ defmodule ServiceRadar.Policies.Checks do
 
     @impl true
     def describe(opts) do
+      opts = if is_list(opts), do: opts, else: []
       permission = Keyword.get(opts, :permission, "unknown")
       "actor has permission #{permission}"
     end
@@ -146,6 +151,7 @@ defmodule ServiceRadar.Policies.Checks do
     def match?(nil, _opts, _context), do: false
 
     def match?(actor, opts, _context) do
+      opts = if is_list(opts), do: opts, else: []
       permission = Keyword.get(opts, :permission)
 
       if is_binary(permission) do
