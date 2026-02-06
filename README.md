@@ -1,7 +1,6 @@
 <div align=center>
   
 [![Website](https://img.shields.io/website?up_message=SERVICERADAR&down_message=DOWN&url=https%3A%2F%2Fserviceradar.cloud&style=for-the-badge)](https://serviceradar.cloud)
-[![Demo](https://img.shields.io/website?label=Demo&up_color=blue&up_message=DEMO&down_message=DOWN&url=https%3A%2F%2Fdemo.serviceradar.cloud&style=for-the-badge)](https://demo.serviceradar.cloud)
 [![Apache 2.0 License](https://img.shields.io/badge/license-Apache%202.0-blueviolet?style=for-the-badge)](https://www.apache.org/licenses/LICENSE-2.0)
 
 </div>
@@ -22,10 +21,6 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/carverauto/serviceradar)
 
 ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard-to-reach places or constrained environments. It provides real-time monitoring of internal services with cloud-based alerting to ensure you stay informed even during network or power outages.
-
-**Check out our Demo Environment**
-
-[Demo](https://demo.serviceradar.cloud) login: `demo@localhost` password: `serviceradar`
 
 ## Features
 
@@ -100,7 +95,7 @@ helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar
   --set global.imagePullPolicy="Always"
 
 # Get password for 'root@localhost' user created by helm install
- kubectl get secret serviceradar-secrets -n demo \
+kubectl get secret serviceradar-secrets -n serviceradar \
     -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 

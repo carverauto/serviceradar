@@ -34,7 +34,7 @@ groups:
           summary: "Identity promotion paused on {{ $labels.job }}"
           description: |
             Promotion blocked due to drift (baseline {{ printf "%.0f" identity_cardinality_baseline }}).
-            Investigate cardinality growth, tuner settings, and faker inputs.
+            Investigate cardinality growth, tuner settings, and upstream inventory sources.
 ```
 
 ## Operational Guidance

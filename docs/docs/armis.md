@@ -19,10 +19,6 @@ ServiceRadar ingests Armis device intelligence to enrich inventory, surface unma
 3. Confirm imported devices in the registry via `srql`:
    `in:devices source:armis sort:risk_score:desc limit:20`.
 
-## Demo and Testing
-
-ServiceRadar can be deployed with a Faker for demo environments, but production integrations should be validated against your real Armis account.
-
 ## Alerting and Enrichment
 
 - Sync attaches Armis risk scores and device tags; combine them with SNMP status to prioritize outages.
