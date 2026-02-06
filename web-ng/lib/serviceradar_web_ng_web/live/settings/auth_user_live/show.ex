@@ -212,7 +212,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
 
   @impl true
   def skip_preload do
-    [:index, :read, :create, :update, :delete]
+    # Permit.Phoenix.LiveView uses Permit.Ecto preloading by default for singular actions like :show.
+    # This app uses Ash resources (not Ecto schemas) and loads the record in mount/3 via AdminApi,
+    # so we must skip preloading to avoid a false :not_found and a 404.
+    [:index, :show, :edit, :read, :create, :update, :delete]
   end
 
   @impl true
