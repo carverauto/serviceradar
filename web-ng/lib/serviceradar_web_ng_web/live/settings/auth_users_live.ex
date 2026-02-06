@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     {:ok,
      socket
      |> assign(:form, to_form(default_user_form(), as: :user))
+     |> assign(:show_add_user_modal, false)
      |> assign(:role_profiles, role_profiles)
      |> assign(:user_count, length(users))
      |> stream(:users, users, reset: true)}
@@ -29,6 +30,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
   @impl true
   def handle_event("validate", %{"user" => params}, socket) do
     {:noreply, assign(socket, :form, to_form(params, as: :user))}
+  end
+
+  def handle_event("open_add_user_modal", _params, socket) do
+    {:noreply, assign(socket, :show_add_user_modal, true)}
+  end
+
+  def handle_event("close_add_user_modal", _params, socket) do
+    {:noreply, assign(socket, :show_add_user_modal, false)}
   end
 
   def handle_event("create", %{"user" => params}, socket) do
@@ -57,6 +66,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
          socket
          |> put_flash(:info, "User created")
          |> assign(:form, to_form(default_user_form(), as: :user))
+         |> assign(:show_add_user_modal, false)
          |> assign(:user_count, socket.assigns.user_count + 1)
          |> stream_insert(:users, user, at: 0)}
 
@@ -178,208 +188,212 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
               </p>
             </div>
             <div class="flex items-center gap-2">
-              <.link navigate={~p"/settings/auth/access"} class="btn btn-outline">
-                <.icon name="hero-shield-check" class="size-4" /> Access Control
-              </.link>
+              <button class="btn btn-primary" phx-click="open_add_user_modal" type="button">
+                <.icon name="hero-user-plus" class="size-4" /> Add account
+              </button>
               <div class="badge badge-lg badge-neutral">Total {@user_count}</div>
             </div>
           </div>
 
-          <div class="grid gap-8 xl:grid-cols-[1fr_400px]">
-            <section class="min-w-0">
-              <div class="card bg-base-100 shadow-sm border border-base-200">
-                <div class="overflow-x-auto">
-                  <table :if={@user_count > 0} class="table table-zebra w-full">
-                    <thead>
-                      <tr>
-                        <th>Account</th>
-                        <th>Role</th>
-                        <th>Access Profile</th>
-                        <th>Authentication</th>
-                        <th>Last Activity</th>
-                        <th class="text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody id="users" phx-update="stream">
-                      <tr :for={{id, user} <- @streams.users} id={id} class="group">
-                        <td>
-                          <div class="flex items-center gap-3">
-                            <div class="avatar placeholder">
-                              <div class="bg-primary/10 text-primary w-10 rounded-full">
-                                <span class="text-xs font-bold">{user_initials(user)}</span>
-                              </div>
+          <section class="min-w-0">
+            <div class="card bg-base-100 shadow-sm border border-base-200">
+              <div class="overflow-x-auto">
+                <table :if={@user_count > 0} class="table table-zebra w-full">
+                  <thead>
+                    <tr>
+                      <th>Account</th>
+                      <th>Role</th>
+                      <th>Access Profile</th>
+                      <th>Authentication</th>
+                      <th>Last Activity</th>
+                      <th class="text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="users" phx-update="stream">
+                    <tr :for={{id, user} <- @streams.users} id={id} class="group">
+                      <td>
+                        <div class="flex items-center gap-3">
+                          <div class="avatar placeholder">
+                            <div class="bg-primary/10 text-primary w-10 rounded-full">
+                              <span class="text-xs font-bold">{user_initials(user)}</span>
                             </div>
-                            <div class="flex flex-col">
-                              <div class="font-bold text-sm">{display_name(user)}</div>
-                              <div class="text-xs opacity-60 font-mono scale-90 origin-left">
-                                {user.email}
-                              </div>
-                            </div>
-                            <%= if user.status != :active do %>
-                              <span class="badge badge-warning badge-xs">inactive</span>
-                            <% end %>
                           </div>
-                        </td>
-                        <td>
+                          <div class="flex flex-col">
+                            <div class="font-bold text-sm">{display_name(user)}</div>
+                            <div class="text-xs opacity-60 font-mono scale-90 origin-left">
+                              {user.email}
+                            </div>
+                          </div>
+                          <%= if user.status != :active do %>
+                            <span class="badge badge-warning badge-xs">inactive</span>
+                          <% end %>
+                        </div>
+                      </td>
+                      <td>
+                        <select
+                          class="select select-bordered select-xs w-full max-w-[120px] font-medium"
+                          phx-change="update_role"
+                          phx-value-id={user.id}
+                          name="role"
+                        >
+                          <option value="viewer" selected={user.role == :viewer}>Viewer</option>
+                          <option value="operator" selected={user.role == :operator}>
+                            Operator
+                          </option>
+                          <option value="admin" selected={user.role == :admin}>Admin</option>
+                        </select>
+                      </td>
+                      <td>
+                        <div class="flex items-center gap-2">
                           <select
-                            class="select select-bordered select-xs w-full max-w-[120px] font-medium"
-                            phx-change="update_role"
+                            class={[
+                              "select select-bordered select-xs w-full font-medium",
+                              (is_nil(user.role_profile_id) or user.role_profile_id == "") &&
+                                "opacity-70"
+                            ]}
+                            phx-change="update_role_profile"
                             phx-value-id={user.id}
-                            name="role"
+                            name="role_profile_id"
                           >
-                            <option value="viewer" selected={user.role == :viewer}>Viewer</option>
-                            <option value="operator" selected={user.role == :operator}>
-                              Operator
+                            <option
+                              value=""
+                              selected={is_nil(user.role_profile_id) or user.role_profile_id == ""}
+                            >
+                              (Role Default)
                             </option>
-                            <option value="admin" selected={user.role == :admin}>Admin</option>
-                          </select>
-                        </td>
-                        <td>
-                          <div class="flex items-center gap-2">
-                            <select
-                              class={[
-                                "select select-bordered select-xs w-full font-medium",
-                                (is_nil(user.role_profile_id) or user.role_profile_id == "") &&
-                                  "opacity-70"
-                              ]}
-                              phx-change="update_role_profile"
-                              phx-value-id={user.id}
-                              name="role_profile_id"
-                            >
-                              <option
-                                value=""
-                                selected={is_nil(user.role_profile_id) or user.role_profile_id == ""}
-                              >
-                                (Role Default)
+                            <%= for {label, id} <- profile_options(@role_profiles) do %>
+                              <option value={id} selected={user.role_profile_id == id}>
+                                {label}
                               </option>
-                              <%= for {label, id} <- profile_options(@role_profiles) do %>
-                                <option value={id} selected={user.role_profile_id == id}>
-                                  {label}
-                                </option>
-                              <% end %>
-                            </select>
-                            <.link
-                              :if={user.role_profile_id && user.role_profile_id != ""}
-                              navigate={~p"/settings/auth/access?filter=#{user.role_profile_id}"}
-                              class="btn btn-xs btn-ghost btn-square"
-                              data-tip="View permissions"
-                            >
-                              <.icon name="hero-arrow-top-right-on-square" class="size-3" />
-                            </.link>
-                          </div>
-                        </td>
-                        <td>
-                          <div class="badge badge-ghost badge-sm font-mono text-xs">
-                            {password_label(user)}
-                          </div>
-                        </td>
-                        <td class="text-xs font-mono opacity-70 whitespace-nowrap">
-                          {format_last_activity(user)}
-                        </td>
-                        <td class="text-right">
-                          <div class="dropdown dropdown-end">
-                            <button tabindex="0" class="btn btn-ghost btn-xs btn-square">
-                              <.icon name="hero-ellipsis-vertical" class="size-4" />
-                            </button>
-                            <ul
-                              tabindex="0"
-                              class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40 border border-base-200"
-                            >
-                              <%= if user.status == :active do %>
-                                <li>
-                                  <button
-                                    class="text-error"
-                                    phx-click="deactivate"
-                                    phx-value-id={user.id}
-                                  >
-                                    <.icon name="hero-no-symbol" class="size-4" /> Deactivate
-                                  </button>
-                                </li>
-                              <% else %>
-                                <li>
-                                  <button
-                                    class="text-success"
-                                    phx-click="reactivate"
-                                    phx-value-id={user.id}
-                                  >
-                                    <.icon name="hero-check-circle" class="size-4" /> Reactivate
-                                  </button>
-                                </li>
-                              <% end %>
-                            </ul>
-                          </div>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <div :if={@user_count == 0} class="p-12 text-center opacity-50 space-y-2">
-                    <.icon name="hero-users" class="size-8 mx-auto mb-2" />
-                    <p class="font-medium">No accounts found.</p>
-                    <p class="text-sm">Create an account to get started.</p>
-                  </div>
+                            <% end %>
+                          </select>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="badge badge-ghost badge-sm font-mono text-xs">
+                          {password_label(user)}
+                        </div>
+                      </td>
+                      <td class="text-xs font-mono opacity-70 whitespace-nowrap">
+                        {format_last_activity(user)}
+                      </td>
+                      <td class="text-right">
+                        <div class="dropdown dropdown-end">
+                          <button tabindex="0" class="btn btn-ghost btn-xs btn-square">
+                            <.icon name="hero-ellipsis-vertical" class="size-4" />
+                          </button>
+                          <ul
+                            tabindex="0"
+                            class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40 border border-base-200"
+                          >
+                            <%= if user.status == :active do %>
+                              <li>
+                                <button
+                                  class="text-error"
+                                  phx-click="deactivate"
+                                  phx-value-id={user.id}
+                                >
+                                  <.icon name="hero-no-symbol" class="size-4" /> Deactivate
+                                </button>
+                              </li>
+                            <% else %>
+                              <li>
+                                <button
+                                  class="text-success"
+                                  phx-click="reactivate"
+                                  phx-value-id={user.id}
+                                >
+                                  <.icon name="hero-check-circle" class="size-4" /> Reactivate
+                                </button>
+                              </li>
+                            <% end %>
+                          </ul>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div :if={@user_count == 0} class="p-12 text-center opacity-50 space-y-2">
+                  <.icon name="hero-users" class="size-8 mx-auto mb-2" />
+                  <p class="font-medium">No accounts found.</p>
+                  <p class="text-sm">Create an account to get started.</p>
                 </div>
               </div>
-            </section>
+            </div>
+          </section>
+        </div>
 
-            <section class="space-y-6">
-              <div class="card bg-base-100 shadow-sm border border-base-200 sticky top-6">
-                <div class="card-body">
-                  <div class="flex items-center gap-3 mb-2">
-                    <div class="p-2 bg-primary/10 rounded-lg text-primary">
-                      <.icon name="hero-user-plus" class="size-5" />
-                    </div>
-                    <h2 class="card-title text-lg">Add Account</h2>
-                  </div>
-                  <p class="text-sm opacity-70 mb-4">
-                    Create a local operator or admin and assign a starting role.
-                  </p>
-
-                  <.form
-                    for={@form}
-                    id="user-create-form"
-                    phx-change="validate"
-                    phx-submit="create"
-                    class="space-y-4"
-                  >
-                    <.input
-                      field={@form[:email]}
-                      type="email"
-                      label="Email Address"
-                      placeholder="user@example.com"
-                      required
-                      class="input input-bordered w-full"
-                    />
-                    <.input
-                      field={@form[:display_name]}
-                      type="text"
-                      label="Display Name"
-                      placeholder="Jane Doe"
-                      class="input input-bordered w-full"
-                    />
-                    <.input
-                      field={@form[:role]}
-                      type="select"
-                      label="Role"
-                      options={[{"Viewer", "viewer"}, {"Operator", "operator"}, {"Admin", "admin"}]}
-                      class="select select-bordered w-full"
-                    />
-                    <.input
-                      field={@form[:password]}
-                      type="password"
-                      label="Temporary Password"
-                      placeholder="••••••••"
-                      class="input input-bordered w-full"
-                    />
-
-                    <div class="card-actions justify-end mt-4">
-                      <button class="btn btn-primary btn-block" type="submit">
-                        Create Account
-                      </button>
-                    </div>
-                  </.form>
-                </div>
+        <div
+          :if={@show_add_user_modal}
+          class="modal modal-open"
+          phx-window-keydown="close_add_user_modal"
+          phx-key="escape"
+        >
+          <div class="modal-box">
+            <div class="flex items-start justify-between gap-4">
+              <div class="space-y-1">
+                <h3 class="text-lg font-bold">Add account</h3>
+                <p class="text-sm opacity-70">
+                  Create a local user and assign a starting role.
+                </p>
               </div>
-            </section>
+              <button class="btn btn-ghost btn-sm btn-square" phx-click="close_add_user_modal" type="button">
+                <.icon name="hero-x-mark" class="size-4" />
+              </button>
+            </div>
+
+            <div class="mt-6">
+              <.form
+                for={@form}
+                id="user-create-form"
+                phx-change="validate"
+                phx-submit="create"
+                class="space-y-4"
+              >
+                <.input
+                  field={@form[:email]}
+                  type="email"
+                  label="Email Address"
+                  placeholder="user@example.com"
+                  required
+                  class="input input-bordered w-full"
+                />
+                <.input
+                  field={@form[:display_name]}
+                  type="text"
+                  label="Display Name"
+                  placeholder="Jane Doe"
+                  class="input input-bordered w-full"
+                />
+                <.input
+                  field={@form[:role]}
+                  type="select"
+                  label="Role"
+                  options={[{"Viewer", "viewer"}, {"Operator", "operator"}, {"Admin", "admin"}]}
+                  class="select select-bordered w-full"
+                />
+                <.input
+                  field={@form[:password]}
+                  type="password"
+                  label="Temporary Password"
+                  placeholder="••••••••"
+                  class="input input-bordered w-full"
+                />
+
+                <div class="modal-action">
+                  <button class="btn btn-outline" phx-click="close_add_user_modal" type="button">
+                    Cancel
+                  </button>
+                  <button class="btn btn-primary" type="submit">
+                    Create account
+                  </button>
+                </div>
+              </.form>
+            </div>
+          </div>
+
+          <div class="modal-backdrop">
+            <button phx-click="close_add_user_modal" type="button">close</button>
           </div>
         </div>
       </SettingsComponents.settings_shell>

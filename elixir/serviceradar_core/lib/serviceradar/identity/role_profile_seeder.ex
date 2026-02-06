@@ -46,8 +46,7 @@ defmodule ServiceRadar.Identity.RoleProfileSeeder do
       system_name: system_name,
       name: name,
       description: description,
-      permissions: permissions,
-      system: true
+      permissions: permissions
     }
 
     case RoleProfile.get_by_system_name(system_name, opts) do
