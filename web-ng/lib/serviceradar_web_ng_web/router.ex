@@ -26,6 +26,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
+    # Passive proxy mode: allow an upstream gateway to authenticate users by
+    # injecting a JWT on each request. This plug is a no-op unless
+    # auth_settings.mode == passive_proxy.
+    plug(ServiceRadarWebNGWeb.Plugs.GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
   end

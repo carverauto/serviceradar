@@ -44,11 +44,9 @@ For a detailed explanation of the architecture, please see the [Architecture](./
 ServiceRadar is designed with security in mind:
 
 1. **mTLS Authentication** - Secure communication between components using mutual TLS
-2. **User Authentication** - Local user login with bcrypt password hashing
-3. **JWT Session Management** - Secure, expirable tokens for web sessions
-4. **Role-Based Access** - Different components have different security roles
-5. **CORS Configuration** - Control which domains can access your API
-6. **Caddy Reverse Proxy** - Secure web access with configurable firewall rules
+2. **User Authentication** - Password login, Direct SSO (OIDC/SAML), or gateway-proxied JWT auth
+3. **Session Management** - Secure, expirable sessions for the web UI and API access
+4. **Role-Based Access** - Instance-scoped roles and permissions for administrative actions
 
 For more details, see the [TLS Security](./tls-security.md) and [Authentication Configuration](./auth-configuration.md) documentation.
 

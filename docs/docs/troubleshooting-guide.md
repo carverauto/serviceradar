@@ -573,7 +573,7 @@ sudo timeout 30 tcpdump -i any -n port 2055 -w netflow-capture.pcap
 
 ## Dashboards and UI
 
-- **Login problems**: Ensure local users exist (`admin` role) and JWT secrets are configured as described in [Authentication configuration](./auth-configuration.md).
+- **Login problems**: Verify the admin bootstrap credentials are set (Helm/Docker Compose manage this) and confirm the active auth mode under **Settings -> Authentication**. For SSO or Gateway Proxy deployments, use `/auth/local` for administrator password sign-in.
 - **Missing charts**: Double-check CNPG retention windows and confirm you are ingesting the underlying telemetry (SNMP, Syslog, NetFlow, OTEL).
 - **SRQL errors**: Reference the [SRQL language guide](./srql-language-reference.md) when writing complex joins.
 
