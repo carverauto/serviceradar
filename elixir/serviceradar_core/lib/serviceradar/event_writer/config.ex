@@ -149,13 +149,6 @@ defmodule ServiceRadar.EventWriter.Config do
         processor: ServiceRadar.EventWriter.Processors.Logs,
         batch_size: 100,
         batch_timeout: 1_000
-      },
-      %{
-        name: "DISCOVERY",
-        subject: "discovery.>",
-        processor: ServiceRadar.EventWriter.Processors.Mdns,
-        batch_size: 50,
-        batch_timeout: 2_000
       }
     ]
   end

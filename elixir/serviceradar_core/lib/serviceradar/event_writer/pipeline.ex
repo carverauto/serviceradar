@@ -187,8 +187,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:logs, &String.starts_with?(&1, "logs.")},
       {:events, &String.starts_with?(&1, "events.")},
       {:telemetry, &String.starts_with?(&1, "telemetry.")},
-      {:netflow, &String.starts_with?(&1, "netflow.")},
-      {:discovery, &String.starts_with?(&1, "discovery.")}
+      {:netflow, &String.starts_with?(&1, "netflow.")}
     ]
   end
 
@@ -214,7 +213,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:telemetry), do: ServiceRadar.EventWriter.Processors.Telemetry
   defp get_processor(:netflow), do: ServiceRadar.EventWriter.Processors.NetFlow
-  defp get_processor(:discovery), do: ServiceRadar.EventWriter.Processors.Mdns
   defp get_processor(_), do: ServiceRadar.EventWriter.Processors.Default
 
   defp stream_to_batcher_name(stream_name) do
