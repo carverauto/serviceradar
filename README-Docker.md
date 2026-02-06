@@ -103,8 +103,10 @@ The stack automatically handles certificate generation and configuration:
 3. **cert-permissions-fixer** - Sets proper certificate ownership (one-shot)
 4. **config-updater** - Writes the bootstrap admin password (one-shot)
 5. **nats** - Message broker with mTLS
-6. **datasvc, core-elx, agent-gateway, agent** - Core services
-7. **checkers, web-ng, etc.** - Additional services
+6. **datasvc** - Internal coordination service (planned to be phased out)
+7. **core-elx, agent-gateway, web-ng** - Control plane services
+8. **zen, log-promotion, db-event-writer** - Bulk ingestion consumers
+9. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
 
 ## Test Your Setup
 

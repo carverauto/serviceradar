@@ -4,7 +4,7 @@ title: Docker Setup
 
 # Docker Setup
 
-Use Docker Compose to run the full ServiceRadar platform stack (core-elx, agent-gateway, web-ng, datasvc, nats, cnpg) with mTLS enabled by default.
+Use Docker Compose to run the full ServiceRadar platform stack (core-elx, agent-gateway, web-ng, NATS JetStream, CNPG) with mTLS enabled by default.
 
 ## Quick Start
 
@@ -64,6 +64,7 @@ docker compose run --rm \
 ## Certificates and TLS
 
 The stack auto-generates mTLS certificates on first boot. Certificates live in the `cert-data` volume and are mounted into each service as needed.
+SPIFFE/SPIRE is Kubernetes-only; Docker Compose uses the built-in certificate generator instead.
 
 If you need to verify cert generation:
 

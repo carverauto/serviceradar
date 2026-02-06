@@ -3,7 +3,7 @@ sidebar_position: 8
 title: Helm Deployment and Configuration
 ---
 
-This guide shows how to deploy ServiceRadar via the bundled Helm chart and tune sweep performance safely using chart values. For an overview of sweep configuration fields, see [Network Sweep](./configuration.md#network-sweep) in Configuration Basics.
+This guide shows how to deploy ServiceRadar via the bundled Helm chart and tune sweep performance safely using chart values. For sweep behavior and concepts, see [Network Sweeps](./network-sweeps.md).
 
 Install/upgrade
 - Namespace: create once: `kubectl create ns serviceradar` (or change `namespace` in chart values).
@@ -104,7 +104,7 @@ Operational notes
 - For keeping scans fast with tuned routers, apply NOTRACK/conntrack tuning in parallel. See: [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md).
 
 See also
-- [Configuration Basics -> Network Sweep](./configuration.md#network-sweep) for file-based config reference
+- [Network Sweeps](./network-sweeps.md) for sweep behavior and troubleshooting
 - [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md) for upstream router guidance
 
 ## Deployment Provisioning

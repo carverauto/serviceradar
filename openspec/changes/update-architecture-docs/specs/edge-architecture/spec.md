@@ -13,17 +13,22 @@ The core-elx control plane SHALL host the Device Identity and Reconciliation Eng
 - **AND** no plaintext or unauthenticated internal RPC is permitted
 
 ### Requirement: Agent-Gateway Ingest Modes
-The agent-gateway SHALL expose gRPC endpoints that support both unary status pushes and streaming/chunked payload ingestion for large payloads (sync, sweeps, sysmon, and discovery data).
+The agent-gateway SHALL expose gRPC endpoints that support both unary status pushes and streaming/chunked payload ingestion for large payloads (sync, sweeps, sysmon, discovery, and plugin results). The agent-gateway SHALL forward edge payloads into the control plane over mTLS-secured ERTS/RPC/PubSub (not “gateway -> core” gRPC forwarding).
 
 #### Scenario: Unary status push
 - **WHEN** an agent sends a small status update
 - **THEN** it calls the unary `PushStatus` endpoint
-- **AND** the gateway forwards the payload to core-elx
+- **AND** the gateway forwards the payload into the control plane
 
 #### Scenario: Streaming payload ingestion
 - **WHEN** an agent sends a large payload (e.g., sync or sysmon)
 - **THEN** it uses the streaming `StreamStatus` endpoint with chunked messages
-- **AND** the gateway reassembles and forwards the payload to core-elx
+- **AND** the gateway reassembles and forwards the payload into the control plane
+
+#### Scenario: Gateway uses ERTS forwarding
+- **WHEN** the gateway forwards an edge payload to the control plane
+- **THEN** it delivers the payload over ERTS/RPC/PubSub to core-elx ingestion handlers
+- **AND** it does not require a separate gRPC hop from gateway to core-elx for ingestion
 
 ## MODIFIED Requirements
 ### Requirement: mTLS Agent Authentication
