@@ -9,7 +9,6 @@ title: Tools Pod (serviceradar-tools)
 ## What You Get
 
 - `nats` CLI with a preloaded context (TLS and credentials)
-- `grpcurl` helpers for mTLS gRPC health checks
 - `psql` helpers for CNPG (Timescale + AGE)
 - Common utilities: `jq`, `rg`, `openssl`, `nc`
 
@@ -32,14 +31,6 @@ nats stream info events
 
 # Consumers (events)
 nats consumer ls events
-```
-
-Common gRPC checks:
-
-```bash
-# Preconfigured aliases are shown in the MOTD
-grpc-core grpc.health.v1.Health/Check
-grpc-agent grpc.health.v1.Health/Check
 ```
 
 CNPG checks:

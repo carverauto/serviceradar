@@ -18,9 +18,9 @@ Edge agents are Go binaries that run on monitored hosts outside the Kubernetes c
   openssl verify -CAfile /etc/serviceradar/certs/bundle.pem \
     /etc/serviceradar/certs/svid.pem
   ```
-- **Firewall blocking**: Confirm port 50051 is open from the agent to the gateway:
+- **Firewall blocking**: Confirm port 50052 is open from the agent to the gateway:
   ```bash
-  nc -zv <gateway-host> 50051
+  nc -zv <gateway-host> 50052
   ```
 
 ### Certificate Issues
@@ -47,12 +47,12 @@ Edge agents are Go binaries that run on monitored hosts outside the Kubernetes c
 
 ### gRPC Diagnostics
 
-Test gRPC connectivity directly:
+Test gRPC connectivity directly (agent-gateway is the only edge-facing gRPC endpoint):
 ```bash
 grpcurl -cert /etc/serviceradar/certs/svid.pem \
         -key /etc/serviceradar/certs/svid-key.pem \
         -cacert /etc/serviceradar/certs/bundle.pem \
-        <gateway-host>:50053 list
+        <gateway-host>:50052 list
 ```
 
 For detailed edge agent documentation, see [Edge Agents](./edge-agents.md).

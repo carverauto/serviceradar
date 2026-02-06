@@ -38,7 +38,6 @@ When the core deployment is stable, connect inventory and security feeds:
 
 - Sync Armis devices with the [Armis integration doc](./armis.md).
 - Pull topology from NetBox using the [NetBox integration guide](./netbox.md).
-- Expose runtime data to AI assistants via the [MCP integration reference](./mcp-integration.md).
 
 ## 6. Validate Health
 

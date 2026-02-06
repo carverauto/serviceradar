@@ -57,5 +57,5 @@ Use the edge onboarding flow to generate an agent package and configuration. See
 ## Troubleshooting
 
 - Check agent logs: `journalctl -u serviceradar-agent -f`
-- Verify gRPC connectivity with `grpcurl` against the Agent-Gateway endpoint
+- Verify network reachability to the gateway: `nc -zv <gateway-host> 50052`
 - Confirm cert validity with `openssl x509 -in svid.pem -noout -dates`
