@@ -208,6 +208,8 @@ defmodule ServiceRadar.Identity.User do
 
     update :update_role do
       accept [:role]
+      require_atomic? false
+      change ServiceRadar.Identity.Changes.DisallowLastAdminLockout
     end
 
     update :update_role_profile do
@@ -330,6 +332,8 @@ defmodule ServiceRadar.Identity.User do
 
     update :deactivate do
       description "Deactivate a user account and revoke access"
+      require_atomic? false
+      change ServiceRadar.Identity.Changes.DisallowLastAdminLockout
       change set_attribute(:status, :inactive)
     end
 

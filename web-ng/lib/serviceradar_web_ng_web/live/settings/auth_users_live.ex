@@ -18,14 +18,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     users = list_users(socket.assigns.current_scope)
     role_profiles = list_role_profiles(socket.assigns.current_scope)
     default_profile_id = default_system_profile_id(role_profiles, "viewer")
+    active_admin_count = count_active_admins(users)
 
     {:ok,
      socket
      |> assign(:form, to_form(default_user_form(default_profile_id), as: :user))
-     |> assign(:show_add_user_modal, false)
-     |> assign(:role_profiles, role_profiles)
-     |> assign(:user_count, length(users))
-     |> stream(:users, users, reset: true)}
+      |> assign(:show_add_user_modal, false)
+      |> assign(:role_profiles, role_profiles)
+      |> assign(:user_count, length(users))
+      |> assign(:active_admin_count, active_admin_count)
+      |> stream(:users, users, reset: true)}
   end
 
   @impl true
@@ -66,19 +68,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
       end
 
     case AdminApi.create_user(scope, attrs) do
-      {:ok, user} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "User created")
-         |> assign(
-           :form,
-           to_form(default_user_form(default_system_profile_id(socket.assigns.role_profiles, "viewer")),
-             as: :user
-           )
-         )
-         |> assign(:show_add_user_modal, false)
-         |> assign(:user_count, socket.assigns.user_count + 1)
-         |> stream_insert(:users, user, at: 0)}
+      {:ok, _user} ->
+        {:noreply, reload_users(socket |> put_flash(:info, "User created"))}
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, format_ash_error(error))}
@@ -92,11 +83,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     {role, profile_id} = resolve_access_profile(profile_id, nil, socket.assigns.role_profiles)
 
     case AdminApi.update_user(scope, id, %{role_profile_id: profile_id, role: role}) do
-      {:ok, updated} ->
+      {:ok, _updated} ->
         {:noreply,
          socket
          |> put_flash(:info, "Access updated")
-         |> stream_insert(:users, updated)}
+         |> reload_users()}
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, format_ash_error(error))}
@@ -107,11 +98,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     scope = socket.assigns.current_scope
 
     case AdminApi.deactivate_user(scope, id) do
-      {:ok, updated} ->
+      {:ok, _updated} ->
         {:noreply,
          socket
          |> put_flash(:info, "User deactivated")
-         |> stream_insert(:users, updated)}
+         |> reload_users()}
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, format_ash_error(error))}
@@ -122,11 +113,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     scope = socket.assigns.current_scope
 
     case AdminApi.reactivate_user(scope, id) do
-      {:ok, updated} ->
+      {:ok, _updated} ->
         {:noreply,
          socket
          |> put_flash(:info, "User reactivated")
-         |> stream_insert(:users, updated)}
+         |> reload_users()}
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, format_ash_error(error))}
@@ -269,6 +260,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                             <%= if user.status == :active do %>
                               <li>
                                 <button
+                                  :if={can_deactivate?(user, @active_admin_count)}
                                   class="text-error"
                                   phx-click="deactivate"
                                   phx-value-id={user.id}
@@ -618,5 +610,44 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
       nil -> nil
       profile -> profile.id
     end
+  end
+
+  defp count_active_admins(users) when is_list(users) do
+    Enum.count(users, fn user -> user.role == :admin and user.status == :active end)
+  end
+
+  defp can_deactivate?(user, active_admin_count) do
+    cond do
+      user.status != :active ->
+        false
+
+      user.role != :admin ->
+        true
+
+      # Never offer deactivation for the bootstrap/root account in demo installs.
+      to_string(user.email || "") == "root@localhost" ->
+        false
+
+      # Last-active-admin protection (server-side also enforces this).
+      is_integer(active_admin_count) and active_admin_count <= 1 ->
+        false
+
+      true ->
+        true
+    end
+  end
+
+  defp reload_users(socket) do
+    scope = socket.assigns.current_scope
+    users = list_users(scope)
+    active_admin_count = count_active_admins(users)
+    default_profile_id = default_system_profile_id(socket.assigns.role_profiles, "viewer")
+
+    socket
+    |> assign(:form, to_form(default_user_form(default_profile_id), as: :user))
+    |> assign(:show_add_user_modal, false)
+    |> assign(:user_count, length(users))
+    |> assign(:active_admin_count, active_admin_count)
+    |> stream(:users, users, reset: true)
   end
 end
