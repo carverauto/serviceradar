@@ -9,6 +9,10 @@ ServiceRadar supports sandboxed Wasm-based plugins for custom checkers. Plugins 
 
 Use Wasm plugins for new custom checks. For legacy gRPC checkers, see [Custom Checkers (gRPC)](./custom-checkers.md).
 
+Wasm is also how ServiceRadar ships certain first-party checks. For example, the Dusk checker runs as a Wasm plugin executed by `serviceradar-agent` (it is not a standalone service).
+
+Wasm plugins are one part of the edge runtime. The agent also runs embedded engines (sync integrations, SNMP polling, discovery/mapping, mDNS) alongside plugins.
+
 ## Package Format
 
 Each plugin package is made up of:
@@ -165,6 +169,11 @@ Permissions:
 ## SDK and Authoring
 
 Plugins compile to `wasm32-wasi` and export a zero-argument entrypoint function that matches the manifest `entrypoint`. Host functions are imported from the `env` module.
+
+SDKs:
+
+- Go SDK: `carverauto/serviceradar-sdk-go`
+- Rust SDK: planned (not yet generally available)
 
 Minimal TinyGo example:
 

@@ -5,7 +5,7 @@ title: Installation Guide
 
 # Installation Guide
 
-ServiceRadar platform services are deployed with Kubernetes or Docker Compose. Standalone installs are supported for edge agents and checkers only.
+ServiceRadar platform services are deployed with Kubernetes or Docker Compose. Edge agents are deployed using the onboarding flow from the web UI (generating an agent package/config scoped to a gateway and security mode).
 
 ## Platform Deployment
 
@@ -38,14 +38,14 @@ upgrade so Helm can generate new random values.
 
 ## Edge Deployment
 
-Use the install script or packages to deploy agents and optional checkers on monitored hosts.
+Use the edge onboarding flow and install the generated agent package on the target host.
 
-```bash
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --agent --non-interactive
-```
+See:
+
+- [Edge Agent Onboarding](./edge-agent-onboarding.md)
 
 ## Next Steps
 
 - [Architecture](./architecture.md)
 - [TLS Security](./tls-security.md)
-- [Edge Agents](./edge-agents.md)
+- [Edge Model](./edge-model.md)

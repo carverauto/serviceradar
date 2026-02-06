@@ -445,7 +445,7 @@ Run the script in staging first; it is idempotent and leaves the namespace with 
     cnpg-sql "SELECT NOW()"
   ```
 - Outside the cluster, port-forward the RW service and export the `CNPG_*` environment variables before running `mix ash.migrate` (from `elixir/serviceradar_core`) or `psql`. The helpers respect `CNPG_PASSWORD_FILE`, so you can pass `/etc/serviceradar/cnpg/superuser-password` directly instead of copying secrets to your laptop.
-- JetStream helpers still share the `serviceradar` context; the same pod gives you `nats-streams`, `nats-events`, and `nats-kv` for quick rule or replay checks.
+- JetStream helpers still share the `serviceradar` context; the same pod gives you `nats-streams`, `nats-events`, and `nats-consumers` for quick pipeline checks.
 
 ## Sweep Config Distribution
 
@@ -514,13 +514,11 @@ Use these starting points when the embedded sync runtime is streaming large devi
 
 ## Canonical Identity Flow
 
-- Sync no longer BatchGets canonical identity keys; the `core` registry now hydrates canonical IDs per batch using the `device_canonical_map` KV (`WithIdentityResolver`).
-- Expect `serviceradar-core` logs to show non-zero `canonicalized_by_*` counters once batches replay. If they stay at 0, recheck KV health via `nats-kv` (or the `nats-datasvc` alias) and ensure `serviceradar-core` pods run the latest image.
+- Expect `serviceradar-core` logs to show non-zero `canonicalized_by_*` counters once batches replay. If they stay at 0, recheck the ingestion pipeline health (JetStream stream and consumers) and ensure `serviceradar-core` pods run the latest image.
 - Toolbox helper to spot-check canonical entries:
   ```bash
   kubectl exec -n demo deploy/serviceradar-tools -- \
     cnpg-sql "SELECT COUNT(*) AS devices, COUNT(DISTINCT metadata->>'armis_device_id') AS armis_ids FROM unified_devices"
-  nats --context serviceradar kv get device_canonical_map/armis-id/<ARMIS_ID>
   ```
 
 ## Common Error Notes

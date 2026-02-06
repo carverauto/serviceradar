@@ -396,7 +396,7 @@ Monitor these in logs and system metrics:
 
 - Use the embedded sync runtime (agent) to register flow exporters with site, account, and device tags.
 - Populate interface maps in the registry so flows can be joined with SNMP interface stats.
-- Capture application dictionaries (port → service mapping) in KV to improve SRQL readability.
+- Capture application dictionaries (port to service mapping) in the control plane so SRQL and the UI can present friendly names.
 
 ## Verification
 
@@ -572,7 +572,7 @@ Navigate to **http://localhost:3000/netflows** to view:
 - Existing `max_templates` applies per-source
 - Monitor logs for cache metrics to tune if needed
 
-See [CHANGELOG.md](../../rust/netflow-collector/CHANGELOG.md) for full details.
+See `rust/netflow-collector/CHANGELOG.md` for full details.
 
 ## Performance Characteristics
 
@@ -605,5 +605,5 @@ See [CHANGELOG.md](../../rust/netflow-collector/CHANGELOG.md) for full details.
 - [IPFIX RFC 7011](https://datatracker.ietf.org/doc/html/rfc7011)
 - [OCSF 1.7.0 Network Activity](https://schema.ocsf.io/1.7.0/classes/network_activity)
 - [Troubleshooting Guide](./troubleshooting-guide.md#netflow)
-- [Device Config Quick Reference](../../rust/netflow-collector/DEVICE-CONFIG.md)
-- [TESTING.md](../../rust/netflow-collector/TESTING.md) - Testing guide
+- Device config quick reference: `rust/netflow-collector/DEVICE-CONFIG.md`
+- Testing guide: `rust/netflow-collector/TESTING.md`

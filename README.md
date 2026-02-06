@@ -35,7 +35,7 @@ ServiceRadar is a distributed network monitoring system designed for infrastruct
 - **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, and Apache AGE for relational, time-series, and graph topology data.
 - **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), and NetFlow.
 - **Graph Network Mapper**: Discovery engine that maps interfaces and topology relationships via SNMP/LLDP/CDP.
-- **Security**: Hardened with mTLS ([SPIFFE/spire](http://spiffe.io/)), RBAC, and SSO integration.
+- **Security**: Hardened with mTLS (SPIFFE/SPIRE on Kubernetes), RBAC, and SSO integration.
 
 ## WASM-Based Extensibility
 
@@ -144,7 +144,7 @@ spec:
 2. **Agent-Gateway**: Ingestion point that receives gRPC streams from edge agents.
 3. **Core (core-elx)**: Control plane (Elixir/Phoenix/Ash) for orchestration, ERTS, and job scheduling (Oban).
 4. **Web UI (web-ng)**: Real-time LiveView dashboard and APIs for configuration and visualization.
-5. **NATS**: [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream) Message broker, Object Storage, and KV.
+5. **NATS**: [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream) message broker for bulk ingestion streams.
 6. **Collectors**: Collect bulk data (netflow, logs, SNMP, etc.).
 
 ## Documentation

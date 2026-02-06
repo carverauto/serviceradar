@@ -36,8 +36,8 @@ You can inspect the JSON definitions in `packaging/zen/rules/` or the rendered C
 ## Managing Rules
 
 - Use **Settings → Events** to manage Zen normalization rules for syslog.
-- Rules are stored in the NATS JetStream key-value bucket `serviceradar-datasvc` using the key pattern `agents/<agent-id>/<stream>/<subject>/<rule>.json`. The demo agent ID is `default-agent`, stream `events`, and subject `logs.syslog`.
-- The `zen-put-rule` helper (packaged in the `serviceradar-tools` container) publishes rule updates. Launch the toolbox pod and run:
+- In normal operation, rule distribution is handled by the control plane. You should not need to write NATS keys by hand.
+- For advanced debugging, the `zen-put-rule` helper (packaged in the `serviceradar-tools` container) can publish rule updates. Launch the toolbox pod and run:
 
   ```bash
   kubectl -n demo exec deploy/serviceradar-tools -- \
@@ -50,9 +50,9 @@ You can inspect the JSON definitions in `packaging/zen/rules/` or the rendered C
 
 ## Parsing and Routing
 
-- The zen engine now owns all parsing before data lands in CNPG. Add or update GoRules flows under `packaging/zen/rules/` and redeploy `serviceradar-zen` (or push the rule via the KV helper) to change normalization.
+- The zen engine now owns all parsing before data lands in CNPG. Add or update GoRules flows under `packaging/zen/rules/` and redeploy `serviceradar-zen` to change normalization.
 - Route noisy facilities (e.g., `local7.debug`) to lower retention tiers by adjusting db-event-writer stream mappings or by downsampling in CNPG (see the [CNPG monitoring guide](./cnpg-monitoring.md) for helper queries).
-- Convert critical events into alerts through the Core API; see the [Service Port Map](./service-port-map.md#log-watchers) for sample selectors.
+- Convert critical events into alerts through the Core API; use the Rule Builder UI to promote and route events (see [Rule Builder](./rule-builder.md)).
 
 ## Verification Checklist
 
