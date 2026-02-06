@@ -11,13 +11,25 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias ServiceRadarWebNG.RBAC
+
   @impl true
   def mount(_params, _session, socket) do
+    scope = socket.assigns.current_scope
+
+    if not RBAC.can?(scope, "settings.edge.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to agent deployment tools")
+       |> push_navigate(to: ~p"/settings/profile")}
+    else
     socket =
       socket
       |> assign(:page_title, "Deploy Agent")
+      |> assign(:can_manage_edge, true)
 
     {:ok, socket}
+    end
   end
 
   @impl true
@@ -63,12 +75,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
                   credentials and points the agent at the gateway endpoint.
                 </p>
                 <div class="flex flex-col gap-2">
-                  <.link navigate={~p"/admin/edge-packages/new?component_type=agent"}>
+                  <.link :if={@can_manage_edge} navigate={~p"/admin/edge-packages/new?component_type=agent"}>
                     <.ui_button variant="primary" size="sm" class="w-full">
                       <.icon name="hero-plus" class="size-4" /> Create Agent Package
                     </.ui_button>
                   </.link>
-                  <.link navigate={~p"/admin/edge-packages"}>
+                  <.link :if={@can_manage_edge} navigate={~p"/admin/edge-packages"}>
                     <.ui_button variant="ghost" size="sm" class="w-full">
                       View existing packages
                     </.ui_button>

@@ -15,11 +15,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.SysmonProfiles.SysmonProfile
   alias ServiceRadarWebNGWeb.SRQL.Catalog
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
+    if not RBAC.can?(scope, "settings.sysmon_profiles.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to Host Health profiles")
+       |> push_navigate(to: ~p"/settings/profile")}
+    else
     socket =
       socket
       |> assign(:page_title, "Host Health Profiles")
@@ -35,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       |> assign(:builder_sync, true)
 
     {:ok, socket}
+    end
   end
 
   @impl true

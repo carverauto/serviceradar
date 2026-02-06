@@ -32,11 +32,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadarWebNGWeb.SRQL.Catalog
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
+    if not RBAC.can?(scope, "settings.snmp_profiles.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to SNMP profiles")
+       |> push_navigate(to: ~p"/settings/profile")}
+    else
     {profiles, profile_target_counts} = load_profiles_with_counts(scope)
 
     socket =
@@ -77,6 +84,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       |> assign(:selected_template_ids, [])
 
     {:ok, socket}
+    end
   end
 
   @impl true

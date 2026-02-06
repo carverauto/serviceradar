@@ -16,12 +16,21 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Jobs.JobCatalog
   alias ServiceRadar.Cluster.ClusterStatus
+  alias ServiceRadarWebNG.RBAC
 
   @refresh_interval :timer.seconds(10)
   @stale_threshold_ms :timer.minutes(2)
 
   @impl true
   def mount(_params, _session, socket) do
+    scope = socket.assigns.current_scope
+
+    if not RBAC.can?(scope, "settings.view") do
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to Settings")
+       |> push_navigate(to: ~p"/settings/profile")}
+    else
     if connected?(socket) do
       # Subscribe to cluster events (same topics used by AgentRegistry)
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "cluster:events")
@@ -33,10 +42,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       schedule_refresh()
     end
 
-    current_scope = socket.assigns.current_scope
-
     is_admin =
-      case current_scope do
+      case scope do
         nil -> false
         scope -> Scope.admin?(scope)
       end
@@ -48,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
     cluster_status = load_cluster_status()
     cluster_health = build_cluster_health(gateways, agents)
-    job_counts = load_job_counts(current_scope)
+    job_counts = load_job_counts(scope)
 
     socket =
       socket
@@ -65,6 +72,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       |> assign(:events, [])
 
     {:ok, socket}
+    end
   end
 
   @impl true

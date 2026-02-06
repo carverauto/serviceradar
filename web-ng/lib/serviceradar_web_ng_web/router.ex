@@ -346,7 +346,6 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/profile", UserLive.Settings, :edit)
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
-      live("/settings/auth/access", Settings.AccessControlLive, :index)
 
       # Cluster visibility for all authenticated users
       live("/settings/cluster", Settings.ClusterLive.Index, :index)

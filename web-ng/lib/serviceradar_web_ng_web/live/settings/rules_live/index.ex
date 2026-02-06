@@ -16,11 +16,18 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   }
 
   alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
+    if not (RBAC.can?(scope, "observability.rules.update") or RBAC.can?(scope, "observability.rules.create")) do
+      {:ok,
+       socket
+       |> put_flash(:error, "You do not have access to Events rules")
+       |> push_navigate(to: ~p"/settings/profile")}
+    else
     socket =
       socket
       |> assign(:page_title, "Events")
@@ -32,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
       |> assign(:editing_rule, nil)
 
     {:ok, socket}
+    end
   end
 
   @impl true
