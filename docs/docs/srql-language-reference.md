@@ -314,7 +314,7 @@ to return the most recent record per interface.
 | `if_phys_address` | `mac` | Physical (MAC) address |
 | `if_admin_status` | | Administrative status |
 | `if_oper_status` | `status` | Operational status |
-| `if_speed` | `speed` | Interface speed (legacy) |
+| `if_speed` | `speed` | Interface speed |
 | `speed_bps` | | Interface speed (bits per second) |
 | `mtu` | | Interface MTU |
 | `duplex` | | Interface duplex |

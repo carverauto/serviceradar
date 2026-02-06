@@ -186,7 +186,7 @@ docker logs netflow-collector | grep "Template Cache"
 
 **Note:** This issue is **fixed in 0.8.0** with AutoScopedParser. If you see template collisions on 0.8.0+, report as a bug.
 
-**Symptoms (legacy):**
+**Symptoms:**
 - Flows from Router A misinterpreted when Router B sends data
 - Wrong fields showing in database
 - Log warnings: "Template collision - ID: 256"

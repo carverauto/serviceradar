@@ -64,3 +64,4 @@ On startup it prints a MOTD with available aliases and selects the `serviceradar
 - Helm: `helm/serviceradar/files/serviceradar-tools.yaml`
 - Docker/Compose tooling image: `docker/compose/Dockerfile.tools`, `docker/compose/tools-profile.sh`, `docker/compose/tools-motd.txt`
 
+Note: Docker Compose uses the same tools image for bootstrap jobs; Kubernetes runs a long-lived `serviceradar-tools` pod for interactive debugging.

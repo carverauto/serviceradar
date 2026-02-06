@@ -10,7 +10,7 @@ Follow these condensed steps to get ServiceRadar collecting data within an hour.
 
 - **Docker Compose** – fastest path for local trials. Follow the [Docker setup guide](./docker-setup.md) to launch web-ng, core-elx, agent-gateway, and supporting services with pre-baked defaults.
 - **Kubernetes** – production-style clusters or cloud POCs. Use the [Helm configuration](./helm-configuration.md) to install charts and align values with your environment.
-- **Edge Agents** – install agents and optional checkers on monitored hosts with the [Installation Guide](./installation.md).
+- **Edge Agents** – onboard edge agents with the [Edge Agent Onboarding](./edge-agent-onboarding.md) flow.
 
 ## 2. Bootstrap Access
 
@@ -30,7 +30,7 @@ Once the first data source is healthy, layer on additional protocols through the
 ## 4. Explore the UI
 
 - Sign in to the dashboard at `https://<web-host>` and bookmark the SRQL explorer.
-- Use [Service Port Map](./service-port-map.md) to verify discovered services and dependencies.
+- Use [Tools Pod](./tools.md) to sanity check JetStream consumers and CNPG connectivity during debugging.
 
 ## 5. Automate Integrations
 

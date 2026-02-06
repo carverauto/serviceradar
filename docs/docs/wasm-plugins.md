@@ -7,7 +7,7 @@ title: Wasm Plugin Checkers
 
 ServiceRadar supports sandboxed Wasm-based plugins for custom checkers. Plugins are uploaded or imported through the web UI, reviewed for capabilities and allowlists, and then assigned to agents. Agents run plugins in an embedded Wasm runtime with strict resource limits and a capability-based host ABI.
 
-Use Wasm plugins for new custom checks. For legacy gRPC checkers, see [Custom Checkers (gRPC)](./custom-checkers.md).
+Use Wasm plugins for new custom checks. For long-running gRPC collectors, see [Custom Checkers (gRPC)](./custom-checkers.md).
 
 Wasm is also how ServiceRadar ships certain first-party checks. For example, the Dusk checker runs as a Wasm plugin executed by `serviceradar-agent` (it is not a standalone service).
 
