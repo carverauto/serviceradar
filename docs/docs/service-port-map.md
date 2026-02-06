@@ -21,8 +21,8 @@ Use this as a quick reference for the most common ports in the current architect
 | Component | Port | Protocol | Purpose |
 |---|---|---|---|
 | CNPG / TimescaleDB | 5432 | TCP | Database |
-| Datasvc | 50057 | gRPC | KV / object APIs |
-| NATS JetStream | 4222 | TCP | Messaging / KV storage |
+| Datasvc | 50057 | gRPC | Internal coordination (deprecated; planned removal) |
+| NATS JetStream | 4222 | TCP | Messaging / JetStream streams |
 
 ## Edge
 

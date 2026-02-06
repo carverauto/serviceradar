@@ -417,7 +417,7 @@ V9 Template Cache [192.168.1.1:2055] - Templates: 15/2000, Data: 8/2000,
 ✅ Good indicators:
 - Template hit ratio: 12500/(12500+150) = 98.8% (>95%)
 - Data hit ratio: 84200/(84200+80) = 99.9% (>95%)
-- Size: 15/2000 = 0.75% (<50% is healthy)
+- Size: 15/2000 = 0.75% (&lt;50% is healthy)
 - Few evictions
 
 **Unhealthy Cache Indicators:**
@@ -428,8 +428,8 @@ V9 Template Cache [192.168.1.1:2055] - Templates: 1950/2000, Data: 1980/2000,
 ```
 
 ❌ Bad indicators:
-- Template hit ratio: 5000/(5000+2000) = 71.4% (<90%)
-- Data hit ratio: 10000/(10000+5000) = 66.7% (<90%)
+- Template hit ratio: 5000/(5000+2000) = 71.4% (&lt;90%)
+- Data hit ratio: 10000/(10000+5000) = 66.7% (&lt;90%)
 - Size: 1950/2000 = 97.5% (near max)
 - Likely many evictions
 
@@ -534,8 +534,8 @@ sudo timeout 30 tcpdump -i any -n port 2055 -w netflow-capture.pcap
 
 **References:**
 - [NetFlow Ingest Guide](./netflow.md) - Full configuration guide
-- [CHANGELOG](../../rust/netflow-collector/CHANGELOG.md) - Version-specific changes
-- [TESTING.md](../../rust/netflow-collector/TESTING.md) - Testing procedures
+- Version-specific changes: `rust/netflow-collector/CHANGELOG.md`
+- Testing procedures: `rust/netflow-collector/TESTING.md`
 
 ## OTEL
 

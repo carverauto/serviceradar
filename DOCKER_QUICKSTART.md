@@ -1,4 +1,4 @@
-# 🚀 ServiceRadar Docker Quick Start
+# ServiceRadar Docker Quick Start
 
 ## One Command Setup - RECOMMENDED
 
@@ -25,7 +25,7 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
 - ✅ Generate mTLS certificates automatically
 - ✅ Generate random CNPG credentials stored in the cnpg-credentials volume
 - ✅ Pull/Build Docker images  
-- ✅ Start the ServiceRadar core stack (CNPG, NATS, web-ng, core-elx, agent-gateway)
+- ✅ Start the ServiceRadar stack (CNPG, NATS, web-ng, core-elx, agent-gateway, zen, log-promotion, db-event-writer)
 - ✅ Set up networking and persistent volumes
  - ✅ Run the core-elx migration runner to bootstrap schema/extensions
 
@@ -41,7 +41,7 @@ docker compose -f docker-compose.dev.yml up
 # Using Makefile (uses pre-built images)
 make -f Makefile.docker start
 
-# All services including NATS, Redpanda
+# All services (optionally includes Redpanda)
 make -f Makefile.docker up-full
 ```
 

@@ -13,9 +13,10 @@ The ServiceRadar demo cluster bundles the core platform services into a single K
 | Core API     | core-elx control plane for ingestion, APIs, and notifications.                               | `deploy/serviceradar-core` |
 | Agent-Gateway | Edge ingress for agent and collector traffic.                                                | `deploy/serviceradar-agent-gateway` |
 | Web UI       | Serves dashboards and embeds SRQL inside web-ng.                                             | `deploy/serviceradar-web-ng` |
-| Data Service | Provides object storage and KV-backed rule metadata via NATS JetStream.                      | `statefulset/serviceradar-datasvc` |
-| Zen          | Rule engine for alerting and automation.                                                     | `deploy/serviceradar-zen` |
+| Zen          | Normalization and rule execution for bulk telemetry.                                         | `deploy/serviceradar-zen` |
+| Log Promotion | Promotes processed logs into OCSF-style events (JetStream consumer).                         | `deploy/serviceradar-core` |
 | DB Writer    | Persists high-volume events into CNPG.                                                       | `deploy/serviceradar-db-event-writer` |
+| Tools        | Preconfigured debugging environment (NATS, gRPC, CNPG).                                      | `deploy/serviceradar-tools` |
 
 Each deployment surfaces the `serviceradar.io/component` label; use it to filter logs and metrics when debugging clustered issues.
 
