@@ -18,30 +18,28 @@ defmodule ServiceRadar.Identity.Changes.DisallowLastAdminLockout do
     Ash.Changeset.before_action(changeset, fn changeset ->
       user = changeset.data
 
-      current_role = Map.get(user, :role)
-      current_status = Map.get(user, :status)
-
-      new_role = Ash.Changeset.get_attribute(changeset, :role) || current_role
-      new_status = Ash.Changeset.get_attribute(changeset, :status) || current_status
-
-      would_lose_admin? = current_role == :admin and new_role != :admin
-      would_deactivate? = current_role == :admin and new_status == :inactive
-
-      if would_lose_admin? or would_deactivate? do
-        case other_active_admin_exists?(user, context) do
-          true ->
-            changeset
-
-          false ->
-            Ash.Changeset.add_error(changeset,
-              field: :role,
-              message: "cannot remove the last active admin account"
-            )
-        end
+      if would_remove_admin?(changeset, user) and not other_active_admin_exists?(user, context) do
+        Ash.Changeset.add_error(changeset,
+          field: :role,
+          message: "cannot remove the last active admin account"
+        )
       else
         changeset
       end
     end)
+  end
+
+  defp would_remove_admin?(changeset, user) do
+    current_role = Map.get(user, :role)
+    current_status = Map.get(user, :status)
+
+    new_role = Ash.Changeset.get_attribute(changeset, :role) || current_role
+    new_status = Ash.Changeset.get_attribute(changeset, :status) || current_status
+
+    would_lose_admin? = current_role == :admin and new_role != :admin
+    would_deactivate? = current_role == :admin and new_status == :inactive
+
+    would_lose_admin? or would_deactivate?
   end
 
   defp other_active_admin_exists?(user, context) do
@@ -53,15 +51,14 @@ defmodule ServiceRadar.Identity.Changes.DisallowLastAdminLockout do
 
     query =
       User
-      |> Ash.Query.for_read(:admins, %{}, actor: actor, authorize?: false)
+      |> Ash.Query.for_read(:admins, %{}, actor: actor)
       |> Ash.Query.filter(id != ^user.id)
       |> Ash.Query.limit(1)
 
-    case Ash.read(query, actor: actor, authorize?: false) do
+    case Ash.read(query, actor: actor) do
       {:ok, %Ash.Page.Keyset{results: results}} -> results != []
       {:ok, results} when is_list(results) -> results != []
       {:error, _} -> false
     end
   end
 end
-

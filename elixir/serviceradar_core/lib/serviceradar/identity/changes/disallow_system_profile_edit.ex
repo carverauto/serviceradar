@@ -10,29 +10,8 @@ defmodule ServiceRadar.Identity.Changes.DisallowSystemProfileEdit do
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, context) do
-    if system_profile?(changeset) && not system_actor?(context) do
-      case changeset.action && changeset.action.type do
-        # Built-in profiles shouldn't be deletable.
-        :destroy ->
-          Ash.Changeset.add_error(changeset,
-            field: :system,
-            message: "system profiles cannot be deleted"
-          )
-
-        # Only lock the `admin` profile from edits (guardrail against lockout).
-        :update ->
-          if locked_system_profile?(changeset) do
-            Ash.Changeset.add_error(changeset,
-              field: :system,
-              message: "admin profile is read-only to prevent lockout; clone to customize"
-            )
-          else
-            changeset
-          end
-
-        _ ->
-          changeset
-      end
+    if system_profile?(changeset) and not system_actor?(context) do
+      apply_guardrails(changeset)
     else
       changeset
     end
@@ -40,6 +19,35 @@ defmodule ServiceRadar.Identity.Changes.DisallowSystemProfileEdit do
 
   @impl true
   def atomic(_changeset, _opts, _context), do: :ok
+
+  defp apply_guardrails(changeset) do
+    case changeset.action && changeset.action.type do
+      # Built-in profiles shouldn't be deletable.
+      :destroy ->
+        Ash.Changeset.add_error(changeset,
+          field: :system,
+          message: "system profiles cannot be deleted"
+        )
+
+      # Only lock the `admin` profile from edits (guardrail against lockout).
+      :update ->
+        maybe_block_admin_update(changeset)
+
+      _ ->
+        changeset
+    end
+  end
+
+  defp maybe_block_admin_update(changeset) do
+    if locked_system_profile?(changeset) do
+      Ash.Changeset.add_error(changeset,
+        field: :system,
+        message: "admin profile is read-only to prevent lockout; clone to customize"
+      )
+    else
+      changeset
+    end
+  end
 
   defp system_profile?(changeset) do
     Ash.Changeset.get_attribute(changeset, :system) ||
