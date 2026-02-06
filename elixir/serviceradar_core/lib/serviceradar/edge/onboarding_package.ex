@@ -202,7 +202,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     policy action(:expire) do
       authorize_if actor_attribute_equals(:role, :admin)
       # Allow AshOban scheduler (no actor) to expire packages
-      authorize_if always()
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
     end
 
     # Operators can also deliver and update tokens

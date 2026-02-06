@@ -25,7 +25,8 @@ defmodule ServiceRadar.Identity.User do
   use Ash.Resource,
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
-    notifiers: [ServiceRadar.Identity.UserNotifier]
+    notifiers: [ServiceRadar.Identity.UserNotifier],
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "ng_users"
@@ -340,6 +341,60 @@ defmodule ServiceRadar.Identity.User do
     update :reactivate do
       description "Reactivate a user account"
       change set_attribute(:status, :active)
+    end
+  end
+
+  policies do
+    # System actors can perform all operations (schema isolation via search_path)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    # Public reads used by authentication flows (no actor available yet)
+    policy action([:by_email, :authenticate]) do
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+    end
+
+    # Read access:
+    # - Admins (settings.auth.manage) can read any user
+    # - Users can read themselves
+    policy action_type(:read) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+      authorize_if expr(id == ^actor(:id))
+    end
+
+    # Public registration (no actor available)
+    policy action(:register_with_password) do
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
+    end
+
+    # Admin-managed user creation
+    policy action(:create) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+    end
+
+    # JIT provisioning is performed as a SystemActor in the web layer.
+    # Allow admins to use it intentionally; deny regular users.
+    policy action(:provision_sso_user) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+    end
+
+    # Self-service updates and audit markers
+    policy action([:update, :update_email, :change_password, :record_authentication, :record_login]) do
+      authorize_if expr(id == ^actor(:id))
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+    end
+
+    # Admin-only user management
+    policy action([
+             :update_role,
+             :update_role_profile,
+             :admin_set_password,
+             :deactivate,
+             :reactivate
+           ]) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
     end
   end
 

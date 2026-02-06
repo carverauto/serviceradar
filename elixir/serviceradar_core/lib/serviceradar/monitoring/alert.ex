@@ -340,7 +340,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       authorize_if actor_attribute_equals(:role, :admin)
 
       # Allow AshOban scheduler (no actor) to send notifications
-      authorize_if always()
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
     end
   end
 

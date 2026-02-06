@@ -11,11 +11,18 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     scope = socket.assigns.current_scope
 
+    if not RBAC.can?(scope, "settings.edge.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Edge Sites.")
+       |> push_navigate(to: ~p"/analytics")}
+    else
     case load_site(id, scope) do
       {:ok, site} ->
         socket =
@@ -32,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
          socket
          |> put_flash(:error, "Edge site not found")
          |> push_navigate(to: ~p"/admin/edge-sites")}
+    end
     end
   end
 

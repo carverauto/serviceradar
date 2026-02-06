@@ -36,11 +36,20 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
   alias ServiceRadar.Cluster.ClusterStatus
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadarWebNG.RBAC
 
   @refresh_interval :timer.seconds(10)
 
   @impl true
   def mount(_params, _session, socket) do
+    scope = socket.assigns.current_scope
+
+    if not RBAC.can?(scope, "settings.jobs.manage") do
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Cluster.")
+       |> redirect(to: ~p"/analytics")}
+    else
     if connected?(socket) do
       # Subscribe to cluster events
       Phoenix.PubSub.subscribe(ServiceRadarWebNG.PubSub, "cluster:events")
@@ -60,6 +69,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
       |> assign(:events, [])
 
     {:ok, socket}
+    end
   end
 
   @impl true

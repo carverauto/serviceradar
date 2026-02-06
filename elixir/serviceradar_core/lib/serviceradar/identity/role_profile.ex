@@ -8,7 +8,8 @@ defmodule ServiceRadar.Identity.RoleProfile do
 
   use Ash.Resource,
     domain: ServiceRadar.Identity,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
 
   require Ash.Query
 
@@ -63,6 +64,20 @@ defmodule ServiceRadar.Identity.RoleProfile do
 
     destroy :destroy do
       change ServiceRadar.Identity.Changes.DisallowSystemProfileEdit
+    end
+  end
+
+  policies do
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    policy action_type(:read) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.rbac.manage"}
+    end
+
+    policy action([:create, :create_system, :update, :destroy]) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.rbac.manage"}
     end
   end
 

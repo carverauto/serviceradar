@@ -32,7 +32,8 @@ defmodule ServiceRadar.Identity.AuthSettings do
   use Ash.Resource,
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshCloak]
+    extensions: [AshCloak],
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "auth_settings"
@@ -153,6 +154,22 @@ defmodule ServiceRadar.Identity.AuthSettings do
 
         {:ok, result}
       end)
+    end
+  end
+
+  policies do
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    policy action_type(:read) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
+    end
+
+    policy action([:create, :update]) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
     end
   end
 

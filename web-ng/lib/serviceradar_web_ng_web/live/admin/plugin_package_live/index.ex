@@ -62,8 +62,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     else
       {:ok,
        socket
-       |> put_flash(:error, "Admin access required")
-       |> redirect(to: ~p"/settings/profile")}
+       |> put_flash(:error, "You don't have permission to access Plugins.")
+       |> redirect(to: ~p"/analytics")}
     end
   end
 
@@ -183,6 +183,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("create_package", %{"create" => params}, socket) do
+    if not socket.assigns.can_stage_plugins do
+      {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
+    else
     scope = socket.assigns.current_scope
     socket = assign(socket, :create_form, params)
 
@@ -312,6 +315,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              |> put_flash(:error, "Failed to create package: #{format_error(error)}")}
         end
     end
+    end
   end
 
   def handle_event("review_change", %{"review" => params}, socket) do
@@ -319,6 +323,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("upload_wasm", _params, socket) do
+    if not socket.assigns.can_stage_plugins do
+      {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
+    else
     scope = socket.assigns.current_scope
     package = socket.assigns.selected_package
 
@@ -332,6 +339,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       true ->
         handle_wasm_upload(socket, package, scope)
     end
+    end
   end
 
   def handle_event("wasm_upload_change", _params, socket) do
@@ -344,6 +352,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("approve_package", %{"review" => params}, socket) do
+    if not socket.assigns.can_approve_plugins do
+      {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
+    else
     scope = socket.assigns.current_scope
     approved_by = get_actor(socket)
 
@@ -376,9 +387,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, error} ->
         {:noreply, socket |> put_flash(:error, "Failed to approve: #{format_error(error)}")}
     end
+    end
   end
 
   def handle_event("deny_package", _params, socket) do
+    if not socket.assigns.can_approve_plugins do
+      {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
+    else
     scope = socket.assigns.current_scope
     reason = socket.assigns.review_form["denied_reason"]
 
@@ -394,9 +409,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, error} ->
         {:noreply, socket |> put_flash(:error, "Failed to deny: #{format_error(error)}")}
     end
+    end
   end
 
   def handle_event("revoke_package", _params, socket) do
+    if not socket.assigns.can_approve_plugins do
+      {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
+    else
     scope = socket.assigns.current_scope
     reason = socket.assigns.review_form["denied_reason"]
 
@@ -414,6 +433,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, error} ->
         {:noreply, socket |> put_flash(:error, "Failed to revoke: #{format_error(error)}")}
     end
+    end
   end
 
   def handle_event("noop", _params, socket) do
@@ -421,6 +441,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("create_assignment", %{"assignment" => params}, socket) do
+    if not socket.assigns.can_assign_plugins do
+      {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
+    else
     scope = socket.assigns.current_scope
     config_schema = socket.assigns.selected_package.config_schema
 
@@ -436,9 +459,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         Logger.error("Plugin assignment failed: #{inspect(error)}")
         {:noreply, socket |> put_flash(:error, "Failed to assign: #{format_error(error)}")}
     end
+    end
   end
 
   def handle_event("delete_assignment", %{"id" => id}, socket) do
+    if not socket.assigns.can_assign_plugins do
+      {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
+    else
     scope = socket.assigns.current_scope
 
     case Assignments.delete(id, scope: scope) do
@@ -458,9 +485,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         Logger.error("Plugin assignment deletion failed for #{id}: #{inspect(error)}")
         {:noreply, socket |> put_flash(:error, "Failed to remove: #{format_error(error)}")}
     end
+    end
   end
 
   def handle_event("restage_package", _params, socket) do
+    if not socket.assigns.can_approve_plugins do
+      {:noreply,
+       put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
+    else
     scope = socket.assigns.current_scope
 
     case Packages.restage(socket.assigns.selected_package.id, scope: scope) do
@@ -475,9 +507,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, error} ->
         {:noreply, socket |> put_flash(:error, "Failed to restage: #{format_error(error)}")}
     end
+    end
   end
 
   def handle_event("delete_package", %{"id" => id}, socket) do
+    if not socket.assigns.can_approve_plugins do
+      {:noreply,
+       put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
+    else
     scope = socket.assigns.current_scope
 
     assignments = list_assignments(id, scope)
@@ -535,6 +572,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            socket |> put_flash(:error, "Failed to delete package: #{format_error(error)}")}
       end
     end
+  end
   end
 
   defp handle_assignment_upsert(socket, scope, attrs) do

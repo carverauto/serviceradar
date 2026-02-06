@@ -9,7 +9,8 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
   use Ash.Resource,
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
-    notifiers: [ServiceRadar.Identity.AuthorizationSettingsNotifier]
+    notifiers: [ServiceRadar.Identity.AuthorizationSettingsNotifier],
+    authorizers: [Ash.Policy.Authorizer]
 
   postgres do
     table "authorization_settings"
@@ -43,6 +44,22 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       description "Update authorization settings"
       accept [:default_role, :role_mappings]
       validate ServiceRadar.Identity.Validations.RoleMappings
+    end
+  end
+
+  policies do
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    policy action_type(:read) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
+    end
+
+    policy action([:create, :update]) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
     end
   end
 
