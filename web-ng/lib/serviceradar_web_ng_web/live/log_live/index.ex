@@ -43,6 +43,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:alerts, [])
      |> assign(:netflows, [])
      |> assign(:selected_netflow, nil)
+     |> assign(:netflow_top_talkers, [])
+     |> assign(:netflow_top_ports, [])
      |> assign(:sparklines, %{})
      |> assign(:summary, %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0})
      |> assign(:event_summary, empty_event_summary())
@@ -89,6 +91,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:alerts, [])
       |> assign(:netflows, [])
       |> assign(:selected_netflow, nil)
+      |> assign(:netflow_top_talkers, [])
+      |> assign(:netflow_top_ports, [])
       |> ensure_srql_entity(entity, default_limit)
       |> SRQLPage.load_list(params, uri, list_key,
         default_limit: default_limit,
@@ -213,7 +217,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             latency={@trace_latency}
           />
           <.metrics_summary :if={@active_tab == "metrics"} stats={@metrics_stats} />
-          <.netflow_summary :if={@active_tab == "netflows"} summary={@netflow_summary} />
+          <.netflow_summary
+            :if={@active_tab == "netflows"}
+            summary={@netflow_summary}
+            top_talkers={@netflow_top_talkers}
+            top_ports={@netflow_top_ports}
+            base_path={Map.get(@srql, :page_path) || "/observability"}
+            query={Map.get(@srql, :query, "")}
+            limit={@limit}
+          />
 
           <.ui_panel>
             <:header>
@@ -538,6 +550,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   attr(:summary, :map, required: true)
+  attr(:top_talkers, :list, default: [])
+  attr(:top_ports, :list, default: [])
+  attr(:base_path, :string, required: true)
+  attr(:query, :string, required: true)
+  attr(:limit, :integer, required: true)
 
   defp netflow_summary(assigns) do
     summary = assigns.summary
@@ -549,9 +566,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:udp, Map.get(summary, :udp, 0))
       |> assign(:other, Map.get(summary, :other, 0))
       |> assign(:total_bytes, Map.get(summary, :total_bytes, 0))
-      |> assign(:v5, Map.get(summary, :v5, 0))
-      |> assign(:v9, Map.get(summary, :v9, 0))
-      |> assign(:ipfix, Map.get(summary, :ipfix, 0))
 
     ~H"""
     <div class="space-y-4">
@@ -607,34 +621,96 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </.ui_panel>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <.ui_panel class="p-4">
-          <div class="flex items-center justify-between">
-            <div>
-              <p class="text-sm font-medium text-base-content/60">NetFlow v5</p>
-              <p class="text-xl font-bold">{@v5}</p>
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <.ui_panel class="p-0" body_class="p-0">
+          <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
+            <div class="text-xs uppercase tracking-wider text-base-content/50">Top Talkers</div>
+            <.ui_badge variant="ghost" size="xs">{length(@top_talkers)}</.ui_badge>
+          </div>
+          <div class="p-2">
+            <div :if={@top_talkers == []} class="px-2 py-6 text-center text-sm text-base-content/60">
+              No talker stats for this window.
             </div>
-            <.ui_badge variant="warning">v5</.ui_badge>
+            <div :if={@top_talkers != []} class="space-y-1">
+              <%= for row <- @top_talkers do %>
+                <div class="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-base-200/40">
+                  <div class="min-w-0">
+                    <.link
+                      patch={
+                        netflow_filter_patch(
+                          @base_path,
+                          @query,
+                          @limit,
+                          "src_ip",
+                          Map.get(row, :ip)
+                        )
+                      }
+                      class="text-sm font-mono hover:underline"
+                    >
+                      {Map.get(row, :ip) || "—"}
+                    </.link>
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Source
+                    </div>
+                  </div>
+                  <div class="shrink-0 text-right">
+                    <div class="text-sm font-mono">{format_netflow_bytes(Map.get(row, :bytes))}</div>
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Bytes</div>
+                  </div>
+                </div>
+              <% end %>
+            </div>
           </div>
         </.ui_panel>
 
-        <.ui_panel class="p-4">
-          <div class="flex items-center justify-between">
-            <div>
-              <p class="text-sm font-medium text-base-content/60">NetFlow v9</p>
-              <p class="text-xl font-bold">{@v9}</p>
-            </div>
-            <.ui_badge variant="info">v9</.ui_badge>
+        <.ui_panel class="p-0" body_class="p-0">
+          <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
+            <div class="text-xs uppercase tracking-wider text-base-content/50">Top Ports</div>
+            <.ui_badge variant="ghost" size="xs">{length(@top_ports)}</.ui_badge>
           </div>
-        </.ui_panel>
-
-        <.ui_panel class="p-4">
-          <div class="flex items-center justify-between">
-            <div>
-              <p class="text-sm font-medium text-base-content/60">IPFIX</p>
-              <p class="text-xl font-bold">{@ipfix}</p>
+          <div class="p-2">
+            <div :if={@top_ports == []} class="px-2 py-6 text-center text-sm text-base-content/60">
+              No port stats for this window.
             </div>
-            <.ui_badge variant="success">IPFIX</.ui_badge>
+            <div :if={@top_ports != []} class="space-y-1">
+              <%= for row <- @top_ports do %>
+                <div class="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-base-200/40">
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2">
+                      <.link
+                        patch={
+                          netflow_filter_patch(
+                            @base_path,
+                            @query,
+                            @limit,
+                            "dst_port",
+                            to_string(Map.get(row, :port))
+                          )
+                        }
+                        class="text-sm font-mono hover:underline"
+                      >
+                        {Map.get(row, :port) || "—"}
+                      </.link>
+                      <.ui_badge
+                        :if={service = netflow_service_label(Map.get(row, :port))}
+                        variant="ghost"
+                        size="xs"
+                        class="font-mono"
+                      >
+                        {service}
+                      </.ui_badge>
+                    </div>
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Destination port
+                    </div>
+                  </div>
+                  <div class="shrink-0 text-right">
+                    <div class="text-sm font-mono">{format_netflow_bytes(Map.get(row, :bytes))}</div>
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Bytes</div>
+                  </div>
+                </div>
+              <% end %>
+            </div>
           </div>
         </.ui_panel>
       </div>
@@ -3202,11 +3278,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:metrics_stats, empty_metrics_stats())
   end
 
-  defp apply_tab_assigns(socket, "netflows", _srql_module) do
-    summary = compute_netflow_summary(socket.assigns.netflows)
+  defp apply_tab_assigns(socket, "netflows", srql_module) do
+    scope = Map.get(socket.assigns, :current_scope)
+    summary = maybe_load_netflow_summary(socket, srql_module, scope)
+
+    top_talkers =
+      load_netflow_top_talkers(srql_module, Map.get(socket.assigns.srql, :query), scope)
+
+    top_ports = load_netflow_top_ports(srql_module, Map.get(socket.assigns.srql, :query), scope)
 
     socket
     |> assign(:netflow_summary, summary)
+    |> assign(:netflow_top_talkers, top_talkers)
+    |> assign(:netflow_top_ports, top_ports)
     |> assign(:event_summary, empty_event_summary())
     |> assign(:alert_summary, empty_alert_summary())
     |> assign(:trace_stats, empty_trace_stats())
@@ -3280,6 +3364,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     case summary do
       %{total: 0} when is_list(socket.assigns.logs) and socket.assigns.logs != [] ->
         compute_summary(socket.assigns.logs)
+
+      other ->
+        other
+    end
+  end
+
+  defp maybe_load_netflow_summary(socket, srql_module, scope) do
+    summary = load_netflow_summary(srql_module, Map.get(socket.assigns.srql, :query), scope)
+
+    case summary do
+      %{total: 0} when is_list(socket.assigns.netflows) and socket.assigns.netflows != [] ->
+        compute_netflow_summary(socket.assigns.netflows)
 
       other ->
         other
@@ -3385,6 +3481,122 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       end
 
     %{total: total, slow_spans: slow_spans, error_spans: error_spans}
+  end
+
+  defp load_netflow_summary(srql_module, current_query, scope) do
+    base_query =
+      current_query
+      |> netflow_base_query()
+      |> sanitize_srql_for_stats()
+
+    total_query = ~s|#{base_query} stats:"count(*) as total" limit:1|
+    bytes_query = ~s|#{base_query} stats:"sum(bytes_total) as total_bytes" limit:1|
+
+    proto_query =
+      ~s|#{base_query} stats:"count(*) as total by protocol_num" sort:total:desc limit:50|
+
+    total = extract_stats_count(srql_module.query(total_query, %{scope: scope}), "total")
+
+    total_bytes =
+      extract_stats_count(srql_module.query(bytes_query, %{scope: scope}), "total_bytes")
+
+    proto_rows = extract_stats_rows(srql_module.query(proto_query, %{scope: scope}))
+
+    tcp =
+      proto_rows
+      |> Enum.find_value(0, fn row ->
+        if to_int(Map.get(row, "protocol_num")) == 6, do: to_int(row["total"])
+      end)
+
+    udp =
+      proto_rows
+      |> Enum.find_value(0, fn row ->
+        if to_int(Map.get(row, "protocol_num")) == 17, do: to_int(row["total"])
+      end)
+
+    other = max(total - tcp - udp, 0)
+
+    %{total: total, tcp: tcp, udp: udp, other: other, total_bytes: total_bytes}
+  rescue
+    e ->
+      Logger.warning("Failed to load netflow summary stats: #{inspect(e)}")
+      empty_netflow_summary()
+  end
+
+  defp load_netflow_top_talkers(srql_module, current_query, scope, limit \\ 10) do
+    base_query =
+      current_query
+      |> netflow_base_query()
+      |> sanitize_srql_for_stats()
+
+    query =
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" sort:total_bytes:desc limit:#{limit}|
+
+    srql_module
+    |> apply(:query, [query, %{scope: scope}])
+    |> extract_stats_rows()
+    |> Enum.map(fn row ->
+      %{
+        ip: Map.get(row, "src_endpoint_ip"),
+        bytes: to_int(Map.get(row, "total_bytes"))
+      }
+    end)
+  rescue
+    _ ->
+      []
+  end
+
+  defp load_netflow_top_ports(srql_module, current_query, scope, limit \\ 10) do
+    base_query =
+      current_query
+      |> netflow_base_query()
+      |> sanitize_srql_for_stats()
+
+    query =
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_endpoint_port" sort:total_bytes:desc limit:#{limit}|
+
+    srql_module
+    |> apply(:query, [query, %{scope: scope}])
+    |> extract_stats_rows()
+    |> Enum.map(fn row ->
+      %{
+        port: to_int(Map.get(row, "dst_endpoint_port")),
+        bytes: to_int(Map.get(row, "total_bytes"))
+      }
+    end)
+    |> Enum.reject(fn row -> row.port == 0 end)
+  rescue
+    _ ->
+      []
+  end
+
+  defp extract_stats_rows({:ok, %{"results" => results}}) when is_list(results) do
+    Enum.map(results, fn
+      %{"payload" => %{} = payload} -> payload
+      %{} = row -> row
+      _ -> %{}
+    end)
+  end
+
+  defp extract_stats_rows(_), do: []
+
+  defp netflow_base_query(nil), do: "in:flows time:last_24h"
+  defp netflow_base_query(""), do: "in:flows time:last_24h"
+
+  defp netflow_base_query(query) when is_binary(query) do
+    query = String.trim(query)
+    if query == "", do: "in:flows time:last_24h", else: query
+  end
+
+  defp sanitize_srql_for_stats(query) when is_binary(query) do
+    query
+    |> String.replace(~r/(?:^|\s)sort:\S+/, " ")
+    |> String.replace(~r/(?:^|\s)limit:\S+/, " ")
+    |> String.replace(~r/(?:^|\s)cursor:\S+/, " ")
+    |> String.replace(~r/(?:^|\s)stats:\"[^\"]*\"/, " ")
+    |> String.replace(~r/(?:^|\s)stats:\S+/, " ")
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
   end
 
   # Load duration stats from the continuous aggregation for full 24h data
