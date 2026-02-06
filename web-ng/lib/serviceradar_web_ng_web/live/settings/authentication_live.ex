@@ -53,8 +53,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   def handle_unauthorized(_action, socket) do
     socket =
       socket
-      |> put_flash(:error, "Admin access required")
-      |> push_navigate(to: ~p"/settings/profile")
+      |> put_flash(:error, "You don't have permission to access Settings.")
+      |> push_navigate(to: ~p"/analytics")
 
     {:halt, socket}
   end
@@ -714,17 +714,26 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    socket =
-      socket
-      |> assign(:loading, true)
-      |> assign(:modes, @modes)
-      |> assign(:provider_types, @provider_types)
-      |> assign(:form, nil)
+    scope = socket.assigns.current_scope
 
-    # Load settings asynchronously
-    send(self(), :load_settings)
+    if ServiceRadarWebNG.RBAC.can?(scope, "settings.auth.manage") do
+      socket =
+        socket
+        |> assign(:loading, true)
+        |> assign(:modes, @modes)
+        |> assign(:provider_types, @provider_types)
+        |> assign(:form, nil)
 
-    {:ok, socket}
+      # Load settings asynchronously
+      send(self(), :load_settings)
+
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Settings.")
+       |> push_navigate(to: ~p"/analytics")}
+    end
   end
 
   @impl true

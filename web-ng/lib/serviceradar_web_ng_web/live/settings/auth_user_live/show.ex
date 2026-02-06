@@ -23,39 +23,46 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
   def mount(%{"id" => id}, _session, socket) do
     scope = socket.assigns.current_scope
 
-    role_profiles =
-      case AdminApi.list_role_profiles(scope) do
-        {:ok, profiles} -> profiles
-        {:error, _} -> []
+    if ServiceRadarWebNG.RBAC.can?(scope, "settings.auth.manage") do
+      role_profiles =
+        case AdminApi.list_role_profiles(scope) do
+          {:ok, profiles} -> profiles
+          {:error, _} -> []
+        end
+
+      socket =
+        socket
+        |> assign(:page_title, "Account")
+        |> assign(:role_profiles, role_profiles)
+        |> assign(:editing, false)
+        |> assign(:form, to_form(%{}, as: :user))
+        |> assign(:show_password_modal, false)
+        |> assign(:password_form, to_form(%{"password" => ""}, as: :password))
+        |> assign(:events_page, nil)
+        |> assign(:events, [])
+
+      case AdminApi.get_user(scope, id) do
+        {:ok, user} ->
+          {events, events_page} = load_events(scope, user.id, nil, nil)
+
+          {:ok,
+           socket
+           |> assign(:user, user)
+           |> assign(:form, to_form(default_form(user, role_profiles), as: :user))
+           |> assign(:events, events)
+           |> assign(:events_page, events_page)}
+
+        {:error, error} ->
+          {:ok,
+           socket
+           |> put_flash(:error, user_load_error_message(error))
+           |> push_navigate(to: ~p"/settings/auth/users")}
       end
-
-    socket =
-      socket
-      |> assign(:page_title, "Account")
-      |> assign(:role_profiles, role_profiles)
-      |> assign(:editing, false)
-      |> assign(:form, to_form(%{}, as: :user))
-      |> assign(:show_password_modal, false)
-      |> assign(:password_form, to_form(%{"password" => ""}, as: :password))
-      |> assign(:events_page, nil)
-      |> assign(:events, [])
-
-    case AdminApi.get_user(scope, id) do
-      {:ok, user} ->
-        {events, events_page} = load_events(scope, user.id, nil, nil)
-
-        {:ok,
-         socket
-         |> assign(:user, user)
-         |> assign(:form, to_form(default_form(user, role_profiles), as: :user))
-         |> assign(:events, events)
-         |> assign(:events_page, events_page)}
-
-      {:error, error} ->
-        {:ok,
-         socket
-         |> put_flash(:error, user_load_error_message(error))
-         |> push_navigate(to: ~p"/settings/auth/users")}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Settings.")
+       |> push_navigate(to: ~p"/analytics")}
     end
   end
 
@@ -151,10 +158,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
   end
 
   def handle_event("open_password_modal", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_password_modal, true)
-     |> assign(:password_form, to_form(%{"password" => ""}, as: :password))}
+    if ServiceRadarWebNG.RBAC.can?(socket.assigns.current_scope, "settings.auth.manage") do
+      {:noreply,
+       socket
+       |> assign(:show_password_modal, true)
+       |> assign(:password_form, to_form(%{"password" => ""}, as: :password))}
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to manage authentication.")}
+    end
   end
 
   def handle_event("close_password_modal", _params, socket) do
@@ -166,30 +177,36 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
     user = socket.assigns.user
     password = (params["password"] || "") |> to_string()
 
-    if String.length(password) < 12 do
-      {:noreply, put_flash(socket, :error, "Password must be at least 12 characters")}
-    else
-      result =
-        with {:ok, record} <- Ash.get(User, user.id, scope: scope),
-             {:ok, _updated} <-
-               record
-               |> Ash.Changeset.for_update(:admin_set_password, %{password: password},
-                 scope: scope
-               )
-               |> Ash.update(scope: scope) do
-          :ok
+    cond do
+      not ServiceRadarWebNG.RBAC.can?(scope, "settings.auth.manage") ->
+        {:noreply,
+         put_flash(socket, :error, "You don't have permission to manage authentication.")}
+
+      String.length(password) < 12 ->
+        {:noreply, put_flash(socket, :error, "Password must be at least 12 characters")}
+
+      true ->
+        result =
+          with {:ok, record} <- Ash.get(User, user.id, scope: scope),
+               {:ok, _updated} <-
+                 record
+                 |> Ash.Changeset.for_update(:admin_set_password, %{password: password},
+                   scope: scope
+                 )
+                 |> Ash.update(scope: scope) do
+            :ok
+          end
+
+        case result do
+          :ok ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Password updated")
+             |> assign(:show_password_modal, false)}
+
+          {:error, error} ->
+            {:noreply, put_flash(socket, :error, format_ash_error(error))}
         end
-
-      case result do
-        :ok ->
-          {:noreply,
-           socket
-           |> put_flash(:info, "Password updated")
-           |> assign(:show_password_modal, false)}
-
-        {:error, error} ->
-          {:noreply, put_flash(socket, :error, format_ash_error(error))}
-      end
     end
   end
 
