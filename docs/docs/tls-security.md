@@ -16,4 +16,4 @@ ServiceRadar uses mutual TLS (mTLS) between internal services and edge agents. C
 For deployment-specific TLS setup, see:
 
 - [Docker Setup](./docker-setup.md)
-- [SPIFFE / SPIRE](./spiffe-identity.md)
+- Kubernetes: SPIFFE/SPIRE is supported (configured via Helm values; no manual SPIRE operations are required for most installs).

@@ -17,7 +17,7 @@ docker compose up -d
 
 ## Kubernetes
 
-Use SPIFFE/SPIRE for workload identities. See [SPIFFE / SPIRE](./spiffe-identity.md).
+Use SPIFFE/SPIRE for workload identities (configured via Helm).
 
 ## Manual Setup
 

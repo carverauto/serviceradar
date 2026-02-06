@@ -55,13 +55,13 @@ grpcurl -cert /etc/serviceradar/certs/svid.pem \
         <gateway-host>:50052 list
 ```
 
-For detailed edge agent documentation, see [Edge Agents](./edge-agents.md).
+For detailed edge agent documentation, see [Edge Model](./edge-model.md).
 
 ## Core Services
 
-- **Check pod health**: `kubectl get pods -n <namespace>` (or the equivalent Docker Compose status). Pods stuck in `CrashLoopBackOff` usually point to missing secrets or PVC mounts.
+- **Check pod health**: `kubectl get pods -n <namespace>` (or the equivalent Docker Compose status). Pods stuck in `CrashLoopBackOff` usually point to missing secrets, PVC mounts, or bad environment variables.
 - **Verify API availability**: `curl -k https://<core-host>/healthz`. TLS errors tie back to mismatched certificates—reissue them with the [Self-Signed Certificates guide](./self-signed.md).
-- **Configuration drift**: Reconcile changes with the [Configuration Basics](./configuration.md) checklist and update the on-disk configs.
+- **Configuration drift**: Most configuration is managed through the web UI and delivered to agents via `GetConfig`. If changes are not taking effect, confirm the agent is online and check `agent-gateway` logs for config fetch errors.
 
 ## SNMP
 
@@ -574,7 +574,7 @@ sudo timeout 30 tcpdump -i any -n port 2055 -w netflow-capture.pcap
 ## Dashboards and UI
 
 - **Login problems**: Ensure local users exist (`admin` role) and JWT secrets are configured as described in [Authentication configuration](./auth-configuration.md).
-- **Missing charts**: Import default dashboards from the [Web UI configuration](./web-ui.md) and double-check CNPG retention windows.
+- **Missing charts**: Double-check CNPG retention windows and confirm you are ingesting the underlying telemetry (SNMP, Syslog, NetFlow, OTEL).
 - **SRQL errors**: Reference the [SRQL language guide](./srql-language-reference.md) when writing complex joins.
 
 ## Still Stuck?
