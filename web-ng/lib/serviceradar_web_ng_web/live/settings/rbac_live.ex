@@ -37,6 +37,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       catalog = RBAC.catalog()
       grid = build_permission_grid(catalog)
       active_profile_id = profiles |> List.first() |> then(&(&1 && &1.id))
+      active_section = grid.resource_groups |> List.first() |> then(&(&1 && &1.section))
 
       {:ok,
        socket
@@ -46,6 +47,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
        |> assign(:grid, grid)
        |> assign(:filter, "")
        |> assign(:active_profile_id, active_profile_id)
+       |> assign(:active_section, active_section)
        |> assign(:dirty_profiles, MapSet.new())
        |> assign(:show_new_profile_modal, false)
        |> assign(:new_profile_form, to_form(default_profile_form(), as: :profile))
@@ -83,6 +85,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
      socket
      |> assign(:active_profile_id, profile_id)
      |> assign(:renaming_profile_id, nil)}
+  end
+
+  def handle_event("select_section", %{"section" => section}, socket) do
+    {:noreply, assign(socket, :active_section, section)}
   end
 
   def handle_event("start_rename_profile", %{"profile-id" => profile_id}, socket) do
@@ -343,6 +349,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     Permit.Phoenix.LiveView.default_event_mapping()
     |> Map.merge(%{
       "select_profile" => :read,
+      "select_section" => :read,
       "start_rename_profile" => :update,
       "cancel_rename_profile" => :read,
       "rename_profile" => :update,
@@ -396,6 +403,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       end
 
     assigns = assign(assigns, :active_profile, active_profile)
+
+    assigns =
+      assign(assigns, :section_grid, section_grid(assigns.grid, assigns.active_section))
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
@@ -471,10 +481,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             <div :if={@active_profile} class="w-full max-w-5xl">
               <.profile_card
                 profile={@active_profile}
-                grid={@grid}
+                grid={@section_grid}
                 dirty={MapSet.member?(@dirty_profiles, @active_profile.id)}
                 renaming_profile_id={@renaming_profile_id}
                 rename_form={@rename_form}
+                sections={@grid.sections}
+                active_section={@section_grid.active_section}
               />
             </div>
 
@@ -499,6 +511,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   attr :dirty, :boolean, default: false
   attr :renaming_profile_id, :any, default: nil
   attr :rename_form, :any, required: true
+  attr :sections, :list, required: true
+  attr :active_section, :string, default: nil
 
   defp profile_card(assigns) do
     assigns = assign(assigns, :unmapped, unmapped_permissions(assigns.profile, assigns.grid))
@@ -601,6 +615,30 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                 </button>
               </li>
             </ul>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Section switcher --%>
+      <div class="px-5 pt-4">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+            Section
+          </span>
+          <div class="flex flex-wrap gap-2">
+            <button
+              :for={section <- @sections}
+              type="button"
+              class={[
+                "btn btn-xs",
+                section.key == @active_section && "btn-primary",
+                section.key != @active_section && "btn-ghost"
+              ]}
+              phx-click="select_section"
+              phx-value-section={section.key}
+            >
+              {section.label}
+            </button>
           </div>
         </div>
       </div>
@@ -820,6 +858,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         }
       end)
 
+    sections =
+      Enum.map(resource_groups, fn group ->
+        %{key: group.section, label: group.label}
+      end)
+
     flat_resources = Enum.flat_map(resource_groups, & &1.resources)
 
     all_permissions = Enum.flat_map(catalog, &sect_permissions/1)
@@ -844,6 +887,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       |> elem(1)
 
     %{
+      sections: sections,
       resource_groups: resource_groups,
       flat_resources: flat_resources,
       actions: actions,
@@ -1110,4 +1154,25 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   end
 
   defp format_ash_error(_), do: "Unexpected error"
+
+  defp section_grid(%{} = grid, section_key) do
+    section_key = to_string(section_key || "")
+
+    group =
+      Enum.find(grid.resource_groups, fn group ->
+        to_string(group.section) == section_key
+      end) || List.first(grid.resource_groups)
+
+    group = group || %{section: "", label: "", resources: []}
+
+    group_starts = MapSet.new([0])
+
+    %{
+      grid
+      | resource_groups: [group],
+        flat_resources: group.resources,
+        group_starts: group_starts
+    }
+    |> Map.put(:active_section, group.section)
+  end
 end

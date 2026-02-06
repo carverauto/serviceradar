@@ -45,32 +45,32 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
 
   @impl true
   def list_role_profiles(scope) do
-    request(scope, :get, "/api/admin/role-profiles", %{})
+    request(scope, :get, "/api/role-profiles", %{})
   end
 
   @impl true
   def get_role_profile(scope, id) do
-    request(scope, :get, "/api/admin/role-profiles/#{id}", %{})
+    request(scope, :get, "/api/role-profiles/#{id}", %{})
   end
 
   @impl true
   def create_role_profile(scope, attrs) do
-    request(scope, :post, "/api/admin/role-profiles", attrs)
+    request(scope, :post, "/api/role-profiles", attrs)
   end
 
   @impl true
   def update_role_profile(scope, id, attrs) do
-    request(scope, :patch, "/api/admin/role-profiles/#{id}", attrs)
+    request(scope, :patch, "/api/role-profiles/#{id}", attrs)
   end
 
   @impl true
   def delete_role_profile(scope, id) do
-    request(scope, :delete, "/api/admin/role-profiles/#{id}", %{})
+    request(scope, :delete, "/api/role-profiles/#{id}", %{})
   end
 
   @impl true
   def get_rbac_catalog(scope) do
-    request(scope, :get, "/api/admin/role-profiles/catalog", %{})
+    request(scope, :get, "/api/role-profiles/catalog", %{})
   end
 
   defp request(scope, method, path, params) do
