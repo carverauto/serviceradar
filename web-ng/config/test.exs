@@ -80,6 +80,8 @@ config :serviceradar_core, ServiceRadar.Repo,
   ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2,
+  # Some migrations (Timescale hypertables, indexes) can take > 2 minutes on CI/dev hardware.
+  ownership_timeout: 300_000,
   parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
   types: ServiceRadar.PostgresTypes
 
