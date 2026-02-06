@@ -722,6 +722,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentMapperInterfaces := p.pushMapperInterfaces(ctx)
 	sentMapperTopology := p.pushMapperTopology(ctx)
 	sentSNMPMetrics := p.pushSNMPMetrics(ctx)
+	sentMdnsRecords := p.pushMdnsResults(ctx)
 	sentPluginResults := p.pushPluginResults(ctx)
 	sentPluginTelemetry := p.pushPluginTelemetry(ctx)
 
@@ -733,6 +734,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		!sentMapperInterfaces &&
 		!sentMapperTopology &&
 		!sentSNMPMetrics &&
+		!sentMdnsRecords &&
 		!sentPluginResults &&
 		!sentPluginTelemetry {
 		p.logger.Debug().Msg("No statuses to push")
@@ -1022,6 +1024,78 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	}
 
 	p.logger.Warn().Msg("Gateway did not acknowledge SNMP metrics stream")
+	return false
+}
+
+func (p *PushLoop) pushMdnsResults(ctx context.Context) bool {
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	mdnsSvc := p.server.mdnsService
+	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
+
+	if mdnsSvc == nil || !mdnsSvc.IsEnabled() {
+		return false
+	}
+
+	records := mdnsSvc.DrainRecords()
+	if len(records) == 0 {
+		return false
+	}
+
+	payload := map[string]interface{}{
+		"records": records,
+	}
+
+	messageBytes, err := json.Marshal(payload)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to marshal mDNS records payload")
+		return false
+	}
+
+	status := &proto.GatewayServiceStatus{
+		ServiceName:  "mdns",
+		Available:    true,
+		Message:      messageBytes,
+		ServiceType:  "mdns",
+		ResponseTime: 0,
+		AgentId:      agentID,
+		GatewayId:    gatewayID,
+		Partition:    partition,
+		Source:       "mdns-discovery",
+		KvStoreId:    kvStoreID,
+	}
+
+	chunk := &proto.GatewayStatusChunk{
+		Services:    []*proto.GatewayServiceStatus{status},
+		GatewayId:   gatewayID,
+		AgentId:     agentID,
+		Timestamp:   time.Now().UnixNano(),
+		Partition:   partition,
+		SourceIp:    p.getSourceIP(),
+		IsFinal:     true,
+		ChunkIndex:  0,
+		TotalChunks: 1,
+		KvStoreId:   kvStoreID,
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to stream mDNS records to gateway")
+		return false
+	}
+
+	if resp.Received {
+		p.logger.Info().Int("record_count", len(records)).Msg("Successfully streamed mDNS records to gateway")
+		return true
+	}
+
+	p.logger.Warn().Msg("Gateway did not acknowledge mDNS records stream")
 	return false
 }
 

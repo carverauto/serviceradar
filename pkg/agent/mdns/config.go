@@ -20,31 +20,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
-
-	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // Config holds configuration for the mDNS collector service.
 type Config struct {
-	Enabled                  bool                   `json:"enabled"`
-	ListenAddr               string                 `json:"listen_addr"`
-	BufferSize               int                    `json:"buffer_size"`
-	MulticastGroups          []string               `json:"multicast_groups"`
-	ListenInterface          string                 `json:"listen_interface,omitempty"`
-	NATSUrl                  string                 `json:"nats_url"`
-	NATSCredsFile            string                 `json:"nats_creds_file,omitempty"`
-	StreamName               string                 `json:"stream_name"`
-	Subject                  string                 `json:"subject"`
-	StreamSubjects           []string               `json:"stream_subjects,omitempty"`
-	StreamMaxBytes           int64                  `json:"stream_max_bytes"`
-	ChannelSize              int                    `json:"channel_size"`
-	BatchSize                int                    `json:"batch_size"`
-	PublishTimeoutMs         int                    `json:"publish_timeout_ms"`
-	DedupTTLSecs             int                    `json:"dedup_ttl_secs"`
-	DedupMaxEntries          int                    `json:"dedup_max_entries"`
-	DedupCleanupIntervalSecs int                    `json:"dedup_cleanup_interval_secs"`
-	Security                 *models.SecurityConfig `json:"security,omitempty"`
+	Enabled                  bool     `json:"enabled"`
+	ListenAddr               string   `json:"listen_addr"`
+	BufferSize               int      `json:"buffer_size"`
+	MulticastGroups          []string `json:"multicast_groups"`
+	ListenInterface          string   `json:"listen_interface,omitempty"`
+	ChannelSize              int      `json:"channel_size"`
+	DedupTTLSecs             int      `json:"dedup_ttl_secs"`
+	DedupMaxEntries          int      `json:"dedup_max_entries"`
+	DedupCleanupIntervalSecs int      `json:"dedup_cleanup_interval_secs"`
+	MaxBufferedRecords       int      `json:"max_buffered_records"`
 }
 
 // DefaultConfig returns a Config with sensible defaults (disabled).
@@ -54,16 +43,11 @@ func DefaultConfig() *Config {
 		ListenAddr:               "0.0.0.0:5353",
 		BufferSize:               65536,
 		MulticastGroups:          []string{"224.0.0.251"},
-		NATSUrl:                  "nats://localhost:4222",
-		StreamName:               "DISCOVERY",
-		Subject:                  "discovery.raw.mdns",
-		StreamMaxBytes:           10 * 1024 * 1024 * 1024,
 		ChannelSize:              10000,
-		BatchSize:                100,
-		PublishTimeoutMs:         5000,
 		DedupTTLSecs:             300,
 		DedupMaxEntries:          100000,
 		DedupCleanupIntervalSecs: 60,
+		MaxBufferedRecords:       1000,
 	}
 }
 
@@ -71,15 +55,6 @@ func DefaultConfig() *Config {
 func (c *Config) Validate() error {
 	if c.ListenAddr == "" {
 		return ErrListenAddrEmpty
-	}
-	if c.NATSUrl == "" {
-		return ErrNATSURLEmpty
-	}
-	if c.StreamName == "" {
-		return ErrStreamNameEmpty
-	}
-	if c.Subject == "" {
-		return ErrSubjectEmpty
 	}
 	if len(c.MulticastGroups) == 0 {
 		return ErrMulticastGroupsEmpty
@@ -94,31 +69,6 @@ func (c *Config) Validate() error {
 		return ErrDedupCleanupIntervalZero
 	}
 	return nil
-}
-
-// StreamSubjectsResolved returns the list of subjects the stream should cover,
-// ensuring the publish subject is always included.
-func (c *Config) StreamSubjectsResolved() []string {
-	var subjects []string
-	if len(c.StreamSubjects) > 0 {
-		subjects = append(subjects, c.StreamSubjects...)
-	} else {
-		subjects = []string{c.Subject}
-	}
-
-	found := false
-	for _, s := range subjects {
-		if s == c.Subject {
-			found = true
-			break
-		}
-	}
-	if !found {
-		subjects = append(subjects, c.Subject)
-	}
-
-	sort.Strings(subjects)
-	return subjects
 }
 
 // LoadConfigFromFile reads and parses a Config from a JSON file.

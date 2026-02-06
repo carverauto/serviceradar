@@ -21,12 +21,6 @@ import "errors"
 var (
 	// ErrListenAddrEmpty is returned when listen_addr is empty.
 	ErrListenAddrEmpty = errors.New("listen_addr cannot be empty")
-	// ErrNATSURLEmpty is returned when nats_url is empty.
-	ErrNATSURLEmpty = errors.New("nats_url cannot be empty")
-	// ErrStreamNameEmpty is returned when stream_name is empty.
-	ErrStreamNameEmpty = errors.New("stream_name cannot be empty")
-	// ErrSubjectEmpty is returned when subject is empty.
-	ErrSubjectEmpty = errors.New("subject cannot be empty")
 	// ErrMulticastGroupsEmpty is returned when multicast_groups is empty.
 	ErrMulticastGroupsEmpty = errors.New("multicast_groups cannot be empty")
 	// ErrDedupTTLZero is returned when dedup_ttl_secs is zero.
@@ -35,8 +29,4 @@ var (
 	ErrDedupMaxEntriesZero = errors.New("dedup_max_entries must be > 0")
 	// ErrDedupCleanupIntervalZero is returned when dedup_cleanup_interval_secs is zero.
 	ErrDedupCleanupIntervalZero = errors.New("dedup_cleanup_interval_secs must be > 0")
-	// ErrChannelClosed is returned when the publisher channel is closed.
-	ErrChannelClosed = errors.New("publisher channel closed")
-	// ErrNATSConnection is returned when NATS connection fails after all retries.
-	ErrNATSConnection = errors.New("NATS connection failed after max retries")
 )

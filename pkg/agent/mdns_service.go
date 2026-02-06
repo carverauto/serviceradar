@@ -458,6 +458,18 @@ func (s *MdnsAgentService) getMdnsCachePath() string {
 	}
 }
 
+// DrainRecords returns and clears the buffered mDNS records.
+// Called by the push loop to collect records for gRPC streaming.
+func (s *MdnsAgentService) DrainRecords() []mdns.MdnsRecordJSON {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.service == nil {
+		return nil
+	}
+	return s.service.DrainRecords()
+}
+
 // IsEnabled returns whether mDNS collection is enabled.
 func (s *MdnsAgentService) IsEnabled() bool {
 	s.mu.RLock()

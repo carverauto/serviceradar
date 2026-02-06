@@ -43,24 +43,6 @@ func TestNewMdnsServiceInvalidConfig(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestNewMdnsServiceEmptyNATSUrl(t *testing.T) {
-	t.Parallel()
-
-	cfg := DefaultConfig()
-	cfg.NATSUrl = ""
-	_, err := NewMdnsService(cfg, logger.NewTestLogger())
-	require.ErrorIs(t, err, ErrNATSURLEmpty)
-}
-
-func TestNewMdnsServiceEmptySubject(t *testing.T) {
-	t.Parallel()
-
-	cfg := DefaultConfig()
-	cfg.Subject = ""
-	_, err := NewMdnsService(cfg, logger.NewTestLogger())
-	require.ErrorIs(t, err, ErrSubjectEmpty)
-}
-
 func TestConfigValidation(t *testing.T) {
 	t.Parallel()
 
@@ -78,21 +60,6 @@ func TestConfigValidation(t *testing.T) {
 			name:    "empty listen_addr",
 			modify:  func(c *Config) { c.ListenAddr = "" },
 			wantErr: ErrListenAddrEmpty,
-		},
-		{
-			name:    "empty nats_url",
-			modify:  func(c *Config) { c.NATSUrl = "" },
-			wantErr: ErrNATSURLEmpty,
-		},
-		{
-			name:    "empty stream_name",
-			modify:  func(c *Config) { c.StreamName = "" },
-			wantErr: ErrStreamNameEmpty,
-		},
-		{
-			name:    "empty subject",
-			modify:  func(c *Config) { c.Subject = "" },
-			wantErr: ErrSubjectEmpty,
 		},
 		{
 			name:    "empty multicast_groups",
@@ -131,30 +98,55 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
-func TestStreamSubjectsResolved(t *testing.T) {
+func TestDrainRecordsEmpty(t *testing.T) {
 	t.Parallel()
 
 	cfg := DefaultConfig()
-	subjects := cfg.StreamSubjectsResolved()
-	assert.Equal(t, []string{"discovery.raw.mdns"}, subjects)
+	cfg.Enabled = true
+
+	svc, err := NewMdnsService(cfg, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	records := svc.DrainRecords()
+	assert.Nil(t, records)
 }
 
-func TestStreamSubjectsResolvedWithExtra(t *testing.T) {
+func TestDrainRecordsReturnsAndClears(t *testing.T) {
 	t.Parallel()
 
 	cfg := DefaultConfig()
-	cfg.StreamSubjects = []string{"discovery.raw.mdns", "discovery.raw.mdns.processed"}
-	subjects := cfg.StreamSubjectsResolved()
-	assert.Contains(t, subjects, "discovery.raw.mdns")
-	assert.Contains(t, subjects, "discovery.raw.mdns.processed")
+	cfg.Enabled = true
+
+	svc, err := NewMdnsService(cfg, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	// Manually add records to the buffer
+	svc.recordsMu.Lock()
+	svc.records = append(svc.records, MdnsRecordJSON{
+		RecordType:   "A",
+		Hostname:     "test.local.",
+		ResolvedAddr: "192.168.1.1",
+	})
+	svc.records = append(svc.records, MdnsRecordJSON{
+		RecordType:   "AAAA",
+		Hostname:     "test2.local.",
+		ResolvedAddr: "fe80::1",
+	})
+	svc.recordsMu.Unlock()
+
+	records := svc.DrainRecords()
+	require.Len(t, records, 2)
+	assert.Equal(t, "A", records[0].RecordType)
+	assert.Equal(t, "AAAA", records[1].RecordType)
+
+	// Buffer should be empty now
+	records2 := svc.DrainRecords()
+	assert.Nil(t, records2)
 }
 
-func TestStreamSubjectsResolvedAddsSubject(t *testing.T) {
+func TestMaxBufferedRecordsDefault(t *testing.T) {
 	t.Parallel()
 
 	cfg := DefaultConfig()
-	cfg.StreamSubjects = []string{"other.subject"}
-	subjects := cfg.StreamSubjectsResolved()
-	assert.Contains(t, subjects, "discovery.raw.mdns")
-	assert.Contains(t, subjects, "other.subject")
+	assert.Equal(t, 1000, cfg.MaxBufferedRecords)
 }

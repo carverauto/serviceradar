@@ -227,7 +227,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   defp results_router_source?(status) do
     status[:source] in ["results", :results, "sysmon-metrics", :sysmon_metrics, "plugin-result",
-                        :plugin_result]
+                        :plugin_result, "mdns-discovery", :mdns_discovery]
   end
 
   defp emit_forward_metrics(result, status, from_buffer, started_at) do

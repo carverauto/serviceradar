@@ -23,8 +23,6 @@ import (
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	mdnspb "github.com/carverauto/serviceradar/proto/mdns"
 )
 
 // buildResponsePacket constructs a DNS response packet with the given answer records.
@@ -62,11 +60,10 @@ func TestParseARecord(t *testing.T) {
 	records := ParseMdnsPacket(data, source, 1_000_000_000)
 
 	require.Len(t, records, 1)
-	assert.Equal(t, mdnspb.MdnsRecord_A, records[0].RecordType)
+	assert.Equal(t, "A", records[0].RecordType)
 	assert.Equal(t, "mydevice.local.", records[0].Hostname)
-	assert.Equal(t, []byte{192, 168, 1, 42}, records[0].ResolvedAddr)
-	assert.Equal(t, "192.168.1.42", records[0].ResolvedAddrStr)
-	assert.Equal(t, uint32(120), records[0].DnsTtl)
+	assert.Equal(t, "192.168.1.42", records[0].ResolvedAddr)
+	assert.Equal(t, uint32(120), records[0].DnsTTL)
 	assert.True(t, records[0].IsResponse)
 }
 
@@ -83,10 +80,9 @@ func TestParseAAAARecord(t *testing.T) {
 	records := ParseMdnsPacket(data, source, 1_000_000_000)
 
 	require.Len(t, records, 1)
-	assert.Equal(t, mdnspb.MdnsRecord_AAAA, records[0].RecordType)
+	assert.Equal(t, "AAAA", records[0].RecordType)
 	assert.Equal(t, "mydevice.local.", records[0].Hostname)
-	assert.Equal(t, addr.To16(), net.IP(records[0].ResolvedAddr))
-	assert.Equal(t, "fe80::1", records[0].ResolvedAddrStr)
+	assert.Equal(t, "fe80::1", records[0].ResolvedAddr)
 }
 
 func TestParsePTRRecord(t *testing.T) {
@@ -101,12 +97,11 @@ func TestParsePTRRecord(t *testing.T) {
 	records := ParseMdnsPacket(data, source, 2_000_000_000)
 
 	require.Len(t, records, 1)
-	assert.Equal(t, mdnspb.MdnsRecord_PTR, records[0].RecordType)
+	assert.Equal(t, "PTR", records[0].RecordType)
 	assert.Equal(t, "mywebserver._http._tcp.local.", records[0].Hostname)
 	assert.Equal(t, "_http._tcp.local.", records[0].DnsName)
 	assert.Empty(t, records[0].ResolvedAddr)
-	assert.Empty(t, records[0].ResolvedAddrStr)
-	assert.Equal(t, uint32(4500), records[0].DnsTtl)
+	assert.Equal(t, uint32(4500), records[0].DnsTTL)
 }
 
 func TestIgnoresQueries(t *testing.T) {
@@ -134,8 +129,8 @@ func TestMultipleRecords(t *testing.T) {
 	records := ParseMdnsPacket(data, source, 1_000_000_000)
 
 	require.Len(t, records, 2)
-	assert.Equal(t, mdnspb.MdnsRecord_A, records[0].RecordType)
-	assert.Equal(t, mdnspb.MdnsRecord_PTR, records[1].RecordType)
+	assert.Equal(t, "A", records[0].RecordType)
+	assert.Equal(t, "PTR", records[1].RecordType)
 }
 
 func TestInvalidPacket(t *testing.T) {
@@ -145,7 +140,7 @@ func TestInvalidPacket(t *testing.T) {
 	assert.Empty(t, records)
 }
 
-func TestSourceIPBytesV4(t *testing.T) {
+func TestSourceIPString(t *testing.T) {
 	t.Parallel()
 
 	rr := &dns.A{
@@ -157,5 +152,5 @@ func TestSourceIPBytesV4(t *testing.T) {
 	records := ParseMdnsPacket(data, source, 1_000_000_000)
 
 	require.Len(t, records, 1)
-	assert.Equal(t, []byte{192, 168, 1, 100}, records[0].SourceIp)
+	assert.Equal(t, "192.168.1.100", records[0].SourceIP)
 }

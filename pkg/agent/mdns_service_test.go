@@ -258,9 +258,6 @@ func TestMdnsAgentServiceConfigCaching(t *testing.T) {
 	configData := `{
 		"enabled": false,
 		"listen_addr": "0.0.0.0:5353",
-		"nats_url": "nats://localhost:4222",
-		"stream_name": "DISCOVERY",
-		"subject": "discovery.raw.mdns",
 		"multicast_groups": ["224.0.0.251"],
 		"dedup_ttl_secs": 300,
 		"dedup_max_entries": 100000,
@@ -282,4 +279,17 @@ func TestMdnsAgentServiceConfigCaching(t *testing.T) {
 
 	// mDNS is disabled, so source won't be set (early return)
 	assert.False(t, svc.IsEnabled())
+}
+
+func TestMdnsAgentServiceDrainRecords_NotStarted(t *testing.T) {
+	t.Parallel()
+
+	svc, err := NewMdnsAgentService(MdnsAgentServiceConfig{
+		AgentID: "test-agent",
+		Logger:  logger.NewTestLogger(),
+	})
+	require.NoError(t, err)
+
+	records := svc.DrainRecords()
+	assert.Nil(t, records)
 }

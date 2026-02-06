@@ -24,18 +24,34 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
-// MdnsService orchestrates the mDNS listener, publisher, and dedup cleanup goroutines.
+// MdnsRecordJSON is a JSON-serializable mDNS record for the gRPC push pipeline.
+type MdnsRecordJSON struct {
+	RecordType     string `json:"record_type"`
+	TimeReceivedNs uint64 `json:"time_received_ns"`
+	SourceIP       string `json:"source_ip"`
+	Hostname       string `json:"hostname"`
+	ResolvedAddr   string `json:"resolved_addr"`
+	DnsTTL         uint32 `json:"dns_ttl"`
+	DnsName        string `json:"dns_name"`
+	IsResponse     bool   `json:"is_response"`
+}
+
+// MdnsService orchestrates the mDNS listener and dedup cleanup goroutines.
+// Records are buffered and drained by the push loop via DrainRecords().
 type MdnsService struct {
-	config    *Config
-	listener  *Listener
-	publisher *Publisher
-	dedup     *DedupCache
-	ch        chan []byte
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	logger    logger.Logger
-	started   bool
-	mu        sync.Mutex
+	config   *Config
+	listener *Listener
+	dedup    *DedupCache
+	ch       chan *MdnsRecordJSON
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	logger   logger.Logger
+	started  bool
+	mu       sync.Mutex
+
+	// Drain buffer: accumulated records waiting for push loop to collect
+	records   []MdnsRecordJSON
+	recordsMu sync.Mutex
 }
 
 // NewMdnsService creates a new mDNS service from the given config.
@@ -44,21 +60,26 @@ func NewMdnsService(config *Config, log logger.Logger) (*MdnsService, error) {
 		return nil, err
 	}
 
-	ch := make(chan []byte, config.ChannelSize)
+	ch := make(chan *MdnsRecordJSON, config.ChannelSize)
 	dedup := NewDedupCache(config.DedupTTLSecs, config.DedupMaxEntries)
 
+	maxBuf := config.MaxBufferedRecords
+	if maxBuf <= 0 {
+		maxBuf = 1000
+	}
+
 	return &MdnsService{
-		config:    config,
-		dedup:     dedup,
-		ch:        ch,
-		listener:  NewListener(config, dedup, ch, log),
-		publisher: NewPublisher(config, ch, log),
-		logger:    log,
+		config:   config,
+		dedup:    dedup,
+		ch:       ch,
+		listener: NewListener(config, dedup, ch, log),
+		records:  make([]MdnsRecordJSON, 0, maxBuf),
+		logger:   log,
 	}, nil
 }
 
-// Start initializes the NATS connection, binds the multicast socket,
-// and starts the listener, publisher, and dedup cleanup goroutines.
+// Start binds the multicast socket and starts the listener, buffer,
+// and dedup cleanup goroutines.
 func (s *MdnsService) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -67,14 +88,8 @@ func (s *MdnsService) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// Connect publisher to NATS
-	if err := s.publisher.Connect(ctx); err != nil {
-		return err
-	}
-
 	// Start multicast listener
 	if err := s.listener.Start(); err != nil {
-		s.publisher.Close()
 		return err
 	}
 
@@ -88,11 +103,11 @@ func (s *MdnsService) Start(ctx context.Context) error {
 		s.listener.Run()
 	}()
 
-	// Start publisher goroutine
+	// Start buffer goroutine (reads from channel, appends to drain buffer)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.publisher.Run(ctx)
+		s.runBuffer(ctx)
 	}()
 
 	// Start dedup cleanup goroutine
@@ -123,22 +138,65 @@ func (s *MdnsService) Stop() error {
 		s.logger.Warn().Err(err).Msg("Error closing mDNS listener")
 	}
 
-	// Cancel context (stops publisher and cleanup)
+	// Cancel context (stops buffer and cleanup goroutines)
 	if s.cancel != nil {
 		s.cancel()
 	}
 
-	// Close channel to signal publisher
+	// Close channel to signal buffer goroutine
 	close(s.ch)
 
 	// Wait for goroutines to finish
 	s.wg.Wait()
 
-	// Close NATS connection
-	s.publisher.Close()
-
 	s.logger.Info().Msg("mDNS service stopped")
 	return nil
+}
+
+// DrainRecords returns and clears the buffered records.
+// Called by the push loop to collect records for gRPC streaming.
+func (s *MdnsService) DrainRecords() []MdnsRecordJSON {
+	s.recordsMu.Lock()
+	defer s.recordsMu.Unlock()
+
+	if len(s.records) == 0 {
+		return nil
+	}
+
+	drained := s.records
+	maxBuf := s.config.MaxBufferedRecords
+	if maxBuf <= 0 {
+		maxBuf = 1000
+	}
+	s.records = make([]MdnsRecordJSON, 0, maxBuf)
+	return drained
+}
+
+// runBuffer reads records from the channel and appends them to the drain buffer.
+func (s *MdnsService) runBuffer(ctx context.Context) {
+	maxBuf := s.config.MaxBufferedRecords
+	if maxBuf <= 0 {
+		maxBuf = 1000
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case record, ok := <-s.ch:
+			if !ok {
+				return
+			}
+
+			s.recordsMu.Lock()
+			if len(s.records) < maxBuf {
+				s.records = append(s.records, *record)
+			} else {
+				s.logger.Warn().Msg("mDNS drain buffer full, dropping record")
+			}
+			s.recordsMu.Unlock()
+		}
+	}
 }
 
 func (s *MdnsService) runDedupCleanup(ctx context.Context) {

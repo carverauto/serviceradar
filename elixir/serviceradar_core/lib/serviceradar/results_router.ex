@@ -11,6 +11,7 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Observability.IcmpMetricsIngestor
+  alias ServiceRadar.Observability.MdnsDiscoveryIngestor
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatusPubSub
@@ -99,6 +100,11 @@ defmodule ServiceRadar.ResultsRouter do
     handle_plugin_results(status)
   end
 
+  defp process(%{source: source} = status)
+       when source in ["mdns-discovery", :mdns_discovery] do
+    handle_mdns_discovery(status)
+  end
+
   defp process(_status), do: :ok
 
   defp handle_sync_results(status) do
@@ -182,6 +188,14 @@ defmodule ServiceRadar.ResultsRouter do
   defp handle_plugin_results(status) do
     with {:ok, payload} <- decode_payload(status[:message]) do
       plugin_ingestor().ingest(payload, status)
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp handle_mdns_discovery(status) do
+    with {:ok, payload} <- decode_payload(status[:message]) do
+      mdns_discovery_ingestor().ingest(payload, status)
     else
       {:error, reason} -> {:error, reason}
     end
@@ -554,5 +568,9 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp plugin_ingestor do
     Application.get_env(:serviceradar_core, :plugin_result_ingestor, PluginResultIngestor)
+  end
+
+  defp mdns_discovery_ingestor do
+    Application.get_env(:serviceradar_core, :mdns_discovery_ingestor, MdnsDiscoveryIngestor)
   end
 end

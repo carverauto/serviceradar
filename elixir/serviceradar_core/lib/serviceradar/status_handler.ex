@@ -52,6 +52,8 @@ defmodule ServiceRadar.StatusHandler do
               :sysmon_metrics,
               "snmp-metrics",
               :snmp_metrics,
+              "mdns-discovery",
+              :mdns_discovery,
               "plugin-result",
               :plugin_result
             ] do

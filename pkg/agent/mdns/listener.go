@@ -21,24 +21,22 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
-	mdnspb "github.com/carverauto/serviceradar/proto/mdns"
 )
 
-// Listener listens for mDNS multicast packets and sends parsed protobuf records
-// to a channel for publishing.
+// Listener listens for mDNS multicast packets and sends parsed records
+// to a channel for buffering.
 type Listener struct {
 	config *Config
 	dedup  *DedupCache
-	ch     chan<- []byte
+	ch     chan<- *MdnsRecordJSON
 	conn   *net.UDPConn
 	logger logger.Logger
 }
 
 // NewListener creates a new mDNS multicast listener.
-func NewListener(config *Config, dedup *DedupCache, ch chan<- []byte, log logger.Logger) *Listener {
+func NewListener(config *Config, dedup *DedupCache, ch chan<- *MdnsRecordJSON, log logger.Logger) *Listener {
 	return &Listener{
 		config: config,
 		dedup:  dedup,
@@ -125,33 +123,27 @@ func (l *Listener) processPacket(data []byte, remoteAddr *net.UDPAddr) {
 	}
 
 	receiveTimeNs := uint64(time.Now().UnixNano())
-	sourceIP := ipToBytes(remoteAddr.IP)
+	sourceIP := remoteAddr.IP.String()
 
 	// Process answers and additional records
 	allRRs := append(msg.Answer, msg.Extra...)
 	for _, rr := range allRRs {
-		records := l.rrToRecords(rr, sourceIP, receiveTimeNs)
+		records := rrToJSONRecords(rr, sourceIP, receiveTimeNs)
 		for _, record := range records {
-			if !l.dedup.CheckAndInsert(record.Hostname, record.ResolvedAddr) {
-				continue
-			}
-
-			encoded, err := proto.Marshal(record)
-			if err != nil {
-				l.logger.Error().Err(err).Msg("Failed to encode mDNS protobuf")
+			if !l.dedup.CheckAndInsert(record.Hostname, []byte(record.ResolvedAddr)) {
 				continue
 			}
 
 			select {
-			case l.ch <- encoded:
+			case l.ch <- record:
 			default:
-				l.logger.Warn().Msg("Publisher channel full, dropping mDNS record")
+				l.logger.Warn().Msg("Record channel full, dropping mDNS record")
 			}
 		}
 	}
 }
 
-func (l *Listener) rrToRecords(rr dns.RR, sourceIP []byte, receiveTimeNs uint64) []*mdnspb.MdnsRecord {
+func rrToJSONRecords(rr dns.RR, sourceIP string, receiveTimeNs uint64) []*MdnsRecordJSON {
 	header := rr.Header()
 	dnsName := header.Name
 	dnsTTL := header.Ttl
@@ -162,61 +154,50 @@ func (l *Listener) rrToRecords(rr dns.RR, sourceIP []byte, receiveTimeNs uint64)
 		if ip == nil {
 			return nil
 		}
-		return []*mdnspb.MdnsRecord{{
-			RecordType:      mdnspb.MdnsRecord_A,
-			TimeReceivedNs:  receiveTimeNs,
-			SourceIp:        sourceIP,
-			Hostname:        dnsName,
-			ResolvedAddr:    []byte(ip),
-			ResolvedAddrStr: v.A.String(),
-			DnsTtl:          dnsTTL,
-			DnsName:         dnsName,
-			IsResponse:      true,
+		return []*MdnsRecordJSON{{
+			RecordType:     "A",
+			TimeReceivedNs: receiveTimeNs,
+			SourceIP:       sourceIP,
+			Hostname:       dnsName,
+			ResolvedAddr:   v.A.String(),
+			DnsTTL:         dnsTTL,
+			DnsName:        dnsName,
+			IsResponse:     true,
 		}}
 	case *dns.AAAA:
 		ip := v.AAAA
 		if ip == nil {
 			return nil
 		}
-		return []*mdnspb.MdnsRecord{{
-			RecordType:      mdnspb.MdnsRecord_AAAA,
-			TimeReceivedNs:  receiveTimeNs,
-			SourceIp:        sourceIP,
-			Hostname:        dnsName,
-			ResolvedAddr:    []byte(ip.To16()),
-			ResolvedAddrStr: ip.String(),
-			DnsTtl:          dnsTTL,
-			DnsName:         dnsName,
-			IsResponse:      true,
+		return []*MdnsRecordJSON{{
+			RecordType:     "AAAA",
+			TimeReceivedNs: receiveTimeNs,
+			SourceIP:       sourceIP,
+			Hostname:       dnsName,
+			ResolvedAddr:   ip.String(),
+			DnsTTL:         dnsTTL,
+			DnsName:        dnsName,
+			IsResponse:     true,
 		}}
 	case *dns.PTR:
-		return []*mdnspb.MdnsRecord{{
-			RecordType:      mdnspb.MdnsRecord_PTR,
-			TimeReceivedNs:  receiveTimeNs,
-			SourceIp:        sourceIP,
-			Hostname:        v.Ptr,
-			ResolvedAddr:    nil,
-			ResolvedAddrStr: "",
-			DnsTtl:          dnsTTL,
-			DnsName:         dnsName,
-			IsResponse:      true,
+		return []*MdnsRecordJSON{{
+			RecordType:     "PTR",
+			TimeReceivedNs: receiveTimeNs,
+			SourceIP:       sourceIP,
+			Hostname:       v.Ptr,
+			ResolvedAddr:   "",
+			DnsTTL:         dnsTTL,
+			DnsName:        dnsName,
+			IsResponse:     true,
 		}}
 	default:
 		return nil
 	}
 }
 
-// ipToBytes converts a net.IP to its byte representation.
-func ipToBytes(ip net.IP) []byte {
-	if v4 := ip.To4(); v4 != nil {
-		return []byte(v4)
-	}
-	return []byte(ip.To16())
-}
-
-// ParseMdnsPacket parses a raw DNS packet and extracts mDNS records.
+// ParseMdnsPacket parses a raw DNS packet and extracts mDNS records as JSON structs.
 // Exported for testing.
-func ParseMdnsPacket(data []byte, sourceIP net.IP, receiveTimeNs uint64) []*mdnspb.MdnsRecord {
+func ParseMdnsPacket(data []byte, sourceIP net.IP, receiveTimeNs uint64) []*MdnsRecordJSON {
 	var msg dns.Msg
 	if err := msg.Unpack(data); err != nil {
 		return nil
@@ -226,70 +207,22 @@ func ParseMdnsPacket(data []byte, sourceIP net.IP, receiveTimeNs uint64) []*mdns
 		return nil
 	}
 
-	srcBytes := ipToBytes(sourceIP)
-	var records []*mdnspb.MdnsRecord
+	srcStr := sourceIP.String()
+	var records []*MdnsRecordJSON
 
 	allRRs := append(msg.Answer, msg.Extra...)
 	for _, rr := range allRRs {
-		parsed := rrToRecordsStatic(rr, srcBytes, receiveTimeNs)
+		parsed := rrToJSONRecords(rr, srcStr, receiveTimeNs)
 		records = append(records, parsed...)
 	}
 
 	return records
 }
 
-// rrToRecordsStatic is a static version for use in ParseMdnsPacket.
-func rrToRecordsStatic(rr dns.RR, sourceIP []byte, receiveTimeNs uint64) []*mdnspb.MdnsRecord {
-	header := rr.Header()
-	dnsName := header.Name
-	dnsTTL := header.Ttl
-
-	switch v := rr.(type) {
-	case *dns.A:
-		ip := v.A.To4()
-		if ip == nil {
-			return nil
-		}
-		return []*mdnspb.MdnsRecord{{
-			RecordType:      mdnspb.MdnsRecord_A,
-			TimeReceivedNs:  receiveTimeNs,
-			SourceIp:        sourceIP,
-			Hostname:        dnsName,
-			ResolvedAddr:    []byte(ip),
-			ResolvedAddrStr: v.A.String(),
-			DnsTtl:          dnsTTL,
-			DnsName:         dnsName,
-			IsResponse:      true,
-		}}
-	case *dns.AAAA:
-		ip := v.AAAA
-		if ip == nil {
-			return nil
-		}
-		return []*mdnspb.MdnsRecord{{
-			RecordType:      mdnspb.MdnsRecord_AAAA,
-			TimeReceivedNs:  receiveTimeNs,
-			SourceIp:        sourceIP,
-			Hostname:        dnsName,
-			ResolvedAddr:    []byte(ip.To16()),
-			ResolvedAddrStr: ip.String(),
-			DnsTtl:          dnsTTL,
-			DnsName:         dnsName,
-			IsResponse:      true,
-		}}
-	case *dns.PTR:
-		return []*mdnspb.MdnsRecord{{
-			RecordType:      mdnspb.MdnsRecord_PTR,
-			TimeReceivedNs:  receiveTimeNs,
-			SourceIp:        sourceIP,
-			Hostname:        v.Ptr,
-			ResolvedAddr:    nil,
-			ResolvedAddrStr: "",
-			DnsTtl:          dnsTTL,
-			DnsName:         dnsName,
-			IsResponse:      true,
-		}}
-	default:
-		return nil
+// ipToBytes converts a net.IP to its byte representation.
+func ipToBytes(ip net.IP) []byte {
+	if v4 := ip.To4(); v4 != nil {
+		return []byte(v4)
 	}
+	return []byte(ip.To16())
 }
