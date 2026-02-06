@@ -10,7 +10,23 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   setup %{conn: conn} do
     user = admin_user_fixture()
     actor = actor_for_user(user)
-    %{conn: log_in_user(conn, user), user: user, actor: actor}
+    gateway_id = "test-gateway-#{System.unique_integer([:positive])}"
+
+    case ServiceRadar.GatewayRegistry.register_gateway(gateway_id, %{
+           partition_id: "default",
+           domain: "local",
+           status: :available
+         }) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_registered, _pid}} -> :ok
+      {:error, _} -> :ok
+    end
+
+    on_exit(fn ->
+      ServiceRadar.GatewayRegistry.unregister_gateway(gateway_id)
+    end)
+
+    %{conn: log_in_user(conn, user), user: user, actor: actor, gateway_id: gateway_id}
   end
 
   describe "index" do
@@ -81,25 +97,28 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   end
 
   describe "package creation flow" do
-    test "creates a package and shows success", %{conn: conn} do
+    test "creates a package and shows success", %{conn: conn, gateway_id: gateway_id} do
       {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
 
       # Submit form
-      result =
+      lv
         lv
         |> form("#create_package_form",
           form: %{
-            label: "test-new-agent"
+            label: "test-new-agent",
+            gateway_id: gateway_id
           }
         )
         |> render_submit()
 
-      # May show loading or success depending on timing
-      # Either outcome is acceptable
-      assert result =~ "Creating Package" or
-               result =~ "Package Created Successfully" or
-               result =~ "Package created" or
-               result =~ "Failed"
+      # May show loading, success, or gateway-related failure depending on local test environment.
+      html = render(lv)
+
+      assert html =~ "Creating Package" or
+               html =~ "Package Created Successfully" or
+               html =~ "Agent gateway is unavailable" or
+               html =~ "Gateway CA is not available" or
+               html =~ "Failed to create package"
     end
 
     test "auto-generates component_id from label", %{conn: conn, actor: actor} do

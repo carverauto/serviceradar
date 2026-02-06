@@ -67,7 +67,9 @@ defmodule ServiceRadar.Inventory.Device do
       primary? true
 
       argument :include_deleted, :boolean do
-        allow_nil? false
+        # Optional for API callers (defaults to false).
+        # AshJsonApi treats allow_nil?: false action arguments as required query params.
+        allow_nil? true
         default false
       end
 
@@ -78,7 +80,7 @@ defmodule ServiceRadar.Inventory.Device do
     read :by_uid do
       argument :uid, :string, allow_nil?: false
       argument :include_deleted, :boolean do
-        allow_nil? false
+        allow_nil? true
         default false
       end
       get? true
@@ -88,7 +90,7 @@ defmodule ServiceRadar.Inventory.Device do
     read :by_ip do
       argument :ip, :string, allow_nil?: false
       argument :include_deleted, :boolean do
-        allow_nil? false
+        allow_nil? true
         default false
       end
       filter expr(ip == ^arg(:ip) and (is_nil(deleted_at) or ^arg(:include_deleted)))
@@ -97,7 +99,7 @@ defmodule ServiceRadar.Inventory.Device do
     read :by_mac do
       argument :mac, :string, allow_nil?: false
       argument :include_deleted, :boolean do
-        allow_nil? false
+        allow_nil? true
         default false
       end
       filter expr(mac == ^arg(:mac) and (is_nil(deleted_at) or ^arg(:include_deleted)))
@@ -106,7 +108,7 @@ defmodule ServiceRadar.Inventory.Device do
     read :by_gateway do
       argument :gateway_id, :string, allow_nil?: false
       argument :include_deleted, :boolean do
-        allow_nil? false
+        allow_nil? true
         default false
       end
       filter expr(gateway_id == ^arg(:gateway_id) and (is_nil(deleted_at) or ^arg(:include_deleted)))

@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
       ])
 
       # Insert test interface
-      Repo.insert_all("interfaces", [
+      Repo.insert_all("discovered_interfaces", [
         %{
           timestamp: ~U[2100-01-01 00:00:00Z],
           device_id: device_uid,
@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
     } do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
 
-      assert has_element?(view, ".badge", "Operational")
+      assert has_element?(view, ".badge", "Up")
     end
 
     test "can toggle favorite", %{
@@ -94,7 +94,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
 
       # Find and click a metric toggle
       view
-      |> element("button[phx-click=toggle_metric]")
+      |> element("button[phx-click=toggle_metric][phx-value-metric='ifInOctets']")
       |> render_click()
 
       html = render(view)
@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
         }
       ])
 
-      Repo.insert_all("interfaces", [
+      Repo.insert_all("discovered_interfaces", [
         %{
           timestamp: ~U[2100-01-01 00:00:00Z],
           device_id: device_uid,
@@ -129,7 +129,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
           if_oper_status: 1,
           if_admin_status: 1,
           speed_bps: 1_000_000_000,
-          if_index: 2
+          if_index: 2,
+          available_metrics: [
+            %{"name" => "ifInOctets", "category" => "traffic"},
+            %{"name" => "ifOutOctets", "category" => "traffic"}
+          ]
         }
       ])
 
@@ -143,7 +147,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
     } do
       {:ok, _lv, html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
 
-      assert html =~ "Threshold Alerting"
+      assert html =~ "Metrics Collection"
+      assert html =~ "Available Metrics"
     end
 
     test "can enable threshold alerting", %{
@@ -153,14 +158,45 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
     } do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
 
-      # Toggle threshold on
+      # Open metric settings modal via the Available Metrics card
       view
-      |> element("[phx-click=toggle_threshold]")
+      |> element("div[phx-click=open_metric_modal][phx-value-metric='ifInOctets']", "Inbound Traffic")
       |> render_click()
 
+      assert render(view) =~ "Configure ifInOctets metric"
+
+      # Enable a concrete threshold config (comparison + value) and enable alert promotion.
+      view
+      |> element("#metric-settings-form")
+      |> render_submit(%{
+        "metric" => %{
+          "name" => "ifInOctets",
+          "enabled" => "true",
+          "threshold_type" => "absolute",
+          "comparison" => "gt",
+          "value" => "1000",
+          "duration_seconds" => "0",
+          "event_severity" => "warning",
+          "event_message" => "",
+          "alert_enabled" => "true",
+          "alert_threshold" => "2",
+          "alert_window_seconds" => "60",
+          "alert_cooldown_seconds" => "60",
+          "alert_renotify_seconds" => "300",
+          "alert_severity" => "critical",
+          "alert_title" => "",
+          "alert_description" => ""
+        }
+      })
+
       html = render(view)
-      # Should show the threshold configuration form
-      assert html =~ "Metric" or html =~ "Condition" or html =~ "threshold"
+      assert html =~ "Metric settings saved"
+      assert html =~ "Enabled"
+      assert html =~ "Collecting"
+
+      # Event + Alert badges should be enabled (non-ghost styling).
+      assert has_element?(view, "span.badge-info", "Event")
+      assert has_element?(view, "span.badge-success", "Alert")
     end
   end
 
@@ -186,7 +222,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
       ])
 
       # Insert interface with available metrics
-      Repo.insert_all("interfaces", [
+      Repo.insert_all("discovered_interfaces", [
         %{
           timestamp: ~U[2100-01-01 00:00:00Z],
           device_id: device_uid,
@@ -264,7 +300,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
       html = render(view)
       # Modal should close and group should appear
       assert html =~ "Traffic"
-      assert html =~ "2 metrics"
+      assert html =~ "Chart group saved"
+      assert html =~ "Inbound Traffic"
+      assert html =~ "Outbound Traffic"
     end
 
     test "can close group modal", %{
@@ -283,7 +321,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
 
       # Close modal
       view
-      |> element("button[phx-click=close_group_modal]")
+      |> element("button[phx-click=close_group_modal]", "Cancel")
       |> render_click()
 
       # Modal should be closed

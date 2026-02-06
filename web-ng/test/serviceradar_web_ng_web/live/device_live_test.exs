@@ -212,7 +212,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       ])
 
       # Insert test interfaces
-      Repo.insert_all("interfaces", [
+      Repo.insert_all("discovered_interfaces", [
         %{
           timestamp: ~U[2100-01-01 00:00:00Z],
           device_id: device_uid,
@@ -363,7 +363,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         }
       ])
 
-      Repo.insert_all("interfaces", [
+      Repo.insert_all("discovered_interfaces", [
         %{
           timestamp: ~U[2100-01-01 00:00:00Z],
           device_id: device_uid,

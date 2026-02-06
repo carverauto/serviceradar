@@ -120,7 +120,7 @@ defmodule ServiceRadarWebNG.Api.UserControllerTest do
   end
 
   describe "POST /api/admin/users/:id/deactivate" do
-    test "deactivates a user", %{conn: conn} do
+    test "deactivates a user", %{conn: conn, scope: scope} do
       user = AshTestHelpers.user_fixture()
 
       conn = post(conn, ~p"/api/admin/users/#{user.id}/deactivate")
@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNG.Api.UserControllerTest do
 
       assert result["status"] == "inactive"
 
-      {:ok, reloaded} = Ash.get(User, user.id)
+      {:ok, reloaded} = Ash.get(User, user.id, scope: scope)
       assert reloaded.status == :inactive
     end
   end
@@ -146,7 +146,7 @@ defmodule ServiceRadarWebNG.Api.UserControllerTest do
 
       assert result["status"] == "active"
 
-      {:ok, reloaded} = Ash.get(User, user.id)
+      {:ok, reloaded} = Ash.get(User, user.id, scope: scope)
       assert reloaded.status == :active
     end
   end

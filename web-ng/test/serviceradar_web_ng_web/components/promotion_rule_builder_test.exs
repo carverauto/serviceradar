@@ -194,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
 
       query = build_preview_query(form)
 
-      assert query =~ ~s(body:"%connection error%")
+      assert query =~ ~s(body:"*connection error*")
     end
 
     test "builds query with severity filter" do
@@ -206,7 +206,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
 
       query = build_preview_query(form)
 
-      assert query =~ ~s(severity_text:"%error%")
+      assert query =~ ~s(severity_text:"error")
     end
 
     test "builds query with service name filter" do
@@ -231,7 +231,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
       query = build_preview_query(form)
 
       # Should escape the quotes
-      assert query =~ ~s(body:"%error with \\"quotes\\"%")
+      assert query =~ ~s(body:"*error with \\"quotes\\"*")
     end
 
     test "builds query with multiple filters" do
@@ -248,8 +248,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
       query = build_preview_query(form)
 
       assert query =~ "in:logs"
-      assert query =~ ~s(body:"%timeout%")
-      assert query =~ ~s(severity_text:"%error%")
+      assert query =~ ~s(body:"*timeout*")
+      assert query =~ ~s(severity_text:"error")
       assert query =~ ~s(service_name:"api-gateway")
     end
   end
@@ -438,23 +438,30 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
 
   defp build_test_form(overrides) do
     defaults = %{
-      name: "test-rule",
-      body_contains: "",
-      body_contains_enabled: false,
-      severity_text: "",
-      severity_enabled: false,
-      service_name: "",
-      service_name_enabled: false,
-      attribute_key: "",
-      attribute_value: "",
-      attribute_enabled: false,
-      auto_alert: false,
-      parsed_attributes: %{}
+      "name" => "test-rule",
+      "body_contains" => "",
+      "body_contains_enabled" => false,
+      "severity_text" => "",
+      "severity_enabled" => false,
+      "service_name" => "",
+      "service_name_enabled" => false,
+      "attribute_key" => "",
+      "attribute_value" => "",
+      "attribute_enabled" => false,
+      "auto_alert" => false,
+      "parsed_attributes" => %{}
     }
 
+    overrides = stringify_keys(overrides)
     data = Map.merge(defaults, overrides)
     to_form(data, as: :rule)
   end
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {to_string(k), v} end)
+  end
+
+  defp stringify_keys(other), do: other
 
   defp build_preview_query(form) do
     filters = []

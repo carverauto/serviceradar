@@ -62,8 +62,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         {:noreply, socket}
 
       rule ->
-        case Ash.destroy(rule, scope: scope) do
+        case Ash.destroy(rule, action: :destroy, scope: scope) do
           :ok ->
+            {:noreply,
+             socket
+             |> assign(:zen_rules, list_zen_rules(scope))
+             |> put_flash(:info, "Rule deleted")}
+
+          {:ok, _destroyed} ->
             {:noreply,
              socket
              |> assign(:zen_rules, list_zen_rules(scope))
@@ -156,8 +162,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         {:noreply, socket}
 
       rule ->
-        case Ash.destroy(rule, scope: scope) do
+        case Ash.destroy(rule, action: :destroy, scope: scope) do
           :ok ->
+            {:noreply,
+             socket
+             |> assign(:stateful_rules, list_stateful_rules(scope))
+             |> put_flash(:info, "Rule deleted")}
+
+          {:ok, _destroyed} ->
             {:noreply,
              socket
              |> assign(:stateful_rules, list_stateful_rules(scope))

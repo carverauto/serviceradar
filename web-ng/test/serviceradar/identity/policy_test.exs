@@ -2,76 +2,47 @@ defmodule ServiceRadar.Identity.PolicyTest do
   @moduledoc """
   Policy test suite for authorization and role-based access control.
 
-  ## Dedicated Deployment Model
-
-  In a single-deployment model, each instance has its own database schema.
-  Schema isolation is enforced at the infrastructure level via PostgreSQL search_path
-  set by CNPG credentials.
-
-  These tests verify role-based access control:
-  - viewer/operator/admin permissions
-  - Profile update authorization
-  - Role change authorization
+  NOTE: Identity resources are policy-protected. Test fixtures must be created
+  using a system actor (see `ServiceRadarWebNG.AshTestHelpers`).
   """
 
   use ServiceRadarWebNG.DataCase, async: false
 
-  require Ash.Query
-
   alias ServiceRadar.Identity.User
 
-  # ============================================================================
-  # Test Fixtures
-  # ============================================================================
+  import ServiceRadarWebNG.AshTestHelpers,
+    only: [
+      admin_user_fixture: 1,
+      operator_user_fixture: 1,
+      viewer_user_fixture: 1,
+      actor_for_user: 1
+    ]
 
-  defp create_user(attrs \\ %{}) do
-    email = attrs[:email] || "user#{System.unique_integer([:positive])}@example.com"
-    role = attrs[:role] || :viewer
-
-    # Users are created in the schema determined by the DB connection's search_path
-    {:ok, user} =
-      Ash.Changeset.for_create(User, :create, %{
-        email: email,
-        role: role
-      })
-      |> Ash.create()
-
-    user
-  end
-
-  defp actor_for(user) do
-    %{
-      id: user.id,
-      role: user.role,
-      email: user.email
-    }
-  end
-
-  # ============================================================================
-  # Role-Based Access Control Tests
-  # ============================================================================
+  defp unwrap_results({:ok, %Ash.Page.Keyset{results: results}}), do: results
+  defp unwrap_results({:ok, results}) when is_list(results), do: results
+  defp unwrap_results(_), do: []
 
   describe "role-based access control" do
     setup do
-      viewer = create_user(%{role: :viewer, email: "viewer@example.com"})
-      operator = create_user(%{role: :operator, email: "operator@example.com"})
-      admin = create_user(%{role: :admin, email: "admin@example.com"})
+      viewer = viewer_user_fixture(%{email: "viewer@example.com"})
+      operator = operator_user_fixture(%{email: "operator@example.com"})
+      admin = admin_user_fixture(%{email: "admin@example.com"})
 
       %{viewer: viewer, operator: operator, admin: admin}
     end
 
-    test "viewer can read users", %{viewer: viewer, admin: admin} do
-      actor = actor_for(viewer)
+    test "viewer can read users (self only)", %{viewer: viewer, admin: admin} do
+      actor = actor_for_user(viewer)
 
-      {:ok, users} = Ash.read(User, actor: actor)
+      users = unwrap_results(Ash.read(User, actor: actor))
       user_ids = Enum.map(users, & &1.id)
 
       assert viewer.id in user_ids
-      assert admin.id in user_ids
+      refute admin.id in user_ids
     end
 
     test "viewer can update own profile", %{viewer: viewer} do
-      actor = actor_for(viewer)
+      actor = actor_for_user(viewer)
 
       {:ok, updated} =
         viewer
@@ -82,7 +53,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
     end
 
     test "viewer CANNOT update other user's profile", %{viewer: viewer, operator: operator} do
-      actor = actor_for(viewer)
+      actor = actor_for_user(viewer)
 
       result =
         operator
@@ -93,7 +64,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
     end
 
     test "viewer CANNOT change roles", %{viewer: viewer, operator: operator} do
-      actor = actor_for(viewer)
+      actor = actor_for_user(viewer)
 
       result =
         operator
@@ -104,7 +75,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
     end
 
     test "admin can change user roles", %{admin: admin, viewer: viewer} do
-      actor = actor_for(admin)
+      actor = actor_for_user(admin)
 
       {:ok, updated} =
         viewer
