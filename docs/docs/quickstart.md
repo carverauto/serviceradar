@@ -15,7 +15,7 @@ Follow these condensed steps to get ServiceRadar collecting data within an hour.
 ## 2. Bootstrap Access
 
 1. Generate TLS material with the [Self-Signed Certificates guide](./self-signed.md) or import your existing CA chain.
-2. Create initial local users and JWT settings using the [Authentication configuration](./auth-configuration.md) checklist.
+2. Sign in with the bootstrapped admin user (Helm/Docker Compose generate this for you) and review **Settings -> Authentication** to enable Direct SSO or Gateway Proxy if desired.
 
 ## 3. Ingest Device Data
 

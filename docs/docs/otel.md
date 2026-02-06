@@ -15,7 +15,7 @@ OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cl
 ## Authentication
 
 - Require client certificates by enabling mTLS in the gateway deployment. Reuse the certificates generated in the [Self-Signed Certificates guide](./self-signed.md) or your enterprise PKI.
-- Alternatively, enable bearer token auth by referencing the [Authentication configuration](./auth-configuration.md) and issuing dedicated OTEL tokens.
+- If you must expose OTLP to untrusted networks, front the OTLP service with an ingress/load balancer that terminates TLS and enforce network policy or source IP allow-lists.
 
 ## Pipeline Configuration
 
