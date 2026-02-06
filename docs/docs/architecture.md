@@ -35,7 +35,7 @@ flowchart TB
 
   User -->|HTTPS| Ingress --> Web
 
-  Agent <-->|mTLS gRPC\n(streaming + chunking + command bus)| GW
+  Agent <-->|mTLS gRPC<br/>streaming, chunking, command bus| GW
   GW <-->|mTLS ERTS/RPC/PubSub| CoreElx
   Web <-->|mTLS ERTS/RPC/PubSub| CoreElx
 
@@ -86,4 +86,3 @@ See [Data Pipeline](./data-pipeline.md).
 - Docker Compose uses non-SPIFFE mTLS bootstrapping (cert generation + distribution via volumes).
 
 See [TLS / mTLS](./tls-security.md).
-

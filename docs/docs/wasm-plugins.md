@@ -175,6 +175,123 @@ SDKs:
 - Go SDK: `carverauto/serviceradar-sdk-go`
 - Rust SDK: planned (not yet generally available)
 
+### Go (TinyGo) With The ServiceRadar SDK
+
+If you're writing plugins in Go, use the Go SDK repo: `carverauto/serviceradar-sdk-go`.
+
+This gives you a higher-level API over the host ABI:
+
+- `sdk.Execute(func() (*sdk.Result, error) { ... })` for structured execution + error handling
+- `sdk.LoadConfig(&cfg)` to decode assignment config JSON
+- `sdk.HTTP` / `sdk.TCPDial` / `sdk.UDPSendTo` wrappers (proxy + allowlists enforced by the agent)
+- result builders (`sdk.NewResult()`, `sdk.Ok()`, metrics, labels, widgets)
+
+#### Example: HTTP Latency Check (Go SDK)
+
+`main.go`:
+
+```go
+//go:build tinygo
+
+package main
+
+import (
+	"fmt"
+
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
+)
+
+type Config struct {
+	URL    string  `json:"url"`
+	WarnMS float64 `json:"warn_ms"`
+	CritMS float64 `json:"crit_ms"`
+}
+
+//export run_check
+func run_check() {
+	_ = sdk.Execute(func() (*sdk.Result, error) {
+		cfg := Config{URL: "https://example.com/health"}
+		_ = sdk.LoadConfig(&cfg)
+
+		resp, err := sdk.HTTP.Get(cfg.URL)
+		if err != nil {
+			res := sdk.Critical("http request failed")
+			res.EmitEvent(sdk.SeverityCritical, "http request failed", "http_request_failed")
+			res.RequestImmediateAlert("http_request_failed")
+			return res, nil
+		}
+
+		latencyMS := float64(resp.Duration.Milliseconds())
+		thresholds := sdk.Thresholds(cfg.WarnMS, cfg.CritMS)
+
+		res := sdk.NewResult()
+		res.SetSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latencyMS))
+		res.ApplyThresholds(latencyMS, thresholds.Warn, thresholds.Crit)
+		res.AddMetric("latency_ms", latencyMS, "ms", thresholds)
+		res.AddStatCard("Latency", fmt.Sprintf("%.0fms", latencyMS), toneForStatus(res.Status))
+
+		return res, nil
+	})
+}
+
+func main() {}
+
+func toneForStatus(status sdk.Status) string {
+	switch status {
+	case sdk.StatusOK:
+		return "success"
+	case sdk.StatusCritical:
+		return "critical"
+	case sdk.StatusWarning:
+		return "warning"
+	case sdk.StatusUnknown:
+		return "neutral"
+	default:
+		return "success"
+	}
+}
+```
+
+`plugin.yaml`:
+
+```yaml
+id: http-check
+name: HTTP Check
+version: 0.1.0
+entrypoint: run_check
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - http_request
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 2000
+permissions:
+  allowed_domains:
+    - example.com
+  allowed_ports:
+    - 443
+```
+
+Build with TinyGo:
+
+```bash
+tinygo build -o plugin.wasm -target=wasi ./
+```
+
+More examples live in the SDK repo under `examples/`:
+
+- `examples/http-check`
+- `examples/tcp-check`
+- `examples/udp-check`
+- `examples/widgets-check`
+
+### Minimal Host ABI Example (No SDK)
+
+If you want to avoid the SDK, you can use direct host imports.
+
 Minimal TinyGo example:
 
 ```go

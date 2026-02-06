@@ -42,7 +42,9 @@ sequenceDiagram
   A->>G: GetConfig
   G->>C: fetch compiled config (ERTS/RPC/PubSub)
   G-->>A: config (versioned)
-  A<->>G: CommandBus (bidi gRPC)
+  A->>G: Open CommandBus stream (bidi gRPC)
+  G-->>A: Commands
+  A-->>G: Acks + telemetry
   A->>G: StreamStatus (chunked when needed)
   G->>C: forward ingestion payloads (ERTS/RPC/PubSub)
 ```
@@ -54,4 +56,3 @@ sequenceDiagram
 - Plugins do not get raw filesystem or socket access; network access is proxied and allowlisted.
 
 For plugin details, see [Wasm Plugin Checkers](./wasm-plugins.md).
-
