@@ -45,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:selected_netflow, nil)
      |> assign(:netflow_top_talkers, [])
      |> assign(:netflow_top_ports, [])
+     |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
      |> assign(:sparklines, %{})
      |> assign(:summary, %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0})
      |> assign(:event_summary, empty_event_summary())
@@ -93,6 +94,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:selected_netflow, nil)
       |> assign(:netflow_top_talkers, [])
       |> assign(:netflow_top_ports, [])
+      |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
       |> ensure_srql_entity(entity, default_limit)
       |> SRQLPage.load_list(params, uri, list_key,
         default_limit: default_limit,
@@ -124,6 +126,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   def handle_event("netflow_close", _params, socket) do
     {:noreply, assign(socket, :selected_netflow, nil)}
+  end
+
+  def handle_event("netflow_bucket", %{"start" => start_raw, "end" => end_raw}, socket) do
+    base_path = socket.assigns.srql[:page_path] || "/observability"
+    query = socket.assigns.srql[:query] || ""
+    limit = socket.assigns.limit
+
+    with {:ok, start_dt, _} <- DateTime.from_iso8601(to_string(start_raw)),
+         {:ok, end_dt, _} <- DateTime.from_iso8601(to_string(end_raw)) do
+      value = "[#{DateTime.to_iso8601(start_dt)},#{DateTime.to_iso8601(end_dt)}]"
+      href = netflow_filter_patch(base_path, query, limit, "time", value)
+      {:noreply, push_patch(socket, to: href)}
+    else
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("srql_submit", params, socket) do
@@ -222,6 +240,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             summary={@netflow_summary}
             top_talkers={@netflow_top_talkers}
             top_ports={@netflow_top_ports}
+            timeseries={@netflow_timeseries}
             base_path={Map.get(@srql, :page_path) || "/observability"}
             query={Map.get(@srql, :query, "")}
             limit={@limit}
@@ -552,6 +571,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:summary, :map, required: true)
   attr(:top_talkers, :list, default: [])
   attr(:top_ports, :list, default: [])
+  attr(:timeseries, :map, required: true)
   attr(:base_path, :string, required: true)
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
@@ -569,6 +589,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="space-y-4">
+      <.ui_panel class="p-0" body_class="p-0">
+        <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
+          <div class="text-xs uppercase tracking-wider text-base-content/50">Traffic Over Time</div>
+          <div class="text-xs text-base-content/60 font-mono">
+            bucket: {format_bucket(@timeseries.bucket_seconds)}
+          </div>
+        </div>
+        <div class="p-3">
+          <.netflow_timeseries_chart
+            points={@timeseries.points}
+            bucket_seconds={@timeseries.bucket_seconds}
+          />
+        </div>
+      </.ui_panel>
+
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <.ui_panel class="p-4">
           <div class="flex items-center justify-between">
@@ -713,6 +748,79 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             </div>
           </div>
         </.ui_panel>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:points, :list, default: [])
+  attr(:bucket_seconds, :integer, required: true)
+
+  defp netflow_timeseries_chart(assigns) do
+    points = Enum.filter(assigns.points, &is_map/1)
+    max_bytes = points |> Enum.map(&Map.get(&1, :bytes, 0)) |> Enum.max(fn -> 0 end)
+    bucket_seconds = assigns.bucket_seconds
+
+    assigns =
+      assigns
+      |> assign(:points, points)
+      |> assign(:max_bytes, max_bytes)
+      |> assign(:bucket_seconds, bucket_seconds)
+
+    ~H"""
+    <div :if={@points == []} class="py-8 text-center text-sm text-base-content/60">
+      No traffic samples in this window.
+    </div>
+
+    <div :if={@points != []} class="w-full">
+      <svg
+        viewBox="0 0 1000 160"
+        class="w-full h-40"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="NetFlow traffic over time"
+      >
+        <defs>
+          <linearGradient id="netflowArea" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="currentColor" stop-opacity="0.20" />
+            <stop offset="100%" stop-color="currentColor" stop-opacity="0.02" />
+          </linearGradient>
+        </defs>
+
+        <%= for {point, idx} <- Enum.with_index(@points) do %>
+          {x = netflow_chart_x(idx, length(@points), 1000)}
+          {w = netflow_chart_bar_w(length(@points), 1000)}
+          {h = netflow_chart_h(Map.get(point, :bytes, 0), @max_bytes, 140)}
+          <rect
+            x={x}
+            y={150 - h}
+            width={w}
+            height={h}
+            class="fill-primary/20 hover:fill-primary/35 transition-colors cursor-pointer"
+            phx-click="netflow_bucket"
+            phx-value-start={DateTime.to_iso8601(Map.get(point, :bucket_start))}
+            phx-value-end={DateTime.to_iso8601(Map.get(point, :bucket_end))}
+          />
+        <% end %>
+
+        <polyline
+          points={netflow_timeseries_polyline(@points, @max_bytes, 1000, 140)}
+          fill="none"
+          class="stroke-primary opacity-80"
+          stroke-width="2"
+        />
+      </svg>
+
+      <div class="mt-2 flex items-center justify-between text-[10px] text-base-content/60 font-mono">
+        <div>
+          {format_netflow_timestamp(%{"time" => DateTime.to_iso8601(hd(@points).bucket_start)})}
+        </div>
+        <div>
+          max: {format_netflow_bytes(@max_bytes)}
+        </div>
+        <div>
+          {format_netflow_timestamp(%{"time" => DateTime.to_iso8601(List.last(@points).bucket_end)})}
+        </div>
       </div>
     </div>
     """
@@ -3286,11 +3394,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       load_netflow_top_talkers(srql_module, Map.get(socket.assigns.srql, :query), scope)
 
     top_ports = load_netflow_top_ports(srql_module, Map.get(socket.assigns.srql, :query), scope)
+    timeseries = load_netflow_timeseries(Map.get(socket.assigns.srql, :query), scope)
 
     socket
     |> assign(:netflow_summary, summary)
     |> assign(:netflow_top_talkers, top_talkers)
     |> assign(:netflow_top_ports, top_ports)
+    |> assign(:netflow_timeseries, timeseries)
     |> assign(:event_summary, empty_event_summary())
     |> assign(:alert_summary, empty_alert_summary())
     |> assign(:trace_stats, empty_trace_stats())
@@ -3598,6 +3708,221 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
   end
+
+  defp load_netflow_timeseries(current_query, _scope) do
+    query = netflow_base_query(current_query)
+    time_token = extract_time_from_query(query) || "last_24h"
+
+    with {:ok, %{start: start_dt, end: end_dt}} <- resolve_srql_time(time_token) do
+      bucket_seconds = choose_netflow_bucket_seconds(start_dt, end_dt)
+      bucket = "#{bucket_seconds} seconds"
+
+      filters = extract_netflow_chart_filters(query)
+
+      base =
+        from(f in "ocsf_network_activity",
+          where: f.time >= ^start_dt and f.time <= ^end_dt
+        )
+
+      base =
+        Enum.reduce(filters, base, fn
+          {:src_ip, v}, acc -> apply_text_column_filter(acc, :src_endpoint_ip, v)
+          {:dst_ip, v}, acc -> apply_text_column_filter(acc, :dst_endpoint_ip, v)
+          {:proto, v}, acc -> apply_int_column_filter(acc, :protocol_num, v)
+          {:dst_port, v}, acc -> apply_int_column_filter(acc, :dst_endpoint_port, v)
+          _other, acc -> acc
+        end)
+
+      rows =
+        from(f in base,
+          group_by: fragment("time_bucket(?, ?)", ^bucket, f.time),
+          order_by: fragment("time_bucket(?, ?)", ^bucket, f.time),
+          select: %{
+            bucket: fragment("time_bucket(?, ?)", ^bucket, f.time),
+            bytes: sum(f.bytes_total)
+          }
+        )
+        |> Repo.all()
+
+      points =
+        rows
+        |> Enum.filter(&is_map/1)
+        |> Enum.map(fn row ->
+          bucket_start = normalize_datetime(Map.get(row, :bucket) || Map.get(row, "bucket"))
+          bucket_end = DateTime.add(bucket_start, bucket_seconds, :second)
+
+          %{
+            bucket_start: bucket_start,
+            bucket_end: bucket_end,
+            bytes: to_int(Map.get(row, :bytes) || Map.get(row, "bytes"))
+          }
+        end)
+        |> Enum.take(120)
+
+      %{bucket_seconds: bucket_seconds, points: points}
+    else
+      _ ->
+        %{bucket_seconds: 300, points: []}
+    end
+  rescue
+    _ ->
+      %{bucket_seconds: 300, points: []}
+  end
+
+  defp resolve_srql_time(value) when is_binary(value) do
+    value = String.trim(value)
+    now = DateTime.utc_now()
+
+    cond do
+      String.starts_with?(value, "[") and String.ends_with?(value, "]") ->
+        inner = value |> String.trim_leading("[") |> String.trim_trailing("]")
+
+        case String.split(inner, ",", parts: 2) do
+          [start_raw, end_raw] ->
+            with {:ok, start_dt, _} <- DateTime.from_iso8601(String.trim(start_raw)),
+                 {:ok, end_dt, _} <- DateTime.from_iso8601(String.trim(end_raw)),
+                 true <- DateTime.compare(start_dt, end_dt) in [:lt, :eq] do
+              {:ok, %{start: start_dt, end: end_dt}}
+            else
+              _ -> {:error, :bad_time}
+            end
+
+          _ ->
+            {:error, :bad_time}
+        end
+
+      value in ["today"] ->
+        start =
+          now
+          |> DateTime.to_date()
+          |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+
+        {:ok, %{start: start, end: now}}
+
+      value in ["yesterday"] ->
+        today = DateTime.to_date(now)
+        start = today |> Date.add(-1) |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+        end_dt = today |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+        {:ok, %{start: start, end: end_dt}}
+
+      Regex.match?(~r/^(?:last[_-])?\d+[mhd]$/i, value) ->
+        normalized = value |> String.downcase() |> String.replace(~r/^last[_-]/, "")
+        amount = String.slice(normalized, 0, max(byte_size(normalized) - 1, 0))
+        unit = String.slice(normalized, -1, 1)
+
+        case Integer.parse(amount) do
+          {n, ""} when n > 0 ->
+            seconds =
+              case unit do
+                "m" -> n * 60
+                "h" -> n * 3600
+                "d" -> n * 86400
+                _ -> 0
+              end
+
+            {:ok, %{start: DateTime.add(now, -seconds, :second), end: now}}
+
+          _ ->
+            {:error, :bad_time}
+        end
+
+      true ->
+        {:error, :unsupported}
+    end
+  end
+
+  defp choose_netflow_bucket_seconds(start_dt, end_dt) do
+    span = DateTime.diff(end_dt, start_dt, :second)
+
+    cond do
+      span <= 60 * 60 -> 60
+      span <= 6 * 60 * 60 -> 300
+      span <= 24 * 60 * 60 -> 900
+      span <= 7 * 24 * 60 * 60 -> 3600
+      true -> 6 * 3600
+    end
+  end
+
+  defp extract_netflow_chart_filters(query) when is_binary(query) do
+    []
+    |> maybe_add_chart_filter(:src_ip, extract_filter_from_query(query, "src_ip"))
+    |> maybe_add_chart_filter(:dst_ip, extract_filter_from_query(query, "dst_ip"))
+    |> maybe_add_chart_filter(:dst_port, extract_filter_from_query(query, "dst_port"))
+    |> maybe_add_chart_filter(:proto, extract_filter_from_query(query, "proto"))
+  end
+
+  defp maybe_add_chart_filter(filters, _key, nil), do: filters
+  defp maybe_add_chart_filter(filters, _key, ""), do: filters
+  defp maybe_add_chart_filter(filters, key, value), do: [{key, value} | filters]
+
+  defp apply_text_column_filter(query, column, value) when is_binary(value) do
+    value = String.trim(value)
+
+    if value == "" do
+      query
+    else
+      if String.contains?(value, "%") do
+        where(query, [f], ilike(field(f, ^column), ^value))
+      else
+        where(query, [f], field(f, ^column) == ^value)
+      end
+    end
+  end
+
+  defp apply_int_column_filter(query, column, value) when is_binary(value) do
+    value = String.trim(value)
+
+    case Integer.parse(value) do
+      {n, ""} -> where(query, [f], field(f, ^column) == ^n)
+      _ -> query
+    end
+  end
+
+  defp normalize_datetime(%DateTime{} = dt), do: dt
+  defp normalize_datetime(%NaiveDateTime{} = ndt), do: DateTime.from_naive!(ndt, "Etc/UTC")
+
+  defp normalize_datetime(other) when is_binary(other) do
+    case DateTime.from_iso8601(String.trim(other)) do
+      {:ok, dt, _} -> dt
+      _ -> DateTime.utc_now()
+    end
+  end
+
+  defp normalize_datetime(_), do: DateTime.utc_now()
+
+  defp netflow_chart_x(_idx, total, _width) when total <= 1, do: 0.0
+  defp netflow_chart_x(idx, total, width), do: idx / (total - 1) * width
+
+  defp netflow_chart_bar_w(total, _width) when total <= 0, do: 1.0
+  defp netflow_chart_bar_w(total, width), do: max(width / total, 1.0)
+
+  defp netflow_chart_h(_bytes, 0, _height), do: 1.0
+
+  defp netflow_chart_h(bytes, max_bytes, height)
+       when is_integer(bytes) and is_integer(max_bytes) do
+    scaled = bytes / max(max_bytes, 1) * height
+    max(scaled, 1.0)
+  end
+
+  defp netflow_timeseries_polyline(points, max_bytes, width, height) do
+    points
+    |> Enum.with_index()
+    |> Enum.map_join(" ", fn {p, idx} ->
+      x = netflow_chart_x(idx, length(points), width)
+      y = 150 - netflow_chart_h(Map.get(p, :bytes, 0), max_bytes, height)
+      "#{Float.round(x, 1)},#{Float.round(y, 1)}"
+    end)
+  end
+
+  defp format_bucket(seconds) when is_integer(seconds) and seconds < 60, do: "#{seconds}s"
+
+  defp format_bucket(seconds) when is_integer(seconds) and rem(seconds, 3600) == 0,
+    do: "#{div(seconds, 3600)}h"
+
+  defp format_bucket(seconds) when is_integer(seconds) and rem(seconds, 60) == 0,
+    do: "#{div(seconds, 60)}m"
+
+  defp format_bucket(seconds) when is_integer(seconds), do: "#{seconds}s"
 
   # Load duration stats from the continuous aggregation for full 24h data
   defp load_duration_stats_from_cagg(_scope) do
