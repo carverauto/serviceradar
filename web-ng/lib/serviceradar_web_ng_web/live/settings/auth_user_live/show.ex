@@ -471,7 +471,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
     profiles
     |> Enum.sort_by(fn profile -> {profile.system || false, profile.name} end, :desc)
     |> Enum.map(fn profile ->
-      label = if profile.system, do: "#{profile.name} (built-in)", else: profile.name
+      label = if profile.system, do: "#{profile.name} (system)", else: profile.name
       {label, profile.id}
     end)
   end

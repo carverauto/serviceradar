@@ -843,7 +843,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             Enum.map(resources, fn res ->
               label =
                 cond do
-                  res == section_key and has_sub_resources? -> "General"
+                  res == section_key and has_sub_resources? -> "All"
                   true -> resource_short_label(res, section_key)
                 end
 

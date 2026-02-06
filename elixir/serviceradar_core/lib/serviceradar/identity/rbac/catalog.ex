@@ -119,9 +119,45 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
       label: "Observability",
       permissions: [
         %{
-          key: "observability.view",
-          label: "View observability",
-          description: "View observability signals, alerts, and logs",
+          key: "observability.logs.view",
+          label: "View logs",
+          description: "View logs and log detail pages",
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
+        },
+        %{
+          key: "observability.metrics.view",
+          label: "View metrics",
+          description: "View metrics and metric detail pages",
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
+        },
+        %{
+          key: "observability.traces.view",
+          label: "View traces",
+          description: "View traces and trace detail pages",
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
+        },
+        %{
+          key: "observability.events.view",
+          label: "View events",
+          description: "View events and event detail pages",
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
+        },
+        %{
+          key: "observability.netflow.view",
+          label: "View netflow",
+          description: "View netflow and flow detail pages",
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
+        },
+        %{
+          key: "observability.alerts.view",
+          label: "View alerts",
+          description: "View alerts and alert detail pages",
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
+        },
+        %{
+          key: "observability.rules.view",
+          label: "View rules",
+          description: "View observability rule definitions",
           default_roles: [:viewer, :helpdesk, :operator, :admin]
         },
         %{

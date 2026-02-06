@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
 
   alias ServiceRadarWebNG.AdminApi
   alias ServiceRadarWebNGWeb.SettingsComponents
+  alias Phoenix.LiveView.JS
 
   @impl true
   def mount(_params, _session, socket) do
@@ -76,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     end
   end
 
-  def handle_event("update_role_profile", %{"id" => id, "role_profile_id" => profile_id}, socket) do
+  def handle_event("update_role_profile", %{"user_id" => id, "role_profile_id" => profile_id}, socket) do
     scope = socket.assigns.current_scope
     profile_id = normalize_profile_id(profile_id)
 
@@ -198,9 +199,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                   <tbody id="users" phx-update="stream">
                     <tr :for={{id, user} <- @streams.users} id={id} class="group">
                       <td>
-                        <.link
-                          navigate={~p"/settings/auth/users/#{user.id}"}
-                          class="flex items-center gap-3 hover:opacity-90"
+                        <button
+                          type="button"
+                          phx-click={JS.navigate(~p"/settings/auth/users/#{user.id}")}
+                          class="flex items-center gap-3 hover:opacity-90 text-left"
                         >
                           <div class="avatar placeholder">
                             <div class="bg-primary/10 text-primary w-10 rounded-full">
@@ -216,17 +218,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                           <%= if user.status != :active do %>
                             <span class="badge badge-warning badge-xs">inactive</span>
                           <% end %>
-                        </.link>
+                        </button>
                       </td>
                       <td>
-                        <div class="flex items-center gap-2">
+                        <form phx-change="update_role_profile" class="flex items-center gap-2">
+                          <input type="hidden" name="user_id" value={user.id} />
                           <select
                             class={[
                               "select select-bordered select-xs w-full font-medium",
                               is_nil(effective_profile_id(user, @role_profiles)) && "opacity-70"
                             ]}
-                            phx-change="update_role_profile"
-                            phx-value-id={user.id}
                             name="role_profile_id"
                           >
                             <%= for {label, id} <- profile_options(@role_profiles) do %>
@@ -238,7 +239,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                               </option>
                             <% end %>
                           </select>
-                        </div>
+                        </form>
                       </td>
                       <td>
                         <div class="badge badge-ghost badge-sm font-mono text-xs">
@@ -396,7 +397,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     profiles
     |> Enum.sort_by(fn profile -> {profile.system || false, profile.name} end, :desc)
     |> Enum.map(fn profile ->
-      label = if profile.system, do: "#{profile.name} (built-in)", else: profile.name
+      label = if profile.system, do: "#{profile.name} (system)", else: profile.name
       {label, profile.id}
     end)
   end
