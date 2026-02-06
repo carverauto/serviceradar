@@ -64,7 +64,9 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
         :ok
 
       user ->
-        _ = ServiceRadarWebNG.Audit.UserAuthEvents.record_logout(conn, user, user.last_auth_method)
+        _ =
+          ServiceRadarWebNG.Audit.UserAuthEvents.record_logout(conn, user, user.last_auth_method)
+
         :ok
     end
 

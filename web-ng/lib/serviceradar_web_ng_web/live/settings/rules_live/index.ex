@@ -22,7 +22,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if RBAC.can?(scope, "observability.rules.update") or RBAC.can?(scope, "observability.rules.create") do
+    if RBAC.can?(scope, "observability.rules.update") or
+         RBAC.can?(scope, "observability.rules.create") do
       socket =
         socket
         |> assign(:page_title, "Events")

@@ -116,7 +116,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
   end
 
   defp can_manage_rules?(scope) do
-    RBAC.can?(scope, "observability.rules.update") or RBAC.can?(scope, "observability.rules.create")
+    RBAC.can?(scope, "observability.rules.update") or
+      RBAC.can?(scope, "observability.rules.create")
   end
 
   defp init_editor(socket, scope, rule, mode) do

@@ -196,69 +196,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  defp preview_csv_upload(socket) do
-    # Parse uploaded CSV and show preview
-    case uploaded_entries(socket, :csv_file) do
-      [] ->
-        {:noreply, assign(socket, :csv_errors, ["No file selected"])}
-
-      [entry | _] ->
-        result =
-          consume_uploaded_entry(socket, entry, fn %{path: path} ->
-            parse_csv_file(path)
-          end)
-
-        case result do
-          {:ok, devices} ->
-            {:noreply,
-             socket
-             |> assign(:csv_preview, devices)
-             |> assign(:csv_errors, [])}
-
-          {:error, errors} ->
-            {:noreply,
-             socket
-             |> assign(:csv_preview, nil)
-             |> assign(:csv_errors, errors)}
-        end
-    end
-  end
-
   def handle_event("import_csv", _params, socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.import") do
       import_csv_preview(socket)
     else
       {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
-    end
-  end
-
-  defp import_csv_preview(socket) do
-    case socket.assigns.csv_preview do
-      nil ->
-        {:noreply, assign(socket, :csv_errors, ["No CSV data to import. Preview first."])}
-
-      devices when is_list(devices) and devices != [] ->
-        scope = socket.assigns.current_scope
-
-        case import_devices(scope, devices) do
-          {:ok, {created, skipped}} ->
-            {:noreply,
-             socket
-             |> assign(:show_import_modal, false)
-             |> assign(:csv_preview, nil)
-             |> assign(:csv_errors, [])
-             |> put_flash(:info, import_success_message(created, skipped))
-             |> push_patch(to: ~p"/devices")}
-
-          {:error, errors} when is_list(errors) ->
-            {:noreply, assign(socket, :csv_errors, errors)}
-
-          {:error, reason} ->
-            {:noreply, assign(socket, :csv_errors, ["Import failed: #{inspect(reason)}"])}
-        end
-
-      _ ->
-        {:noreply, assign(socket, :csv_errors, ["No valid devices in CSV"])}
     end
   end
 
@@ -445,6 +387,64 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   def handle_event("confirm_bulk_delete", _params, socket) do
     handle_confirm_bulk_delete(socket)
+  end
+
+  defp preview_csv_upload(socket) do
+    # Parse uploaded CSV and show preview
+    case uploaded_entries(socket, :csv_file) do
+      [] ->
+        {:noreply, assign(socket, :csv_errors, ["No file selected"])}
+
+      [entry | _] ->
+        result =
+          consume_uploaded_entry(socket, entry, fn %{path: path} ->
+            parse_csv_file(path)
+          end)
+
+        case result do
+          {:ok, devices} ->
+            {:noreply,
+             socket
+             |> assign(:csv_preview, devices)
+             |> assign(:csv_errors, [])}
+
+          {:error, errors} ->
+            {:noreply,
+             socket
+             |> assign(:csv_preview, nil)
+             |> assign(:csv_errors, errors)}
+        end
+    end
+  end
+
+  defp import_csv_preview(socket) do
+    case socket.assigns.csv_preview do
+      nil ->
+        {:noreply, assign(socket, :csv_errors, ["No CSV data to import. Preview first."])}
+
+      devices when is_list(devices) and devices != [] ->
+        scope = socket.assigns.current_scope
+
+        case import_devices(scope, devices) do
+          {:ok, {created, skipped}} ->
+            {:noreply,
+             socket
+             |> assign(:show_import_modal, false)
+             |> assign(:csv_preview, nil)
+             |> assign(:csv_errors, [])
+             |> put_flash(:info, import_success_message(created, skipped))
+             |> push_patch(to: ~p"/devices")}
+
+          {:error, errors} when is_list(errors) ->
+            {:noreply, assign(socket, :csv_errors, errors)}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, :csv_errors, ["Import failed: #{inspect(reason)}"])}
+        end
+
+      _ ->
+        {:noreply, assign(socket, :csv_errors, ["No valid devices in CSV"])}
+    end
   end
 
   defp apply_bulk_tags(params, socket) do
@@ -731,7 +731,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             >
               <.icon name="hero-arrow-up-tray" class="size-4" /> Import CSV
             </.ui_button>
-            <.link :if={RBAC.can?(@current_scope, "settings.networks.manage")} navigate={~p"/settings/networks"}>
+            <.link
+              :if={RBAC.can?(@current_scope, "settings.networks.manage")}
+              navigate={~p"/settings/networks"}
+            >
               <.ui_button variant="ghost" size="sm">
                 <.icon name="hero-signal" class="size-4" /> Network Discovery
               </.ui_button>

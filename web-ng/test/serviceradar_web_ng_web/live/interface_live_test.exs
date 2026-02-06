@@ -161,7 +161,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
 
       # Open metric settings modal via the Available Metrics card
       view
-      |> element("div[phx-click=open_metric_modal][phx-value-metric='ifInOctets']", "Inbound Traffic")
+      |> element(
+        "div[phx-click=open_metric_modal][phx-value-metric='ifInOctets']",
+        "Inbound Traffic"
+      )
       |> render_click()
 
       assert render(view) =~ "Configure ifInOctets metric"

@@ -386,22 +386,22 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   defp get_oban_plugins do
     plugins =
       case coordinator_node() do
-      {:ok, node} ->
-        case :rpc.call(node, Oban, :config, [Oban]) do
-          %Oban.Config{plugins: plugins} when is_list(plugins) -> plugins
-          _ -> []
-        end
+        {:ok, node} ->
+          case :rpc.call(node, Oban, :config, [Oban]) do
+            %Oban.Config{plugins: plugins} when is_list(plugins) -> plugins
+            _ -> []
+          end
 
-      :error ->
-        case Application.get_env(:serviceradar_core, Oban, []) do
-          oban_config when is_list(oban_config) ->
-            Keyword.get(oban_config, :plugins, [])
+        :error ->
+          case Application.get_env(:serviceradar_core, Oban, []) do
+            oban_config when is_list(oban_config) ->
+              Keyword.get(oban_config, :plugins, [])
 
-          _ ->
-            # Some environments set `config :serviceradar_core, Oban, false` to disable Oban.
-            []
-        end
-    end
+            _ ->
+              # Some environments set `config :serviceradar_core, Oban, false` to disable Oban.
+              []
+          end
+      end
 
     if is_list(plugins), do: plugins, else: []
   rescue

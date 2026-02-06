@@ -24,11 +24,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     {:ok,
      socket
      |> assign(:form, to_form(default_user_form(default_profile_id), as: :user))
-      |> assign(:show_add_user_modal, false)
-      |> assign(:role_profiles, role_profiles)
-      |> assign(:user_count, length(users))
-      |> assign(:active_admin_count, active_admin_count)
-      |> stream(:users, users, reset: true)}
+     |> assign(:show_add_user_modal, false)
+     |> assign(:role_profiles, role_profiles)
+     |> assign(:user_count, length(users))
+     |> assign(:active_admin_count, active_admin_count)
+     |> stream(:users, users, reset: true)}
   end
 
   @impl true
@@ -48,7 +48,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     scope = socket.assigns.current_scope
 
     {role, role_profile_id} =
-      resolve_access_profile(params["role_profile_id"], params["role"], socket.assigns.role_profiles)
+      resolve_access_profile(
+        params["role_profile_id"],
+        params["role"],
+        socket.assigns.role_profiles
+      )
 
     attrs = %{
       email: params["email"],
@@ -77,7 +81,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     end
   end
 
-  def handle_event("update_role_profile", %{"user_id" => id, "role_profile_id" => profile_id}, socket) do
+  def handle_event(
+        "update_role_profile",
+        %{"user_id" => id, "role_profile_id" => profile_id},
+        socket
+      ) do
     scope = socket.assigns.current_scope
     profile_id = normalize_profile_id(profile_id)
 
@@ -311,7 +319,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                   Create a local user and assign a starting role.
                 </p>
               </div>
-              <button class="btn btn-ghost btn-sm btn-square" phx-click="close_add_user_modal" type="button">
+              <button
+                class="btn btn-ghost btn-sm btn-square"
+                phx-click="close_add_user_modal"
+                type="button"
+              >
                 <.icon name="hero-x-mark" class="size-4" />
               </button>
             </div>
@@ -446,12 +458,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     # `last_auth_method` is only populated after an auth event; for newly created
     # users we derive a reasonable label from server-provided hints.
     case user.last_auth_method do
-      :password -> "Local"
-      :oidc -> "SSO (OIDC)"
-      :saml -> "SSO (SAML)"
-      :gateway -> "Gateway"
-      :api_token -> "API Token"
-      :oauth_client -> "OAuth"
+      :password ->
+        "Local"
+
+      :oidc ->
+        "SSO (OIDC)"
+
+      :saml ->
+        "SSO (SAML)"
+
+      :gateway ->
+        "Gateway"
+
+      :api_token ->
+        "API Token"
+
+      :oauth_client ->
+        "OAuth"
+
       _ ->
         cond do
           Map.get(user, :has_password) -> "Local"
@@ -514,6 +538,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     end
   end
 
+  defp format_ash_error(_), do: "Unexpected error"
+
   defp format_http_error_details(%{"details" => list}) when is_list(list) do
     list
     |> Enum.map(&format_http_error_detail_item/1)
@@ -531,8 +557,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
 
   defp format_http_error_detail_item(%{"message" => message}), do: to_string(message)
   defp format_http_error_detail_item(other), do: inspect(other)
-
-  defp format_ash_error(_), do: "Unexpected error"
 
   defp effective_profile_id(user, profiles) do
     profile_id = Map.get(user, :role_profile_id)

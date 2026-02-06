@@ -307,5 +307,4 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   defp to_atom_if_string(value) when is_binary(value), do: String.to_existing_atom(value)
   defp to_atom_if_string(value), do: value
-
 end

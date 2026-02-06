@@ -75,7 +75,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
                   credentials and points the agent at the gateway endpoint.
                 </p>
                 <div class="flex flex-col gap-2">
-                  <.link :if={@can_manage_edge} navigate={~p"/admin/edge-packages/new?component_type=agent"}>
+                  <.link
+                    :if={@can_manage_edge}
+                    navigate={~p"/admin/edge-packages/new?component_type=agent"}
+                  >
                     <.ui_button variant="primary" size="sm" class="w-full">
                       <.icon name="hero-plus" class="size-4" /> Create Agent Package
                     </.ui_button>

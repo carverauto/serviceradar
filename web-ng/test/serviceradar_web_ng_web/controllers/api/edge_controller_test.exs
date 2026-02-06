@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
 
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, actor_for_user: 1, user_fixture: 0, system_actor: 0]
+
   alias ServiceRadarWebNG.Accounts.Scope
 
   setup %{conn: conn} do
@@ -380,11 +381,14 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
 
     test "bundle contains expected files", %{conn: conn, actor: actor} do
       {:ok, created} =
-        OnboardingPackages.create(%{
-          label: "test-bundle-contents",
-          component_type: :checker,
-          checker_kind: "sysmon"
-        }, actor: actor)
+        OnboardingPackages.create(
+          %{
+            label: "test-bundle-contents",
+            component_type: :checker,
+            checker_kind: "sysmon"
+          },
+          actor: actor
+        )
 
       conn =
         build_conn()

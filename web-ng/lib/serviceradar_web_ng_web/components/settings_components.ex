@@ -59,7 +59,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     %{
       label: "Cluster",
       navigate: ~p"/settings/cluster",
-      active: String.starts_with?(path, "/settings/cluster") or String.starts_with?(path, "/admin/cluster"),
+      active:
+        String.starts_with?(path, "/settings/cluster") or
+          String.starts_with?(path, "/admin/cluster"),
       show: RBAC.can?(current_scope, "settings.view")
     }
   end
@@ -68,7 +70,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     %{
       label: "Network",
       navigate: ~p"/settings/networks",
-      active: String.starts_with?(path, "/settings/networks") or String.starts_with?(path, "/settings/snmp"),
+      active:
+        String.starts_with?(path, "/settings/networks") or
+          String.starts_with?(path, "/settings/snmp"),
       show: can_networks_tab?(current_scope)
     }
   end

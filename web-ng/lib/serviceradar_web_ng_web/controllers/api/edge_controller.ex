@@ -502,7 +502,8 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
       %Scope{user: user} when not is_nil(user) ->
         :ok
 
-      _ -> {:error, :unauthorized}
+      _ ->
+        {:error, :unauthorized}
     end
   end
 

@@ -890,7 +890,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   end
 
   defp resource_label(section_key, section_key, true), do: "All"
-  defp resource_label(resource_key, section_key, _), do: resource_short_label(resource_key, section_key)
+
+  defp resource_label(resource_key, section_key, _),
+    do: resource_short_label(resource_key, section_key)
 
   defp split_permission_key(key) do
     parts = String.split(key, ".")
@@ -1079,7 +1081,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       {:ok, profiles} ->
         {profiles, nil}
 
-      {:error, error} -> {[], format_ash_error(error)}
+      {:error, error} ->
+        {[], format_ash_error(error)}
     end
   end
 

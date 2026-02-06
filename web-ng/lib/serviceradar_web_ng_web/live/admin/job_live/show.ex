@@ -117,16 +117,6 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
     end
   end
 
-  defp load_job(encoded_id) do
-    with {:ok, id} <- decode_job_id(encoded_id),
-         {:ok, job} <- JobCatalog.get_job(id) do
-      {:ok, job}
-    else
-      :error -> {:error, :invalid_id}
-      {:error, :not_found} -> {:error, :not_found}
-    end
-  end
-
   def handle_event("set_chart_hours", %{"hours" => hours}, socket) do
     hours = String.to_integer(hours)
 
@@ -136,6 +126,16 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
       |> load_chart_data()
 
     {:noreply, socket}
+  end
+
+  defp load_job(encoded_id) do
+    with {:ok, id} <- decode_job_id(encoded_id),
+         {:ok, job} <- JobCatalog.get_job(id) do
+      {:ok, job}
+    else
+      :error -> {:error, :invalid_id}
+      {:error, :not_found} -> {:error, :not_found}
+    end
   end
 
   @impl true

@@ -132,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   # RBAC check - only operators and admins can create rules
   defp can_create_rules?(%{user: _} = scope),
     do: ServiceRadarWebNG.RBAC.can?(scope, "observability.rules.create")
+
   defp can_create_rules?(_), do: false
 
   defp augment_log(%{} = log) do

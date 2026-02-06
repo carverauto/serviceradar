@@ -48,10 +48,18 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
           {:ok, %Req.Response{status: 200, body: %{"default_branch" => "main"}}}
 
         String.contains?(url, "raw.githubusercontent.com/acme/demo/main/plugin.yaml") ->
-          {:ok, %Req.Response{status: 200, body: ServiceRadarWebNG.Plugins.GitHubImporterTest.manifest_yaml()}}
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: ServiceRadarWebNG.Plugins.GitHubImporterTest.manifest_yaml()
+           }}
 
         String.contains?(url, "raw.githubusercontent.com/acme/demo/main/plugin.wasm") ->
-          {:ok, %Req.Response{status: 200, body: ServiceRadarWebNG.Plugins.GitHubImporterTest.wasm_blob()}}
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: ServiceRadarWebNG.Plugins.GitHubImporterTest.wasm_blob()
+           }}
 
         true ->
           {:ok, %Req.Response{status: 404, body: ""}}
@@ -81,10 +89,18 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
           {:ok, %Req.Response{status: 200, body: %{"default_branch" => "main"}}}
 
         String.contains?(url, "raw.githubusercontent.com/acme/demo/main/plugin.yaml") ->
-          {:ok, %Req.Response{status: 200, body: ServiceRadarWebNG.Plugins.GitHubImporterTest.manifest_yaml()}}
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: ServiceRadarWebNG.Plugins.GitHubImporterTest.manifest_yaml()
+           }}
 
         String.contains?(url, "raw.githubusercontent.com/acme/demo/main/plugin.wasm") ->
-          {:ok, %Req.Response{status: 200, body: ServiceRadarWebNG.Plugins.GitHubImporterTest.wasm_blob()}}
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: ServiceRadarWebNG.Plugins.GitHubImporterTest.wasm_blob()
+           }}
 
         true ->
           {:ok, %Req.Response{status: 404, body: ""}}

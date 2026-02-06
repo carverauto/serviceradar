@@ -46,4 +46,3 @@ defmodule ServiceRadarWebNGWeb.ClientIP do
     end
   end
 end
-

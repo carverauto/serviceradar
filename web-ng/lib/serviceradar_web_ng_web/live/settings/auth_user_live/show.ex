@@ -232,8 +232,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
       <SettingsComponents.settings_shell current_path="/settings/auth/users">
         <div class="space-y-6">
           <div class="space-y-2">
-            <SettingsComponents.settings_nav current_path="/settings/auth/users" current_scope={@current_scope} />
-            <SettingsComponents.auth_nav current_path="/settings/auth/users" current_scope={@current_scope} />
+            <SettingsComponents.settings_nav
+              current_path="/settings/auth/users"
+              current_scope={@current_scope}
+            />
+            <SettingsComponents.auth_nav
+              current_path="/settings/auth/users"
+              current_scope={@current_scope}
+            />
           </div>
 
           <div class="flex flex-wrap items-start justify-between gap-4">
@@ -303,11 +309,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
 
                   <div class="grid grid-cols-2 gap-3 text-sm">
                     <div class="space-y-1">
-                      <div class="text-xs opacity-60 font-semibold uppercase tracking-wide">Status</div>
+                      <div class="text-xs opacity-60 font-semibold uppercase tracking-wide">
+                        Status
+                      </div>
                       <div class="font-mono">{to_string(@user.status || "—")}</div>
                     </div>
                     <div class="space-y-1">
-                      <div class="text-xs opacity-60 font-semibold uppercase tracking-wide">Last login</div>
+                      <div class="text-xs opacity-60 font-semibold uppercase tracking-wide">
+                        Last login
+                      </div>
                       <div class="font-mono">{format_datetime(@user.last_login_at)}</div>
                     </div>
                   </div>
@@ -403,13 +413,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                   This sets a new local password for <span class="font-mono">{@user.email}</span>.
                 </p>
               </div>
-              <button class="btn btn-ghost btn-sm btn-square" phx-click="close_password_modal" type="button">
+              <button
+                class="btn btn-ghost btn-sm btn-square"
+                phx-click="close_password_modal"
+                type="button"
+              >
                 <.icon name="hero-x-mark" class="size-4" />
               </button>
             </div>
 
             <div class="mt-6">
-              <.form for={@password_form} id="set-password-form" phx-submit="set_password" class="space-y-4">
+              <.form
+                for={@password_form}
+                id="set-password-form"
+                phx-submit="set_password"
+                class="space-y-4"
+              >
                 <.input
                   field={@password_form[:password]}
                   type="password"
@@ -482,7 +501,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
 
   defp derive_role_from_profile(attrs, nil, _profiles), do: attrs
 
-  defp derive_role_from_profile(attrs, role_profile_id, profiles) when is_binary(role_profile_id) do
+  defp derive_role_from_profile(attrs, role_profile_id, profiles)
+       when is_binary(role_profile_id) do
     role =
       case Enum.find(profiles, &(&1.id == role_profile_id)) do
         %{system: true, system_name: "admin"} -> :admin
@@ -558,6 +578,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
 
   defp user_load_error_message({:http_error, 404, _}), do: "User not found"
   defp user_load_error_message({:http_error, 403, _}), do: "Not authorized"
+
   defp user_load_error_message({:http_error, status, _}) when is_integer(status),
     do: "Failed to load user (HTTP #{status})"
 

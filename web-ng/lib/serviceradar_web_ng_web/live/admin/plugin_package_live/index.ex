@@ -561,7 +561,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          socket |> put_flash(:error, "Failed to remove assignments: #{Enum.join(errors, "; ")}")}
 
       {:error, error} ->
-        {:noreply, socket |> put_flash(:error, "Failed to delete package: #{format_error(error)}")}
+        {:noreply,
+         socket |> put_flash(:error, "Failed to delete package: #{format_error(error)}")}
     end
   end
 
@@ -718,7 +719,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <.ui_button variant="ghost" size="sm" phx-click="refresh">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
             </.ui_button>
-            <.ui_button :if={@can_stage_plugins} variant="primary" size="sm" phx-click="open_create_modal">
+            <.ui_button
+              :if={@can_stage_plugins}
+              variant="primary"
+              size="sm"
+              phx-click="open_create_modal"
+            >
               <.icon name="hero-plus" class="size-4" /> New Plugin
             </.ui_button>
           </div>
