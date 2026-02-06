@@ -9,7 +9,7 @@ ServiceRadar runs a single edge binary, `serviceradar-agent`, on monitored sites
 - runs collectors and polling engines close to the network
 - executes sandboxed Wasm plugins (via `wazero`)
 - streams results to the platform using unary and streaming gRPC (chunked payloads when needed)
-- participates in a bidirectional command bus for control-plane signaling
+- participates in a bidirectional control stream for commands and config updates
 
 ## What Runs In The Agent
 
@@ -28,7 +28,7 @@ High level lifecycle:
 1. Agent starts and establishes an outbound mTLS gRPC connection to `agent-gateway`.
 2. Agent sends `Hello` (identity metadata; identity is derived from the certificate).
 3. Agent fetches its effective config (`GetConfig`).
-4. Agent opens streaming channels for large payload delivery and command bus signaling.
+4. Agent opens streaming channels for control-plane signaling and large payload delivery.
 
 ```mermaid
 sequenceDiagram
@@ -37,15 +37,30 @@ sequenceDiagram
   participant C as Core Platform (ERTS)
 
   A->>G: mTLS gRPC connect
-  A->>G: Hello
+  A->>G: Hello()
   G->>C: forward enrollment (ERTS/RPC/PubSub)
-  A->>G: GetConfig
+  A->>G: GetConfig(config_version)
   G->>C: fetch compiled config (ERTS/RPC/PubSub)
   G-->>A: config (versioned)
-  A<->>G: CommandBus (bidi gRPC)
-  A->>G: StreamStatus (chunked when needed)
+
+  A->>G: ControlStream() (bidi gRPC)
+  G-->>A: commands and pushed config updates
+  A-->>G: command ack/progress/result + config ack
+
+  A->>G: PushStatus() (small payloads)
+  A->>G: StreamStatus() (chunked payloads)
   G->>C: forward ingestion payloads (ERTS/RPC/PubSub)
 ```
+
+## Edge gRPC API (Gateway)
+
+The edge agent talks to the platform through `AgentGatewayService`:
+
+- `Hello`: initial enrollment/identity handshake (mTLS identity is derived from the certificate).
+- `GetConfig`: fetch effective config; supports versioning (`not_modified` when unchanged).
+- `PushStatus`: unary push for status/results payloads that fit comfortably in a single request.
+- `StreamStatus`: client-streaming push for large status/results payloads (chunked).
+- `ControlStream`: bidirectional stream for command dispatch, command acks/progress/results, and pushed config updates.
 
 ## Security Boundaries
 
@@ -54,4 +69,3 @@ sequenceDiagram
 - Plugins do not get raw filesystem or socket access; network access is proxied and allowlisted.
 
 For plugin details, see [Wasm Plugin Checkers](./wasm-plugins.md).
-

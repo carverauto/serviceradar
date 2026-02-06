@@ -1,237 +1,135 @@
-# Edge Agent & Checker Onboarding
-
-This guide expands on the edge onboarding runbook and documents how gateways,
-agents, and checkers fit together. Use it when modelling new edge sites, when
-planning upcoming automation (GH-1909 / serviceradar-55), and when falling back
-to today’s manual steps.
-
+---
+title: Edge Agent Onboarding
 ---
 
-## 1. Roles & Relationships
+# Edge Agent Onboarding
 
-| Component | Purpose | Parent | Downstream scope | Registry record |
-|-----------|---------|--------|------------------|-----------------|
-| Gateway | Site gateway that maintains the control channel to Core and Data Service. | None | Agents | Gateway record |
-| Agent | Executes discovery tasks for a gateway (SNMP, sysmon, custom scanners). | Gateway | Checkers | Agent record |
-| Checker | Device-specific worker (e.g. SNMP credential set, sysmon target). | Agent | N/A | Checker record |
+Edge onboarding is intentionally simple:
 
-Key rules:
+1. Install `serviceradar-agent` on the host (RPM/DEB from GitHub Releases).
+2. In the UI, create an agent package.
+3. Copy/paste the enroll command on the host.
 
-- Agents cannot exist without a gateway; checkers cannot exist without an agent.
-- Gateway IDs must be unique. Agent/checker IDs only need to be unique within
-  their parent scope (`gateway-id + agent-id`, `agent-id + checker-id`).
-- Activation flows propagate upward: a checker activates only after its agent
-  is active, which requires the parent gateway to be active.
+That is it. The agent enrolls, receives config, and starts streaming results.
 
----
+## Prereqs
 
-## 2. Operator Personas
+- You can reach the web UI for your deployment.
+- The host can reach your `agent-gateway` endpoint (outbound).
+- You have `sudo` on the host.
 
-- **Cluster admin** – issues packages, rotates credentials, and monitors status.
-- **Edge site owner** – installs the gateway/agent/checker containers on remote
-  hosts using the generated archive.
-- **Security reviewer** – audits package lineage and parent-child associations
-  in CNPG (`edge_onboarding_packages` and `edge_onboarding_events` tables).
+## 1. Install The Agent (RPM/DEB)
 
----
+Download the latest `serviceradar-agent` package from the ServiceRadar GitHub Releases page and install it on the target host:
 
-## 3. Desired Flow (Post-Automation)
+- Debian/Ubuntu: install the `.deb`
+- RHEL/Alma/Rocky: install the `.rpm`
 
-The UI and API expose a single onboarding surface with a `Component type`
-selector. Each type captures a different set of inputs and triggers cascading
-registry updates.
-
-### 3.1 Common Inputs
-
-| Field | Notes |
-|-------|-------|
-| Label | Human-readable name shown in the UI. Seeds the default ID. |
-| Component type | Gateway / Agent / Checker (mandatory). |
-| Component ID | Optional for gateways (auto-slugged from label); required for agents/checkers. Provide a lowercase slug with hyphens only. |
-| Parent | Auto-populated drop-down: gateways for agents, agents for checkers. Hidden for gateways. |
-| SPIRE selectors | Optional extra selectors beyond the defaults. |
-| Metadata JSON | Transport addresses, credentials and installer hints. |
-| Join & download TTL | Defaults of 30 m / 15 m; override for slow sites. |
-| Notes | Free-form operator context. |
-
-### 3.2 Outcomes By Type
-
-| Type | Package contents | Registry update | Status transitions |
-|------|------------------|-----------------|--------------------|
-| Gateway | `edge-gateway.env`, SPIRE join token, bundle | Create/refresh gateway record with metadata (`status: pending`) | `issued → delivered → activated → revoked/expired` |
-| Agent | `edge-agent.env`, SPIRE join token, bundle | Create/refresh agent record (`status: pending`) | Same as gateway; activation tied to agent status reports |
-| Checker | `edge-checker.env`, optional SPIRE artifacts, checker metadata | Create/refresh checker record (`status: pending`) | Same as gateway; activation triggered by agent heartbeat |
-
-On activation, Core updates the relevant registry record to `status: "active"`
-and emits an audit event capturing the parent association.
-
----
-
-## 4. CLI Surface
-
-`serviceradar-cli edge package create` gains the following arguments:
-
-- `--component-type (gateway|agent|checker)`
-- `--parent-id <gateway-or-agent-id>` (required for agent/checker)
-- `--checker-kind` and `--checker-config-file` (checker-only helpers)
-
-Example agent issuance:
+After install, confirm the CLI exists:
 
 ```bash
-serviceradar-cli edge package create \
-  --component-type agent \
-  --parent-id sea-edge-01 \
-  --label "sea-agent-01" \
-  --metadata-json "$(cat agent-metadata.json)" \
-  --checker-kind snmp \
-  --api-key "$SERVICERADAR_API_KEY" \
-  --bearer "$ADMIN_JWT" \
-  --core-url https://demo.serviceradar.cloud
+/usr/local/bin/serviceradar-cli --help
 ```
 
-`serviceradar-cli edge package list` and `download` surface `component_type`
-and `parent_id` columns so operators can confirm hierarchy from the terminal.
+## 2. Create An Agent Package (UI)
 
----
+In the web UI:
 
-## 5. Registry Automation Model
+1. Go to **Settings -> Agents -> Deploy**
+2. Click **Create Agent Package**
+3. Fill in the required fields in the modal (gateway, agent ID/label, etc.)
+4. Submit
 
-When Core accepts the creation request it performs the following:
+<!-- TODO: screenshot: Settings -> Agents -> Deploy page -->
+<!-- TODO: screenshot: Create Agent Package modal -->
 
-1. **Validate parents** – ensure gateway or agent exists (activated or pending).
-2. **Persist package** – insert record into `edge_onboarding_packages` with the
-   parent linkage fields.
-3. **Update registry records**:
-   - Gateway: upsert the gateway record with metadata, `status`, and a generated
-     timestamp.
-   - Agent: upsert the agent record with its parent linkage.
-   - Checker: upsert the checker record with its parent linkage and metadata.
-4. **Broadcast cache updates** – notify Core’s in-memory gateway/agent registries
-   so report-status calls accept the pending IDs immediately.
+The UI will show a one-liner enroll command that looks like:
 
-All registry writes use optimistic concurrency with revision checks to avoid
-clobbering manual overrides. On failure, the API returns `409 Conflict` and the
-frontend raises a toast instructing operators to refresh.
-
-Activation transitions occur when Core observes the new component in its
-reporting pipelines:
-
-| Trigger | Condition | Registry effect |
-|---------|-----------|-----------------|
-| Gateway report | `gateway_id` matches pending package | Gateway status set to `active` |
-| Agent report | `agent_id` + `gateway_id` matches pending agent | Agent status set to `active` |
-| Checker report | agent heartbeat includes checker metrics / `checker_id` | Checker status set to `active` |
-
-Revocation and expiry events set `status: "disabled"` and cache evictions ensure
-future reports are rejected until reissued.
-
----
-
-## 6. Installer Expectations
-
-Package archives expand into type-specific directories:
-
-```
-edge-<component>.env
-metadata.json
-spire/upstream-join-token
-spire/upstream-bundle.pem
-README.txt
+```bash
+sudo /usr/local/bin/serviceradar-cli enroll --token edgepkg-v1:<token>
 ```
 
-Additional files for checkers may include credential bundles (encrypted ZIP) or
-device target manifests. Install scripts (`edge-gateway-restart.sh`,
-`edge-agent-install.sh`, `edge-checker-install.sh`) consume the env file, apply
-metadata, and restart Docker Compose services. The scripts must no-op if the
-status is already `active` to keep replays idempotent.
+## 3. Enroll The Host
 
----
+On the host where you installed the agent, paste the enroll command from the UI:
 
-## 7. Manual Workarounds (Current State)
+```bash
+sudo /usr/local/bin/serviceradar-cli enroll --token edgepkg-v1:<token>
+```
 
-Until GH-1909 lands, operators can emulate the flow:
+Notes:
 
-1. Issue a gateway package via the UI (only option presently).
-2. For agents:
-   - Duplicate the gateway metadata, update addresses, and save as
-     `agent-metadata.json`.
-   - Issue another gateway package solely to obtain SPIRE artifacts.
-   - Rename `edge-gateway.env` to `edge-agent.env` and adjust variables.
-   - Use the admin API or database tooling to create the pending agent record.
-3. For checkers:
-   - Use the admin API or database tooling to create the pending checker record.
-   - Restart the agent container so it reads the new checker.
+- Treat the token as a secret (it grants enrollment).
+- If you need to re-enroll, generate a new agent package to get a fresh token.
 
-Document every manual change in the site’s bead issue so the automation work can
-fold those steps into the API updates.
+## 4. Verify
 
----
+In the UI:
 
-## 8. Monitoring & Troubleshooting
+- Go to **Settings -> Agents**
+- Confirm the agent shows **Online** and its last-seen timestamp is updating.
 
-- CNPG dashboards: filter `edge_onboarding_packages` by `component_type` to
-  spot large pending queues.
-- Core metrics:
-  - `edge_onboarding_packages_total{component_type}` – total packages issued.
-  - `edge_onboarding_package_state{component_type,state}` – current status
-    counts. Alert when pending > 5 for longer than 30 minutes.
-- Logs:
-  - Package creation logs include parent references (`parent_type`, `parent_id`)
-    but never the plaintext download token.
-  - Activation logs confirm registry updates by printing the revision number.
+On the host:
 
-Failure modes:
+- Check the agent service logs (systemd) and confirm it connects to `agent-gateway`.
 
-| Symptom | Resolution |
-|---------|------------|
-| 409 on create | Refresh parent list; ensure parent not revoked. |
-| Agent stays pending | Verify gateway reports agent in status heartbeat; check the registry record to ensure automation updated entry. |
-| Checker missing credentials | Confirm metadata JSON carried the credential payload; reissue package if file omitted. |
+## Next: Turn On Collection
 
----
+Onboarding just gets the agent connected. The next step is enabling the collection features you want (all via the UI).
 
-## 9. References
+### Host Metrics (Sysmon)
 
-- Runbook overview: `docs/docs/edge-onboarding.md`
-- Product requirements: [GH-1909](https://github.com/carverauto/serviceradar/issues/1909)
-- Tracking bead: `serviceradar-55`
+Sysmon profiles control host metrics collection from enrolled agents.
 
----
+1. Go to **Settings -> Sysmon Profiles**
+2. Create a baseline profile (example: “Default Host Metrics”)
+3. Set **Target Query** to apply broadly, for example:
+   - `in:devices` (apply to all devices)
+   - `in:devices tags.role:server` (only servers)
+4. Save
 
-## 10. Implementation Plan (Draft)
+<!-- TODO: screenshot: Sysmon profile editor with Target Query set to in:devices -->
 
-### Backend (Core + DB)
-- Extend `edge_onboarding_packages` schema with `component_type`, `parent_type`, `parent_id`, `checker_kind`, `checker_config_json`, and a registry revision column. Update CNPG migrations + Bazel targets.
-- Update `models.EdgeOnboardingPackage` and related request structs to carry the new fields. Introduce enumerations for component/parent types.
-- Adjust `edgeOnboardingService.CreatePackage` to validate parent existence via registry cache, derive default IDs, and perform registry writes through the core data layer.
-- API payloads now include `component_id` (the new component identifier) and `parent_id` for agent/checker relationships.
-- Emit parent linkage in audit events and include in cache refresh payloads.
-- Update activation paths (`RecordActivation`, status reports) to promote agents/checkers and write registry revisions.
-- Add metrics labels (`component_type` / `parent_type`) and logs.
+Agents fetch updated profiles via `GetConfig` and start publishing host metrics.
 
-### Registry Integrations
-- Build helper functions in the core data layer to upsert gateway/agent/checker records with optimistic revision checks.
-- Ensure rollbacks handle partial failure (e.g., registry failure after package persistence) by revoking created SPIRE entries and marking package aborted.
-- Cover new helpers with unit tests exercising pending→active transitions.
-- Update `pkg/core/edge_onboarding` to apply pending records for gateways, agents, and checkers in the registry.
+See: [Sysmon Profiles](./sysmon-profiles.md)
 
-### CLI
-- Expand `serviceradar-cli edge package create/list/download` flags and output to surface component type, parent, and checker metadata.
-- Add validation + help text updates (`pkg/cli/cli.go`, `pkg/cli/edge_onboarding.go`).
-- Update integration tests under `pkg/cli` to exercise new arguments.
+### Network Sweeps (Availability + Discovery Seeds)
 
-### Web UI
-- Refactor create modal into a stepper supporting component selection, parent dropdowns (fed by `/api/admin/edge-packages?status=activated,issued` plus gateway/agent caches), and type-specific metadata hints.
-- Show component/parent badges in the table and drawer views; expand audit timeline with parent linkage.
-- Expose download token copy helpers per type (rename env file names in success modal).
-- Add form validation and error handling for parent conflicts (409 status).
+Sweep groups schedule scans against device inventories and static targets.
 
-### Docs & Runbooks
-- Update `edge-onboarding.md` once the flow ships (replace “planned” sections with live instructions).
-- Add CLI examples for agent/checker issuance.
-- Cross-link any updated restart scripts or helper tools.
+1. Go to **Settings -> Networks**
+2. Create a **Scanner Profile** (ports, timeouts, concurrency)
+3. Create a **Sweep Group** and choose:
+   - target criteria (inventory match)
+   - static targets (CIDRs / IPs / ranges)
+   - schedule
+4. Enable the group
 
-### Testing
-- Add unit tests covering create/list/revoke flows for each component type.
-- Extend API integration tests (Bazel target `//pkg/core:edge_onboarding_test`) to validate registry mutations and status transitions.
-- Wire web e2e test stub (Playwright) to create dummy packages against mock API once available.
+<!-- TODO: screenshot: Sweep Group editor -->
+
+See: [Network Sweeps](./network-sweeps.md)
+
+### SNMP Polling
+
+SNMP profiles configure embedded agent SNMP polling.
+
+1. Go to **Settings -> SNMP Profiles**
+2. Create a profile and set a **Target Query** (SRQL) to select devices
+3. Add targets/credentials and enable polling
+
+<!-- TODO: screenshot: SNMP profile editor -->
+
+See: [SNMP Ingest Guide](./snmp.md)
+
+### Discovery / Mapper
+
+Discovery runs inside `serviceradar-agent` and is configured from the UI.
+
+1. Go to **Settings -> Networks -> Discovery**
+2. Create/enable discovery jobs
+3. Verify interfaces and topology are flowing into inventory and the graph
+
+<!-- TODO: screenshot: Discovery job editor -->
+
+See: [Discovery Guide](./discovery.md)

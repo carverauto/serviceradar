@@ -107,6 +107,51 @@ See also
 - [Network Sweeps](./network-sweeps.md) for sweep behavior and troubleshooting
 - [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md) for upstream router guidance
 
+## Kubernetes NetworkPolicy (Recommended)
+
+ServiceRadar stores and distributes network credentials (for example SNMP communities and API tokens) as part of discovery, polling, and inventory sync configuration. Even though the UI does not display secrets back to users, a compromised privileged account could still try to abuse configuration to trigger unexpected outbound traffic (for example by adding attacker-controlled targets and new discovery/polling profiles).
+
+Enable an egress NetworkPolicy to reduce blast radius and make exfiltration harder. The bundled Helm chart can install a restrictive egress policy that:
+
+- allows DNS (optional)
+- allows in-namespace communication (optional)
+- allows Kubernetes API server access (optional; auto-detects API endpoints via `lookup`)
+- allows explicit destination CIDRs you provide (recommended)
+
+Important notes:
+
+- NetworkPolicy enforcement depends on your CNI (Calico, Cilium, etc). If your cluster does not enforce NetworkPolicy, enabling these values will not change runtime behavior.
+- This policy applies to pods selected by `networkPolicy.podSelector` (or all pods in the namespace when `podSelectorMatchAll: true`).
+- Edge hosts running `serviceradar-agent` outside Kubernetes need their own egress controls (host firewall/VPC/NACL). This policy only governs Kubernetes workloads.
+
+Example (based on the demo namespace):
+
+```yaml
+networkPolicy:
+  enabled: true
+  podSelectorMatchAll: true
+  egress:
+    allowDNS: true
+    allowKubeAPIServer: true
+    allowDefaultNamespace: true
+    allowSameNamespace: true
+    allowedCIDRs:
+      - "10.0.0.0/8"
+      - "192.168.0.0/16"
+```
+
+Optional (Calico): log and deny unmatched egress
+
+If you run Calico, you can enable a Calico `NetworkPolicy` that logs denied egress before denying it:
+
+```yaml
+networkPolicy:
+  calicoLogDenied:
+    enabled: true
+    selector: "app.kubernetes.io/part-of == 'serviceradar'"
+    order: 1000
+```
+
 ## Deployment Provisioning
 
 ServiceRadar does not provision per-customer workloads from inside the Helm chart.

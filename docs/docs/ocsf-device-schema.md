@@ -96,7 +96,7 @@ The `ocsf_devices` table stores discovered devices using OCSF-aligned field name
 
 > Note: Interface inventory now lives in the `discovered_interfaces` time-series table
 > (queried via SRQL `in:interfaces`). The `network_interfaces` JSON array is considered
-> legacy and may be empty.
+> may be empty.
 
 ```json
 [

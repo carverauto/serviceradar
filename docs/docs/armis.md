@@ -28,7 +28,6 @@ ServiceRadar ingests Armis device intelligence to enrich inventory, surface unma
 
 - Sync attaches Armis risk scores and device tags; combine them with SNMP status to prioritize outages.
 - Use the [Service Port Map](./service-port-map.md) to overlay Armis risk data on topology diagrams.
-- Export curated Armis datasets to third-party tools through the [MCP integration](./mcp-integration.md).
 
 ## Troubleshooting
 

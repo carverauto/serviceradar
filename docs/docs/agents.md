@@ -134,8 +134,9 @@ Pass `NAMESPACE=<ns>` to target a different environment.
 ## CNPG Credential Rotation (Helm Upgrades)
 
 Helm upgrades reuse existing CNPG secrets and will not rotate passwords
-automatically. To move off legacy/static credentials, update or delete the
-secrets before upgrading so new values are generated and persisted.
+automatically. If you previously installed with static credentials and want new
+values generated, update or delete the secrets before upgrading so new values
+are generated and persisted.
 
 ```bash
 kubectl -n demo delete secret cnpg-superuser serviceradar-db-credentials spire-db-credentials

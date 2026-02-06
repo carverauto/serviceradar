@@ -118,7 +118,7 @@ Set `stream:true` to subscribe to entity streams such as `ocsf_network_activity`
 - Prefer SRQL field aliases (e.g. `device.os.name`, `connection.dst_endpoint_ip`) over raw column names; the engine keeps them aligned with the OCSF migrations.
 - Use repeated keys for array containment checks and comma lists for scalar `IN` comparisons.
 - Inspect new OCSF columns in `elixir/serviceradar_core/priv/repo/migrations/20260117090000_rebuild_schema.exs` before adding filters so names stay consistent with upstream schema revisions.
-- Validate complex queries with the `srql.validate` MCP tool or the SRQL CLI under `rust/srql`.
+- Validate complex queries with the SRQL CLI under `rust/srql`.
 
 ## Supported Filter Fields by Entity
 
@@ -314,7 +314,7 @@ to return the most recent record per interface.
 | `if_phys_address` | `mac` | Physical (MAC) address |
 | `if_admin_status` | | Administrative status |
 | `if_oper_status` | `status` | Operational status |
-| `if_speed` | `speed` | Interface speed (legacy) |
+| `if_speed` | `speed` | Interface speed |
 | `speed_bps` | | Interface speed (bits per second) |
 | `mtu` | | Interface MTU |
 | `duplex` | | Interface duplex |

@@ -9,7 +9,6 @@ title: Tools Pod (serviceradar-tools)
 ## What You Get
 
 - `nats` CLI with a preloaded context (TLS and credentials)
-- `grpcurl` helpers for mTLS gRPC health checks
 - `psql` helpers for CNPG (Timescale + AGE)
 - Common utilities: `jq`, `rg`, `openssl`, `nc`
 
@@ -34,14 +33,6 @@ nats stream info events
 nats consumer ls events
 ```
 
-Common gRPC checks:
-
-```bash
-# Preconfigured aliases are shown in the MOTD
-grpc-core grpc.health.v1.Health/Check
-grpc-agent grpc.health.v1.Health/Check
-```
-
 CNPG checks:
 
 ```bash
@@ -64,3 +55,4 @@ On startup it prints a MOTD with available aliases and selects the `serviceradar
 - Helm: `helm/serviceradar/files/serviceradar-tools.yaml`
 - Docker/Compose tooling image: `docker/compose/Dockerfile.tools`, `docker/compose/tools-profile.sh`, `docker/compose/tools-motd.txt`
 
+Note: Docker Compose uses the same tools image for bootstrap jobs; Kubernetes runs a long-lived `serviceradar-tools` pod for interactive debugging.

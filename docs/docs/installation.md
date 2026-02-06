@@ -32,9 +32,9 @@ helm upgrade --install serviceradar helm/serviceradar \
 ```
 
 Helm upgrades reuse existing CNPG secrets (`cnpg-superuser`, `serviceradar-db-credentials`,
-`spire-db-credentials`) and will not rotate passwords automatically. To move off
-legacy/static credentials, update or delete those secrets before running the
-upgrade so Helm can generate new random values.
+`spire-db-credentials`) and will not rotate passwords automatically. If you previously
+installed with static credentials and want Helm to generate new random values, update
+or delete those secrets before running the upgrade.
 
 ## Edge Deployment
 
