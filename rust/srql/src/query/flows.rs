@@ -305,6 +305,82 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
                 }
             }
         }
+        "src_country_iso2" | "src_country" => {
+            let cc = filter.value.as_scalar()?.to_string().to_uppercase();
+            if cc.len() != 2 || !cc.chars().all(|c| c.is_ascii_alphabetic()) {
+                return Err(ServiceError::InvalidRequest(
+                    "src_country_iso2 must be a 2-letter ISO2 code".into(),
+                ));
+            }
+
+            let exists = sql::<diesel::sql_types::Bool>(&format!(
+                "EXISTS (SELECT 1 FROM ip_geo_enrichment_cache g WHERE g.ip = NULLIF(src_endpoint_ip, '') AND g.country_iso2 = '{cc}')"
+            ));
+
+            match filter.op {
+                FilterOp::Eq => query = query.filter(exists),
+                FilterOp::NotEq => query = query.filter(not(exists)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "src_country_iso2 filter only supports equality".into(),
+                    ));
+                }
+            }
+        }
+        "dst_country_iso2" | "dst_country" => {
+            let cc = filter.value.as_scalar()?.to_string().to_uppercase();
+            if cc.len() != 2 || !cc.chars().all(|c| c.is_ascii_alphabetic()) {
+                return Err(ServiceError::InvalidRequest(
+                    "dst_country_iso2 must be a 2-letter ISO2 code".into(),
+                ));
+            }
+
+            let exists = sql::<diesel::sql_types::Bool>(&format!(
+                "EXISTS (SELECT 1 FROM ip_geo_enrichment_cache g WHERE g.ip = NULLIF(dst_endpoint_ip, '') AND g.country_iso2 = '{cc}')"
+            ));
+
+            match filter.op {
+                FilterOp::Eq => query = query.filter(exists),
+                FilterOp::NotEq => query = query.filter(not(exists)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "dst_country_iso2 filter only supports equality".into(),
+                    ));
+                }
+            }
+        }
+        "src_cidr" => {
+            let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
+            let within = sql::<diesel::sql_types::Bool>(&format!(
+                "(NULLIF(src_endpoint_ip, '')::inet <<= '{cidr}'::cidr)"
+            ));
+
+            match filter.op {
+                FilterOp::Eq => query = query.filter(within),
+                FilterOp::NotEq => query = query.filter(not(within)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "src_cidr filter only supports equality".into(),
+                    ));
+                }
+            }
+        }
+        "dst_cidr" => {
+            let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
+            let within = sql::<diesel::sql_types::Bool>(&format!(
+                "(NULLIF(dst_endpoint_ip, '')::inet <<= '{cidr}'::cidr)"
+            ));
+
+            match filter.op {
+                FilterOp::Eq => query = query.filter(within),
+                FilterOp::NotEq => query = query.filter(not(within)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "dst_cidr filter only supports equality".into(),
+                    ));
+                }
+            }
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for flows: '{other}'"
@@ -313,6 +389,33 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
     }
 
     Ok(query)
+}
+
+fn normalize_cidr_literal(input: &str) -> Result<String> {
+    let s = input.trim();
+    let (ip_raw, prefix_raw) = s
+        .split_once('/')
+        .ok_or_else(|| ServiceError::InvalidRequest("CIDR must be like 10.0.0.0/24".into()))?;
+
+    let ip: std::net::IpAddr = ip_raw.trim().parse().map_err(|_| {
+        ServiceError::InvalidRequest("CIDR must contain a valid IPv4/IPv6 address".into())
+    })?;
+
+    let prefix: u8 = prefix_raw.trim().parse().map_err(|_| {
+        ServiceError::InvalidRequest("CIDR must contain a valid prefix length".into())
+    })?;
+
+    let max = match ip {
+        std::net::IpAddr::V4(_) => 32,
+        std::net::IpAddr::V6(_) => 128,
+    };
+    if prefix > max {
+        return Err(ServiceError::InvalidRequest(format!(
+            "CIDR prefix length must be <= {max}"
+        )));
+    }
+
+    Ok(format!("{ip}/{prefix}"))
 }
 
 fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
@@ -340,6 +443,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
     match filter.field.as_str() {
         "src_endpoint_ip" | "src_ip" | "dst_endpoint_ip" | "dst_ip" | "protocol_name"
         | "sampler_address" | "direction" => collect_text_params(params, filter),
+        "src_country_iso2" | "src_country" | "dst_country_iso2" | "dst_country" => {
+            collect_text_params(params, filter)
+        }
+        "src_cidr" | "dst_cidr" => collect_text_params(params, filter),
         "protocol_num" | "proto" => {
             let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
                 ServiceError::InvalidRequest(format!("{} must be an integer", filter.field))
@@ -538,6 +645,8 @@ enum FlowGroupField {
     ProtocolName,
     SamplerAddress,
     Direction,
+    SrcCountryIso2,
+    DstCountryIso2,
 }
 
 impl FlowGroupField {
@@ -551,6 +660,8 @@ impl FlowGroupField {
             "protocol_name" => Some(Self::ProtocolName),
             "sampler_address" => Some(Self::SamplerAddress),
             "direction" => Some(Self::Direction),
+            "src_country_iso2" | "src_country" => Some(Self::SrcCountryIso2),
+            "dst_country_iso2" | "dst_country" => Some(Self::DstCountryIso2),
             _ => None,
         }
     }
@@ -565,6 +676,8 @@ impl FlowGroupField {
             Self::ProtocolName => "protocol_name",
             Self::SamplerAddress => "sampler_address",
             Self::Direction => "direction",
+            Self::SrcCountryIso2 => "src_country_iso2",
+            Self::DstCountryIso2 => "dst_country_iso2",
         }
     }
 
@@ -578,6 +691,8 @@ impl FlowGroupField {
             Self::ProtocolName => "protocol_name",
             Self::SamplerAddress => "sampler_address",
             Self::Direction => FLOW_DIRECTION_EXPR,
+            Self::SrcCountryIso2 => "COALESCE(src_geo.country_iso2, 'Unknown')",
+            Self::DstCountryIso2 => "COALESCE(dst_geo.country_iso2, 'Unknown')",
         }
     }
 }
@@ -645,7 +760,7 @@ struct FlowStatsSpec {
     agg_func: FlowAggFunc,
     agg_field: FlowAggField,
     alias: String,
-    group_by: Option<FlowGroupSpec>,
+    group_by: Vec<FlowGroupSpec>,
 }
 
 #[derive(Debug, Clone)]
@@ -812,14 +927,28 @@ fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
         })?
         .to_string();
 
-    let group_by = if let Some(by_idx) = parts.iter().position(|&p| p == "by") {
-        if let Some(token) = parts.get(by_idx + 1) {
-            Some(FlowGroupSpec::parse(token)?)
-        } else {
-            None
+    // Group-by may include multiple keys separated by commas. We intentionally allow
+    // spaces after commas by consuming the remainder of the expression after "by".
+    let group_by: Vec<FlowGroupSpec> = if let Some(by_idx) = parts.iter().position(|&p| p == "by")
+    {
+        let raw = parts
+            .get(by_idx + 1..)
+            .ok_or_else(|| ServiceError::InvalidRequest("stats expression missing group-by".into()))?
+            .join(" ");
+
+        let tokens: Vec<&str> = raw
+            .split(',')
+            .map(|t| t.trim())
+            .filter(|t| !t.is_empty())
+            .collect();
+
+        let mut out: Vec<FlowGroupSpec> = Vec::with_capacity(tokens.len());
+        for token in tokens {
+            out.push(FlowGroupSpec::parse(token)?);
         }
+        out
     } else {
-        None
+        Vec::new()
     };
 
     Ok(FlowStatsSpec {
@@ -837,14 +966,50 @@ fn build_grouped_stats_query(
     let mut binds: Vec<FlowSqlBindValue> = Vec::new();
     let mut where_parts: Vec<String> = Vec::new();
 
+    // Guardrails: multi-dimension group-by can be expensive. Require explicit time window and cap limit.
+    if spec.group_by.len() > 1 {
+        if plan.time_range.is_none() {
+            return Err(ServiceError::InvalidRequest(
+                "multi-dimension flow stats queries require an explicit time window".into(),
+            ));
+        }
+        if plan.limit > 500 {
+            return Err(ServiceError::InvalidRequest(
+                "multi-dimension flow stats queries require limit <= 500".into(),
+            ));
+        }
+    }
+
     if let Some(TimeRange { start, end }) = &plan.time_range {
         // ocsf_network_activity.time is a timestamp without timezone storing UTC; normalize the bind.
         where_parts.push(
-            "time >= (?::timestamptz AT TIME ZONE 'UTC') AND time <= (?::timestamptz AT TIME ZONE 'UTC')"
+            "f.time >= (?::timestamptz AT TIME ZONE 'UTC') AND f.time <= (?::timestamptz AT TIME ZONE 'UTC')"
                 .to_string(),
         );
         binds.push(FlowSqlBindValue::Timestamp(*start));
         binds.push(FlowSqlBindValue::Timestamp(*end));
+    }
+
+    // Geo joins are only included if a requested group-by or filter needs them.
+    let mut needs_src_geo = false;
+    let mut needs_dst_geo = false;
+
+    for group in &spec.group_by {
+        if let FlowGroupSpec::Field(f) = group {
+            match f {
+                FlowGroupField::SrcCountryIso2 => needs_src_geo = true,
+                FlowGroupField::DstCountryIso2 => needs_dst_geo = true,
+                _ => {}
+            }
+        }
+    }
+
+    for filter in &plan.filters {
+        match filter.field.as_str() {
+            "src_country_iso2" | "src_country" => needs_src_geo = true,
+            "dst_country_iso2" | "dst_country" => needs_dst_geo = true,
+            _ => {}
+        }
     }
 
     for filter in &plan.filters {
@@ -857,6 +1022,18 @@ fn build_grouped_stats_query(
         format!(" WHERE {}", where_parts.join(" AND "))
     };
 
+    let mut join_sql = String::new();
+    if needs_src_geo {
+        join_sql.push_str(
+            " LEFT JOIN ip_geo_enrichment_cache src_geo ON src_geo.ip = NULLIF(f.src_endpoint_ip, '')",
+        );
+    }
+    if needs_dst_geo {
+        join_sql.push_str(
+            " LEFT JOIN ip_geo_enrichment_cache dst_geo ON dst_geo.ip = NULLIF(f.dst_endpoint_ip, '')",
+        );
+    }
+
     let agg_sql = if matches!(spec.agg_func, FlowAggFunc::CountDistinct) {
         if matches!(spec.agg_field, FlowAggField::Star) {
             return Err(ServiceError::InvalidRequest(
@@ -868,27 +1045,56 @@ fn build_grouped_stats_query(
         format!("{}({})", spec.agg_func.sql(), spec.agg_field.sql())
     };
 
-    let outer_sql = if let Some(group_by) = spec.group_by {
-        let group_key = group_by.response_key();
-        let group_expr = group_by.group_expr();
+    let outer_sql = if !spec.group_by.is_empty() {
+        let mut seen: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
+        let mut group_keys: Vec<&'static str> = Vec::with_capacity(spec.group_by.len());
+        let mut group_exprs: Vec<String> = Vec::with_capacity(spec.group_by.len());
+
+        for g in &spec.group_by {
+            let key = g.response_key();
+            if !seen.insert(key) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "duplicate group-by key for flows stats: '{key}'"
+                )));
+            }
+            group_keys.push(key);
+            group_exprs.push(g.group_expr());
+        }
+
+        let select_groups = group_exprs
+            .iter()
+            .enumerate()
+            .map(|(idx, expr)| format!("{expr} AS group_value_{idx}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let group_by_sql = group_exprs.join(", ");
+
         let inner = format!(
-            "SELECT {group_expr} AS group_value, {agg_sql} AS agg_value FROM ocsf_network_activity{where_sql} GROUP BY {group_expr}"
+            "SELECT {select_groups}, {agg_sql} AS agg_value FROM ocsf_network_activity f{join_sql}{where_sql} GROUP BY {group_by_sql}"
         );
 
-        let order_sql = build_stats_order_sql(plan, Some(group_key), Some(&spec.alias))?;
+        let order_sql = build_stats_order_sql(plan, &group_keys, Some(&spec.alias))?;
 
-        let outer = format!(
-            "SELECT jsonb_build_object('{group_key}', group_value, '{alias}', agg_value) AS result FROM ({inner}) t{order_sql} LIMIT {limit} OFFSET {offset}",
-            group_key = group_key,
-            alias = spec.alias,
+        let mut json_parts: Vec<String> = Vec::with_capacity(group_keys.len() * 2 + 2);
+        for (idx, key) in group_keys.iter().enumerate() {
+            json_parts.push(format!("'{key}'"));
+            json_parts.push(format!("group_value_{idx}"));
+        }
+        json_parts.push(format!("'{}'", spec.alias));
+        json_parts.push("agg_value".to_string());
+
+        format!(
+            "SELECT jsonb_build_object({json_args}) AS result FROM ({inner}) t{order_sql} LIMIT {limit} OFFSET {offset}",
+            json_args = json_parts.join(", "),
             inner = inner,
             order_sql = order_sql,
             limit = plan.limit,
-            offset = plan.offset,
-        );
-        outer
+            offset = plan.offset
+        )
     } else {
-        let inner = format!("SELECT {agg_sql} AS agg_value FROM ocsf_network_activity{where_sql}");
+        let inner =
+            format!("SELECT {agg_sql} AS agg_value FROM ocsf_network_activity f{join_sql}{where_sql}");
         format!(
             "SELECT jsonb_build_object('{alias}', agg_value) AS result FROM ({inner}) t LIMIT 1",
             alias = spec.alias,
@@ -904,12 +1110,12 @@ fn build_grouped_stats_query(
 
 fn build_stats_order_sql(
     plan: &QueryPlan,
-    group_key: Option<&str>,
+    group_keys: &[&str],
     agg_alias: Option<&str>,
 ) -> Result<String> {
     if plan.order.is_empty() {
         // Default ordering for grouped stats: highest first.
-        return Ok(if group_key.is_some() {
+        return Ok(if !group_keys.is_empty() {
             " ORDER BY agg_value DESC".to_string()
         } else {
             String::new()
@@ -919,9 +1125,9 @@ fn build_stats_order_sql(
     let mut parts: Vec<String> = Vec::new();
     for clause in &plan.order {
         let expr = if agg_alias.is_some_and(|a| clause.field == a) {
-            "agg_value"
-        } else if group_key.is_some_and(|k| clause.field == k) {
-            "group_value"
+            "agg_value".to_string()
+        } else if let Some(idx) = group_keys.iter().position(|k| *k == clause.field) {
+            format!("group_value_{idx}")
         } else {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported order field for flows stats: '{}'",
@@ -1066,23 +1272,60 @@ fn build_stats_bigint_filter(
 
 fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>) -> Result<String> {
     match filter.field.as_str() {
-        "src_endpoint_ip" | "src_ip" => build_stats_text_filter("src_endpoint_ip", filter, binds),
-        "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("dst_endpoint_ip", filter, binds),
-        "protocol_name" => build_stats_text_filter("protocol_name", filter, binds),
-        "sampler_address" => build_stats_text_filter("sampler_address", filter, binds),
+        "src_endpoint_ip" | "src_ip" => build_stats_text_filter("f.src_endpoint_ip", filter, binds),
+        "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("f.dst_endpoint_ip", filter, binds),
+        "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
+        "sampler_address" => build_stats_text_filter("f.sampler_address", filter, binds),
         "protocol_num" | "proto" => {
             // protocol_num is int4; cast to bigint to keep bind typing consistent.
-            build_stats_bigint_filter("protocol_num::bigint", filter, binds, "protocol_num")
+            build_stats_bigint_filter("f.protocol_num::bigint", filter, binds, "protocol_num")
         }
         "src_port" | "src_endpoint_port" => {
-            build_stats_bigint_filter("src_endpoint_port::bigint", filter, binds, "src_port")
+            build_stats_bigint_filter("f.src_endpoint_port::bigint", filter, binds, "src_port")
         }
         "dst_port" | "dst_endpoint_port" => {
-            build_stats_bigint_filter("dst_endpoint_port::bigint", filter, binds, "dst_port")
+            build_stats_bigint_filter("f.dst_endpoint_port::bigint", filter, binds, "dst_port")
+        }
+        "src_cidr" => {
+            let value = filter.value.as_scalar()?.to_string();
+            let cidr = normalize_cidr_literal(&value)?;
+            // Use binds in the stats query path (safe for user-supplied filters).
+            binds.push(FlowSqlBindValue::Text(cidr));
+            match filter.op {
+                FilterOp::Eq => Ok("(NULLIF(f.src_endpoint_ip, '')::inet <<= ?::cidr)".to_string()),
+                FilterOp::NotEq => Ok(
+                    "(NULLIF(f.src_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.src_endpoint_ip, '')::inet <<= ?::cidr))"
+                        .to_string(),
+                ),
+                _ => Err(ServiceError::InvalidRequest(
+                    "src_cidr filter only supports equality".into(),
+                )),
+            }
+        }
+        "dst_cidr" => {
+            let value = filter.value.as_scalar()?.to_string();
+            let cidr = normalize_cidr_literal(&value)?;
+            binds.push(FlowSqlBindValue::Text(cidr));
+            match filter.op {
+                FilterOp::Eq => Ok("(NULLIF(f.dst_endpoint_ip, '')::inet <<= ?::cidr)".to_string()),
+                FilterOp::NotEq => Ok(
+                    "(NULLIF(f.dst_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.dst_endpoint_ip, '')::inet <<= ?::cidr))"
+                        .to_string(),
+                ),
+                _ => Err(ServiceError::InvalidRequest(
+                    "dst_cidr filter only supports equality".into(),
+                )),
+            }
         }
         "direction" => {
             let expr = format!("({})", FLOW_DIRECTION_EXPR);
             build_stats_text_filter(&expr, filter, binds)
+        }
+        "src_country_iso2" | "src_country" => {
+            build_stats_text_filter("COALESCE(src_geo.country_iso2, 'Unknown')", filter, binds)
+        }
+        "dst_country_iso2" | "dst_country" => {
+            build_stats_text_filter("COALESCE(dst_geo.country_iso2, 'Unknown')", filter, binds)
         }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for flows stats: '{other}'"
@@ -1103,9 +1346,10 @@ mod tests {
         assert_eq!(spec.agg_func, FlowAggFunc::Sum);
         assert_eq!(spec.agg_field, FlowAggField::BytesTotal);
         assert_eq!(spec.alias, "total_bytes");
+        assert_eq!(spec.group_by.len(), 1);
         assert_eq!(
-            spec.group_by,
-            Some(FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp))
+            spec.group_by[0],
+            FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp)
         );
     }
 
@@ -1116,26 +1360,28 @@ mod tests {
         assert_eq!(spec.agg_func, FlowAggFunc::Count);
         assert_eq!(spec.agg_field, FlowAggField::Star);
         assert_eq!(spec.alias, "total_flows");
-        assert_eq!(spec.group_by, None);
+        assert!(spec.group_by.is_empty());
     }
 
     #[test]
     fn parse_stats_expr_supports_cidr_group_by() {
         let expr = "sum(bytes_total) as total_bytes by src_cidr:24";
         let spec = parse_stats_expr(expr).unwrap();
-        assert_eq!(spec.group_by, Some(FlowGroupSpec::SrcCidr { prefix: 24 }));
-        assert_eq!(spec.group_by.unwrap().response_key(), "src_cidr");
+        assert_eq!(spec.group_by.len(), 1);
+        assert_eq!(spec.group_by[0], FlowGroupSpec::SrcCidr { prefix: 24 });
+        assert_eq!(spec.group_by[0].response_key(), "src_cidr");
     }
 
     #[test]
     fn parse_stats_expr_supports_direction_group_by() {
         let expr = "count(*) as total_flows by direction";
         let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.group_by.len(), 1);
         assert_eq!(
-            spec.group_by,
-            Some(FlowGroupSpec::Field(FlowGroupField::Direction))
+            spec.group_by[0],
+            FlowGroupSpec::Field(FlowGroupField::Direction)
         );
-        assert_eq!(spec.group_by.unwrap().response_key(), "direction");
+        assert_eq!(spec.group_by[0].response_key(), "direction");
     }
 
     #[test]
@@ -1145,9 +1391,47 @@ mod tests {
         assert_eq!(spec.agg_func, FlowAggFunc::CountDistinct);
         assert_eq!(spec.agg_field, FlowAggField::DstEndpointPort);
         assert_eq!(spec.alias, "unique_ports");
+        assert_eq!(spec.group_by.len(), 1);
         assert_eq!(
-            spec.group_by,
-            Some(FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp))
+            spec.group_by[0],
+            FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp)
+        );
+    }
+
+    #[test]
+    fn parse_stats_expr_supports_multi_group_by() {
+        let expr = "sum(bytes_total) as total_bytes by src_cidr:24, dst_endpoint_port, dst_cidr:24";
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.group_by.len(), 3);
+        assert_eq!(spec.group_by[0], FlowGroupSpec::SrcCidr { prefix: 24 });
+        assert_eq!(
+            spec.group_by[1],
+            FlowGroupSpec::Field(FlowGroupField::DstEndpointPort)
+        );
+        assert_eq!(spec.group_by[2], FlowGroupSpec::DstCidr { prefix: 24 });
+    }
+
+    #[test]
+    fn multi_group_by_requires_time_window() {
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: None,
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_ip",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let err = to_sql_and_params_stats(&plan).unwrap_err();
+        assert!(
+            err.to_string().contains("require an explicit time window"),
+            "expected time window guardrail error, got: {err}"
         );
     }
 
@@ -1186,13 +1470,13 @@ mod tests {
         };
 
         let (sql, params) = to_sql_and_params_stats(&plan).unwrap();
-        assert!(sql.contains("WHERE time >="), "should include time filter");
+        assert!(sql.contains("WHERE f.time >="), "should include time filter");
         assert!(
-            sql.contains("src_endpoint_ip = $3"),
+            sql.contains("f.src_endpoint_ip = $3"),
             "should include src_endpoint_ip filter with binds"
         );
         assert!(
-            sql.contains("protocol_num::bigint = $4"),
+            sql.contains("f.protocol_num::bigint = $4"),
             "should include proto filter with binds"
         );
         assert!(

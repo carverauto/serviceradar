@@ -3,9 +3,9 @@
 - [x] 1.2 Validate change with `openspec validate add-netflow-advanced-visualizations --strict`
 
 ## 2. SRQL Enhancements
-- [ ] 2.1 Add geo-enriched flow grouping fields (src/dst country at minimum) backed by `platform.ip_geo_enrichment_cache`
-- [ ] 2.2 Add SRQL parsing/translation tests for geo group-by queries
-- [ ] 2.3 Add SRQL guardrails for Sankey query shapes (time window required, top-N caps)
+- [x] 2.1 Add geo-enriched flow grouping fields (src/dst country at minimum) backed by `platform.ip_geo_enrichment_cache`
+- [x] 2.2 Add SRQL parsing/translation tests for geo group-by queries
+- [x] 2.3 Add SRQL guardrails for Sankey query shapes (time window required, top-N caps)
 
 ## 3. Web-NG UI
 - [ ] 3.1 Add Sankey visualization driven by SRQL `stats` query (subnet -> service/proto -> subnet) and drill-down interactions
