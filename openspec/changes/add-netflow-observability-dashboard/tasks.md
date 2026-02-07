@@ -119,12 +119,17 @@ persist direction at ingestion time or precompute it in rollups, but that's not 
 - [ ] 8.7 Verify rDNS and GeoIP enrichment fields appear in the NetFlow details panel and table chips
 
 Notes (8.6/8.7):
-As of 2026-02-07, demo verification is blocked on redeploying updated `core-elx` and `web-ng` images that include:
+As of 2026-02-07, demo verification requires redeploying updated `core-elx` and `web-ng` images that include:
 - SRQL datetime parsing fixes for the timeseries response shape (so `Traffic over time` renders points).
 - SRQL time range quoting in compare-mode drill-down (`time:"[start,end]"`) to avoid `expected scalar value`.
 - Netflow settings fixes so saving `ipinfo_api_key` works via Ash (avoid `NoSuchAttribute :ipinfo_api_key`).
-- rDNS display in the NetFlow details panel (UI now reads `platform.ip_rdns_cache` via Ash).
+- rDNS display in the NetFlow details panel and NetFlow table (table now shows hostname on the second line when present).
 - CA trust store fix for HTTPS downloads in release images (Finch configured with `castore`) so MMDB refresh workers can download over TLS.
+
+Demo progress (2026-02-07):
+- `web-ng` pushed/restarted at `sha-2ae7e87db1a2f07779be6bd00cccad885fa494b4` (includes NetFlow table rDNS rendering fix).
+- `core-elx` pushed/restarted at `sha-5cacebeab086914d5e28066b17ea76ae61c08f49` (increased GeoLite MMDB download timeout to support the ~60MB City DB).
+- GeoLite MMDB files now exist in demo at `/var/lib/serviceradar/geoip/` and the enrichment refresh job populated `platform.ip_geo_enrichment_cache` with non-zero `country_iso2` and `asn` counts.
 
 After redeploy, re-run:
 - open `/observability?tab=netflows` and confirm `Traffic over time` shows points for `last_1h` and clicking a point pushes a valid SRQL query.
