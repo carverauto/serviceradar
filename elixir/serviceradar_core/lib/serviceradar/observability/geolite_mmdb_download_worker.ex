@@ -25,7 +25,8 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   require Logger
 
   @default_dir "/var/lib/serviceradar/geoip"
-  @default_timeout_ms 20_000
+  # GeoLite2-City is ~60MB; 20s is frequently too aggressive in Kubernetes.
+  @default_timeout_ms 180_000
   @default_reschedule_seconds 86_400
 
   @default_files %{
