@@ -11,11 +11,14 @@ Retention/TTL for raw flows is not set in this migration and remains part of the
 ## 2. CNPG / Timescale Changes
 - [x] 2.1 Add migrations to enforce raw NetFlow retention TTL (default 7 days, configurable)
 - [x] 2.2 Add migrations for flow rollup continuous aggregates used by widgets (top talkers/ports, traffic over time)
-- [ ] 2.3 Add migrations for enrichment cache tables (GeoIP/ASN, rDNS) with TTL and bounded growth controls
+- [x] 2.3 Add migrations for enrichment cache tables (GeoIP/ASN, rDNS) with TTL and bounded growth controls
 - [ ] 2.4 Add indexes needed for common filters (time, src_ip, dst_ip, port, protocol, asn, directionality)
 
 Notes (2.4):
 The base `ocsf_network_activity` migration already includes indexes for `src_endpoint_ip`, `dst_endpoint_ip`, `protocol_num`, `src_endpoint_port`, `dst_endpoint_port`, and `sampler_address` paired with `time DESC`. Added ASN indexes in `elixir/serviceradar_core/priv/repo/migrations/20260207094500_add_ocsf_network_activity_asn_indexes.exs`. Directionality tagging indexes will be added once directionality fields are implemented.
+
+Notes (2.3):
+Added `platform.ip_geo_enrichment_cache` and `platform.ip_rdns_cache` in `elixir/serviceradar_core/priv/repo/migrations/20260207100500_add_ip_enrichment_cache_tables.exs` with `expires_at` + indexes to support TTL-based pruning and to keep growth bounded to unique IPs within the TTL window.
 
 ## 3. SRQL Enhancements
 - [x] 3.1 Add flow aggregation query support (stats/group-by) for `in:flows` needed by the UI widgets
