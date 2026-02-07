@@ -517,6 +517,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             summary={@netflow_summary}
             top_talkers={@netflow_top_talkers}
             top_ports={@netflow_top_ports}
+            rdns_map={@netflow_rdns_map}
             timeseries={@netflow_timeseries}
             timeseries_compare={@netflow_timeseries_compare}
             geo_heatmap={@netflow_geo_heatmap}
@@ -904,6 +905,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:summary, :map, required: true)
   attr(:top_talkers, :list, default: [])
   attr(:top_ports, :list, default: [])
+  attr(:rdns_map, :map, default: %{})
   attr(:timeseries, :map, required: true)
   attr(:timeseries_compare, :map, default: %{bucket_seconds: 300, points: []})
   attr(:compare_mode, :string, default: "off")
@@ -1472,6 +1474,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <%= for row <- @top_talkers do %>
                 <div class="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-base-200/40">
                   <div class="min-w-0">
+                    <% ip = Map.get(row, :ip) || "—" %>
                     <.link
                       patch={
                         netflow_filter_patch(
@@ -1488,8 +1491,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       }
                       class="text-sm font-mono hover:underline"
                     >
-                      {Map.get(row, :ip) || "—"}
+                      {ip}
                     </.link>
+                    <div
+                      :if={hostname = Map.get(@rdns_map, ip)}
+                      class="mt-0.5 text-[11px] text-base-content/60 max-w-60 truncate font-mono"
+                      title={hostname}
+                    >
+                      {hostname}
+                    </div>
                     <div class="text-[10px] uppercase tracking-wider text-base-content/50">
                       Source
                     </div>
@@ -1518,6 +1528,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <div class="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-base-200/40">
                   <div class="min-w-0">
                     <div class="flex items-center gap-2">
+                      <% service = netflow_service_label(Map.get(row, :port)) %>
                       <.link
                         patch={
                           netflow_filter_patch(
@@ -1534,7 +1545,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                         {Map.get(row, :port) || "—"}
                       </.link>
                       <.ui_badge
-                        :if={service = netflow_service_label(Map.get(row, :port))}
+                        :if={service}
                         variant="ghost"
                         size="xs"
                         class="font-mono"
@@ -1543,7 +1554,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       </.ui_badge>
                     </div>
                     <div class="text-[10px] uppercase tracking-wider text-base-content/50">
-                      Destination port
+                      Destination port{if(service, do: " · #{service}", else: "")}
                     </div>
                   </div>
                   <div class="shrink-0 text-right">
@@ -4928,7 +4939,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp apply_tab_assigns(socket, "netflows", srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
     summary = maybe_load_netflow_summary(socket, srql_module, scope)
-    rdns_map = load_netflow_rdns_map(socket.assigns.netflows, scope)
 
     top_talkers =
       load_netflow_top_talkers(
@@ -4937,6 +4947,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         scope,
         Map.get(socket.assigns, :netflow_talker_cidr)
       )
+
+    rdns_map = load_netflow_rdns_map(socket.assigns.netflows, top_talkers, scope)
 
     top_ports = load_netflow_top_ports(srql_module, Map.get(socket.assigns.srql, :query), scope)
 
@@ -5322,14 +5334,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     if query == "", do: "in:flows time:last_24h", else: query
   end
 
-  defp load_netflow_rdns_map(flows, scope) when is_list(flows) do
+  defp load_netflow_rdns_map(flows, top_talkers, scope) when is_list(flows) do
     user = scope && scope.user
-    flows
-    |> netflow_rdns_ips(user)
-    |> rdns_map_for_ips(user)
+
+    ips =
+      flows
+      |> netflow_rdns_ips(user)
+      |> Kernel.++(netflow_talker_rdns_ips(top_talkers, user))
+      |> Enum.uniq()
+
+    rdns_map_for_ips(ips, user)
   end
 
-  defp load_netflow_rdns_map(_flows, _scope), do: %{}
+  defp load_netflow_rdns_map(_flows, _top_talkers, _scope), do: %{}
 
   defp netflow_rdns_ips(_flows, nil), do: []
   defp netflow_rdns_ips([], _user), do: []
@@ -5340,6 +5357,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> Enum.map(&to_string/1)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 in ["", "—", "-", "Unknown"]))
+    |> Enum.uniq()
+  end
+
+  defp netflow_talker_rdns_ips(_top_talkers, nil), do: []
+  defp netflow_talker_rdns_ips(top_talkers, _user) when not is_list(top_talkers), do: []
+  defp netflow_talker_rdns_ips([], _user), do: []
+
+  defp netflow_talker_rdns_ips(top_talkers, _user) do
+    top_talkers
+    |> Enum.map(fn row -> row && Map.get(row, :ip) end)
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(fn ip ->
+      ip in ["", "—", "-", "Unknown"] or String.contains?(ip, "/")
+    end)
     |> Enum.uniq()
   end
 
