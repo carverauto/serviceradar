@@ -229,48 +229,18 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   The token is stored under "user_token" key by `log_in_user/3`.
   """
   def fetch_current_scope_for_user(conn, _opts) do
-    # If another plug (ex: gateway proxy auth) already established a user scope,
-    # don't override it.
-    case conn.assigns[:current_scope] do
-      %Scope{user: user} when not is_nil(user) ->
-        conn
+    case bearer_token(conn) do
+      {:ok, token} ->
+        authenticate_with_token(conn, token, :bearer)
 
-      _ ->
-        # In passive_proxy mode, an upstream gateway may inject an Authorization
-        # header containing a non-Guardian JWT. Avoid treating that as a
-        # ServiceRadar bearer token.
-        if passive_proxy_mode?() do
-          token = get_session(conn, @user_token_key)
+      :error ->
+        token = get_session(conn, @user_token_key)
 
-          if is_binary(token) do
-            authenticate_with_token(conn, token, :session)
-          else
-            assign(conn, :current_scope, Scope.for_user(nil))
-          end
+        if is_binary(token) do
+          authenticate_with_token(conn, token, :session)
         else
-          case bearer_token(conn) do
-            {:ok, token} ->
-              authenticate_with_token(conn, token, :bearer)
-
-            :error ->
-              token = get_session(conn, @user_token_key)
-
-              if is_binary(token) do
-                authenticate_with_token(conn, token, :session)
-              else
-                assign(conn, :current_scope, Scope.for_user(nil))
-              end
-          end
+          assign(conn, :current_scope, Scope.for_user(nil))
         end
-    end
-  end
-
-  defp passive_proxy_mode? do
-    alias ServiceRadarWebNGWeb.Auth.ConfigCache
-
-    case ConfigCache.get_settings() do
-      {:ok, %{is_enabled: true, mode: :passive_proxy}} -> true
-      _ -> false
     end
   end
 
