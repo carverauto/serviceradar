@@ -141,6 +141,10 @@ defmodule ServiceRadar.Application do
         # Default RBAC role profiles seed
         role_profile_seeder_child(),
 
+        # NetFlow enrichment background maintenance
+        ip_enrichment_scheduler_child(),
+        geolite_mmdb_scheduler_child(),
+
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
@@ -384,6 +388,22 @@ defmodule ServiceRadar.Application do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) and
          Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       ServiceRadar.Identity.RoleProfileSeeder
+    else
+      nil
+    end
+  end
+
+  defp ip_enrichment_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Observability.IpEnrichmentScheduler
+    else
+      nil
+    end
+  end
+
+  defp geolite_mmdb_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Observability.GeoLiteMmdbScheduler
     else
       nil
     end

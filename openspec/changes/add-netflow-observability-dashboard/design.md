@@ -18,6 +18,7 @@ NetFlow/IPFIX flows are ingested, transformed into OCSF network activity events,
 - rDNS: do reverse lookups through the environment’s DNS resolver with strict timeouts and caching.
 - Service tagging: map well-known ports to service names locally (static table + override hook).
 - Directionality: compute `Inbound/Outbound/Internal` using configured “local CIDRs”.
+- Optional external enrichers (background only): allow operators to configure an enrichment provider like `ipinfo.io/lite` for higher-fidelity ASN/org metadata. API keys MUST be stored encrypted at rest (AshCloak/Cloak) and MUST NOT be used at query time (background refresh only).
 
 ### Caching Strategy
 - Cache enrichment per IP with TTL and bounded size.

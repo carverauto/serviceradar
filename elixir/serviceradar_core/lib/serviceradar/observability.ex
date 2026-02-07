@@ -44,6 +44,8 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.StatefulAlertRuleTemplate
     resource ServiceRadar.Observability.StatefulAlertRuleState
     resource ServiceRadar.Observability.StatefulAlertRuleHistory
+    resource ServiceRadar.Observability.IpGeoEnrichmentCache
+    resource ServiceRadar.Observability.IpRdnsCache
     # Metrics resources - all map to TimescaleDB hypertables with migrate?: false
     # matching Go schema exactly
     resource ServiceRadar.Observability.TimeseriesMetric

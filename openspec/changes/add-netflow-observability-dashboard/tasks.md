@@ -28,10 +28,20 @@ Added `platform.ip_geo_enrichment_cache` and `platform.ip_rdns_cache` in `elixir
 
 ## 4. Enrichment Pipeline
 - [ ] 4.1 Implement GeoIP + ASN lookups using a local DB (no external API calls at query time)
-- [ ] 4.2 Implement rDNS lookup with strict timeouts + caching
+- [x] 4.2 Implement rDNS lookup with strict timeouts + caching
 - [x] 4.3 Implement service tagging for common ports (static mapping + override hook)
 - [ ] 4.4 Implement directionality tagging based on configured local CIDRs
-- [ ] 4.5 Add a background refresh/update mechanism for enrichment data sources where applicable
+- [x] 4.5 Add a background refresh/update mechanism for enrichment data sources where applicable
+- [ ] 4.6 (Optional) Integrate `ipinfo.io/lite` enrichment provider with per-deployment API key (AshCloak-encrypted) and admin UI (RBAC)
+
+Notes (4.2/4.5):
+Added Ash resources `ServiceRadar.Observability.IpRdnsCache` and `ServiceRadar.Observability.IpGeoEnrichmentCache` (migrate? false) and background workers:
+`ServiceRadar.Observability.IpEnrichmentRefreshWorker` (SRQL-driven candidate discovery + strict rDNS timeouts + cache upsert)
+and `ServiceRadar.Observability.IpEnrichmentCleanupWorker` (TTL pruning by `expires_at`).
+Added `ServiceRadar.Observability.IpEnrichmentScheduler` to ensure jobs are scheduled when Oban is available.
+
+Notes (4.1):
+Added `ServiceRadar.Observability.GeoLiteMmdbDownloadWorker` + scheduler to refresh GeoLite2 MMDB files daily (local DB source), but GeoIP/ASN lookup + cache population is still pending.
 
 ## 5. Web-NG UI Enhancements
 - [x] 5.1 Add/extend dashboard widgets: top talkers, top ports, protocol distribution, total bandwidth, active flows
