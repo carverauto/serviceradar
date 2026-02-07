@@ -177,7 +177,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     with {:ok, start_dt, _} <- DateTime.from_iso8601(to_string(start_raw)),
          {:ok, end_dt, _} <- DateTime.from_iso8601(to_string(end_raw)) do
-      value = "[#{DateTime.to_iso8601(start_dt)},#{DateTime.to_iso8601(end_dt)}]"
+      # SRQL `time:` expects a scalar token (it parses the inner bracket syntax itself),
+      # so the `[start,end]` range must be quoted to avoid SRQL treating it as a list.
+      value =
+        "\"[#{DateTime.to_iso8601(start_dt)},#{DateTime.to_iso8601(end_dt)}]\""
 
       href =
         netflow_filter_patch(
@@ -5429,13 +5432,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    time_token = extract_time_from_query(base_query) || "last_24h"
-
-    if netflow_sankey_enabled?(time_token) do
-      build_netflow_sankey(srql_module, base_query, scope, prefix)
-    else
-      empty_netflow_sankey()
-    end
+    # Always render Sankey if selected. We keep query guardrails (top-N preselection + caps)
+    # inside `build_netflow_sankey/4` and accept that some windows may be slower.
+    build_netflow_sankey(srql_module, base_query, scope, prefix)
   rescue
     _ ->
       empty_netflow_sankey()
@@ -5445,18 +5444,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     do: empty_netflow_sankey()
 
   defp empty_netflow_sankey, do: %{edges: [], sources: [], mids: [], dests: []}
-
-  defp netflow_sankey_enabled?(time_token) when is_binary(time_token) do
-    # Guardrail: Sankey queries are multi-dimensional and can be very expensive over long windows.
-    # Require a reasonably bounded window (6h) to keep the dashboard responsive.
-    case resolve_srql_time(time_token) do
-      {:ok, %{start: start_dt, end: end_dt}} ->
-        DateTime.diff(end_dt, start_dt, :second) <= 6 * 60 * 60
-
-      _ ->
-        false
-    end
-  end
 
   defp build_netflow_sankey(srql_module, base_query, scope, prefix) do
     # Guardrail for performance: avoid unbounded 3-way group-by across all flows.
@@ -5498,7 +5485,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     src_filter = srql_in_filter("src_cidr", top_sources)
     dst_filter = srql_in_filter("dst_cidr", top_dests)
-    port_filter = srql_in_filter("dst_port", top_ports)
+    # SRQL field is `dst_endpoint_port` (not `dst_port`).
+    port_filter = srql_in_filter("dst_endpoint_port", top_ports)
 
     # Multi-dimension stats: SRQL enforces time window + limit cap guardrails.
     query =
@@ -5679,9 +5667,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp bucket_seconds_to_srql(seconds) when is_integer(seconds), do: "#{seconds}s"
 
   defp parse_srql_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(String.trim(value)) do
-      {:ok, dt, _} -> {:ok, dt}
-      _ -> :error
+    value = String.trim(value)
+
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _} ->
+        {:ok, dt}
+
+      _ ->
+        # SRQL results may normalize timestamptz values as naive ISO8601 strings
+        # (no timezone offset). Treat those as UTC for charting.
+        case NaiveDateTime.from_iso8601(value) do
+          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+          _ -> :error
+        end
     end
   end
 

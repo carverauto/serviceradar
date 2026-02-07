@@ -68,6 +68,9 @@ All ipinfo usage is background-only; SRQL query execution never makes external A
 - [x] 5.5 Add row detail side panel with enrichment details and “related flows” pivot actions
 - [x] 5.6 Ensure filters are server-side, paginated, and URL-addressable (shareable deep links)
 
+Notes (5.3):
+SRQL `time:` filters accept a scalar token; for absolute time range drill-down we encode it as `time:"[start,end]"` (quoted) so SRQL doesn't parse it as a list.
+
 ## 6. Security Intelligence (Optional / Phased)
 - [x] 6.1 Add threat intel indicator matching and UI badges (feature-flagged)
 - [x] 6.2 Add simple anomaly flags against a baseline window (feature-flagged)
@@ -105,3 +108,12 @@ Observed:
 Perf note:
 Direction is still computed at query time. If the raw flows list ever needs direction for very large page sizes or high QPS, we can
 persist direction at ingestion time or precompute it in rollups, but that's not part of this request.
+
+## 8. Demo Deployment Validation (Post-Approval)
+- [x] 8.1 Enable demo egress allowlist for GeoLite MMDB refresh from `raw.githubusercontent.com` (CIDR-based allow)
+- [x] 8.2 Add `GEOLITE_CITY_ENABLED` gating and bump `web-ng` resources in demo to avoid City MMDB OOM
+- [x] 8.3 Fix SRQL drill-down time bucket click to generate `time:"[start,end]"` (scalar token)
+- [x] 8.4 Mount shared GeoLite MMDB storage into `core` and `web-ng` so enrichment workers can load the local DBs
+- [x] 8.5 Verify `platform.ip_geo_enrichment_cache` has non-zero `country_iso2` and `asn` counts in demo after refresh
+- [ ] 8.6 Verify `Traffic over time` renders points and click-through opens a valid flows list SRQL query
+- [ ] 8.7 Verify rDNS and GeoIP enrichment fields appear in the NetFlow details panel and table chips

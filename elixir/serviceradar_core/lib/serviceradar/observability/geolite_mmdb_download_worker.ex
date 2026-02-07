@@ -15,6 +15,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     unique: [period: 3600, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -87,6 +88,8 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
       record_mmdb_failure(actor, now, "download_failed")
       {:error, :download_failed}
     else
+      # Ensure Geolix sees newly downloaded databases without requiring a pod restart.
+      _ = GeoIP.reload()
       record_mmdb_success(actor, now)
       ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 3_600)))
       :ok

@@ -17,8 +17,17 @@
 - [x] 4.1 Add/extend UI tests for visualization rendering and drill-down filter behavior
 - [x] 4.2 Validate performance on large flow volumes (explain/analyze representative SRQL queries)
 
+## 5. Demo Deployment Validation (Post-Approval)
+- [x] 5.1 Fix SRQL drill-down time range encoding to use `time:"[start,end]"` (SRQL `time:` token must be scalar)
+- [x] 5.2 Fix Sankey preselection filter field to use SRQL `dst_endpoint_port` (not `dst_port`)
+- [x] 5.3 Add `GEOLITE_CITY_ENABLED` runtime gate and fix `runtime.exs` list concat so releases boot cleanly
+- [x] 5.4 Mount shared GeoLite MMDB storage into `core` and `web-ng` so enrichment jobs can read the downloaded DBs
+- [x] 5.5 Verify GeoLite downloads succeed under demo egress policy and that `ip_geo_enrichment_cache` fills `country_iso2`/`asn`
+- [ ] 5.6 Verify Sankey and Geo heatmap render non-empty in `demo` for `time:last_1h` and `time:last_24h`
+
 Notes:
 - Performance validation was run against local Docker CNPG with 400k synthetic flow rows.
 - Geo heatmap (24h, join to `ip_geo_enrichment_cache`): ~191 ms execution time with parallel seq scan + hash join + group aggregate.
 - Timeseries downsample (24h, 5m buckets): ~147 ms execution time using the hypertable time index.
-- Sankey 3-way group-by is expensive for long windows (24h): ~6.1 s execution time with external merge sort + large group aggregate; to keep the dashboard responsive we added a UI guardrail that disables Sankey when the selected time window is greater than 6 hours. With `time:last_1h`, the same 3-way group-by runs in ~99 ms (bitmap scan on the hypertable time index + hash aggregate).
+- Sankey 3-way group-by is expensive for long windows (24h): ~6.1 s execution time with external merge sort + large group aggregate. We keep the SRQL query bounded via top-N preselection and caps; the Sankey visualization renders for any selected time window and may be slower for longer windows. With `time:last_1h`, the same 3-way group-by runs in ~99 ms (bitmap scan on the hypertable time index + hash aggregate).
+- Sankey filter bugfix: ensure the preselection filter uses `dst_endpoint_port` (SRQL field name) rather than `dst_port`, otherwise edges can be empty.

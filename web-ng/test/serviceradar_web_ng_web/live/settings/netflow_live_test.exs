@@ -54,11 +54,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
   test "updates optional netflow settings", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/netflows")
 
+    token = "ipinfo_test_token_123"
+
     lv
     |> form("#netflow-settings-form", %{
       "settings" => %{
         "ipinfo_enabled" => "true",
         "ipinfo_base_url" => "https://api.ipinfo.io",
+        "ipinfo_api_key" => token,
         "threat_intel_enabled" => "true",
         "threat_intel_feed_urls_text" => "https://example.com/feed.txt\n",
         "anomaly_enabled" => "true",
@@ -72,6 +75,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
     |> render_submit()
 
     assert render(lv) =~ "Saved settings"
+    assert render(lv) =~ "(set)"
+    refute render(lv) =~ token
   end
 
   test "viewer is blocked from netflow settings", %{conn: conn} do

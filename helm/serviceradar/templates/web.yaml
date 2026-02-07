@@ -4,6 +4,7 @@
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
@@ -221,6 +222,16 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cloak-key
+        {{- if $geoipMmdb.enabled }}
+        - name: GEOLITE_MMDB_DIR
+          value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
+        {{- with .Values.webNg.extraEnv }}
+        {{- range $name, $value := . }}
+        - name: {{ $name | quote }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
         - name: CNPG_HOST
           value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
         - name: CNPG_PORT
@@ -286,6 +297,10 @@ spec:
         - name: plugin-packages
           mountPath: {{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
         {{- end }}
+        {{- if $geoipMmdb.enabled }}
+        - name: geoip-mmdb
+          mountPath: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
         {{- if eq $datasvcSecModeLower "spiffe" }}
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
@@ -295,12 +310,7 @@ spec:
           readOnly: true
         {{- end }}
         resources:
-          limits:
-            cpu: "1"
-            memory: "1Gi"
-          requests:
-            cpu: "200m"
-            memory: "512Mi"
+          {{- toYaml (default (dict) .Values.webNg.resources) | nindent 10 }}
         livenessProbe:
           httpGet:
             path: /
@@ -328,6 +338,11 @@ spec:
       - name: plugin-packages
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-web-ng-plugins" $pluginStorage.existingClaim | quote }}
+      {{- end }}
+      {{- if $geoipMmdb.enabled }}
+      - name: geoip-mmdb
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
       {{- end }}
       {{- if eq $datasvcSecModeLower "spiffe" }}
       - name: spire-agent-socket

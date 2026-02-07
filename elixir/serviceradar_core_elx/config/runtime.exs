@@ -1,6 +1,46 @@
 import Config
 
 # =============================================================================
+# GeoLite2 MMDB / GeoIP Configuration
+# =============================================================================
+# The core release must configure Geolix itself at runtime so enrichment workers
+# can perform local GeoIP/ASN lookups (no external calls at query time).
+geolite_dir = System.get_env("GEOLITE_MMDB_DIR", "/var/lib/serviceradar/geoip")
+
+geolite_city_enabled =
+  System.get_env("GEOLITE_CITY_ENABLED", "false")
+  |> String.downcase()
+  |> then(&(&1 in ["1", "true", "yes", "on"]))
+
+config :serviceradar_core,
+  geolite_mmdb_dir: geolite_dir
+
+config :geolix,
+  databases:
+    [
+      %{
+        id: :geolite2_asn,
+        adapter: Geolix.Adapter.MMDB2,
+        source: Path.join(geolite_dir, "GeoLite2-ASN.mmdb")
+      },
+      %{
+        id: :geolite2_country,
+        adapter: Geolix.Adapter.MMDB2,
+        source: Path.join(geolite_dir, "GeoLite2-Country.mmdb")
+      }
+    ] ++
+      (if geolite_city_enabled,
+        do: [
+          %{
+            id: :geolite2_city,
+            adapter: Geolix.Adapter.MMDB2,
+            source: Path.join(geolite_dir, "GeoLite2-City.mmdb")
+          }
+        ],
+        else: []
+      )
+
+# =============================================================================
 # Cluster Configuration
 # =============================================================================
 cluster_strategy =
