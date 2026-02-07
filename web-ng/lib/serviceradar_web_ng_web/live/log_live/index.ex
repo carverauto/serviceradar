@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Observability.FlowPubSub
   alias ServiceRadar.Observability.LogPubSub
+  alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpIpinfoCache
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.IpThreatIntelCache
@@ -367,6 +368,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     %{
       src_rdns: read_rdns(user, src_ip),
       dst_rdns: read_rdns(user, dst_ip),
+      src_geo: read_geo(user, src_ip),
+      dst_geo: read_geo(user, dst_ip),
       src_ipinfo: read_ipinfo(user, src_ip),
       dst_ipinfo: read_ipinfo(user, dst_ip),
       src_threat: read_threat(user, src_ip),
@@ -415,6 +418,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp read_ipinfo(_user, _ip), do: nil
+
+  defp read_geo(nil, _ip), do: nil
+
+  defp read_geo(user, ip) when is_binary(ip) do
+    ip = String.trim(ip)
+
+    if ip in ["", "—", "-"] do
+      nil
+    else
+      query = IpGeoEnrichmentCache |> Ash.Query.for_read(:by_ip, %{ip: ip})
+
+      case Ash.read_one(query, actor: user) do
+        {:ok, record} -> record
+        _ -> nil
+      end
+    end
+  end
+
+  defp read_geo(_user, _ip), do: nil
 
   defp read_threat(nil, _ip), do: nil
 
@@ -3204,6 +3226,71 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
+  attr(:side, :string, required: true)
+  attr(:geo, :any, default: nil)
+
+  defp netflow_geoip_asn_line(assigns) do
+    geo = assigns.geo
+
+    assigns =
+      assigns
+      |> assign(:country_iso2, if(geo, do: geo.country_iso2))
+      |> assign(:loc, geo_loc_string(geo))
+      |> assign(:asn, geo_asn_string(geo))
+      |> assign(:as_org, if(geo, do: geo.as_org))
+
+    ~H"""
+    <div class="mt-1 text-base-content/70">
+      {@side}:
+      <%= if @geo do %>
+        <span class="font-mono">
+          <%= if is_binary(@country_iso2) and @country_iso2 != "" do %>
+            <span class="badge badge-xs badge-ghost font-mono">{@country_iso2}</span>
+          <% end %>
+
+          <%= if is_binary(@loc) and @loc != "" do %>
+            <span class="ml-2">{@loc}</span>
+          <% end %>
+
+          <%= if is_binary(@asn) and @asn != "" do %>
+            <span class="ml-2">{@asn}</span>
+          <% end %>
+
+          <%= if is_binary(@as_org) and @as_org != "" do %>
+            <span class="ml-2 text-base-content/60">{@as_org}</span>
+          <% end %>
+        </span>
+      <% else %>
+        <span class="text-base-content/50">n/a</span>
+      <% end %>
+    </div>
+    """
+  end
+
+  defp geo_loc_string(nil), do: nil
+
+  defp geo_loc_string(geo) do
+    [geo.city, geo.region, geo.country_name]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.join(", ")
+    |> case do
+      "" -> nil
+      s -> s
+    end
+  end
+
+  defp geo_asn_string(nil), do: nil
+
+  defp geo_asn_string(geo) do
+    case geo.asn do
+      n when is_integer(n) and n > 0 -> "AS#{n}"
+      _ -> nil
+    end
+  end
+
   attr(:flow, :map, required: true)
   attr(:context, :map, default: %{})
   attr(:base_path, :string, required: true)
@@ -3427,6 +3514,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               </div>
 
               <div class="mt-3 space-y-3 text-xs">
+                <div>
+                  <div class="font-semibold">GeoIP / ASN</div>
+                  <.netflow_geoip_asn_line side="Source" geo={Map.get(@context, :src_geo)} />
+                  <.netflow_geoip_asn_line side="Dest" geo={Map.get(@context, :dst_geo)} />
+                </div>
+
                 <div>
                   <div class="font-semibold">Threat intel</div>
                   <div class="mt-1 text-base-content/70">
