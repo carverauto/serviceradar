@@ -1287,33 +1287,91 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
             build_stats_bigint_filter("f.dst_endpoint_port::bigint", filter, binds, "dst_port")
         }
         "src_cidr" => {
-            let value = filter.value.as_scalar()?.to_string();
-            let cidr = normalize_cidr_literal(&value)?;
-            // Use binds in the stats query path (safe for user-supplied filters).
-            binds.push(FlowSqlBindValue::Text(cidr));
             match filter.op {
-                FilterOp::Eq => Ok("(NULLIF(f.src_endpoint_ip, '')::inet <<= ?::cidr)".to_string()),
-                FilterOp::NotEq => Ok(
-                    "(NULLIF(f.src_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.src_endpoint_ip, '')::inet <<= ?::cidr))"
-                        .to_string(),
-                ),
+                FilterOp::Eq | FilterOp::NotEq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    let cidr = normalize_cidr_literal(&value)?;
+                    // Use binds in the stats query path (safe for user-supplied filters).
+                    binds.push(FlowSqlBindValue::Text(cidr));
+                    match filter.op {
+                        FilterOp::Eq => {
+                            Ok("(NULLIF(f.src_endpoint_ip, '')::inet <<= ?::cidr)".to_string())
+                        }
+                        FilterOp::NotEq => Ok(
+                            "(NULLIF(f.src_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.src_endpoint_ip, '')::inet <<= ?::cidr))"
+                                .to_string(),
+                        ),
+                        _ => unreachable!(),
+                    }
+                }
+                FilterOp::In | FilterOp::NotIn => {
+                    let values = filter.value.as_list()?;
+                    if values.is_empty() {
+                        return Ok("1=1".to_string());
+                    }
+                    let mut out: Vec<String> = Vec::with_capacity(values.len());
+                    for v in values {
+                        out.push(normalize_cidr_literal(v)?);
+                    }
+                    binds.push(FlowSqlBindValue::TextArray(out));
+                    match filter.op {
+                        FilterOp::In => Ok(
+                            "(NULLIF(f.src_endpoint_ip, '')::inet <<= ANY(?::cidr[]))"
+                                .to_string(),
+                        ),
+                        FilterOp::NotIn => Ok(
+                            "(NULLIF(f.src_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.src_endpoint_ip, '')::inet <<= ANY(?::cidr[])))"
+                                .to_string(),
+                        ),
+                        _ => unreachable!(),
+                    }
+                }
                 _ => Err(ServiceError::InvalidRequest(
-                    "src_cidr filter only supports equality".into(),
+                    "src_cidr filter only supports equality or list matching".into(),
                 )),
             }
         }
         "dst_cidr" => {
-            let value = filter.value.as_scalar()?.to_string();
-            let cidr = normalize_cidr_literal(&value)?;
-            binds.push(FlowSqlBindValue::Text(cidr));
             match filter.op {
-                FilterOp::Eq => Ok("(NULLIF(f.dst_endpoint_ip, '')::inet <<= ?::cidr)".to_string()),
-                FilterOp::NotEq => Ok(
-                    "(NULLIF(f.dst_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.dst_endpoint_ip, '')::inet <<= ?::cidr))"
-                        .to_string(),
-                ),
+                FilterOp::Eq | FilterOp::NotEq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    let cidr = normalize_cidr_literal(&value)?;
+                    binds.push(FlowSqlBindValue::Text(cidr));
+                    match filter.op {
+                        FilterOp::Eq => Ok(
+                            "(NULLIF(f.dst_endpoint_ip, '')::inet <<= ?::cidr)".to_string(),
+                        ),
+                        FilterOp::NotEq => Ok(
+                            "(NULLIF(f.dst_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.dst_endpoint_ip, '')::inet <<= ?::cidr))"
+                                .to_string(),
+                        ),
+                        _ => unreachable!(),
+                    }
+                }
+                FilterOp::In | FilterOp::NotIn => {
+                    let values = filter.value.as_list()?;
+                    if values.is_empty() {
+                        return Ok("1=1".to_string());
+                    }
+                    let mut out: Vec<String> = Vec::with_capacity(values.len());
+                    for v in values {
+                        out.push(normalize_cidr_literal(v)?);
+                    }
+                    binds.push(FlowSqlBindValue::TextArray(out));
+                    match filter.op {
+                        FilterOp::In => Ok(
+                            "(NULLIF(f.dst_endpoint_ip, '')::inet <<= ANY(?::cidr[]))"
+                                .to_string(),
+                        ),
+                        FilterOp::NotIn => Ok(
+                            "(NULLIF(f.dst_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.dst_endpoint_ip, '')::inet <<= ANY(?::cidr[])))"
+                                .to_string(),
+                        ),
+                        _ => unreachable!(),
+                    }
+                }
                 _ => Err(ServiceError::InvalidRequest(
-                    "dst_cidr filter only supports equality".into(),
+                    "dst_cidr filter only supports equality or list matching".into(),
                 )),
             }
         }

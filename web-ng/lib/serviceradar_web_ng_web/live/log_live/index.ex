@@ -1642,7 +1642,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div :if={@edges == []} class="py-6 text-center text-sm text-base-content/60">
-      No Sankey edges in this window. Ensure a time filter is present (e.g. `time:last_24h`).
+      Sankey is disabled for large time windows. Reduce the time range to &lt;= 6h (e.g. `time:last_1h`) to enable it.
     </div>
 
     <div :if={@edges != []} class="w-full">
@@ -5475,9 +5475,84 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
+    time_token = extract_time_from_query(base_query) || "last_24h"
+
+    # Guardrail: Sankey queries are multi-dimensional and can be very expensive over long windows.
+    # Require a reasonably bounded window (6h) to keep the dashboard responsive.
+    enabled? =
+      case resolve_srql_time(time_token) do
+        {:ok, %{start: start_dt, end: end_dt}} ->
+          DateTime.diff(end_dt, start_dt, :second) <= 6 * 60 * 60
+
+        _ ->
+          false
+      end
+
+    if not enabled? do
+      %{edges: [], sources: [], mids: [], dests: []}
+    else
+
+    # Guardrail for performance: avoid unbounded 3-way group-by across all flows.
+    # Instead, preselect top-N src/dst subnets and ports, then compute edges within that subset.
+    top_sources_q =
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}" sort:total_bytes:desc limit:16|
+
+    top_dests_q =
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_cidr:#{prefix}" sort:total_bytes:desc limit:16|
+
+    top_ports_q =
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_endpoint_port" sort:total_bytes:desc limit:16|
+
+    top_sources =
+      srql_module
+      |> apply(:query, [top_sources_q, %{scope: scope}])
+      |> extract_stats_rows()
+      |> Enum.map(&Map.get(&1, "src_cidr"))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.reject(&(&1 in ["", "Unknown"]))
+      |> Enum.take(16)
+
+    top_dests =
+      srql_module
+      |> apply(:query, [top_dests_q, %{scope: scope}])
+      |> extract_stats_rows()
+      |> Enum.map(&Map.get(&1, "dst_cidr"))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.reject(&(&1 in ["", "Unknown"]))
+      |> Enum.take(16)
+
+    top_ports =
+      srql_module
+      |> apply(:query, [top_ports_q, %{scope: scope}])
+      |> extract_stats_rows()
+      |> Enum.map(&to_int(Map.get(&1, "dst_endpoint_port")))
+      |> Enum.filter(&(&1 > 0))
+      |> Enum.take(16)
+
+    src_filter =
+      if top_sources == [] do
+        ""
+      else
+        " src_cidr:(#{Enum.join(top_sources, ",")})"
+      end
+
+    dst_filter =
+      if top_dests == [] do
+        ""
+      else
+        " dst_cidr:(#{Enum.join(top_dests, ",")})"
+      end
+
+    port_filter =
+      if top_ports == [] do
+        ""
+      else
+        " dst_port:(#{Enum.join(top_ports, ",")})"
+      end
+
     # Multi-dimension stats: SRQL enforces time window + limit cap guardrails.
     query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}, dst_endpoint_port, dst_cidr:#{prefix}" sort:total_bytes:desc limit:120|
+      ~s|#{base_query}#{src_filter}#{dst_filter}#{port_filter} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}, dst_endpoint_port, dst_cidr:#{prefix}" sort:total_bytes:desc limit:200|
 
     edges =
       srql_module
@@ -5502,18 +5577,30 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         is_nil(e.src) or e.src in ["", "Unknown"] or is_nil(e.dst) or e.dst in ["", "Unknown"] or
           e.bytes <= 0
       end)
-      |> Enum.take(120)
+      |> Enum.take(200)
 
-    sources = edges |> Enum.group_by(& &1.src) |> Enum.map(fn {k, es} -> {k, Enum.sum(Enum.map(es, & &1.bytes))} end)
-    mids = edges |> Enum.group_by(& &1.mid) |> Enum.map(fn {k, es} -> {k, Enum.sum(Enum.map(es, & &1.bytes))} end)
-    dests = edges |> Enum.group_by(& &1.dst) |> Enum.map(fn {k, es} -> {k, Enum.sum(Enum.map(es, & &1.bytes))} end)
+      sources =
+        edges
+        |> Enum.group_by(& &1.src)
+        |> Enum.map(fn {k, es} -> {k, Enum.sum(Enum.map(es, & &1.bytes))} end)
 
-    %{
-      edges: edges,
-      sources: Enum.sort_by(sources, fn {_k, v} -> -v end) |> Enum.take(12),
-      mids: Enum.sort_by(mids, fn {_k, v} -> -v end) |> Enum.take(12),
-      dests: Enum.sort_by(dests, fn {_k, v} -> -v end) |> Enum.take(12)
-    }
+      mids =
+        edges
+        |> Enum.group_by(& &1.mid)
+        |> Enum.map(fn {k, es} -> {k, Enum.sum(Enum.map(es, & &1.bytes))} end)
+
+      dests =
+        edges
+        |> Enum.group_by(& &1.dst)
+        |> Enum.map(fn {k, es} -> {k, Enum.sum(Enum.map(es, & &1.bytes))} end)
+
+      %{
+        edges: edges,
+        sources: Enum.sort_by(sources, fn {_k, v} -> -v end) |> Enum.take(12),
+        mids: Enum.sort_by(mids, fn {_k, v} -> -v end) |> Enum.take(12),
+        dests: Enum.sort_by(dests, fn {_k, v} -> -v end) |> Enum.take(12)
+      }
+    end
   rescue
     _ ->
       %{edges: [], sources: [], mids: [], dests: []}

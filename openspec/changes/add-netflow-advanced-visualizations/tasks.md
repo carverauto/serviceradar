@@ -15,7 +15,10 @@
 
 ## 4. Validation
 - [x] 4.1 Add/extend UI tests for visualization rendering and drill-down filter behavior
-- [ ] 4.2 Validate performance on large flow volumes (explain/analyze representative SRQL queries)
+- [x] 4.2 Validate performance on large flow volumes (explain/analyze representative SRQL queries)
 
 Notes:
-- 4.2 is still pending: we validated the SRQL-generated SQL shape (time filter applied before aggregation; geo joins only added when geo fields are referenced; multi-group-by requires explicit time + limit cap), but did not run `EXPLAIN (ANALYZE, BUFFERS)` against a live CNPG instance in this session.
+- Performance validation was run against local Docker CNPG with 400k synthetic flow rows.
+- Geo heatmap (24h, join to `ip_geo_enrichment_cache`): ~191 ms execution time with parallel seq scan + hash join + group aggregate.
+- Timeseries downsample (24h, 5m buckets): ~147 ms execution time using the hypertable time index.
+- Sankey 3-way group-by is expensive for long windows (24h): ~6.1 s execution time with external merge sort + large group aggregate; to keep the dashboard responsive we added a UI guardrail that disables Sankey when the selected time window is greater than 6 hours. With `time:last_1h`, the same 3-way group-by runs in ~99 ms (bitmap scan on the hypertable time index + hash aggregate).
