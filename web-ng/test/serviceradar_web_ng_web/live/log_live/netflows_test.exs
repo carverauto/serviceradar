@@ -42,8 +42,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
 
     # Preserve ordering by using a keyword list; the LiveView builds the query in this order.
     expected_path =
-      "/netflows?" <> Plug.Conn.Query.encode(q: expected_query, limit: 50, tab: "netflows")
+      "/netflows?" <>
+        Plug.Conn.Query.encode(
+          tab: "netflows",
+          limit: 50,
+          q: expected_query,
+          geo: "dst",
+          sankey_prefix: "24"
+        )
 
     assert_patch(lv, expected_path)
+  end
+
+  test "renders Sankey and Geo panels with SRQL-driven placeholders", %{conn: conn} do
+    q = "in:flows time:last_24h"
+    {:ok, _lv, html} = live(conn, ~p"/netflows?#{%{q: q, limit: 50}}")
+
+    assert html =~ "Traffic Sankey"
+    assert html =~ "Geo Heatmap"
+    assert html =~ "Compare"
   end
 end

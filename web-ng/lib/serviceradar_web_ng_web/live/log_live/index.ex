@@ -285,8 +285,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             if(is_integer(Map.get(socket.assigns, :netflow_talker_cidr)),
               do: to_string(socket.assigns.netflow_talker_cidr),
               else: nil
-            )
-          ,
+            ),
           "compare" =>
             case Map.get(socket.assigns, :netflow_compare_mode, "off") do
               mode when mode in ["previous", "yesterday"] -> mode
@@ -921,6 +920,198 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </div>
       </.ui_panel>
 
+      <.ui_panel class="p-4">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div class="text-xs uppercase tracking-wider text-base-content/50">Compare</div>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                active={@compare_mode == "off"}
+                class="rounded-full"
+                patch={
+                  netflow_talker_cidr_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    @compact?,
+                    @talker_cidr,
+                    "off",
+                    @geo_side,
+                    @sankey_prefix
+                  )
+                }
+              >
+                Off
+              </.ui_button>
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                active={@compare_mode == "previous"}
+                class="rounded-full"
+                patch={
+                  netflow_talker_cidr_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    @compact?,
+                    @talker_cidr,
+                    "previous",
+                    @geo_side,
+                    @sankey_prefix
+                  )
+                }
+              >
+                Previous Window
+              </.ui_button>
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                active={@compare_mode == "yesterday"}
+                class="rounded-full"
+                patch={
+                  netflow_talker_cidr_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    @compact?,
+                    @talker_cidr,
+                    "yesterday",
+                    @geo_side,
+                    @sankey_prefix
+                  )
+                }
+              >
+                Yesterday
+              </.ui_button>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-xs uppercase tracking-wider text-base-content/50">Geo</div>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                active={@geo_side == "dst"}
+                class="rounded-full"
+                patch={
+                  netflow_talker_cidr_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    @compact?,
+                    @talker_cidr,
+                    @compare_mode,
+                    "dst",
+                    @sankey_prefix
+                  )
+                }
+              >
+                Destination
+              </.ui_button>
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                active={@geo_side == "src"}
+                class="rounded-full"
+                patch={
+                  netflow_talker_cidr_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    @compact?,
+                    @talker_cidr,
+                    @compare_mode,
+                    "src",
+                    @sankey_prefix
+                  )
+                }
+              >
+                Source
+              </.ui_button>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-xs uppercase tracking-wider text-base-content/50">Sankey</div>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                active={@sankey_prefix == 24}
+                class="rounded-full"
+                patch={
+                  netflow_talker_cidr_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    @compact?,
+                    @talker_cidr,
+                    @compare_mode,
+                    @geo_side,
+                    24
+                  )
+                }
+              >
+                /24
+              </.ui_button>
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                active={@sankey_prefix == 16}
+                class="rounded-full"
+                patch={
+                  netflow_talker_cidr_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    @compact?,
+                    @talker_cidr,
+                    @compare_mode,
+                    @geo_side,
+                    16
+                  )
+                }
+              >
+                /16
+              </.ui_button>
+            </div>
+          </div>
+        </div>
+      </.ui_panel>
+
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <.ui_panel class="p-4">
+          <div class="flex items-center justify-between">
+            <div class="text-xs uppercase tracking-wider text-base-content/50">
+              Traffic Sankey (Top Edges)
+            </div>
+            <div class="text-[10px] font-mono text-base-content/60">
+              src:/{@sankey_prefix} -> port -> dst:/{@sankey_prefix}
+            </div>
+          </div>
+          <div class="mt-3">
+            <.netflow_sankey_viz edges={Map.get(@sankey, :edges, [])} />
+          </div>
+        </.ui_panel>
+
+        <.ui_panel class="p-4">
+          <div class="flex items-center justify-between">
+            <div class="text-xs uppercase tracking-wider text-base-content/50">
+              Geo Heatmap (Top Countries)
+            </div>
+            <div class="text-[10px] font-mono text-base-content/60">
+              {@geo_side}
+            </div>
+          </div>
+          <div class="mt-3">
+            <.netflow_geo_heatmap rows={@geo_heatmap} />
+          </div>
+        </.ui_panel>
+      </div>
+
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <.ui_panel class="p-4">
           <div class="flex items-center justify-between">
@@ -980,30 +1171,69 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               Protocol Distribution
             </div>
             <div class="mt-2 flex flex-wrap items-center gap-2">
-              <.ui_button
-                size="xs"
-                variant="ghost"
-                class="rounded-full"
-                patch={netflow_filter_patch(@base_path, @query, @limit, "proto", "", @compact?, @talker_cidr)}
-              >
-                All
-              </.ui_button>
-              <.ui_button
-                size="xs"
-                variant="ghost"
-                class="rounded-full"
-                patch={netflow_filter_patch(@base_path, @query, @limit, "proto", "6", @compact?, @talker_cidr)}
-              >
-                TCP
-              </.ui_button>
-              <.ui_button
-                size="xs"
-                variant="ghost"
-                class="rounded-full"
-                patch={netflow_filter_patch(@base_path, @query, @limit, "proto", "17", @compact?, @talker_cidr)}
-              >
-                UDP
-              </.ui_button>
+                <.ui_button
+                  size="xs"
+                  variant="ghost"
+                  class="rounded-full"
+                  patch={
+                    netflow_filter_patch(
+                      @base_path,
+                      @query,
+                      @limit,
+                      "proto",
+                      "",
+                      @compact?,
+                      @talker_cidr,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
+                    )
+                  }
+                >
+                  All
+                </.ui_button>
+                <.ui_button
+                  size="xs"
+                  variant="ghost"
+                  class="rounded-full"
+                  patch={
+                    netflow_filter_patch(
+                      @base_path,
+                      @query,
+                      @limit,
+                      "proto",
+                      "6",
+                      @compact?,
+                      @talker_cidr,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
+                    )
+                  }
+                >
+                  TCP
+                </.ui_button>
+                <.ui_button
+                  size="xs"
+                  variant="ghost"
+                  class="rounded-full"
+                  patch={
+                    netflow_filter_patch(
+                      @base_path,
+                      @query,
+                      @limit,
+                      "proto",
+                      "17",
+                      @compact?,
+                      @talker_cidr,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
+                    )
+                  }
+                >
+                  UDP
+                </.ui_button>
               <span class="text-xs text-base-content/60">
                 Other: {format_compact_int(@other)}
               </span>
@@ -1026,7 +1256,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       "direction",
                       "",
                       @compact?,
-                      @talker_cidr
+                      @talker_cidr,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
                     )
                   }
                 >
@@ -1044,7 +1277,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       "direction",
                       "internal",
                       @compact?,
-                      @talker_cidr
+                      @talker_cidr,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
                     )
                   }
                 >
@@ -1062,7 +1298,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       "direction",
                       "outbound",
                       @compact?,
-                      @talker_cidr
+                      @talker_cidr,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
                     )
                   }
                 >
@@ -1080,7 +1319,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       "direction",
                       "inbound",
                       @compact?,
-                      @talker_cidr
+                      @talker_cidr,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
                     )
                   }
                 >
@@ -1098,7 +1340,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       "direction",
                       "external",
                       @compact?,
-                      @talker_cidr
+                      @talker_cidr,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
                     )
                   }
                 >
@@ -1165,7 +1410,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       @query,
                       @limit,
                       @compact?,
-                      nil
+                      nil,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
                     )
                   }
                   class={[
@@ -1182,7 +1430,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       @query,
                       @limit,
                       @compact?,
-                      24
+                      24,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
                     )
                   }
                   class={[
@@ -1199,7 +1450,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       @query,
                       @limit,
                       @compact?,
-                      16
+                      16,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
                     )
                   }
                   class={[
@@ -1233,7 +1487,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             else: Map.get(row, :ip)
                           ),
                           @compact?,
-                          @talker_cidr
+                          @talker_cidr,
+                          @compare_mode,
+                          @geo_side,
+                          @sankey_prefix
                         )
                       }
                       class="text-sm font-mono hover:underline"
@@ -1277,7 +1534,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             "dst_port",
                             to_string(Map.get(row, :port)),
                             @compact?,
-                            @talker_cidr
+                            @talker_cidr,
+                            @compare_mode,
+                            @geo_side,
+                            @sankey_prefix
                           )
                         }
                         class="text-sm font-mono hover:underline"
@@ -1306,6 +1566,122 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             </div>
           </div>
         </.ui_panel>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:rows, :list, default: [])
+
+  defp netflow_geo_heatmap(assigns) do
+    rows =
+      assigns.rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.take(48)
+
+    max_bytes =
+      rows
+      |> Enum.map(&Map.get(&1, :bytes, 0))
+      |> Enum.max(fn -> 0 end)
+
+    assigns =
+      assigns
+      |> assign(:rows, rows)
+      |> assign(:max_bytes, max_bytes)
+
+    ~H"""
+    <div :if={@rows == []} class="py-6 text-center text-sm text-base-content/60">
+      No GeoIP samples in this window.
+    </div>
+
+    <div :if={@rows != []} class="grid grid-cols-4 sm:grid-cols-6 gap-2">
+      <%= for row <- @rows do %>
+        {alpha = netflow_heat_alpha(Map.get(row, :bytes, 0), @max_bytes)}
+        <button
+          type="button"
+          phx-click="netflow_geo_click"
+          phx-value-country={Map.get(row, :country)}
+          class="rounded-lg border border-base-200 p-2 text-left hover:border-primary/50 transition-colors"
+          style={"background-color: rgba(59, 130, 246, #{alpha})"}
+        >
+          <div class="text-xs font-mono">{Map.get(row, :country)}</div>
+          <div class="text-[10px] text-base-content/60 font-mono">
+            {format_netflow_bytes(Map.get(row, :bytes))}
+          </div>
+        </button>
+      <% end %>
+    </div>
+    """
+  end
+
+  defp netflow_heat_alpha(bytes, max_bytes)
+       when is_integer(bytes) and is_integer(max_bytes) and max_bytes > 0 do
+    ratio = bytes / max_bytes
+    Float.round(0.08 + min(max(ratio, 0.0), 1.0) * 0.65, 3)
+  end
+
+  defp netflow_heat_alpha(_bytes, _max_bytes), do: 0.08
+
+  attr(:edges, :list, default: [])
+
+  defp netflow_sankey_viz(assigns) do
+    edges =
+      assigns.edges
+      |> Enum.filter(&is_map/1)
+      |> Enum.take(60)
+
+    max_bytes =
+      edges
+      |> Enum.map(&Map.get(&1, :bytes, 0))
+      |> Enum.max(fn -> 0 end)
+
+    assigns =
+      assigns
+      |> assign(:edges, edges)
+      |> assign(:max_bytes, max_bytes)
+
+    ~H"""
+    <div :if={@edges == []} class="py-6 text-center text-sm text-base-content/60">
+      No Sankey edges in this window. Ensure a time filter is present (e.g. `time:last_24h`).
+    </div>
+
+    <div :if={@edges != []} class="w-full">
+      <svg viewBox="0 0 1000 320" class="w-full h-52" preserveAspectRatio="none">
+        <%= for {edge, idx} <- Enum.with_index(@edges) do %>
+          {src = Map.get(edge, :src) || "Unknown"}
+          {dst = Map.get(edge, :dst) || "Unknown"}
+          {port = Map.get(edge, :port) || 0}
+          {mid = Map.get(edge, :mid) || "PORT:?"}
+          {bytes = Map.get(edge, :bytes, 0)}
+          {y = 12 + idx * 5.0}
+          {w = 1.5 + (if @max_bytes > 0, do: bytes / @max_bytes * 8.0, else: 0.0)}
+          {path = "M 80 #{y} C 300 #{y}, 320 #{y}, 500 #{y} S 700 #{y}, 920 #{y}"}
+
+          <path
+            d={path}
+            class="stroke-primary/70 hover:stroke-primary transition-colors cursor-pointer"
+            stroke-width={Float.round(w, 2)}
+            fill="none"
+            stroke-linecap="round"
+            phx-click="netflow_sankey_edge"
+            phx-value-src={src}
+            phx-value-dst={dst}
+            phx-value-port={port}
+          >
+            <title>{src} -> {mid} -> {dst} ({format_netflow_bytes(bytes)})</title>
+          </path>
+        <% end %>
+
+        <line x1="80" y1="0" x2="80" y2="320" class="stroke-base-content/10" />
+        <line x1="500" y1="0" x2="500" y2="320" class="stroke-base-content/10" />
+        <line x1="920" y1="0" x2="920" y2="320" class="stroke-base-content/10" />
+
+        <text x="80" y="16" class="fill-base-content/60 text-[10px] font-mono">src</text>
+        <text x="500" y="16" class="fill-base-content/60 text-[10px] font-mono">port</text>
+        <text x="920" y="16" class="fill-base-content/60 text-[10px] font-mono">dst</text>
+      </svg>
+      <div class="mt-2 text-[10px] text-base-content/60 font-mono">
+        Click a ribbon to apply `src_cidr`, `dst_port`, and `dst_cidr` filters.
       </div>
     </div>
     """
@@ -2603,6 +2979,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:limit, :integer, required: true)
   attr(:compact?, :boolean, default: false)
   attr(:talker_cidr, :integer, default: nil)
+  attr(:compare_mode, :string, default: "off")
+  attr(:geo_side, :string, default: "dst")
+  attr(:sankey_prefix, :integer, default: 24)
 
   defp netflows_table(assigns) do
     ~H"""
@@ -2646,7 +3025,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <.link
                   :if={netflow_present?(src_ip)}
                   patch={
-                    netflow_filter_patch(@base_path, @query, @limit, "src_ip", src_ip, @compact?, @talker_cidr)
+                    netflow_filter_patch(
+                      @base_path,
+                      @query,
+                      @limit,
+                      "src_ip",
+                      src_ip,
+                      @compact?,
+                      @talker_cidr,
+                      @compare_mode,
+                      @geo_side,
+                      @sankey_prefix
+                    )
                   }
                   class="hover:underline"
                 >
@@ -2662,7 +3052,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     <.link
                       :if={netflow_present?(dst_ip)}
                       patch={
-                        netflow_filter_patch(@base_path, @query, @limit, "dst_ip", dst_ip, @compact?, @talker_cidr)
+                        netflow_filter_patch(
+                          @base_path,
+                          @query,
+                          @limit,
+                          "dst_ip",
+                          dst_ip,
+                          @compact?,
+                          @talker_cidr,
+                          @compare_mode,
+                          @geo_side,
+                          @sankey_prefix
+                        )
                       }
                       class="hover:underline"
                     >
@@ -2718,7 +3119,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           "src_ip",
                           netflow_addr(flow, :src),
                           @compact?,
-                          @talker_cidr
+                          @talker_cidr,
+                          @compare_mode,
+                          @geo_side,
+                          @sankey_prefix
                         )
                       }
                       class="text-xs"
@@ -2736,7 +3140,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           "dst_ip",
                           netflow_addr(flow, :dst),
                           @compact?,
-                          @talker_cidr
+                          @talker_cidr,
+                          @compare_mode,
+                          @geo_side,
+                          @sankey_prefix
                         )
                       }
                       class="text-xs"
@@ -2757,7 +3164,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           "dst_port",
                           to_string(netflow_port(flow, :dst)),
                           @compact?,
-                          @talker_cidr
+                          @talker_cidr,
+                          @compare_mode,
+                          @geo_side,
+                          @sankey_prefix
                         )
                       }
                       class="text-xs"
@@ -2786,6 +3196,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:limit, :integer, required: true)
   attr(:compact?, :boolean, default: false)
   attr(:talker_cidr, :integer, default: nil)
+  attr(:compare_mode, :string, default: "off")
+  attr(:geo_side, :string, default: "dst")
+  attr(:sankey_prefix, :integer, default: 24)
 
   defp netflow_details_modal(assigns) do
     assigns =
@@ -2836,7 +3249,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             "src_ip",
                             @src_ip,
                             @compact?,
-                            @talker_cidr
+                            @talker_cidr,
+                            @compare_mode,
+                            @geo_side,
+                            @sankey_prefix
                           )
                         }
                       >
@@ -2867,7 +3283,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             "dst_ip",
                             @dst_ip,
                             @compact?,
-                            @talker_cidr
+                            @talker_cidr,
+                            @compare_mode,
+                            @geo_side,
+                            @sankey_prefix
                           )
                         }
                       >
@@ -2885,7 +3304,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             "dst_port",
                             to_string(@dst_port),
                             @compact?,
-                            @talker_cidr
+                            @talker_cidr,
+                            @compare_mode,
+                            @geo_side,
+                            @sankey_prefix
                           )
                         }
                       >
@@ -2952,7 +3374,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     "src_ip",
                     @src_ip,
                     @compact?,
-                    @talker_cidr
+                    @talker_cidr,
+                    @compare_mode,
+                    @geo_side,
+                    @sankey_prefix
                   )
                 }
               >
@@ -2970,7 +3395,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     "dst_ip",
                     @dst_ip,
                     @compact?,
-                    @talker_cidr
+                    @talker_cidr,
+                    @compare_mode,
+                    @geo_side,
+                    @sankey_prefix
                   )
                 }
               >
@@ -2989,7 +3417,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     "dst_port",
                     to_string(@dst_port),
                     @compact?,
-                    @talker_cidr
+                    @talker_cidr,
+                    @compare_mode,
+                    @geo_side,
+                    @sankey_prefix
                   )
                 }
               >
