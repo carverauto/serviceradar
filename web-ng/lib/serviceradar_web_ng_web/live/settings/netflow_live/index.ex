@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
   alias AshPhoenix.Form
   alias ServiceRadar.Observability.NetflowLocalCidr
+  alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
@@ -21,11 +22,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     scope = socket.assigns.current_scope
 
     if RBAC.can?(scope, "settings.netflow.manage") do
+      settings = load_settings(scope)
+
       {:ok,
        socket
        |> assign(:page_title, "NetFlow Settings")
        |> assign(:current_path, "/settings/netflows")
        |> assign(:cidrs, load_cidrs(scope))
+       |> assign(:settings, settings)
+       |> assign(:settings_form, settings_to_form(settings))
        |> assign(:selected, nil)
        |> assign(:ash_form, nil)
        |> assign(:form, nil)}
@@ -139,6 +144,40 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     end
   end
 
+  def handle_event("settings_validate", %{"settings" => params}, socket) do
+    # Keep the in-memory form state in sync; we intentionally avoid clearing secrets
+    # unless the user explicitly checks the "clear" box.
+    {:noreply,
+     assign(socket, :settings_form, merge_settings_form(socket.assigns.settings_form, params))}
+  end
+
+  def handle_event("settings_save", %{"settings" => params}, socket) do
+    scope = socket.assigns.current_scope
+    user = scope.user
+
+    settings = socket.assigns.settings || load_settings(scope)
+
+    update_params = build_settings_update_params(params)
+
+    result =
+      case settings do
+        %NetflowSettings{} = record -> NetflowSettings.update_settings(record, update_params, actor: user)
+        _ -> NetflowSettings.create(update_params, actor: user)
+      end
+
+    case result do
+      {:ok, %NetflowSettings{} = updated} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Saved settings")
+         |> assign(:settings, updated)
+         |> assign(:settings_form, settings_to_form(updated))}
+
+      {:error, err} ->
+        {:noreply, socket |> put_flash(:error, "Failed to save settings: #{inspect(err)}")}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -157,6 +196,118 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                 Configure directionality tagging based on local networks. These CIDRs are used by SRQL
                 queries and enrichment pipelines to label flows as inbound/outbound/internal/external.
               </p>
+            </div>
+
+            <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <h2 class="text-sm font-semibold">Optional Enrichment and Security</h2>
+              <p class="text-xs text-base-content/60 mt-1">
+                These settings are deployment-scoped. External providers are only used by background jobs,
+                never at query time.
+              </p>
+
+              <.form
+                :if={@settings_form}
+                for={@settings_form}
+                id="netflow-settings-form"
+                phx-change="settings_validate"
+                phx-submit="settings_save"
+              >
+                <div class="mt-4 grid grid-cols-1 gap-4">
+                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                    <div class="text-xs font-semibold">ipinfo.io/lite</div>
+                    <div class="mt-2 grid grid-cols-1 gap-3">
+                      <.input
+                        field={@settings_form[:ipinfo_enabled]}
+                        type="checkbox"
+                        label="Enable ipinfo enrichment (background only)"
+                      />
+                      <.input
+                        field={@settings_form[:ipinfo_base_url]}
+                        type="text"
+                        label="Base URL"
+                        placeholder="https://api.ipinfo.io"
+                      />
+
+                      <div class="grid grid-cols-1 gap-2">
+                        <label class="label p-0">
+                          <span class="label-text text-sm">Token (optional)</span>
+                        </label>
+                        <input
+                          class="input input-bordered w-full"
+                          type="password"
+                          name="settings[ipinfo_api_key]"
+                          value=""
+                          autocomplete="off"
+                          placeholder={if ipinfo_token_present?(@settings), do: "(set)", else: "(not set)"}
+                        />
+                        <div class="text-xs text-base-content/60">
+                          Leave blank to keep existing. Check "clear" to remove.
+                        </div>
+                      </div>
+
+                      <label class="flex items-center gap-2 text-sm">
+                        <input type="checkbox" class="checkbox checkbox-sm" name="settings[clear_ipinfo_api_key]" value="true" />
+                        <span>Clear token</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                    <div class="text-xs font-semibold">Threat Intel (Feature Flag)</div>
+                    <div class="mt-2 grid grid-cols-1 gap-3">
+                      <.input field={@settings_form[:threat_intel_enabled]} type="checkbox" label="Enable threat intel matching" />
+                      <div class="grid grid-cols-1 gap-2">
+                        <label class="label p-0">
+                          <span class="label-text text-sm">Feed URLs (one per line)</span>
+                        </label>
+                        <textarea
+                          class="textarea textarea-bordered w-full"
+                          name="settings[threat_intel_feed_urls_text]"
+                          rows="3"
+                        ><%= Enum.join(Map.get(@settings_form.source, :threat_intel_feed_urls, []) || [], "\n") %></textarea>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                    <div class="text-xs font-semibold">Anomaly Detection (Feature Flag)</div>
+                    <div class="mt-2 grid grid-cols-1 gap-3">
+                      <.input field={@settings_form[:anomaly_enabled]} type="checkbox" label="Enable anomaly flags" />
+                      <.input
+                        field={@settings_form[:anomaly_baseline_window_seconds]}
+                        type="number"
+                        label="Baseline window seconds"
+                      />
+                      <.input
+                        field={@settings_form[:anomaly_threshold_percent]}
+                        type="number"
+                        label="Threshold percent increase"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                    <div class="text-xs font-semibold">Port Scan Detection (Feature Flag)</div>
+                    <div class="mt-2 grid grid-cols-1 gap-3">
+                      <.input field={@settings_form[:port_scan_enabled]} type="checkbox" label="Enable port scan flags" />
+                      <.input
+                        field={@settings_form[:port_scan_window_seconds]}
+                        type="number"
+                        label="Window seconds"
+                      />
+                      <.input
+                        field={@settings_form[:port_scan_unique_ports_threshold]}
+                        type="number"
+                        label="Unique ports threshold"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="mt-4 flex justify-end">
+                  <button class="btn btn-sm btn-primary" type="submit">Save Settings</button>
+                </div>
+              </.form>
             </div>
 
             <div class="flex items-center justify-between">
@@ -298,6 +449,113 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
       _ -> nil
     end
   end
+
+  defp load_settings(scope) do
+    user = scope.user
+
+    case NetflowSettings.get_settings(actor: user) do
+      {:ok, %NetflowSettings{} = settings} -> settings
+      _ ->
+        # In case the default row hasn't been created in this environment yet.
+        case NetflowSettings.create(%{}, actor: user) do
+          {:ok, %NetflowSettings{} = settings} -> settings
+          _ -> nil
+        end
+    end
+  end
+
+  defp settings_to_form(nil), do: nil
+
+  defp settings_to_form(%NetflowSettings{} = settings) do
+    # Build a plain form-like map for settings; we only persist on submit.
+    %{
+      "ipinfo_enabled" => truthy(settings.ipinfo_enabled),
+      "ipinfo_base_url" => settings.ipinfo_base_url || "https://api.ipinfo.io",
+      "threat_intel_enabled" => truthy(settings.threat_intel_enabled),
+      "threat_intel_feed_urls" => settings.threat_intel_feed_urls || [],
+      "anomaly_enabled" => truthy(settings.anomaly_enabled),
+      "anomaly_baseline_window_seconds" => to_string(settings.anomaly_baseline_window_seconds || 604_800),
+      "anomaly_threshold_percent" => to_string(settings.anomaly_threshold_percent || 300),
+      "port_scan_enabled" => truthy(settings.port_scan_enabled),
+      "port_scan_window_seconds" => to_string(settings.port_scan_window_seconds || 300),
+      "port_scan_unique_ports_threshold" => to_string(settings.port_scan_unique_ports_threshold || 50)
+    }
+    |> to_form(as: "settings")
+  end
+
+  defp settings_to_form(_), do: nil
+
+  defp merge_settings_form(form, params) do
+    # Phoenix form struct has `.source`; we merge incoming params into it for re-render.
+    merged =
+      form.source
+      |> Map.merge(params || %{})
+
+    to_form(merged, as: "settings")
+  end
+
+  defp build_settings_update_params(params) when is_map(params) do
+    feed_urls =
+      params
+      |> Map.get("threat_intel_feed_urls_text", "")
+      |> to_string()
+      |> String.split("\n")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    base = %{
+      ipinfo_enabled: truthy_param?(Map.get(params, "ipinfo_enabled")),
+      ipinfo_base_url: Map.get(params, "ipinfo_base_url") |> to_string() |> String.trim(),
+      threat_intel_enabled: truthy_param?(Map.get(params, "threat_intel_enabled")),
+      threat_intel_feed_urls: feed_urls,
+      anomaly_enabled: truthy_param?(Map.get(params, "anomaly_enabled")),
+      anomaly_baseline_window_seconds: to_int(Map.get(params, "anomaly_baseline_window_seconds"), 604_800),
+      anomaly_threshold_percent: to_int(Map.get(params, "anomaly_threshold_percent"), 300),
+      port_scan_enabled: truthy_param?(Map.get(params, "port_scan_enabled")),
+      port_scan_window_seconds: to_int(Map.get(params, "port_scan_window_seconds"), 300),
+      port_scan_unique_ports_threshold: to_int(Map.get(params, "port_scan_unique_ports_threshold"), 50),
+      clear_ipinfo_api_key: truthy_param?(Map.get(params, "clear_ipinfo_api_key"))
+    }
+
+    api_key = Map.get(params, "ipinfo_api_key")
+
+    if is_binary(api_key) and String.trim(api_key) != "" do
+      Map.put(base, :ipinfo_api_key, String.trim(api_key))
+    else
+      base
+    end
+  end
+
+  defp build_settings_update_params(_), do: %{}
+
+  defp truthy(true), do: true
+  defp truthy("true"), do: true
+  defp truthy("1"), do: true
+  defp truthy(_), do: false
+
+  defp truthy_param?(true), do: true
+  defp truthy_param?("true"), do: true
+  defp truthy_param?("1"), do: true
+  defp truthy_param?("on"), do: true
+  defp truthy_param?(_), do: false
+
+  defp ipinfo_token_present?(%NetflowSettings{ipinfo_api_key: value}) when is_binary(value),
+    do: String.trim(value) != ""
+
+  defp ipinfo_token_present?(_), do: false
+
+  defp to_int(nil, default), do: default
+  defp to_int("", default), do: default
+
+  defp to_int(value, default) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {n, ""} -> n
+      _ -> default
+    end
+  end
+
+  defp to_int(value, _default) when is_integer(value), do: value
+  defp to_int(_value, default), do: default
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", fn

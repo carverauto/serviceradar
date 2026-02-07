@@ -35,7 +35,7 @@ Added `platform.ip_geo_enrichment_cache` and `platform.ip_rdns_cache` in `elixir
 - [x] 4.3 Implement service tagging for common ports (static mapping + override hook)
 - [x] 4.4 Implement directionality tagging based on configured local CIDRs
 - [x] 4.5 Add a background refresh/update mechanism for enrichment data sources where applicable
-- [ ] 4.6 (Optional) Integrate `ipinfo.io/lite` enrichment provider with per-deployment API key (AshCloak-encrypted) and admin UI (RBAC)
+- [x] 4.6 (Optional) Integrate `ipinfo.io/lite` enrichment provider with per-deployment API key (AshCloak-encrypted) and admin UI (RBAC)
 
 Notes (4.2/4.5):
 Added Ash resources `ServiceRadar.Observability.IpRdnsCache` and `ServiceRadar.Observability.IpGeoEnrichmentCache` (migrate? false) and background workers:
@@ -50,6 +50,15 @@ Added local GeoLite2 MMDB support via `Geolix` (`geolix_adapter_mmdb2`) configur
 Notes (4.4):
 Added `platform.netflow_local_cidrs` + Ash resource `ServiceRadar.Observability.NetflowLocalCidr` (RBAC permission `settings.netflow.manage`) and an admin settings UI at `/settings/netflows` for managing local CIDRs.
 SRQL `in:flows` supports `direction:<value>` filtering and `stats:... by direction` grouping via a computed direction expression that consults `netflow_local_cidrs`.
+The direction computation is written to avoid repeated containment checks: it computes `src_local` and `dst_local` once (via two `EXISTS` subqueries) and then derives the label, rather than re-running `EXISTS` multiple times per row.
+
+Perf note:
+Direction is currently computed at query time (no extra column in `ocsf_network_activity`). If we later need to display direction in every raw flow row at high volumes, we may want to persist direction at ingestion time or precompute in rollups; for now we rely on the GIST index on enabled CIDRs + the optimized computed expression.
+
+Notes (4.6):
+Added `platform.netflow_settings` (singleton) with AshCloak-encrypted `ipinfo_api_key` and an admin settings UI under `/settings/netflows`.
+Implemented `platform.ip_ipinfo_cache` with TTL and an ipinfo.io/lite background refresh in `ServiceRadar.Observability.IpEnrichmentRefreshWorker`.
+All ipinfo usage is background-only; SRQL query execution never makes external API calls.
 
 ## 5. Web-NG UI Enhancements
 - [x] 5.1 Add/extend dashboard widgets: top talkers, top ports, protocol distribution, total bandwidth, active flows
@@ -60,11 +69,39 @@ SRQL `in:flows` supports `direction:<value>` filtering and `stats:... by directi
 - [x] 5.6 Ensure filters are server-side, paginated, and URL-addressable (shareable deep links)
 
 ## 6. Security Intelligence (Optional / Phased)
-- [ ] 6.1 Add threat intel indicator matching and UI badges (feature-flagged)
-- [ ] 6.2 Add simple anomaly flags against a baseline window (feature-flagged)
-- [ ] 6.3 Add port scan detection heuristic and surfacing in UI (feature-flagged)
+- [x] 6.1 Add threat intel indicator matching and UI badges (feature-flagged)
+- [x] 6.2 Add simple anomaly flags against a baseline window (feature-flagged)
+- [x] 6.3 Add port scan detection heuristic and surfacing in UI (feature-flagged)
+
+Notes (6.x):
+Implemented feature-flagged security intelligence via:
+- `platform.threat_intel_indicators` + `ThreatIntelFeedRefreshWorker` (feed download + upsert)
+- `platform.ip_threat_intel_cache` (bounded per-IP match cache)
+- `platform.netflow_port_scan_flags` computed from SRQL `count_distinct(dst_endpoint_port) by src_endpoint_ip`
+- `platform.netflow_port_anomaly_flags` computed from SRQL current-window vs baseline-window bytes by `dst_endpoint_port`
+Added `NetflowSecurityScheduler` + `NetflowSecurityRefreshWorker` to keep caches refreshed.
+Surfacing is added to the NetFlow flow details panel (badges/summary), gated by the configured settings in `platform.netflow_settings`.
 
 ## 7. Validation
-- [ ] 7.1 Add/update pipeline test coverage (docker compose / quick-test) to exercise new widget queries
-- [ ] 7.2 Validate UI responsiveness with large flow volumes (pagination + rollups)
+- [x] 7.1 Add/update pipeline test coverage (docker compose / quick-test) to exercise new widget queries
+- [x] 7.2 Validate UI responsiveness with large flow volumes (pagination + rollups)
 - [x] 7.3 Run `openspec validate add-netflow-observability-dashboard --strict`
+
+Notes (7.1):
+Added web-ng LiveView coverage for:
+- NetFlow settings (create CIDR, RBAC gate) in `web-ng/test/serviceradar_web_ng_web/live/settings/netflow_live_test.exs`
+- Direction chips SRQL patching in `web-ng/test/serviceradar_web_ng_web/live/log_live/netflows_test.exs`
+Also ran SRQL unit tests in `rust/srql` after adding direction filter/group-by support.
+
+Notes (7.2):
+Inserted 100k synthetic flow rows into `platform.ocsf_network_activity` (hypertable) and ran `EXPLAIN (ANALYZE, BUFFERS)`
+for the raw flow list shape with direction computed from `platform.netflow_local_cidrs`.
+Observed:
+- Time-window + `ORDER BY time DESC LIMIT 50` uses the hypertable chunk time index.
+- CIDR containment checks use the partial GIST index on enabled CIDRs.
+- Updated the SRQL direction expression to use a simple `CASE flags.mask WHEN ...` to avoid PostgreSQL re-evaluating the correlated
+  `EXISTS` checks multiple times per row (important for the raw flows list).
+
+Perf note:
+Direction is still computed at query time. If the raw flows list ever needs direction for very large page sizes or high QPS, we can
+persist direction at ingestion time or precompute it in rollups, but that's not part of this request.

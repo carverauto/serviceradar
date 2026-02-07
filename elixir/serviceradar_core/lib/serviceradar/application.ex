@@ -71,6 +71,9 @@ defmodule ServiceRadar.Application do
         # PubSub for cluster events (always needed)
         {Phoenix.PubSub, name: ServiceRadar.PubSub},
 
+        # Minimal HTTP client for background jobs (GeoLite downloads, optional ipinfo refresh)
+        finch_child(),
+
         # Local registry for process lookups (gateways, agents)
         {Registry, keys: :unique, name: ServiceRadar.LocalRegistry},
 
@@ -144,6 +147,7 @@ defmodule ServiceRadar.Application do
         # NetFlow enrichment background maintenance
         ip_enrichment_scheduler_child(),
         geolite_mmdb_scheduler_child(),
+        netflow_security_scheduler_child(),
 
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
@@ -198,6 +202,14 @@ defmodule ServiceRadar.Application do
     end
   end
 
+  defp finch_child do
+    if Application.get_env(:serviceradar_core, :http_client_enabled, true) do
+      {Finch, name: ServiceRadar.Finch}
+    else
+      nil
+    end
+  end
+
   defp oban_child do
     oban_enabled = Application.get_env(:serviceradar_core, :oban_enabled, true)
 
@@ -215,6 +227,14 @@ defmodule ServiceRadar.Application do
   defp sweep_schedule_reconciler_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.SweepJobs.SweepScheduleReconciler
+    else
+      nil
+    end
+  end
+
+  defp netflow_security_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Observability.NetflowSecurityScheduler
     else
       nil
     end

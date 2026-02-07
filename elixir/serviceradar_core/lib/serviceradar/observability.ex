@@ -46,6 +46,12 @@ defmodule ServiceRadar.Observability do
     resource(ServiceRadar.Observability.StatefulAlertRuleHistory)
     resource(ServiceRadar.Observability.IpGeoEnrichmentCache)
     resource(ServiceRadar.Observability.IpRdnsCache)
+    resource(ServiceRadar.Observability.IpIpinfoCache)
+    resource(ServiceRadar.Observability.ThreatIntelIndicator)
+    resource(ServiceRadar.Observability.IpThreatIntelCache)
+    resource(ServiceRadar.Observability.NetflowPortScanFlag)
+    resource(ServiceRadar.Observability.NetflowPortAnomalyFlag)
+    resource(ServiceRadar.Observability.NetflowSettings)
     resource(ServiceRadar.Observability.NetflowLocalCidr)
     # Metrics resources - all map to TimescaleDB hypertables with migrate?: false
     # matching Go schema exactly

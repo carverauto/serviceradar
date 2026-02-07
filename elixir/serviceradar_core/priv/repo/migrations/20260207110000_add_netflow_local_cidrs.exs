@@ -10,38 +10,45 @@ defmodule ServiceRadar.Repo.Migrations.AddNetflowLocalCidrs do
   use Ecto.Migration
 
   def up do
-    create table(:netflow_local_cidrs, primary_key: false, prefix: "platform") do
-      add(:id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true)
+    # Use raw SQL to keep this migration idempotent even if the table is created
+    # out-of-band in dev environments.
+    execute("""
+    CREATE TABLE IF NOT EXISTS platform.netflow_local_cidrs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      partition TEXT,
+      label TEXT,
+      cidr CIDR NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      inserted_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ
+    )
+    """)
 
-      # Optional partition scoping (matches ocsf_network_activity.partition).
-      # NULL means "applies to all partitions".
-      add(:partition, :text)
+    execute(
+      "CREATE INDEX IF NOT EXISTS netflow_local_cidrs_partition_idx ON platform.netflow_local_cidrs (partition)"
+    )
 
-      add(:label, :text)
-      add(:cidr, :cidr, null: false)
-      add(:enabled, :boolean, null: false, default: true)
+    execute(
+      "CREATE INDEX IF NOT EXISTS netflow_local_cidrs_enabled_idx ON platform.netflow_local_cidrs (enabled)"
+    )
 
-      timestamps(type: :utc_datetime_usec)
-    end
-
-    create(index(:netflow_local_cidrs, [:partition], prefix: "platform"))
-    create(index(:netflow_local_cidrs, [:enabled], prefix: "platform"))
-    create(unique_index(:netflow_local_cidrs, [:partition, :cidr], prefix: "platform"))
+    execute(
+      "CREATE UNIQUE INDEX IF NOT EXISTS netflow_local_cidrs_partition_cidr_uidx ON platform.netflow_local_cidrs (partition, cidr)"
+    )
 
     execute("""
     CREATE INDEX IF NOT EXISTS netflow_local_cidrs_cidr_gist_enabled_idx
     ON platform.netflow_local_cidrs
-    USING GIST (cidr)
+    USING GIST (cidr inet_ops)
     WHERE enabled
     """)
   end
 
   def down do
     execute("DROP INDEX IF EXISTS platform.netflow_local_cidrs_cidr_gist_enabled_idx")
-
-    drop(unique_index(:netflow_local_cidrs, [:partition, :cidr], prefix: "platform"))
-    drop(index(:netflow_local_cidrs, [:enabled], prefix: "platform"))
-    drop(index(:netflow_local_cidrs, [:partition], prefix: "platform"))
-    drop(table(:netflow_local_cidrs, prefix: "platform"))
+    execute("DROP INDEX IF EXISTS platform.netflow_local_cidrs_partition_cidr_uidx")
+    execute("DROP INDEX IF EXISTS platform.netflow_local_cidrs_enabled_idx")
+    execute("DROP INDEX IF EXISTS platform.netflow_local_cidrs_partition_idx")
+    execute("DROP TABLE IF EXISTS platform.netflow_local_cidrs")
   end
 end

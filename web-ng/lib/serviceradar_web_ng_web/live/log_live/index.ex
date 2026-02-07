@@ -8,11 +8,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Observability.FlowPubSub
   alias ServiceRadar.Observability.LogPubSub
+  alias ServiceRadar.Observability.IpIpinfoCache
+  alias ServiceRadar.Observability.IpThreatIntelCache
+  alias ServiceRadar.Observability.NetflowPortAnomalyFlag
+  alias ServiceRadar.Observability.NetflowPortScanFlag
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Stats
 
   require Logger
+  require Ash.Query
 
   @default_limit 20
   @max_limit 100
@@ -43,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:alerts, [])
      |> assign(:netflows, [])
      |> assign(:selected_netflow, nil)
+     |> assign(:netflow_context, nil)
      |> assign(:netflow_top_talkers, [])
      |> assign(:netflow_top_ports, [])
      |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
@@ -96,6 +102,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:alerts, [])
       |> assign(:netflows, [])
       |> assign(:selected_netflow, nil)
+      |> assign(:netflow_context, nil)
       |> assign(:netflow_top_talkers, [])
       |> assign(:netflow_top_ports, [])
       |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
@@ -127,11 +134,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         _ -> nil
       end
 
-    {:noreply, assign(socket, :selected_netflow, selected)}
+    ctx = if is_map(selected), do: load_netflow_context(selected, socket.assigns.current_scope), else: nil
+
+    {:noreply,
+     socket
+     |> assign(:selected_netflow, selected)
+     |> assign(:netflow_context, ctx)}
   end
 
   def handle_event("netflow_close", _params, socket) do
-    {:noreply, assign(socket, :selected_netflow, nil)}
+    {:noreply, socket |> assign(:selected_netflow, nil) |> assign(:netflow_context, nil)}
   end
 
   def handle_event("netflow_bucket", %{"start" => start_raw, "end" => end_raw}, socket) do
@@ -176,6 +188,96 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
        extra_params: extra_params
      )}
   end
+
+  defp load_netflow_context(flow, scope) when is_map(flow) do
+    user = scope && scope.user
+
+    src_ip = netflow_addr(flow, :src)
+    dst_ip = netflow_addr(flow, :dst)
+    dst_port = to_int(netflow_port(flow, :dst))
+
+    %{
+      src_ipinfo: read_ipinfo(user, src_ip),
+      dst_ipinfo: read_ipinfo(user, dst_ip),
+      src_threat: read_threat(user, src_ip),
+      dst_threat: read_threat(user, dst_ip),
+      src_port_scan: read_port_scan(user, src_ip),
+      dst_port_anomaly: read_port_anomaly(user, dst_port)
+    }
+  end
+
+  defp load_netflow_context(_flow, _scope), do: %{}
+
+  defp read_ipinfo(nil, _ip), do: nil
+
+  defp read_ipinfo(user, ip) when is_binary(ip) do
+    ip = String.trim(ip)
+
+    if ip in ["", "—", "-"] do
+      nil
+    else
+      query = IpIpinfoCache |> Ash.Query.for_read(:by_ip, %{ip: ip})
+
+      case Ash.read_one(query, actor: user) do
+        {:ok, record} -> record
+        _ -> nil
+      end
+    end
+  end
+
+  defp read_ipinfo(_user, _ip), do: nil
+
+  defp read_threat(nil, _ip), do: nil
+
+  defp read_threat(user, ip) when is_binary(ip) do
+    ip = String.trim(ip)
+
+    if ip in ["", "—", "-"] do
+      nil
+    else
+      query = IpThreatIntelCache |> Ash.Query.for_read(:by_ip, %{ip: ip})
+
+      case Ash.read_one(query, actor: user) do
+        {:ok, record} -> record
+        _ -> nil
+      end
+    end
+  end
+
+  defp read_threat(_user, _ip), do: nil
+
+  defp read_port_scan(nil, _ip), do: nil
+
+  defp read_port_scan(user, ip) when is_binary(ip) do
+    ip = String.trim(ip)
+
+    if ip in ["", "—", "-"] do
+      nil
+    else
+      query = NetflowPortScanFlag |> Ash.Query.for_read(:by_src_ip, %{src_ip: ip})
+
+      case Ash.read_one(query, actor: user) do
+        {:ok, record} -> record
+        _ -> nil
+      end
+    end
+  end
+
+  defp read_port_scan(_user, _ip), do: nil
+
+  defp read_port_anomaly(nil, _port), do: nil
+  defp read_port_anomaly(_user, nil), do: nil
+
+  defp read_port_anomaly(user, port) when is_integer(port) do
+    query = NetflowPortAnomalyFlag |> Ash.Query.for_read(:by_port, %{dst_port: port})
+
+    case Ash.read_one(query, actor: user) do
+      {:ok, record} -> record
+      _ -> nil
+    end
+  end
+
+  defp read_port_anomaly(_user, _port), do: nil
 
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply,
@@ -362,6 +464,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <.netflow_details_modal
             :if={@active_tab == "netflows" and is_map(@selected_netflow)}
             flow={@selected_netflow}
+            context={@netflow_context}
             base_path={Map.get(@srql, :page_path) || "/observability"}
             query={Map.get(@srql, :query, "")}
             limit={@limit}
@@ -2436,6 +2539,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   attr(:flow, :map, required: true)
+  attr(:context, :map, default: %{})
   attr(:base_path, :string, required: true)
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
@@ -2650,6 +2754,95 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               >
                 <.icon name="hero-funnel" class="size-4" /> Port {@dst_port}
               </.ui_button>
+            </div>
+
+            <div class="mt-6 pt-4 border-t border-base-200">
+              <div class="text-xs uppercase tracking-wider text-base-content/50">
+                Security and Enrichment
+              </div>
+
+              <div class="mt-3 space-y-3 text-xs">
+                <div>
+                  <div class="font-semibold">Threat intel</div>
+                  <div class="mt-1 text-base-content/70">
+                    Source:
+                    <span class="font-mono">{@src_ip}</span>
+                    <%= if match = Map.get(@context, :src_threat) do %>
+                      <span class="ml-2 badge badge-xs badge-warning">match</span>
+                      <span class="ml-2 font-mono">
+                        {match.match_count} indicators
+                      </span>
+                    <% else %>
+                      <span class="ml-2 badge badge-xs badge-ghost">none</span>
+                    <% end %>
+                  </div>
+                  <div class="mt-1 text-base-content/70">
+                    Dest:
+                    <span class="font-mono">{@dst_ip}</span>
+                    <%= if match = Map.get(@context, :dst_threat) do %>
+                      <span class="ml-2 badge badge-xs badge-warning">match</span>
+                      <span class="ml-2 font-mono">
+                        {match.match_count} indicators
+                      </span>
+                    <% else %>
+                      <span class="ml-2 badge badge-xs badge-ghost">none</span>
+                    <% end %>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="font-semibold">Port scan</div>
+                  <%= if scan = Map.get(@context, :src_port_scan) do %>
+                    <div class="mt-1 text-base-content/70">
+                      <span class="badge badge-xs badge-error">flagged</span>
+                      <span class="ml-2 font-mono">{scan.unique_ports} unique ports</span>
+                    </div>
+                  <% else %>
+                    <div class="mt-1 text-base-content/70">
+                      <span class="badge badge-xs badge-ghost">not flagged</span>
+                    </div>
+                  <% end %>
+                </div>
+
+                <div :if={anomaly = Map.get(@context, :dst_port_anomaly)}>
+                  <div class="font-semibold">Port anomaly</div>
+                  <div class="mt-1 text-base-content/70">
+                    <span class="badge badge-xs badge-error">anomalous</span>
+                    <span class="ml-2 font-mono">
+                      {format_netflow_bytes(anomaly.current_bytes)} vs baseline {format_netflow_bytes(anomaly.baseline_bytes)}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="font-semibold">ipinfo.io/lite</div>
+                  <%= if info = Map.get(@context, :src_ipinfo) do %>
+                    <div class="mt-1 text-base-content/70">
+                      Source:
+                      <span class="font-mono">
+                        {Enum.join(Enum.filter([info.city, info.region, info.country_code], &(&1 && &1 != "")), ", ")}
+                      </span>
+                    </div>
+                  <% else %>
+                    <div class="mt-1 text-base-content/70">
+                      Source: <span class="text-base-content/50">n/a</span>
+                    </div>
+                  <% end %>
+
+                  <%= if info = Map.get(@context, :dst_ipinfo) do %>
+                    <div class="mt-1 text-base-content/70">
+                      Dest:
+                      <span class="font-mono">
+                        {Enum.join(Enum.filter([info.city, info.region, info.country_code], &(&1 && &1 != "")), ", ")}
+                      </span>
+                    </div>
+                  <% else %>
+                    <div class="mt-1 text-base-content/70">
+                      Dest: <span class="text-base-content/50">n/a</span>
+                    </div>
+                  <% end %>
+                </div>
+              </div>
             </div>
           </.ui_panel>
         </div>

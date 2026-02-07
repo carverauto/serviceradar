@@ -13,7 +13,14 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     unique: [period: 300, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Observability.{GeoIP, IpGeoEnrichmentCache, IpRdnsCache, SRQLRunner}
+  alias ServiceRadar.Observability.{
+    GeoIP,
+    IpGeoEnrichmentCache,
+    IpIpinfoCache,
+    IpRdnsCache,
+    NetflowSettings,
+    SRQLRunner
+  }
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -26,7 +33,9 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   @default_limit 200
   @default_rdns_ttl_seconds 86_400
   @default_geo_ttl_seconds 604_800
+  @default_ipinfo_ttl_seconds 604_800
   @default_rdns_timeout_ms 250
+  @default_ipinfo_timeout_ms 800
   @default_reschedule_seconds 300
 
   @doc """
@@ -62,19 +71,25 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     limit = Keyword.get(config, :limit, @default_limit)
     rdns_ttl_seconds = Keyword.get(config, :rdns_ttl_seconds, @default_rdns_ttl_seconds)
     geo_ttl_seconds = Keyword.get(config, :geo_ttl_seconds, @default_geo_ttl_seconds)
+    ipinfo_ttl_seconds = Keyword.get(config, :ipinfo_ttl_seconds, @default_ipinfo_ttl_seconds)
     rdns_timeout_ms = Keyword.get(config, :rdns_timeout_ms, @default_rdns_timeout_ms)
+    ipinfo_timeout_ms = Keyword.get(config, :ipinfo_timeout_ms, @default_ipinfo_timeout_ms)
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
 
     now = DateTime.utc_now()
     rdns_expires_at = DateTime.add(now, rdns_ttl_seconds, :second)
     geo_expires_at = DateTime.add(now, geo_ttl_seconds, :second)
+    ipinfo_expires_at = DateTime.add(now, ipinfo_ttl_seconds, :second)
 
     actor = SystemActor.system(:ip_enrichment_refresh)
+
+    settings = load_netflow_settings(actor)
 
     ips = discover_candidate_ips(scan_window, limit)
     Enum.each(ips, fn ip ->
       refresh_rdns(ip, actor, now, rdns_expires_at, rdns_timeout_ms)
       refresh_geo(ip, actor, now, geo_expires_at)
+      refresh_ipinfo(ip, settings, actor, now, ipinfo_expires_at, ipinfo_timeout_ms)
     end)
 
     ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 30)))
@@ -207,6 +222,139 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
 
         :error
     end
+  end
+
+  defp load_netflow_settings(actor) do
+    case NetflowSettings.get_settings(actor: actor) do
+      {:ok, %NetflowSettings{} = settings} -> settings
+      _ -> nil
+    end
+  end
+
+  defp refresh_ipinfo(_ip, nil, _actor, _now, _expires_at, _timeout_ms), do: :skip
+
+  defp refresh_ipinfo(ip, %NetflowSettings{} = settings, actor, now, expires_at, timeout_ms)
+       when is_binary(ip) do
+    # Background-only enrichment: never call external APIs during SRQL query execution.
+    if settings.ipinfo_enabled && is_binary(settings.ipinfo_api_key) && settings.ipinfo_api_key != "" &&
+         not private_ip?(ip) do
+      {attrs, err} = ipinfo_lookup(ip, settings.ipinfo_base_url, settings.ipinfo_api_key, timeout_ms)
+
+      existing_error_count =
+        case Ash.read_one(
+               IpIpinfoCache |> Ash.Query.for_read(:by_ip, %{ip: ip}),
+               actor: actor
+             ) do
+          {:ok, %IpIpinfoCache{error_count: n}} when is_integer(n) -> n
+          _ -> 0
+        end
+
+      error_count =
+        cond do
+          is_nil(err) -> 0
+          true -> existing_error_count + 1
+        end
+
+      attrs =
+        (attrs || %{})
+        |> Map.merge(%{
+          ip: ip,
+          looked_up_at: now,
+          expires_at: expires_at,
+          error: err,
+          error_count: error_count
+        })
+
+      changeset =
+        IpIpinfoCache
+        |> Ash.Changeset.for_create(:upsert, attrs)
+
+      case Ash.create(changeset, actor: actor) do
+        {:ok, _} -> :ok
+        {:error, reason} ->
+          Logger.warning("IpEnrichmentRefreshWorker: failed to upsert ipinfo cache",
+            ip: ip,
+            reason: inspect(reason)
+          )
+
+          :error
+      end
+    else
+      :skip
+    end
+  end
+
+  defp ipinfo_lookup(ip, base_url, token, timeout_ms)
+       when is_binary(ip) and is_binary(base_url) and is_binary(token) and is_integer(timeout_ms) do
+    base_url = String.trim(base_url || "")
+    token = String.trim(token || "")
+
+    if base_url == "" or token == "" do
+      {nil, "missing_ipinfo_config"}
+    else
+      url =
+        base_url
+        |> String.trim_trailing("/")
+        |> Kernel.<>("/lite/")
+        |> Kernel.<>(URI.encode(ip))
+        |> Kernel.<>("?token=")
+        |> Kernel.<>(URI.encode(token))
+
+      task =
+        Task.async(fn ->
+          req = Finch.build(:get, url)
+
+          case Finch.request(req, ServiceRadar.Finch, receive_timeout: timeout_ms) do
+            {:ok, %Finch.Response{status: 200, body: body}} ->
+              case Jason.decode(body) do
+                {:ok, %{} = data} -> {:ok, data}
+                _ -> {:error, :invalid_json}
+              end
+
+            {:ok, %Finch.Response{status: status, body: body}} ->
+              {:error, {:http_status, status, body}}
+
+            {:error, reason} ->
+              {:error, reason}
+          end
+        end)
+
+      case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+        {:ok, {:ok, %{} = data}} ->
+          {normalize_ipinfo_data(data), nil}
+
+        {:ok, {:error, reason}} ->
+          {nil, inspect(reason)}
+
+        nil ->
+          {nil, "timeout"}
+      end
+    end
+  end
+
+  defp normalize_ipinfo_data(%{} = data) do
+    asn =
+      case Map.get(data, "asn") do
+        "AS" <> rest ->
+          case Integer.parse(rest) do
+            {n, ""} -> n
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
+
+    %{
+      country_code: Map.get(data, "country_code"),
+      country_name: Map.get(data, "country"),
+      region: Map.get(data, "region"),
+      city: Map.get(data, "city"),
+      timezone: Map.get(data, "timezone"),
+      as_number: asn,
+      as_name: Map.get(data, "as_name"),
+      as_domain: Map.get(data, "as_domain")
+    }
   end
 
   defp rdns_lookup(ip, timeout_ms) when is_binary(ip) and is_integer(timeout_ms) do

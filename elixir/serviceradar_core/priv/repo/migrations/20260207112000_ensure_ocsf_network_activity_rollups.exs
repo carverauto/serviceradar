@@ -1,18 +1,14 @@
-defmodule ServiceRadar.Repo.Migrations.AddOcsfNetworkActivityRollups do
+defmodule ServiceRadar.Repo.Migrations.EnsureOcsfNetworkActivityRollups do
   @moduledoc """
-  Creates TimescaleDB continuous aggregates (CAGGs) for flow telemetry.
+  Ensures TimescaleDB continuous aggregates (CAGGs) for flow telemetry exist.
 
-  These rollups are intended to back NetFlow dashboard widgets:
-  - traffic over time
-  - protocol distribution
-  - top talkers
-  - top destination ports
-
-  Note: continuous aggregates are created WITH DATA and must not run inside a transaction.
+  This is a safety net for environments where the original rollup migration did not
+  successfully create the views.
   """
 
   use Ecto.Migration
 
+  # Continuous aggregates are created WITH DATA and must not run inside a transaction.
   @disable_ddl_transaction true
   @disable_migration_lock true
 
@@ -180,65 +176,6 @@ defmodule ServiceRadar.Repo.Migrations.AddOcsfNetworkActivityRollups do
   end
 
   def down do
-    execute("""
-    DO $$
-    DECLARE
-      ts_schema text;
-      view_ident text;
-    BEGIN
-      SELECT n.nspname
-      INTO ts_schema
-      FROM pg_extension e
-      JOIN pg_namespace n ON n.oid = e.extnamespace
-      WHERE e.extname = 'timescaledb';
-
-      IF ts_schema IS NOT NULL THEN
-        FOREACH view_ident IN ARRAY ARRAY[
-          '#{@traffic_view}',
-          '#{@proto_view}',
-          '#{@talkers_view}',
-          '#{@ports_view}'
-        ] LOOP
-          BEGIN
-            EXECUTE format(
-              'SELECT %I.remove_retention_policy(%L::regclass, if_exists => true)',
-              ts_schema,
-              view_ident
-            );
-          EXCEPTION
-            WHEN others THEN
-              NULL;
-          END;
-
-          BEGIN
-            EXECUTE format(
-              'SELECT %I.remove_continuous_aggregate_policy(%L::regclass)',
-              ts_schema,
-              view_ident
-            );
-          EXCEPTION
-            WHEN others THEN
-              NULL;
-          END;
-        END LOOP;
-      END IF;
-    END;
-    $$;
-    """)
-
-    execute("DROP MATERIALIZED VIEW IF EXISTS #{@traffic_view}")
-    execute("DROP MATERIALIZED VIEW IF EXISTS #{@proto_view}")
-    execute("DROP MATERIALIZED VIEW IF EXISTS #{@talkers_view}")
-    execute("DROP MATERIALIZED VIEW IF EXISTS #{@ports_view}")
-
-    execute("DROP INDEX IF EXISTS platform.idx_ocsf_network_activity_5m_traffic_bucket")
-    execute("DROP INDEX IF EXISTS platform.idx_ocsf_network_activity_hourly_proto_bucket_proto")
-    execute("DROP INDEX IF EXISTS platform.idx_ocsf_network_activity_hourly_proto_bucket")
-    execute("DROP INDEX IF EXISTS platform.idx_ocsf_network_activity_hourly_talkers_bucket_ip")
-    execute("DROP INDEX IF EXISTS platform.idx_ocsf_network_activity_hourly_talkers_bucket")
-    execute("DROP INDEX IF EXISTS platform.idx_ocsf_network_activity_hourly_talkers_ip")
-    execute("DROP INDEX IF EXISTS platform.idx_ocsf_network_activity_hourly_ports_bucket_port")
-    execute("DROP INDEX IF EXISTS platform.idx_ocsf_network_activity_hourly_ports_bucket")
-    execute("DROP INDEX IF EXISTS platform.idx_ocsf_network_activity_hourly_ports_port")
+    # No-op. We don't want to drop rollups in a safety-net migration.
   end
 end

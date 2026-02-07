@@ -28,61 +28,38 @@ type FlowsQuery<'a> =
 // NOTE: `netflow_local_cidrs` is stored under the `platform` schema, but SRQL
 // typically runs with `search_path=platform,...`, so we intentionally omit the schema prefix.
 const FLOW_DIRECTION_EXPR: &str = r#"
-CASE
-  WHEN NULLIF(src_endpoint_ip, '') IS NULL OR NULLIF(dst_endpoint_ip, '') IS NULL THEN 'unknown'
-  WHEN (
-    EXISTS (
-      SELECT 1
-      FROM netflow_local_cidrs c
-      WHERE c.enabled
-        AND (c.partition IS NULL OR c.partition = partition)
-        AND (NULLIF(src_endpoint_ip, '')::inet <<= c.cidr)
+(SELECT
+  CASE
+    WHEN NULLIF(src_endpoint_ip, '') IS NULL OR NULLIF(dst_endpoint_ip, '') IS NULL THEN 'unknown'
+    ELSE (
+      CASE flags.mask
+        WHEN 3 THEN 'internal'
+        WHEN 2 THEN 'outbound'
+        WHEN 1 THEN 'inbound'
+        ELSE 'external'
+      END
     )
-  ) AND (
-    EXISTS (
-      SELECT 1
-      FROM netflow_local_cidrs c
-      WHERE c.enabled
-        AND (c.partition IS NULL OR c.partition = partition)
-        AND (NULLIF(dst_endpoint_ip, '')::inet <<= c.cidr)
-    )
-  ) THEN 'internal'
-  WHEN (
-    EXISTS (
-      SELECT 1
-      FROM netflow_local_cidrs c
-      WHERE c.enabled
-        AND (c.partition IS NULL OR c.partition = partition)
-        AND (NULLIF(src_endpoint_ip, '')::inet <<= c.cidr)
-    )
-  ) AND NOT (
-    EXISTS (
-      SELECT 1
-      FROM netflow_local_cidrs c
-      WHERE c.enabled
-        AND (c.partition IS NULL OR c.partition = partition)
-        AND (NULLIF(dst_endpoint_ip, '')::inet <<= c.cidr)
-    )
-  ) THEN 'outbound'
-  WHEN NOT (
-    EXISTS (
-      SELECT 1
-      FROM netflow_local_cidrs c
-      WHERE c.enabled
-        AND (c.partition IS NULL OR c.partition = partition)
-        AND (NULLIF(src_endpoint_ip, '')::inet <<= c.cidr)
-    )
-  ) AND (
-    EXISTS (
-      SELECT 1
-      FROM netflow_local_cidrs c
-      WHERE c.enabled
-        AND (c.partition IS NULL OR c.partition = partition)
-        AND (NULLIF(dst_endpoint_ip, '')::inet <<= c.cidr)
-    )
-  ) THEN 'inbound'
-  ELSE 'external'
-END
+  END
+  FROM LATERAL (
+    SELECT
+      (
+        CASE WHEN EXISTS (
+          SELECT 1
+          FROM netflow_local_cidrs c
+          WHERE c.enabled
+            AND (c.partition IS NULL OR c.partition = partition)
+            AND (NULLIF(src_endpoint_ip, '')::inet <<= c.cidr)
+        ) THEN 2 ELSE 0 END
+      ) + (
+        CASE WHEN EXISTS (
+          SELECT 1
+          FROM netflow_local_cidrs c
+          WHERE c.enabled
+            AND (c.partition IS NULL OR c.partition = partition)
+            AND (NULLIF(dst_endpoint_ip, '')::inet <<= c.cidr)
+        ) THEN 1 ELSE 0 END
+      ) AS mask
+  ) flags)
 "#;
 
 #[derive(Queryable, Selectable, Serialize, Deserialize)]
@@ -481,6 +458,7 @@ fn apply_secondary_order<'a>(
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FlowAggFunc {
     Count,
+    CountDistinct,
     Sum,
     Avg,
     Min,
@@ -491,6 +469,7 @@ impl FlowAggFunc {
     fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "count" => Some(Self::Count),
+            "count_distinct" => Some(Self::CountDistinct),
             "sum" => Some(Self::Sum),
             "avg" => Some(Self::Avg),
             "min" => Some(Self::Min),
@@ -502,6 +481,7 @@ impl FlowAggFunc {
     fn sql(&self) -> &'static str {
         match self {
             Self::Count => "COUNT",
+            Self::CountDistinct => "COUNT",
             Self::Sum => "SUM",
             Self::Avg => "AVG",
             Self::Min => "MIN",
@@ -517,6 +497,8 @@ enum FlowAggField {
     PacketsTotal,
     BytesIn,
     BytesOut,
+    SrcEndpointPort,
+    DstEndpointPort,
 }
 
 impl FlowAggField {
@@ -527,6 +509,8 @@ impl FlowAggField {
             "packets_total" => Some(Self::PacketsTotal),
             "bytes_in" => Some(Self::BytesIn),
             "bytes_out" => Some(Self::BytesOut),
+            "src_endpoint_port" | "src_port" => Some(Self::SrcEndpointPort),
+            "dst_endpoint_port" | "dst_port" => Some(Self::DstEndpointPort),
             _ => None,
         }
     }
@@ -538,6 +522,8 @@ impl FlowAggField {
             Self::PacketsTotal => "packets_total",
             Self::BytesIn => "bytes_in",
             Self::BytesOut => "bytes_out",
+            Self::SrcEndpointPort => "src_endpoint_port",
+            Self::DstEndpointPort => "dst_endpoint_port",
         }
     }
 }
@@ -798,9 +784,20 @@ fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
     })?;
 
     // COUNT(*) is the only valid use of "*"
-    if agg_field == FlowAggField::Star && agg_func != FlowAggFunc::Count {
+    if agg_field == FlowAggField::Star && !matches!(agg_func, FlowAggFunc::Count) {
         return Err(ServiceError::InvalidRequest(
             "only count(*) is supported for '*'".into(),
+        ));
+    }
+
+    // Port columns only support count-like aggregates.
+    if matches!(
+        agg_field,
+        FlowAggField::SrcEndpointPort | FlowAggField::DstEndpointPort
+    ) && !matches!(agg_func, FlowAggFunc::Count | FlowAggFunc::CountDistinct)
+    {
+        return Err(ServiceError::InvalidRequest(
+            "port fields only support count(...) or count_distinct(...)".into(),
         ));
     }
 
@@ -860,7 +857,16 @@ fn build_grouped_stats_query(
         format!(" WHERE {}", where_parts.join(" AND "))
     };
 
-    let agg_sql = format!("{}({})", spec.agg_func.sql(), spec.agg_field.sql());
+    let agg_sql = if matches!(spec.agg_func, FlowAggFunc::CountDistinct) {
+        if matches!(spec.agg_field, FlowAggField::Star) {
+            return Err(ServiceError::InvalidRequest(
+                "count_distinct(*) is not supported".into(),
+            ));
+        }
+        format!("COUNT(DISTINCT {})", spec.agg_field.sql())
+    } else {
+        format!("{}({})", spec.agg_func.sql(), spec.agg_field.sql())
+    };
 
     let outer_sql = if let Some(group_by) = spec.group_by {
         let group_key = group_by.response_key();
@@ -1130,6 +1136,19 @@ mod tests {
             Some(FlowGroupSpec::Field(FlowGroupField::Direction))
         );
         assert_eq!(spec.group_by.unwrap().response_key(), "direction");
+    }
+
+    #[test]
+    fn parse_stats_expr_supports_count_distinct() {
+        let expr = "count_distinct(dst_endpoint_port) as unique_ports by src_endpoint_ip";
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.agg_func, FlowAggFunc::CountDistinct);
+        assert_eq!(spec.agg_field, FlowAggField::DstEndpointPort);
+        assert_eq!(spec.alias, "unique_ports");
+        assert_eq!(
+            spec.group_by,
+            Some(FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp))
+        );
     }
 
     #[test]

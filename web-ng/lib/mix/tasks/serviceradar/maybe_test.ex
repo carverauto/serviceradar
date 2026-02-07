@@ -14,8 +14,22 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
 
     if run_db_tests? do
       repo_config = Application.get_env(:serviceradar_core, ServiceRadar.Repo, [])
-      hostname = repo_config[:hostname] || "localhost"
-      port = repo_config[:port] || 5432
+
+      {hostname, port} =
+        case {repo_config[:hostname], repo_config[:port]} do
+          {host, port} when is_binary(host) and is_integer(port) ->
+            {host, port}
+
+          _ ->
+            # When configured via `url: ...`, the hostname/port keys may not be present.
+            # Parse them out so the reachability probe matches the actual connection target.
+            url = repo_config[:url]
+
+            case parse_db_target(url) do
+              {:ok, {host, port}} -> {host, port}
+              :error -> {"localhost", 5432}
+            end
+        end
 
       if db_reachable?(hostname, port) do
         Mix.Task.run("app.start")
@@ -66,4 +80,18 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
         false
     end
   end
+
+  defp parse_db_target(url) when is_binary(url) do
+    # Typical: ecto://USER:PASS@HOST:PORT/DB?sslmode=require
+    case URI.parse(url) do
+      %URI{host: host} when is_binary(host) and host != "" ->
+        port = URI.parse(url).port || 5432
+        {:ok, {host, port}}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp parse_db_target(_), do: :error
 end
