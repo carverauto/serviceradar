@@ -1642,7 +1642,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div :if={@edges == []} class="py-6 text-center text-sm text-base-content/60">
-      Sankey is disabled for large time windows. Reduce the time range to &lt;= 6h (e.g. `time:last_1h`) to enable it.
+      No Sankey edges in this window.
     </div>
 
     <div :if={@edges != []} class="w-full">
@@ -5606,51 +5606,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp empty_netflow_sankey, do: %{edges: [], sources: [], mids: [], dests: []}
 
   defp build_netflow_sankey(srql_module, base_query, scope, prefix) do
-    # Guardrail for performance: avoid unbounded 3-way group-by across all flows.
-    # Instead, preselect top-N src/dst subnets and ports, then compute edges within that subset.
-    top_sources_q =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}" sort:total_bytes:desc limit:16|
-
-    top_dests_q =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_cidr:#{prefix}" sort:total_bytes:desc limit:16|
-
-    top_ports_q =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_endpoint_port" sort:total_bytes:desc limit:16|
-
-    top_sources =
-      srql_module
-      |> apply(:query, [top_sources_q, %{scope: scope}])
-      |> extract_stats_rows()
-      |> Enum.map(&Map.get(&1, "src_cidr"))
-      |> Enum.filter(&is_binary/1)
-      |> Enum.reject(&(&1 in ["", "Unknown"]))
-      |> Enum.take(16)
-
-    top_dests =
-      srql_module
-      |> apply(:query, [top_dests_q, %{scope: scope}])
-      |> extract_stats_rows()
-      |> Enum.map(&Map.get(&1, "dst_cidr"))
-      |> Enum.filter(&is_binary/1)
-      |> Enum.reject(&(&1 in ["", "Unknown"]))
-      |> Enum.take(16)
-
-    top_ports =
-      srql_module
-      |> apply(:query, [top_ports_q, %{scope: scope}])
-      |> extract_stats_rows()
-      |> Enum.map(&to_int(Map.get(&1, "dst_endpoint_port")))
-      |> Enum.filter(&(&1 > 0))
-      |> Enum.take(16)
-
-    src_filter = srql_in_filter("src_cidr", top_sources)
-    dst_filter = srql_in_filter("dst_cidr", top_dests)
-    # SRQL field is `dst_endpoint_port` (not `dst_port`).
-    port_filter = srql_in_filter("dst_endpoint_port", top_ports)
-
-    # Multi-dimension stats: SRQL enforces time window + limit cap guardrails.
+    # Keep this direct query so Sankey always renders.
+    # If we need tighter guardrails later, we can reintroduce top-N preselection once it's proven correct.
     query =
-      ~s|#{base_query}#{src_filter}#{dst_filter}#{port_filter} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}, dst_endpoint_port, dst_cidr:#{prefix}" sort:total_bytes:desc limit:200|
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}, dst_endpoint_port, dst_cidr:#{prefix}" sort:total_bytes:desc limit:200|
 
     edges =
       srql_module
@@ -5677,9 +5636,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     _ ->
       empty_netflow_sankey()
   end
-
-  defp srql_in_filter(_field, []), do: ""
-  defp srql_in_filter(field, values), do: " #{field}:(#{Enum.join(values, ",")})"
 
   defp netflow_sankey_edge(row) do
     src = Map.get(row, "src_cidr")
