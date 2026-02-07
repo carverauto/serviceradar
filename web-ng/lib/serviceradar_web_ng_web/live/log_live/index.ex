@@ -149,7 +149,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         _ -> nil
       end
 
-    ctx = if is_map(selected), do: load_netflow_context(selected, socket.assigns.current_scope), else: nil
+    ctx =
+      if is_map(selected),
+        do: load_netflow_context(selected, socket.assigns.current_scope),
+        else: nil
 
     {:noreply,
      socket
@@ -174,6 +177,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     with {:ok, start_dt, _} <- DateTime.from_iso8601(to_string(start_raw)),
          {:ok, end_dt, _} <- DateTime.from_iso8601(to_string(end_raw)) do
       value = "[#{DateTime.to_iso8601(start_dt)},#{DateTime.to_iso8601(end_dt)}]"
+
       href =
         netflow_filter_patch(
           base_path,
@@ -187,6 +191,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           geo_side,
           sankey_prefix
         )
+
       {:noreply, push_patch(socket, to: href)}
     else
       _ ->
@@ -315,6 +320,43 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      )}
   end
 
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: current_entity(socket))}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    extra_params = %{"tab" => socket.assigns.active_tab}
+
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{},
+       fallback_path: "/observability",
+       extra_params: extra_params
+     )}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_add_filter", params,
+       entity: current_entity(socket)
+     )}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params,
+       entity: current_entity(socket)
+     )}
+  end
+
   defp load_netflow_context(flow, scope) when is_map(flow) do
     user = scope && scope.user
 
@@ -404,43 +446,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp read_port_anomaly(_user, _port), do: nil
-
-  def handle_event("srql_builder_toggle", _params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: current_entity(socket))}
-  end
-
-  def handle_event("srql_builder_change", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
-  end
-
-  def handle_event("srql_builder_apply", _params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
-  end
-
-  def handle_event("srql_builder_run", _params, socket) do
-    extra_params = %{"tab" => socket.assigns.active_tab}
-
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_run", %{},
-       fallback_path: "/observability",
-       extra_params: extra_params
-     )}
-  end
-
-  def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params,
-       entity: current_entity(socket)
-     )}
-  end
-
-  def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params,
-       entity: current_entity(socket)
-     )}
-  end
 
   @impl true
   def handle_info({:logs_ingested, _event}, socket) do
@@ -1171,69 +1176,69 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               Protocol Distribution
             </div>
             <div class="mt-2 flex flex-wrap items-center gap-2">
-                <.ui_button
-                  size="xs"
-                  variant="ghost"
-                  class="rounded-full"
-                  patch={
-                    netflow_filter_patch(
-                      @base_path,
-                      @query,
-                      @limit,
-                      "proto",
-                      "",
-                      @compact?,
-                      @talker_cidr,
-                      @compare_mode,
-                      @geo_side,
-                      @sankey_prefix
-                    )
-                  }
-                >
-                  All
-                </.ui_button>
-                <.ui_button
-                  size="xs"
-                  variant="ghost"
-                  class="rounded-full"
-                  patch={
-                    netflow_filter_patch(
-                      @base_path,
-                      @query,
-                      @limit,
-                      "proto",
-                      "6",
-                      @compact?,
-                      @talker_cidr,
-                      @compare_mode,
-                      @geo_side,
-                      @sankey_prefix
-                    )
-                  }
-                >
-                  TCP
-                </.ui_button>
-                <.ui_button
-                  size="xs"
-                  variant="ghost"
-                  class="rounded-full"
-                  patch={
-                    netflow_filter_patch(
-                      @base_path,
-                      @query,
-                      @limit,
-                      "proto",
-                      "17",
-                      @compact?,
-                      @talker_cidr,
-                      @compare_mode,
-                      @geo_side,
-                      @sankey_prefix
-                    )
-                  }
-                >
-                  UDP
-                </.ui_button>
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                class="rounded-full"
+                patch={
+                  netflow_filter_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    "proto",
+                    "",
+                    @compact?,
+                    @talker_cidr,
+                    @compare_mode,
+                    @geo_side,
+                    @sankey_prefix
+                  )
+                }
+              >
+                All
+              </.ui_button>
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                class="rounded-full"
+                patch={
+                  netflow_filter_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    "proto",
+                    "6",
+                    @compact?,
+                    @talker_cidr,
+                    @compare_mode,
+                    @geo_side,
+                    @sankey_prefix
+                  )
+                }
+              >
+                TCP
+              </.ui_button>
+              <.ui_button
+                size="xs"
+                variant="ghost"
+                class="rounded-full"
+                patch={
+                  netflow_filter_patch(
+                    @base_path,
+                    @query,
+                    @limit,
+                    "proto",
+                    "17",
+                    @compact?,
+                    @talker_cidr,
+                    @compare_mode,
+                    @geo_side,
+                    @sankey_prefix
+                  )
+                }
+              >
+                UDP
+              </.ui_button>
               <span class="text-xs text-base-content/60">
                 Other: {format_compact_int(@other)}
               </span>
@@ -1654,7 +1659,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           {mid = Map.get(edge, :mid) || "PORT:?"}
           {bytes = Map.get(edge, :bytes, 0)}
           {y = 12 + idx * 5.0}
-          {w = 1.5 + (if @max_bytes > 0, do: bytes / @max_bytes * 8.0, else: 0.0)}
+          {w = 1.5 + if @max_bytes > 0, do: bytes / @max_bytes * 8.0, else: 0.0}
           {path = "M 80 #{y} C 300 #{y}, 320 #{y}, 500 #{y} S 700 #{y}, 920 #{y}"}
 
           <path
@@ -2070,11 +2075,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         :talker_cidr,
         if(is_integer(talker_cidr), do: to_string(talker_cidr), else: nil)
       )
-      |> maybe_put_param(:compare, if(compare_mode in ["previous", "yesterday"], do: compare_mode, else: nil))
+      |> maybe_put_param(
+        :compare,
+        if(compare_mode in ["previous", "yesterday"], do: compare_mode, else: nil)
+      )
       |> maybe_put_param(:geo, if(geo_side in ["src", "dst"], do: geo_side, else: nil))
       |> maybe_put_param(
         :sankey_prefix,
-        if(is_integer(sankey_prefix) and sankey_prefix in [16, 24], do: to_string(sankey_prefix), else: nil)
+        if(is_integer(sankey_prefix) and sankey_prefix in [16, 24],
+          do: to_string(sankey_prefix),
+          else: nil
+        )
       )
 
     base_path <> "?" <> URI.encode_query(params)
@@ -2098,11 +2109,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         :talker_cidr,
         if(is_integer(talker_cidr), do: to_string(talker_cidr), else: nil)
       )
-      |> maybe_put_param(:compare, if(compare_mode in ["previous", "yesterday"], do: compare_mode, else: nil))
+      |> maybe_put_param(
+        :compare,
+        if(compare_mode in ["previous", "yesterday"], do: compare_mode, else: nil)
+      )
       |> maybe_put_param(:geo, if(geo_side in ["src", "dst"], do: geo_side, else: nil))
       |> maybe_put_param(
         :sankey_prefix,
-        if(is_integer(sankey_prefix) and sankey_prefix in [16, 24], do: to_string(sankey_prefix), else: nil)
+        if(is_integer(sankey_prefix) and sankey_prefix in [16, 24],
+          do: to_string(sankey_prefix),
+          else: nil
+        )
       )
 
     base_path <> "?" <> URI.encode_query(params)
@@ -3437,8 +3454,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <div>
                   <div class="font-semibold">Threat intel</div>
                   <div class="mt-1 text-base-content/70">
-                    Source:
-                    <span class="font-mono">{@src_ip}</span>
+                    Source: <span class="font-mono">{@src_ip}</span>
                     <%= if match = Map.get(@context, :src_threat) do %>
                       <span class="ml-2 badge badge-xs badge-warning">match</span>
                       <span class="ml-2 font-mono">
@@ -3449,8 +3465,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     <% end %>
                   </div>
                   <div class="mt-1 text-base-content/70">
-                    Dest:
-                    <span class="font-mono">{@dst_ip}</span>
+                    Dest: <span class="font-mono">{@dst_ip}</span>
                     <%= if match = Map.get(@context, :dst_threat) do %>
                       <span class="ml-2 badge badge-xs badge-warning">match</span>
                       <span class="ml-2 font-mono">
@@ -3481,7 +3496,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   <div class="mt-1 text-base-content/70">
                     <span class="badge badge-xs badge-error">anomalous</span>
                     <span class="ml-2 font-mono">
-                      {format_netflow_bytes(anomaly.current_bytes)} vs baseline {format_netflow_bytes(anomaly.baseline_bytes)}
+                      {format_netflow_bytes(anomaly.current_bytes)} vs baseline {format_netflow_bytes(
+                        anomaly.baseline_bytes
+                      )}
                     </span>
                   </div>
                 </div>
@@ -3492,7 +3509,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     <div class="mt-1 text-base-content/70">
                       Source:
                       <span class="font-mono">
-                        {Enum.join(Enum.filter([info.city, info.region, info.country_code], &(&1 && &1 != "")), ", ")}
+                        {Enum.join(
+                          Enum.filter([info.city, info.region, info.country_code], &(&1 && &1 != "")),
+                          ", "
+                        )}
                       </span>
                     </div>
                   <% else %>
@@ -3505,7 +3525,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     <div class="mt-1 text-base-content/70">
                       Dest:
                       <span class="font-mono">
-                        {Enum.join(Enum.filter([info.city, info.region, info.country_code], &(&1 && &1 != "")), ", ")}
+                        {Enum.join(
+                          Enum.filter([info.city, info.region, info.country_code], &(&1 && &1 != "")),
+                          ", "
+                        )}
                       </span>
                     </div>
                   <% else %>
@@ -3747,11 +3770,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         :talker_cidr,
         if(is_integer(talker_cidr), do: to_string(talker_cidr), else: nil)
       )
-      |> maybe_put_param(:compare, if(compare_mode in ["previous", "yesterday"], do: compare_mode, else: nil))
+      |> maybe_put_param(
+        :compare,
+        if(compare_mode in ["previous", "yesterday"], do: compare_mode, else: nil)
+      )
       |> maybe_put_param(:geo, if(geo_side in ["src", "dst"], do: geo_side, else: nil))
       |> maybe_put_param(
         :sankey_prefix,
-        if(is_integer(sankey_prefix) and sankey_prefix in [16, 24], do: to_string(sankey_prefix), else: nil)
+        if(is_integer(sankey_prefix) and sankey_prefix in [16, 24],
+          do: to_string(sankey_prefix),
+          else: nil
+        )
       )
 
     base_path <> "?" <> URI.encode_query(params)
@@ -3780,11 +3809,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         :talker_cidr,
         if(is_integer(talker_cidr), do: to_string(talker_cidr), else: nil)
       )
-      |> maybe_put_param(:compare, if(compare_mode in ["previous", "yesterday"], do: compare_mode, else: nil))
+      |> maybe_put_param(
+        :compare,
+        if(compare_mode in ["previous", "yesterday"], do: compare_mode, else: nil)
+      )
       |> maybe_put_param(:geo, if(geo_side in ["src", "dst"], do: geo_side, else: nil))
       |> maybe_put_param(
         :sankey_prefix,
-        if(is_integer(sankey_prefix) and sankey_prefix in [16, 24], do: to_string(sankey_prefix), else: nil)
+        if(is_integer(sankey_prefix) and sankey_prefix in [16, 24],
+          do: to_string(sankey_prefix),
+          else: nil
+        )
       )
 
     base_path <> "?" <> URI.encode_query(params)
@@ -5491,93 +5526,92 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     if not enabled? do
       %{edges: [], sources: [], mids: [], dests: []}
     else
+      # Guardrail for performance: avoid unbounded 3-way group-by across all flows.
+      # Instead, preselect top-N src/dst subnets and ports, then compute edges within that subset.
+      top_sources_q =
+        ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}" sort:total_bytes:desc limit:16|
 
-    # Guardrail for performance: avoid unbounded 3-way group-by across all flows.
-    # Instead, preselect top-N src/dst subnets and ports, then compute edges within that subset.
-    top_sources_q =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}" sort:total_bytes:desc limit:16|
+      top_dests_q =
+        ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_cidr:#{prefix}" sort:total_bytes:desc limit:16|
 
-    top_dests_q =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_cidr:#{prefix}" sort:total_bytes:desc limit:16|
+      top_ports_q =
+        ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_endpoint_port" sort:total_bytes:desc limit:16|
 
-    top_ports_q =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_endpoint_port" sort:total_bytes:desc limit:16|
+      top_sources =
+        srql_module
+        |> apply(:query, [top_sources_q, %{scope: scope}])
+        |> extract_stats_rows()
+        |> Enum.map(&Map.get(&1, "src_cidr"))
+        |> Enum.filter(&is_binary/1)
+        |> Enum.reject(&(&1 in ["", "Unknown"]))
+        |> Enum.take(16)
 
-    top_sources =
-      srql_module
-      |> apply(:query, [top_sources_q, %{scope: scope}])
-      |> extract_stats_rows()
-      |> Enum.map(&Map.get(&1, "src_cidr"))
-      |> Enum.filter(&is_binary/1)
-      |> Enum.reject(&(&1 in ["", "Unknown"]))
-      |> Enum.take(16)
+      top_dests =
+        srql_module
+        |> apply(:query, [top_dests_q, %{scope: scope}])
+        |> extract_stats_rows()
+        |> Enum.map(&Map.get(&1, "dst_cidr"))
+        |> Enum.filter(&is_binary/1)
+        |> Enum.reject(&(&1 in ["", "Unknown"]))
+        |> Enum.take(16)
 
-    top_dests =
-      srql_module
-      |> apply(:query, [top_dests_q, %{scope: scope}])
-      |> extract_stats_rows()
-      |> Enum.map(&Map.get(&1, "dst_cidr"))
-      |> Enum.filter(&is_binary/1)
-      |> Enum.reject(&(&1 in ["", "Unknown"]))
-      |> Enum.take(16)
+      top_ports =
+        srql_module
+        |> apply(:query, [top_ports_q, %{scope: scope}])
+        |> extract_stats_rows()
+        |> Enum.map(&to_int(Map.get(&1, "dst_endpoint_port")))
+        |> Enum.filter(&(&1 > 0))
+        |> Enum.take(16)
 
-    top_ports =
-      srql_module
-      |> apply(:query, [top_ports_q, %{scope: scope}])
-      |> extract_stats_rows()
-      |> Enum.map(&to_int(Map.get(&1, "dst_endpoint_port")))
-      |> Enum.filter(&(&1 > 0))
-      |> Enum.take(16)
+      src_filter =
+        if top_sources == [] do
+          ""
+        else
+          " src_cidr:(#{Enum.join(top_sources, ",")})"
+        end
 
-    src_filter =
-      if top_sources == [] do
-        ""
-      else
-        " src_cidr:(#{Enum.join(top_sources, ",")})"
-      end
+      dst_filter =
+        if top_dests == [] do
+          ""
+        else
+          " dst_cidr:(#{Enum.join(top_dests, ",")})"
+        end
 
-    dst_filter =
-      if top_dests == [] do
-        ""
-      else
-        " dst_cidr:(#{Enum.join(top_dests, ",")})"
-      end
+      port_filter =
+        if top_ports == [] do
+          ""
+        else
+          " dst_port:(#{Enum.join(top_ports, ",")})"
+        end
 
-    port_filter =
-      if top_ports == [] do
-        ""
-      else
-        " dst_port:(#{Enum.join(top_ports, ",")})"
-      end
+      # Multi-dimension stats: SRQL enforces time window + limit cap guardrails.
+      query =
+        ~s|#{base_query}#{src_filter}#{dst_filter}#{port_filter} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}, dst_endpoint_port, dst_cidr:#{prefix}" sort:total_bytes:desc limit:200|
 
-    # Multi-dimension stats: SRQL enforces time window + limit cap guardrails.
-    query =
-      ~s|#{base_query}#{src_filter}#{dst_filter}#{port_filter} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}, dst_endpoint_port, dst_cidr:#{prefix}" sort:total_bytes:desc limit:200|
+      edges =
+        srql_module
+        |> apply(:query, [query, %{scope: scope}])
+        |> extract_stats_rows()
+        |> Enum.map(fn row ->
+          src = Map.get(row, "src_cidr")
+          dst = Map.get(row, "dst_cidr")
+          port = to_int(Map.get(row, "dst_endpoint_port"))
+          bytes = to_int(Map.get(row, "total_bytes"))
 
-    edges =
-      srql_module
-      |> apply(:query, [query, %{scope: scope}])
-      |> extract_stats_rows()
-      |> Enum.map(fn row ->
-        src = Map.get(row, "src_cidr")
-        dst = Map.get(row, "dst_cidr")
-        port = to_int(Map.get(row, "dst_endpoint_port"))
-        bytes = to_int(Map.get(row, "total_bytes"))
+          mid =
+            case netflow_service_label(port) do
+              label when is_binary(label) -> "#{label}:#{port}"
+              _ when port > 0 -> "PORT:#{port}"
+              _ -> "PORT:?"
+            end
 
-        mid =
-          case netflow_service_label(port) do
-            label when is_binary(label) -> "#{label}:#{port}"
-            _ when port > 0 -> "PORT:#{port}"
-            _ -> "PORT:?"
-          end
-
-        %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
-      end)
-      |> Enum.reject(fn e ->
-        is_nil(e.src) or e.src in ["", "Unknown"] or is_nil(e.dst) or e.dst in ["", "Unknown"] or
-          e.bytes <= 0
-      end)
-      |> Enum.take(200)
+          %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
+        end)
+        |> Enum.reject(fn e ->
+          is_nil(e.src) or e.src in ["", "Unknown"] or is_nil(e.dst) or e.dst in ["", "Unknown"] or
+            e.bytes <= 0
+        end)
+        |> Enum.take(200)
 
       sources =
         edges
