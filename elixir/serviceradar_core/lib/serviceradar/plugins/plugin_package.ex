@@ -320,5 +320,4 @@ defmodule ServiceRadar.Plugins.PluginPackage do
   identities do
     identity :unique_plugin_version, [:plugin_id, :version]
   end
-
 end

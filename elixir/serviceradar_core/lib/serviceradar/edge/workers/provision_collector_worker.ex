@@ -234,7 +234,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
           site: package.site,
           hostname: package.hostname
         }
-      }, actor: actor)
+      },
+      actor: actor
+    )
     |> Ash.Changeset.set_argument(:user_public_key, user_creds.user_public_key)
     |> Ash.Changeset.set_argument(:onboarding_package_id, nil)
     |> Ash.create()

@@ -102,7 +102,9 @@ defmodule ServiceRadar.Edge.AgentCommandCleanupWorker do
 
   defp expire_command(command, actor) do
     case AgentCommand.expire(command, actor: actor) do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("AgentCommandCleanupWorker: failed to expire command",
           command_id: command.id,
@@ -134,7 +136,9 @@ defmodule ServiceRadar.Edge.AgentCommandCleanupWorker do
 
   defp destroy_command(command, actor) do
     case Ash.destroy(command, actor: actor) do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("AgentCommandCleanupWorker: failed to delete command",
           command_id: command.id,

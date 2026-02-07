@@ -113,7 +113,6 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
 
       require_atomic? false
       change ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery
-
     end
 
     read :list_available do

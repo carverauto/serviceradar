@@ -60,6 +60,9 @@ networkPolicy:
       # Allow GeoLite MMDB refresh from raw.githubusercontent.com (resolves to 185.199.108.0/22).
       # Kubernetes NetworkPolicy can't allow by DNS name, so we allow the minimal known CIDR for this host.
       - "185.199.108.0/22"
+      # Allow ipinfo lite MMDB refresh from ipinfo.io. (Resolved as 34.117.59.81 on 2026-02-07.)
+      # Note: this is a best-effort allowlist and may need adjustment if ipinfo changes their IPs.
+      - "34.117.0.0/16"
   calicoLogDenied:
     enabled: true
     selector: "all()"

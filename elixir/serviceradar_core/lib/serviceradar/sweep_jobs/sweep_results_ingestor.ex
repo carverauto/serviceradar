@@ -41,7 +41,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Identity.{DeviceAliasState, DeviceLookup}
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepGroupExecution, SweepHostResult, SweepMonitorWorker, SweepPubSub}
+
+  alias ServiceRadar.SweepJobs.{
+    SweepGroup,
+    SweepGroupExecution,
+    SweepHostResult,
+    SweepMonitorWorker,
+    SweepPubSub
+  }
 
   require Ash.Query
   import Ecto.Query
@@ -243,7 +250,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {:ok, final_stats}
   end
 
-  defp finalize_results({:error, _} = error, _execution_id, _sweep_group_id, _scanner_metrics, _actor, _total_count, _start_time, _opts) do
+  defp finalize_results(
+         {:error, _} = error,
+         _execution_id,
+         _sweep_group_id,
+         _scanner_metrics,
+         _actor,
+         _total_count,
+         _start_time,
+         _opts
+       ) do
     error
   end
 
@@ -262,6 +278,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # Step 4: Check detected aliases for unknown IPs (fallback before skipping)
     detected_alias_map =
       DeviceLookup.lookup_detected_aliases_by_ip(unknown_ips, actor: actor, include_deleted: true)
+
     detected_ips = Map.keys(detected_alias_map)
 
     # Step 4a: Confirm detected aliases that matched sweep results
@@ -620,9 +637,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         )
 
       {:error, reason} ->
-        Logger.error(
-          "SweepResultsIngestor: Failed to mark devices available: #{inspect(reason)}"
-        )
+        Logger.error("SweepResultsIngestor: Failed to mark devices available: #{inspect(reason)}")
     end
   end
 
@@ -690,9 +705,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         end
 
       {:error, reason} ->
-        Logger.error(
-          "SweepResultsIngestor: Failed to apply hysteresis: #{inspect(reason)}"
-        )
+        Logger.error("SweepResultsIngestor: Failed to apply hysteresis: #{inspect(reason)}")
     end
   end
 
@@ -1036,7 +1049,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_failed: stats1.hosts_failed + stats2.hosts_failed,
       devices_updated: stats1.devices_updated + Map.get(stats2, :devices_updated, 0),
       devices_created: stats1.devices_created + Map.get(stats2, :devices_created, 0),
-      aliases_confirmed: Map.get(stats1, :aliases_confirmed, 0) + Map.get(stats2, :aliases_confirmed, 0)
+      aliases_confirmed:
+        Map.get(stats1, :aliases_confirmed, 0) + Map.get(stats2, :aliases_confirmed, 0)
     }
   end
 

@@ -62,7 +62,12 @@ defmodule ServiceRadar.Identity.AuthorizationSettingsValidationTest do
     attrs = %{
       default_role: :viewer,
       role_mappings: [
-        %{"source" => "email", "value" => "user@example.com", "role" => "viewer", "claim" => "email"}
+        %{
+          "source" => "email",
+          "value" => "user@example.com",
+          "role" => "viewer",
+          "claim" => "email"
+        }
       ]
     }
 
@@ -78,7 +83,9 @@ defmodule ServiceRadar.Identity.AuthorizationSettingsValidationTest do
       ]
     }
 
-    assert {:error, error} = AuthorizationSettings.create_settings(email_domain_attrs, actor: actor)
+    assert {:error, error} =
+             AuthorizationSettings.create_settings(email_domain_attrs, actor: actor)
+
     assert Exception.message(error) =~ "domain"
 
     email_attrs = %{

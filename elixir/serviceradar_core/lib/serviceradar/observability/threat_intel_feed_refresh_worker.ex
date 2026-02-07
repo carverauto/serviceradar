@@ -123,7 +123,10 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
   end
 
   defp download_feed(url, timeout_ms) do
-    req_opts = [receive_timeout: timeout_ms, connect_options: [timeout: timeout_ms]]
+    req_opts = [
+      receive_timeout: timeout_ms,
+      finch: ServiceRadar.Finch
+    ]
 
     case Req.get(url, req_opts) do
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->

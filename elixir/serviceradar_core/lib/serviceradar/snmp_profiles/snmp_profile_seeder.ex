@@ -97,9 +97,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileSeeder do
           :ok
 
         {:error, reason} ->
-          Logger.warning(
-            "Failed to update default SNMP profile target_query: #{inspect(reason)}"
-          )
+          Logger.warning("Failed to update default SNMP profile target_query: #{inspect(reason)}")
 
           :ok
       end

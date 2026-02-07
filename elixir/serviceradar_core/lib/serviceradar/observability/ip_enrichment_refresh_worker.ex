@@ -17,6 +17,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   alias ServiceRadar.Observability.{
     GeoIP,
     IpGeoEnrichmentCache,
+    IpInfo,
     IpIpinfoCache,
     IpRdnsCache,
     NetflowSettings,
@@ -304,8 +305,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
        when is_binary(ip) do
     # Background-only enrichment: never call external APIs during SRQL query execution.
     if ipinfo_enabled_for_ip?(settings, ip) do
-      {attrs, err} =
-        ipinfo_lookup(ip, settings.ipinfo_base_url, settings.ipinfo_api_key, timeout_ms)
+      {attrs, err} = ipinfo_lookup(ip, timeout_ms)
 
       upsert_ipinfo_cache(ip, attrs, err, actor, now, expires_at)
     else
@@ -314,9 +314,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   end
 
   defp ipinfo_enabled_for_ip?(%NetflowSettings{} = settings, ip) when is_binary(ip) do
-    settings.ipinfo_enabled and is_binary(settings.ipinfo_api_key) and
-      String.trim(settings.ipinfo_api_key) != "" and
-      not private_ip?(ip)
+    settings.ipinfo_enabled and IpInfo.available?() and not private_ip?(ip)
   end
 
   defp upsert_ipinfo_cache(ip, attrs, err, actor, now, expires_at) when is_binary(ip) do
@@ -351,90 +349,26 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     end
   end
 
-  defp ipinfo_lookup(ip, base_url, token, timeout_ms)
-       when is_binary(ip) and is_binary(base_url) and is_binary(token) and is_integer(timeout_ms) do
-    with {:ok, url} <- build_ipinfo_url(ip, base_url, token),
-         {:ok, %{} = data} <- fetch_ipinfo_json(url, timeout_ms) do
-      {normalize_ipinfo_data(data), nil}
-    else
-      {:error, :missing_config} -> {nil, "missing_ipinfo_config"}
-      {:error, :timeout} -> {nil, "timeout"}
-      {:error, reason} -> {nil, inspect(reason)}
-    end
-  end
-
-  defp build_ipinfo_url(ip, base_url, token) when is_binary(ip) do
-    base_url = String.trim(base_url || "")
-    token = String.trim(token || "")
-
-    if base_url == "" or token == "" do
-      {:error, :missing_config}
-    else
-      url =
-        base_url
-        |> String.trim_trailing("/")
-        |> Kernel.<>("/lite/")
-        |> Kernel.<>(URI.encode(ip))
-        |> Kernel.<>("?token=")
-        |> Kernel.<>(URI.encode(token))
-
-      {:ok, url}
-    end
-  end
-
-  defp fetch_ipinfo_json(url, timeout_ms) when is_binary(url) and is_integer(timeout_ms) do
+  defp ipinfo_lookup(ip, timeout_ms) when is_binary(ip) and is_integer(timeout_ms) do
+    # Local-only: do not perform per-IP HTTP calls.
     task =
       Task.async(fn ->
-        do_ipinfo_request(url, timeout_ms)
+        IpInfo.lookup(ip)
       end)
 
     case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
-      {:ok, result} -> result
-      nil -> {:error, :timeout}
+      {:ok, {:ok, %{} = attrs}} ->
+        {attrs, nil}
+
+      {:ok, {:error, reason}} ->
+        {nil, inspect(reason)}
+
+      nil ->
+        {nil, "timeout"}
+
+      other ->
+        {nil, inspect(other)}
     end
-  end
-
-  defp do_ipinfo_request(url, timeout_ms) when is_binary(url) and is_integer(timeout_ms) do
-    req = Finch.build(:get, url)
-
-    case Finch.request(req, ServiceRadar.Finch, receive_timeout: timeout_ms) do
-      {:ok, %Finch.Response{status: 200, body: body}} ->
-        case Jason.decode(body) do
-          {:ok, %{} = data} -> {:ok, data}
-          _ -> {:error, :invalid_json}
-        end
-
-      {:ok, %Finch.Response{status: status, body: body}} ->
-        {:error, {:http_status, status, body}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp normalize_ipinfo_data(%{} = data) do
-    asn =
-      case Map.get(data, "asn") do
-        "AS" <> rest ->
-          case Integer.parse(rest) do
-            {n, ""} -> n
-            _ -> nil
-          end
-
-        _ ->
-          nil
-      end
-
-    %{
-      country_code: Map.get(data, "country_code"),
-      country_name: Map.get(data, "country"),
-      region: Map.get(data, "region"),
-      city: Map.get(data, "city"),
-      timezone: Map.get(data, "timezone"),
-      as_number: asn,
-      as_name: Map.get(data, "as_name"),
-      as_domain: Map.get(data, "as_domain")
-    }
   end
 
   defp rdns_lookup(ip, timeout_ms) when is_binary(ip) and is_integer(timeout_ms) do

@@ -95,7 +95,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
       :provision,
       %{
         config_checksum: config_checksum
-      }, actor: actor)
+      },
+      actor: actor
+    )
     |> Ash.update()
   end
 end

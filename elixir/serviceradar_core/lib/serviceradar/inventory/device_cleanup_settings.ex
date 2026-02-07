@@ -131,5 +131,4 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
 
     timestamps()
   end
-
 end

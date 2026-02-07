@@ -147,6 +147,7 @@ defmodule ServiceRadar.Application do
         # NetFlow enrichment background maintenance
         ip_enrichment_scheduler_child(),
         geolite_mmdb_scheduler_child(),
+        ipinfo_mmdb_scheduler_child(),
         netflow_security_scheduler_child(),
 
         # Service heartbeat (self-reporting for Elixir services)
@@ -204,7 +205,29 @@ defmodule ServiceRadar.Application do
 
   defp finch_child do
     if Application.get_env(:serviceradar_core, :http_client_enabled, true) do
-      {Finch, name: ServiceRadar.Finch}
+      base = [name: ServiceRadar.Finch]
+
+      # Our release images are intentionally minimal and may not include OS CA bundles.
+      # Configure Finch with CAStore so background HTTPS fetches (GeoLite, threat intel, ipinfo)
+      # work reliably in Kubernetes.
+      opts =
+        case Code.ensure_loaded?(CAStore) and function_exported?(CAStore, :file_path, 0) do
+          true ->
+            Keyword.put(base, :pools, %{
+              default: [
+                conn_opts: [
+                  transport_opts: [
+                    cacertfile: CAStore.file_path()
+                  ]
+                ]
+              ]
+            })
+
+          false ->
+            base
+        end
+
+      {Finch, opts}
     else
       nil
     end
@@ -424,6 +447,14 @@ defmodule ServiceRadar.Application do
   defp geolite_mmdb_scheduler_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.Observability.GeoLiteMmdbScheduler
+    else
+      nil
+    end
+  end
+
+  defp ipinfo_mmdb_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Observability.IpinfoMmdbScheduler
     else
       nil
     end

@@ -116,6 +116,10 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cloak-key
+        {{- if $geoipMmdb.enabled }}
+        - name: GEOLITE_MMDB_DIR
+          value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
         args:
         - |
           set -eu
@@ -129,6 +133,10 @@ spec:
           readOnly: true
         - name: migrations
           mountPath: /var/lib/serviceradar/migrations
+        {{- if $geoipMmdb.enabled }}
+        - name: geoip-mmdb
+          mountPath: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
       {{- end }}
       containers:
       - name: core-elx

@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.FlowPubSub
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.IpIpinfoCache
+  alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
@@ -362,6 +363,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     dst_port = to_int(netflow_port(flow, :dst))
 
     %{
+      src_rdns: read_rdns(user, src_ip),
+      dst_rdns: read_rdns(user, dst_ip),
       src_ipinfo: read_ipinfo(user, src_ip),
       dst_ipinfo: read_ipinfo(user, dst_ip),
       src_threat: read_threat(user, src_ip),
@@ -372,6 +375,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp load_netflow_context(_flow, _scope), do: %{}
+
+  defp read_rdns(nil, _ip), do: nil
+
+  defp read_rdns(user, ip) when is_binary(ip) do
+    ip = String.trim(ip)
+
+    if ip in ["", "—", "-"] do
+      nil
+    else
+      query = IpRdnsCache |> Ash.Query.for_read(:by_ip, %{ip: ip})
+
+      case Ash.read_one(query, actor: user) do
+        {:ok, record} -> record
+        _ -> nil
+      end
+    end
+  end
+
+  defp read_rdns(_user, _ip), do: nil
 
   defp read_ipinfo(nil, _ip), do: nil
 
@@ -3456,6 +3478,43 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     </div>
                   <% end %>
                 </div>
+
+                <div>
+                  <div class="font-semibold">rDNS</div>
+                  <%= if rdns = Map.get(@context, :src_rdns) do %>
+                    <div class="mt-1 text-base-content/70">
+                      Source:
+                      <span class="font-mono">
+                        <%= if rdns.status == "ok" and is_binary(rdns.hostname) and rdns.hostname != "" do %>
+                          {rdns.hostname}
+                        <% else %>
+                          <span class="text-base-content/50">n/a</span>
+                        <% end %>
+                      </span>
+                    </div>
+                  <% else %>
+                    <div class="mt-1 text-base-content/70">
+                      Source: <span class="text-base-content/50">n/a</span>
+                    </div>
+                  <% end %>
+
+                  <%= if rdns = Map.get(@context, :dst_rdns) do %>
+                    <div class="mt-1 text-base-content/70">
+                      Dest:
+                      <span class="font-mono">
+                        <%= if rdns.status == "ok" and is_binary(rdns.hostname) and rdns.hostname != "" do %>
+                          {rdns.hostname}
+                        <% else %>
+                          <span class="text-base-content/50">n/a</span>
+                        <% end %>
+                      </span>
+                    </div>
+                  <% else %>
+                    <div class="mt-1 text-base-content/70">
+                      Dest: <span class="text-base-content/50">n/a</span>
+                    </div>
+                  <% end %>
+                </div>
               </div>
             </div>
           </.ui_panel>
@@ -5347,7 +5406,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               {DateTime.add(start_dt, -86_400, :second), DateTime.add(end_dt, -86_400, :second)}
           end
 
-        compare_time = "[#{DateTime.to_iso8601(cstart)},#{DateTime.to_iso8601(cend)}]"
+        # SRQL `time:` expects a scalar token; quote bracketed time ranges.
+        compare_time = "\"[#{DateTime.to_iso8601(cstart)},#{DateTime.to_iso8601(cend)}]\""
         compare_query = upsert_query_filter(base_query, "time", compare_time)
         bucket = bucket_seconds_to_srql(bucket_seconds)
 
@@ -5682,6 +5742,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         end
     end
   end
+
+  defp parse_srql_datetime(%DateTime{} = dt), do: {:ok, dt}
+
+  defp parse_srql_datetime(%NaiveDateTime{} = ndt),
+    do: {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
 
   defp parse_srql_datetime(_), do: :error
 

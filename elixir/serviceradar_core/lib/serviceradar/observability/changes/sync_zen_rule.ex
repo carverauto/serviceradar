@@ -61,7 +61,10 @@ defmodule ServiceRadar.Observability.Changes.SyncZenRule do
         {:ok, rule}
 
       {:error, reason} when reason in [:not_connected, :not_started, :timeout] ->
-        Logger.debug("Zen rule sync skipped (datasvc not ready): #{rule.name} (#{inspect(reason)})")
+        Logger.debug(
+          "Zen rule sync skipped (datasvc not ready): #{rule.name} (#{inspect(reason)})"
+        )
+
         {:ok, rule}
 
       {:error, reason} ->

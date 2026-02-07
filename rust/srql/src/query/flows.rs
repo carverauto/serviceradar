@@ -443,10 +443,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
     match filter.field.as_str() {
         "src_endpoint_ip" | "src_ip" | "dst_endpoint_ip" | "dst_ip" | "protocol_name"
         | "sampler_address" | "direction" => collect_text_params(params, filter),
-        "src_country_iso2" | "src_country" | "dst_country_iso2" | "dst_country" => {
-            collect_text_params(params, filter)
-        }
-        "src_cidr" | "dst_cidr" => collect_text_params(params, filter),
+        // These filters are implemented using inline SQL literals in `apply_filter` (no binds),
+        // so we must not collect bind params for them or we'll shift LIMIT/OFFSET binds.
+        "src_country_iso2" | "src_country" | "dst_country_iso2" | "dst_country" => Ok(()),
+        "src_cidr" | "dst_cidr" => Ok(()),
         "protocol_num" | "proto" => {
             let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
                 ServiceError::InvalidRequest(format!("{} must be an integer", filter.field))
@@ -1705,5 +1705,72 @@ mod tests {
             _ => false,
         });
         assert!(has_wildcard, "expected wildcard port to bind text param");
+    }
+
+    #[test]
+    fn country_iso2_filter_does_not_shift_limit_offset_binds() {
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: vec![Filter {
+                field: "dst_country_iso2".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("US".to_string()),
+            }],
+            order: vec![OrderClause {
+                field: "time".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 5,
+            offset: 0,
+            time_range: Some(TimeRange {
+                start: chrono::Utc::now() - chrono::Duration::hours(1),
+                end: chrono::Utc::now(),
+            }),
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, params) = to_sql_and_params(&plan).expect("should translate country filter");
+        // Ensure we still have limit/offset binds present and typed correctly.
+        assert!(sql.contains("LIMIT $3"), "expected LIMIT bind placeholder");
+        assert!(sql.contains("OFFSET $4"), "expected OFFSET bind placeholder");
+        assert_eq!(params.len(), 4, "expected start/end + limit/offset params");
+        assert!(matches!(params[2], BindParam::Int(5)));
+        assert!(matches!(params[3], BindParam::Int(0)));
+    }
+
+    #[test]
+    fn cidr_filter_does_not_shift_limit_offset_binds() {
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: vec![Filter {
+                field: "src_cidr".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("192.168.0.0/16".to_string()),
+            }],
+            order: vec![OrderClause {
+                field: "time".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 5,
+            offset: 0,
+            time_range: Some(TimeRange {
+                start: chrono::Utc::now() - chrono::Duration::hours(1),
+                end: chrono::Utc::now(),
+            }),
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, params) = to_sql_and_params(&plan).expect("should translate cidr filter");
+        assert!(sql.contains("LIMIT $3"), "expected LIMIT bind placeholder");
+        assert!(sql.contains("OFFSET $4"), "expected OFFSET bind placeholder");
+        assert_eq!(params.len(), 4, "expected start/end + limit/offset params");
+        assert!(matches!(params[2], BindParam::Int(5)));
+        assert!(matches!(params[3], BindParam::Int(0)));
     }
 }

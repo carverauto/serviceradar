@@ -88,5 +88,4 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
 
     timestamps()
   end
-
 end

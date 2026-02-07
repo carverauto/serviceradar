@@ -34,44 +34,44 @@ defmodule ServiceRadar.Observability do
   end
 
   resources do
-    resource(ServiceRadar.Observability.Log)
-    resource(ServiceRadar.Observability.ZenRule)
-    resource(ServiceRadar.Observability.ZenRuleTemplate)
-    resource(ServiceRadar.Observability.EventRule)
-    resource(ServiceRadar.Observability.LogPromotionRule)
-    resource(ServiceRadar.Observability.LogPromotionRuleTemplate)
-    resource(ServiceRadar.Observability.StatefulAlertRule)
-    resource(ServiceRadar.Observability.StatefulAlertRuleTemplate)
-    resource(ServiceRadar.Observability.StatefulAlertRuleState)
-    resource(ServiceRadar.Observability.StatefulAlertRuleHistory)
-    resource(ServiceRadar.Observability.IpGeoEnrichmentCache)
-    resource(ServiceRadar.Observability.IpRdnsCache)
-    resource(ServiceRadar.Observability.IpIpinfoCache)
-    resource(ServiceRadar.Observability.ThreatIntelIndicator)
-    resource(ServiceRadar.Observability.IpThreatIntelCache)
-    resource(ServiceRadar.Observability.NetflowPortScanFlag)
-    resource(ServiceRadar.Observability.NetflowPortAnomalyFlag)
-    resource(ServiceRadar.Observability.NetflowSettings)
-    resource(ServiceRadar.Observability.NetflowLocalCidr)
+    resource ServiceRadar.Observability.Log
+    resource ServiceRadar.Observability.ZenRule
+    resource ServiceRadar.Observability.ZenRuleTemplate
+    resource ServiceRadar.Observability.EventRule
+    resource ServiceRadar.Observability.LogPromotionRule
+    resource ServiceRadar.Observability.LogPromotionRuleTemplate
+    resource ServiceRadar.Observability.StatefulAlertRule
+    resource ServiceRadar.Observability.StatefulAlertRuleTemplate
+    resource ServiceRadar.Observability.StatefulAlertRuleState
+    resource ServiceRadar.Observability.StatefulAlertRuleHistory
+    resource ServiceRadar.Observability.IpGeoEnrichmentCache
+    resource ServiceRadar.Observability.IpRdnsCache
+    resource ServiceRadar.Observability.IpIpinfoCache
+    resource ServiceRadar.Observability.ThreatIntelIndicator
+    resource ServiceRadar.Observability.IpThreatIntelCache
+    resource ServiceRadar.Observability.NetflowPortScanFlag
+    resource ServiceRadar.Observability.NetflowPortAnomalyFlag
+    resource ServiceRadar.Observability.NetflowSettings
+    resource ServiceRadar.Observability.NetflowLocalCidr
     # Metrics resources - all map to TimescaleDB hypertables with migrate?: false
     # matching Go schema exactly
-    resource(ServiceRadar.Observability.TimeseriesMetric)
-    resource(ServiceRadar.Observability.ServiceStatus)
-    resource(ServiceRadar.Observability.ServiceState)
-    resource(ServiceRadar.Observability.CpuMetric)
-    resource(ServiceRadar.Observability.CpuClusterMetric)
-    resource(ServiceRadar.Observability.MemoryMetric)
-    resource(ServiceRadar.Observability.DiskMetric)
-    resource(ServiceRadar.Observability.ProcessMetric)
+    resource ServiceRadar.Observability.TimeseriesMetric
+    resource ServiceRadar.Observability.ServiceStatus
+    resource ServiceRadar.Observability.ServiceState
+    resource ServiceRadar.Observability.CpuMetric
+    resource ServiceRadar.Observability.CpuClusterMetric
+    resource ServiceRadar.Observability.MemoryMetric
+    resource ServiceRadar.Observability.DiskMetric
+    resource ServiceRadar.Observability.ProcessMetric
     # OTel resources - these map to existing TimescaleDB hypertables/views
     # with migrate?: false so Ash doesn't try to manage the schema
-    resource(ServiceRadar.Observability.OtelMetric)
-    resource(ServiceRadar.Observability.OtelTrace)
-    resource(ServiceRadar.Observability.OtelTraceSummary)
+    resource ServiceRadar.Observability.OtelMetric
+    resource ServiceRadar.Observability.OtelTrace
+    resource ServiceRadar.Observability.OtelTraceSummary
   end
 
   authorization do
-    require_actor?(false)
-    authorize(:by_default)
+    require_actor? false
+    authorize :by_default
   end
 end

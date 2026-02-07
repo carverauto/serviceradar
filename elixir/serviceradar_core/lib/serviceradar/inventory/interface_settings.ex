@@ -309,6 +309,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
 
     attribute :metric_groups, {:array, :map} do
       default []
+
       description """
       User-defined metric groupings for composite charts.
       Each group is a map with:

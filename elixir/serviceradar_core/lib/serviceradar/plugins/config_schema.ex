@@ -132,9 +132,14 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
 
   defp validate_property_type(errors, schema, path) do
     case Map.get(schema, "type") do
-      nil -> ["#{path}.type is required" | errors]
-      type when type in @allowed_types -> errors
-      type -> ["#{path}.type must be one of: #{Enum.join(@allowed_types, ", ")} (got #{type})" | errors]
+      nil ->
+        ["#{path}.type is required" | errors]
+
+      type when type in @allowed_types ->
+        errors
+
+      type ->
+        ["#{path}.type must be one of: #{Enum.join(@allowed_types, ", ")} (got #{type})" | errors]
     end
   end
 
@@ -177,9 +182,17 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
 
   defp validate_format(errors, schema, path) do
     case Map.get(schema, "format") do
-      nil -> errors
-      format when format in @allowed_formats -> errors
-      format -> ["#{path}.format must be one of: #{Enum.join(@allowed_formats, ", ")} (got #{format})" | errors]
+      nil ->
+        errors
+
+      format when format in @allowed_formats ->
+        errors
+
+      format ->
+        [
+          "#{path}.format must be one of: #{Enum.join(@allowed_formats, ", ")} (got #{format})"
+          | errors
+        ]
     end
   end
 

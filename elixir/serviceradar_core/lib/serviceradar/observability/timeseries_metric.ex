@@ -38,10 +38,6 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
     require_primary_key? false
   end
 
-  identities do
-    identity :unique_timeseries_metric, [:timestamp, :gateway_id, :metric_name]
-  end
-
   actions do
     defaults [:read]
 
@@ -180,5 +176,9 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
       public? true
       description "When the record was created"
     end
+  end
+
+  identities do
+    identity :unique_timeseries_metric, [:timestamp, :gateway_id, :metric_name]
   end
 end

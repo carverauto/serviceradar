@@ -22,6 +22,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          classified_records <- InterfaceClassifier.classify_interfaces(resolved_records, actor) do
       if classified_records == [] do
         Logger.debug("No interfaces to ingest after device ID resolution")
+
         record_job_runs(updates,
           status: :error,
           include_interface_counts: true,

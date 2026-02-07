@@ -32,7 +32,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   Resolve credentials for a device UID.
   """
   @spec resolve_for_device(String.t() | nil, map()) ::
-          {:ok, %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
+          {:ok,
+           %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
           | {:error, term()}
   def resolve_for_device(nil, _actor) do
     {:ok, %{credential: nil, profile: nil, source: :none}}
@@ -62,7 +63,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   Resolve credentials for a target host (IP/hostname/device UID).
   """
   @spec resolve_for_host(String.t() | nil, map()) ::
-          {:ok, %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
+          {:ok,
+           %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
           | {:error, term()}
   def resolve_for_host(nil, _actor), do: {:ok, %{credential: nil, profile: nil, source: :none}}
 
@@ -94,8 +96,12 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
   defp resolve_profile(device_uid, actor) do
     case SrqlTargetResolver.resolve_for_device(device_uid, actor) do
-      {:ok, %SNMPProfile{} = profile} -> profile
-      {:ok, nil} -> get_default_profile(actor)
+      {:ok, %SNMPProfile{} = profile} ->
+        profile
+
+      {:ok, nil} ->
+        get_default_profile(actor)
+
       {:error, reason} ->
         Logger.warning("SNMPCredentialResolver: SRQL targeting failed - #{inspect(reason)}")
         get_default_profile(actor)

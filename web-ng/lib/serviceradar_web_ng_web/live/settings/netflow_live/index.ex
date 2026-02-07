@@ -674,9 +674,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
   defp truthy_param?("on"), do: true
   defp truthy_param?(_), do: false
 
-  defp ipinfo_token_present?(%NetflowSettings{ipinfo_api_key: value}) when is_binary(value),
-    do: String.trim(value) != ""
-
+  defp ipinfo_token_present?(%NetflowSettings{ipinfo_api_key_present: true}), do: true
+  defp ipinfo_token_present?(%NetflowSettings{}), do: false
   defp ipinfo_token_present?(_), do: false
 
   defp to_int(nil, default), do: default

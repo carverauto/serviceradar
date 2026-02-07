@@ -516,7 +516,9 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
               %{
                 bundle_ciphertext: bundle_ciphertext,
                 downstream_spiffe_id: cert_data.spiffe_id
-              }, actor: actor)
+              },
+              actor: actor
+            )
             |> Ash.update!()
 
           {:ok,
@@ -548,7 +550,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
              :update_tokens,
              %{
                bundle_ciphertext: bundle_ciphertext,
-               downstream_spiffe_id: Map.get(cert_data, :spiffe_id) || Map.get(cert_data, "spiffe_id")
+               downstream_spiffe_id:
+                 Map.get(cert_data, :spiffe_id) || Map.get(cert_data, "spiffe_id")
              },
              actor: actor,
              authorize?: authorize?
