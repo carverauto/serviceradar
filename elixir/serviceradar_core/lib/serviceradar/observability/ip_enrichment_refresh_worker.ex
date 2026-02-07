@@ -13,7 +13,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     unique: [period: 300, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Observability.{IpRdnsCache, SRQLRunner}
+  alias ServiceRadar.Observability.{GeoIP, IpGeoEnrichmentCache, IpRdnsCache, SRQLRunner}
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -25,6 +25,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   @default_scan_window "last_1h"
   @default_limit 200
   @default_rdns_ttl_seconds 86_400
+  @default_geo_ttl_seconds 604_800
   @default_rdns_timeout_ms 250
   @default_reschedule_seconds 300
 
@@ -60,16 +61,21 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     scan_window = Keyword.get(config, :scan_window, @default_scan_window)
     limit = Keyword.get(config, :limit, @default_limit)
     rdns_ttl_seconds = Keyword.get(config, :rdns_ttl_seconds, @default_rdns_ttl_seconds)
+    geo_ttl_seconds = Keyword.get(config, :geo_ttl_seconds, @default_geo_ttl_seconds)
     rdns_timeout_ms = Keyword.get(config, :rdns_timeout_ms, @default_rdns_timeout_ms)
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
 
     now = DateTime.utc_now()
-    expires_at = DateTime.add(now, rdns_ttl_seconds, :second)
+    rdns_expires_at = DateTime.add(now, rdns_ttl_seconds, :second)
+    geo_expires_at = DateTime.add(now, geo_ttl_seconds, :second)
 
     actor = SystemActor.system(:ip_enrichment_refresh)
 
     ips = discover_candidate_ips(scan_window, limit)
-    Enum.each(ips, &refresh_rdns(&1, actor, now, expires_at, rdns_timeout_ms))
+    Enum.each(ips, fn ip ->
+      refresh_rdns(ip, actor, now, rdns_expires_at, rdns_timeout_ms)
+      refresh_geo(ip, actor, now, geo_expires_at)
+    end)
 
     ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 30)))
     :ok
@@ -145,6 +151,64 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     end
   end
 
+  defp refresh_geo(ip, actor, now, expires_at) when is_binary(ip) do
+    is_private = private_ip?(ip)
+
+    {attrs, status, err} =
+      if is_private do
+        {%{is_private: true}, "private", nil}
+      else
+        case GeoIP.lookup(ip) do
+          {:ok, data} when is_map(data) ->
+            {Map.put(data, :is_private, false), "ok", nil}
+
+          {:error, reason} ->
+            {%{is_private: false}, "error", inspect(reason)}
+        end
+      end
+
+    existing_error_count =
+      case Ash.read_one(
+             IpGeoEnrichmentCache |> Ash.Query.for_read(:by_ip, %{ip: ip}),
+             actor: actor
+           ) do
+        {:ok, %IpGeoEnrichmentCache{error_count: n}} when is_integer(n) -> n
+        _ -> 0
+      end
+
+    error_count =
+      cond do
+        is_nil(err) -> 0
+        true -> existing_error_count + 1
+      end
+
+    attrs =
+      attrs
+      |> Map.merge(%{
+        ip: ip,
+        looked_up_at: now,
+        expires_at: expires_at,
+        error: err,
+        error_count: error_count
+      })
+
+    changeset =
+      IpGeoEnrichmentCache
+      |> Ash.Changeset.for_create(:upsert, attrs)
+
+    case Ash.create(changeset, actor: actor) do
+      {:ok, _} -> :ok
+      {:error, reason} ->
+        Logger.warning("IpEnrichmentRefreshWorker: failed to upsert GeoIP/ASN cache",
+          ip: ip,
+          status: status,
+          reason: inspect(reason)
+        )
+
+        :error
+    end
+  end
+
   defp rdns_lookup(ip, timeout_ms) when is_binary(ip) and is_integer(timeout_ms) do
     with {:ok, ip_tuple} <- parse_ip(ip) do
       task =
@@ -185,4 +249,27 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
       {:error, _} -> {:error, "invalid_ip"}
     end
   end
+
+  defp private_ip?(ip) when is_binary(ip) do
+    ip = ip |> String.trim() |> String.split("/", parts: 2) |> List.first()
+
+    case :inet.parse_address(String.to_charlist(ip)) do
+      {:ok, {10, _, _, _}} -> true
+      {:ok, {127, _, _, _}} -> true
+      {:ok, {169, 254, _, _}} -> true
+      {:ok, {192, 168, _, _}} -> true
+      {:ok, {172, b, _, _}} when b in 16..31 -> true
+      {:ok, {0, _, _, _}} -> true
+      {:ok, {_, _, _, _}} -> false
+      {:ok, {0, 0, 0, 0, 0, 0, 0, 1}} -> true
+      # fc00::/7 (unique local addresses)
+      {:ok, {a, _, _, _, _, _, _, _}} when a in 0xFC00..0xFDFF -> true
+      # fe80::/10 (link-local)
+      {:ok, {a, _, _, _, _, _, _, _}} when a in 0xFE80..0xFEBF -> true
+      {:ok, _} -> false
+      {:error, _} -> false
+    end
+  end
+
+  defp private_ip?(_), do: false
 end

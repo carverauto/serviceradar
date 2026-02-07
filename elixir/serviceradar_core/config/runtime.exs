@@ -3,6 +3,31 @@ import Config
 # Runtime configuration for production deployments.
 # This file is executed at runtime, not compile time.
 
+# GeoLite2 MMDB configuration (all environments)
+geolite_dir = System.get_env("GEOLITE_MMDB_DIR", "/var/lib/serviceradar/geoip")
+
+config :serviceradar_core,
+  geolite_mmdb_dir: geolite_dir
+
+config :geolix,
+  databases: [
+    %{
+      id: :geolite2_asn,
+      adapter: Geolix.Adapter.MMDB2,
+      source: Path.join(geolite_dir, "GeoLite2-ASN.mmdb")
+    },
+    %{
+      id: :geolite2_city,
+      adapter: Geolix.Adapter.MMDB2,
+      source: Path.join(geolite_dir, "GeoLite2-City.mmdb")
+    },
+    %{
+      id: :geolite2_country,
+      adapter: Geolix.Adapter.MMDB2,
+      source: Path.join(geolite_dir, "GeoLite2-Country.mmdb")
+    }
+  ]
+
 if config_env() == :prod do
   # AshCloak encryption key (required for PII encryption)
   cloak_key =

@@ -27,7 +27,7 @@ Added `platform.ip_geo_enrichment_cache` and `platform.ip_rdns_cache` in `elixir
 - [x] 3.4 Add tests for SRQL parsing/translation for the new flow aggregation patterns
 
 ## 4. Enrichment Pipeline
-- [ ] 4.1 Implement GeoIP + ASN lookups using a local DB (no external API calls at query time)
+- [x] 4.1 Implement GeoIP + ASN lookups using a local DB (no external API calls at query time)
 - [x] 4.2 Implement rDNS lookup with strict timeouts + caching
 - [x] 4.3 Implement service tagging for common ports (static mapping + override hook)
 - [ ] 4.4 Implement directionality tagging based on configured local CIDRs
@@ -41,7 +41,8 @@ and `ServiceRadar.Observability.IpEnrichmentCleanupWorker` (TTL pruning by `expi
 Added `ServiceRadar.Observability.IpEnrichmentScheduler` to ensure jobs are scheduled when Oban is available.
 
 Notes (4.1):
-Added `ServiceRadar.Observability.GeoLiteMmdbDownloadWorker` + scheduler to refresh GeoLite2 MMDB files daily (local DB source), but GeoIP/ASN lookup + cache population is still pending.
+Added local GeoLite2 MMDB support via `Geolix` (`geolix_adapter_mmdb2`) configured in `elixir/serviceradar_core/config/runtime.exs` and implemented lookups in `ServiceRadar.Observability.GeoIP`.
+`ServiceRadar.Observability.IpEnrichmentRefreshWorker` now populates `ip_geo_enrichment_cache` from the local MMDBs (no external API calls at query time). MMDB files are refreshed daily by `ServiceRadar.Observability.GeoLiteMmdbDownloadWorker`.
 
 ## 5. Web-NG UI Enhancements
 - [x] 5.1 Add/extend dashboard widgets: top talkers, top ports, protocol distribution, total bandwidth, active flows
