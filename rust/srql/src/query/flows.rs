@@ -7,6 +7,7 @@ use crate::{
     schema::ocsf_network_activity::dsl::*,
     time::TimeRange,
 };
+use diesel::dsl::not;
 use diesel::dsl::sql;
 use diesel::pg::Pg;
 use diesel::prelude::*;
@@ -21,6 +22,68 @@ type FlowsTable = crate::schema::ocsf_network_activity::table;
 type FlowsFromClause = FromClause<FlowsTable>;
 type FlowsQuery<'a> =
     BoxedSelectStatement<'a, <FlowsTable as AsQuery>::SqlType, FlowsFromClause, Pg>;
+
+// Directionality tagging for flows based on configured local CIDRs.
+//
+// NOTE: `netflow_local_cidrs` is stored under the `platform` schema, but SRQL
+// typically runs with `search_path=platform,...`, so we intentionally omit the schema prefix.
+const FLOW_DIRECTION_EXPR: &str = r#"
+CASE
+  WHEN NULLIF(src_endpoint_ip, '') IS NULL OR NULLIF(dst_endpoint_ip, '') IS NULL THEN 'unknown'
+  WHEN (
+    EXISTS (
+      SELECT 1
+      FROM netflow_local_cidrs c
+      WHERE c.enabled
+        AND (c.partition IS NULL OR c.partition = partition)
+        AND (NULLIF(src_endpoint_ip, '')::inet <<= c.cidr)
+    )
+  ) AND (
+    EXISTS (
+      SELECT 1
+      FROM netflow_local_cidrs c
+      WHERE c.enabled
+        AND (c.partition IS NULL OR c.partition = partition)
+        AND (NULLIF(dst_endpoint_ip, '')::inet <<= c.cidr)
+    )
+  ) THEN 'internal'
+  WHEN (
+    EXISTS (
+      SELECT 1
+      FROM netflow_local_cidrs c
+      WHERE c.enabled
+        AND (c.partition IS NULL OR c.partition = partition)
+        AND (NULLIF(src_endpoint_ip, '')::inet <<= c.cidr)
+    )
+  ) AND NOT (
+    EXISTS (
+      SELECT 1
+      FROM netflow_local_cidrs c
+      WHERE c.enabled
+        AND (c.partition IS NULL OR c.partition = partition)
+        AND (NULLIF(dst_endpoint_ip, '')::inet <<= c.cidr)
+    )
+  ) THEN 'outbound'
+  WHEN NOT (
+    EXISTS (
+      SELECT 1
+      FROM netflow_local_cidrs c
+      WHERE c.enabled
+        AND (c.partition IS NULL OR c.partition = partition)
+        AND (NULLIF(src_endpoint_ip, '')::inet <<= c.cidr)
+    )
+  ) AND (
+    EXISTS (
+      SELECT 1
+      FROM netflow_local_cidrs c
+      WHERE c.enabled
+        AND (c.partition IS NULL OR c.partition = partition)
+        AND (NULLIF(dst_endpoint_ip, '')::inet <<= c.cidr)
+    )
+  ) THEN 'inbound'
+  ELSE 'external'
+END
+"#;
 
 #[derive(Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::ocsf_network_activity)]
@@ -225,6 +288,46 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
                 ));
             }
         },
+        "direction" => {
+            // direction is computed from local CIDR configuration; support text-like operators.
+            let expr = sql::<Text>(FLOW_DIRECTION_EXPR);
+            match filter.op {
+                FilterOp::Eq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.eq(value));
+                }
+                FilterOp::NotEq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.ne(value));
+                }
+                FilterOp::Like => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.ilike(value));
+                }
+                FilterOp::NotLike => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.not_ilike(value));
+                }
+                FilterOp::In => {
+                    let values = filter.value.as_list()?.to_vec();
+                    if !values.is_empty() {
+                        query = query.filter(expr.eq_any(values));
+                    }
+                }
+                FilterOp::NotIn => {
+                    let values = filter.value.as_list()?.to_vec();
+                    if !values.is_empty() {
+                        query = query.filter(not(expr.eq_any(values)));
+                    }
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "direction filter only supports equality, wildcard, or list matching"
+                            .into(),
+                    ));
+                }
+            }
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for flows: '{other}'"
@@ -259,7 +362,7 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
         "src_endpoint_ip" | "src_ip" | "dst_endpoint_ip" | "dst_ip" | "protocol_name"
-        | "sampler_address" => collect_text_params(params, filter),
+        | "sampler_address" | "direction" => collect_text_params(params, filter),
         "protocol_num" | "proto" => {
             let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
                 ServiceError::InvalidRequest(format!("{} must be an integer", filter.field))
@@ -448,6 +551,7 @@ enum FlowGroupField {
     ProtocolNum,
     ProtocolName,
     SamplerAddress,
+    Direction,
 }
 
 impl FlowGroupField {
@@ -460,6 +564,7 @@ impl FlowGroupField {
             "protocol_num" | "proto" => Some(Self::ProtocolNum),
             "protocol_name" => Some(Self::ProtocolName),
             "sampler_address" => Some(Self::SamplerAddress),
+            "direction" => Some(Self::Direction),
             _ => None,
         }
     }
@@ -473,6 +578,7 @@ impl FlowGroupField {
             Self::ProtocolNum => "protocol_num",
             Self::ProtocolName => "protocol_name",
             Self::SamplerAddress => "sampler_address",
+            Self::Direction => "direction",
         }
     }
 
@@ -485,6 +591,7 @@ impl FlowGroupField {
             Self::ProtocolNum => "protocol_num",
             Self::ProtocolName => "protocol_name",
             Self::SamplerAddress => "sampler_address",
+            Self::Direction => FLOW_DIRECTION_EXPR,
         }
     }
 }
@@ -593,7 +700,7 @@ struct FlowStatsPayload {
 }
 
 struct FlowGroupedStatsSql {
-    sql: String,        // uses '?' placeholders for Diesel binds
+    sql: String, // uses '?' placeholders for Diesel binds
     binds: Vec<FlowSqlBindValue>,
 }
 
@@ -618,9 +725,7 @@ async fn execute_stats(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result
         plan.stats
             .as_ref()
             .ok_or_else(|| {
-                ServiceError::InvalidRequest(
-                    "stats expression required for aggregation".into(),
-                )
+                ServiceError::InvalidRequest("stats expression required for aggregation".into())
             })?
             .as_raw(),
     )?;
@@ -644,9 +749,7 @@ fn to_sql_and_params_stats(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)>
         plan.stats
             .as_ref()
             .ok_or_else(|| {
-                ServiceError::InvalidRequest(
-                    "stats expression required for aggregation".into(),
-                )
+                ServiceError::InvalidRequest("stats expression required for aggregation".into())
             })?
             .as_raw(),
     )?;
@@ -676,10 +779,14 @@ fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
         if let Some(close) = func_part.find(')') {
             (&func_part[..open], &func_part[open + 1..close])
         } else {
-            return Err(ServiceError::InvalidRequest("invalid stats expression".into()));
+            return Err(ServiceError::InvalidRequest(
+                "invalid stats expression".into(),
+            ));
         }
     } else {
-        return Err(ServiceError::InvalidRequest("invalid stats expression".into()));
+        return Err(ServiceError::InvalidRequest(
+            "invalid stats expression".into(),
+        ));
     };
 
     let agg_func = FlowAggFunc::from_str(func).ok_or_else(|| {
@@ -697,21 +804,14 @@ fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
         ));
     }
 
-    let alias_idx = parts
-        .iter()
-        .position(|&p| p == "as")
-        .ok_or_else(|| {
-            ServiceError::InvalidRequest(
-                "stats expression must include 'as <alias>'".into(),
-            )
-        })?;
+    let alias_idx = parts.iter().position(|&p| p == "as").ok_or_else(|| {
+        ServiceError::InvalidRequest("stats expression must include 'as <alias>'".into())
+    })?;
 
     let alias = parts
         .get(alias_idx + 1)
         .ok_or_else(|| {
-            ServiceError::InvalidRequest(
-                "stats expression missing alias after 'as'".into(),
-            )
+            ServiceError::InvalidRequest("stats expression missing alias after 'as'".into())
         })?
         .to_string();
 
@@ -733,7 +833,10 @@ fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
     })
 }
 
-fn build_grouped_stats_query(plan: &QueryPlan, spec: &FlowStatsSpec) -> Result<FlowGroupedStatsSql> {
+fn build_grouped_stats_query(
+    plan: &QueryPlan,
+    spec: &FlowStatsSpec,
+) -> Result<FlowGroupedStatsSql> {
     let mut binds: Vec<FlowSqlBindValue> = Vec::new();
     let mut where_parts: Vec<String> = Vec::new();
 
@@ -766,11 +869,7 @@ fn build_grouped_stats_query(plan: &QueryPlan, spec: &FlowStatsSpec) -> Result<F
             "SELECT {group_expr} AS group_value, {agg_sql} AS agg_value FROM ocsf_network_activity{where_sql} GROUP BY {group_expr}"
         );
 
-        let order_sql = build_stats_order_sql(
-            plan,
-            Some(group_key),
-            Some(&spec.alias),
-        )?;
+        let order_sql = build_stats_order_sql(plan, Some(group_key), Some(&spec.alias))?;
 
         let outer = format!(
             "SELECT jsonb_build_object('{group_key}', group_value, '{alias}', agg_value) AS result FROM ({inner}) t{order_sql} LIMIT {limit} OFFSET {offset}",
@@ -783,9 +882,7 @@ fn build_grouped_stats_query(plan: &QueryPlan, spec: &FlowStatsSpec) -> Result<F
         );
         outer
     } else {
-        let inner = format!(
-            "SELECT {agg_sql} AS agg_value FROM ocsf_network_activity{where_sql}"
-        );
+        let inner = format!("SELECT {agg_sql} AS agg_value FROM ocsf_network_activity{where_sql}");
         format!(
             "SELECT jsonb_build_object('{alias}', agg_value) AS result FROM ({inner}) t LIMIT 1",
             alias = spec.alias,
@@ -844,19 +941,27 @@ fn build_stats_text_filter(
 ) -> Result<String> {
     match filter.op {
         FilterOp::Eq => {
-            binds.push(FlowSqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            binds.push(FlowSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
             Ok(format!("{column} = ?"))
         }
         FilterOp::NotEq => {
-            binds.push(FlowSqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            binds.push(FlowSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
             Ok(format!("({column} IS NULL OR {column} <> ?)"))
         }
         FilterOp::Like => {
-            binds.push(FlowSqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            binds.push(FlowSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
             Ok(format!("{column} ILIKE ?"))
         }
         FilterOp::NotLike => {
-            binds.push(FlowSqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            binds.push(FlowSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
             Ok(format!("({column} IS NULL OR {column} NOT ILIKE ?)"))
         }
         FilterOp::In => {
@@ -890,20 +995,18 @@ fn build_stats_bigint_filter(
 ) -> Result<String> {
     match filter.op {
         FilterOp::Eq => {
-            let value = filter
-                .value
-                .as_scalar()?
-                .parse::<i64>()
-                .map_err(|_| ServiceError::InvalidRequest(format!("{label} must be an integer")))?;
+            let value =
+                filter.value.as_scalar()?.parse::<i64>().map_err(|_| {
+                    ServiceError::InvalidRequest(format!("{label} must be an integer"))
+                })?;
             binds.push(FlowSqlBindValue::Int(value));
             Ok(format!("{column_expr} = ?"))
         }
         FilterOp::NotEq => {
-            let value = filter
-                .value
-                .as_scalar()?
-                .parse::<i64>()
-                .map_err(|_| ServiceError::InvalidRequest(format!("{label} must be an integer")))?;
+            let value =
+                filter.value.as_scalar()?.parse::<i64>().map_err(|_| {
+                    ServiceError::InvalidRequest(format!("{label} must be an integer"))
+                })?;
             binds.push(FlowSqlBindValue::Int(value));
             Ok(format!("({column_expr} IS NULL OR {column_expr} <> ?)"))
         }
@@ -933,11 +1036,15 @@ fn build_stats_bigint_filter(
                 })?);
             }
             binds.push(FlowSqlBindValue::IntArray(out));
-            Ok(format!("({column_expr} IS NULL OR NOT ({column_expr} = ANY(?)))"))
+            Ok(format!(
+                "({column_expr} IS NULL OR NOT ({column_expr} = ANY(?)))"
+            ))
         }
         FilterOp::Like | FilterOp::NotLike => {
             // Numeric-like filters are supported via ::text matching in the row query; keep that here too.
-            binds.push(FlowSqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            binds.push(FlowSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
             let text_expr = format!("{column_expr}::text");
             Ok(match filter.op {
                 FilterOp::Like => format!("{text_expr} ILIKE ?"),
@@ -951,10 +1058,7 @@ fn build_stats_bigint_filter(
     }
 }
 
-fn build_stats_filter_clause(
-    filter: &Filter,
-    binds: &mut Vec<FlowSqlBindValue>,
-) -> Result<String> {
+fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>) -> Result<String> {
     match filter.field.as_str() {
         "src_endpoint_ip" | "src_ip" => build_stats_text_filter("src_endpoint_ip", filter, binds),
         "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("dst_endpoint_ip", filter, binds),
@@ -964,18 +1068,16 @@ fn build_stats_filter_clause(
             // protocol_num is int4; cast to bigint to keep bind typing consistent.
             build_stats_bigint_filter("protocol_num::bigint", filter, binds, "protocol_num")
         }
-        "src_port" | "src_endpoint_port" => build_stats_bigint_filter(
-            "src_endpoint_port::bigint",
-            filter,
-            binds,
-            "src_port",
-        ),
-        "dst_port" | "dst_endpoint_port" => build_stats_bigint_filter(
-            "dst_endpoint_port::bigint",
-            filter,
-            binds,
-            "dst_port",
-        ),
+        "src_port" | "src_endpoint_port" => {
+            build_stats_bigint_filter("src_endpoint_port::bigint", filter, binds, "src_port")
+        }
+        "dst_port" | "dst_endpoint_port" => {
+            build_stats_bigint_filter("dst_endpoint_port::bigint", filter, binds, "dst_port")
+        }
+        "direction" => {
+            let expr = format!("({})", FLOW_DIRECTION_EXPR);
+            build_stats_text_filter(&expr, filter, binds)
+        }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for flows stats: '{other}'"
         ))),
@@ -1017,6 +1119,17 @@ mod tests {
         let spec = parse_stats_expr(expr).unwrap();
         assert_eq!(spec.group_by, Some(FlowGroupSpec::SrcCidr { prefix: 24 }));
         assert_eq!(spec.group_by.unwrap().response_key(), "src_cidr");
+    }
+
+    #[test]
+    fn parse_stats_expr_supports_direction_group_by() {
+        let expr = "count(*) as total_flows by direction";
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(
+            spec.group_by,
+            Some(FlowGroupSpec::Field(FlowGroupField::Direction))
+        );
+        assert_eq!(spec.group_by.unwrap().response_key(), "direction");
     }
 
     #[test]

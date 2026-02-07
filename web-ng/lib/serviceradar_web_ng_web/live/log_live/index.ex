@@ -744,6 +744,104 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 Other: {format_compact_int(@other)}
               </span>
             </div>
+
+            <div class="mt-3">
+              <div class="text-xs uppercase tracking-wider text-base-content/50">
+                Direction
+              </div>
+              <div class="mt-2 flex flex-wrap items-center gap-2">
+                <.ui_button
+                  size="xs"
+                  variant="ghost"
+                  class="rounded-full"
+                  patch={
+                    netflow_filter_patch(
+                      @base_path,
+                      @query,
+                      @limit,
+                      "direction",
+                      "",
+                      @compact?,
+                      @talker_cidr
+                    )
+                  }
+                >
+                  All
+                </.ui_button>
+                <.ui_button
+                  size="xs"
+                  variant="ghost"
+                  class="rounded-full"
+                  patch={
+                    netflow_filter_patch(
+                      @base_path,
+                      @query,
+                      @limit,
+                      "direction",
+                      "internal",
+                      @compact?,
+                      @talker_cidr
+                    )
+                  }
+                >
+                  Internal
+                </.ui_button>
+                <.ui_button
+                  size="xs"
+                  variant="ghost"
+                  class="rounded-full"
+                  patch={
+                    netflow_filter_patch(
+                      @base_path,
+                      @query,
+                      @limit,
+                      "direction",
+                      "outbound",
+                      @compact?,
+                      @talker_cidr
+                    )
+                  }
+                >
+                  Outbound
+                </.ui_button>
+                <.ui_button
+                  size="xs"
+                  variant="ghost"
+                  class="rounded-full"
+                  patch={
+                    netflow_filter_patch(
+                      @base_path,
+                      @query,
+                      @limit,
+                      "direction",
+                      "inbound",
+                      @compact?,
+                      @talker_cidr
+                    )
+                  }
+                >
+                  Inbound
+                </.ui_button>
+                <.ui_button
+                  size="xs"
+                  variant="ghost"
+                  class="rounded-full"
+                  patch={
+                    netflow_filter_patch(
+                      @base_path,
+                      @query,
+                      @limit,
+                      "direction",
+                      "external",
+                      @compact?,
+                      @talker_cidr
+                    )
+                  }
+                >
+                  External
+                </.ui_button>
+              </div>
+            </div>
           </div>
 
           <div class="shrink-0">
@@ -1269,7 +1367,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       %{tab: "netflows", limit: limit}
       |> maybe_put_param(:q, query)
       |> maybe_put_param(:compact, if(compact?, do: "1", else: nil))
-      |> maybe_put_param(:talker_cidr, if(is_integer(talker_cidr), do: to_string(talker_cidr), else: nil))
+      |> maybe_put_param(
+        :talker_cidr,
+        if(is_integer(talker_cidr), do: to_string(talker_cidr), else: nil)
+      )
 
     base_path <> "?" <> URI.encode_query(params)
   end
@@ -1279,7 +1380,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       %{tab: "netflows", limit: limit}
       |> maybe_put_param(:q, query)
       |> maybe_put_param(:compact, if(compact?, do: "1", else: nil))
-      |> maybe_put_param(:talker_cidr, if(is_integer(talker_cidr), do: to_string(talker_cidr), else: nil))
+      |> maybe_put_param(
+        :talker_cidr,
+        if(is_integer(talker_cidr), do: to_string(talker_cidr), else: nil)
+      )
 
     base_path <> "?" <> URI.encode_query(params)
   end

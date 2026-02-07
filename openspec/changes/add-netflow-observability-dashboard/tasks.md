@@ -12,10 +12,13 @@ Retention/TTL for raw flows is not set in this migration and remains part of the
 - [x] 2.1 Add migrations to enforce raw NetFlow retention TTL (default 7 days, configurable)
 - [x] 2.2 Add migrations for flow rollup continuous aggregates used by widgets (top talkers/ports, traffic over time)
 - [x] 2.3 Add migrations for enrichment cache tables (GeoIP/ASN, rDNS) with TTL and bounded growth controls
-- [ ] 2.4 Add indexes needed for common filters (time, src_ip, dst_ip, port, protocol, asn, directionality)
+- [x] 2.4 Add indexes needed for common filters (time, src_ip, dst_ip, port, protocol, asn, directionality)
 
 Notes (2.4):
-The base `ocsf_network_activity` migration already includes indexes for `src_endpoint_ip`, `dst_endpoint_ip`, `protocol_num`, `src_endpoint_port`, `dst_endpoint_port`, and `sampler_address` paired with `time DESC`. Added ASN indexes in `elixir/serviceradar_core/priv/repo/migrations/20260207094500_add_ocsf_network_activity_asn_indexes.exs`. Directionality tagging indexes will be added once directionality fields are implemented.
+The base `ocsf_network_activity` migration already includes indexes for `src_endpoint_ip`, `dst_endpoint_ip`, `protocol_num`, `src_endpoint_port`, `dst_endpoint_port`, and `sampler_address` paired with `time DESC`. Added ASN indexes in `elixir/serviceradar_core/priv/repo/migrations/20260207094500_add_ocsf_network_activity_asn_indexes.exs`.
+Directionality matching is driven by `platform.netflow_local_cidrs` (added in `elixir/serviceradar_core/priv/repo/migrations/20260207110000_add_netflow_local_cidrs.exs`) with:
+- a GIST index on `cidr` (partial where enabled) to accelerate `inet <<= cidr` containment checks
+- `partition`, `enabled`, and `(partition, cidr)` indexes for common lookups and admin workflows.
 
 Notes (2.3):
 Added `platform.ip_geo_enrichment_cache` and `platform.ip_rdns_cache` in `elixir/serviceradar_core/priv/repo/migrations/20260207100500_add_ip_enrichment_cache_tables.exs` with `expires_at` + indexes to support TTL-based pruning and to keep growth bounded to unique IPs within the TTL window.
@@ -30,7 +33,7 @@ Added `platform.ip_geo_enrichment_cache` and `platform.ip_rdns_cache` in `elixir
 - [x] 4.1 Implement GeoIP + ASN lookups using a local DB (no external API calls at query time)
 - [x] 4.2 Implement rDNS lookup with strict timeouts + caching
 - [x] 4.3 Implement service tagging for common ports (static mapping + override hook)
-- [ ] 4.4 Implement directionality tagging based on configured local CIDRs
+- [x] 4.4 Implement directionality tagging based on configured local CIDRs
 - [x] 4.5 Add a background refresh/update mechanism for enrichment data sources where applicable
 - [ ] 4.6 (Optional) Integrate `ipinfo.io/lite` enrichment provider with per-deployment API key (AshCloak-encrypted) and admin UI (RBAC)
 
@@ -43,6 +46,10 @@ Added `ServiceRadar.Observability.IpEnrichmentScheduler` to ensure jobs are sche
 Notes (4.1):
 Added local GeoLite2 MMDB support via `Geolix` (`geolix_adapter_mmdb2`) configured in `elixir/serviceradar_core/config/runtime.exs` and implemented lookups in `ServiceRadar.Observability.GeoIP`.
 `ServiceRadar.Observability.IpEnrichmentRefreshWorker` now populates `ip_geo_enrichment_cache` from the local MMDBs (no external API calls at query time). MMDB files are refreshed daily by `ServiceRadar.Observability.GeoLiteMmdbDownloadWorker`.
+
+Notes (4.4):
+Added `platform.netflow_local_cidrs` + Ash resource `ServiceRadar.Observability.NetflowLocalCidr` (RBAC permission `settings.netflow.manage`) and an admin settings UI at `/settings/netflows` for managing local CIDRs.
+SRQL `in:flows` supports `direction:<value>` filtering and `stats:... by direction` grouping via a computed direction expression that consults `netflow_local_cidrs`.
 
 ## 5. Web-NG UI Enhancements
 - [x] 5.1 Add/extend dashboard widgets: top talkers, top ports, protocol distribution, total bandwidth, active flows
