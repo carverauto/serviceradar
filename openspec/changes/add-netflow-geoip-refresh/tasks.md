@@ -19,5 +19,10 @@
 - [x] 4.2 Add "Run now" controls to enqueue MMDB refresh and enrichment refresh jobs (admin-only)
 
 ## 5. Validation
-- [ ] 5.1 Add/extend tests for status field updates and authorization boundaries (system write, admin read)
-- [ ] 5.2 Smoke test end-to-end: refresh jobs run and NetFlow geo heatmap remains SRQL-driven
+- [x] 5.1 Add/extend tests for status field updates and authorization boundaries (system write, admin read)
+- [x] 5.2 Smoke test end-to-end: refresh jobs run and NetFlow geo heatmap remains SRQL-driven
+
+Notes:
+- Tests added in `elixir/serviceradar_core/test/serviceradar/observability/netflow_settings_geoip_status_test.exs`.
+- Smoke run validated `IpEnrichmentRefreshWorker.perform/1` updates `ip_enrichment_last_*` timestamps using the SRQL-backed discovery query.
+- Local Docker CNPG host connections require a client cert whose CN matches the DB user when `pg_hba.conf` uses `clientcert=verify-full`; for the docker stack this is typically `db-client.pem`/`db-client-key.pem` (CN `serviceradar`), not the `workstation.pem` pair.
