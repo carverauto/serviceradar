@@ -130,4 +130,3 @@ defmodule ServiceRadar.Observability.IpThreatIntelCache do
     identity :unique_ip, [:ip]
   end
 end
-

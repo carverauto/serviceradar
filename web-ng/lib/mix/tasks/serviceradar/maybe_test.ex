@@ -8,41 +8,45 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
   @shortdoc "Run DB-backed tests when the database is available"
 
   def run(args) do
-    run_db_tests? =
-      System.get_env("SERVICERADAR_REQUIRE_DB_TESTS") in ["1", "true", "TRUE"] or
-        System.get_env("CI") in ["1", "true", "TRUE"]
-
-    if run_db_tests? do
+    if require_db_tests?() do
       repo_config = Application.get_env(:serviceradar_core, ServiceRadar.Repo, [])
-
-      {hostname, port} =
-        case {repo_config[:hostname], repo_config[:port]} do
-          {host, port} when is_binary(host) and is_integer(port) ->
-            {host, port}
-
-          _ ->
-            # When configured via `url: ...`, the hostname/port keys may not be present.
-            # Parse them out so the reachability probe matches the actual connection target.
-            url = repo_config[:url]
-
-            case parse_db_target(url) do
-              {:ok, {host, port}} -> {host, port}
-              :error -> {"localhost", 5432}
-            end
-        end
-
-      if db_reachable?(hostname, port) do
-        Mix.Task.run("app.start")
-        maybe_migrate()
-        Mix.Tasks.Test.run(args)
-      else
-        message =
-          "Skipping web-ng tests; database unavailable at #{hostname}:#{port}"
-
-        Mix.raise(message)
-      end
+      {hostname, port} = db_target(repo_config)
+      run_db_tests(args, hostname, port)
     else
       Mix.shell().info("Skipping web-ng tests; set SERVICERADAR_REQUIRE_DB_TESTS=1 to enable")
+    end
+  end
+
+  defp require_db_tests? do
+    env_true?("SERVICERADAR_REQUIRE_DB_TESTS") or env_true?("CI")
+  end
+
+  defp env_true?(key) do
+    System.get_env(key) in ["1", "true", "TRUE"]
+  end
+
+  defp run_db_tests(args, hostname, port) do
+    if db_reachable?(hostname, port) do
+      Mix.Task.run("app.start")
+      maybe_migrate()
+      Mix.Tasks.Test.run(args)
+    else
+      Mix.raise("Skipping web-ng tests; database unavailable at #{hostname}:#{port}")
+    end
+  end
+
+  defp db_target(repo_config) do
+    case {repo_config[:hostname], repo_config[:port]} do
+      {host, port} when is_binary(host) and is_integer(port) ->
+        {host, port}
+
+      _ ->
+        # When configured via `url: ...`, the hostname/port keys may not be present.
+        # Parse them out so the reachability probe matches the actual connection target.
+        case parse_db_target(repo_config[:url]) do
+          {:ok, target} -> target
+          :error -> {"localhost", 5432}
+        end
     end
   end
 

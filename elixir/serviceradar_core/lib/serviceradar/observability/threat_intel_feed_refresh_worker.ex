@@ -55,9 +55,14 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
   def perform(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
-    indicator_ttl_seconds = Keyword.get(config, :indicator_ttl_seconds, @default_indicator_ttl_seconds)
+
+    indicator_ttl_seconds =
+      Keyword.get(config, :indicator_ttl_seconds, @default_indicator_ttl_seconds)
+
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
-    max_indicators_per_feed = Keyword.get(config, :max_indicators_per_feed, @default_max_indicators_per_feed)
+
+    max_indicators_per_feed =
+      Keyword.get(config, :max_indicators_per_feed, @default_max_indicators_per_feed)
 
     now = DateTime.utc_now()
     expires_at = DateTime.add(now, indicator_ttl_seconds, :second)
@@ -71,7 +76,8 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
 
     urls =
       case settings do
-        %NetflowSettings{threat_intel_enabled: true, threat_intel_feed_urls: urls} when is_list(urls) ->
+        %NetflowSettings{threat_intel_enabled: true, threat_intel_feed_urls: urls}
+        when is_list(urls) ->
           urls
 
         _ ->
@@ -98,57 +104,79 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
     if url == "" do
       :skip
     else
-      Logger.info("Threat intel feed refresh", url: url)
+      do_refresh_feed(url, actor, now, expires_at, timeout_ms, max_indicators_per_feed)
+    end
+  end
 
-      body =
-        try do
-          req_opts = [receive_timeout: timeout_ms, connect_options: [timeout: timeout_ms]]
-          %Req.Response{status: 200, body: body} = Req.get!(url, req_opts)
-          body
-        rescue
-          e ->
-            Logger.warning("Threat intel feed download failed", url: url, error: inspect(e))
-            nil
-        end
+  defp do_refresh_feed(url, actor, now, expires_at, timeout_ms, max_indicators_per_feed) do
+    Logger.info("Threat intel feed refresh", url: url)
 
-      if is_binary(body) do
-        source = normalize_source(url)
+    with {:ok, body} <- download_feed(url, timeout_ms) do
+      source = normalize_source(url)
 
-        indicators =
-          body
-          |> String.split("\n")
-          |> Stream.map(&String.trim/1)
-          |> Stream.reject(&(&1 == "" or String.starts_with?(&1, ["#", ";", "//"])))
-          |> Stream.map(&take_first_token/1)
-          |> Stream.reject(&(&1 == "" or is_nil(&1)))
-          |> Stream.map(&String.trim/1)
-          |> Stream.filter(&valid_cidr?/1)
-          |> Stream.take(max_indicators_per_feed)
-          |> Enum.uniq()
+      body
+      |> parse_feed_indicators(max_indicators_per_feed)
+      |> Enum.each(&upsert_indicator(&1, source, actor, now, expires_at))
+    end
 
-        Enum.each(indicators, fn indicator ->
-          attrs = %{
-            indicator: indicator,
-            indicator_type: "cidr",
-            source: source,
-            first_seen_at: now,
-            last_seen_at: now,
-            expires_at: expires_at
-          }
+    :ok
+  end
 
-          changeset = Ash.Changeset.for_create(ThreatIntelIndicator, :upsert, attrs)
+  defp download_feed(url, timeout_ms) do
+    req_opts = [receive_timeout: timeout_ms, connect_options: [timeout: timeout_ms]]
 
-          case Ash.create(changeset, actor: actor) do
-            {:ok, _} -> :ok
-            {:error, reason} ->
-              Logger.warning("Threat intel upsert failed",
-                indicator: indicator,
-                source: source,
-                reason: inspect(reason)
-              )
-          end
-        end)
-      end
+    case Req.get(url, req_opts) do
+      {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
+        {:ok, body}
+
+      {:ok, %Req.Response{status: status}} ->
+        Logger.warning("Threat intel feed download failed", url: url, status: status)
+        {:error, {:http_status, status}}
+
+      {:error, reason} ->
+        Logger.warning("Threat intel feed download failed", url: url, error: inspect(reason))
+        {:error, reason}
+    end
+  end
+
+  defp parse_feed_indicators(body, max_indicators_per_feed)
+       when is_binary(body) and is_integer(max_indicators_per_feed) do
+    body
+    |> String.split("\n")
+    |> Stream.map(&String.trim/1)
+    |> Stream.reject(&(&1 == "" or String.starts_with?(&1, ["#", ";", "//"])))
+    |> Stream.map(&take_first_token/1)
+    |> Stream.reject(&(&1 == "" or is_nil(&1)))
+    |> Stream.map(&String.trim/1)
+    |> Stream.filter(&valid_cidr?/1)
+    |> Stream.take(max_indicators_per_feed)
+    |> Enum.uniq()
+  end
+
+  defp upsert_indicator(indicator, source, actor, now, expires_at) do
+    attrs = %{
+      indicator: indicator,
+      indicator_type: "cidr",
+      source: source,
+      first_seen_at: now,
+      last_seen_at: now,
+      expires_at: expires_at
+    }
+
+    changeset = Ash.Changeset.for_create(ThreatIntelIndicator, :upsert, attrs)
+
+    case Ash.create(changeset, actor: actor) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Threat intel upsert failed",
+          indicator: indicator,
+          source: source,
+          reason: inspect(reason)
+        )
+
+        :error
     end
   end
 
@@ -175,4 +203,3 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
     end
   end
 end
-

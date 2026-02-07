@@ -23,4 +23,3 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbScheduler do
     {:ok, state}
   end
 end
-

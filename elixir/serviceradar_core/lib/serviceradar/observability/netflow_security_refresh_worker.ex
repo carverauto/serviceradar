@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     unique: [period: 120, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
+
   alias ServiceRadar.Observability.{
     IpThreatIntelCache,
     NetflowPortAnomalyFlag,
@@ -88,7 +89,13 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     end
   end
 
-  defp maybe_refresh_threat(%NetflowSettings{threat_intel_enabled: true} = settings, actor, now, expires_at, limit) do
+  defp maybe_refresh_threat(
+         %NetflowSettings{threat_intel_enabled: true} = settings,
+         actor,
+         now,
+         expires_at,
+         limit
+       ) do
     # Use flows to discover the IPs we should care about.
     ips = discover_candidate_ips("last_1h", limit)
 
@@ -183,61 +190,24 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     baseline_q =
       ~s|in:flows time:#{baseline_token} stats:"sum(bytes_total) as baseline_bytes_total by dst_endpoint_port" sort:baseline_bytes_total:desc limit:#{limit}|
 
-    current =
-      current_q
-      |> SRQLRunner.query()
-      |> unwrap_rows()
-      |> Enum.reduce(%{}, fn row, acc ->
-        port = Map.get(row, "dst_endpoint_port") || Map.get(row, :dst_endpoint_port)
-        bytes = Map.get(row, "current_bytes") || Map.get(row, :current_bytes)
-
-        if is_integer(port) and is_integer(bytes), do: Map.put(acc, port, bytes), else: acc
-      end)
+    current = srql_query_to_int_map(current_q, "dst_endpoint_port", "current_bytes")
 
     baseline_total =
-      baseline_q
-      |> SRQLRunner.query()
-      |> unwrap_rows()
-      |> Enum.reduce(%{}, fn row, acc ->
-        port = Map.get(row, "dst_endpoint_port") || Map.get(row, :dst_endpoint_port)
-        bytes = Map.get(row, "baseline_bytes_total") || Map.get(row, :baseline_bytes_total)
+      srql_query_to_int_map(baseline_q, "dst_endpoint_port", "baseline_bytes_total")
 
-        if is_integer(port) and is_integer(bytes), do: Map.put(acc, port, bytes), else: acc
-      end)
+    windows = windows_in_baseline(baseline_seconds, window_seconds)
 
-    windows_in_baseline =
-      if baseline_seconds > 0 and window_seconds > 0 do
-        max(div(baseline_seconds, window_seconds), 1)
-      else
-        max(div(604_800, max(window_seconds, 300)), 1)
-      end
+    ctx = %{
+      threshold_percent: threshold_percent,
+      window_seconds: window_seconds,
+      now: now,
+      expires_at: expires_at,
+      actor: actor
+    }
 
     Enum.each(current, fn {port, current_bytes} ->
-      baseline_per_window =
-        baseline_total
-        |> Map.get(port, 0)
-        |> div(windows_in_baseline)
-
-      if baseline_per_window > 0 do
-        # threshold_percent is expressed as "X% increase", so 300 means 4x baseline (baseline + 300%).
-        trigger =
-          trunc(baseline_per_window * (1.0 + threshold_percent / 100.0))
-
-        if current_bytes > trigger do
-          changeset =
-            Ash.Changeset.for_create(NetflowPortAnomalyFlag, :upsert, %{
-              dst_port: port,
-              current_bytes: current_bytes,
-              baseline_bytes: baseline_per_window,
-              threshold_percent: threshold_percent,
-              window_seconds: window_seconds,
-              window_end: now,
-              expires_at: expires_at
-            })
-
-          _ = Ash.create(changeset, actor: actor)
-        end
-      end
+      baseline_bytes_total = Map.get(baseline_total, port, 0)
+      maybe_upsert_port_anomaly(port, current_bytes, baseline_bytes_total, windows, ctx)
     end)
 
     :ok
@@ -247,6 +217,74 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
 
   defp unwrap_rows({:ok, rows}) when is_list(rows), do: rows
   defp unwrap_rows(_), do: []
+
+  defp srql_query_to_int_map(query, key_field, value_field)
+       when is_binary(query) and is_binary(key_field) and is_binary(value_field) do
+    key_atom = String.to_existing_atom(key_field)
+    value_atom = String.to_existing_atom(value_field)
+
+    query
+    |> SRQLRunner.query()
+    |> unwrap_rows()
+    |> Enum.reduce(%{}, fn row, acc ->
+      key = Map.get(row, key_field) || Map.get(row, key_atom)
+      value = Map.get(row, value_field) || Map.get(row, value_atom)
+
+      if is_integer(key) and is_integer(value), do: Map.put(acc, key, value), else: acc
+    end)
+  end
+
+  defp windows_in_baseline(baseline_seconds, window_seconds) do
+    if baseline_seconds > 0 and window_seconds > 0 do
+      max(div(baseline_seconds, window_seconds), 1)
+    else
+      max(div(604_800, max(window_seconds, 300)), 1)
+    end
+  end
+
+  defp maybe_upsert_port_anomaly(
+         port,
+         current_bytes,
+         baseline_bytes_total,
+         windows_in_baseline,
+         %{
+           threshold_percent: threshold_percent,
+           window_seconds: window_seconds,
+           now: now,
+           expires_at: expires_at,
+           actor: actor
+         }
+       )
+       when is_integer(port) and is_integer(current_bytes) and is_integer(baseline_bytes_total) do
+    baseline_per_window = div(max(baseline_bytes_total, 0), max(windows_in_baseline, 1))
+
+    # threshold_percent is expressed as "X% increase", so 300 means 4x baseline (baseline + 300%).
+    trigger = calc_anomaly_trigger(baseline_per_window, threshold_percent)
+
+    if baseline_per_window > 0 and current_bytes > trigger do
+      changeset =
+        Ash.Changeset.for_create(NetflowPortAnomalyFlag, :upsert, %{
+          dst_port: port,
+          current_bytes: current_bytes,
+          baseline_bytes: baseline_per_window,
+          threshold_percent: threshold_percent,
+          window_seconds: window_seconds,
+          window_end: now,
+          expires_at: expires_at
+        })
+
+      _ = Ash.create(changeset, actor: actor)
+    end
+
+    :ok
+  end
+
+  defp maybe_upsert_port_anomaly(_port, _current, _baseline_total, _windows, _ctx), do: :skip
+
+  defp calc_anomaly_trigger(baseline_per_window, threshold_percent)
+       when is_integer(baseline_per_window) and is_number(threshold_percent) do
+    trunc(baseline_per_window * (1.0 + threshold_percent / 100.0))
+  end
 
   defp discover_candidate_ips(scan_window, limit) do
     base = "in:flows time:#{scan_window}"
@@ -283,37 +321,39 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       |> Enum.map(&String.trim/1)
       |> Enum.filter(&valid_ip?/1)
 
-    if ips == [] do
-      []
-    else
-      # We keep the query in SQL so Postgres can use the GIST index on indicator.
-      sql = """
-      WITH ips AS (
-        SELECT unnest($1::text[]) AS ip
-      )
-      SELECT
-        ips.ip AS ip,
-        COUNT(ti.id)::int AS match_count,
-        COALESCE(MAX(ti.severity), 0)::int AS max_severity,
-        COALESCE(array_remove(array_agg(DISTINCT ti.source), NULL), '{}'::text[]) AS sources
-      FROM ips
-      LEFT JOIN platform.threat_intel_indicators ti
-        ON (ti.expires_at IS NULL OR ti.expires_at > now())
-       AND (ti.indicator >>= (ips.ip)::inet)
-      GROUP BY ips.ip
-      """
+    if ips == [], do: [], else: run_threat_match_query(ips)
+  end
 
-      case Ecto.Adapters.SQL.query(Repo, sql, [ips]) do
-        {:ok, %Postgrex.Result{rows: rows}} ->
-          Enum.map(rows, fn [ip, count, max_sev, sources] ->
-            {ip, count, max_sev, sources || []}
-          end)
+  defp run_threat_match_query(ips) when is_list(ips) do
+    # We keep the query in SQL so Postgres can use the GIST index on indicator.
+    sql = """
+    WITH ips AS (
+      SELECT unnest($1::text[]) AS ip
+    )
+    SELECT
+      ips.ip AS ip,
+      COUNT(ti.id)::int AS match_count,
+      COALESCE(MAX(ti.severity), 0)::int AS max_severity,
+      COALESCE(array_remove(array_agg(DISTINCT ti.source), NULL), '{}'::text[]) AS sources
+    FROM ips
+    LEFT JOIN platform.threat_intel_indicators ti
+      ON (ti.expires_at IS NULL OR ti.expires_at > now())
+     AND (ti.indicator >>= (ips.ip)::inet)
+    GROUP BY ips.ip
+    """
 
-        {:error, reason} ->
-          Logger.warning("Threat intel match query failed", reason: inspect(reason))
-          []
-      end
+    case Ecto.Adapters.SQL.query(Repo, sql, [ips]) do
+      {:ok, %Postgrex.Result{rows: rows}} ->
+        Enum.map(rows, &threat_match_row/1)
+
+      {:error, reason} ->
+        Logger.warning("Threat intel match query failed", reason: inspect(reason))
+        []
     end
+  end
+
+  defp threat_match_row([ip, count, max_sev, sources]) do
+    {ip, count, max_sev, sources || []}
   end
 
   defp valid_ip?(ip) when is_binary(ip) do

@@ -112,4 +112,3 @@ defmodule ServiceRadar.Observability.NetflowPortAnomalyFlag do
     identity :unique_dst_port, [:dst_port]
   end
 end
-

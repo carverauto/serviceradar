@@ -173,6 +173,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     compare_mode = Map.get(socket.assigns, :netflow_compare_mode, "off")
     geo_side = Map.get(socket.assigns, :netflow_geo_side, "dst")
     sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
+    patch_opts = netflow_patch_opts(compact?, talker_cidr, compare_mode, geo_side, sankey_prefix)
 
     with {:ok, start_dt, _} <- DateTime.from_iso8601(to_string(start_raw)),
          {:ok, end_dt, _} <- DateTime.from_iso8601(to_string(end_raw)) do
@@ -185,11 +186,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           limit,
           "time",
           value,
-          compact?,
-          talker_cidr,
-          compare_mode,
-          geo_side,
-          sankey_prefix
+          patch_opts
         )
 
       {:noreply, push_patch(socket, to: href)}
@@ -208,6 +205,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     compare_mode = Map.get(socket.assigns, :netflow_compare_mode, "off")
     geo_side = Map.get(socket.assigns, :netflow_geo_side, "dst")
     sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
+    patch_opts = netflow_patch_opts(compact?, talker_cidr, compare_mode, geo_side, sankey_prefix)
 
     field = if geo_side == "src", do: "src_country_iso2", else: "dst_country_iso2"
     country = to_string(country || "") |> String.trim() |> String.upcase()
@@ -220,11 +218,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           limit,
           field,
           country,
-          compact?,
-          talker_cidr,
-          compare_mode,
-          geo_side,
-          sankey_prefix
+          patch_opts
         )
 
       {:noreply, push_patch(socket, to: href)}
@@ -908,6 +902,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="space-y-4">
+      <% patch_opts =
+        netflow_patch_opts(@compact?, @talker_cidr, @compare_mode, @geo_side, @sankey_prefix) %>
       <.ui_panel class="p-0" body_class="p-0">
         <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
           <div class="text-xs uppercase tracking-wider text-base-content/50">Traffic Over Time</div>
@@ -1187,11 +1183,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     @limit,
                     "proto",
                     "",
-                    @compact?,
-                    @talker_cidr,
-                    @compare_mode,
-                    @geo_side,
-                    @sankey_prefix
+                    patch_opts
                   )
                 }
               >
@@ -1208,11 +1200,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     @limit,
                     "proto",
                     "6",
-                    @compact?,
-                    @talker_cidr,
-                    @compare_mode,
-                    @geo_side,
-                    @sankey_prefix
+                    patch_opts
                   )
                 }
               >
@@ -1229,11 +1217,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     @limit,
                     "proto",
                     "17",
-                    @compact?,
-                    @talker_cidr,
-                    @compare_mode,
-                    @geo_side,
-                    @sankey_prefix
+                    patch_opts
                   )
                 }
               >
@@ -1260,11 +1244,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       @limit,
                       "direction",
                       "",
-                      @compact?,
-                      @talker_cidr,
-                      @compare_mode,
-                      @geo_side,
-                      @sankey_prefix
+                      patch_opts
                     )
                   }
                 >
@@ -1281,11 +1261,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       @limit,
                       "direction",
                       "internal",
-                      @compact?,
-                      @talker_cidr,
-                      @compare_mode,
-                      @geo_side,
-                      @sankey_prefix
+                      patch_opts
                     )
                   }
                 >
@@ -1302,11 +1278,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       @limit,
                       "direction",
                       "outbound",
-                      @compact?,
-                      @talker_cidr,
-                      @compare_mode,
-                      @geo_side,
-                      @sankey_prefix
+                      patch_opts
                     )
                   }
                 >
@@ -1323,11 +1295,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       @limit,
                       "direction",
                       "inbound",
-                      @compact?,
-                      @talker_cidr,
-                      @compare_mode,
-                      @geo_side,
-                      @sankey_prefix
+                      patch_opts
                     )
                   }
                 >
@@ -1344,11 +1312,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       @limit,
                       "direction",
                       "external",
-                      @compact?,
-                      @talker_cidr,
-                      @compare_mode,
-                      @geo_side,
-                      @sankey_prefix
+                      patch_opts
                     )
                   }
                 >
@@ -1491,11 +1455,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             do: cidr_to_like_prefix(Map.get(row, :ip), @talker_cidr),
                             else: Map.get(row, :ip)
                           ),
-                          @compact?,
-                          @talker_cidr,
-                          @compare_mode,
-                          @geo_side,
-                          @sankey_prefix
+                          patch_opts
                         )
                       }
                       class="text-sm font-mono hover:underline"
@@ -1538,11 +1498,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             @limit,
                             "dst_port",
                             to_string(Map.get(row, :port)),
-                            @compact?,
-                            @talker_cidr,
-                            @compare_mode,
-                            @geo_side,
-                            @sankey_prefix
+                            patch_opts
                           )
                         }
                         class="text-sm font-mono hover:underline"
@@ -3003,6 +2959,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp netflows_table(assigns) do
     ~H"""
     <div class="overflow-x-auto">
+      <% patch_opts =
+        netflow_patch_opts(@compact?, @talker_cidr, @compare_mode, @geo_side, @sankey_prefix) %>
       <table class={["table table-zebra w-full", (@compact? && "table-xs") || "table-sm"]}>
         <thead>
           <tr>
@@ -3048,11 +3006,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       @limit,
                       "src_ip",
                       src_ip,
-                      @compact?,
-                      @talker_cidr,
-                      @compare_mode,
-                      @geo_side,
-                      @sankey_prefix
+                      patch_opts
                     )
                   }
                   class="hover:underline"
@@ -3075,11 +3029,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           @limit,
                           "dst_ip",
                           dst_ip,
-                          @compact?,
-                          @talker_cidr,
-                          @compare_mode,
-                          @geo_side,
-                          @sankey_prefix
+                          patch_opts
                         )
                       }
                       class="hover:underline"
@@ -3135,11 +3085,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           @limit,
                           "src_ip",
                           netflow_addr(flow, :src),
-                          @compact?,
-                          @talker_cidr,
-                          @compare_mode,
-                          @geo_side,
-                          @sankey_prefix
+                          patch_opts
                         )
                       }
                       class="text-xs"
@@ -3156,11 +3102,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           @limit,
                           "dst_ip",
                           netflow_addr(flow, :dst),
-                          @compact?,
-                          @talker_cidr,
-                          @compare_mode,
-                          @geo_side,
-                          @sankey_prefix
+                          patch_opts
                         )
                       }
                       class="text-xs"
@@ -3180,11 +3122,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           @limit,
                           "dst_port",
                           to_string(netflow_port(flow, :dst)),
-                          @compact?,
-                          @talker_cidr,
-                          @compare_mode,
-                          @geo_side,
-                          @sankey_prefix
+                          patch_opts
                         )
                       }
                       class="text-xs"
@@ -3229,6 +3167,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <dialog class="modal modal-open" phx-window-keydown="netflow_close" phx-key="escape">
       <div class="modal-box max-w-4xl">
+        <% patch_opts =
+          netflow_patch_opts(@compact?, @talker_cidr, @compare_mode, @geo_side, @sankey_prefix) %>
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <div class="text-sm font-semibold">Flow details</div>
@@ -3265,11 +3205,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             @limit,
                             "src_ip",
                             @src_ip,
-                            @compact?,
-                            @talker_cidr,
-                            @compare_mode,
-                            @geo_side,
-                            @sankey_prefix
+                            patch_opts
                           )
                         }
                       >
@@ -3299,11 +3235,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             @limit,
                             "dst_ip",
                             @dst_ip,
-                            @compact?,
-                            @talker_cidr,
-                            @compare_mode,
-                            @geo_side,
-                            @sankey_prefix
+                            patch_opts
                           )
                         }
                       >
@@ -3320,11 +3252,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             @limit,
                             "dst_port",
                             to_string(@dst_port),
-                            @compact?,
-                            @talker_cidr,
-                            @compare_mode,
-                            @geo_side,
-                            @sankey_prefix
+                            patch_opts
                           )
                         }
                       >
@@ -3390,11 +3318,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     @limit,
                     "src_ip",
                     @src_ip,
-                    @compact?,
-                    @talker_cidr,
-                    @compare_mode,
-                    @geo_side,
-                    @sankey_prefix
+                    patch_opts
                   )
                 }
               >
@@ -3411,11 +3335,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     @limit,
                     "dst_ip",
                     @dst_ip,
-                    @compact?,
-                    @talker_cidr,
-                    @compare_mode,
-                    @geo_side,
-                    @sankey_prefix
+                    patch_opts
                   )
                 }
               >
@@ -3433,11 +3353,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     @limit,
                     "dst_port",
                     to_string(@dst_port),
-                    @compact?,
-                    @talker_cidr,
-                    @compare_mode,
-                    @geo_side,
-                    @sankey_prefix
+                    patch_opts
                   )
                 }
               >
@@ -3792,14 +3708,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
          limit,
          field,
          value,
-         compact?,
-         talker_cidr,
-         compare_mode,
-         geo_side,
-         sankey_prefix
+         opts
        ) do
     value = to_string(value || "") |> String.trim()
     value = if value in ["—", "-"], do: "", else: value
+    compact? = Map.get(opts, :compact?, false)
+    talker_cidr = Map.get(opts, :talker_cidr)
+    compare_mode = Map.get(opts, :compare_mode, "off")
+    geo_side = Map.get(opts, :geo_side, "dst")
+    sankey_prefix = Map.get(opts, :sankey_prefix, 24)
 
     params =
       %{tab: "netflows", limit: limit}
@@ -3842,42 +3759,43 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  @netflow_service_labels %{
+    22 => "SSH",
+    25 => "SMTP",
+    53 => "DNS",
+    67 => "DHCP",
+    68 => "DHCP",
+    80 => "HTTP",
+    110 => "POP3",
+    123 => "NTP",
+    143 => "IMAP",
+    161 => "SNMP",
+    162 => "SNMPTRAP",
+    389 => "LDAP",
+    443 => "HTTPS",
+    445 => "SMB",
+    465 => "SMTPS",
+    514 => "SYSLOG",
+    587 => "SMTP",
+    636 => "LDAPS",
+    1433 => "MSSQL",
+    3306 => "MYSQL",
+    3389 => "RDP",
+    5432 => "POSTGRES",
+    6379 => "REDIS",
+    8080 => "HTTP-ALT",
+    8443 => "HTTPS-ALT",
+    9200 => "ELASTIC",
+    27_017 => "MONGO"
+  }
+
   defp netflow_service_label(nil), do: nil
   defp netflow_service_label(""), do: nil
 
   defp netflow_service_label(port) do
-    port = to_int(port)
-
-    case port do
-      22 -> "SSH"
-      25 -> "SMTP"
-      53 -> "DNS"
-      67 -> "DHCP"
-      68 -> "DHCP"
-      80 -> "HTTP"
-      110 -> "POP3"
-      123 -> "NTP"
-      143 -> "IMAP"
-      161 -> "SNMP"
-      162 -> "SNMPTRAP"
-      389 -> "LDAP"
-      443 -> "HTTPS"
-      445 -> "SMB"
-      465 -> "SMTPS"
-      514 -> "SYSLOG"
-      587 -> "SMTP"
-      636 -> "LDAPS"
-      1433 -> "MSSQL"
-      3306 -> "MYSQL"
-      3389 -> "RDP"
-      5432 -> "POSTGRES"
-      6379 -> "REDIS"
-      8080 -> "HTTP-ALT"
-      8443 -> "HTTPS-ALT"
-      9200 -> "ELASTIC"
-      27017 -> "MONGO"
-      _ -> nil
-    end
+    port
+    |> to_int()
+    |> then(&Map.get(@netflow_service_labels, &1))
   end
 
   defp format_netflow_bytes(nil), do: "0 B"
@@ -5413,59 +5331,60 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     time_token = extract_time_from_query(base_query) || "last_24h"
 
-    with {:ok, %{start: start_dt, end: end_dt}} <- resolve_srql_time(time_token) do
-      span_seconds = max(DateTime.diff(end_dt, start_dt, :second), 1)
+    case resolve_srql_time(time_token) do
+      {:ok, %{start: start_dt, end: end_dt}} ->
+        span_seconds = max(DateTime.diff(end_dt, start_dt, :second), 1)
 
-      {cstart, cend} =
-        case mode do
-          "previous" ->
-            {DateTime.add(start_dt, -span_seconds, :second), start_dt}
+        {cstart, cend} =
+          case mode do
+            "previous" ->
+              {DateTime.add(start_dt, -span_seconds, :second), start_dt}
 
-          "yesterday" ->
-            {DateTime.add(start_dt, -86_400, :second), DateTime.add(end_dt, -86_400, :second)}
-        end
+            "yesterday" ->
+              {DateTime.add(start_dt, -86_400, :second), DateTime.add(end_dt, -86_400, :second)}
+          end
 
-      compare_time = "[#{DateTime.to_iso8601(cstart)},#{DateTime.to_iso8601(cend)}]"
-      compare_query = upsert_query_filter(base_query, "time", compare_time)
-      bucket = bucket_seconds_to_srql(bucket_seconds)
+        compare_time = "[#{DateTime.to_iso8601(cstart)},#{DateTime.to_iso8601(cend)}]"
+        compare_query = upsert_query_filter(base_query, "time", compare_time)
+        bucket = bucket_seconds_to_srql(bucket_seconds)
 
-      query =
-        ~s|#{compare_query} bucket:#{bucket} agg:sum value_field:bytes_total limit:120|
+        query =
+          ~s|#{compare_query} bucket:#{bucket} agg:sum value_field:bytes_total limit:120|
 
-      rows =
-        case srql_module.query(query, %{scope: scope}) do
-          {:ok, %{"results" => results}} when is_list(results) -> results
-          _ -> []
-        end
+        rows =
+          case srql_module.query(query, %{scope: scope}) do
+            {:ok, %{"results" => results}} when is_list(results) -> results
+            _ -> []
+          end
 
-      buckets =
-        Enum.reduce(rows, %{}, fn
-          %{"timestamp" => ts, "value" => value}, acc ->
-            with {:ok, dt} <- parse_srql_datetime(ts),
-                 bytes when is_number(bytes) <- to_number(value) do
-              Map.update(acc, dt, bytes, &(&1 + bytes))
-            else
-              _ -> acc
-            end
+        buckets =
+          Enum.reduce(rows, %{}, fn
+            %{"timestamp" => ts, "value" => value}, acc ->
+              with {:ok, dt} <- parse_srql_datetime(ts),
+                   bytes when is_number(bytes) <- to_number(value) do
+                Map.update(acc, dt, bytes, &(&1 + bytes))
+              else
+                _ -> acc
+              end
 
-          _row, acc ->
-            acc
-        end)
+            _row, acc ->
+              acc
+          end)
 
-      points =
-        buckets
-        |> Enum.sort_by(fn {dt, _bytes} -> DateTime.to_unix(dt, :second) end)
-        |> Enum.map(fn {bucket_start, bytes} ->
-          %{
-            bucket_start: bucket_start,
-            bucket_end: DateTime.add(bucket_start, bucket_seconds, :second),
-            bytes: trunc(bytes)
-          }
-        end)
-        |> Enum.take(120)
+        points =
+          buckets
+          |> Enum.sort_by(fn {dt, _bytes} -> DateTime.to_unix(dt, :second) end)
+          |> Enum.map(fn {bucket_start, bytes} ->
+            %{
+              bucket_start: bucket_start,
+              bucket_end: DateTime.add(bucket_start, bucket_seconds, :second),
+              bytes: trunc(bytes)
+            }
+          end)
+          |> Enum.take(120)
 
-      %{bucket_seconds: bucket_seconds, points: points}
-    else
+        %{bucket_seconds: bucket_seconds, points: points}
+
       _ ->
         %{bucket_seconds: bucket_seconds, points: []}
     end
@@ -5512,197 +5431,228 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     time_token = extract_time_from_query(base_query) || "last_24h"
 
-    # Guardrail: Sankey queries are multi-dimensional and can be very expensive over long windows.
-    # Require a reasonably bounded window (6h) to keep the dashboard responsive.
-    enabled? =
-      case resolve_srql_time(time_token) do
-        {:ok, %{start: start_dt, end: end_dt}} ->
-          DateTime.diff(end_dt, start_dt, :second) <= 6 * 60 * 60
-
-        _ ->
-          false
-      end
-
-    if not enabled? do
-      %{edges: [], sources: [], mids: [], dests: []}
+    if netflow_sankey_enabled?(time_token) do
+      build_netflow_sankey(srql_module, base_query, scope, prefix)
     else
-      # Guardrail for performance: avoid unbounded 3-way group-by across all flows.
-      # Instead, preselect top-N src/dst subnets and ports, then compute edges within that subset.
-      top_sources_q =
-        ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}" sort:total_bytes:desc limit:16|
-
-      top_dests_q =
-        ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_cidr:#{prefix}" sort:total_bytes:desc limit:16|
-
-      top_ports_q =
-        ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_endpoint_port" sort:total_bytes:desc limit:16|
-
-      top_sources =
-        srql_module
-        |> apply(:query, [top_sources_q, %{scope: scope}])
-        |> extract_stats_rows()
-        |> Enum.map(&Map.get(&1, "src_cidr"))
-        |> Enum.filter(&is_binary/1)
-        |> Enum.reject(&(&1 in ["", "Unknown"]))
-        |> Enum.take(16)
-
-      top_dests =
-        srql_module
-        |> apply(:query, [top_dests_q, %{scope: scope}])
-        |> extract_stats_rows()
-        |> Enum.map(&Map.get(&1, "dst_cidr"))
-        |> Enum.filter(&is_binary/1)
-        |> Enum.reject(&(&1 in ["", "Unknown"]))
-        |> Enum.take(16)
-
-      top_ports =
-        srql_module
-        |> apply(:query, [top_ports_q, %{scope: scope}])
-        |> extract_stats_rows()
-        |> Enum.map(&to_int(Map.get(&1, "dst_endpoint_port")))
-        |> Enum.filter(&(&1 > 0))
-        |> Enum.take(16)
-
-      src_filter =
-        if top_sources == [] do
-          ""
-        else
-          " src_cidr:(#{Enum.join(top_sources, ",")})"
-        end
-
-      dst_filter =
-        if top_dests == [] do
-          ""
-        else
-          " dst_cidr:(#{Enum.join(top_dests, ",")})"
-        end
-
-      port_filter =
-        if top_ports == [] do
-          ""
-        else
-          " dst_port:(#{Enum.join(top_ports, ",")})"
-        end
-
-      # Multi-dimension stats: SRQL enforces time window + limit cap guardrails.
-      query =
-        ~s|#{base_query}#{src_filter}#{dst_filter}#{port_filter} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}, dst_endpoint_port, dst_cidr:#{prefix}" sort:total_bytes:desc limit:200|
-
-      edges =
-        srql_module
-        |> apply(:query, [query, %{scope: scope}])
-        |> extract_stats_rows()
-        |> Enum.map(fn row ->
-          src = Map.get(row, "src_cidr")
-          dst = Map.get(row, "dst_cidr")
-          port = to_int(Map.get(row, "dst_endpoint_port"))
-          bytes = to_int(Map.get(row, "total_bytes"))
-
-          mid =
-            case netflow_service_label(port) do
-              label when is_binary(label) -> "#{label}:#{port}"
-              _ when port > 0 -> "PORT:#{port}"
-              _ -> "PORT:?"
-            end
-
-          %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
-        end)
-        |> Enum.reject(fn e ->
-          is_nil(e.src) or e.src in ["", "Unknown"] or is_nil(e.dst) or e.dst in ["", "Unknown"] or
-            e.bytes <= 0
-        end)
-        |> Enum.take(200)
-
-      sources =
-        edges
-        |> Enum.group_by(& &1.src)
-        |> Enum.map(fn {k, es} -> {k, Enum.sum(Enum.map(es, & &1.bytes))} end)
-
-      mids =
-        edges
-        |> Enum.group_by(& &1.mid)
-        |> Enum.map(fn {k, es} -> {k, Enum.sum(Enum.map(es, & &1.bytes))} end)
-
-      dests =
-        edges
-        |> Enum.group_by(& &1.dst)
-        |> Enum.map(fn {k, es} -> {k, Enum.sum(Enum.map(es, & &1.bytes))} end)
-
-      %{
-        edges: edges,
-        sources: Enum.sort_by(sources, fn {_k, v} -> -v end) |> Enum.take(12),
-        mids: Enum.sort_by(mids, fn {_k, v} -> -v end) |> Enum.take(12),
-        dests: Enum.sort_by(dests, fn {_k, v} -> -v end) |> Enum.take(12)
-      }
+      empty_netflow_sankey()
     end
   rescue
     _ ->
-      %{edges: [], sources: [], mids: [], dests: []}
+      empty_netflow_sankey()
   end
 
   defp load_netflow_sankey(_srql_module, _current_query, _scope, _prefix),
-    do: %{edges: [], sources: [], mids: [], dests: []}
+    do: empty_netflow_sankey()
+
+  defp empty_netflow_sankey, do: %{edges: [], sources: [], mids: [], dests: []}
+
+  defp netflow_sankey_enabled?(time_token) when is_binary(time_token) do
+    # Guardrail: Sankey queries are multi-dimensional and can be very expensive over long windows.
+    # Require a reasonably bounded window (6h) to keep the dashboard responsive.
+    case resolve_srql_time(time_token) do
+      {:ok, %{start: start_dt, end: end_dt}} ->
+        DateTime.diff(end_dt, start_dt, :second) <= 6 * 60 * 60
+
+      _ ->
+        false
+    end
+  end
+
+  defp build_netflow_sankey(srql_module, base_query, scope, prefix) do
+    # Guardrail for performance: avoid unbounded 3-way group-by across all flows.
+    # Instead, preselect top-N src/dst subnets and ports, then compute edges within that subset.
+    top_sources_q =
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}" sort:total_bytes:desc limit:16|
+
+    top_dests_q =
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_cidr:#{prefix}" sort:total_bytes:desc limit:16|
+
+    top_ports_q =
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_endpoint_port" sort:total_bytes:desc limit:16|
+
+    top_sources =
+      srql_module
+      |> apply(:query, [top_sources_q, %{scope: scope}])
+      |> extract_stats_rows()
+      |> Enum.map(&Map.get(&1, "src_cidr"))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.reject(&(&1 in ["", "Unknown"]))
+      |> Enum.take(16)
+
+    top_dests =
+      srql_module
+      |> apply(:query, [top_dests_q, %{scope: scope}])
+      |> extract_stats_rows()
+      |> Enum.map(&Map.get(&1, "dst_cidr"))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.reject(&(&1 in ["", "Unknown"]))
+      |> Enum.take(16)
+
+    top_ports =
+      srql_module
+      |> apply(:query, [top_ports_q, %{scope: scope}])
+      |> extract_stats_rows()
+      |> Enum.map(&to_int(Map.get(&1, "dst_endpoint_port")))
+      |> Enum.filter(&(&1 > 0))
+      |> Enum.take(16)
+
+    src_filter = srql_in_filter("src_cidr", top_sources)
+    dst_filter = srql_in_filter("dst_cidr", top_dests)
+    port_filter = srql_in_filter("dst_port", top_ports)
+
+    # Multi-dimension stats: SRQL enforces time window + limit cap guardrails.
+    query =
+      ~s|#{base_query}#{src_filter}#{dst_filter}#{port_filter} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}, dst_endpoint_port, dst_cidr:#{prefix}" sort:total_bytes:desc limit:200|
+
+    edges =
+      srql_module
+      |> apply(:query, [query, %{scope: scope}])
+      |> extract_stats_rows()
+      |> Enum.map(&netflow_sankey_edge/1)
+      |> Enum.reject(fn e ->
+        is_nil(e.src) or e.src in ["", "Unknown"] or is_nil(e.dst) or e.dst in ["", "Unknown"] or
+          e.bytes <= 0
+      end)
+      |> Enum.take(200)
+
+    sources = sum_edges_by(edges, :src)
+    mids = sum_edges_by(edges, :mid)
+    dests = sum_edges_by(edges, :dst)
+
+    %{
+      edges: edges,
+      sources: Enum.sort_by(sources, fn {_k, v} -> -v end) |> Enum.take(12),
+      mids: Enum.sort_by(mids, fn {_k, v} -> -v end) |> Enum.take(12),
+      dests: Enum.sort_by(dests, fn {_k, v} -> -v end) |> Enum.take(12)
+    }
+  rescue
+    _ ->
+      empty_netflow_sankey()
+  end
+
+  defp srql_in_filter(_field, []), do: ""
+  defp srql_in_filter(field, values), do: " #{field}:(#{Enum.join(values, ",")})"
+
+  defp netflow_sankey_edge(row) do
+    src = Map.get(row, "src_cidr")
+    dst = Map.get(row, "dst_cidr")
+    port = to_int(Map.get(row, "dst_endpoint_port"))
+    bytes = to_int(Map.get(row, "total_bytes"))
+    mid = netflow_port_mid_label(port)
+    %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
+  end
+
+  defp netflow_port_mid_label(port) when is_integer(port) and port > 0 do
+    case netflow_service_label(port) do
+      label when is_binary(label) -> "#{label}:#{port}"
+      _ -> "PORT:#{port}"
+    end
+  end
+
+  defp netflow_port_mid_label(_), do: "PORT:?"
+
+  defp sum_edges_by(edges, key) when is_list(edges) do
+    edges
+    |> Enum.reduce(%{}, fn e, acc ->
+      Map.update(acc, Map.get(e, key), e.bytes, &(&1 + e.bytes))
+    end)
+    |> Map.to_list()
+  end
 
   defp resolve_srql_time(value) when is_binary(value) do
-    value = String.trim(value)
-    now = DateTime.utc_now()
+    value
+    |> String.trim()
+    |> resolve_srql_time(DateTime.utc_now())
+  end
 
+  defp resolve_srql_time("today", now) do
+    start =
+      now
+      |> DateTime.to_date()
+      |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+
+    {:ok, %{start: start, end: now}}
+  end
+
+  defp resolve_srql_time("yesterday", now) do
+    today = DateTime.to_date(now)
+    start = today |> Date.add(-1) |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+    end_dt = today |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+    {:ok, %{start: start, end: end_dt}}
+  end
+
+  defp resolve_srql_time(value, now) do
     cond do
-      String.starts_with?(value, "[") and String.ends_with?(value, "]") ->
-        inner = value |> String.trim_leading("[") |> String.trim_trailing("]")
+      bracketed_time?(value) ->
+        parse_bracketed_time(value)
 
-        case String.split(inner, ",", parts: 2) do
-          [start_raw, end_raw] ->
-            with {:ok, start_dt, _} <- DateTime.from_iso8601(String.trim(start_raw)),
-                 {:ok, end_dt, _} <- DateTime.from_iso8601(String.trim(end_raw)),
-                 true <- DateTime.compare(start_dt, end_dt) in [:lt, :eq] do
-              {:ok, %{start: start_dt, end: end_dt}}
-            else
-              _ -> {:error, :bad_time}
-            end
-
-          _ ->
-            {:error, :bad_time}
-        end
-
-      value in ["today"] ->
-        start =
-          now
-          |> DateTime.to_date()
-          |> DateTime.new!(~T[00:00:00], "Etc/UTC")
-
-        {:ok, %{start: start, end: now}}
-
-      value in ["yesterday"] ->
-        today = DateTime.to_date(now)
-        start = today |> Date.add(-1) |> DateTime.new!(~T[00:00:00], "Etc/UTC")
-        end_dt = today |> DateTime.new!(~T[00:00:00], "Etc/UTC")
-        {:ok, %{start: start, end: end_dt}}
-
-      Regex.match?(~r/^(?:last[_-])?\d+[mhd]$/i, value) ->
-        normalized = value |> String.downcase() |> String.replace(~r/^last[_-]/, "")
-        amount = String.slice(normalized, 0, max(byte_size(normalized) - 1, 0))
-        unit = String.slice(normalized, -1, 1)
-
-        case Integer.parse(amount) do
-          {n, ""} when n > 0 ->
-            seconds =
-              case unit do
-                "m" -> n * 60
-                "h" -> n * 3600
-                "d" -> n * 86400
-                _ -> 0
-              end
-
-            {:ok, %{start: DateTime.add(now, -seconds, :second), end: now}}
-
-          _ ->
-            {:error, :bad_time}
-        end
+      last_duration?(value) ->
+        resolve_last_duration(value, now)
 
       true ->
         {:error, :unsupported}
     end
+  end
+
+  defp bracketed_time?(value) do
+    String.starts_with?(value, "[") and String.ends_with?(value, "]")
+  end
+
+  defp parse_bracketed_time(value) do
+    inner = value |> String.trim_leading("[") |> String.trim_trailing("]")
+
+    case String.split(inner, ",", parts: 2) do
+      [start_raw, end_raw] ->
+        with {:ok, start_dt, _} <- DateTime.from_iso8601(String.trim(start_raw)),
+             {:ok, end_dt, _} <- DateTime.from_iso8601(String.trim(end_raw)),
+             true <- DateTime.compare(start_dt, end_dt) in [:lt, :eq] do
+          {:ok, %{start: start_dt, end: end_dt}}
+        else
+          _ -> {:error, :bad_time}
+        end
+
+      _ ->
+        {:error, :bad_time}
+    end
+  end
+
+  defp last_duration?(value) do
+    Regex.match?(~r/^(?:last[_-])?\d+[mhd]$/i, value)
+  end
+
+  defp resolve_last_duration(value, now) do
+    normalized = value |> String.downcase() |> String.replace(~r/^last[_-]/, "")
+    amount = String.slice(normalized, 0, max(byte_size(normalized) - 1, 0))
+    unit = String.slice(normalized, -1, 1)
+
+    case Integer.parse(amount) do
+      {n, ""} when n > 0 ->
+        case duration_unit_multiplier(unit) do
+          seconds when is_integer(seconds) and seconds > 0 ->
+            {:ok, %{start: DateTime.add(now, -(n * seconds), :second), end: now}}
+
+          _ ->
+            {:error, :bad_time}
+        end
+
+      _ ->
+        {:error, :bad_time}
+    end
+  end
+
+  defp duration_unit_multiplier("m"), do: 60
+  defp duration_unit_multiplier("h"), do: 3_600
+  defp duration_unit_multiplier("d"), do: 86_400
+  defp duration_unit_multiplier(_), do: 0
+
+  defp netflow_patch_opts(compact?, talker_cidr, compare_mode, geo_side, sankey_prefix) do
+    %{
+      compact?: compact?,
+      talker_cidr: talker_cidr,
+      compare_mode: compare_mode,
+      geo_side: geo_side,
+      sankey_prefix: sankey_prefix
+    }
   end
 
   defp choose_netflow_bucket_seconds(start_dt, end_dt) do

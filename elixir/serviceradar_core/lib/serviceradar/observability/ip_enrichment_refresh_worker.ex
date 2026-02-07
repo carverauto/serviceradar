@@ -144,17 +144,12 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   defp refresh_rdns(ip, actor, now, expires_at, timeout_ms) when is_binary(ip) do
     {hostname, status, err} = rdns_lookup(ip, timeout_ms)
 
-    existing_error_count =
-      case Ash.read_one(IpRdnsCache |> Ash.Query.for_read(:by_ip, %{ip: ip}), actor: actor) do
-        {:ok, %IpRdnsCache{error_count: n}} when is_integer(n) -> n
-        _ -> 0
-      end
+    existing_error_count = existing_error_count(IpRdnsCache, ip, actor)
 
     error_count =
-      cond do
-        is_nil(err) -> 0
-        true -> existing_error_count + 1
-      end
+      if is_nil(err),
+        do: 0,
+        else: existing_error_count + 1
 
     attrs = %{
       ip: ip,
@@ -185,35 +180,28 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   end
 
   defp refresh_geo(ip, actor, now, expires_at) when is_binary(ip) do
-    is_private = private_ip?(ip)
+    {attrs, status, err} = geo_lookup(ip)
+    upsert_geo_cache(ip, attrs, status, err, actor, now, expires_at)
+  end
 
-    {attrs, status, err} =
-      if is_private do
-        {%{is_private: true}, "private", nil}
-      else
-        case GeoIP.lookup(ip) do
-          {:ok, data} when is_map(data) ->
-            {Map.put(data, :is_private, false), "ok", nil}
+  defp geo_lookup(ip) when is_binary(ip) do
+    if private_ip?(ip) do
+      {%{is_private: true}, "private", nil}
+    else
+      case GeoIP.lookup(ip) do
+        {:ok, data} when is_map(data) ->
+          {Map.put(data, :is_private, false), "ok", nil}
 
-          {:error, reason} ->
-            {%{is_private: false}, "error", inspect(reason)}
-        end
+        {:error, reason} ->
+          {%{is_private: false}, "error", inspect(reason)}
       end
+    end
+  end
 
-    existing_error_count =
-      case Ash.read_one(
-             IpGeoEnrichmentCache |> Ash.Query.for_read(:by_ip, %{ip: ip}),
-             actor: actor
-           ) do
-        {:ok, %IpGeoEnrichmentCache{error_count: n}} when is_integer(n) -> n
-        _ -> 0
-      end
-
-    error_count =
-      cond do
-        is_nil(err) -> 0
-        true -> existing_error_count + 1
-      end
+  defp upsert_geo_cache(ip, attrs, status, err, actor, now, expires_at)
+       when is_binary(ip) and is_map(attrs) do
+    existing_error_count = existing_error_count(IpGeoEnrichmentCache, ip, actor)
+    error_count = if is_nil(err), do: 0, else: existing_error_count + 1
 
     attrs =
       attrs
@@ -241,6 +229,15 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
         )
 
         :error
+    end
+  end
+
+  defp existing_error_count(resource, ip, actor) do
+    query = resource |> Ash.Query.for_read(:by_ip, %{ip: ip})
+
+    case Ash.read_one(query, actor: actor) do
+      {:ok, %{error_count: n}} when is_integer(n) -> n
+      _ -> 0
     end
   end
 
@@ -306,65 +303,72 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   defp refresh_ipinfo(ip, %NetflowSettings{} = settings, actor, now, expires_at, timeout_ms)
        when is_binary(ip) do
     # Background-only enrichment: never call external APIs during SRQL query execution.
-    if settings.ipinfo_enabled && is_binary(settings.ipinfo_api_key) &&
-         settings.ipinfo_api_key != "" &&
-         not private_ip?(ip) do
+    if ipinfo_enabled_for_ip?(settings, ip) do
       {attrs, err} =
         ipinfo_lookup(ip, settings.ipinfo_base_url, settings.ipinfo_api_key, timeout_ms)
 
-      existing_error_count =
-        case Ash.read_one(
-               IpIpinfoCache |> Ash.Query.for_read(:by_ip, %{ip: ip}),
-               actor: actor
-             ) do
-          {:ok, %IpIpinfoCache{error_count: n}} when is_integer(n) -> n
-          _ -> 0
-        end
-
-      error_count =
-        cond do
-          is_nil(err) -> 0
-          true -> existing_error_count + 1
-        end
-
-      attrs =
-        (attrs || %{})
-        |> Map.merge(%{
-          ip: ip,
-          looked_up_at: now,
-          expires_at: expires_at,
-          error: err,
-          error_count: error_count
-        })
-
-      changeset =
-        IpIpinfoCache
-        |> Ash.Changeset.for_create(:upsert, attrs)
-
-      case Ash.create(changeset, actor: actor) do
-        {:ok, _} ->
-          :ok
-
-        {:error, reason} ->
-          Logger.warning("IpEnrichmentRefreshWorker: failed to upsert ipinfo cache",
-            ip: ip,
-            reason: inspect(reason)
-          )
-
-          :error
-      end
+      upsert_ipinfo_cache(ip, attrs, err, actor, now, expires_at)
     else
       :skip
     end
   end
 
+  defp ipinfo_enabled_for_ip?(%NetflowSettings{} = settings, ip) when is_binary(ip) do
+    settings.ipinfo_enabled and is_binary(settings.ipinfo_api_key) and
+      String.trim(settings.ipinfo_api_key) != "" and
+      not private_ip?(ip)
+  end
+
+  defp upsert_ipinfo_cache(ip, attrs, err, actor, now, expires_at) when is_binary(ip) do
+    existing_error_count = existing_error_count(IpIpinfoCache, ip, actor)
+    error_count = if is_nil(err), do: 0, else: existing_error_count + 1
+
+    attrs =
+      (attrs || %{})
+      |> Map.merge(%{
+        ip: ip,
+        looked_up_at: now,
+        expires_at: expires_at,
+        error: err,
+        error_count: error_count
+      })
+
+    changeset =
+      IpIpinfoCache
+      |> Ash.Changeset.for_create(:upsert, attrs)
+
+    case Ash.create(changeset, actor: actor) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("IpEnrichmentRefreshWorker: failed to upsert ipinfo cache",
+          ip: ip,
+          reason: inspect(reason)
+        )
+
+        :error
+    end
+  end
+
   defp ipinfo_lookup(ip, base_url, token, timeout_ms)
        when is_binary(ip) and is_binary(base_url) and is_binary(token) and is_integer(timeout_ms) do
+    with {:ok, url} <- build_ipinfo_url(ip, base_url, token),
+         {:ok, %{} = data} <- fetch_ipinfo_json(url, timeout_ms) do
+      {normalize_ipinfo_data(data), nil}
+    else
+      {:error, :missing_config} -> {nil, "missing_ipinfo_config"}
+      {:error, :timeout} -> {nil, "timeout"}
+      {:error, reason} -> {nil, inspect(reason)}
+    end
+  end
+
+  defp build_ipinfo_url(ip, base_url, token) when is_binary(ip) do
     base_url = String.trim(base_url || "")
     token = String.trim(token || "")
 
     if base_url == "" or token == "" do
-      {nil, "missing_ipinfo_config"}
+      {:error, :missing_config}
     else
       url =
         base_url
@@ -374,35 +378,37 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
         |> Kernel.<>("?token=")
         |> Kernel.<>(URI.encode(token))
 
-      task =
-        Task.async(fn ->
-          req = Finch.build(:get, url)
+      {:ok, url}
+    end
+  end
 
-          case Finch.request(req, ServiceRadar.Finch, receive_timeout: timeout_ms) do
-            {:ok, %Finch.Response{status: 200, body: body}} ->
-              case Jason.decode(body) do
-                {:ok, %{} = data} -> {:ok, data}
-                _ -> {:error, :invalid_json}
-              end
+  defp fetch_ipinfo_json(url, timeout_ms) when is_binary(url) and is_integer(timeout_ms) do
+    task =
+      Task.async(fn ->
+        do_ipinfo_request(url, timeout_ms)
+      end)
 
-            {:ok, %Finch.Response{status: status, body: body}} ->
-              {:error, {:http_status, status, body}}
+    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      nil -> {:error, :timeout}
+    end
+  end
 
-            {:error, reason} ->
-              {:error, reason}
-          end
-        end)
+  defp do_ipinfo_request(url, timeout_ms) when is_binary(url) and is_integer(timeout_ms) do
+    req = Finch.build(:get, url)
 
-      case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
-        {:ok, {:ok, %{} = data}} ->
-          {normalize_ipinfo_data(data), nil}
+    case Finch.request(req, ServiceRadar.Finch, receive_timeout: timeout_ms) do
+      {:ok, %Finch.Response{status: 200, body: body}} ->
+        case Jason.decode(body) do
+          {:ok, %{} = data} -> {:ok, data}
+          _ -> {:error, :invalid_json}
+        end
 
-        {:ok, {:error, reason}} ->
-          {nil, inspect(reason)}
+      {:ok, %Finch.Response{status: status, body: body}} ->
+        {:error, {:http_status, status, body}}
 
-        nil ->
-          {nil, "timeout"}
-      end
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -473,25 +479,37 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   end
 
   defp private_ip?(ip) when is_binary(ip) do
-    ip = ip |> String.trim() |> String.split("/", parts: 2) |> List.first()
+    ip = normalize_ip_string(ip)
 
     case :inet.parse_address(String.to_charlist(ip)) do
-      {:ok, {10, _, _, _}} -> true
-      {:ok, {127, _, _, _}} -> true
-      {:ok, {169, 254, _, _}} -> true
-      {:ok, {192, 168, _, _}} -> true
-      {:ok, {172, b, _, _}} when b in 16..31 -> true
-      {:ok, {0, _, _, _}} -> true
-      {:ok, {_, _, _, _}} -> false
-      {:ok, {0, 0, 0, 0, 0, 0, 0, 1}} -> true
-      # fc00::/7 (unique local addresses)
-      {:ok, {a, _, _, _, _, _, _, _}} when a in 0xFC00..0xFDFF -> true
-      # fe80::/10 (link-local)
-      {:ok, {a, _, _, _, _, _, _, _}} when a in 0xFE80..0xFEBF -> true
-      {:ok, _} -> false
+      {:ok, tuple} -> private_ip_tuple?(tuple)
       {:error, _} -> false
     end
   end
 
   defp private_ip?(_), do: false
+
+  defp normalize_ip_string(ip) when is_binary(ip) do
+    ip
+    |> String.trim()
+    |> String.split("/", parts: 2)
+    |> List.first()
+    |> to_string()
+    |> String.trim()
+  end
+
+  defp private_ip_tuple?({10, _, _, _}), do: true
+  defp private_ip_tuple?({127, _, _, _}), do: true
+  defp private_ip_tuple?({169, 254, _, _}), do: true
+  defp private_ip_tuple?({192, 168, _, _}), do: true
+  defp private_ip_tuple?({172, b, _, _}) when b in 16..31, do: true
+  defp private_ip_tuple?({0, _, _, _}), do: true
+  defp private_ip_tuple?({_, _, _, _}), do: false
+
+  defp private_ip_tuple?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
+  # fc00::/7 (unique local addresses)
+  defp private_ip_tuple?({a, _, _, _, _, _, _, _}) when a in 0xFC00..0xFDFF, do: true
+  # fe80::/10 (link-local)
+  defp private_ip_tuple?({a, _, _, _, _, _, _, _}) when a in 0xFE80..0xFEBF, do: true
+  defp private_ip_tuple?(_), do: false
 end

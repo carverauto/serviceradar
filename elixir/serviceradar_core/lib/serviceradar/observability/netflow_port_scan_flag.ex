@@ -86,4 +86,3 @@ defmodule ServiceRadar.Observability.NetflowPortScanFlag do
     identity :unique_src_ip, [:src_ip]
   end
 end
-

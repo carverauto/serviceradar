@@ -121,4 +121,3 @@ defmodule ServiceRadar.Observability.ThreatIntelIndicator do
     identity :unique_source_indicator, [:source, :indicator]
   end
 end
-

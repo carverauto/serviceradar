@@ -32,10 +32,17 @@ defmodule ServiceRadar.Observability.NetflowSecurityScheduler do
 
   defp ensure_scheduled(worker) do
     case worker.ensure_scheduled() do
-      {:ok, :already_scheduled} -> :ok
-      {:ok, _job} -> :ok
-      {:error, reason} -> Logger.debug("NetFlow security scheduler skipped", worker: inspect(worker), reason: inspect(reason))
+      {:ok, :already_scheduled} ->
+        :ok
+
+      {:ok, _job} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("NetFlow security scheduler skipped",
+          worker: inspect(worker),
+          reason: inspect(reason)
+        )
     end
   end
 end
-

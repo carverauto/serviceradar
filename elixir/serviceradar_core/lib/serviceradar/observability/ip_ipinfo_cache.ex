@@ -150,4 +150,3 @@ defmodule ServiceRadar.Observability.IpIpinfoCache do
     identity :unique_ip, [:ip]
   end
 end
-

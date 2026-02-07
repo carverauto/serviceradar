@@ -76,7 +76,9 @@ defmodule ServiceRadar.Observability.SRQLRunner do
   defp decode_param(%{"t" => "int", "v" => value}) when is_integer(value), do: {:ok, value}
 
   defp decode_param(%{"t" => "int_array", "v" => values}) when is_list(values) do
-    if Enum.all?(values, &is_integer/1), do: {:ok, values}, else: {:error, :invalid_int_array_param}
+    if Enum.all?(values, &is_integer/1),
+      do: {:ok, values},
+      else: {:error, :invalid_int_array_param}
   end
 
   defp decode_param(%{"t" => "float", "v" => value}) when is_float(value), do: {:ok, value}
@@ -104,4 +106,3 @@ defmodule ServiceRadar.Observability.SRQLRunner do
 
   defp decode_param(_), do: {:error, :invalid_srql_param}
 end
-

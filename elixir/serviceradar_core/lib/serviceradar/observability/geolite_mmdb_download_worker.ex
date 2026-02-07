@@ -14,9 +14,9 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     max_attempts: 3,
     unique: [period: 3600, states: [:available, :scheduled, :executing, :retryable]]
 
-  alias ServiceRadar.Repo
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.NetflowSettings
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
   import Ecto.Query, only: [from: 2]

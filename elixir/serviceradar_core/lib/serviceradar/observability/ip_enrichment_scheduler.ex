@@ -34,4 +34,3 @@ defmodule ServiceRadar.Observability.IpEnrichmentScheduler do
     end
   end
 end
-

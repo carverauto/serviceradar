@@ -108,4 +108,3 @@ defmodule ServiceRadar.Observability.IpEnrichmentCleanupWorker do
     :ok
   end
 end
-
