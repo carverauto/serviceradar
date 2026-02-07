@@ -54,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:netflow_top_ports, [])
      |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
      |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
+     |> assign(:netflow_rdns_map, %{})
      |> assign(:netflow_compact?, false)
      |> assign(:netflow_talker_cidr, nil)
      |> assign(:netflow_compare_mode, "off")
@@ -117,6 +118,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:netflow_top_ports, [])
       |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
       |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
+      |> assign(:netflow_rdns_map, %{})
       |> assign(:netflow_compact?, netflow_compact?)
       |> assign(:netflow_talker_cidr, netflow_talker_cidr)
       |> assign(:netflow_compare_mode, netflow_compare_mode)
@@ -574,6 +576,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             <.netflows_table
               :if={@active_tab == "netflows"}
               flows={@netflows}
+              rdns_map={@netflow_rdns_map}
               base_path={Map.get(@srql, :page_path) || "/observability"}
               query={Map.get(@srql, :query, "")}
               limit={@limit}
@@ -2972,6 +2975,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   attr(:flows, :list, default: [])
+  attr(:rdns_map, :map, default: %{})
   attr(:base_path, :string, required: true)
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
@@ -3020,57 +3024,77 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <td class="whitespace-nowrap text-xs font-mono">
                 {format_netflow_timestamp(flow)}
               </td>
-              <td class="whitespace-nowrap text-xs font-mono">
-                {src_ip = netflow_addr(flow, :src)}
-                <.link
-                  :if={netflow_present?(src_ip)}
-                  patch={
-                    netflow_filter_patch(
-                      @base_path,
-                      @query,
-                      @limit,
-                      "src_ip",
-                      src_ip,
-                      patch_opts
-                    )
-                  }
-                  class="hover:underline"
+              <td class="whitespace-nowrap text-xs">
+                <% src_ip = netflow_addr(flow, :src) %>
+                <div class="font-mono">
+                  <.link
+                    :if={netflow_present?(src_ip)}
+                    patch={
+                      netflow_filter_patch(
+                        @base_path,
+                        @query,
+                        @limit,
+                        "src_ip",
+                        src_ip,
+                        patch_opts
+                      )
+                    }
+                    class="hover:underline"
+                  >
+                    {src_ip}
+                  </.link>
+                  <span :if={not netflow_present?(src_ip)} class="font-mono">{src_ip}</span>
+                  <span class="font-mono">
+                    {if netflow_port(flow, :src), do: ":#{netflow_port(flow, :src)}", else: ""}
+                  </span>
+                </div>
+                <div
+                  :if={hostname = Map.get(@rdns_map, src_ip)}
+                  class="mt-0.5 text-[11px] text-base-content/60 max-w-60 truncate font-mono"
+                  title={hostname}
                 >
-                  {src_ip}
-                </.link>
-                <span :if={not netflow_present?(src_ip)}>{src_ip}</span>
-                {if netflow_port(flow, :src), do: ":#{netflow_port(flow, :src)}", else: ""}
+                  {hostname}
+                </div>
               </td>
               <td class="whitespace-nowrap text-xs">
-                <div class="flex items-center gap-2">
-                  <div class="font-mono">
-                    {dst_ip = netflow_addr(flow, :dst)}
-                    <.link
-                      :if={netflow_present?(dst_ip)}
-                      patch={
-                        netflow_filter_patch(
-                          @base_path,
-                          @query,
-                          @limit,
-                          "dst_ip",
-                          dst_ip,
-                          patch_opts
-                        )
-                      }
-                      class="hover:underline"
+                <% dst_ip = netflow_addr(flow, :dst) %>
+                <div class="flex flex-col gap-0.5">
+                  <div class="flex items-center gap-2">
+                    <div class="font-mono">
+                      <.link
+                        :if={netflow_present?(dst_ip)}
+                        patch={
+                          netflow_filter_patch(
+                            @base_path,
+                            @query,
+                            @limit,
+                            "dst_ip",
+                            dst_ip,
+                            patch_opts
+                          )
+                        }
+                        class="hover:underline"
+                      >
+                        {dst_ip}
+                      </.link>
+                      <span :if={not netflow_present?(dst_ip)}>{dst_ip}</span>
+                      {if netflow_port(flow, :dst), do: ":#{netflow_port(flow, :dst)}", else: ""}
+                    </div>
+                    <div
+                      :if={service_label = netflow_service_label(netflow_port(flow, :dst))}
+                      class="shrink-0"
                     >
-                      {dst_ip}
-                    </.link>
-                    <span :if={not netflow_present?(dst_ip)}>{dst_ip}</span>
-                    {if netflow_port(flow, :dst), do: ":#{netflow_port(flow, :dst)}", else: ""}
+                      <.ui_badge variant="ghost" size="xs" class="font-mono">
+                        {service_label}
+                      </.ui_badge>
+                    </div>
                   </div>
                   <div
-                    :if={service_label = netflow_service_label(netflow_port(flow, :dst))}
-                    class="shrink-0"
+                    :if={hostname = Map.get(@rdns_map, dst_ip)}
+                    class="text-[11px] text-base-content/60 max-w-60 truncate font-mono"
+                    title={hostname}
                   >
-                    <.ui_badge variant="ghost" size="xs" class="font-mono">
-                      {service_label}
-                    </.ui_badge>
+                    {hostname}
                   </div>
                 </div>
               </td>
@@ -4904,6 +4928,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp apply_tab_assigns(socket, "netflows", srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
     summary = maybe_load_netflow_summary(socket, srql_module, scope)
+    rdns_map = load_netflow_rdns_map(socket.assigns.netflows, scope)
 
     top_talkers =
       load_netflow_top_talkers(
@@ -4951,6 +4976,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     socket
     |> assign(:netflow_summary, summary)
+    |> assign(:netflow_rdns_map, rdns_map)
     |> assign(:netflow_top_talkers, top_talkers)
     |> assign(:netflow_top_ports, top_ports)
     |> assign(:netflow_timeseries, timeseries)
@@ -5294,6 +5320,48 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp netflow_base_query(query) when is_binary(query) do
     query = String.trim(query)
     if query == "", do: "in:flows time:last_24h", else: query
+  end
+
+  defp load_netflow_rdns_map(flows, scope) when is_list(flows) do
+    user = scope && scope.user
+    flows
+    |> netflow_rdns_ips(user)
+    |> rdns_map_for_ips(user)
+  end
+
+  defp load_netflow_rdns_map(_flows, _scope), do: %{}
+
+  defp netflow_rdns_ips(_flows, nil), do: []
+  defp netflow_rdns_ips([], _user), do: []
+
+  defp netflow_rdns_ips(flows, _user) do
+    flows
+    |> Enum.flat_map(fn flow -> [netflow_addr(flow, :src), netflow_addr(flow, :dst)] end)
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 in ["", "—", "-", "Unknown"]))
+    |> Enum.uniq()
+  end
+
+  defp rdns_map_for_ips([], _user), do: %{}
+
+  defp rdns_map_for_ips(ips, user) when is_list(ips) do
+    query =
+      IpRdnsCache
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(ip in ^ips)
+
+    case Ash.read(query, actor: user) do
+      {:ok, rows} when is_list(rows) ->
+        rows
+        |> Enum.filter(fn row ->
+          row.status == "ok" and is_binary(row.hostname) and String.trim(row.hostname) != ""
+        end)
+        |> Map.new(fn row -> {row.ip, row.hostname} end)
+
+      _ ->
+        %{}
+    end
   end
 
   defp sanitize_srql_for_stats(query) when is_binary(query) do
