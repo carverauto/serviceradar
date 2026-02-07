@@ -220,18 +220,27 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
 
   defp srql_query_to_int_map(query, key_field, value_field)
        when is_binary(query) and is_binary(key_field) and is_binary(value_field) do
-    key_atom = String.to_existing_atom(key_field)
-    value_atom = String.to_existing_atom(value_field)
+    # SRQL result rows are usually string-keyed, but may come through with atom keys
+    # depending on the caller. Never call String.to_existing_atom/1 on arbitrary field
+    # names because that can crash when atoms haven't been created.
+    key_atom = maybe_existing_atom(key_field)
+    value_atom = maybe_existing_atom(value_field)
 
     query
     |> SRQLRunner.query()
     |> unwrap_rows()
     |> Enum.reduce(%{}, fn row, acc ->
-      key = Map.get(row, key_field) || Map.get(row, key_atom)
-      value = Map.get(row, value_field) || Map.get(row, value_atom)
+      key = Map.get(row, key_field) || (key_atom && Map.get(row, key_atom))
+      value = Map.get(row, value_field) || (value_atom && Map.get(row, value_atom))
 
       if is_integer(key) and is_integer(value), do: Map.put(acc, key, value), else: acc
     end)
+  end
+
+  defp maybe_existing_atom(field) when is_binary(field) do
+    String.to_existing_atom(field)
+  rescue
+    ArgumentError -> nil
   end
 
   defp windows_in_baseline(baseline_seconds, window_seconds) do
