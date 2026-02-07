@@ -1025,6 +1025,53 @@ mod tests {
     }
 
     #[test]
+    fn translate_flows_downsample_emits_time_bucket_query() {
+        let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+        let request = QueryRequest {
+            query: "in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total limit:25"
+                .to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = translate_request(&config, request).expect("translation should succeed");
+        let sql = response.sql.to_lowercase();
+
+        assert!(
+            sql.contains("from ocsf_network_activity"),
+            "expected flows downsample to query ocsf_network_activity, got: {}",
+            response.sql
+        );
+        assert!(
+            sql.contains("to_timestamp(floor("),
+            "expected floor-based time bucketing in SQL, got: {}",
+            response.sql
+        );
+        assert!(
+            sql.contains("sum(bytes_total)"),
+            "expected sum(bytes_total), got: {}",
+            response.sql
+        );
+        assert!(
+            sql.contains("group by 1, 2"),
+            "expected group by bucket+series, got: {}",
+            response.sql
+        );
+
+        let viz = response.viz.expect("viz metadata should be present");
+        assert_eq!(viz.columns.len(), 3);
+        assert!(
+            viz.suggestions
+                .iter()
+                .any(|s| matches!(s.kind, viz::VizKind::Timeseries)),
+            "expected timeseries suggestion, got: {:?}",
+            viz.suggestions
+        );
+    }
+
+    #[test]
     fn translate_graph_cypher_rejects_mutations() {
         let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
         let request = QueryRequest {

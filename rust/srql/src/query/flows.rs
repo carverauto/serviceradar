@@ -10,8 +10,8 @@ use crate::{
 use diesel::dsl::sql;
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
-use diesel::sql_types::Text;
+use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
+use diesel::sql_types::{Array, BigInt, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
@@ -375,94 +375,293 @@ fn apply_secondary_order<'a>(
 }
 
 // Stats aggregation support
-async fn execute_stats(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
-    let (sql, _params) = to_sql_and_params_stats(plan)?;
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FlowAggFunc {
+    Count,
+    Sum,
+    Avg,
+    Min,
+    Max,
+}
 
-    // Execute raw SQL query
-    use diesel::sql_types::Text;
-
-    #[derive(QueryableByName)]
-    struct StatsRow {
-        #[diesel(sql_type = Text)]
-        result: String,
+impl FlowAggFunc {
+    fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "count" => Some(Self::Count),
+            "sum" => Some(Self::Sum),
+            "avg" => Some(Self::Avg),
+            "min" => Some(Self::Min),
+            "max" => Some(Self::Max),
+            _ => None,
+        }
     }
 
-    let rows: Vec<StatsRow> = diesel::sql_query(sql)
+    fn sql(&self) -> &'static str {
+        match self {
+            Self::Count => "COUNT",
+            Self::Sum => "SUM",
+            Self::Avg => "AVG",
+            Self::Min => "MIN",
+            Self::Max => "MAX",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FlowAggField {
+    Star,
+    BytesTotal,
+    PacketsTotal,
+    BytesIn,
+    BytesOut,
+}
+
+impl FlowAggField {
+    fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "*" => Some(Self::Star),
+            "bytes_total" => Some(Self::BytesTotal),
+            "packets_total" => Some(Self::PacketsTotal),
+            "bytes_in" => Some(Self::BytesIn),
+            "bytes_out" => Some(Self::BytesOut),
+            _ => None,
+        }
+    }
+
+    fn sql(&self) -> &'static str {
+        match self {
+            Self::Star => "*",
+            Self::BytesTotal => "bytes_total",
+            Self::PacketsTotal => "packets_total",
+            Self::BytesIn => "bytes_in",
+            Self::BytesOut => "bytes_out",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FlowGroupField {
+    SrcEndpointIp,
+    DstEndpointIp,
+    SrcEndpointPort,
+    DstEndpointPort,
+    ProtocolNum,
+    ProtocolName,
+    SamplerAddress,
+}
+
+impl FlowGroupField {
+    fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "src_endpoint_ip" | "src_ip" => Some(Self::SrcEndpointIp),
+            "dst_endpoint_ip" | "dst_ip" => Some(Self::DstEndpointIp),
+            "src_endpoint_port" | "src_port" => Some(Self::SrcEndpointPort),
+            "dst_endpoint_port" | "dst_port" => Some(Self::DstEndpointPort),
+            "protocol_num" | "proto" => Some(Self::ProtocolNum),
+            "protocol_name" => Some(Self::ProtocolName),
+            "sampler_address" => Some(Self::SamplerAddress),
+            _ => None,
+        }
+    }
+
+    fn response_key(&self) -> &'static str {
+        match self {
+            Self::SrcEndpointIp => "src_endpoint_ip",
+            Self::DstEndpointIp => "dst_endpoint_ip",
+            Self::SrcEndpointPort => "src_endpoint_port",
+            Self::DstEndpointPort => "dst_endpoint_port",
+            Self::ProtocolNum => "protocol_num",
+            Self::ProtocolName => "protocol_name",
+            Self::SamplerAddress => "sampler_address",
+        }
+    }
+
+    fn group_expr(&self) -> &'static str {
+        match self {
+            Self::SrcEndpointIp => "src_endpoint_ip",
+            Self::DstEndpointIp => "dst_endpoint_ip",
+            Self::SrcEndpointPort => "src_endpoint_port",
+            Self::DstEndpointPort => "dst_endpoint_port",
+            Self::ProtocolNum => "protocol_num",
+            Self::ProtocolName => "protocol_name",
+            Self::SamplerAddress => "sampler_address",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FlowGroupSpec {
+    Field(FlowGroupField),
+    SrcCidr { prefix: u8 },
+    DstCidr { prefix: u8 },
+}
+
+impl FlowGroupSpec {
+    fn parse(token: &str) -> Result<Self> {
+        if let Some((kind, rest)) = token.split_once(':') {
+            let kind = kind.to_lowercase();
+            let prefix: u8 = rest.parse().map_err(|_| {
+                ServiceError::InvalidRequest(format!(
+                    "invalid CIDR prefix length in group-by: '{token}'"
+                ))
+            })?;
+            if prefix > 32 {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "CIDR prefix length must be <= 32 (got {prefix})"
+                )));
+            }
+            match kind.as_str() {
+                "src_cidr" => return Ok(Self::SrcCidr { prefix }),
+                "dst_cidr" => return Ok(Self::DstCidr { prefix }),
+                _ => {}
+            }
+        }
+
+        if let Some(field) = FlowGroupField::from_str(token) {
+            return Ok(Self::Field(field));
+        }
+
+        Err(ServiceError::InvalidRequest(format!(
+            "unsupported group-by field for flows stats: '{token}'"
+        )))
+    }
+
+    fn response_key(&self) -> &'static str {
+        match self {
+            Self::Field(field) => field.response_key(),
+            Self::SrcCidr { .. } => "src_cidr",
+            Self::DstCidr { .. } => "dst_cidr",
+        }
+    }
+
+    fn group_expr(&self) -> String {
+        match self {
+            Self::Field(field) => field.group_expr().to_string(),
+            Self::SrcCidr { prefix } => format!(
+                "COALESCE(set_masklen(NULLIF(src_endpoint_ip, '')::inet, {prefix})::text, 'Unknown')"
+            ),
+            Self::DstCidr { prefix } => format!(
+                "COALESCE(set_masklen(NULLIF(dst_endpoint_ip, '')::inet, {prefix})::text, 'Unknown')"
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FlowStatsSpec {
+    agg_func: FlowAggFunc,
+    agg_field: FlowAggField,
+    alias: String,
+    group_by: Option<FlowGroupSpec>,
+}
+
+#[derive(Debug, Clone)]
+enum FlowSqlBindValue {
+    Text(String),
+    TextArray(Vec<String>),
+    Int(i64),
+    IntArray(Vec<i64>),
+    Timestamp(chrono::DateTime<chrono::Utc>),
+}
+
+impl FlowSqlBindValue {
+    fn apply<'a>(&self, query: BoxedSqlQuery<'a, Pg, SqlQuery>) -> BoxedSqlQuery<'a, Pg, SqlQuery> {
+        match self {
+            FlowSqlBindValue::Text(value) => query.bind::<Text, _>(value.clone()),
+            FlowSqlBindValue::TextArray(values) => query.bind::<Array<Text>, _>(values.clone()),
+            FlowSqlBindValue::Int(value) => query.bind::<BigInt, _>(*value),
+            FlowSqlBindValue::IntArray(values) => query.bind::<Array<BigInt>, _>(values.clone()),
+            FlowSqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
+        }
+    }
+}
+
+fn bind_param_from_flow_stats(value: FlowSqlBindValue) -> BindParam {
+    match value {
+        FlowSqlBindValue::Text(v) => BindParam::Text(v),
+        FlowSqlBindValue::TextArray(v) => BindParam::TextArray(v),
+        FlowSqlBindValue::Int(v) => BindParam::Int(v),
+        FlowSqlBindValue::IntArray(v) => BindParam::IntArray(v),
+        FlowSqlBindValue::Timestamp(v) => BindParam::timestamptz(v),
+    }
+}
+
+#[derive(Debug, QueryableByName)]
+struct FlowStatsPayload {
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    result: Option<Value>,
+}
+
+struct FlowGroupedStatsSql {
+    sql: String,        // uses '?' placeholders for Diesel binds
+    binds: Vec<FlowSqlBindValue>,
+}
+
+/// Rewrites ? placeholders to $1, $2, etc. for PostgreSQL (embedded/NIF mode).
+fn rewrite_placeholders(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let mut index = 1;
+    for ch in sql.chars() {
+        if ch == '?' {
+            result.push('$');
+            result.push_str(&index.to_string());
+            index += 1;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+async fn execute_stats(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
+    let spec = parse_stats_expr(
+        plan.stats
+            .as_ref()
+            .ok_or_else(|| {
+                ServiceError::InvalidRequest(
+                    "stats expression required for aggregation".into(),
+                )
+            })?
+            .as_raw(),
+    )?;
+
+    let grouped = build_grouped_stats_query(plan, &spec)?;
+    let mut query = diesel::sql_query(&grouped.sql).into_boxed();
+    for bind in &grouped.binds {
+        query = bind.apply(query);
+    }
+
+    let rows: Vec<FlowStatsPayload> = query
         .load(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
-    Ok(rows
-        .into_iter()
-        .map(|row| serde_json::from_str(&row.result).unwrap_or(Value::Null))
-        .collect())
+    Ok(rows.into_iter().filter_map(|row| row.result).collect())
 }
 
 fn to_sql_and_params_stats(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
-    let stats_expr = plan.stats.as_ref().ok_or_else(|| {
-        ServiceError::InvalidRequest("stats expression required for aggregation".into())
-    })?;
-
-    // Parse stats expression: "sum(bytes_total) as total_bytes by src_endpoint_ip"
-    let (agg_func, field, alias, group_by) = parse_stats_expr(stats_expr.as_raw())?;
-
-    // Build SQL query wrapped in jsonb_build_object to return as JSON
-    let mut sql = String::from("SELECT jsonb_build_object(");
-
-    if let Some(gb) = group_by {
-        sql.push_str(&format!("'{}', {}, ", gb, gb));
-    }
-
-    sql.push_str(&format!(
-        "'{}', {}({})) as result",
-        alias,
-        agg_func.to_uppercase(),
-        field
-    ));
-    sql.push_str(" FROM ocsf_network_activity");
-
-    let mut params = Vec::new();
-
-    // Add WHERE clause for time filter
-    if let Some(TimeRange { start, end }) = &plan.time_range {
-        sql.push_str(" WHERE time >= $1 AND time <= $2");
-        params.push(BindParam::timestamptz(*start));
-        params.push(BindParam::timestamptz(*end));
-    }
-
-    // Add GROUP BY
-    if let Some(gb) = group_by {
-        sql.push_str(&format!(" GROUP BY {}", gb));
-    }
-
-    // Add ORDER BY
-    if !plan.order.is_empty() {
-        sql.push_str(" ORDER BY ");
-        let order_parts: Vec<String> = plan
-            .order
-            .iter()
-            .map(|o| {
-                format!(
-                    "{} {}",
-                    o.field,
-                    if matches!(o.direction, OrderDirection::Asc) {
-                        "ASC"
-                    } else {
-                        "DESC"
-                    }
+    let spec = parse_stats_expr(
+        plan.stats
+            .as_ref()
+            .ok_or_else(|| {
+                ServiceError::InvalidRequest(
+                    "stats expression required for aggregation".into(),
                 )
-            })
-            .collect();
-        sql.push_str(&order_parts.join(", "));
-    }
+            })?
+            .as_raw(),
+    )?;
 
-    // Add LIMIT
-    sql.push_str(&format!(" LIMIT {}", plan.limit));
-
+    let grouped = build_grouped_stats_query(plan, &spec)?;
+    let sql = rewrite_placeholders(&grouped.sql);
+    let params: Vec<BindParam> = grouped
+        .binds
+        .into_iter()
+        .map(bind_param_from_flow_stats)
+        .collect();
     Ok((sql, params))
 }
 
-fn parse_stats_expr(expr: &str) -> Result<(&str, &str, &str, Option<&str>)> {
+fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
     // Parse: "sum(bytes_total) as total_bytes by src_endpoint_ip"
     let parts: Vec<&str> = expr.split_whitespace().collect();
 
@@ -472,41 +671,53 @@ fn parse_stats_expr(expr: &str) -> Result<(&str, &str, &str, Option<&str>)> {
         ));
     }
 
-    // Extract function and field: sum(bytes_total)
     let func_part = parts[0];
-    let (agg_func, field) = if let Some(open) = func_part.find('(') {
+    let (func, field) = if let Some(open) = func_part.find('(') {
         if let Some(close) = func_part.find(')') {
-            let func = &func_part[..open];
-            let fld = &func_part[open + 1..close];
-            (func, fld)
+            (&func_part[..open], &func_part[open + 1..close])
         } else {
-            return Err(ServiceError::InvalidRequest(
-                "invalid stats expression".into(),
-            ));
+            return Err(ServiceError::InvalidRequest("invalid stats expression".into()));
         }
     } else {
-        return Err(ServiceError::InvalidRequest(
-            "invalid stats expression".into(),
-        ));
+        return Err(ServiceError::InvalidRequest("invalid stats expression".into()));
     };
 
-    // Extract alias
-    let alias_idx = parts.iter().position(|&p| p == "as").ok_or_else(|| {
-        ServiceError::InvalidRequest("stats expression must include 'as alias'".into())
+    let agg_func = FlowAggFunc::from_str(func).ok_or_else(|| {
+        ServiceError::InvalidRequest(format!("unsupported aggregation function '{func}'"))
     })?;
 
-    if alias_idx + 1 >= parts.len() {
+    let agg_field = FlowAggField::from_str(field).ok_or_else(|| {
+        ServiceError::InvalidRequest(format!("unsupported aggregation field '{field}'"))
+    })?;
+
+    // COUNT(*) is the only valid use of "*"
+    if agg_field == FlowAggField::Star && agg_func != FlowAggFunc::Count {
         return Err(ServiceError::InvalidRequest(
-            "stats expression missing alias after 'as'".into(),
+            "only count(*) is supported for '*'".into(),
         ));
     }
 
-    let alias = parts[alias_idx + 1];
+    let alias_idx = parts
+        .iter()
+        .position(|&p| p == "as")
+        .ok_or_else(|| {
+            ServiceError::InvalidRequest(
+                "stats expression must include 'as <alias>'".into(),
+            )
+        })?;
 
-    // Extract group by field
+    let alias = parts
+        .get(alias_idx + 1)
+        .ok_or_else(|| {
+            ServiceError::InvalidRequest(
+                "stats expression missing alias after 'as'".into(),
+            )
+        })?
+        .to_string();
+
     let group_by = if let Some(by_idx) = parts.iter().position(|&p| p == "by") {
-        if by_idx + 1 < parts.len() {
-            Some(parts[by_idx + 1])
+        if let Some(token) = parts.get(by_idx + 1) {
+            Some(FlowGroupSpec::parse(token)?)
         } else {
             None
         }
@@ -514,7 +725,261 @@ fn parse_stats_expr(expr: &str) -> Result<(&str, &str, &str, Option<&str>)> {
         None
     };
 
-    Ok((agg_func, field, alias, group_by))
+    Ok(FlowStatsSpec {
+        agg_func,
+        agg_field,
+        alias,
+        group_by,
+    })
+}
+
+fn build_grouped_stats_query(plan: &QueryPlan, spec: &FlowStatsSpec) -> Result<FlowGroupedStatsSql> {
+    let mut binds: Vec<FlowSqlBindValue> = Vec::new();
+    let mut where_parts: Vec<String> = Vec::new();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        // ocsf_network_activity.time is a timestamp without timezone storing UTC; normalize the bind.
+        where_parts.push(
+            "time >= (?::timestamptz AT TIME ZONE 'UTC') AND time <= (?::timestamptz AT TIME ZONE 'UTC')"
+                .to_string(),
+        );
+        binds.push(FlowSqlBindValue::Timestamp(*start));
+        binds.push(FlowSqlBindValue::Timestamp(*end));
+    }
+
+    for filter in &plan.filters {
+        where_parts.push(build_stats_filter_clause(filter, &mut binds)?);
+    }
+
+    let where_sql = if where_parts.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", where_parts.join(" AND "))
+    };
+
+    let agg_sql = format!("{}({})", spec.agg_func.sql(), spec.agg_field.sql());
+
+    let outer_sql = if let Some(group_by) = spec.group_by {
+        let group_key = group_by.response_key();
+        let group_expr = group_by.group_expr();
+        let inner = format!(
+            "SELECT {group_expr} AS group_value, {agg_sql} AS agg_value FROM ocsf_network_activity{where_sql} GROUP BY {group_expr}"
+        );
+
+        let order_sql = build_stats_order_sql(
+            plan,
+            Some(group_key),
+            Some(&spec.alias),
+        )?;
+
+        let outer = format!(
+            "SELECT jsonb_build_object('{group_key}', group_value, '{alias}', agg_value) AS result FROM ({inner}) t{order_sql} LIMIT {limit} OFFSET {offset}",
+            group_key = group_key,
+            alias = spec.alias,
+            inner = inner,
+            order_sql = order_sql,
+            limit = plan.limit,
+            offset = plan.offset,
+        );
+        outer
+    } else {
+        let inner = format!(
+            "SELECT {agg_sql} AS agg_value FROM ocsf_network_activity{where_sql}"
+        );
+        format!(
+            "SELECT jsonb_build_object('{alias}', agg_value) AS result FROM ({inner}) t LIMIT 1",
+            alias = spec.alias,
+            inner = inner
+        )
+    };
+
+    Ok(FlowGroupedStatsSql {
+        sql: outer_sql,
+        binds,
+    })
+}
+
+fn build_stats_order_sql(
+    plan: &QueryPlan,
+    group_key: Option<&str>,
+    agg_alias: Option<&str>,
+) -> Result<String> {
+    if plan.order.is_empty() {
+        // Default ordering for grouped stats: highest first.
+        return Ok(if group_key.is_some() {
+            " ORDER BY agg_value DESC".to_string()
+        } else {
+            String::new()
+        });
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    for clause in &plan.order {
+        let expr = if agg_alias.is_some_and(|a| clause.field == a) {
+            "agg_value"
+        } else if group_key.is_some_and(|k| clause.field == k) {
+            "group_value"
+        } else {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported order field for flows stats: '{}'",
+                clause.field
+            )));
+        };
+
+        let dir = if matches!(clause.direction, OrderDirection::Asc) {
+            "ASC"
+        } else {
+            "DESC"
+        };
+        parts.push(format!("{expr} {dir}"));
+    }
+
+    Ok(format!(" ORDER BY {}", parts.join(", ")))
+}
+
+fn build_stats_text_filter(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<FlowSqlBindValue>,
+) -> Result<String> {
+    match filter.op {
+        FilterOp::Eq => {
+            binds.push(FlowSqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            Ok(format!("{column} = ?"))
+        }
+        FilterOp::NotEq => {
+            binds.push(FlowSqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            Ok(format!("({column} IS NULL OR {column} <> ?)"))
+        }
+        FilterOp::Like => {
+            binds.push(FlowSqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            Ok(format!("{column} ILIKE ?"))
+        }
+        FilterOp::NotLike => {
+            binds.push(FlowSqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            Ok(format!("({column} IS NULL OR {column} NOT ILIKE ?)"))
+        }
+        FilterOp::In => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok("1=1".to_string());
+            }
+            binds.push(FlowSqlBindValue::TextArray(values));
+            Ok(format!("{column} = ANY(?)"))
+        }
+        FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok("1=1".to_string());
+            }
+            binds.push(FlowSqlBindValue::TextArray(values));
+            Ok(format!("({column} IS NULL OR NOT ({column} = ANY(?)))"))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn build_stats_bigint_filter(
+    column_expr: &str,
+    filter: &Filter,
+    binds: &mut Vec<FlowSqlBindValue>,
+    label: &str,
+) -> Result<String> {
+    match filter.op {
+        FilterOp::Eq => {
+            let value = filter
+                .value
+                .as_scalar()?
+                .parse::<i64>()
+                .map_err(|_| ServiceError::InvalidRequest(format!("{label} must be an integer")))?;
+            binds.push(FlowSqlBindValue::Int(value));
+            Ok(format!("{column_expr} = ?"))
+        }
+        FilterOp::NotEq => {
+            let value = filter
+                .value
+                .as_scalar()?
+                .parse::<i64>()
+                .map_err(|_| ServiceError::InvalidRequest(format!("{label} must be an integer")))?;
+            binds.push(FlowSqlBindValue::Int(value));
+            Ok(format!("({column_expr} IS NULL OR {column_expr} <> ?)"))
+        }
+        FilterOp::In => {
+            let values = filter.value.as_list()?;
+            if values.is_empty() {
+                return Ok("1=1".to_string());
+            }
+            let mut out: Vec<i64> = Vec::with_capacity(values.len());
+            for v in values {
+                out.push(v.parse::<i64>().map_err(|_| {
+                    ServiceError::InvalidRequest(format!("{label} must be an integer"))
+                })?);
+            }
+            binds.push(FlowSqlBindValue::IntArray(out));
+            Ok(format!("{column_expr} = ANY(?)"))
+        }
+        FilterOp::NotIn => {
+            let values = filter.value.as_list()?;
+            if values.is_empty() {
+                return Ok("1=1".to_string());
+            }
+            let mut out: Vec<i64> = Vec::with_capacity(values.len());
+            for v in values {
+                out.push(v.parse::<i64>().map_err(|_| {
+                    ServiceError::InvalidRequest(format!("{label} must be an integer"))
+                })?);
+            }
+            binds.push(FlowSqlBindValue::IntArray(out));
+            Ok(format!("({column_expr} IS NULL OR NOT ({column_expr} = ANY(?)))"))
+        }
+        FilterOp::Like | FilterOp::NotLike => {
+            // Numeric-like filters are supported via ::text matching in the row query; keep that here too.
+            binds.push(FlowSqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            let text_expr = format!("{column_expr}::text");
+            Ok(match filter.op {
+                FilterOp::Like => format!("{text_expr} ILIKE ?"),
+                FilterOp::NotLike => format!("({column_expr} IS NULL OR {text_expr} NOT ILIKE ?)"),
+                _ => unreachable!(),
+            })
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "{label} filter does not support this operator"
+        ))),
+    }
+}
+
+fn build_stats_filter_clause(
+    filter: &Filter,
+    binds: &mut Vec<FlowSqlBindValue>,
+) -> Result<String> {
+    match filter.field.as_str() {
+        "src_endpoint_ip" | "src_ip" => build_stats_text_filter("src_endpoint_ip", filter, binds),
+        "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("dst_endpoint_ip", filter, binds),
+        "protocol_name" => build_stats_text_filter("protocol_name", filter, binds),
+        "sampler_address" => build_stats_text_filter("sampler_address", filter, binds),
+        "protocol_num" | "proto" => {
+            // protocol_num is int4; cast to bigint to keep bind typing consistent.
+            build_stats_bigint_filter("protocol_num::bigint", filter, binds, "protocol_num")
+        }
+        "src_port" | "src_endpoint_port" => build_stats_bigint_filter(
+            "src_endpoint_port::bigint",
+            filter,
+            binds,
+            "src_port",
+        ),
+        "dst_port" | "dst_endpoint_port" => build_stats_bigint_filter(
+            "dst_endpoint_port::bigint",
+            filter,
+            binds,
+            "dst_port",
+        ),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for flows stats: '{other}'"
+        ))),
+    }
 }
 
 #[cfg(test)]
@@ -526,21 +991,83 @@ mod tests {
     #[test]
     fn test_parse_stats_expr() {
         let expr = "sum(bytes_total) as total_bytes by src_endpoint_ip";
-        let (func, field, alias, group_by) = parse_stats_expr(expr).unwrap();
-        assert_eq!(func, "sum");
-        assert_eq!(field, "bytes_total");
-        assert_eq!(alias, "total_bytes");
-        assert_eq!(group_by, Some("src_endpoint_ip"));
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.agg_func, FlowAggFunc::Sum);
+        assert_eq!(spec.agg_field, FlowAggField::BytesTotal);
+        assert_eq!(spec.alias, "total_bytes");
+        assert_eq!(
+            spec.group_by,
+            Some(FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp))
+        );
     }
 
     #[test]
     fn test_parse_stats_expr_no_groupby() {
         let expr = "count(*) as total_flows";
-        let (func, field, alias, group_by) = parse_stats_expr(expr).unwrap();
-        assert_eq!(func, "count");
-        assert_eq!(field, "*");
-        assert_eq!(alias, "total_flows");
-        assert_eq!(group_by, None);
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.agg_func, FlowAggFunc::Count);
+        assert_eq!(spec.agg_field, FlowAggField::Star);
+        assert_eq!(spec.alias, "total_flows");
+        assert_eq!(spec.group_by, None);
+    }
+
+    #[test]
+    fn parse_stats_expr_supports_cidr_group_by() {
+        let expr = "sum(bytes_total) as total_bytes by src_cidr:24";
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.group_by, Some(FlowGroupSpec::SrcCidr { prefix: 24 }));
+        assert_eq!(spec.group_by.unwrap().response_key(), "src_cidr");
+    }
+
+    #[test]
+    fn translate_grouped_stats_uses_agg_value_for_order_and_includes_filters() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: vec![
+                Filter {
+                    field: "src_ip".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("10.0.0.1".to_string()),
+                },
+                Filter {
+                    field: "proto".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("6".to_string()),
+                },
+            ],
+            order: vec![OrderClause {
+                field: "total_bytes".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as total_bytes by src_endpoint_ip",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, params) = to_sql_and_params_stats(&plan).unwrap();
+        assert!(sql.contains("WHERE time >="), "should include time filter");
+        assert!(
+            sql.contains("src_endpoint_ip = $3"),
+            "should include src_endpoint_ip filter with binds"
+        );
+        assert!(
+            sql.contains("protocol_num::bigint = $4"),
+            "should include proto filter with binds"
+        );
+        assert!(
+            sql.contains("ORDER BY agg_value DESC") || sql.contains("ORDER BY agg_value DESC"),
+            "should order by agg_value, not JSON alias"
+        );
+        assert_eq!(params.len(), 4, "expected time + 2 filter binds");
     }
 
     #[test]
