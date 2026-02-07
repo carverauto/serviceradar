@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
   alias AshPhoenix.Form
   alias ServiceRadar.Observability.NetflowLocalCidr
   alias ServiceRadar.Observability.NetflowSettings
+  alias ServiceRadar.Observability.{GeoLiteMmdbDownloadWorker, IpEnrichmentRefreshWorker}
+  alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
@@ -161,8 +163,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
     result =
       case settings do
-        %NetflowSettings{} = record -> NetflowSettings.update_settings(record, update_params, actor: user)
-        _ -> NetflowSettings.create(update_params, actor: user)
+        %NetflowSettings{} = record ->
+          NetflowSettings.update_settings(record, update_params, actor: user)
+
+        _ ->
+          NetflowSettings.create(update_params, actor: user)
       end
 
     case result do
@@ -175,6 +180,48 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
       {:error, err} ->
         {:noreply, socket |> put_flash(:error, "Failed to save settings: #{inspect(err)}")}
+    end
+  end
+
+  def handle_event("run_mmdb_refresh", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    if RBAC.can?(scope, "settings.netflow.manage") do
+      case ObanSupport.safe_insert(GeoLiteMmdbDownloadWorker.new(%{})) do
+        {:ok, _job} ->
+          {:noreply, socket |> put_flash(:info, "Queued MMDB refresh job")}
+
+        {:error, :oban_unavailable} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Oban is unavailable in this environment.")}
+
+        {:error, err} ->
+          {:noreply, socket |> put_flash(:error, "Failed to queue job: #{inspect(err)}")}
+      end
+    else
+      {:noreply, socket |> put_flash(:error, "Not authorized")}
+    end
+  end
+
+  def handle_event("run_enrichment_refresh", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    if RBAC.can?(scope, "settings.netflow.manage") do
+      case ObanSupport.safe_insert(IpEnrichmentRefreshWorker.new(%{})) do
+        {:ok, _job} ->
+          {:noreply, socket |> put_flash(:info, "Queued enrichment refresh job")}
+
+        {:error, :oban_unavailable} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Oban is unavailable in this environment.")}
+
+        {:error, err} ->
+          {:noreply, socket |> put_flash(:error, "Failed to queue job: #{inspect(err)}")}
+      end
+    else
+      {:noreply, socket |> put_flash(:error, "Not authorized")}
     end
   end
 
@@ -214,6 +261,67 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
               >
                 <div class="mt-4 grid grid-cols-1 gap-4">
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <div class="text-xs font-semibold">GeoIP (MMDB)</div>
+                        <div class="text-xs text-base-content/60 mt-1">
+                          GeoIP is populated by background jobs and stored in `ip_geo_enrichment_cache`.
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <button type="button" class="btn btn-sm" phx-click="run_mmdb_refresh">
+                          Run MMDB refresh
+                        </button>
+                        <button type="button" class="btn btn-sm" phx-click="run_enrichment_refresh">
+                          Run enrichment refresh
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="mt-3 grid grid-cols-1 gap-3">
+                      <.input
+                        field={@settings_form[:geoip_enabled]}
+                        type="checkbox"
+                        label="Enable GeoIP enrichment (background only)"
+                      />
+
+                      <div class="grid gap-2 text-xs text-base-content/70">
+                        <div class="grid grid-cols-1 gap-1 sm:grid-cols-3 sm:gap-4">
+                          <div class="font-semibold text-base-content/80">MMDB refresh</div>
+                          <div>
+                            Last success:
+                            <span class="font-mono">
+                              {format_dt(@settings && @settings.geolite_mmdb_last_success_at)}
+                            </span>
+                          </div>
+                          <div class="truncate">
+                            Last error:
+                            <span class="font-mono">
+                              {@settings && (@settings.geolite_mmdb_last_error || "—")}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-1 sm:grid-cols-3 sm:gap-4">
+                          <div class="font-semibold text-base-content/80">IP enrichment</div>
+                          <div>
+                            Last success:
+                            <span class="font-mono">
+                              {format_dt(@settings && @settings.ip_enrichment_last_success_at)}
+                            </span>
+                          </div>
+                          <div class="truncate">
+                            Last error:
+                            <span class="font-mono">
+                              {@settings && (@settings.ip_enrichment_last_error || "—")}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
                     <div class="text-xs font-semibold">ipinfo.io/lite</div>
                     <div class="mt-2 grid grid-cols-1 gap-3">
                       <.input
@@ -238,7 +346,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                           name="settings[ipinfo_api_key]"
                           value=""
                           autocomplete="off"
-                          placeholder={if ipinfo_token_present?(@settings), do: "(set)", else: "(not set)"}
+                          placeholder={
+                            if ipinfo_token_present?(@settings), do: "(set)", else: "(not set)"
+                          }
                         />
                         <div class="text-xs text-base-content/60">
                           Leave blank to keep existing. Check "clear" to remove.
@@ -246,7 +356,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                       </div>
 
                       <label class="flex items-center gap-2 text-sm">
-                        <input type="checkbox" class="checkbox checkbox-sm" name="settings[clear_ipinfo_api_key]" value="true" />
+                        <input
+                          type="checkbox"
+                          class="checkbox checkbox-sm"
+                          name="settings[clear_ipinfo_api_key]"
+                          value="true"
+                        />
                         <span>Clear token</span>
                       </label>
                     </div>
@@ -255,7 +370,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
                     <div class="text-xs font-semibold">Threat Intel (Feature Flag)</div>
                     <div class="mt-2 grid grid-cols-1 gap-3">
-                      <.input field={@settings_form[:threat_intel_enabled]} type="checkbox" label="Enable threat intel matching" />
+                      <.input
+                        field={@settings_form[:threat_intel_enabled]}
+                        type="checkbox"
+                        label="Enable threat intel matching"
+                      />
                       <div class="grid grid-cols-1 gap-2">
                         <label class="label p-0">
                           <span class="label-text text-sm">Feed URLs (one per line)</span>
@@ -272,7 +391,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
                     <div class="text-xs font-semibold">Anomaly Detection (Feature Flag)</div>
                     <div class="mt-2 grid grid-cols-1 gap-3">
-                      <.input field={@settings_form[:anomaly_enabled]} type="checkbox" label="Enable anomaly flags" />
+                      <.input
+                        field={@settings_form[:anomaly_enabled]}
+                        type="checkbox"
+                        label="Enable anomaly flags"
+                      />
                       <.input
                         field={@settings_form[:anomaly_baseline_window_seconds]}
                         type="number"
@@ -289,7 +412,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
                     <div class="text-xs font-semibold">Port Scan Detection (Feature Flag)</div>
                     <div class="mt-2 grid grid-cols-1 gap-3">
-                      <.input field={@settings_form[:port_scan_enabled]} type="checkbox" label="Enable port scan flags" />
+                      <.input
+                        field={@settings_form[:port_scan_enabled]}
+                        type="checkbox"
+                        label="Enable port scan flags"
+                      />
                       <.input
                         field={@settings_form[:port_scan_window_seconds]}
                         type="number"
@@ -454,7 +581,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     user = scope.user
 
     case NetflowSettings.get_settings(actor: user) do
-      {:ok, %NetflowSettings{} = settings} -> settings
+      {:ok, %NetflowSettings{} = settings} ->
+        settings
+
       _ ->
         # In case the default row hasn't been created in this environment yet.
         case NetflowSettings.create(%{}, actor: user) do
@@ -469,16 +598,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
   defp settings_to_form(%NetflowSettings{} = settings) do
     # Build a plain form-like map for settings; we only persist on submit.
     %{
+      "geoip_enabled" => truthy(settings.geoip_enabled),
       "ipinfo_enabled" => truthy(settings.ipinfo_enabled),
       "ipinfo_base_url" => settings.ipinfo_base_url || "https://api.ipinfo.io",
       "threat_intel_enabled" => truthy(settings.threat_intel_enabled),
       "threat_intel_feed_urls" => settings.threat_intel_feed_urls || [],
       "anomaly_enabled" => truthy(settings.anomaly_enabled),
-      "anomaly_baseline_window_seconds" => to_string(settings.anomaly_baseline_window_seconds || 604_800),
+      "anomaly_baseline_window_seconds" =>
+        to_string(settings.anomaly_baseline_window_seconds || 604_800),
       "anomaly_threshold_percent" => to_string(settings.anomaly_threshold_percent || 300),
       "port_scan_enabled" => truthy(settings.port_scan_enabled),
       "port_scan_window_seconds" => to_string(settings.port_scan_window_seconds || 300),
-      "port_scan_unique_ports_threshold" => to_string(settings.port_scan_unique_ports_threshold || 50)
+      "port_scan_unique_ports_threshold" =>
+        to_string(settings.port_scan_unique_ports_threshold || 50)
     }
     |> to_form(as: "settings")
   end
@@ -504,16 +636,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
       |> Enum.reject(&(&1 == ""))
 
     base = %{
+      geoip_enabled: truthy_param?(Map.get(params, "geoip_enabled")),
       ipinfo_enabled: truthy_param?(Map.get(params, "ipinfo_enabled")),
       ipinfo_base_url: Map.get(params, "ipinfo_base_url") |> to_string() |> String.trim(),
       threat_intel_enabled: truthy_param?(Map.get(params, "threat_intel_enabled")),
       threat_intel_feed_urls: feed_urls,
       anomaly_enabled: truthy_param?(Map.get(params, "anomaly_enabled")),
-      anomaly_baseline_window_seconds: to_int(Map.get(params, "anomaly_baseline_window_seconds"), 604_800),
+      anomaly_baseline_window_seconds:
+        to_int(Map.get(params, "anomaly_baseline_window_seconds"), 604_800),
       anomaly_threshold_percent: to_int(Map.get(params, "anomaly_threshold_percent"), 300),
       port_scan_enabled: truthy_param?(Map.get(params, "port_scan_enabled")),
       port_scan_window_seconds: to_int(Map.get(params, "port_scan_window_seconds"), 300),
-      port_scan_unique_ports_threshold: to_int(Map.get(params, "port_scan_unique_ports_threshold"), 50),
+      port_scan_unique_ports_threshold:
+        to_int(Map.get(params, "port_scan_unique_ports_threshold"), 50),
       clear_ipinfo_api_key: truthy_param?(Map.get(params, "clear_ipinfo_api_key"))
     }
 
@@ -565,4 +700,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
   end
 
   defp format_ash_error(_), do: "Unexpected error"
+
+  defp format_dt(nil), do: "—"
+  defp format_dt(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_iso8601(ndt)
+  defp format_dt(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp format_dt(_), do: "—"
 end

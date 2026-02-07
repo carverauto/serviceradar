@@ -31,6 +31,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
   code_interface do
     define :get_settings, action: :get_singleton
     define :update_settings, action: :update
+    define :update_enrichment_status, action: :update_enrichment_status
     define :create, action: :create
   end
 
@@ -47,6 +48,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
 
     create :create do
       accept [
+        :geoip_enabled,
         :ipinfo_enabled,
         :ipinfo_base_url,
         :threat_intel_enabled,
@@ -80,6 +82,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
       require_atomic? false
 
       accept [
+        :geoip_enabled,
         :ipinfo_enabled,
         :ipinfo_base_url,
         :threat_intel_enabled,
@@ -108,6 +111,19 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         |> maybe_clear_secret(:clear_ipinfo_api_key, :ipinfo_api_key)
       end
     end
+
+    update :update_enrichment_status do
+      description "System-only status updates for enrichment pipeline health."
+
+      accept [
+        :geolite_mmdb_last_attempt_at,
+        :geolite_mmdb_last_success_at,
+        :geolite_mmdb_last_error,
+        :ip_enrichment_last_attempt_at,
+        :ip_enrichment_last_success_at,
+        :ip_enrichment_last_error
+      ]
+    end
   end
 
   policies do
@@ -128,6 +144,12 @@ defmodule ServiceRadar.Observability.NetflowSettings do
 
   attributes do
     uuid_primary_key :id
+
+    attribute :geoip_enabled, :boolean do
+      allow_nil? false
+      default true
+      public? true
+    end
 
     attribute :ipinfo_enabled, :boolean do
       allow_nil? false
@@ -196,6 +218,30 @@ defmodule ServiceRadar.Observability.NetflowSettings do
       public? true
     end
 
+    attribute :geolite_mmdb_last_attempt_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :geolite_mmdb_last_success_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :geolite_mmdb_last_error, :string do
+      public? true
+    end
+
+    attribute :ip_enrichment_last_attempt_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :ip_enrichment_last_success_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :ip_enrichment_last_error, :string do
+      public? true
+    end
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
@@ -215,9 +261,14 @@ defmodule ServiceRadar.Observability.NetflowSettings do
 
   defp maybe_set_secret(changeset, arg_name, encrypted_attr) do
     case Ash.Changeset.get_argument(changeset, arg_name) do
-      nil -> changeset
-      "" -> changeset
-      value when is_binary(value) -> Ash.Changeset.change_attribute(changeset, encrypted_attr, value)
+      nil ->
+        changeset
+
+      "" ->
+        changeset
+
+      value when is_binary(value) ->
+        Ash.Changeset.change_attribute(changeset, encrypted_attr, value)
     end
   end
 

@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     unique: [period: 300, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
+
   alias ServiceRadar.Observability.{
     GeoIP,
     IpGeoEnrichmentCache,
@@ -21,6 +22,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     NetflowSettings,
     SRQLRunner
   }
+
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -84,16 +86,30 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     actor = SystemActor.system(:ip_enrichment_refresh)
 
     settings = load_netflow_settings(actor)
+    geoip_enabled = geoip_enabled?(settings)
+    record_ip_enrichment_attempt(settings, actor, now)
 
-    ips = discover_candidate_ips(scan_window, limit)
-    Enum.each(ips, fn ip ->
-      refresh_rdns(ip, actor, now, rdns_expires_at, rdns_timeout_ms)
-      refresh_geo(ip, actor, now, geo_expires_at)
-      refresh_ipinfo(ip, settings, actor, now, ipinfo_expires_at, ipinfo_timeout_ms)
-    end)
+    try do
+      ips = discover_candidate_ips(scan_window, limit)
 
-    ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 30)))
-    :ok
+      Enum.each(ips, fn ip ->
+        refresh_rdns(ip, actor, now, rdns_expires_at, rdns_timeout_ms)
+
+        if geoip_enabled do
+          refresh_geo(ip, actor, now, geo_expires_at)
+        end
+
+        refresh_ipinfo(ip, settings, actor, now, ipinfo_expires_at, ipinfo_timeout_ms)
+      end)
+
+      record_ip_enrichment_success(settings, actor, now)
+      ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 30)))
+      :ok
+    rescue
+      e ->
+        record_ip_enrichment_failure(settings, actor, now, e)
+        reraise e, __STACKTRACE__
+    end
   end
 
   defp discover_candidate_ips(scan_window, limit) do
@@ -155,7 +171,9 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
       |> Ash.Changeset.for_create(:upsert, attrs)
 
     case Ash.create(changeset, actor: actor) do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("IpEnrichmentRefreshWorker: failed to upsert rDNS cache",
           ip: ip,
@@ -212,7 +230,9 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
       |> Ash.Changeset.for_create(:upsert, attrs)
 
     case Ash.create(changeset, actor: actor) do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("IpEnrichmentRefreshWorker: failed to upsert GeoIP/ASN cache",
           ip: ip,
@@ -226,9 +246,59 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
 
   defp load_netflow_settings(actor) do
     case NetflowSettings.get_settings(actor: actor) do
-      {:ok, %NetflowSettings{} = settings} -> settings
-      _ -> nil
+      {:ok, %NetflowSettings{} = settings} ->
+        settings
+
+      _ ->
+        # In some environments the default singleton row may not exist yet.
+        case NetflowSettings.create(%{}, actor: actor) do
+          {:ok, %NetflowSettings{} = settings} -> settings
+          _ -> nil
+        end
     end
+  end
+
+  defp geoip_enabled?(%NetflowSettings{geoip_enabled: false}), do: false
+  defp geoip_enabled?(_), do: true
+
+  defp record_ip_enrichment_attempt(nil, _actor, _now), do: :ok
+
+  defp record_ip_enrichment_attempt(%NetflowSettings{} = settings, actor, %DateTime{} = now) do
+    _ =
+      NetflowSettings.update_enrichment_status(
+        settings,
+        %{ip_enrichment_last_attempt_at: now},
+        actor: actor
+      )
+
+    :ok
+  end
+
+  defp record_ip_enrichment_success(nil, _actor, _now), do: :ok
+
+  defp record_ip_enrichment_success(%NetflowSettings{} = settings, actor, %DateTime{} = now) do
+    _ =
+      NetflowSettings.update_enrichment_status(
+        settings,
+        %{ip_enrichment_last_success_at: now, ip_enrichment_last_error: nil},
+        actor: actor
+      )
+
+    :ok
+  end
+
+  defp record_ip_enrichment_failure(nil, _actor, _now, _e), do: :ok
+
+  defp record_ip_enrichment_failure(%NetflowSettings{} = settings, actor, %DateTime{} = _now, e) do
+    _ =
+      NetflowSettings.update_enrichment_status(
+        settings,
+        %{ip_enrichment_last_error: Exception.message(e)},
+        actor: actor
+      )
+
+    Logger.warning("IpEnrichmentRefreshWorker: failed", error: Exception.message(e))
+    :ok
   end
 
   defp refresh_ipinfo(_ip, nil, _actor, _now, _expires_at, _timeout_ms), do: :skip
@@ -236,9 +306,11 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   defp refresh_ipinfo(ip, %NetflowSettings{} = settings, actor, now, expires_at, timeout_ms)
        when is_binary(ip) do
     # Background-only enrichment: never call external APIs during SRQL query execution.
-    if settings.ipinfo_enabled && is_binary(settings.ipinfo_api_key) && settings.ipinfo_api_key != "" &&
+    if settings.ipinfo_enabled && is_binary(settings.ipinfo_api_key) &&
+         settings.ipinfo_api_key != "" &&
          not private_ip?(ip) do
-      {attrs, err} = ipinfo_lookup(ip, settings.ipinfo_base_url, settings.ipinfo_api_key, timeout_ms)
+      {attrs, err} =
+        ipinfo_lookup(ip, settings.ipinfo_base_url, settings.ipinfo_api_key, timeout_ms)
 
       existing_error_count =
         case Ash.read_one(
@@ -270,7 +342,9 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
         |> Ash.Changeset.for_create(:upsert, attrs)
 
       case Ash.create(changeset, actor: actor) do
-        {:ok, _} -> :ok
+        {:ok, _} ->
+          :ok
+
         {:error, reason} ->
           Logger.warning("IpEnrichmentRefreshWorker: failed to upsert ipinfo cache",
             ip: ip,

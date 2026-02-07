@@ -2,21 +2,22 @@
 - [x] 1.1 Draft `proposal.md`/`design.md`/`tasks.md` and delta specs for `observability-netflow`
 - [x] 1.2 Validate change with `openspec validate add-netflow-geoip-refresh --strict`
 
-## 2. Data Model (Elixir Migrations Only)
-- [ ] 2.1 Add GeoIP provider/settings table(s) in `platform` schema via migrations in `elixir/serviceradar_core/priv/repo/migrations/`
-- [ ] 2.2 Add encrypted field(s) for provider API tokens using AshCloak (no plaintext tokens at rest)
+## 2. Existing Foundations (Already Implemented)
+- [x] 2.1 `platform.ip_geo_enrichment_cache` exists and is used as the SRQL query-time source of truth
+- [x] 2.2 MMDB download/refresh worker exists (`ServiceRadar.Observability.GeoLiteMmdbDownloadWorker`) and is scheduled via `GeoLiteMmdbScheduler`
+- [x] 2.3 Enrichment refresh worker exists (`ServiceRadar.Observability.IpEnrichmentRefreshWorker`) and populates `platform.ip_geo_enrichment_cache` from SRQL-discovered IPs
+- [x] 2.4 Optional hosted provider settings (ipinfo-lite) exist in `platform.netflow_settings` with AshCloak encrypted token storage
+- [x] 2.5 Admin NetFlow settings UI exists with RBAC gating (`/settings/netflows`)
 
-## 3. Background Jobs (AshOban)
-- [ ] 3.1 Implement daily MMDB download/refresh job with atomic swap + basic integrity checks
-- [ ] 3.2 Implement periodic cache population job that upserts `platform.ip_geo_enrichment_cache` for newly-seen IPs
-- [ ] 3.3 Add rate limiting/backoff for hosted provider mode (ipinfo-lite)
+## 3. Status Persistence (This Change)
+- [x] 3.1 Add persisted last-success/last-error fields for MMDB refresh and IP enrichment refresh (Elixir migration in `elixir/serviceradar_core/priv/repo/migrations/`)
+- [x] 3.2 Update workers to record status on success/failure (system-only writes)
+- [x] 3.3 Add a `geoip_enabled` toggle (default enabled) to allow disabling GeoIP cache population
 
-## 4. Admin Settings UI (Web-NG)
-- [ ] 4.1 Add admin settings UI to configure GeoIP provider and schedules
-- [ ] 4.2 Add RBAC gating for settings pages/actions (admin-only)
-- [ ] 4.3 Add "manual refresh" action + last-refresh status display
+## 4. Admin Controls (Web-NG)
+- [x] 4.1 Display MMDB refresh + enrichment refresh status (timestamps + last error) in the NetFlow settings UI
+- [x] 4.2 Add "Run now" controls to enqueue MMDB refresh and enrichment refresh jobs (admin-only)
 
 ## 5. Validation
-- [ ] 5.1 Add tests for settings resource authorization + encrypted token storage
-- [ ] 5.2 Add tests for job enqueue/execute paths (happy path + failure handling)
-- [ ] 5.3 Verify NetFlow geo heatmap works end-to-end with refreshed cache data (SRQL-driven)
+- [ ] 5.1 Add/extend tests for status field updates and authorization boundaries (system write, admin read)
+- [ ] 5.2 Smoke test end-to-end: refresh jobs run and NetFlow geo heatmap remains SRQL-driven

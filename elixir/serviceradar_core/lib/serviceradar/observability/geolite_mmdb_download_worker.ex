@@ -15,6 +15,8 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     unique: [period: 3600, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Repo
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.SweepJobs.ObanSupport
 
   import Ecto.Query, only: [from: 2]
@@ -26,9 +28,12 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   @default_reschedule_seconds 86_400
 
   @default_files %{
-    "GeoLite2-ASN.mmdb" => "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-ASN.mmdb",
-    "GeoLite2-City.mmdb" => "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-City.mmdb",
-    "GeoLite2-Country.mmdb" => "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-Country.mmdb"
+    "GeoLite2-ASN.mmdb" =>
+      "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-ASN.mmdb",
+    "GeoLite2-City.mmdb" =>
+      "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-City.mmdb",
+    "GeoLite2-Country.mmdb" =>
+      "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-Country.mmdb"
   }
 
   @doc """
@@ -65,6 +70,10 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
     files = Keyword.get(config, :files, @default_files)
 
+    now = DateTime.utc_now()
+    actor = SystemActor.system(:geolite_mmdb_download)
+    record_mmdb_attempt(actor, now)
+
     File.mkdir_p!(dir)
 
     results =
@@ -75,8 +84,10 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
       end)
 
     if Enum.any?(results, &match?({:error, _}, &1)) do
+      record_mmdb_failure(actor, now, "download_failed")
       {:error, :download_failed}
     else
+      record_mmdb_success(actor, now)
       ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 3_600)))
       :ok
     end
@@ -104,9 +115,81 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     rescue
       e ->
         File.rm(tmp)
-        Logger.warning("GeoLite MMDB download failed", url: url, dest: dest_path, error: inspect(e))
+
+        Logger.warning("GeoLite MMDB download failed",
+          url: url,
+          dest: dest_path,
+          error: inspect(e)
+        )
+
         {:error, e}
     end
   end
-end
 
+  defp load_settings(actor) do
+    case NetflowSettings.get_settings(actor: actor) do
+      {:ok, %NetflowSettings{} = s} ->
+        s
+
+      _ ->
+        case NetflowSettings.create(%{}, actor: actor) do
+          {:ok, %NetflowSettings{} = s} -> s
+          _ -> nil
+        end
+    end
+  end
+
+  defp record_mmdb_attempt(actor, %DateTime{} = now) do
+    case load_settings(actor) do
+      %NetflowSettings{} = s ->
+        _ =
+          NetflowSettings.update_enrichment_status(s, %{geolite_mmdb_last_attempt_at: now},
+            actor: actor
+          )
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp record_mmdb_success(actor, %DateTime{} = now) do
+    case load_settings(actor) do
+      %NetflowSettings{} = s ->
+        _ =
+          NetflowSettings.update_enrichment_status(
+            s,
+            %{
+              geolite_mmdb_last_success_at: now,
+              geolite_mmdb_last_error: nil
+            },
+            actor: actor
+          )
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp record_mmdb_failure(actor, %DateTime{} = _now, err) do
+    case load_settings(actor) do
+      %NetflowSettings{} = s ->
+        _ =
+          NetflowSettings.update_enrichment_status(
+            s,
+            %{
+              geolite_mmdb_last_error: to_string(err)
+            },
+            actor: actor
+          )
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+end
