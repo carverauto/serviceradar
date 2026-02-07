@@ -1,10 +1,15 @@
 defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   @moduledoc """
-  Background job that refreshes IP enrichment caches (rDNS now; GeoIP/ASN later).
+  Background job that refreshes IP enrichment caches (rDNS + GeoIP/ASN, plus optional ipinfo).
 
   This worker is intentionally SRQL-driven:
   - it discovers candidate IPs via SRQL flow stats queries
   - it stores enrichment in cache tables keyed by IP with TTL
+
+  Important constraints:
+  - SRQL query execution must never make external API calls
+  - GeoIP/ASN enrichment is performed via local MMDB databases (GeoLite2) and cached
+  - ipinfo enrichment (when enabled) is also MMDB-based and cached (no per-IP HTTP calls)
   """
 
   use Oban.Worker,
