@@ -7,8 +7,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadar.Observability.IpRdnsCache
 
-  import ServiceRadarWebNGWeb.SRQLComponents
-
   require Ash.Query
 
   @default_limit 100
@@ -178,33 +176,78 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply, assign(socket, :selected_flow, nil)}
   end
 
-  def handle_event(
-        "netflow_sankey_edge",
-        %{"src" => src, "dst" => dst, "port" => port_raw},
-        socket
-      ) do
-    port =
-      case Integer.parse(to_string(port_raw || "")) do
-        {n, ""} when n > 0 -> n
-        _ -> nil
-      end
+  def handle_event("netflow_sankey_edge", %{} = params, socket) do
+    src = Map.get(params, "src") |> normalize_optional_string()
+    dst = Map.get(params, "dst") |> normalize_optional_string()
+
+    port = parse_optional_port(Map.get(params, "port"))
+    mid_field = Map.get(params, "mid_field") |> normalize_optional_string()
+    mid_value = Map.get(params, "mid_value") |> normalize_optional_string()
 
     query = Map.get(socket.assigns.srql, :query) || ""
 
     new_query =
       query
-      |> upsert_query_filter("src_cidr", to_string(src || "") |> String.trim())
-      |> upsert_query_filter("dst_cidr", to_string(dst || "") |> String.trim())
-      |> then(fn q ->
-        if is_integer(port) do
-          upsert_query_filter(q, "dst_port", to_string(port))
-        else
-          q
-        end
-      end)
+      |> apply_endpoint_filter(:src, src)
+      |> apply_endpoint_filter(:dst, dst)
+      |> apply_mid_filter(mid_field, mid_value, port)
 
     {:noreply, push_patch(socket, to: build_patch_url(socket, %{"q" => new_query}))}
   end
+
+  defp parse_optional_port(nil), do: nil
+  defp parse_optional_port(""), do: nil
+
+  defp parse_optional_port(port_raw) do
+    case Integer.parse(to_string(port_raw)) do
+      {n, ""} when n > 0 -> n
+      _ -> nil
+    end
+  end
+
+  defp apply_endpoint_filter(query, _side, nil), do: query
+
+  defp apply_endpoint_filter(query, :src, value) when is_binary(value) do
+    if String.contains?(value, "/") do
+      upsert_query_filter(query, "src_cidr", value)
+    else
+      upsert_query_filter(query, "src_ip", value)
+    end
+  end
+
+  defp apply_endpoint_filter(query, :dst, value) when is_binary(value) do
+    if String.contains?(value, "/") do
+      upsert_query_filter(query, "dst_cidr", value)
+    else
+      upsert_query_filter(query, "dst_ip", value)
+    end
+  end
+
+  defp apply_endpoint_filter(query, _side, _value), do: query
+
+  defp apply_mid_filter(query, nil, _mid_value, _port), do: query
+
+  defp apply_mid_filter(query, mid_field, mid_value, port) when is_binary(mid_field) do
+    case mid_field do
+      f when f in ["dst_port", "dst_endpoint_port"] ->
+        cond do
+          is_integer(port) -> upsert_query_filter(query, "dst_port", to_string(port))
+          is_binary(mid_value) and mid_value != "" -> upsert_query_filter(query, "dst_port", mid_value)
+          true -> query
+        end
+
+      "app" when is_binary(mid_value) and mid_value != "" ->
+        upsert_query_filter(query, "app", mid_value)
+
+      "protocol_group" when is_binary(mid_value) and mid_value != "" ->
+        upsert_query_filter(query, "protocol_group", mid_value)
+
+      _ ->
+        query
+    end
+  end
+
+  defp apply_mid_filter(query, _mid_field, _mid_value, _port), do: query
 
   def handle_event("netflow_stack_series", %{"field" => field, "value" => value}, socket) do
     field = to_string(field || "") |> String.trim()
@@ -536,8 +579,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           </aside>
 
           <section class="w-full min-w-0 flex-1 flex flex-col gap-4">
-            <.srql_auto_viz viz={Map.get(@srql, :viz, :none)} />
-
             <div class="card bg-base-100 border border-base-200 shadow-sm">
               <div class="card-body gap-3">
                 <div class="flex items-center justify-between gap-3">
@@ -645,7 +686,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               </div>
             </div>
 
-            <.flow_details_modal :if={is_map(@selected_flow)} flow={@selected_flow} />
+            <.flow_details_modal :if={is_map(@selected_flow)} flow={@selected_flow} rdns_map={@rdns_map} />
           </section>
         </div>
       </div>
@@ -864,6 +905,56 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp iso2_flag_emoji(_), do: nil
 
+  defp flow_asn(flow, :src) when is_map(flow) do
+    flow_get(flow, ["src_as_number", "src_asn", "src_as"])
+  end
+
+  defp flow_asn(flow, :dst) when is_map(flow) do
+    flow_get(flow, ["dst_as_number", "dst_asn", "dst_as"])
+  end
+
+  defp flow_asn(_flow, _side), do: nil
+
+  defp flow_geo(flow, :src) when is_map(flow) do
+    geo_parts =
+      [
+        flow_get(flow, ["src_city"]),
+        flow_get(flow, ["src_region"]),
+        flow_get(flow, ["src_country_name"]),
+        flow_get(flow, ["src_country_iso2"])
+      ]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    case geo_parts do
+      [] -> nil
+      parts -> Enum.join(parts, ", ")
+    end
+  end
+
+  defp flow_geo(flow, :dst) when is_map(flow) do
+    geo_parts =
+      [
+        flow_get(flow, ["dst_city"]),
+        flow_get(flow, ["dst_region"]),
+        flow_get(flow, ["dst_country_name"]),
+        flow_get(flow, ["dst_country_iso2"])
+      ]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    case geo_parts do
+      [] -> nil
+      parts -> Enum.join(parts, ", ")
+    end
+  end
+
+  defp flow_geo(_flow, _side), do: nil
+
   defp flows_filter_patch(base_path, query, limit, nf, field, value) do
     value = to_string(value || "") |> String.trim()
 
@@ -1052,69 +1143,75 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp rdns_map_for_flows(_flows, _scope), do: %{}
 
   defp chart_query_from_state(base_query, %{} = state) do
-    graph = Map.get(state, "graph", "stacked")
     time = Map.get(state, "time", @default_time)
-    dims = Map.get(state, "dims", [])
-    units = Map.get(state, "units", "Bps")
-    series_limit = Map.get(state, "limit", 12)
+    base = chart_base_query(base_query, time)
 
-    base =
-      base_query
-      |> to_string()
-      |> NFQuery.flows_base_query(time)
-      |> NFQuery.flows_sanitize_for_stats()
-      |> String.trim()
-
-    case graph do
-      "sankey" ->
-        prefix = sankey_prefix_from_state(state)
-        cidr_prefix = if prefix == 32, do: 24, else: prefix
-
-        dims =
-          dims
-          |> List.wrap()
-          |> Enum.map(&to_string/1)
-          |> Enum.map(&String.trim/1)
-          |> Enum.reject(&(&1 == ""))
-
-        src_dim = Enum.at(dims, 0)
-        mid_dim = Enum.at(dims, 1)
-        dst_dim = Enum.at(dims, 2)
-
-        src =
-          case src_dim do
-            "src_ip" -> "src_endpoint_ip"
-            "src_cidr" -> "src_cidr:#{cidr_prefix}"
-            _ -> "src_cidr:#{cidr_prefix}"
-          end
-
-        mid =
-          case mid_dim do
-            "dst_port" -> "dst_endpoint_port"
-            "app" -> "app"
-            "protocol_group" -> "protocol_group"
-            _ -> "dst_endpoint_port"
-          end
-
-        dst =
-          case dst_dim do
-            "dst_ip" -> "dst_endpoint_ip"
-            "dst_cidr" -> "dst_cidr:#{cidr_prefix}"
-            _ -> "dst_cidr:#{cidr_prefix}"
-          end
-
-        ~s|#{base} stats:"sum(bytes_total) as total_bytes by #{src}, #{mid}, #{dst}" sort:total_bytes:desc limit:200|
-
-      _ ->
-        value_field = if units == "pps", do: "packets_total", else: "bytes_total"
-        series_field = NFQuery.downsample_series_field_from_dims(dims)
-        limit = max(@chart_limit, series_limit * 200)
-
-        ~s|#{base} bucket:#{@default_bucket} agg:sum value_field:#{value_field} series:#{series_field} limit:#{limit}|
+    case Map.get(state, "graph", "stacked") do
+      "sankey" -> chart_query_sankey(base, state)
+      _ -> chart_query_timeseries(base, state)
     end
   end
 
+  defp chart_base_query(base_query, time_token) when is_binary(time_token) do
+    base_query
+    |> to_string()
+    |> NFQuery.flows_base_query(time_token)
+    |> NFQuery.flows_sanitize_for_stats()
+    |> String.trim()
+  end
+
+  defp chart_query_sankey(base, %{} = state) when is_binary(base) do
+    prefix = sankey_prefix_from_state(state)
+    cidr_prefix = if prefix == 32, do: 24, else: prefix
+    dims = dims_from_state(state)
+
+    src_dim = Enum.at(dims, 0)
+    mid_dim = Enum.at(dims, 1)
+    dst_dim = Enum.at(dims, 2)
+
+    src = sankey_src_group_by(src_dim, cidr_prefix)
+    mid = sankey_mid_group_by(mid_dim)
+    dst = sankey_dst_group_by(dst_dim, cidr_prefix)
+
+    ~s|#{base} stats:"sum(bytes_total) as total_bytes by #{src}, #{mid}, #{dst}" sort:total_bytes:desc limit:200|
+  end
+
+  defp chart_query_timeseries(base, %{} = state) when is_binary(base) do
+    units = Map.get(state, "units", "Bps")
+    dims = dims_from_state(state)
+    series_limit = Map.get(state, "limit", 12)
+
+    value_field = if units == "pps", do: "packets_total", else: "bytes_total"
+    series_field = NFQuery.downsample_series_field_from_dims(dims)
+    limit = max(@chart_limit, series_limit * 200)
+
+    ~s|#{base} bucket:#{@default_bucket} agg:sum value_field:#{value_field} series:#{series_field} limit:#{limit}|
+  end
+
+  defp dims_from_state(%{} = state) do
+    state
+    |> Map.get("dims", [])
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp sankey_src_group_by("src_ip", _cidr_prefix), do: "src_endpoint_ip"
+  defp sankey_src_group_by("src_cidr", cidr_prefix), do: "src_cidr:#{cidr_prefix}"
+  defp sankey_src_group_by(_, cidr_prefix), do: "src_cidr:#{cidr_prefix}"
+
+  defp sankey_dst_group_by("dst_ip", _cidr_prefix), do: "dst_endpoint_ip"
+  defp sankey_dst_group_by("dst_cidr", cidr_prefix), do: "dst_cidr:#{cidr_prefix}"
+  defp sankey_dst_group_by(_, cidr_prefix), do: "dst_cidr:#{cidr_prefix}"
+
+  defp sankey_mid_group_by("dst_port"), do: "dst_endpoint_port"
+  defp sankey_mid_group_by("app"), do: "app"
+  defp sankey_mid_group_by("protocol_group"), do: "protocol_group"
+  defp sankey_mid_group_by(_), do: "dst_endpoint_port"
+
   attr(:flow, :map, required: true)
+  attr(:rdns_map, :map, default: %{})
 
   defp flow_details_modal(assigns) do
     ~H"""
@@ -1130,32 +1227,72 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           <button type="button" class="btn btn-ghost btn-sm" phx-click="netflow_close">Close</button>
         </div>
 
+        <% src_ip = flow_get(@flow, ["src_endpoint_ip", "src_ip"]) %>
+        <% dst_ip = flow_get(@flow, ["dst_endpoint_ip", "dst_ip"]) %>
+        <% src_cc = flow_get(@flow, ["src_country_iso2"]) %>
+        <% dst_cc = flow_get(@flow, ["dst_country_iso2"]) %>
+        <% ocsf = flow_get(@flow, ["ocsf_payload"]) || %{} %>
+        <% src_if_uid = get_in(ocsf, ["src_endpoint", "interface_uid"]) %>
+        <% dst_if_uid = get_in(ocsf, ["dst_endpoint", "interface_uid"]) %>
+        <% src_mac = get_in(ocsf, ["unmapped", "src_mac"]) %>
+        <% dst_mac = get_in(ocsf, ["unmapped", "dst_mac"]) %>
+        <% sampler = flow_get(@flow, ["sampler_address"]) || get_in(ocsf, ["observables", Access.at(0), "value"]) %>
+
         <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
           <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
             <div class="text-xs uppercase tracking-wider text-base-content/50">Source</div>
-            <div class="mt-1 font-mono text-sm">
-              {flow_get(@flow, ["src_endpoint_ip", "src_ip"]) || "—"}{if p =
-                                                                           flow_get(@flow, [
-                                                                             "src_endpoint_port"
-                                                                           ]), do: ":#{p}", else: ""}
+            <div class="mt-1 font-mono text-sm flex items-baseline gap-1 min-w-0">
+              <span :if={is_binary(src_cc) and String.length(src_cc) == 2} class="text-sm leading-none">
+                {iso2_flag_emoji(src_cc)}
+              </span>
+              <span class="min-w-0 truncate">{src_ip || "—"}</span>
+              <span class="shrink-0 text-base-content/60">
+                {if p = flow_get(@flow, ["src_endpoint_port", "src_port"]), do: ":#{p}", else: ""}
+              </span>
+            </div>
+            <div :if={hostname = Map.get(@rdns_map, src_ip)} class="mt-0.5 text-[11px] text-base-content/60 font-mono truncate" title={hostname}>
+              {hostname}
+            </div>
+            <div class="mt-1 text-[11px] text-base-content/60 space-y-0.5">
+              <div :if={is_binary(src_if_uid) and src_if_uid != ""}>if_uid: <span class="font-mono">{src_if_uid}</span></div>
+              <div :if={is_binary(src_mac) and src_mac != ""}>mac: <span class="font-mono">{src_mac}</span></div>
+              <div :if={asn = flow_asn(@flow, :src)}>asn: <span class="font-mono">{asn}</span></div>
+              <div :if={geo = flow_geo(@flow, :src)}>{geo}</div>
             </div>
           </div>
 
           <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
             <div class="text-xs uppercase tracking-wider text-base-content/50">Destination</div>
-            <div class="mt-1 font-mono text-sm">
-              {flow_get(@flow, ["dst_endpoint_ip", "dst_ip"]) || "—"}{if p =
-                                                                           flow_get(@flow, [
-                                                                             "dst_endpoint_port",
-                                                                             "dst_port"
-                                                                           ]), do: ":#{p}", else: ""}
+            <div class="mt-1 font-mono text-sm flex items-baseline gap-1 min-w-0">
+              <span :if={is_binary(dst_cc) and String.length(dst_cc) == 2} class="text-sm leading-none">
+                {iso2_flag_emoji(dst_cc)}
+              </span>
+              <span class="min-w-0 truncate">{dst_ip || "—"}</span>
+              <span class="shrink-0 text-base-content/60">
+                {if p = flow_get(@flow, ["dst_endpoint_port", "dst_port"]), do: ":#{p}", else: ""}
+              </span>
+            </div>
+            <div :if={hostname = Map.get(@rdns_map, dst_ip)} class="mt-0.5 text-[11px] text-base-content/60 font-mono truncate" title={hostname}>
+              {hostname}
+            </div>
+            <div class="mt-1 text-[11px] text-base-content/60 space-y-0.5">
+              <div :if={is_binary(dst_if_uid) and dst_if_uid != ""}>if_uid: <span class="font-mono">{dst_if_uid}</span></div>
+              <div :if={is_binary(dst_mac) and dst_mac != ""}>mac: <span class="font-mono">{dst_mac}</span></div>
+              <div :if={asn = flow_asn(@flow, :dst)}>asn: <span class="font-mono">{asn}</span></div>
+              <div :if={geo = flow_geo(@flow, :dst)}>{geo}</div>
             </div>
           </div>
 
           <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
             <div class="text-xs uppercase tracking-wider text-base-content/50">Protocol</div>
             <div class="mt-1 font-mono text-sm">
-              {flow_get(@flow, ["protocol_group", "protocol_name", "proto"]) || "—"}
+              {flow_get(@flow, ["protocol_name", "protocol_group", "proto"]) || get_in(ocsf, ["connection_info", "protocol_name"]) || "—"}
+            </div>
+            <div class="mt-1 text-[11px] text-base-content/60 space-y-0.5">
+              <div :if={n = flow_get(@flow, ["protocol_num"])}>proto_num: <span class="font-mono">{n}</span></div>
+              <div :if={flags = flow_get(@flow, ["tcp_flags"])}>tcp_flags: <span class="font-mono">{flags}</span></div>
+              <div :if={dir = get_in(ocsf, ["connection_info", "direction_id"])}>direction_id: <span class="font-mono">{dir}</span></div>
+              <div :if={bid = get_in(ocsf, ["connection_info", "boundary_id"])}>boundary_id: <span class="font-mono">{bid}</span></div>
             </div>
           </div>
 
@@ -1166,6 +1303,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                 "bytes_total",
                 "bytes"
               ]) || "—"}
+            </div>
+            <div class="mt-1 text-[11px] text-base-content/60 space-y-0.5">
+              <div :if={bytes_in = flow_get(@flow, ["bytes_in"])}>bytes_in: <span class="font-mono">{bytes_in}</span></div>
+              <div :if={bytes_out = flow_get(@flow, ["bytes_out"])}>bytes_out: <span class="font-mono">{bytes_out}</span></div>
+              <div :if={s = sampler}>sampler: <span class="font-mono">{s}</span></div>
+              <div :if={ft = get_in(ocsf, ["unmapped", "flow_type"])}>flow_type: <span class="font-mono">{ft}</span></div>
             </div>
           </div>
         </div>
@@ -1508,24 +1651,81 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp to_int(_), do: 0
 
   defp srql_sankey_edge_from_row(%{} = row) do
-    src = Map.get(row, "src_cidr") || Map.get(row, "src_endpoint_ip")
-    dst = Map.get(row, "dst_cidr") || Map.get(row, "dst_endpoint_ip")
-    port = to_int(Map.get(row, "dst_endpoint_port"))
-    bytes = to_int(Map.get(row, "total_bytes"))
+    {src_field, src} = sankey_endpoint(row, :src)
+    {dst_field, dst} = sankey_endpoint(row, :dst)
+    {mid_field, mid_value, port} = sankey_mid(row)
 
-    mid =
-      if is_integer(port) and port > 0 do
-        "PORT:#{port}"
-      else
-        "PORT:?"
-      end
+    bytes = to_int(Map.get(row, "total_bytes"))
+    mid = sankey_mid_label(mid_field, mid_value, port)
+
+    src = if is_binary(src), do: String.trim(src), else: src
+    dst = if is_binary(dst), do: String.trim(dst), else: dst
 
     if is_binary(src) and src != "" and is_binary(dst) and dst != "" and bytes > 0 do
-      %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
+      %{
+        src: src,
+        mid: mid,
+        port: port,
+        dst: dst,
+        bytes: bytes,
+        src_field: src_field,
+        dst_field: dst_field,
+        mid_field: mid_field,
+        mid_value: mid_value
+      }
     else
       nil
     end
   end
+
+  defp sankey_endpoint(%{} = row, :src) do
+    cond do
+      is_binary(Map.get(row, "src_cidr")) -> {"src_cidr", Map.get(row, "src_cidr")}
+      is_binary(Map.get(row, "src_endpoint_ip")) -> {"src_ip", Map.get(row, "src_endpoint_ip")}
+      is_binary(Map.get(row, "src_ip")) -> {"src_ip", Map.get(row, "src_ip")}
+      true -> {nil, nil}
+    end
+  end
+
+  defp sankey_endpoint(%{} = row, :dst) do
+    cond do
+      is_binary(Map.get(row, "dst_cidr")) -> {"dst_cidr", Map.get(row, "dst_cidr")}
+      is_binary(Map.get(row, "dst_endpoint_ip")) -> {"dst_ip", Map.get(row, "dst_endpoint_ip")}
+      is_binary(Map.get(row, "dst_ip")) -> {"dst_ip", Map.get(row, "dst_ip")}
+      true -> {nil, nil}
+    end
+  end
+
+  defp sankey_endpoint(_row, _side), do: {nil, nil}
+
+  defp sankey_mid(%{} = row) do
+    cond do
+      not is_nil(Map.get(row, "dst_endpoint_port")) ->
+        p = to_int(Map.get(row, "dst_endpoint_port"))
+        {"dst_port", p, p}
+
+      is_binary(Map.get(row, "app")) ->
+        {"app", Map.get(row, "app"), 0}
+
+      is_binary(Map.get(row, "protocol_group")) ->
+        {"protocol_group", Map.get(row, "protocol_group"), 0}
+
+      true ->
+        {nil, nil, 0}
+    end
+  end
+
+  defp sankey_mid(_), do: {nil, nil, 0}
+
+  defp sankey_mid_label("dst_port", _mid_value, port) when is_integer(port) and port > 0,
+    do: "PORT:#{port}"
+
+  defp sankey_mid_label(_mid_field, mid_value, _port) when is_binary(mid_value) do
+    v = String.trim(mid_value)
+    if v == "", do: "PORT:?", else: v
+  end
+
+  defp sankey_mid_label(_mid_field, _mid_value, _port), do: "PORT:?"
 
   defp srql_sankey_edge_from_row(_), do: nil
 

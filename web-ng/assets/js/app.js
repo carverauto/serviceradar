@@ -605,8 +605,10 @@ const Hooks = {
         addNode(dst, "dst")
 
         // Model as 2-hop links so d3-sankey lays out 3 columns.
-        links.push({ source: src, target: mid, value: bytes, edge: { src, dst, port } })
-        links.push({ source: mid, target: dst, value: bytes, edge: { src, dst, port } })
+        const mid_field = e?.mid_field ?? ""
+        const mid_value = e?.mid_value ?? ""
+        links.push({ source: src, target: mid, value: bytes, edge: { src, dst, port, mid_field, mid_value } })
+        links.push({ source: mid, target: dst, value: bytes, edge: { src, dst, port, mid_field, mid_value } })
       }
 
       const sankey = d3Sankey()
@@ -665,6 +667,8 @@ const Hooks = {
             src: edge.src,
             dst: edge.dst,
             port: edge.port ?? "",
+            mid_field: edge.mid_field ?? "",
+            mid_value: edge.mid_value ?? "",
           })
         })
         .append("title")
