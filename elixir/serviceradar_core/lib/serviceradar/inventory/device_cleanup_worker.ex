@@ -23,7 +23,8 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   @doc """
   Ensure the cleanup job is scheduled based on current settings.
   """
-  @spec ensure_scheduled() :: {:ok, Oban.Job.t() | :already_scheduled | :disabled} | {:error, term()}
+  @spec ensure_scheduled() ::
+          {:ok, Oban.Job.t() | :already_scheduled | :disabled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
       case check_existing_job() do
@@ -160,7 +161,10 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
         do_purge(cutoff, batch_size, actor, updated)
 
       {:error, reason} ->
-        Logger.warning("DeviceCleanupWorker: failed to read cleanup batch", reason: inspect(reason))
+        Logger.warning("DeviceCleanupWorker: failed to read cleanup batch",
+          reason: inspect(reason)
+        )
+
         %{stats | errors: stats.errors + 1}
     end
   end

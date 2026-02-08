@@ -73,6 +73,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 | Entity::MemoryMetrics
                 | Entity::DiskMetrics
                 | Entity::ProcessMetrics
+                | Entity::Flows
         )
     {
         return Some(VizMeta {

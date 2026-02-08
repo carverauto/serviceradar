@@ -39,7 +39,10 @@ defmodule ServiceRadar.Identity.RoleProfileSeeder do
     end)
   end
 
-  defp ensure_profile(%{system_name: system_name, name: name, description: description, role: role}, opts) do
+  defp ensure_profile(
+         %{system_name: system_name, name: name, description: description, role: role},
+         opts
+       ) do
     permissions = Catalog.permissions_for_role(role)
 
     attrs = %{

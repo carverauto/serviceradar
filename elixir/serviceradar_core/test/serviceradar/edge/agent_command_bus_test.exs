@@ -76,7 +76,10 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       ensure_status_handler_started()
 
       {_pid, _metadata} =
-        start_control_session(agent_id, self(), %{partition_id: "default", capabilities: ["mapper"]})
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["mapper"]
+        })
 
       assert {:ok, command_id} =
                AgentCommandBus.dispatch(agent_id, "test.run", %{payload: "ok"})
@@ -88,11 +91,16 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       command = wait_for_status(command_id, :acknowledged, actor)
       assert command.message == "ack"
 
-      send(StatusHandler, {:command_progress, %{command_id: command_id, message: "running", progress_percent: 42}})
+      send(
+        StatusHandler,
+        {:command_progress, %{command_id: command_id, message: "running", progress_percent: 42}}
+      )
+
       command = wait_for_status(command_id, :running, actor)
       assert command.progress_percent == 42
 
-      send(StatusHandler,
+      send(
+        StatusHandler,
         {:command_result,
          %{command_id: command_id, success: true, message: "done", payload: %{"ok" => true}}}
       )

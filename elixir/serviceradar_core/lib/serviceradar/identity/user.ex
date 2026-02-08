@@ -113,8 +113,12 @@ defmodule ServiceRadar.Identity.User do
       # Hash password if provided
       change fn changeset, _context ->
         case Ash.Changeset.get_argument(changeset, :password) do
-          nil -> changeset
-          "" -> changeset
+          nil ->
+            changeset
+
+          "" ->
+            changeset
+
           password ->
             hashed = Bcrypt.hash_pwd_salt(password)
             Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
@@ -353,14 +357,18 @@ defmodule ServiceRadar.Identity.User do
     # Public reads used by authentication flows (no actor available yet)
     policy action([:by_email, :authenticate]) do
       authorize_if ServiceRadar.Policies.Checks.ActorIsNil
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
     end
 
     # Read access:
     # - Admins (settings.auth.manage) can read any user
     # - Users can read themselves
     policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
+
       authorize_if expr(id == ^actor(:id))
     end
 
@@ -371,19 +379,29 @@ defmodule ServiceRadar.Identity.User do
 
     # Admin-managed user creation
     policy action(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
     end
 
     # JIT provisioning is performed as a SystemActor in the web layer.
     # Allow admins to use it intentionally; deny regular users.
     policy action(:provision_sso_user) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
     end
 
     # Self-service updates and audit markers
-    policy action([:update, :update_email, :change_password, :record_authentication, :record_login]) do
+    policy action([
+             :update,
+             :update_email,
+             :change_password,
+             :record_authentication,
+             :record_login
+           ]) do
       authorize_if expr(id == ^actor(:id))
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
     end
 
     # Admin-only user management
@@ -394,7 +412,8 @@ defmodule ServiceRadar.Identity.User do
              :deactivate,
              :reactivate
            ]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.auth.manage"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.auth.manage"}
     end
   end
 
@@ -506,5 +525,4 @@ defmodule ServiceRadar.Identity.User do
   defp verify_password(_password, nil), do: false
   defp verify_password(_password, ""), do: false
   defp verify_password(password, hash), do: Bcrypt.verify_pass(password, hash)
-
 end

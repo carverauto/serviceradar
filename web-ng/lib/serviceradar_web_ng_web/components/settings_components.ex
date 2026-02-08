@@ -79,6 +79,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   defp can_networks_tab?(current_scope) do
     RBAC.can?(current_scope, "settings.networks.manage") or
+      RBAC.can?(current_scope, "settings.netflow.manage") or
       RBAC.can?(current_scope, "settings.integrations.manage") or
       RBAC.can?(current_scope, "settings.snmp_profiles.manage")
   end
@@ -222,6 +223,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     path = current_path || ""
 
     can_networks = RBAC.can?(current_scope, "settings.networks.manage")
+    can_netflow = RBAC.can?(current_scope, "settings.netflow.manage")
     can_integrations = RBAC.can?(current_scope, "settings.integrations.manage")
     can_snmp = RBAC.can?(current_scope, "settings.snmp_profiles.manage")
 
@@ -233,6 +235,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           String.starts_with?(path, "/settings/networks") and
             not String.starts_with?(path, "/settings/networks/discovery") and
             not String.starts_with?(path, "/settings/networks/integrations")
+      },
+      %{
+        label: "NetFlow",
+        navigate: ~p"/settings/netflows",
+        active: String.starts_with?(path, "/settings/netflows")
       },
       %{
         label: "Discovery",
@@ -254,6 +261,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       case tab.label do
         "Integrations" -> can_integrations or is_nil(current_scope)
         "SNMP" -> can_snmp or is_nil(current_scope)
+        "NetFlow" -> can_netflow or is_nil(current_scope)
         _ -> can_networks or is_nil(current_scope)
       end
     end)

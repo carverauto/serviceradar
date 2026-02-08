@@ -57,12 +57,40 @@ networkPolicy:
     allowedCIDRs:
       - "10.0.0.0/8"
       - "192.168.0.0/16"
+      # Allow GeoLite MMDB refresh from raw.githubusercontent.com (resolves to 185.199.108.0/22).
+      # Kubernetes NetworkPolicy can't allow by DNS name, so we allow the minimal known CIDR for this host.
+      - "185.199.108.0/22"
+      # Allow ipinfo lite MMDB refresh from ipinfo.io. (Resolved as 34.117.59.81 on 2026-02-07.)
+      # Note: this is a best-effort allowlist and may need adjustment if ipinfo changes their IPs.
+      - "34.117.0.0/16"
+      # ipinfo MMDB download currently redirects to dl.assets.ipinfo.io (Cloudflare).
+      # Allow the observed /24s (resolved on 2026-02-07 to 104.18.22.73 and 104.18.23.73).
+      # Note: Cloudflare anycast can change; if downloads fail again, re-resolve and update.
+      - "104.18.22.0/24"
+      - "104.18.23.0/24"
   calicoLogDenied:
     enabled: true
     selector: "all()"
     order: 1000
 
+geoipMmdb:
+  enabled: true
+  basePath: "/var/lib/serviceradar/geoip"
+  existingClaim: ""
+  size: 1Gi
+  storageClassName: ""
+
 webNg:
+  extraEnv:
+    # City MMDB is large; we only enable it in demo where we can allocate more memory.
+    GEOLITE_CITY_ENABLED: "true"
+  resources:
+    limits:
+      cpu: "2"
+      memory: 4Gi
+    requests:
+      cpu: "500m"
+      memory: 2Gi
   devRoutes: "true"
   localMailer: "true"
   publicUrl: "https://demo.serviceradar.cloud"
@@ -87,6 +115,9 @@ faker:
 
 core:
   logPromotionConsumerEnabled: true
+  extraEnv:
+    # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
+    GEOLITE_CITY_ENABLED: "true"
 
 # Temporarily disabled client CA for initial testing - there's a circular dependency
 # where CNPG needs the client CA secret, but the job that creates it

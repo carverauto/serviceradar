@@ -326,12 +326,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     Enum.reduce(updates, %{}, fn update, acc ->
       meta = update["sync_meta"] || update[:sync_meta] || %{}
 
-      sync_service_id = acc[:sync_service_id] || get_string(meta, ["sync_service_id", :sync_service_id])
+      sync_service_id =
+        acc[:sync_service_id] || get_string(meta, ["sync_service_id", :sync_service_id])
 
       total_devices =
         acc[:total_devices] || get_integer(meta, ["total_devices", :total_devices])
 
-      chunk_index = select_min(acc[:chunk_index], get_integer(meta, ["chunk_index", :chunk_index]))
+      chunk_index =
+        select_min(acc[:chunk_index], get_integer(meta, ["chunk_index", :chunk_index]))
 
       total_chunks = acc[:total_chunks] || get_integer(meta, ["total_chunks", :total_chunks])
 
@@ -439,7 +441,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   defp select_min(nil, value), do: value
   defp select_min(value, nil), do: value
-  defp select_min(value, other) when is_integer(value) and is_integer(other), do: min(value, other)
+
+  defp select_min(value, other) when is_integer(value) and is_integer(other),
+    do: min(value, other)
 
   defp decode_results(nil), do: {:ok, []}
 

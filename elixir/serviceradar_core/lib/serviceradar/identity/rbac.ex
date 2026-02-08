@@ -29,7 +29,8 @@ defmodule ServiceRadar.Identity.RBAC do
     end
   end
 
-  def permissions_for_user(%{permissions: permissions} = _user, _opts) when is_list(permissions) do
+  def permissions_for_user(%{permissions: permissions} = _user, _opts)
+      when is_list(permissions) do
     permissions
   end
 

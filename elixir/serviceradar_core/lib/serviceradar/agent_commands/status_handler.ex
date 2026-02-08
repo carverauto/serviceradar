@@ -115,7 +115,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       if Map.get(data, :success) do
         AgentCommand.complete(command, attrs, actor: actor)
       else
-        AgentCommand.fail(command,
+        AgentCommand.fail(
+          command,
           attrs ++ [failure_reason: Map.get(data, :failure_reason) || "command_failed"],
           actor: actor
         )

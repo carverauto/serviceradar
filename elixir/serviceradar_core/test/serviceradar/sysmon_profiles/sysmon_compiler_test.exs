@@ -185,6 +185,5 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["profile_name"] == "Production Monitoring"
       assert config["config_source"] == "remote"
     end
-
   end
 end

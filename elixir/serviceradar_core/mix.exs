@@ -93,6 +93,10 @@ defmodule ServiceRadarCore.MixProject do
       {:elixir_uuid, "~> 1.2"},
       {:file_system, "~> 1.0"},
       {:yaml_elixir, "~> 2.12"},
+      {:req, "~> 0.5"},
+      # Bundle CA certs for minimal containers (core-elx/web-ng releases) so HTTPS works.
+      {:castore, "~> 1.0"},
+      {:geolix_adapter_mmdb2, "~> 0.6.0"},
 
       # Policy SAT solver for Ash policies
       {:simple_sat, "~> 0.1"},

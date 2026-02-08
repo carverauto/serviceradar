@@ -26,7 +26,10 @@ defmodule ServiceRadar.Plugins.StorageToken do
         nil
 
       true ->
-        exp = DateTime.utc_now() |> DateTime.add(download_ttl_seconds(), :second) |> DateTime.to_unix()
+        exp =
+          DateTime.utc_now()
+          |> DateTime.add(download_ttl_seconds(), :second)
+          |> DateTime.to_unix()
 
         payload = %{
           "id" => package_id,
@@ -39,7 +42,8 @@ defmodule ServiceRadar.Plugins.StorageToken do
         signature = :crypto.mac(:hmac, :sha256, secret, payload_json)
 
         token =
-          Base.url_encode64(payload_json, padding: false) <> "." <>
+          Base.url_encode64(payload_json, padding: false) <>
+            "." <>
             Base.url_encode64(signature, padding: false)
 
         String.trim_trailing(base_url, "/") <>

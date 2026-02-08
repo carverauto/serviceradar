@@ -124,7 +124,9 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       %{}
     else
       # First lookup confirmed/updated aliases
-      alias_results = lookup_aliases_by_ip(unique_ips, Keyword.put(opts, :include_deleted, include_deleted))
+      alias_results =
+        lookup_aliases_by_ip(unique_ips, Keyword.put(opts, :include_deleted, include_deleted))
+
       remaining_ips = unique_ips -- Map.keys(alias_results)
 
       {cache_hits, cache_misses} = fetch_cache_hits(remaining_ips, use_cache)
@@ -141,8 +143,13 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       # If include_detected is true, check detected aliases for remaining IPs
       if include_detected do
         still_unknown = unique_ips -- Map.keys(primary_results)
+
         detected_results =
-          lookup_detected_aliases_by_ip(still_unknown, Keyword.put(opts, :include_deleted, include_deleted))
+          lookup_detected_aliases_by_ip(
+            still_unknown,
+            Keyword.put(opts, :include_deleted, include_deleted)
+          )
+
         Map.merge(primary_results, detected_results)
       else
         primary_results
@@ -392,7 +399,10 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     |> case do
       {:ok, [identifier | _]} ->
         Device
-        |> Ash.Query.for_read(:by_uid, %{uid: identifier.device_id, include_deleted: include_deleted})
+        |> Ash.Query.for_read(:by_uid, %{
+          uid: identifier.device_id,
+          include_deleted: include_deleted
+        })
         |> Ash.read_one(query_opts)
 
       {:ok, []} ->
@@ -474,9 +484,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp read_detected_alias_states(ips, partition, query_opts) do
     DeviceAliasState
-    |> Ash.Query.filter(
-      alias_type == :ip and alias_value in ^ips and state == :detected
-    )
+    |> Ash.Query.filter(alias_type == :ip and alias_value in ^ips and state == :detected)
     |> maybe_filter_alias_partition(partition)
     # Prefer aliases with more sightings (closer to confirmation)
     |> Ash.Query.sort(sighting_count: :desc, first_seen_at: :asc)

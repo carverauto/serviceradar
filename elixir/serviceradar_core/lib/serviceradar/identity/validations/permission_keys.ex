@@ -46,8 +46,7 @@ defmodule ServiceRadar.Identity.Validations.PermissionKeys do
       :ok
     else
       {:error,
-       field: :permissions,
-       message: "unknown permission keys: #{Enum.join(invalid, ", ")}"}
+       field: :permissions, message: "unknown permission keys: #{Enum.join(invalid, ", ")}"}
     end
   end
 end

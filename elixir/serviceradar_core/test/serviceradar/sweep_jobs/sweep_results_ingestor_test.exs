@@ -26,7 +26,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
         "10.0.0.1" => %{canonical_device_id: "device-1"}
       }
 
-      {records, stats} = SweepResultsIngestor.build_host_results(results, execution_id, device_map)
+      {records, stats} =
+        SweepResultsIngestor.build_host_results(results, execution_id, device_map)
 
       assert stats.hosts_total == 2
       assert stats.hosts_available == 1
@@ -49,7 +50,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
         %{
           "host_ip" => "10.0.0.1",
           "icmp_available" => true,
-          "icmp_response_time_ns" => 5_000_000  # 5ms in nanoseconds
+          # 5ms in nanoseconds
+          "icmp_response_time_ns" => 5_000_000
         }
       ]
 
@@ -65,7 +67,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
         %{
           "host_ip" => "10.0.0.1",
           "icmp_available" => true,
-          "icmpResponseTimeNs" => 8_000_000  # 8ms in nanoseconds
+          # 8ms in nanoseconds
+          "icmpResponseTimeNs" => 8_000_000
         }
       ]
 
@@ -82,7 +85,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
           "host_ip" => "10.0.0.1",
           "icmp_available" => true,
           # Go's time.Duration serializes to nanoseconds
-          "response_time" => 12_000_000  # 12ms in nanoseconds
+          # 12ms in nanoseconds
+          "response_time" => 12_000_000
         }
       ]
 

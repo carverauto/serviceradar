@@ -215,6 +215,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: [:operator, :admin]
         },
         %{
+          key: "settings.netflow.manage",
+          label: "Manage NetFlow settings",
+          description: "Manage NetFlow enrichment and directionality settings",
+          default_roles: [:operator, :admin]
+        },
+        %{
           key: "settings.integrations.manage",
           label: "Manage integrations",
           description: "Manage integration sources and sync configuration",
@@ -303,7 +309,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
   ]
 
   @system_profiles [
-    %{system_name: "admin", name: "Admin", description: "Full access to the platform", role: :admin},
+    %{
+      system_name: "admin",
+      name: "Admin",
+      description: "Full access to the platform",
+      role: :admin
+    },
     %{
       system_name: "operator",
       name: "Operator",

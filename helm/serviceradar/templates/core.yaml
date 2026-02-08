@@ -11,6 +11,7 @@
 {{- $migrationMarkerPath := default "/var/lib/serviceradar/migrations/complete" $migrationVals.markerPath -}}
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
 {{- $coreClusterSelector := default "app=serviceradar-core" $coreVals.kubernetesSelector -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
@@ -115,6 +116,10 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cloak-key
+        {{- if $geoipMmdb.enabled }}
+        - name: GEOLITE_MMDB_DIR
+          value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
         args:
         - |
           set -eu
@@ -128,6 +133,10 @@ spec:
           readOnly: true
         - name: migrations
           mountPath: /var/lib/serviceradar/migrations
+        {{- if $geoipMmdb.enabled }}
+        - name: geoip-mmdb
+          mountPath: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
       {{- end }}
       containers:
       - name: core-elx
@@ -293,6 +302,16 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cloak-key
+        {{- if $geoipMmdb.enabled }}
+        - name: GEOLITE_MMDB_DIR
+          value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
+        {{- with $coreVals.extraEnv }}
+        {{- range $name, $value := . }}
+        - name: {{ $name | quote }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
@@ -308,6 +327,10 @@ spec:
         - name: spire-bundle
           mountPath: /run/spire/bundle
           readOnly: true
+        {{- if $geoipMmdb.enabled }}
+        - name: geoip-mmdb
+          mountPath: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
         {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
@@ -355,6 +378,11 @@ spec:
       - name: spire-bundle
         configMap:
           name: {{ $spireBundle | quote }}
+      {{- if $geoipMmdb.enabled }}
+      - name: geoip-mmdb
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
+      {{- end }}
       {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
       - name: nats-creds
         secret:

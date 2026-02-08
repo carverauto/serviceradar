@@ -39,6 +39,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     case AgentCommand.create_command(command_attrs, ash_opts) do
       {:ok, command} ->
         _ = AgentCommandCleanupWorker.ensure_scheduled()
+
         dispatch_created_command(command, %{
           agent_id: agent_id,
           command_type: command_type,
@@ -87,7 +88,12 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   defp dispatch_to_session(command, pid, metadata, command_request, ctx) do
-    case ensure_assignment(ctx.agent_id, metadata, ctx.required_partition, ctx.required_capability) do
+    case ensure_assignment(
+           ctx.agent_id,
+           metadata,
+           ctx.required_partition,
+           ctx.required_capability
+         ) do
       :ok ->
         send_command(command, pid, metadata, command_request, ctx)
 
@@ -99,6 +105,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp send_command(command, pid, metadata, command_request, ctx) do
     actual_partition = partition_from_metadata(metadata)
+
     command_context =
       build_command_context(ctx.context, command, actual_partition, ctx.created_at)
 
@@ -154,7 +161,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   def run_sweep_group(group, opts \\ []) do
     payload = %{sweep_group_id: group.id}
-    opts = add_context(opts, %{sweep_group_id: group.id, partition_id: group.partition || "default"})
+
+    opts =
+      add_context(opts, %{sweep_group_id: group.id, partition_id: group.partition || "default"})
 
     dispatch_for_assignment(
       group.partition || "default",
@@ -186,7 +195,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     |> Enum.filter(fn session -> capability == nil or capability in session.capabilities end)
     |> Enum.each(fn %{agent_id: agent_id} ->
       case push_config(agent_id) do
-        :ok -> :ok
+        :ok ->
+          :ok
+
         {:error, reason} ->
           Logger.debug("Failed to push config to #{agent_id}: #{inspect(reason)}")
       end
@@ -359,7 +370,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     context = opts |> Keyword.get(:context, %{}) |> normalize_context()
 
     opts
-    |> Keyword.get(:partition_id,
+    |> Keyword.get(
+      :partition_id,
       Map.get(context, :partition_id) || Map.get(context, "partition_id") || required_partition
     )
     |> normalize_partition()
@@ -406,7 +418,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   defp mark_failed(command, reason, ash_opts) do
-    AgentCommand.fail(command,
+    AgentCommand.fail(
+      command,
       [
         message: failure_message(reason),
         failure_reason: failure_reason(reason)
@@ -416,7 +429,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   defp mark_offline(command, reason, ash_opts) do
-    AgentCommand.mark_offline(command,
+    AgentCommand.mark_offline(
+      command,
       [
         message: failure_message(reason),
         failure_reason: failure_reason(reason)

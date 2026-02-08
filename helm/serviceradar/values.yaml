@@ -71,6 +71,8 @@ core:
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
   logPromotionConsumerEnabled: true
+  # Extra environment variables for the core-elx pod.
+  extraEnv: {}
   database:
     poolSize: 40
     queueTargetMs: 2000
@@ -163,12 +165,33 @@ cnpg:
   clientCASecret: ""
   clientCAFromCerts: false
   requireClientCert: false
+
+# Shared storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.
+# This must be mounted wherever enrichment jobs run (core) and anywhere that
+# might need local lookups (web-ng). Enrichment should never do external API calls
+# at query time.
+geoipMmdb:
+  enabled: true
+  basePath: "/var/lib/serviceradar/geoip"
+  existingClaim: ""
+  size: 1Gi
+  storageClassName: ""
 webNg:
   host: ""
   publicUrl: ""
   checkOrigin: "false"
   devRoutes: "false"
   localMailer: "false"
+  # Extra environment variables for the web-ng pod.
+  extraEnv: {}
+  # Resource requests/limits for web-ng.
+  resources:
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
   gatewayAddress: ""
   natsUrl: ""
   coreAddress: ""

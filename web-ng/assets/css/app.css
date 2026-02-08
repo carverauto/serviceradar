@@ -15,6 +15,9 @@
    Make sure to look at the daisyUI changelog: https://daisyui.com/docs/changelog/ */
 @plugin "../vendor/daisyui";
 
+/* Mapbox GL JS styles (used for netflow flow details map). */
+@import "../node_modules/mapbox-gl/dist/mapbox-gl.css";
+
 /* Custom themes defined as CSS variables - compatible with Tailwind v4 and daisyUI */
 :root, [data-theme="light"] {
   color-scheme: light;

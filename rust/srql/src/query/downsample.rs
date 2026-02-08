@@ -56,9 +56,10 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
         Entity::MemoryMetrics => ("memory_metrics", "timestamp", None),
         Entity::DiskMetrics => ("disk_metrics", "timestamp", None),
         Entity::ProcessMetrics => ("process_metrics", "timestamp", None),
+        Entity::Flows => ("ocsf_network_activity", "time", None),
         _ => {
             return Err(ServiceError::InvalidRequest(
-                "downsample is only supported for metric entities".into(),
+                "downsample is only supported for metric entities and flows".into(),
             ))
         }
     };
@@ -229,8 +230,17 @@ fn resolve_value_column(entity: Entity, value_field: Option<&str>) -> Result<&'s
                 "unsupported value_field '{other}' for process_metrics"
             ))),
         },
+        Entity::Flows => match field {
+            None | Some("bytes_total") => Ok("bytes_total"),
+            Some("packets_total") => Ok("packets_total"),
+            Some("bytes_in") => Ok("bytes_in"),
+            Some("bytes_out") => Ok("bytes_out"),
+            Some(other) => Err(ServiceError::InvalidRequest(format!(
+                "unsupported value_field '{other}' for flows (supported: bytes_total|packets_total|bytes_in|bytes_out)"
+            ))),
+        },
         _ => Err(ServiceError::InvalidRequest(
-            "downsample is only supported for metric entities".into(),
+            "downsample is only supported for metric entities and flows".into(),
         )),
     }
 }
@@ -320,9 +330,23 @@ fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 )))
             }
         },
+        Entity::Flows => match series.as_str() {
+            "src_endpoint_ip" | "src_ip" => "src_endpoint_ip".to_string(),
+            "dst_endpoint_ip" | "dst_ip" => "dst_endpoint_ip".to_string(),
+            "protocol_name" => "protocol_name".to_string(),
+            "protocol_num" | "proto" => "protocol_num::text".to_string(),
+            "dst_endpoint_port" | "dst_port" => "dst_endpoint_port::text".to_string(),
+            "src_endpoint_port" | "src_port" => "src_endpoint_port::text".to_string(),
+            "sampler_address" => "sampler_address".to_string(),
+            other => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "unsupported series field '{other}' for {table}"
+                )))
+            }
+        },
         _ => {
             return Err(ServiceError::InvalidRequest(
-                "downsample is only supported for metric entities".into(),
+                "downsample is only supported for metric entities and flows".into(),
             ))
         }
     };
@@ -360,9 +384,25 @@ fn filter_clause(
         Entity::MemoryMetrics => memory_filter_clause(filter),
         Entity::DiskMetrics => disk_filter_clause(filter),
         Entity::ProcessMetrics => process_filter_clause(filter),
+        Entity::Flows => flows_filter_clause(filter),
         _ => Err(ServiceError::InvalidRequest(
-            "downsample is only supported for metric entities".into(),
+            "downsample is only supported for metric entities and flows".into(),
         )),
+    }
+}
+
+fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    match filter.field.as_str() {
+        "src_endpoint_ip" | "src_ip" => text_clause("src_endpoint_ip", filter),
+        "dst_endpoint_ip" | "dst_ip" => text_clause("dst_endpoint_ip", filter),
+        "protocol_name" => text_clause("protocol_name", filter),
+        "sampler_address" => text_clause("sampler_address", filter),
+        "protocol_num" | "proto" => int_clause("protocol_num", filter, false),
+        "src_endpoint_port" | "src_port" => int_clause("src_endpoint_port", filter, false),
+        "dst_endpoint_port" | "dst_port" => int_clause("dst_endpoint_port", filter, false),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for downsample flows: '{other}'"
+        ))),
     }
 }
 

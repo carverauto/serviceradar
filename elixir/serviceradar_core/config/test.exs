@@ -192,10 +192,11 @@ repo_config =
     ]
   end
 
-config :serviceradar_core, ServiceRadar.Repo,
-  repo_config
-  |> Keyword.put(:parameters, [search_path: search_path])
-  |> Keyword.put(:types, ServiceRadar.PostgresTypes)
+config :serviceradar_core,
+       ServiceRadar.Repo,
+       repo_config
+       |> Keyword.put(:parameters, search_path: search_path)
+       |> Keyword.put(:types, ServiceRadar.PostgresTypes)
 
 # Disable cluster in tests by default
 config :serviceradar_core,

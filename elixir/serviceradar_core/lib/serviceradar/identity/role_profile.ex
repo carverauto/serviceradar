@@ -17,7 +17,7 @@ defmodule ServiceRadar.Identity.RoleProfile do
     table "role_profiles"
     repo ServiceRadar.Repo
     schema "platform"
-    identity_wheres_to_sql [unique_system_name: "system_name IS NOT NULL"]
+    identity_wheres_to_sql unique_system_name: "system_name IS NOT NULL"
   end
 
   code_interface do
@@ -73,11 +73,13 @@ defmodule ServiceRadar.Identity.RoleProfile do
     end
 
     policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.rbac.manage"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.rbac.manage"}
     end
 
     policy action([:create, :create_system, :update, :destroy]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.rbac.manage"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.rbac.manage"}
     end
   end
 
