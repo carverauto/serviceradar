@@ -65,6 +65,84 @@ pub(super) const FLOW_DIRECTION_EXPR: &str = r#"
 pub(super) const FLOW_PROTOCOL_GROUP_EXPR: &str =
     "CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END";
 
+// Exporter/interface metadata projections for SRQL.
+//
+// These expressions are deliberately written without a table alias so they work in:
+// - row queries (Diesel query builder)
+// - stats queries (raw SQL with alias `f`)
+// - downsample queries (raw SQL without alias)
+//
+// NOTE: cache tables live under `platform`, but SRQL assumes `search_path=platform,...`.
+pub(super) const FLOW_EXPORTER_NAME_EXPR: &str = r#"
+(SELECT ec.exporter_name
+ FROM netflow_exporter_cache ec
+ WHERE ec.sampler_address = sampler_address
+ LIMIT 1)
+"#;
+
+pub(super) const FLOW_IN_IF_NAME_EXPR: &str = r#"
+(SELECT ic.if_name
+ FROM netflow_interface_cache ic
+ WHERE ic.sampler_address = sampler_address
+   AND ic.if_index = (CASE
+     WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$'
+     THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int
+     ELSE NULL
+   END)
+ LIMIT 1)
+"#;
+
+pub(super) const FLOW_OUT_IF_NAME_EXPR: &str = r#"
+(SELECT ic.if_name
+ FROM netflow_interface_cache ic
+ WHERE ic.sampler_address = sampler_address
+   AND ic.if_index = (CASE
+     WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$'
+     THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int
+     ELSE NULL
+   END)
+ LIMIT 1)
+"#;
+
+pub(super) const FLOW_IN_IF_SPEED_BPS_EXPR: &str = r#"
+(SELECT ic.if_speed_bps
+ FROM netflow_interface_cache ic
+ WHERE ic.sampler_address = sampler_address
+   AND ic.if_index = (CASE
+     WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$'
+     THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int
+     ELSE NULL
+   END)
+ LIMIT 1)
+"#;
+
+pub(super) const FLOW_OUT_IF_SPEED_BPS_EXPR: &str = r#"
+(SELECT ic.if_speed_bps
+ FROM netflow_interface_cache ic
+ WHERE ic.sampler_address = sampler_address
+   AND ic.if_index = (CASE
+     WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$'
+     THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int
+     ELSE NULL
+   END)
+ LIMIT 1)
+"#;
+
+pub(super) const FLOW_EXPORTER_NAME_GROUP_EXPR: &str =
+    "COALESCE((SELECT ec.exporter_name FROM netflow_exporter_cache ec WHERE ec.sampler_address = sampler_address LIMIT 1), 'Unknown')";
+
+pub(super) const FLOW_IN_IF_NAME_GROUP_EXPR: &str =
+    "COALESCE((SELECT ic.if_name FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+
+pub(super) const FLOW_OUT_IF_NAME_GROUP_EXPR: &str =
+    "COALESCE((SELECT ic.if_name FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+
+pub(super) const FLOW_IN_IF_SPEED_BPS_GROUP_EXPR: &str =
+    "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+
+pub(super) const FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR: &str =
+    "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+
 // Application classification for flows.
 //
 // This is a derived label used by SRQL (`app:` filter, `by app` group-by, and downsample series).
@@ -255,6 +333,26 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
         }
         "sampler_address" => {
             query = apply_text_filter!(query, filter, sampler_address)?;
+        }
+        "exporter_name" => {
+            let expr = sql::<Text>(FLOW_EXPORTER_NAME_GROUP_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "in_if_name" => {
+            let expr = sql::<Text>(FLOW_IN_IF_NAME_GROUP_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "out_if_name" => {
+            let expr = sql::<Text>(FLOW_OUT_IF_NAME_GROUP_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "in_if_speed_bps" => {
+            let expr = sql::<Text>(FLOW_IN_IF_SPEED_BPS_GROUP_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "out_if_speed_bps" => {
+            let expr = sql::<Text>(FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
         }
         "protocol_num" | "proto" => {
             let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
@@ -578,7 +676,10 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
         "src_endpoint_ip" | "src_ip" | "dst_endpoint_ip" | "dst_ip" | "protocol_name"
-        | "sampler_address" | "direction" => collect_text_params(params, filter),
+        | "sampler_address" | "direction" | "exporter_name" | "in_if_name" | "out_if_name"
+        | "in_if_speed_bps" | "out_if_speed_bps" => {
+            collect_text_params(params, filter)
+        }
         // These filters are implemented using inline SQL literals in `apply_filter` (no binds),
         // so we must not collect bind params for them or we'll shift LIMIT/OFFSET binds.
         "src_country_iso2" | "src_country" | "dst_country_iso2" | "dst_country" => Ok(()),
@@ -781,6 +882,11 @@ enum FlowGroupField {
     ProtocolName,
     ProtocolGroup,
     SamplerAddress,
+    ExporterName,
+    InIfName,
+    OutIfName,
+    InIfSpeedBps,
+    OutIfSpeedBps,
     Direction,
     App,
     SrcCountryIso2,
@@ -798,6 +904,11 @@ impl FlowGroupField {
             "protocol_name" => Some(Self::ProtocolName),
             "protocol_group" | "proto_group" => Some(Self::ProtocolGroup),
             "sampler_address" => Some(Self::SamplerAddress),
+            "exporter_name" => Some(Self::ExporterName),
+            "in_if_name" => Some(Self::InIfName),
+            "out_if_name" => Some(Self::OutIfName),
+            "in_if_speed_bps" => Some(Self::InIfSpeedBps),
+            "out_if_speed_bps" => Some(Self::OutIfSpeedBps),
             "direction" => Some(Self::Direction),
             "app" => Some(Self::App),
             "src_country_iso2" | "src_country" => Some(Self::SrcCountryIso2),
@@ -816,6 +927,11 @@ impl FlowGroupField {
             Self::ProtocolName => "protocol_name",
             Self::ProtocolGroup => "protocol_group",
             Self::SamplerAddress => "sampler_address",
+            Self::ExporterName => "exporter_name",
+            Self::InIfName => "in_if_name",
+            Self::OutIfName => "out_if_name",
+            Self::InIfSpeedBps => "in_if_speed_bps",
+            Self::OutIfSpeedBps => "out_if_speed_bps",
             Self::Direction => "direction",
             Self::App => "app",
             Self::SrcCountryIso2 => "src_country_iso2",
@@ -833,6 +949,11 @@ impl FlowGroupField {
             Self::ProtocolName => "protocol_name",
             Self::ProtocolGroup => FLOW_PROTOCOL_GROUP_EXPR,
             Self::SamplerAddress => "sampler_address",
+            Self::ExporterName => FLOW_EXPORTER_NAME_GROUP_EXPR,
+            Self::InIfName => FLOW_IN_IF_NAME_GROUP_EXPR,
+            Self::OutIfName => FLOW_OUT_IF_NAME_GROUP_EXPR,
+            Self::InIfSpeedBps => FLOW_IN_IF_SPEED_BPS_GROUP_EXPR,
+            Self::OutIfSpeedBps => FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR,
             Self::Direction => FLOW_DIRECTION_EXPR,
             Self::App => FLOW_APP_EXPR,
             Self::SrcCountryIso2 => "COALESCE(src_geo.country_iso2, 'Unknown')",
@@ -1420,6 +1541,15 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
         "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("f.dst_endpoint_ip", filter, binds),
         "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
         "sampler_address" => build_stats_text_filter("f.sampler_address", filter, binds),
+        "exporter_name" => build_stats_text_filter(FLOW_EXPORTER_NAME_GROUP_EXPR, filter, binds),
+        "in_if_name" => build_stats_text_filter(FLOW_IN_IF_NAME_GROUP_EXPR, filter, binds),
+        "out_if_name" => build_stats_text_filter(FLOW_OUT_IF_NAME_GROUP_EXPR, filter, binds),
+        "in_if_speed_bps" => {
+            build_stats_text_filter(FLOW_IN_IF_SPEED_BPS_GROUP_EXPR, filter, binds)
+        }
+        "out_if_speed_bps" => {
+            build_stats_text_filter(FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR, filter, binds)
+        }
         "protocol_group" | "proto_group" => {
             build_stats_text_filter(FLOW_PROTOCOL_GROUP_EXPR, filter, binds)
         }
@@ -1600,6 +1730,79 @@ mod tests {
         assert_eq!(spec.group_by.len(), 1);
         assert_eq!(spec.group_by[0], FlowGroupSpec::Field(FlowGroupField::App));
         assert_eq!(spec.group_by[0].response_key(), "app");
+    }
+
+    #[test]
+    fn parse_stats_expr_supports_exporter_and_interface_group_by() {
+        let expr = "count(*) as total_flows by exporter_name, in_if_name, out_if_name";
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.group_by.len(), 3);
+        assert_eq!(
+            spec.group_by[0],
+            FlowGroupSpec::Field(FlowGroupField::ExporterName)
+        );
+        assert_eq!(
+            spec.group_by[1],
+            FlowGroupSpec::Field(FlowGroupField::InIfName)
+        );
+        assert_eq!(
+            spec.group_by[2],
+            FlowGroupSpec::Field(FlowGroupField::OutIfName)
+        );
+    }
+
+    #[test]
+    fn translate_grouped_stats_exporter_name_includes_cache_table() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "count(*) as total_flows by exporter_name",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+        assert!(
+            sql.contains("netflow_exporter_cache"),
+            "expected exporter cache in SQL, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn translate_grouped_stats_in_if_name_includes_cache_table() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "count(*) as total_flows by in_if_name",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+        assert!(
+            sql.contains("netflow_interface_cache"),
+            "expected interface cache in SQL, got: {sql}"
+        );
     }
 
     #[test]

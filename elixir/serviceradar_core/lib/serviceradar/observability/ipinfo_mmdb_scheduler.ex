@@ -6,6 +6,8 @@ defmodule ServiceRadar.Observability.IpinfoMmdbScheduler do
   use GenServer
 
   alias ServiceRadar.Observability.IpinfoMmdbDownloadWorker
+  alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
 
@@ -15,11 +17,42 @@ defmodule ServiceRadar.Observability.IpinfoMmdbScheduler do
 
   @impl GenServer
   def init(state) do
-    case IpinfoMmdbDownloadWorker.ensure_scheduled() do
-      {:ok, _} -> :ok
-      {:error, reason} -> Logger.debug("Ipinfo MMDB scheduling skipped", reason: reason)
-    end
-
+    send(self(), :ensure_jobs)
     {:ok, state}
+  end
+
+  @impl GenServer
+  def handle_info(:ensure_jobs, state) do
+    ensure_jobs()
+    Process.send_after(self(), :ensure_jobs, 60_000)
+    {:noreply, state}
+  end
+
+  defp ensure_jobs do
+    if not oban_jobs_ready?() do
+      Logger.debug("Ipinfo MMDB scheduling skipped; Oban tables not ready")
+      :ok
+    else
+      case IpinfoMmdbDownloadWorker.ensure_scheduled() do
+        {:ok, _} -> :ok
+        {:error, reason} -> Logger.debug("Ipinfo MMDB scheduling skipped", reason: reason)
+      end
+    end
+  end
+
+  defp oban_jobs_ready? do
+    if ObanSupport.available?() do
+      prefix = ObanSupport.prefix()
+
+      case Ecto.Adapters.SQL.query(Repo, "SELECT to_regclass($1)", ["#{prefix}.oban_jobs"]) do
+        {:ok, %{rows: [[nil]]}} -> false
+        {:ok, _} -> true
+        {:error, _} -> false
+      end
+    else
+      false
+    end
+  rescue
+    _ -> false
   end
 end

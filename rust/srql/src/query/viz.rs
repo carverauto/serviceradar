@@ -680,6 +680,11 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 col("bytes_in", ColumnType::Int, Some(ColumnSemantic::Value)),
                 col("bytes_out", ColumnType::Int, Some(ColumnSemantic::Value)),
                 col("sampler_address", ColumnType::Text, None),
+                col("exporter_name", ColumnType::Text, None),
+                col("in_if_name", ColumnType::Text, None),
+                col("out_if_name", ColumnType::Text, None),
+                col("in_if_speed_bps", ColumnType::Int, None),
+                col("out_if_speed_bps", ColumnType::Int, None),
                 col("ocsf_payload", ColumnType::Jsonb, None),
             ],
             suggestions: vec![

@@ -13,6 +13,9 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
     dst_ip
     protocol_name
     sampler_address
+    exporter_name
+    in_if_name
+    out_if_name
   )
 
   def flows_base_query(query, fallback_time) when is_binary(query) and is_binary(fallback_time) do
@@ -102,6 +105,9 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
   def downsample_series_field_from_dim("dst_ip"), do: "dst_ip"
   def downsample_series_field_from_dim("protocol_name"), do: "protocol_name"
   def downsample_series_field_from_dim("sampler_address"), do: "sampler_address"
+  def downsample_series_field_from_dim("exporter_name"), do: "exporter_name"
+  def downsample_series_field_from_dim("in_if_name"), do: "in_if_name"
+  def downsample_series_field_from_dim("out_if_name"), do: "out_if_name"
   def downsample_series_field_from_dim("app"), do: "app"
   def downsample_series_field_from_dim("protocol_group"), do: "protocol_group"
   def downsample_series_field_from_dim(_), do: "protocol_group"

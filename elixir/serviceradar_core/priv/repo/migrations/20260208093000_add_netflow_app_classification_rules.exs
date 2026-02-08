@@ -29,33 +29,49 @@ defmodule ServiceRadar.Repo.Migrations.AddNetflowAppClassificationRules do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create index(:netflow_app_classification_rules, [:enabled], prefix: "platform")
+    create index(:netflow_app_classification_rules, [:enabled],
+             prefix: "platform",
+             name: :nf_app_rules_enabled_idx
+           )
 
-    create index(:netflow_app_classification_rules, [:partition, :enabled], prefix: "platform")
+    create index(:netflow_app_classification_rules, [:partition, :enabled],
+             prefix: "platform",
+             name: :nf_app_rules_partition_enabled_idx
+           )
 
-    create index(:netflow_app_classification_rules, [:partition, :enabled, :protocol_num], prefix: "platform")
+    create index(:netflow_app_classification_rules, [:partition, :enabled, :protocol_num],
+             prefix: "platform",
+             name: :nf_app_rules_partition_enabled_proto_idx
+           )
 
-    create index(:netflow_app_classification_rules, [:partition, :enabled, :dst_port], prefix: "platform")
+    create index(:netflow_app_classification_rules, [:partition, :enabled, :dst_port],
+             prefix: "platform",
+             name: :nf_app_rules_partition_enabled_dstport_idx
+           )
 
-    create index(:netflow_app_classification_rules, [:partition, :enabled, :src_port], prefix: "platform")
+    create index(:netflow_app_classification_rules, [:partition, :enabled, :src_port],
+             prefix: "platform",
+             name: :nf_app_rules_partition_enabled_srcport_idx
+           )
 
     create index(
       :netflow_app_classification_rules,
       [:partition, :enabled, :protocol_num, :dst_port, :src_port, :priority],
-      prefix: "platform"
+      prefix: "platform",
+      name: :nf_app_rules_match_idx
     )
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_netflow_app_rules_dst_cidr_gist
       ON platform.netflow_app_classification_rules
-      USING gist (dst_cidr)
+      USING gist (dst_cidr inet_ops)
       WHERE dst_cidr IS NOT NULL
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_netflow_app_rules_src_cidr_gist
       ON platform.netflow_app_classification_rules
-      USING gist (src_cidr)
+      USING gist (src_cidr inet_ops)
       WHERE src_cidr IS NOT NULL
     """)
   end
@@ -64,16 +80,37 @@ defmodule ServiceRadar.Repo.Migrations.AddNetflowAppClassificationRules do
     execute("DROP INDEX IF EXISTS platform.idx_netflow_app_rules_src_cidr_gist")
     execute("DROP INDEX IF EXISTS platform.idx_netflow_app_rules_dst_cidr_gist")
 
-    drop_if_exists index(:netflow_app_classification_rules, [:partition, :enabled, :protocol_num, :dst_port, :src_port, :priority],
-                     prefix: "platform")
+    drop_if_exists index(:netflow_app_classification_rules,
+                     [:partition, :enabled, :protocol_num, :dst_port, :src_port, :priority],
+                     prefix: "platform",
+                     name: :nf_app_rules_match_idx
+                   )
 
-    drop_if_exists index(:netflow_app_classification_rules, [:partition, :enabled, :src_port], prefix: "platform")
-    drop_if_exists index(:netflow_app_classification_rules, [:partition, :enabled, :dst_port], prefix: "platform")
-    drop_if_exists index(:netflow_app_classification_rules, [:partition, :enabled, :protocol_num], prefix: "platform")
-    drop_if_exists index(:netflow_app_classification_rules, [:partition, :enabled], prefix: "platform")
-    drop_if_exists index(:netflow_app_classification_rules, [:enabled], prefix: "platform")
+    drop_if_exists index(:netflow_app_classification_rules, [:partition, :enabled, :src_port],
+                     prefix: "platform",
+                     name: :nf_app_rules_partition_enabled_srcport_idx
+                   )
+
+    drop_if_exists index(:netflow_app_classification_rules, [:partition, :enabled, :dst_port],
+                     prefix: "platform",
+                     name: :nf_app_rules_partition_enabled_dstport_idx
+                   )
+
+    drop_if_exists index(:netflow_app_classification_rules, [:partition, :enabled, :protocol_num],
+                     prefix: "platform",
+                     name: :nf_app_rules_partition_enabled_proto_idx
+                   )
+
+    drop_if_exists index(:netflow_app_classification_rules, [:partition, :enabled],
+                     prefix: "platform",
+                     name: :nf_app_rules_partition_enabled_idx
+                   )
+
+    drop_if_exists index(:netflow_app_classification_rules, [:enabled],
+                     prefix: "platform",
+                     name: :nf_app_rules_enabled_idx
+                   )
 
     drop table(:netflow_app_classification_rules, prefix: "platform")
   end
 end
-

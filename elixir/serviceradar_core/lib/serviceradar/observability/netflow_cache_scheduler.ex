@@ -1,11 +1,14 @@
-defmodule ServiceRadar.Observability.NetflowSecurityScheduler do
+defmodule ServiceRadar.Observability.NetflowCacheScheduler do
   @moduledoc """
-  Ensures optional NetFlow security intelligence jobs are scheduled when Oban is available.
+  Ensures NetFlow metadata cache refresh jobs are scheduled when Oban is available.
   """
 
   use GenServer
 
-  alias ServiceRadar.Observability.{NetflowSecurityRefreshWorker, ThreatIntelFeedRefreshWorker}
+  alias ServiceRadar.Observability.{
+    NetflowExporterCacheRefreshWorker,
+    NetflowInterfaceCacheRefreshWorker
+  }
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -17,26 +20,23 @@ defmodule ServiceRadar.Observability.NetflowSecurityScheduler do
 
   @impl GenServer
   def init(state) do
-    # Schedule immediately on startup, then periodically.
     send(self(), :schedule)
     {:ok, state}
   end
 
   @impl GenServer
   def handle_info(:schedule, state) do
-    ensure_scheduled(ThreatIntelFeedRefreshWorker)
-    ensure_scheduled(NetflowSecurityRefreshWorker)
+    ensure_scheduled(NetflowExporterCacheRefreshWorker)
+    ensure_scheduled(NetflowInterfaceCacheRefreshWorker)
 
-    # Re-check periodically; Oban may come up after app boot.
     Process.send_after(self(), :schedule, 60_000)
     {:noreply, state}
   end
 
   defp ensure_scheduled(worker) do
     if not oban_jobs_ready?() do
-      Logger.debug("NetFlow security scheduler skipped; Oban tables not ready",
-        worker: inspect(worker)
-      )
+      Logger.debug("NetFlow cache scheduler skipped; Oban tables not ready", worker: inspect(worker))
+      :ok
     else
       case worker.ensure_scheduled() do
         {:ok, :already_scheduled} ->
@@ -46,7 +46,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityScheduler do
           :ok
 
         {:error, reason} ->
-          Logger.debug("NetFlow security scheduler skipped",
+          Logger.debug("NetFlow cache scheduler skipped",
             worker: inspect(worker),
             reason: inspect(reason)
           )

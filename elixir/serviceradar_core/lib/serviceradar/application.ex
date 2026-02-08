@@ -149,6 +149,7 @@ defmodule ServiceRadar.Application do
         geolite_mmdb_scheduler_child(),
         ipinfo_mmdb_scheduler_child(),
         netflow_security_scheduler_child(),
+        netflow_cache_scheduler_child(),
 
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
@@ -258,6 +259,14 @@ defmodule ServiceRadar.Application do
   defp netflow_security_scheduler_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.Observability.NetflowSecurityScheduler
+    else
+      nil
+    end
+  end
+
+  defp netflow_cache_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Observability.NetflowCacheScheduler
     else
       nil
     end

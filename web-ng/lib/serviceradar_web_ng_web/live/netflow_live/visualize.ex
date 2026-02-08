@@ -18,6 +18,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {"Dest IP", "dst_ip"},
     {"Protocol (name)", "protocol_name"},
     {"Sampler address", "sampler_address"},
+    {"Exporter name", "exporter_name"},
+    {"In interface", "in_if_name"},
+    {"Out interface", "out_if_name"},
     {"Source CIDR (Sankey/stats)", "src_cidr"},
     {"Dest CIDR (Sankey/stats)", "dst_cidr"}
   ]
@@ -229,6 +232,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
                       <div class="text-[11px] text-base-content/60">
                         Time-series charts use the first selected dimension; Sankey uses up to the first 3.
+                        Exporter/interface dimensions may appear as
+                        <span class="font-mono">Unknown</span>
+                        until the NetFlow cache refresh job populates metadata.
                       </div>
                     </form>
 
