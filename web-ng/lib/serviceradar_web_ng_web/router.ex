@@ -367,6 +367,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/netflows", Settings.NetflowLive.Index, :index)
       live("/settings/netflows/new", Settings.NetflowLive.Index, :new)
       live("/settings/netflows/:id/edit", Settings.NetflowLive.Index, :edit)
+      live("/settings/netflows/app-rules/new", Settings.NetflowLive.Index, :new_app_rule)
+      live("/settings/netflows/app-rules/:id/edit", Settings.NetflowLive.Index, :edit_app_rule)
 
       # Integration sources configuration
       live("/settings/networks/integrations", Settings.IntegrationsLive.Index, :index)

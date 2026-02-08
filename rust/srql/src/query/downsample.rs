@@ -4,6 +4,7 @@ use crate::{
     parser::{DownsampleAgg, Entity, Filter, FilterOp},
     time::TimeRange,
 };
+use crate::query::flows::{FLOW_APP_EXPR, FLOW_PROTOCOL_GROUP_EXPR};
 use chrono::{DateTime, Utc};
 use diesel::deserialize::QueryableByName;
 use diesel::pg::Pg;
@@ -335,6 +336,8 @@ fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
             "dst_endpoint_ip" | "dst_ip" => "dst_endpoint_ip".to_string(),
             "protocol_name" => "protocol_name".to_string(),
             "protocol_num" | "proto" => "protocol_num::text".to_string(),
+            "protocol_group" | "proto_group" => format!("({})", FLOW_PROTOCOL_GROUP_EXPR),
+            "app" => format!("({})", FLOW_APP_EXPR),
             "dst_endpoint_port" | "dst_port" => "dst_endpoint_port::text".to_string(),
             "src_endpoint_port" | "src_port" => "src_endpoint_port::text".to_string(),
             "sampler_address" => "sampler_address".to_string(),
@@ -397,6 +400,8 @@ fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
         "dst_endpoint_ip" | "dst_ip" => text_clause("dst_endpoint_ip", filter),
         "protocol_name" => text_clause("protocol_name", filter),
         "sampler_address" => text_clause("sampler_address", filter),
+        "protocol_group" | "proto_group" => expr_text_clause(FLOW_PROTOCOL_GROUP_EXPR, filter),
+        "app" => expr_text_clause(FLOW_APP_EXPR, filter),
         "protocol_num" | "proto" => int_clause("protocol_num", filter, false),
         "src_endpoint_port" | "src_port" => int_clause("src_endpoint_port", filter, false),
         "dst_endpoint_port" | "dst_port" => int_clause("dst_endpoint_port", filter, false),
@@ -404,6 +409,10 @@ fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
             "unsupported filter field for downsample flows: '{other}'"
         ))),
     }
+}
+
+fn expr_text_clause(expr: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    text_clause(&format!("({expr})"), filter)
 }
 
 fn text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {

@@ -127,8 +127,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_ip",
         "src_port",
         "dst_port",
+        "protocol_group",
         "protocol_name",
         "protocol_num",
+        "direction",
+        "app",
         "sampler_address"
       ],
       downsample: false

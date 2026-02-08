@@ -699,9 +699,13 @@ const Hooks = {
 
       const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
 
+      const provided = (() => {
+        try { return JSON.parse(el.dataset.colors || "{}") } catch (_e) { return {} }
+      })()
+      const fallback = d3.schemeTableau10.concat(d3.schemeSet3).slice(0, Math.max(3, keys.length))
       const color = d3.scaleOrdinal()
         .domain(keys)
-        .range(d3.schemeTableau10.concat(d3.schemeSet3).slice(0, keys.length))
+        .range(keys.map((k, i) => provided?.[k] || fallback[i % fallback.length]))
 
       const area = d3.area()
         .x((d) => x(d.data.t))
@@ -716,6 +720,12 @@ const Hooks = {
         .attr("d", area)
         .attr("fill", (d) => color(d.key))
         .attr("fill-opacity", 0.55)
+        .attr("cursor", el.dataset.seriesField ? "pointer" : "default")
+        .on("click", (_event, d) => {
+          const field = el.dataset.seriesField || ""
+          if (!field) return
+          this.pushEvent("netflow_stack_series", { field, value: d.key })
+        })
 
       g.append("g")
         .attr("transform", `translate(0,${ih})`)

@@ -60,6 +60,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
      |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
      |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
+     |> assign(:netflow_protocol_activity, %{
+       bucket_seconds: 300,
+       keys: [],
+       points: [],
+       colors: %{}
+     })
+     |> assign(:netflow_app_activity, %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
+     |> assign(:netflow_frequent_talkers_packets, [])
+     |> assign(:netflow_frequent_talkers_bytes, [])
      |> assign(:netflow_rdns_map, %{})
      |> assign(:netflow_compact?, false)
      |> assign(:netflow_talker_cidr, nil)
@@ -128,6 +137,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
       |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
       |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
+      |> assign(:netflow_protocol_activity, %{
+        bucket_seconds: 300,
+        keys: [],
+        points: [],
+        colors: %{}
+      })
+      |> assign(:netflow_app_activity, %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
+      |> assign(:netflow_frequent_talkers_packets, [])
+      |> assign(:netflow_frequent_talkers_bytes, [])
       |> assign(:netflow_rdns_map, %{})
       |> assign(:netflow_compact?, netflow_compact?)
       |> assign(:netflow_talker_cidr, netflow_talker_cidr)
@@ -297,6 +315,36 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       )
 
     {:noreply, push_patch(socket, to: href)}
+  end
+
+  def handle_event("netflow_stack_series", %{"field" => field, "value" => value}, socket) do
+    field = to_string(field || "") |> String.trim()
+    value = to_string(value || "") |> String.trim()
+
+    if field in ["app", "protocol_group"] and value != "" do
+      base_path = socket.assigns.srql[:page_path] || "/observability"
+      query = socket.assigns.srql[:query] || ""
+      limit = socket.assigns.limit
+
+      href =
+        netflow_talker_cidr_patch(
+          base_path,
+          upsert_query_filter(query, field, value),
+          limit,
+          netflow_patch_opts(
+            Map.get(socket.assigns, :netflow_compact?, false),
+            Map.get(socket.assigns, :netflow_talker_cidr),
+            Map.get(socket.assigns, :netflow_compare_mode, "off"),
+            Map.get(socket.assigns, :netflow_geo_side, "dst"),
+            Map.get(socket.assigns, :netflow_sankey_prefix, 24),
+            Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
+          )
+        )
+
+      {:noreply, push_patch(socket, to: href)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("srql_submit", params, socket) do
@@ -629,11 +677,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             timeseries={@netflow_timeseries}
             timeseries_compare={@netflow_timeseries_compare}
             timeseries_stacked={@netflow_timeseries_stacked}
+            protocol_activity={@netflow_protocol_activity}
+            app_activity={@netflow_app_activity}
+            frequent_talkers_packets={@netflow_frequent_talkers_packets}
+            frequent_talkers_bytes={@netflow_frequent_talkers_bytes}
             geo_heatmap={@netflow_geo_heatmap}
             geo_side={@netflow_geo_side}
             compare_mode={@netflow_compare_mode}
             sankey_prefix={@netflow_sankey_prefix}
             sankey={@netflow_sankey}
+            netflow_sankey_edges_json={@netflow_sankey_edges_json}
             stack_mode={@netflow_stack_mode}
             base_path={Map.get(@srql, :page_path) || "/observability"}
             query={Map.get(@srql, :query, "")}
@@ -1027,6 +1080,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:timeseries, :map, required: true)
   attr(:timeseries_compare, :map, default: %{bucket_seconds: 300, points: []})
   attr(:timeseries_stacked, :map, default: %{bucket_seconds: 300, points: []})
+
+  attr(:protocol_activity, :map,
+    default: %{bucket_seconds: 300, keys: [], points: [], colors: %{}}
+  )
+
+  attr(:app_activity, :map, default: %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
+  attr(:frequent_talkers_packets, :list, default: [])
+  attr(:frequent_talkers_bytes, :list, default: [])
   attr(:compare_mode, :string, default: "off")
   attr(:geo_heatmap, :list, default: [])
   attr(:geo_side, :string, default: "dst")
@@ -1118,12 +1179,195 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             </div>
           </div>
           <.netflow_timeseries_stacked_area_chart
+            id="netflow-top-stacked"
             points={Map.get(@timeseries_stacked, :points, [])}
             keys={Map.get(@timeseries_stacked, :keys, [])}
             mode={@stack_mode}
           />
         </div>
       </.ui_panel>
+
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <.ui_panel class="p-0" body_class="p-0">
+          <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
+            <div class="text-xs uppercase tracking-wider text-base-content/50">
+              Activity By Protocol
+            </div>
+            <div class="text-xs text-base-content/60 font-mono">
+              bucket: {format_bucket(
+                Map.get(@protocol_activity, :bucket_seconds, @timeseries.bucket_seconds)
+              )}
+            </div>
+          </div>
+          <div class="p-3">
+            <.netflow_timeseries_stacked_area_chart
+              id="netflow-protocol-stacked"
+              points={Map.get(@protocol_activity, :points, [])}
+              keys={Map.get(@protocol_activity, :keys, [])}
+              colors={Map.get(@protocol_activity, :colors, %{})}
+              series_field="protocol_group"
+              mode="protocols"
+            />
+          </div>
+        </.ui_panel>
+
+        <.ui_panel class="p-0" body_class="p-0">
+          <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
+            <div class="text-xs uppercase tracking-wider text-base-content/50">
+              Activity By Application
+            </div>
+            <div class="text-xs text-base-content/60 font-mono">
+              top: {length(Map.get(@app_activity, :keys, []))}
+            </div>
+          </div>
+          <div class="p-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr,200px] lg:items-start">
+            <div>
+              <.netflow_timeseries_stacked_area_chart
+                id="netflow-app-stacked"
+                points={Map.get(@app_activity, :points, [])}
+                keys={Map.get(@app_activity, :keys, [])}
+                colors={Map.get(@app_activity, :colors, %{})}
+                series_field="app"
+                mode="apps"
+              />
+            </div>
+            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="text-xs uppercase tracking-wider text-base-content/50">Legend</div>
+              <div class="mt-2 space-y-2">
+                <%= for k <- Map.get(@app_activity, :keys, []) do %>
+                  <div class="flex items-center gap-2 text-xs">
+                    <span
+                      class="inline-block h-3 w-3 rounded"
+                      style={"background: #{Map.get(Map.get(@app_activity, :colors, %{}), k, "#999")}"}
+                    />
+                    <span class="truncate" title={k}>{k}</span>
+                  </div>
+                <% end %>
+                <%= if Enum.empty?(Map.get(@app_activity, :keys, [])) do %>
+                  <div class="text-xs text-base-content/60">No app series in this window.</div>
+                <% end %>
+              </div>
+              <div class="mt-3 text-xs text-base-content/60">
+                Tip: click a series to filter flows.
+              </div>
+            </div>
+          </div>
+        </.ui_panel>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <.ui_panel class="p-4">
+          <div class="text-xs uppercase tracking-wider text-base-content/50">
+            Frequent Talkers (Packet Count)
+          </div>
+          <div class="mt-3 overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Talker</th>
+                  <th class="text-right">Packets</th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for row <- @frequent_talkers_packets do %>
+                  <% ip = Map.get(row, :ip) %>
+                  <tr>
+                    <td class="font-mono text-xs">
+                      <.link
+                        :if={is_binary(ip) and String.trim(ip) != ""}
+                        patch={
+                          netflow_talker_cidr_patch(
+                            @base_path,
+                            upsert_query_filter(@query, "src_ip", ip),
+                            @limit,
+                            patch_opts
+                          )
+                        }
+                        class="link link-hover"
+                      >
+                        {ip}
+                      </.link>
+                      <span :if={not (is_binary(ip) and String.trim(ip) != "")}>—</span>
+                      <div
+                        :if={is_binary(ip) and Map.get(@rdns_map, ip)}
+                        class="text-[11px] text-base-content/60 truncate"
+                      >
+                        {Map.get(@rdns_map, ip)}
+                      </div>
+                    </td>
+                    <td class="text-right font-mono text-xs">
+                      {format_netflow_number(Map.get(row, :packets, 0))}
+                    </td>
+                  </tr>
+                <% end %>
+                <%= if Enum.empty?(@frequent_talkers_packets) do %>
+                  <tr>
+                    <td colspan="2" class="text-sm text-base-content/60">
+                      No talker samples in this window.
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        </.ui_panel>
+
+        <.ui_panel class="p-4">
+          <div class="text-xs uppercase tracking-wider text-base-content/50">
+            Frequent Talkers (Byte Volume)
+          </div>
+          <div class="mt-3 overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Talker</th>
+                  <th class="text-right">Bytes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for row <- @frequent_talkers_bytes do %>
+                  <% ip = Map.get(row, :ip) %>
+                  <tr>
+                    <td class="font-mono text-xs">
+                      <.link
+                        :if={is_binary(ip) and String.trim(ip) != ""}
+                        patch={
+                          netflow_talker_cidr_patch(
+                            @base_path,
+                            upsert_query_filter(@query, "src_ip", ip),
+                            @limit,
+                            patch_opts
+                          )
+                        }
+                        class="link link-hover"
+                      >
+                        {ip}
+                      </.link>
+                      <span :if={not (is_binary(ip) and String.trim(ip) != "")}>—</span>
+                      <div
+                        :if={is_binary(ip) and Map.get(@rdns_map, ip)}
+                        class="text-[11px] text-base-content/60 truncate"
+                      >
+                        {Map.get(@rdns_map, ip)}
+                      </div>
+                    </td>
+                    <td class="text-right font-mono text-xs">
+                      {format_netflow_bytes(Map.get(row, :bytes, 0))}
+                    </td>
+                  </tr>
+                <% end %>
+                <%= if Enum.empty?(@frequent_talkers_bytes) do %>
+                  <tr>
+                    <td colspan="2" class="text-sm text-base-content/60">
+                      No talker samples in this window.
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        </.ui_panel>
+      </div>
 
       <.ui_panel class="p-4">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -2024,9 +2268,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
+  attr(:id, :string, required: true)
   attr(:points, :list, default: [])
   attr(:keys, :list, default: [])
   attr(:mode, :string, default: @default_netflow_stack_mode)
+  attr(:series_field, :string, default: nil)
+  attr(:colors, :map, default: %{})
 
   defp netflow_timeseries_stacked_area_chart(assigns) do
     points = Enum.filter(assigns.points, &is_map/1)
@@ -2043,11 +2290,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     <div :if={@points != [] and @keys != []} class="w-full">
       <div
-        id="netflow-stacked-area-chart"
+        id={@id}
         class="w-full h-56"
         phx-hook="NetflowStackedAreaChart"
         data-keys={Jason.encode!(@keys)}
         data-points={Jason.encode!(@points)}
+        data-series-field={@series_field || ""}
+        data-colors={Jason.encode!(@colors || %{})}
       >
         <svg class="w-full h-full" role="img" aria-label={"NetFlow #{@mode} over time"}></svg>
       </div>
@@ -5384,6 +5633,38 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
       )
 
+    protocol_activity =
+      load_netflow_protocol_activity(
+        srql_module,
+        Map.get(socket.assigns.srql, :query),
+        scope,
+        Map.get(timeseries, :bucket_seconds, 300),
+        Map.get(timeseries, :points, [])
+      )
+
+    app_activity =
+      load_netflow_app_activity(
+        srql_module,
+        Map.get(socket.assigns.srql, :query),
+        scope,
+        Map.get(timeseries, :bucket_seconds, 300),
+        Map.get(timeseries, :points, [])
+      )
+
+    frequent_talkers_packets =
+      load_netflow_frequent_talkers_packets(
+        srql_module,
+        Map.get(socket.assigns.srql, :query),
+        scope
+      )
+
+    frequent_talkers_bytes =
+      load_netflow_frequent_talkers_bytes(
+        srql_module,
+        Map.get(socket.assigns.srql, :query),
+        scope
+      )
+
     geo_side = Map.get(socket.assigns, :netflow_geo_side, "dst")
 
     geo_heatmap =
@@ -5419,6 +5700,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:netflow_timeseries, timeseries)
     |> assign(:netflow_timeseries_compare, timeseries_compare)
     |> assign(:netflow_timeseries_stacked, timeseries_stacked)
+    |> assign(:netflow_protocol_activity, protocol_activity)
+    |> assign(:netflow_app_activity, app_activity)
+    |> assign(:netflow_frequent_talkers_packets, frequent_talkers_packets)
+    |> assign(:netflow_frequent_talkers_bytes, frequent_talkers_bytes)
     |> assign(:netflow_geo_heatmap, geo_heatmap)
     |> assign(:netflow_sankey, sankey)
     |> assign(:netflow_sankey_edges_json, sankey_edges_json)
@@ -5945,6 +6230,268 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
          _mode
        ),
        do: %{bucket_seconds: bucket_seconds, keys: [], points: []}
+
+  defp load_netflow_protocol_activity(
+         srql_module,
+         current_query,
+         scope,
+         bucket_seconds,
+         total_points
+       )
+       when is_integer(bucket_seconds) and is_list(total_points) do
+    keys = ["tcp", "udp", "other"]
+
+    colors =
+      netflow_series_colors(keys, [
+        "#4e79a7",
+        "#59a14f",
+        "#bab0ac"
+      ])
+
+    series_maps =
+      load_netflow_timeseries_series_maps(
+        srql_module,
+        current_query,
+        scope,
+        bucket_seconds,
+        total_points,
+        "protocol_group",
+        keys
+      )
+
+    %{bucket_seconds: bucket_seconds, keys: keys, points: series_maps.points, colors: colors}
+  rescue
+    _ ->
+      %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
+  end
+
+  defp load_netflow_protocol_activity(
+         _srql_module,
+         _current_query,
+         _scope,
+         bucket_seconds,
+         _points
+       ),
+       do: %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
+
+  defp load_netflow_app_activity(srql_module, current_query, scope, bucket_seconds, total_points)
+       when is_integer(bucket_seconds) and is_list(total_points) do
+    base_query =
+      current_query
+      |> netflow_base_query()
+      |> sanitize_srql_for_stats()
+
+    # Find top apps by bytes for this window, then downsample only those.
+    keys =
+      srql_module
+      |> apply(:query, [
+        ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by app" sort:total_bytes:desc limit:8|,
+        %{scope: scope}
+      ])
+      |> extract_stats_rows()
+      |> Enum.map(&Map.get(&1, "app"))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 in ["", "unknown", "Unknown", "—", "-"]))
+      |> Enum.uniq()
+      |> Enum.take(8)
+
+    colors = netflow_series_colors(keys, netflow_default_palette())
+
+    series_maps =
+      load_netflow_timeseries_series_maps(
+        srql_module,
+        current_query,
+        scope,
+        bucket_seconds,
+        total_points,
+        "app",
+        keys
+      )
+
+    %{bucket_seconds: bucket_seconds, keys: keys, points: series_maps.points, colors: colors}
+  rescue
+    _ ->
+      %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
+  end
+
+  defp load_netflow_app_activity(_srql_module, _current_query, _scope, bucket_seconds, _points),
+    do: %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
+
+  defp load_netflow_frequent_talkers_packets(srql_module, current_query, scope, limit \\ 10) do
+    base_query =
+      current_query
+      |> netflow_base_query()
+      |> sanitize_srql_for_stats()
+
+    query =
+      ~s|#{base_query} stats:"sum(packets_total) as total_packets by src_endpoint_ip" sort:total_packets:desc limit:#{limit}|
+
+    srql_module
+    |> apply(:query, [query, %{scope: scope}])
+    |> extract_stats_rows()
+    |> Enum.map(fn row ->
+      %{
+        ip: Map.get(row, "src_endpoint_ip"),
+        packets: to_int(Map.get(row, "total_packets"))
+      }
+    end)
+    |> Enum.reject(fn row -> not (is_binary(row.ip) and String.trim(row.ip) != "") end)
+  rescue
+    _ ->
+      []
+  end
+
+  defp load_netflow_frequent_talkers_bytes(srql_module, current_query, scope, limit \\ 10) do
+    base_query =
+      current_query
+      |> netflow_base_query()
+      |> sanitize_srql_for_stats()
+
+    query =
+      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" sort:total_bytes:desc limit:#{limit}|
+
+    srql_module
+    |> apply(:query, [query, %{scope: scope}])
+    |> extract_stats_rows()
+    |> Enum.map(fn row ->
+      %{
+        ip: Map.get(row, "src_endpoint_ip"),
+        bytes: to_int(Map.get(row, "total_bytes"))
+      }
+    end)
+    |> Enum.reject(fn row -> not (is_binary(row.ip) and String.trim(row.ip) != "") end)
+  rescue
+    _ ->
+      []
+  end
+
+  defp load_netflow_timeseries_series_maps(
+         srql_module,
+         current_query,
+         scope,
+         bucket_seconds,
+         total_points,
+         series_field,
+         keys
+       )
+       when is_integer(bucket_seconds) and is_list(total_points) and is_binary(series_field) do
+    base_query =
+      current_query
+      |> netflow_base_query()
+      |> sanitize_srql_for_stats()
+
+    bucket = bucket_seconds_to_srql(bucket_seconds)
+
+    query =
+      base_query
+      |> maybe_limit_series(series_field, keys)
+      |> then(fn q ->
+        ~s|#{q} bucket:#{bucket} agg:sum value_field:bytes_total series:#{series_field} limit:2000|
+      end)
+
+    rows =
+      case srql_module.query(query, %{scope: scope}) do
+        {:ok, %{"results" => results}} when is_list(results) -> results
+        _ -> []
+      end
+
+    series_maps =
+      Enum.reduce(rows, %{}, fn
+        %{"timestamp" => ts, "series" => series, "value" => value}, acc ->
+          with {:ok, dt} <- parse_srql_datetime(ts),
+               series when is_binary(series) <- series,
+               bytes when is_number(bytes) <- to_number(value) do
+            put_netflow_series_value(acc, series, dt, bytes)
+          else
+            _ -> acc
+          end
+
+        _row, acc ->
+          acc
+      end)
+
+    keys =
+      keys
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 in ["", "unknown", "Unknown", "—", "-"]))
+      |> Enum.uniq()
+
+    points =
+      total_points
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn p ->
+        start_dt = Map.get(p, :bucket_start)
+
+        keys
+        |> Enum.reduce(%{"t" => DateTime.to_iso8601(start_dt)}, fn k, acc ->
+          bytes = to_int(Map.get(Map.get(series_maps, k, %{}), start_dt, 0))
+          Map.put(acc, k, bytes)
+        end)
+      end)
+      |> Enum.take(120)
+
+    %{points: points, series_maps: series_maps}
+  rescue
+    _ ->
+      %{points: [], series_maps: %{}}
+  end
+
+  defp put_netflow_series_value(acc, series, dt, bytes)
+       when is_map(acc) and is_binary(series) do
+    series = String.trim(series)
+
+    if series == "" do
+      acc
+    else
+      Map.update(acc, series, %{dt => bytes}, fn m ->
+        Map.update(m, dt, bytes, &(&1 + bytes))
+      end)
+    end
+  end
+
+  defp put_netflow_series_value(acc, _series, _dt, _bytes), do: acc
+
+  defp maybe_limit_series(query, _series_field, keys) when not is_list(keys), do: query
+
+  defp maybe_limit_series(query, series_field, keys)
+       when is_binary(query) and is_binary(series_field) do
+    values =
+      keys
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 in ["", "unknown", "Unknown", "—", "-"]))
+      |> Enum.uniq()
+      |> Enum.take(20)
+
+    if values == [] do
+      query
+    else
+      upsert_query_filter(query, series_field, "(" <> Enum.join(values, ",") <> ")")
+    end
+  end
+
+  defp netflow_default_palette do
+    [
+      "#4e79a7",
+      "#f28e2b",
+      "#e15759",
+      "#76b7b2",
+      "#59a14f",
+      "#edc948",
+      "#b07aa1",
+      "#ff9da7",
+      "#9c755f",
+      "#bab0ac"
+    ]
+  end
+
+  defp netflow_series_colors(keys, palette) when is_list(keys) and is_list(palette) do
+    keys
+    |> Enum.with_index()
+    |> Map.new(fn {k, idx} -> {k, Enum.at(palette, rem(idx, max(length(palette), 1)))} end)
+  end
 
   defp load_netflow_top_talkers_ips(srql_module, current_query, scope, limit) do
     base_query =

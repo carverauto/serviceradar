@@ -53,6 +53,7 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.NetflowPortAnomalyFlag
     resource ServiceRadar.Observability.NetflowSettings
     resource ServiceRadar.Observability.NetflowLocalCidr
+    resource ServiceRadar.Observability.NetflowAppClassificationRule
     # Metrics resources - all map to TimescaleDB hypertables with migrate?: false
     # matching Go schema exactly
     resource ServiceRadar.Observability.TimeseriesMetric

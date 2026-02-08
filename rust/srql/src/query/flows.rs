@@ -27,7 +27,7 @@ type FlowsQuery<'a> =
 //
 // NOTE: `netflow_local_cidrs` is stored under the `platform` schema, but SRQL
 // typically runs with `search_path=platform,...`, so we intentionally omit the schema prefix.
-const FLOW_DIRECTION_EXPR: &str = r#"
+pub(super) const FLOW_DIRECTION_EXPR: &str = r#"
 (SELECT
   CASE
     WHEN NULLIF(src_endpoint_ip, '') IS NULL OR NULLIF(dst_endpoint_ip, '') IS NULL THEN 'unknown'
@@ -60,6 +60,65 @@ const FLOW_DIRECTION_EXPR: &str = r#"
         ) THEN 1 ELSE 0 END
       ) AS mask
   ) flags)
+"#;
+
+pub(super) const FLOW_PROTOCOL_GROUP_EXPR: &str =
+    "CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END";
+
+// Application classification for flows.
+//
+// This is a derived label used by SRQL (`app:` filter, `by app` group-by, and downsample series).
+// It is computed at query time using:
+// - baseline protocol/port mapping
+// - optional admin override rules in `netflow_app_classification_rules`
+//
+// NOTE: Table lives under `platform`, but SRQL assumes `search_path=platform,...`.
+pub(super) const FLOW_APP_EXPR: &str = r#"
+(SELECT
+  COALESCE(override_rule.app_label, baseline.app_label, 'unknown')
+  FROM LATERAL (
+    SELECT
+      CASE
+        WHEN dst_endpoint_port IS NULL THEN NULL
+        WHEN protocol_num = 6 AND dst_endpoint_port = 443 THEN 'https'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 80 THEN 'http'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 22 THEN 'ssh'
+        WHEN dst_endpoint_port = 53 THEN 'dns'
+        WHEN dst_endpoint_port = 123 THEN 'ntp'
+        WHEN protocol_num = 6 AND dst_endpoint_port IN (25, 465, 587) THEN 'smtp'
+        WHEN protocol_num = 6 AND dst_endpoint_port IN (143, 993) THEN 'imap'
+        WHEN protocol_num = 6 AND dst_endpoint_port IN (110, 995) THEN 'pop3'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 3389 THEN 'rdp'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 5432 THEN 'postgres'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 3306 THEN 'mysql'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 6379 THEN 'redis'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 27017 THEN 'mongodb'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 9200 THEN 'elasticsearch'
+        ELSE NULL
+      END AS app_label
+  ) baseline
+  LEFT JOIN LATERAL (
+    SELECT r.app_label
+    FROM netflow_app_classification_rules r
+    WHERE r.enabled
+      AND (r.partition IS NULL OR r.partition = partition)
+      AND (r.protocol_num IS NULL OR r.protocol_num = protocol_num)
+      AND (r.dst_port IS NULL OR r.dst_port = dst_endpoint_port)
+      AND (r.src_port IS NULL OR r.src_port = src_endpoint_port)
+      AND (r.src_cidr IS NULL OR (NULLIF(src_endpoint_ip, '')::inet <<= r.src_cidr))
+      AND (r.dst_cidr IS NULL OR (NULLIF(dst_endpoint_ip, '')::inet <<= r.dst_cidr))
+    ORDER BY
+      r.priority DESC,
+      (
+        (CASE WHEN r.protocol_num IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN r.dst_port IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN r.src_port IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN r.src_cidr IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN r.dst_cidr IS NULL THEN 0 ELSE 1 END)
+      ) DESC,
+      r.id ASC
+    LIMIT 1
+  ) override_rule ON TRUE)
 "#;
 
 #[derive(Queryable, Selectable, Serialize, Deserialize)]
@@ -301,6 +360,83 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
                     return Err(ServiceError::InvalidRequest(
                         "direction filter only supports equality, wildcard, or list matching"
                             .into(),
+                    ));
+                }
+            }
+        }
+        "protocol_group" | "proto_group" => {
+            let expr = sql::<Text>(FLOW_PROTOCOL_GROUP_EXPR);
+            match filter.op {
+                FilterOp::Eq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.eq(value));
+                }
+                FilterOp::NotEq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.ne(value));
+                }
+                FilterOp::Like => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.ilike(value));
+                }
+                FilterOp::NotLike => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.not_ilike(value));
+                }
+                FilterOp::In => {
+                    let values = filter.value.as_list()?.to_vec();
+                    if !values.is_empty() {
+                        query = query.filter(expr.eq_any(values));
+                    }
+                }
+                FilterOp::NotIn => {
+                    let values = filter.value.as_list()?.to_vec();
+                    if !values.is_empty() {
+                        query = query.filter(not(expr.eq_any(values)));
+                    }
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "protocol_group filter only supports equality, wildcard, or list matching"
+                            .into(),
+                    ));
+                }
+            }
+        }
+        "app" => {
+            let expr = sql::<Text>(FLOW_APP_EXPR);
+            match filter.op {
+                FilterOp::Eq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.eq(value));
+                }
+                FilterOp::NotEq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.ne(value));
+                }
+                FilterOp::Like => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.ilike(value));
+                }
+                FilterOp::NotLike => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.not_ilike(value));
+                }
+                FilterOp::In => {
+                    let values = filter.value.as_list()?.to_vec();
+                    if !values.is_empty() {
+                        query = query.filter(expr.eq_any(values));
+                    }
+                }
+                FilterOp::NotIn => {
+                    let values = filter.value.as_list()?.to_vec();
+                    if !values.is_empty() {
+                        query = query.filter(not(expr.eq_any(values)));
+                    }
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "app filter only supports equality, wildcard, or list matching".into(),
                     ));
                 }
             }
@@ -643,8 +779,10 @@ enum FlowGroupField {
     DstEndpointPort,
     ProtocolNum,
     ProtocolName,
+    ProtocolGroup,
     SamplerAddress,
     Direction,
+    App,
     SrcCountryIso2,
     DstCountryIso2,
 }
@@ -658,8 +796,10 @@ impl FlowGroupField {
             "dst_endpoint_port" | "dst_port" => Some(Self::DstEndpointPort),
             "protocol_num" | "proto" => Some(Self::ProtocolNum),
             "protocol_name" => Some(Self::ProtocolName),
+            "protocol_group" | "proto_group" => Some(Self::ProtocolGroup),
             "sampler_address" => Some(Self::SamplerAddress),
             "direction" => Some(Self::Direction),
+            "app" => Some(Self::App),
             "src_country_iso2" | "src_country" => Some(Self::SrcCountryIso2),
             "dst_country_iso2" | "dst_country" => Some(Self::DstCountryIso2),
             _ => None,
@@ -674,8 +814,10 @@ impl FlowGroupField {
             Self::DstEndpointPort => "dst_endpoint_port",
             Self::ProtocolNum => "protocol_num",
             Self::ProtocolName => "protocol_name",
+            Self::ProtocolGroup => "protocol_group",
             Self::SamplerAddress => "sampler_address",
             Self::Direction => "direction",
+            Self::App => "app",
             Self::SrcCountryIso2 => "src_country_iso2",
             Self::DstCountryIso2 => "dst_country_iso2",
         }
@@ -689,8 +831,10 @@ impl FlowGroupField {
             Self::DstEndpointPort => "dst_endpoint_port",
             Self::ProtocolNum => "protocol_num",
             Self::ProtocolName => "protocol_name",
+            Self::ProtocolGroup => FLOW_PROTOCOL_GROUP_EXPR,
             Self::SamplerAddress => "sampler_address",
             Self::Direction => FLOW_DIRECTION_EXPR,
+            Self::App => FLOW_APP_EXPR,
             Self::SrcCountryIso2 => "COALESCE(src_geo.country_iso2, 'Unknown')",
             Self::DstCountryIso2 => "COALESCE(dst_geo.country_iso2, 'Unknown')",
         }
@@ -1276,6 +1420,9 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
         "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("f.dst_endpoint_ip", filter, binds),
         "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
         "sampler_address" => build_stats_text_filter("f.sampler_address", filter, binds),
+        "protocol_group" | "proto_group" => {
+            build_stats_text_filter(FLOW_PROTOCOL_GROUP_EXPR, filter, binds)
+        }
         "protocol_num" | "proto" => {
             // protocol_num is int4; cast to bigint to keep bind typing consistent.
             build_stats_bigint_filter("f.protocol_num::bigint", filter, binds, "protocol_num")
@@ -1379,6 +1526,10 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
             let expr = format!("({})", FLOW_DIRECTION_EXPR);
             build_stats_text_filter(&expr, filter, binds)
         }
+        "app" => {
+            let expr = format!("({})", FLOW_APP_EXPR);
+            build_stats_text_filter(&expr, filter, binds)
+        }
         "src_country_iso2" | "src_country" => {
             build_stats_text_filter("COALESCE(src_geo.country_iso2, 'Unknown')", filter, binds)
         }
@@ -1440,6 +1591,15 @@ mod tests {
             FlowGroupSpec::Field(FlowGroupField::Direction)
         );
         assert_eq!(spec.group_by[0].response_key(), "direction");
+    }
+
+    #[test]
+    fn parse_stats_expr_supports_app_group_by() {
+        let expr = "sum(bytes_total) as total_bytes by app";
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.group_by.len(), 1);
+        assert_eq!(spec.group_by[0], FlowGroupSpec::Field(FlowGroupField::App));
+        assert_eq!(spec.group_by[0].response_key(), "app");
     }
 
     #[test]
@@ -1542,6 +1702,33 @@ mod tests {
             "should order by agg_value, not JSON alias"
         );
         assert_eq!(params.len(), 4, "expected time + 2 filter binds");
+    }
+
+    #[test]
+    fn translate_grouped_stats_app_group_by_includes_rule_table() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as total_bytes by app",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+        assert!(
+            sql.contains("netflow_app_classification_rules"),
+            "expected SQL to reference netflow_app_classification_rules for app derivation: {sql}"
+        );
     }
 
     #[test]
