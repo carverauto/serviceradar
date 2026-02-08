@@ -4,11 +4,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
+  alias ServiceRadar.Observability.IpRdnsCache
 
   import ServiceRadarWebNGWeb.SRQLComponents
 
+  require Ash.Query
+
   @default_limit 100
   @max_limit 200
+  @default_time "last_1h"
+  @default_bucket "5m"
+  @chart_limit 4000
 
   @nf_dims_ordered [
     {"Protocol (group)", "protocol_group"},
@@ -39,6 +46,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> assign(:netflow_sankey_edges_json, "[]")
       |> assign(:nf_dims_ordered, @nf_dims_ordered)
       |> assign(:limit, @default_limit)
+      |> assign(:selected_flow, nil)
+      |> assign(:flows, [])
+      |> assign(:flows_pagination, %{})
+      |> assign(:rdns_map, %{})
       |> SRQLPage.init("flows", default_limit: @default_limit)
 
     {:ok, socket}
@@ -54,21 +65,36 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         {:error, reason} -> {NFState.default(), reason}
       end
 
+    q_param = Map.get(params, "q") |> normalize_optional_string()
+
     socket =
       socket
       |> assign(:netflow_viz_state, state)
       |> assign(:netflow_viz_state_error, state_error)
-      |> SRQLPage.load_list(params, uri, :netflows,
-        default_limit: @default_limit,
-        max_limit: @max_limit,
-        limit_assign_key: :limit
-      )
 
-    socket =
-      socket
-      |> load_visualize_chart(params, state)
+    # The Visualize controls emit SRQL. If no `q` is present, patch to the derived chart query.
+    if is_nil(q_param) do
+      chart_query = chart_query_from_state("in:flows", state)
 
-    {:noreply, socket}
+      {:noreply,
+       push_patch(socket,
+         to:
+           build_patch_url(socket, %{
+             "q" => chart_query,
+             "nf" => nf_param(state),
+             "cursor" => nil,
+             "limit" => parse_limit_param(Map.get(params, "limit"))
+           })
+       )}
+    else
+      socket =
+        socket
+        |> load_srql_assigns(q_param, uri, parse_limit_param(Map.get(params, "limit")))
+        |> load_visualize_chart(q_param, state)
+        |> load_flows_list(params, state)
+
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -77,7 +103,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   def handle_event("srql_submit", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/netflow")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_submit", params,
+       fallback_path: "/netflow",
+       extra_params: srql_submit_extra_params(socket)
+     )}
   end
 
   def handle_event("srql_builder_toggle", _params, socket) do
@@ -100,7 +130,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_run", %{},
        entity: "flows",
-       fallback_path: "/netflow"
+       fallback_path: "/netflow",
+       extra_params: srql_submit_extra_params(socket)
      )}
   end
 
@@ -114,14 +145,77 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   def handle_event("nf_reset", _params, socket) do
-    socket = assign(socket, :netflow_viz_state, NFState.default())
+    next = NFState.default()
+    chart_query = chart_query_from_state("in:flows", next)
 
-    case NFState.encode_param(socket.assigns.netflow_viz_state) do
-      {:ok, nf} ->
-        {:noreply, push_patch(socket, to: build_patch_url(socket, %{"nf" => nf}))}
+    socket = assign(socket, :netflow_viz_state, next)
 
-      _ ->
-        {:noreply, socket}
+    {:noreply,
+     push_patch(socket,
+       to: build_patch_url(socket, %{"nf" => nf_param(next), "q" => chart_query, "cursor" => nil})
+     )}
+  end
+
+  @impl true
+  def handle_event("netflow_open", %{"idx" => idx_raw}, socket) do
+    idx =
+      case Integer.parse(to_string(idx_raw || "")) do
+        {n, ""} when n >= 0 -> n
+        _ -> nil
+      end
+
+    selected =
+      if is_integer(idx) and is_list(socket.assigns.flows) do
+        Enum.at(socket.assigns.flows, idx)
+      else
+        nil
+      end
+
+    {:noreply, assign(socket, :selected_flow, selected)}
+  end
+
+  def handle_event("netflow_close", _params, socket) do
+    {:noreply, assign(socket, :selected_flow, nil)}
+  end
+
+  def handle_event(
+        "netflow_sankey_edge",
+        %{"src" => src, "dst" => dst, "port" => port_raw},
+        socket
+      ) do
+    port =
+      case Integer.parse(to_string(port_raw || "")) do
+        {n, ""} when n > 0 -> n
+        _ -> nil
+      end
+
+    query = Map.get(socket.assigns.srql, :query) || ""
+
+    new_query =
+      query
+      |> upsert_query_filter("src_cidr", to_string(src || "") |> String.trim())
+      |> upsert_query_filter("dst_cidr", to_string(dst || "") |> String.trim())
+      |> then(fn q ->
+        if is_integer(port) do
+          upsert_query_filter(q, "dst_port", to_string(port))
+        else
+          q
+        end
+      end)
+
+    {:noreply, push_patch(socket, to: build_patch_url(socket, %{"q" => new_query}))}
+  end
+
+  def handle_event("netflow_stack_series", %{"field" => field, "value" => value}, socket) do
+    field = to_string(field || "") |> String.trim()
+    value = to_string(value || "") |> String.trim()
+
+    if field in ["app", "protocol_group"] and value != "" do
+      query = Map.get(socket.assigns.srql, :query) || ""
+      new_query = upsert_query_filter(query, field, value)
+      {:noreply, push_patch(socket, to: build_patch_url(socket, %{"q" => new_query}))}
+    else
+      {:noreply, socket}
     end
   end
 
@@ -145,7 +239,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
     socket = assign(socket, :netflow_viz_state, next)
 
-    {:noreply, patch_nf_state(socket, next)}
+    base = NFQuery.flows_sanitize_for_stats(Map.get(socket.assigns.srql, :query) || "")
+    chart_query = chart_query_from_state(base, next)
+
+    {:noreply,
+     push_patch(socket,
+       to: build_patch_url(socket, %{"nf" => nf_param(next), "q" => chart_query, "cursor" => nil})
+     )}
   end
 
   def handle_event("nf_dim_move", %{"dim" => dim, "dir" => dir}, socket)
@@ -156,7 +256,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     next = Map.put(current, "dims", next_dims)
 
     socket = assign(socket, :netflow_viz_state, next)
-    {:noreply, patch_nf_state(socket, next)}
+    base = NFQuery.flows_sanitize_for_stats(Map.get(socket.assigns.srql, :query) || "")
+    chart_query = chart_query_from_state(base, next)
+
+    {:noreply,
+     push_patch(socket,
+       to: build_patch_url(socket, %{"nf" => nf_param(next), "q" => chart_query, "cursor" => nil})
+     )}
   end
 
   def handle_event("nf_dim_remove", %{"dim" => dim}, socket) when is_binary(dim) do
@@ -166,7 +272,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     next = Map.put(current, "dims", next_dims)
 
     socket = assign(socket, :netflow_viz_state, next)
-    {:noreply, patch_nf_state(socket, next)}
+    base = NFQuery.flows_sanitize_for_stats(Map.get(socket.assigns.srql, :query) || "")
+    chart_query = chart_query_from_state(base, next)
+
+    {:noreply,
+     push_patch(socket,
+       to: build_patch_url(socket, %{"nf" => nf_param(next), "q" => chart_query, "cursor" => nil})
+     )}
   end
 
   @impl true
@@ -424,32 +536,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           </aside>
 
           <section class="w-full min-w-0 flex-1 flex flex-col gap-4">
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
-              <div class="card-body gap-3">
-                <div class="flex flex-col gap-2">
-                  <.srql_query_bar
-                    query={Map.get(@srql, :query)}
-                    draft={Map.get(@srql, :draft)}
-                    loading={Map.get(@srql, :loading, false)}
-                    builder_available={Map.get(@srql, :builder_available, true)}
-                    builder_open={Map.get(@srql, :builder_open, false)}
-                    builder_supported={Map.get(@srql, :builder_supported, true)}
-                    builder_sync={Map.get(@srql, :builder_sync, true)}
-                    builder={Map.get(@srql, :builder, %{})}
-                  />
-
-                  <div :if={!Map.get(@srql, :builder_supported, true)} class="text-xs text-warning">
-                    This SRQL query can’t be fully represented by the builder yet. The builder won’t overwrite your
-                    query unless you click “Replace query”.
-                  </div>
-
-                  <div :if={Map.get(@srql, :error)} class="text-xs text-error font-mono">
-                    SRQL error: {Map.get(@srql, :error)}
-                  </div>
-                </div>
-              </div>
-            </div>
-
             <.srql_auto_viz viz={Map.get(@srql, :viz, :none)} />
 
             <div class="card bg-base-100 border border-base-200 shadow-sm">
@@ -523,11 +609,43 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               </div>
             </div>
 
-            <.srql_results_table
-              id="netflow-results"
-              rows={@netflows}
-              empty_message="No flows in this window."
-            />
+            <div class="card bg-base-100 border border-base-200 shadow-sm">
+              <div class="card-body gap-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-sm font-semibold">Flows</div>
+                  <div class="text-[11px] text-base-content/50 font-mono">
+                    limit:{@limit}
+                  </div>
+                </div>
+
+                <.flows_table
+                  flows={@flows}
+                  rdns_map={@rdns_map}
+                  base_path="/netflow"
+                  query={Map.get(@srql, :query) || ""}
+                  limit={@limit}
+                  nf_param={nf_param(@netflow_viz_state)}
+                />
+
+                <div class="pt-3 border-t border-base-200">
+                  <.ui_pagination
+                    prev_cursor={Map.get(@flows_pagination, "prev_cursor")}
+                    next_cursor={Map.get(@flows_pagination, "next_cursor")}
+                    base_path="/netflow"
+                    query={Map.get(@srql, :query) || ""}
+                    limit={@limit}
+                    result_count={length(@flows || [])}
+                    extra_params={
+                      %{"nf" => nf_param(@netflow_viz_state)}
+                      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+                      |> Map.new()
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+
+            <.flow_details_modal :if={is_map(@selected_flow)} flow={@selected_flow} />
           </section>
         </div>
       </div>
@@ -535,10 +653,540 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     """
   end
 
+  attr(:flows, :list, default: [])
+  attr(:rdns_map, :map, default: %{})
+  attr(:base_path, :string, required: true)
+  attr(:query, :string, required: true)
+  attr(:limit, :integer, required: true)
+  attr(:nf_param, :string, default: nil)
+
+  defp flows_table(assigns) do
+    ~H"""
+    <div class="w-full">
+      <table class="table table-zebra table-sm w-full table-fixed">
+        <thead>
+          <tr>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Time
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              Source
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              Destination
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+              Protocol
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32 text-right">
+              Packets/Bytes
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-10 text-right">
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <%= for {flow, idx} <- Enum.with_index(@flows) do %>
+            <% src_ip = flow_get(flow, ["src_endpoint_ip", "src_ip"]) %>
+            <% dst_ip = flow_get(flow, ["dst_endpoint_ip", "dst_ip"]) %>
+            <% src_port = flow_get(flow, ["src_endpoint_port"]) %>
+            <% dst_port = flow_get(flow, ["dst_endpoint_port", "dst_port"]) %>
+            <% src_cc = flow_get(flow, ["src_country_iso2"]) %>
+            <% dst_cc = flow_get(flow, ["dst_country_iso2"]) %>
+
+            <tr class="hover:bg-base-200/40">
+              <td class="whitespace-nowrap text-xs font-mono">
+                {flow_get(flow, ["time", "timestamp"]) || "—"}
+              </td>
+              <td class="text-xs font-mono min-w-0 truncate">
+                <span
+                  :if={is_binary(src_cc) and String.length(src_cc) == 2}
+                  class="mr-1 inline-block align-middle text-sm leading-none"
+                  title={src_cc}
+                >
+                  {iso2_flag_emoji(src_cc)}
+                </span>
+                <.link
+                  :if={is_binary(src_ip) and String.trim(src_ip) != ""}
+                  patch={flows_filter_patch(@base_path, @query, @limit, @nf_param, "src_ip", src_ip)}
+                  class="hover:underline truncate"
+                >
+                  {src_ip}
+                </.link>
+                <span :if={not (is_binary(src_ip) and String.trim(src_ip) != "")}>
+                  {src_ip || "—"}
+                </span>
+                <span class="text-base-content/60">{if src_port, do: ":#{src_port}", else: ""}</span>
+                <div
+                  :if={hostname = Map.get(@rdns_map, src_ip)}
+                  class="mt-0.5 text-[11px] text-base-content/60 max-w-72 truncate font-mono"
+                  title={hostname}
+                >
+                  {hostname}
+                </div>
+              </td>
+              <td class="text-xs font-mono min-w-0 truncate">
+                <span
+                  :if={is_binary(dst_cc) and String.length(dst_cc) == 2}
+                  class="mr-1 inline-block align-middle text-sm leading-none"
+                  title={dst_cc}
+                >
+                  {iso2_flag_emoji(dst_cc)}
+                </span>
+                <.link
+                  :if={is_binary(dst_ip) and String.trim(dst_ip) != ""}
+                  patch={flows_filter_patch(@base_path, @query, @limit, @nf_param, "dst_ip", dst_ip)}
+                  class="hover:underline truncate"
+                >
+                  {dst_ip}
+                </.link>
+                <span :if={not (is_binary(dst_ip) and String.trim(dst_ip) != "")}>
+                  {dst_ip || "—"}
+                </span>
+                <span class="text-base-content/60">{if dst_port, do: ":#{dst_port}", else: ""}</span>
+                <div
+                  :if={hostname = Map.get(@rdns_map, dst_ip)}
+                  class="mt-0.5 text-[11px] text-base-content/60 max-w-72 truncate font-mono"
+                  title={hostname}
+                >
+                  {hostname}
+                </div>
+              </td>
+              <td class="whitespace-nowrap text-xs">
+                <.ui_badge variant="ghost" size="xs" class="font-mono">
+                  {flow_get(flow, ["protocol_group", "protocol_name", "proto"]) || "—"}
+                </.ui_badge>
+              </td>
+              <td class="whitespace-nowrap text-xs text-right font-mono">
+                <div>{flow_get(flow, ["packets_total", "packets"]) || "—"}</div>
+                <div class="text-[10px] text-base-content/60">
+                  {flow_get(flow, ["bytes_total", "bytes"]) || "—"}
+                </div>
+              </td>
+              <td class="whitespace-nowrap text-xs text-right">
+                <.ui_dropdown align="end">
+                  <:trigger>
+                    <.ui_icon_button variant="ghost" size="xs" aria-label="Flow actions">
+                      <.icon name="hero-ellipsis-vertical" class="size-4" />
+                    </.ui_icon_button>
+                  </:trigger>
+                  <:item>
+                    <.link phx-click="netflow_open" phx-value-idx={idx} class="text-xs">
+                      Open details
+                    </.link>
+                  </:item>
+                  <:item :if={is_binary(src_ip) and String.trim(src_ip) != ""}>
+                    <.link
+                      patch={
+                        flows_filter_patch(@base_path, @query, @limit, @nf_param, "src_ip", src_ip)
+                      }
+                      class="text-xs"
+                    >
+                      Filter source
+                    </.link>
+                  </:item>
+                  <:item :if={is_binary(dst_ip) and String.trim(dst_ip) != ""}>
+                    <.link
+                      patch={
+                        flows_filter_patch(@base_path, @query, @limit, @nf_param, "dst_ip", dst_ip)
+                      }
+                      class="text-xs"
+                    >
+                      Filter destination
+                    </.link>
+                  </:item>
+                  <:item :if={dst_port && to_string(dst_port) != ""}>
+                    <.link
+                      patch={
+                        flows_filter_patch(
+                          @base_path,
+                          @query,
+                          @limit,
+                          @nf_param,
+                          "dst_port",
+                          to_string(dst_port)
+                        )
+                      }
+                      class="text-xs"
+                    >
+                      Filter port
+                    </.link>
+                  </:item>
+                </.ui_dropdown>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+
+      <div :if={@flows == []} class="py-10 text-center text-base-content/60">
+        No flows in this window.
+      </div>
+    </div>
+    """
+  end
+
+  defp flow_get(nil, _keys), do: nil
+
+  defp flow_get(flow, keys) when is_map(flow) and is_list(keys) do
+    Enum.find_value(keys, fn k ->
+      Map.get(flow, k) ||
+        try do
+          Map.get(flow, String.to_existing_atom(k))
+        rescue
+          _ -> nil
+        end
+    end)
+    |> case do
+      v when is_binary(v) -> String.trim(v)
+      v -> v
+    end
+  end
+
+  defp iso2_flag_emoji(nil), do: nil
+
+  defp iso2_flag_emoji(iso2) when is_binary(iso2) do
+    iso2 = iso2 |> String.trim() |> String.upcase()
+
+    if String.length(iso2) == 2 do
+      <<a::utf8, b::utf8>> = iso2
+
+      if a in ?A..?Z and b in ?A..?Z do
+        # Regional indicator symbols: U+1F1E6 = 'A'
+        <<(0x1F1E6 + (a - ?A))::utf8, (0x1F1E6 + (b - ?A))::utf8>>
+      else
+        nil
+      end
+    else
+      nil
+    end
+  end
+
+  defp iso2_flag_emoji(_), do: nil
+
+  defp flows_filter_patch(base_path, query, limit, nf, field, value) do
+    value = to_string(value || "") |> String.trim()
+
+    q = upsert_query_filter(query || "", field, value)
+
+    params =
+      %{"q" => q, "limit" => limit, "nf" => nf}
+      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+      |> Map.new()
+
+    base_path <> "?" <> URI.encode_query(params)
+  end
+
+  defp upsert_query_filter(query, field, value) when is_binary(query) and is_binary(field) do
+    pattern = ~r/(?:^|\s)#{Regex.escape(field)}:(?:"([^"]+)"|(\S+))/
+
+    query =
+      query
+      |> String.replace(pattern, "")
+      |> String.replace(~r/\s+/, " ")
+      |> String.trim()
+
+    if String.trim(to_string(value || "")) == "" do
+      query
+    else
+      (query <> " " <> "#{field}:#{value}")
+      |> String.trim()
+    end
+  end
+
+  defp nf_param(%{} = state) do
+    case NFState.encode_param(state) do
+      {:ok, nf} -> nf
+      _ -> nil
+    end
+  end
+
+  defp nf_param(_), do: nil
+
+  defp srql_submit_extra_params(socket) do
+    %{"nf" => nf_param(socket.assigns.netflow_viz_state)}
+    |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+    |> Map.new()
+  end
+
+  defp normalize_optional_string(nil), do: nil
+  defp normalize_optional_string(""), do: nil
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_optional_string(_), do: nil
+
+  defp parse_limit_param(nil), do: @default_limit
+
+  defp parse_limit_param(v) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, ""} when n > 0 -> min(n, @max_limit)
+      _ -> @default_limit
+    end
+  end
+
+  defp parse_limit_param(v) when is_integer(v) and v > 0, do: min(v, @max_limit)
+  defp parse_limit_param(_), do: @default_limit
+
+  defp load_srql_assigns(socket, query, uri, limit) when is_binary(query) do
+    srql = Map.get(socket.assigns, :srql, %{})
+    page_path = uri |> to_string() |> URI.parse() |> Map.get(:path)
+
+    {builder_supported, builder_sync, builder_state} =
+      case SRQLBuilder.parse(query) do
+        {:ok, parsed} -> {true, true, parsed}
+        {:error, _} -> {false, false, SRQLBuilder.default_state("flows", limit)}
+      end
+
+    srql =
+      srql
+      |> Map.merge(%{
+        enabled: true,
+        entity: "flows",
+        page_path: page_path,
+        query: query,
+        draft: query,
+        error: nil,
+        loading: false,
+        builder_available: true,
+        builder_supported: builder_supported,
+        builder_sync: builder_sync,
+        builder: builder_state
+      })
+
+    socket
+    |> assign(:srql, srql)
+    |> assign(:limit, limit)
+  end
+
+  defp load_srql_assigns(socket, other, uri, limit),
+    do: load_srql_assigns(socket, to_string(other || ""), uri, limit)
+
+  defp load_flows_list(socket, params, %{} = state) do
+    srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+    scope = socket.assigns.current_scope
+
+    chart_query = Map.get(socket.assigns.srql, :query) || ""
+    fallback_time = Map.get(state, "time", @default_time)
+
+    list_query =
+      chart_query
+      |> NFQuery.flows_base_query(fallback_time)
+      |> NFQuery.flows_sanitize_for_stats()
+      |> ensure_sort_time_desc()
+
+    cursor = Map.get(params, "cursor") |> normalize_optional_string()
+    limit = Map.get(socket.assigns, :limit, @default_limit)
+
+    {flows, pagination} =
+      case srql_module.query(list_query, %{cursor: cursor, limit: limit, scope: scope}) do
+        {:ok, %{"results" => results, "pagination" => pag}} when is_list(results) ->
+          {results, pag || %{}}
+
+        {:ok, %{"results" => results}} when is_list(results) ->
+          {results, %{}}
+
+        _ ->
+          {[], %{}}
+      end
+
+    socket
+    |> assign(:flows, flows)
+    |> assign(:flows_pagination, pagination)
+    |> assign(:rdns_map, rdns_map_for_flows(flows, scope))
+  rescue
+    _ ->
+      socket
+      |> assign(:flows, [])
+      |> assign(:flows_pagination, %{})
+      |> assign(:rdns_map, %{})
+  end
+
+  defp ensure_sort_time_desc(query) when is_binary(query) do
+    q = String.trim(query)
+
+    if Regex.match?(~r/(?:^|\s)sort:/, q) do
+      q
+    else
+      String.trim(q <> " sort:time:desc")
+    end
+  end
+
+  defp ensure_sort_time_desc(other), do: to_string(other || "")
+
+  defp rdns_map_for_flows(flows, scope) when is_list(flows) do
+    ips =
+      flows
+      |> Enum.flat_map(fn row ->
+        [
+          flow_get(row, ["src_endpoint_ip", "src_ip"]),
+          flow_get(row, ["dst_endpoint_ip", "dst_ip"])
+        ]
+      end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    query =
+      IpRdnsCache
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(ip in ^ips)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, rows} when is_list(rows) ->
+        rows
+        |> Enum.filter(fn row ->
+          row.status == "ok" and is_binary(row.hostname) and String.trim(row.hostname) != ""
+        end)
+        |> Map.new(fn row -> {row.ip, row.hostname} end)
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp rdns_map_for_flows(_flows, _scope), do: %{}
+
+  defp chart_query_from_state(base_query, %{} = state) do
+    graph = Map.get(state, "graph", "stacked")
+    time = Map.get(state, "time", @default_time)
+    dims = Map.get(state, "dims", [])
+    units = Map.get(state, "units", "Bps")
+    series_limit = Map.get(state, "limit", 12)
+
+    base =
+      base_query
+      |> to_string()
+      |> NFQuery.flows_base_query(time)
+      |> NFQuery.flows_sanitize_for_stats()
+      |> String.trim()
+
+    case graph do
+      "sankey" ->
+        prefix = sankey_prefix_from_state(state)
+        cidr_prefix = if prefix == 32, do: 24, else: prefix
+
+        dims =
+          dims
+          |> List.wrap()
+          |> Enum.map(&to_string/1)
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+
+        src_dim = Enum.at(dims, 0)
+        mid_dim = Enum.at(dims, 1)
+        dst_dim = Enum.at(dims, 2)
+
+        src =
+          case src_dim do
+            "src_ip" -> "src_endpoint_ip"
+            "src_cidr" -> "src_cidr:#{cidr_prefix}"
+            _ -> "src_cidr:#{cidr_prefix}"
+          end
+
+        mid =
+          case mid_dim do
+            "dst_port" -> "dst_endpoint_port"
+            "app" -> "app"
+            "protocol_group" -> "protocol_group"
+            _ -> "dst_endpoint_port"
+          end
+
+        dst =
+          case dst_dim do
+            "dst_ip" -> "dst_endpoint_ip"
+            "dst_cidr" -> "dst_cidr:#{cidr_prefix}"
+            _ -> "dst_cidr:#{cidr_prefix}"
+          end
+
+        ~s|#{base} stats:"sum(bytes_total) as total_bytes by #{src}, #{mid}, #{dst}" sort:total_bytes:desc limit:200|
+
+      _ ->
+        value_field = if units == "pps", do: "packets_total", else: "bytes_total"
+        series_field = NFQuery.downsample_series_field_from_dims(dims)
+        limit = max(@chart_limit, series_limit * 200)
+
+        ~s|#{base} bucket:#{@default_bucket} agg:sum value_field:#{value_field} series:#{series_field} limit:#{limit}|
+    end
+  end
+
+  attr(:flow, :map, required: true)
+
+  defp flow_details_modal(assigns) do
+    ~H"""
+    <dialog class="modal modal-open" phx-window-keydown="netflow_close" phx-key="escape">
+      <div class="modal-box max-w-3xl">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-sm font-semibold">Flow details</div>
+            <div class="mt-1 text-[11px] text-base-content/60 font-mono truncate">
+              {flow_get(@flow, ["time", "timestamp"]) || "—"}
+            </div>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" phx-click="netflow_close">Close</button>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
+            <div class="text-xs uppercase tracking-wider text-base-content/50">Source</div>
+            <div class="mt-1 font-mono text-sm">
+              {flow_get(@flow, ["src_endpoint_ip", "src_ip"]) || "—"}{if p =
+                                                                           flow_get(@flow, [
+                                                                             "src_endpoint_port"
+                                                                           ]), do: ":#{p}", else: ""}
+            </div>
+          </div>
+
+          <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
+            <div class="text-xs uppercase tracking-wider text-base-content/50">Destination</div>
+            <div class="mt-1 font-mono text-sm">
+              {flow_get(@flow, ["dst_endpoint_ip", "dst_ip"]) || "—"}{if p =
+                                                                           flow_get(@flow, [
+                                                                             "dst_endpoint_port",
+                                                                             "dst_port"
+                                                                           ]), do: ":#{p}", else: ""}
+            </div>
+          </div>
+
+          <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
+            <div class="text-xs uppercase tracking-wider text-base-content/50">Protocol</div>
+            <div class="mt-1 font-mono text-sm">
+              {flow_get(@flow, ["protocol_group", "protocol_name", "proto"]) || "—"}
+            </div>
+          </div>
+
+          <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
+            <div class="text-xs uppercase tracking-wider text-base-content/50">Volume</div>
+            <div class="mt-1 font-mono text-sm">
+              packets:{flow_get(@flow, ["packets_total", "packets"]) || "—"} bytes:{flow_get(@flow, [
+                "bytes_total",
+                "bytes"
+              ]) || "—"}
+            </div>
+          </div>
+        </div>
+
+        <details class="mt-4">
+          <summary class="cursor-pointer text-xs text-base-content/60">Raw fields</summary>
+          <pre class="mt-2 text-[11px] leading-snug whitespace-pre-wrap bg-base-200/30 border border-base-200 rounded-lg p-3 font-mono"><%= inspect(@flow, pretty: true, limit: :infinity) %></pre>
+        </details>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="netflow_close">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
   defp build_patch_url(socket, extra_params) do
     base = %{
       "q" => Map.get(socket.assigns.srql, :query),
-      "limit" => Map.get(socket.assigns, :limit)
+      "limit" => Map.get(socket.assigns, :limit),
+      "nf" => nf_param(Map.get(socket.assigns, :netflow_viz_state))
     }
 
     params =
@@ -665,12 +1313,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp to_float(_), do: 0.0
 
-  defp load_visualize_chart(socket, params, %{} = state) do
+  defp load_visualize_chart(socket, chart_query, %{} = state) when is_binary(chart_query) do
     srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
     scope = socket.assigns.current_scope
 
     graph = Map.get(state, "graph", "stacked")
-    fallback_time = Map.get(state, "time", "last_1h")
+    fallback_time = Map.get(state, "time", @default_time)
     units = Map.get(state, "units", "Bps")
     dims = Map.get(state, "dims", [])
     series_limit = Map.get(state, "limit", 12)
@@ -679,51 +1327,72 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     previous_period = Map.get(state, "previous_period", false) == true
 
     base =
-      NFQuery.flows_base_query(
-        Map.get(params, "q") || Map.get(socket.assigns.srql, :query) || "",
-        fallback_time
-      )
+      chart_query
+      |> NFQuery.flows_base_query(fallback_time)
+      |> String.trim()
 
     case graph do
       "sankey" ->
-        prefix = sankey_prefix_from_state(state)
+        edges =
+          case srql_module.query(chart_query, %{scope: scope}) do
+            {:ok, %{"results" => results}} when is_list(results) ->
+              results
+              |> extract_srql_rows()
+              |> Enum.map(&srql_sankey_edge_from_row/1)
+              |> Enum.reject(&is_nil/1)
 
-        sankey =
-          NFQuery.load_sankey(srql_module, base, scope,
-            prefix: prefix,
-            dims: dims,
-            max_edges: 300
-          )
+            _ ->
+              prefix = sankey_prefix_from_state(state)
 
-        edges_json = Jason.encode!(Map.get(sankey, :edges, []))
+              sankey =
+                NFQuery.load_sankey(srql_module, base, scope,
+                  prefix: prefix,
+                  dims: dims,
+                  max_edges: 300
+                )
+
+              Map.get(sankey, :edges, [])
+          end
+
+        edges_json = Jason.encode!(edges)
 
         socket
         |> assign(:netflow_sankey_edges_json, edges_json)
         |> assign(:netflow_chart_overlays_json, "[]")
 
       _ ->
-        series_field = NFQuery.downsample_series_field_from_dims(dims)
-        bucket = "5m"
-        {value_field, scale_fun} = units_to_value_field_and_scale(units, bucket)
-
+        # Charts are SRQL-driven: the SRQL query in the top bar is the chart query.
         {keys, points} =
-          load_primary_series(srql_module, base, scope,
-            graph: graph,
-            series_field: series_field,
-            bucket: bucket,
-            value_field: value_field,
-            scale_fun: scale_fun,
-            series_limit: series_limit,
-            limit_type: limit_type,
-            bidirectional: bidirectional,
-            previous_period: previous_period
-          )
+          case srql_module.query(chart_query, %{scope: scope}) do
+            {:ok, %{"results" => results}} when is_list(results) ->
+              downsample_from_results(results)
+
+            _ ->
+              # Fallback to derived SRQL (still SRQL-only), in case the user typed a non-downsample query.
+              series_field = NFQuery.downsample_series_field_from_dims(dims)
+              bucket = @default_bucket
+              {value_field, _scale_fun} = units_to_value_field_and_scale(units, bucket)
+
+              NFQuery.load_downsample_series(srql_module, base, scope,
+                bucket: bucket,
+                series_field: series_field,
+                value_field: value_field,
+                agg: "sum",
+                limit: max(@chart_limit, series_limit * 200)
+              )
+          end
+
+        # Apply Top-N bucketing and unit scaling (if chart_query is already scaled, this is a no-op).
+        bucket = @default_bucket
+        {value_field, scale_fun} = units_to_value_field_and_scale(units, bucket)
+        points = NFQuery.scale_points(points, scale_fun)
+        {keys, points} = NFQuery.top_n(keys, points, series_limit, limit_type)
 
         overlays =
           load_overlays(srql_module, base, scope,
             graph: graph,
             keys: keys,
-            series_field: series_field,
+            series_field: NFQuery.downsample_series_field_from_dims(dims),
             bucket: bucket,
             value_field: value_field,
             scale_fun: scale_fun,
@@ -746,6 +1415,119 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> assign(:netflow_chart_overlays_json, "[]")
       |> assign(:netflow_sankey_edges_json, "[]")
   end
+
+  defp load_visualize_chart(socket, other, %{} = state),
+    do: load_visualize_chart(socket, to_string(other || ""), state)
+
+  defp extract_srql_rows(results) when is_list(results) do
+    Enum.map(results, fn
+      %{"payload" => %{} = payload} -> payload
+      %{} = row -> row
+      _ -> %{}
+    end)
+  end
+
+  defp downsample_from_results(results) when is_list(results) do
+    {keys, buckets} =
+      Enum.reduce(results, {MapSet.new(), %{}}, fn
+        %{"timestamp" => ts, "series" => series, "value" => value}, {keys, acc} ->
+          with {:ok, dt} <- parse_srql_datetime(ts),
+               true <- is_binary(series),
+               v when is_number(v) <- to_number(value) do
+            label = if series == "", do: "total", else: series
+            keys = MapSet.put(keys, label)
+
+            acc =
+              Map.update(acc, dt, %{label => v}, fn m ->
+                Map.update(m, label, v, &(&1 + v))
+              end)
+
+            {keys, acc}
+          else
+            _ -> {keys, acc}
+          end
+
+        _row, acc ->
+          acc
+      end)
+
+    keys = keys |> MapSet.to_list() |> Enum.sort()
+
+    points =
+      buckets
+      |> Enum.sort_by(fn {dt, _} -> DateTime.to_unix(dt, :second) end)
+      |> Enum.map(fn {dt, values} ->
+        base = %{"t" => DateTime.to_iso8601(dt)}
+
+        Enum.reduce(keys, base, fn k, acc ->
+          Map.put(acc, k, Map.get(values, k, 0))
+        end)
+      end)
+
+    {keys, points}
+  end
+
+  defp downsample_from_results(_), do: {[], []}
+
+  defp parse_srql_datetime(ts) when is_binary(ts) do
+    case DateTime.from_iso8601(ts) do
+      {:ok, dt, _} ->
+        {:ok, dt}
+
+      _ ->
+        case NaiveDateTime.from_iso8601(ts) do
+          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+          _ -> {:error, :invalid_timestamp}
+        end
+    end
+  end
+
+  defp parse_srql_datetime(_), do: {:error, :invalid_timestamp}
+
+  defp to_number(value) when is_number(value), do: value
+
+  defp to_number(value) when is_binary(value) do
+    case Float.parse(value) do
+      {f, ""} -> f
+      _ -> 0
+    end
+  end
+
+  defp to_number(_), do: 0
+
+  defp to_int(value) when is_integer(value), do: value
+  defp to_int(value) when is_float(value), do: trunc(value)
+
+  defp to_int(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {i, ""} -> i
+      _ -> 0
+    end
+  end
+
+  defp to_int(_), do: 0
+
+  defp srql_sankey_edge_from_row(%{} = row) do
+    src = Map.get(row, "src_cidr") || Map.get(row, "src_endpoint_ip")
+    dst = Map.get(row, "dst_cidr") || Map.get(row, "dst_endpoint_ip")
+    port = to_int(Map.get(row, "dst_endpoint_port"))
+    bytes = to_int(Map.get(row, "total_bytes"))
+
+    mid =
+      if is_integer(port) and port > 0 do
+        "PORT:#{port}"
+      else
+        "PORT:?"
+      end
+
+    if is_binary(src) and src != "" and is_binary(dst) and dst != "" and bytes > 0 do
+      %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
+    else
+      nil
+    end
+  end
+
+  defp srql_sankey_edge_from_row(_), do: nil
 
   defp load_primary_series(srql_module, base, scope, opts) do
     graph = Keyword.get(opts, :graph, "stacked")

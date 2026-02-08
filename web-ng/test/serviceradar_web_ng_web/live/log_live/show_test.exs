@@ -276,4 +276,3 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
   defp unwrap_page({:ok, results}) when is_list(results), do: results
   defp unwrap_page(_), do: []
 end
-

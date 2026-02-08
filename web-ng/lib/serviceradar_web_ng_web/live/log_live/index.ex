@@ -6798,30 +6798,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp empty_netflow_sankey, do: %{edges: [], sources: [], mids: [], dests: []}
 
   defp build_netflow_sankey(srql_module, base_query, scope, prefix) do
-    # Primary: CIDR-collapsed nodes (good readability).
-    # Fallback: raw IPs if CIDR grouping fails (e.g., unexpected data causing inet casts to fail).
-    cidr_query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_cidr:#{prefix}, dst_endpoint_port, dst_cidr:#{prefix}" sort:total_bytes:desc limit:200|
-
+    # SRQL doesn't guarantee support for expression-style group-by like `src_cidr:24` across all backends.
+    # To keep Sankey reliable, always group by raw endpoint IPs in SRQL and CIDR-collapse in Elixir.
     ip_query =
       ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip" sort:total_bytes:desc limit:200|
 
-    cidr_rows = srql_stats_rows(srql_module, cidr_query, scope, "CIDR")
-
-    {rows, mode} =
-      if cidr_rows == [] do
-        {srql_stats_rows(srql_module, ip_query, scope, "IP"), :ip}
-      else
-        {cidr_rows, :cidr}
-      end
+    rows = srql_stats_rows(srql_module, ip_query, scope, "IP")
 
     edges =
       rows
       |> Enum.map(fn row ->
-        case mode do
-          :cidr -> netflow_sankey_edge_cidr(row)
-          :ip -> netflow_sankey_edge_ip(row)
-        end
+        netflow_sankey_edge_ip(row, prefix)
       end)
       |> Enum.reject(fn e ->
         is_nil(e.src) or e.src in ["", "Unknown"] or is_nil(e.dst) or e.dst in ["", "Unknown"] or
@@ -6860,23 +6847,33 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp netflow_sankey_edge_cidr(row) do
-    src = Map.get(row, "src_cidr")
-    dst = Map.get(row, "dst_cidr")
+  defp netflow_sankey_edge_ip(row, prefix) when prefix in [16, 24] do
+    src = ip_to_cidr(Map.get(row, "src_endpoint_ip"), prefix)
+    dst = ip_to_cidr(Map.get(row, "dst_endpoint_ip"), prefix)
     port = to_int(Map.get(row, "dst_endpoint_port"))
     bytes = to_int(Map.get(row, "total_bytes"))
     mid = netflow_port_mid_label(port)
     %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
   end
 
-  defp netflow_sankey_edge_ip(row) do
-    src = Map.get(row, "src_endpoint_ip")
-    dst = Map.get(row, "dst_endpoint_ip")
-    port = to_int(Map.get(row, "dst_endpoint_port"))
-    bytes = to_int(Map.get(row, "total_bytes"))
-    mid = netflow_port_mid_label(port)
-    %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
+  defp ip_to_cidr(nil, _prefix), do: nil
+
+  defp ip_to_cidr(ip, prefix) when is_binary(ip) and prefix in [16, 24] do
+    ip = String.trim(ip)
+
+    case :inet.parse_address(String.to_charlist(ip)) do
+      {:ok, {a, b, c, _d}} ->
+        case prefix do
+          24 -> "#{a}.#{b}.#{c}.0/24"
+          16 -> "#{a}.#{b}.0.0/16"
+        end
+
+      _ ->
+        ip
+    end
   end
+
+  defp ip_to_cidr(ip, _prefix) when is_binary(ip), do: String.trim(ip)
 
   defp netflow_port_mid_label(port) when is_integer(port) and port > 0 do
     case netflow_service_label(port) do

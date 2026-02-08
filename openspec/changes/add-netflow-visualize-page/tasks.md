@@ -16,6 +16,8 @@
 - [x] 4.1 Left panel UI components (placeholders acceptable): time, graph type, units, options
 - [x] 4.2 Right panel visualization surface + table placeholders
 - [x] 4.3 Ensure SRQL query string is visible/editable and is not overwritten by builder when unsupported tokens are present
+- [x] 4.4 Remove duplicate in-page SRQL bar; use the global topbar SRQL input only
+- [x] 4.5 Add a paginated flows table and a working flow details affordance (modal)
 
 ## 5. SRQL Integration (Minimal)
 - [x] 5.1 Execute SRQL query based on current state (initially reuse existing NetFlow SRQL patterns)

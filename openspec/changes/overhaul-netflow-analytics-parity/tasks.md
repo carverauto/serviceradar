@@ -24,6 +24,8 @@ This is an umbrella change that defines the target parity end-state and the deli
 
 ## 3. Acceptance Criteria Per Phase (Program-Level)
 - [x] 3.1 Phase A acceptance: `/netflow` exists with left panel options and shareable URL state; old netflows tab redirects preserving SRQL query
+- [x] 3.1.1 `/netflow` uses the global SRQL bar only (no duplicate in-page SRQL input)
+- [x] 3.1.2 `/netflow` includes a paginated flows table and a working flow details affordance (modal)
 - [ ] 3.2 Phase B acceptance: 5 chart types render end-to-end on demo data and share consistent interactivity patterns (legend toggle, tooltip, responsive)
 - [ ] 3.3 Phase B acceptance: bidirectional and previous-period overlays work end-to-end on supported chart types in demo
 - [ ] 3.4 Phase C acceptance: dimension selector supports multi-dim ordering, top-N, limitType, and IP truncation for IP dims
