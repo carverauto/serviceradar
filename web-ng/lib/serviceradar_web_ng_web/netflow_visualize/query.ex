@@ -50,6 +50,43 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
 
   def flows_sanitize_for_stats(other), do: to_string(other || "")
 
+  def flows_reverse_direction_query(query) when is_binary(query) do
+    q = String.trim(query)
+
+    swaps = [
+      {"src_ip", "dst_ip"},
+      {"src_endpoint_ip", "dst_endpoint_ip"},
+      {"src_port", "dst_port"},
+      {"src_endpoint_port", "dst_endpoint_port"},
+      {"src_cidr", "dst_cidr"},
+      {"src_country_iso2", "dst_country_iso2"},
+      {"src_asn", "dst_asn"}
+    ]
+
+    Enum.reduce(swaps, q, fn {a, b}, acc ->
+      acc
+      |> String.replace("#{a}:", "__NF_TMP_A__:")
+      |> String.replace("#{b}:", "__NF_TMP_B__:")
+      |> String.replace("__NF_TMP_A__:", "#{b}:")
+      |> String.replace("__NF_TMP_B__:", "#{a}:")
+    end)
+  end
+
+  def flows_reverse_direction_query(other), do: to_string(other || "")
+
+  def reverse_series_field("src_ip"), do: "dst_ip"
+  def reverse_series_field("dst_ip"), do: "src_ip"
+  def reverse_series_field("src_port"), do: "dst_port"
+  def reverse_series_field("dst_port"), do: "src_port"
+  def reverse_series_field(other) when is_binary(other), do: other
+  def reverse_series_field(_), do: "protocol_group"
+
+  def flows_replace_time(query, time_token) when is_binary(query) and is_binary(time_token) do
+    q = strip_tokens(query, ["time"])
+    q = String.trim(q)
+    q <> " time:" <> String.trim(time_token)
+  end
+
   def downsample_series_field_from_dims(dims) do
     dims
     |> List.wrap()
@@ -121,18 +158,17 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
       base_query
       |> strip_tokens(["sort", "limit", "cursor", "stats", "rollup_stats"])
       |> then(fn q ->
-        String.trim(
-          q <>
-            " bucket:" <>
+        suffix =
+          " bucket:" <>
             bucket <>
             " agg:" <>
             agg <>
             " value_field:" <>
             value_field <>
-            " series:" <>
-            series_field <>
+            series_suffix(series_field) <>
             " limit:" <> Integer.to_string(limit)
-        )
+
+        String.trim(q <> suffix)
       end)
 
     rows =
@@ -152,13 +188,14 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
       Enum.reduce(rows, {MapSet.new(), %{}}, fn
         %{"timestamp" => ts, "series" => series, "value" => value}, {keys, acc} ->
           with {:ok, dt} <- parse_srql_datetime(ts),
-               true <- is_binary(series) and series != "",
+               true <- is_binary(series),
                v when is_number(v) <- to_number(value) do
-            keys = MapSet.put(keys, series)
+            label = if series == "", do: "total", else: series
+            keys = MapSet.put(keys, label)
 
             acc =
-              Map.update(acc, dt, %{series => v}, fn m ->
-                Map.update(m, series, v, &(&1 + v))
+              Map.update(acc, dt, %{label => v}, fn m ->
+                Map.update(m, label, v, &(&1 + v))
               end)
 
             {keys, acc}
@@ -187,6 +224,11 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
   rescue
     _ -> {[], []}
   end
+
+  defp series_suffix(nil), do: ""
+  defp series_suffix(""), do: ""
+  defp series_suffix(series) when is_binary(series), do: " series:" <> series
+  defp series_suffix(_), do: ""
 
   def load_sankey(srql_module, base_query, scope, opts) when is_list(opts) do
     prefix = Keyword.get(opts, :prefix, 24)

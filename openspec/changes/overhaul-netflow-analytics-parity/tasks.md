@@ -20,6 +20,7 @@ This is an umbrella change that defines the target parity end-state and the deli
 - [ ] 2.8 Create child change: `add-netflow-network-dictionaries` (dictionaries + SRQL `net:<dict>:<attr>`)
 - [ ] 2.9 Create child change: `add-netflow-otx-feed` (OTX provider + settings)
 - [ ] 2.10 Create child change: `add-netflow-dashboard-home` (dashboard widgets + persistence)
+- [x] 2.11 Create child change: `add-netflow-overlays` (bidirectional + previous period overlays on Visualize)
 
 ## 3. Acceptance Criteria Per Phase (Program-Level)
 - [x] 3.1 Phase A acceptance: `/netflow` exists with left panel options and shareable URL state; old netflows tab redirects preserving SRQL query

@@ -678,6 +678,13 @@ const Hooks = {
       if (!svg) return
 
       const { raw, keys, colors } = nfParseSeriesData(el)
+      let overlays = []
+      try {
+        overlays = JSON.parse(el.dataset.overlays || "[]")
+      } catch (_e) {
+        overlays = []
+      }
+
       const { width, height, margin: m, iw, ih } = nfChartDims(el, {
         minW: 360,
         minH: 220,
@@ -727,6 +734,62 @@ const Hooks = {
           if (!field) return
           this.pushEvent("netflow_stack_series", { field, value: d.key })
         })
+
+      // Total overlays: render dashed lines on top of the stacked area.
+      // These come from SRQL (series-less) downsample queries and are keyed as `rev:*` and `prev:*`.
+      if (Array.isArray(overlays) && overlays.length > 0) {
+        const overlayStrokeForKey = (k) => {
+          if (String(k).startsWith("prev:")) return "#94a3b8"
+          if (String(k).startsWith("rev:")) return "#10b981"
+          return "#94a3b8"
+        }
+
+        const overlayDashForKey = (k) => {
+          if (String(k).startsWith("prev:")) return "6,4"
+          if (String(k).startsWith("rev:")) return "3,2"
+          return "6,4"
+        }
+
+        const line = d3.line()
+          .x((d) => x(d.t))
+          .y((d) => y(d.v))
+          .curve(d3.curveMonotoneX)
+
+        const og = g.append("g").attr("pointer-events", "none")
+
+        for (const ov of overlays) {
+          if (!ov || typeof ov.key !== "string") continue
+          const k = String(ov.key || "")
+          const pts = Array.isArray(ov?.points) ? ov.points : []
+          const dataPts = pts
+            .map((p) => ({ t: new Date(p.t), v: Number(p.v || 0) }))
+            .filter((d) => d.t instanceof Date && !isNaN(d.t.getTime()) && isFinite(d.v))
+            .sort((a, b) => a.t - b.t)
+
+          if (dataPts.length === 0) continue
+
+          og.append("path")
+            .datum(dataPts)
+            .attr("fill", "none")
+            .attr("stroke", overlayStrokeForKey(k))
+            .attr("stroke-width", 1.75)
+            .attr("stroke-opacity", 0.8)
+            .attr("stroke-dasharray", overlayDashForKey(k))
+            .attr("d", line)
+
+          const last = dataPts[dataPts.length - 1]
+          const label = k.startsWith("prev:") ? "prev" : (k.startsWith("rev:") ? "rev" : k)
+
+          og.append("text")
+            .attr("x", Math.min(iw - 2, x(last.t) + 4))
+            .attr("y", y(last.v))
+            .attr("dy", "0.35em")
+            .attr("font-size", 10)
+            .attr("opacity", 0.7)
+            .attr("fill", "currentColor")
+            .text(label)
+        }
+      }
 
       const legend = g.append("g").attr("transform", `translate(${iw + 12}, 6)`)
       nfBuildLegend(legend, keys, color, this._hidden, (k) => {
@@ -778,6 +841,12 @@ const Hooks = {
       if (!svg) return
 
       const { raw, keys, colors } = nfParseSeriesData(el)
+      let overlays = []
+      try {
+        overlays = JSON.parse(el.dataset.overlays || "[]")
+      } catch (_e) {
+        overlays = []
+      }
       const { width, height, margin: m, iw, ih } = nfChartDims(el, {
         minW: 360,
         minH: 220,
@@ -840,6 +909,74 @@ const Hooks = {
         .attr("d", area)
         .attr("fill", (d) => color(d.key))
         .attr("fill-opacity", 0.55)
+
+      const normalizeToPct = (points) => {
+        const data = points
+          .map((d) => {
+            const t = new Date(d.t)
+            const out = { t }
+            let sum = 0
+            for (const k of visibleKeys) {
+              const v = Number(d[k] || 0)
+              out[k] = v
+              sum += v
+            }
+            out.__sum = sum
+            return out
+          })
+          .filter((d) => d.t instanceof Date && !isNaN(d.t.getTime()))
+          .sort((a, b) => a.t - b.t)
+          .map((d) => {
+            const denom = d.__sum || 1
+            const out = { t: d.t }
+            for (const k of visibleKeys) out[k] = (Number(d[k] || 0) / denom)
+            return out
+          })
+
+        return data
+      }
+
+      // Composition overlays: dashed boundary lines (y1) per series layer.
+      // We keep the same keys so the overlay reads as "previous composition" / "reverse composition".
+      if (Array.isArray(overlays) && overlays.length > 0) {
+        const overlaysByType = overlays
+          .filter((o) => o && typeof o.type === "string" && Array.isArray(o.points))
+
+        const dashForType = (t) => {
+          if (t === "prev") return "6,4"
+          if (t === "rev") return "3,2"
+          return "6,4"
+        }
+
+        const opacityForType = (t) => {
+          if (t === "prev") return 0.45
+          if (t === "rev") return 0.55
+          return 0.45
+        }
+
+        for (const ov of overlaysByType) {
+          const od = normalizeToPct(ov.points || [])
+          if (!Array.isArray(od) || od.length === 0) continue
+
+          const oseries = d3.stack().keys(visibleKeys)(od)
+          const line = d3.line()
+            .x((d) => x(d.data.t))
+            .y((d) => y(d[1]))
+            .curve(d3.curveMonotoneX)
+
+          const og = g.append("g").attr("pointer-events", "none")
+
+          og.selectAll("path")
+            .data(oseries)
+            .join("path")
+            .attr("fill", "none")
+            .attr("stroke", (d) => color(d.key))
+            .attr("stroke-width", 1.1)
+            .attr("stroke-opacity", opacityForType(ov.type))
+            .attr("stroke-dasharray", dashForType(ov.type))
+            .attr("d", (d) => line(d))
+        }
+      }
 
       const legend = g.append("g").attr("transform", `translate(${iw + 12}, 6)`)
       nfBuildLegend(legend, keys, color, this._hidden, (k) => {
@@ -918,6 +1055,24 @@ const Hooks = {
 
       const color = nfColorScale(keys, colors)
 
+      const strokeForKey = (k) => {
+        if (String(k).startsWith("prev:")) return "#94a3b8"
+        if (String(k).startsWith("rev:")) return color(String(k).slice(4))
+        return color(k)
+      }
+
+      const dashForKey = (k) => {
+        if (String(k).startsWith("prev:")) return "6,4"
+        if (String(k).startsWith("rev:")) return "3,2"
+        return null
+      }
+
+      const opacityForKey = (k) => {
+        if (String(k).startsWith("prev:")) return 0.75
+        if (String(k).startsWith("rev:")) return 0.65
+        return 0.85
+      }
+
       const line = (k) => d3.line()
         .x((d) => x(d.t))
         .y((d) => y(d[k]))
@@ -928,13 +1083,14 @@ const Hooks = {
         .data(visibleKeys)
         .join("path")
         .attr("fill", "none")
-        .attr("stroke", (k) => color(k))
-        .attr("stroke-opacity", 0.85)
+        .attr("stroke", (k) => strokeForKey(k))
+        .attr("stroke-opacity", (k) => opacityForKey(k))
         .attr("stroke-width", 1.75)
+        .attr("stroke-dasharray", (k) => dashForKey(k))
         .attr("d", (k) => line(k)(data))
 
       const legend = g.append("g").attr("transform", `translate(${iw + 12}, 6)`)
-      nfBuildLegend(legend, keys, color, this._hidden, (k) => {
+      nfBuildLegend(legend, keys, strokeForKey, this._hidden, (k) => {
         if (this._hidden.has(k)) {
           this._hidden.delete(k)
         } else {

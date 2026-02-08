@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> assign(:netflow_chart_keys_json, "[]")
       |> assign(:netflow_chart_points_json, "[]")
       |> assign(:netflow_chart_colors_json, "{}")
+      |> assign(:netflow_chart_overlays_json, "[]")
       |> assign(:netflow_sankey_edges_json, "[]")
       |> assign(:nf_dims_ordered, @nf_dims_ordered)
       |> assign(:limit, @default_limit)
@@ -366,6 +367,41 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                       </select>
                     </form>
                   </div>
+
+                  <div class="col-span-2">
+                    <div class="text-xs font-semibold text-base-content/70 mb-1">Overlays</div>
+                    <form phx-change="nf_state_change" class="space-y-2">
+                      <input type="hidden" name="state[bidirectional]" value="false" />
+                      <label class="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          class="checkbox checkbox-sm"
+                          name="state[bidirectional]"
+                          value="true"
+                          checked={Map.get(@netflow_viz_state, "bidirectional") == true}
+                        />
+                        <span class="text-xs">Bidirectional (reverse)</span>
+                      </label>
+
+                      <input type="hidden" name="state[previous_period]" value="false" />
+                      <label class="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          class="checkbox checkbox-sm"
+                          name="state[previous_period]"
+                          value="true"
+                          checked={Map.get(@netflow_viz_state, "previous_period") == true}
+                        />
+                        <span class="text-xs">Previous period</span>
+                      </label>
+
+                      <div class="text-[11px] text-base-content/60">
+                        Overlays are currently supported on <span class="font-mono">lines</span>
+                        and <span class="font-mono">stacked</span>
+                        and <span class="font-mono">stacked100</span>.
+                      </div>
+                    </form>
+                  </div>
                 </div>
 
                 <div class="flex items-center justify-between">
@@ -438,6 +474,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                         data-keys={@netflow_chart_keys_json}
                         data-points={@netflow_chart_points_json}
                         data-colors={@netflow_chart_colors_json}
+                        data-overlays={@netflow_chart_overlays_json || "[]"}
                       >
                         <svg class="w-full h-full"></svg>
                       </div>
@@ -471,6 +508,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                         data-keys={@netflow_chart_keys_json}
                         data-points={@netflow_chart_points_json}
                         data-colors={@netflow_chart_colors_json}
+                        data-overlays={@netflow_chart_overlays_json || "[]"}
                       >
                         <svg class="w-full h-full"></svg>
                       </div>
@@ -631,6 +669,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     dims = Map.get(state, "dims", [])
     series_limit = Map.get(state, "limit", 12)
     limit_type = Map.get(state, "limit_type", "avg")
+    bidirectional = Map.get(state, "bidirectional", false) == true
+    previous_period = Map.get(state, "previous_period", false) == true
 
     base =
       NFQuery.flows_base_query(
@@ -638,41 +678,58 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         fallback_time
       )
 
-    if graph == "sankey" do
-      prefix = sankey_prefix_from_state(state)
+    case graph do
+      "sankey" ->
+        prefix = sankey_prefix_from_state(state)
 
-      sankey =
-        NFQuery.load_sankey(srql_module, base, scope,
-          prefix: prefix,
-          dims: dims,
-          max_edges: 300
-        )
+        sankey =
+          NFQuery.load_sankey(srql_module, base, scope,
+            prefix: prefix,
+            dims: dims,
+            max_edges: 300
+          )
 
-      edges_json = Jason.encode!(Map.get(sankey, :edges, []))
+        edges_json = Jason.encode!(Map.get(sankey, :edges, []))
 
-      socket
-      |> assign(:netflow_sankey_edges_json, edges_json)
-    else
-      series_field = NFQuery.downsample_series_field_from_dims(dims)
-      bucket = "5m"
-      {value_field, scale_fun} = units_to_value_field_and_scale(units, bucket)
+        socket
+        |> assign(:netflow_sankey_edges_json, edges_json)
+        |> assign(:netflow_chart_overlays_json, "[]")
 
-      {keys, points} =
-        NFQuery.load_downsample_series(srql_module, base, scope,
-          series_field: series_field,
-          bucket: bucket,
-          value_field: value_field,
-          agg: "sum",
-          limit: 2000
-        )
+      _ ->
+        series_field = NFQuery.downsample_series_field_from_dims(dims)
+        bucket = "5m"
+        {value_field, scale_fun} = units_to_value_field_and_scale(units, bucket)
 
-      {keys, points} = NFQuery.top_n(keys, points, series_limit, limit_type)
-      points = NFQuery.scale_points(points, scale_fun)
+        {keys, points} =
+          load_primary_series(srql_module, base, scope,
+            graph: graph,
+            series_field: series_field,
+            bucket: bucket,
+            value_field: value_field,
+            scale_fun: scale_fun,
+            series_limit: series_limit,
+            limit_type: limit_type,
+            bidirectional: bidirectional,
+            previous_period: previous_period
+          )
 
-      socket
-      |> assign(:netflow_chart_keys_json, Jason.encode!(keys))
-      |> assign(:netflow_chart_points_json, Jason.encode!(points))
-      |> assign(:netflow_chart_colors_json, Jason.encode!(%{}))
+        overlays =
+          load_overlays(srql_module, base, scope,
+            graph: graph,
+            keys: keys,
+            series_field: series_field,
+            bucket: bucket,
+            value_field: value_field,
+            scale_fun: scale_fun,
+            bidirectional: bidirectional,
+            previous_period: previous_period
+          )
+
+        socket
+        |> assign(:netflow_chart_keys_json, Jason.encode!(keys))
+        |> assign(:netflow_chart_points_json, Jason.encode!(points))
+        |> assign(:netflow_chart_colors_json, Jason.encode!(%{}))
+        |> assign(:netflow_chart_overlays_json, Jason.encode!(overlays))
     end
   rescue
     _ ->
@@ -680,6 +737,537 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> assign(:netflow_chart_keys_json, "[]")
       |> assign(:netflow_chart_points_json, "[]")
       |> assign(:netflow_chart_colors_json, "{}")
+      |> assign(:netflow_chart_overlays_json, "[]")
       |> assign(:netflow_sankey_edges_json, "[]")
   end
+
+  defp load_primary_series(srql_module, base, scope, opts) do
+    graph = Keyword.get(opts, :graph, "stacked")
+    series_field = Keyword.get(opts, :series_field, "protocol_group")
+    bucket = Keyword.get(opts, :bucket, "5m")
+    value_field = Keyword.get(opts, :value_field, "bytes_total")
+    scale_fun = Keyword.get(opts, :scale_fun, fn v -> v end)
+    series_limit = Keyword.get(opts, :series_limit, 12)
+    limit_type = Keyword.get(opts, :limit_type, "avg")
+    bidirectional = Keyword.get(opts, :bidirectional, false) == true
+    previous_period = Keyword.get(opts, :previous_period, false) == true
+
+    {keys, points} =
+      if graph == "lines" and (bidirectional or previous_period) do
+        load_lines_with_overlays(srql_module, base, scope,
+          series_field: series_field,
+          bucket: bucket,
+          value_field: value_field,
+          agg: "sum",
+          limit: 2000,
+          series_limit: series_limit,
+          limit_type: limit_type,
+          bidirectional: bidirectional,
+          previous_period: previous_period
+        )
+      else
+        {keys, points} =
+          NFQuery.load_downsample_series(srql_module, base, scope,
+            series_field: series_field,
+            bucket: bucket,
+            value_field: value_field,
+            agg: "sum",
+            limit: 2000
+          )
+
+        NFQuery.top_n(keys, points, series_limit, limit_type)
+      end
+
+    points = NFQuery.scale_points(points, scale_fun)
+    {keys, points}
+  end
+
+  defp load_overlays(srql_module, base, scope, opts) do
+    graph = Keyword.get(opts, :graph, "stacked")
+    keys = Keyword.get(opts, :keys, []) |> List.wrap()
+    series_field = Keyword.get(opts, :series_field, "protocol_group")
+    bucket = Keyword.get(opts, :bucket, "5m")
+    value_field = Keyword.get(opts, :value_field, "bytes_total")
+    scale_fun = Keyword.get(opts, :scale_fun, fn v -> v end)
+    bidirectional = Keyword.get(opts, :bidirectional, false) == true
+    previous_period = Keyword.get(opts, :previous_period, false) == true
+
+    if bidirectional or previous_period do
+      cond do
+        graph == "stacked" ->
+          load_stacked_total_overlays(srql_module, base, scope,
+            bucket: bucket,
+            value_field: value_field,
+            scale_fun: scale_fun,
+            agg: "sum",
+            limit: 2000,
+            bidirectional: bidirectional,
+            previous_period: previous_period
+          )
+
+        graph == "stacked100" ->
+          load_stacked100_composition_overlays(srql_module, base, scope,
+            keys: keys,
+            series_field: series_field,
+            bucket: bucket,
+            value_field: value_field,
+            scale_fun: scale_fun,
+            agg: "sum",
+            limit: 2000,
+            bidirectional: bidirectional,
+            previous_period: previous_period
+          )
+
+        true ->
+          []
+      end
+    else
+      []
+    end
+  end
+
+  defp load_stacked_total_overlays(srql_module, base_query, scope, opts) do
+    bucket = Keyword.get(opts, :bucket, "5m")
+    value_field = Keyword.get(opts, :value_field, "bytes_total")
+    agg = Keyword.get(opts, :agg, "sum")
+    limit = Keyword.get(opts, :limit, 2000)
+    scale_fun = Keyword.get(opts, :scale_fun, fn v -> v end)
+    bidirectional = Keyword.get(opts, :bidirectional, false) == true
+    previous_period = Keyword.get(opts, :previous_period, false) == true
+
+    rev_overlay =
+      if bidirectional do
+        rev_query = NFQuery.flows_reverse_direction_query(base_query)
+
+        points =
+          load_total_overlay_points(srql_module, rev_query, scope,
+            bucket: bucket,
+            value_field: value_field,
+            agg: agg,
+            limit: limit,
+            scale_fun: scale_fun
+          )
+
+        [%{"key" => "rev:total", "points" => points}]
+      else
+        []
+      end
+
+    prev_overlay =
+      if previous_period do
+        with {:ok, {start_dt, end_dt}} <- parse_time_window_from_query(base_query),
+             diff when is_integer(diff) and diff > 0 <- DateTime.diff(end_dt, start_dt, :second) do
+          prev_start = DateTime.add(start_dt, -diff, :second)
+          prev_end = DateTime.add(end_dt, -diff, :second)
+          prev_time = "[#{DateTime.to_iso8601(prev_start)},#{DateTime.to_iso8601(prev_end)}]"
+          prev_query = NFQuery.flows_replace_time(base_query, prev_time)
+
+          points =
+            load_total_overlay_points(srql_module, prev_query, scope,
+              bucket: bucket,
+              value_field: value_field,
+              agg: agg,
+              limit: limit,
+              scale_fun: scale_fun
+            )
+            |> shift_overlay_points(diff)
+
+          [%{"key" => "prev:total", "points" => points}]
+        else
+          _ -> []
+        end
+      else
+        []
+      end
+
+    rev_overlay ++ prev_overlay
+  end
+
+  defp load_total_overlay_points(srql_module, query, scope, opts) do
+    bucket = Keyword.get(opts, :bucket, "5m")
+    value_field = Keyword.get(opts, :value_field, "bytes_total")
+    agg = Keyword.get(opts, :agg, "sum")
+    limit = Keyword.get(opts, :limit, 2000)
+    scale_fun = Keyword.get(opts, :scale_fun, fn v -> v end)
+
+    {_keys, points} =
+      NFQuery.load_downsample_series(srql_module, query, scope,
+        series_field: nil,
+        bucket: bucket,
+        value_field: value_field,
+        agg: agg,
+        limit: limit
+      )
+
+    points = NFQuery.scale_points(points, scale_fun)
+
+    Enum.flat_map(points, fn
+      %{"t" => t} = p when is_binary(t) ->
+        [%{"t" => t, "v" => to_float(Map.get(p, "total", 0))}]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp shift_overlay_points(points, seconds) when is_list(points) and is_integer(seconds) do
+    Enum.map(points, fn
+      %{"t" => t} = p when is_binary(t) ->
+        case DateTime.from_iso8601(t) do
+          {:ok, dt, _} ->
+            Map.put(p, "t", dt |> DateTime.add(seconds, :second) |> DateTime.to_iso8601())
+
+          _ ->
+            p
+        end
+
+      other ->
+        other
+    end)
+  end
+
+  defp shift_overlay_points(other, _seconds), do: other
+
+  defp load_stacked100_composition_overlays(srql_module, base_query, scope, opts) do
+    keys = Keyword.get(opts, :keys, []) |> List.wrap()
+    series_field = Keyword.get(opts, :series_field, "protocol_group")
+    bucket = Keyword.get(opts, :bucket, "5m")
+    value_field = Keyword.get(opts, :value_field, "bytes_total")
+    agg = Keyword.get(opts, :agg, "sum")
+    limit = Keyword.get(opts, :limit, 2000)
+    scale_fun = Keyword.get(opts, :scale_fun, fn v -> v end)
+    bidirectional = Keyword.get(opts, :bidirectional, false) == true
+    previous_period = Keyword.get(opts, :previous_period, false) == true
+
+    if keys == [] do
+      []
+    else
+      rev_overlay =
+        if bidirectional do
+          rev_query = NFQuery.flows_reverse_direction_query(base_query)
+          rev_series = NFQuery.reverse_series_field(series_field)
+
+          {_rev_keys, rev_points} =
+            NFQuery.load_downsample_series(srql_module, rev_query, scope,
+              series_field: rev_series,
+              bucket: bucket,
+              value_field: value_field,
+              agg: agg,
+              limit: limit
+            )
+
+          points =
+            rev_points
+            |> restrict_points_to_keys(keys)
+            |> NFQuery.scale_points(scale_fun)
+
+          [%{"type" => "rev", "points" => points}]
+        else
+          []
+        end
+
+      prev_overlay =
+        if previous_period do
+          with {:ok, {start_dt, end_dt}} <- parse_time_window_from_query(base_query),
+               diff when is_integer(diff) and diff > 0 <- DateTime.diff(end_dt, start_dt, :second) do
+            prev_start = DateTime.add(start_dt, -diff, :second)
+            prev_end = DateTime.add(end_dt, -diff, :second)
+            prev_time = "[#{DateTime.to_iso8601(prev_start)},#{DateTime.to_iso8601(prev_end)}]"
+            prev_query = NFQuery.flows_replace_time(base_query, prev_time)
+
+            {_prev_keys, prev_points} =
+              NFQuery.load_downsample_series(srql_module, prev_query, scope,
+                series_field: series_field,
+                bucket: bucket,
+                value_field: value_field,
+                agg: agg,
+                limit: limit
+              )
+
+            points =
+              prev_points
+              |> restrict_points_to_keys(keys)
+              |> NFQuery.scale_points(scale_fun)
+              |> shift_points(diff)
+              |> elem(1)
+
+            [%{"type" => "prev", "points" => points}]
+          else
+            _ ->
+              []
+          end
+        else
+          []
+        end
+
+      rev_overlay ++ prev_overlay
+    end
+  end
+
+  defp restrict_points_to_keys(points, keys) when is_list(points) and is_list(keys) do
+    Enum.map(points, fn
+      %{"t" => t} = point ->
+        out = %{"t" => t}
+
+        Enum.reduce(keys, out, fn k, acc ->
+          Map.put(acc, k, Map.get(point, k, 0))
+        end)
+
+      other ->
+        other
+    end)
+  end
+
+  defp restrict_points_to_keys(other, _keys), do: other
+
+  defp load_lines_with_overlays(srql_module, base_query, scope, opts) do
+    series_field = Keyword.get(opts, :series_field, "protocol_group")
+    bucket = Keyword.get(opts, :bucket, "5m")
+    value_field = Keyword.get(opts, :value_field, "bytes_total")
+    agg = Keyword.get(opts, :agg, "sum")
+    limit = Keyword.get(opts, :limit, 2000)
+    series_limit = Keyword.get(opts, :series_limit, 12)
+    limit_type = Keyword.get(opts, :limit_type, "avg")
+    bidirectional = Keyword.get(opts, :bidirectional, false) == true
+    previous_period = Keyword.get(opts, :previous_period, false) == true
+
+    {direct_keys, direct_points} =
+      NFQuery.load_downsample_series(srql_module, base_query, scope,
+        series_field: series_field,
+        bucket: bucket,
+        value_field: value_field,
+        agg: agg,
+        limit: limit
+      )
+      |> then(fn {k, p} -> NFQuery.top_n(k, p, series_limit, limit_type) end)
+
+    {rev_keys, rev_points} =
+      if bidirectional do
+        rev_query = NFQuery.flows_reverse_direction_query(base_query)
+        rev_series = NFQuery.reverse_series_field(series_field)
+
+        NFQuery.load_downsample_series(srql_module, rev_query, scope,
+          series_field: rev_series,
+          bucket: bucket,
+          value_field: value_field,
+          agg: agg,
+          limit: limit
+        )
+        |> then(fn {k, p} -> NFQuery.top_n(k, p, series_limit, limit_type) end)
+        |> prefix_series("rev:")
+      else
+        {[], []}
+      end
+
+    {prev_keys, prev_points} =
+      if previous_period do
+        with {:ok, {start_dt, end_dt}} <- parse_time_window_from_query(base_query),
+             diff when is_integer(diff) and diff > 0 <- DateTime.diff(end_dt, start_dt, :second) do
+          prev_start = DateTime.add(start_dt, -diff, :second)
+          prev_end = DateTime.add(end_dt, -diff, :second)
+          prev_time = "[#{DateTime.to_iso8601(prev_start)},#{DateTime.to_iso8601(prev_end)}]"
+          prev_query = NFQuery.flows_replace_time(base_query, prev_time)
+
+          NFQuery.load_downsample_series(srql_module, prev_query, scope,
+            series_field: nil,
+            bucket: bucket,
+            value_field: value_field,
+            agg: agg,
+            limit: limit
+          )
+          |> shift_points(diff)
+          |> rename_total_series("prev:")
+        else
+          _ -> {[], []}
+        end
+      else
+        {[], []}
+      end
+
+    keys = Enum.uniq(direct_keys ++ rev_keys ++ prev_keys)
+    points = merge_points_by_t([direct_points, rev_points, prev_points], keys)
+    {keys, points}
+  end
+
+  defp prefix_series({keys, points}, prefix)
+       when is_list(keys) and is_list(points) and is_binary(prefix) do
+    keys = Enum.map(keys, &"#{prefix}#{&1}")
+
+    points =
+      Enum.map(points, fn
+        %{"t" => t} = point ->
+          out = %{"t" => t}
+
+          Enum.reduce(keys, out, fn prefixed_key, acc ->
+            k = String.replace_prefix(prefixed_key, prefix, "")
+            Map.put(acc, prefixed_key, Map.get(point, k, 0))
+          end)
+
+        other ->
+          other
+      end)
+
+    {keys, points}
+  end
+
+  defp prefix_series(other, _prefix), do: other
+
+  defp rename_total_series({keys, points}, prefix) when is_list(keys) and is_list(points) do
+    # load_downsample_series uses "total" for series-less queries.
+    if keys == ["total"] do
+      keys = [prefix <> "total"]
+
+      points =
+        Enum.map(points, fn
+          %{"t" => t} = point -> %{"t" => t, (prefix <> "total") => Map.get(point, "total", 0)}
+          other -> other
+        end)
+
+      {keys, points}
+    else
+      prefix_series({keys, points}, prefix)
+    end
+  end
+
+  defp rename_total_series(other, _prefix), do: other
+
+  defp shift_points({keys, points}, seconds)
+       when is_list(keys) and is_list(points) and is_integer(seconds) do
+    points =
+      Enum.map(points, fn
+        %{"t" => t} = point when is_binary(t) ->
+          case DateTime.from_iso8601(t) do
+            {:ok, dt, _} ->
+              Map.put(point, "t", dt |> DateTime.add(seconds, :second) |> DateTime.to_iso8601())
+
+            _ ->
+              point
+          end
+
+        other ->
+          other
+      end)
+
+    {keys, points}
+  end
+
+  defp shift_points(other, _seconds), do: other
+
+  defp merge_points_by_t(point_lists, keys) when is_list(point_lists) and is_list(keys) do
+    merged =
+      point_lists
+      |> Enum.flat_map(&List.wrap/1)
+      |> Enum.reduce(%{}, &merge_point_by_t/2)
+
+    merged
+    |> Enum.map(fn {t, point} -> Map.put(point, "t", t) end)
+    |> Enum.sort_by(fn %{"t" => t} -> t end)
+    |> Enum.map(fn %{"t" => _t} = point ->
+      Enum.reduce(keys, point, fn k, acc -> Map.put_new(acc, k, 0) end)
+    end)
+  end
+
+  defp merge_point_by_t(%{"t" => t} = point, acc) when is_binary(t) do
+    Map.update(acc, t, point, fn existing ->
+      Map.merge(existing, Map.drop(point, ["t"]))
+    end)
+  end
+
+  defp merge_point_by_t(_point, acc), do: acc
+
+  defp parse_time_window_from_query(query) when is_binary(query) do
+    case Regex.run(~r/(?:^|\s)time:(?:"([^"]+)"|(\[[^\]]+\])|(\S+))/, query) do
+      [_, quoted, _, _] when is_binary(quoted) and quoted != "" -> parse_time_token(quoted)
+      [_, _, bracket, _] when is_binary(bracket) and bracket != "" -> parse_time_token(bracket)
+      [_, _, _, token] when is_binary(token) and token != "" -> parse_time_token(token)
+      _ -> {:error, :no_time}
+    end
+  end
+
+  defp parse_time_window_from_query(_), do: {:error, :invalid_query}
+
+  defp parse_time_token("last_1h"), do: relative_window(3600)
+  defp parse_time_token("last_6h"), do: relative_window(6 * 3600)
+  defp parse_time_token("last_12h"), do: relative_window(12 * 3600)
+  defp parse_time_token("last_24h"), do: relative_window(24 * 3600)
+  defp parse_time_token("last_7d"), do: relative_window(7 * 24 * 3600)
+  defp parse_time_token("last_30d"), do: relative_window(30 * 24 * 3600)
+
+  defp parse_time_token(token) when is_binary(token) do
+    token = String.trim(token)
+
+    if bracket_range?(token) do
+      parse_bracket_range(token)
+    else
+      case parse_last_duration_seconds(token) do
+        {:ok, seconds} -> relative_window(seconds)
+        {:error, _} -> {:error, :unsupported_time}
+      end
+    end
+  end
+
+  defp parse_time_token(_), do: {:error, :invalid_time}
+
+  defp relative_window(seconds) when is_integer(seconds) and seconds > 0 do
+    end_dt = DateTime.utc_now() |> DateTime.truncate(:second)
+    start_dt = DateTime.add(end_dt, -seconds, :second)
+    {:ok, {start_dt, end_dt}}
+  end
+
+  defp parse_dt(value) when is_binary(value) do
+    v = value |> String.trim() |> String.trim(~s|"|)
+
+    case DateTime.from_iso8601(v) do
+      {:ok, dt, _} -> {:ok, dt}
+      _ -> {:error, :invalid_dt}
+    end
+  end
+
+  defp parse_dt(_), do: {:error, :invalid_dt}
+
+  defp bracket_range?(token) when is_binary(token) do
+    String.starts_with?(token, "[") and String.ends_with?(token, "]")
+  end
+
+  defp bracket_range?(_), do: false
+
+  defp parse_bracket_range(token) when is_binary(token) do
+    token
+    |> String.trim_leading("[")
+    |> String.trim_trailing("]")
+    |> String.split(",", parts: 2)
+    |> case do
+      [s, e] ->
+        with {:ok, sdt} <- parse_dt(s),
+             {:ok, edt} <- parse_dt(e) do
+          {:ok, {sdt, edt}}
+        end
+
+      _ ->
+        {:error, :invalid_range}
+    end
+  end
+
+  defp parse_bracket_range(_), do: {:error, :invalid_range}
+
+  defp parse_last_duration_seconds(token) when is_binary(token) do
+    case Regex.run(~r/^last_(\d+)([mhd])$/, token) do
+      [_, n, unit] ->
+        {n, ""} = Integer.parse(n)
+
+        seconds =
+          case unit do
+            "m" -> n * 60
+            "h" -> n * 3600
+            "d" -> n * 24 * 3600
+          end
+
+        {:ok, seconds}
+
+      _ ->
+        {:error, :invalid_last}
+    end
+  end
+
+  defp parse_last_duration_seconds(_), do: {:error, :invalid_last}
 end
