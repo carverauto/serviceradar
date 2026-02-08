@@ -732,10 +732,25 @@ const Hooks = {
     mounted() {
       this._initOrUpdate()
       this._themeObserver = new MutationObserver(() => this._applyThemeStyle())
+      // daisyUI typically drives theme via `data-theme` on <html>, but be resilient:
+      // some pages/toggles may update `class`, inline styles, or set theme on <body>.
       this._themeObserver.observe(document.documentElement, {
         attributes: true,
-        attributeFilter: ["data-theme"],
+        attributeFilter: ["data-theme", "class", "style"],
       })
+      this._themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["data-theme", "class", "style"],
+      })
+
+      this._colorSchemeMql = window.matchMedia?.("(prefers-color-scheme: dark)") || null
+      this._onColorSchemeChange = () => this._applyThemeStyle()
+      if (this._colorSchemeMql?.addEventListener) {
+        this._colorSchemeMql.addEventListener("change", this._onColorSchemeChange)
+      } else if (this._colorSchemeMql?.addListener) {
+        // Safari
+        this._colorSchemeMql.addListener(this._onColorSchemeChange)
+      }
     },
     updated() {
       this._initOrUpdate()
@@ -743,6 +758,13 @@ const Hooks = {
     destroyed() {
       try {
         this._themeObserver?.disconnect()
+      } catch (_e) {}
+      try {
+        if (this._colorSchemeMql?.removeEventListener && this._onColorSchemeChange) {
+          this._colorSchemeMql.removeEventListener("change", this._onColorSchemeChange)
+        } else if (this._colorSchemeMql?.removeListener && this._onColorSchemeChange) {
+          this._colorSchemeMql.removeListener(this._onColorSchemeChange)
+        }
       } catch (_e) {}
       try {
         this._map?.remove()
@@ -807,8 +829,44 @@ const Hooks = {
       }
     },
     _currentStyle() {
-      const theme = document.documentElement.getAttribute("data-theme") || "light"
-      return theme === "dark" ? this._styleDark : this._styleLight
+      return this._isDarkMode() ? this._styleDark : this._styleLight
+    },
+    _isDarkMode() {
+      // 1) Prefer computed `color-scheme` (best signal when themes set it)
+      try {
+        const cs = window.getComputedStyle(document.documentElement).colorScheme
+        if (typeof cs === "string") {
+          if (cs.includes("dark")) return true
+          if (cs.includes("light")) return false
+        }
+      } catch (_e) {}
+
+      // 2) Fall back to explicit theme names for the common case
+      const themeAttr =
+        document.documentElement.getAttribute("data-theme") ||
+        document.body?.getAttribute?.("data-theme") ||
+        ""
+      const theme = String(themeAttr || "").toLowerCase().trim()
+      if (theme === "dark") return true
+      if (theme === "light") return false
+
+      // 3) Infer from background luminance (works even for custom themes)
+      const bg =
+        (document.body && window.getComputedStyle(document.body).backgroundColor) ||
+        window.getComputedStyle(document.documentElement).backgroundColor ||
+        ""
+      const m = String(bg).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
+      if (m) {
+        const r = Number(m[1]) / 255
+        const g = Number(m[2]) / 255
+        const b = Number(m[3]) / 255
+        // Relative luminance (sRGB)
+        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return lum < 0.45
+      }
+
+      // 4) Last resort: OS preference
+      return !!this._colorSchemeMql?.matches
     },
     _styleUrlFromMeta() {
       try {
