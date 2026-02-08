@@ -114,7 +114,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
         |> Req.get!(req_opts ++ [into: File.stream!(tmp)])
 
       File.rename!(tmp, dest_path)
-      Logger.info("GeoLite MMDB updated", file: dest_path)
+      Logger.info("GeoLite MMDB updated: #{Path.basename(dest_path)}", file: dest_path)
       {:ok, dest_path}
     rescue
       e ->

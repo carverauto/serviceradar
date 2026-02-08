@@ -25,7 +25,6 @@ defmodule ServiceRadar.Observability.NetflowSettings do
   cloak do
     vault(ServiceRadar.Vault)
     # AshCloak stores ciphertext in `encrypted_{attr}` and exposes the plaintext via `attr`.
-    # Our DB column is `encrypted_ipinfo_api_key` (bytea).
     attributes([:ipinfo_api_key])
     decrypt_by_default([:ipinfo_api_key])
   end
@@ -169,7 +168,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
       public? true
     end
 
-    # Encrypted at rest by AshCloak; ciphertext is stored in `encrypted_ipinfo_api_key`.
+    # Encrypted at rest by AshCloak; ciphertext lives in `encrypted_ipinfo_api_key` (bytea).
     attribute :ipinfo_api_key, :string do
       allow_nil? true
       public? false

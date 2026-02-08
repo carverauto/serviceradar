@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   alias ServiceRadar.Integrations
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadarWebNG.RBAC
@@ -30,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       socket =
         socket
         |> assign(:page_title, "Integration Sources")
+        |> assign(:settings_tab, "crm_ipam")
         |> assign(:sources, list_sources(actor))
         |> assign(:partitions, partitions)
         |> assign(:partition_options, build_partition_options(partitions))
@@ -48,6 +50,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         # Query management for forms
         |> assign(:form_queries, [default_query()])
         |> assign(:form_network_blacklist, "")
+        |> assign(:mapbox_settings, load_mapbox_settings(actor))
+        |> assign(:mapbox_form, mapbox_settings_to_form(load_mapbox_settings(actor)))
 
       {:ok, socket}
     else
@@ -82,6 +86,24 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   @impl true
   def handle_params(params, _url, socket) do
+    settings_tab = normalize_settings_tab(Map.get(params, "tab"))
+
+    socket =
+      socket
+      |> assign(:settings_tab, settings_tab)
+      |> then(fn s ->
+        # Keep Mapbox settings up to date when navigating tabs.
+        if settings_tab == "mapbox" do
+          settings = load_mapbox_settings(get_actor(s))
+
+          s
+          |> assign(:mapbox_settings, settings)
+          |> assign(:mapbox_form, mapbox_settings_to_form(settings))
+        else
+          s
+        end
+      end)
+
     {:noreply, apply_action(socket, socket.assigns.live_action, params)}
   end
 
@@ -175,6 +197,35 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       {:noreply,
        socket
        |> put_flash(:error, "Install and register an agent before adding integrations.")}
+    end
+  end
+
+  @impl true
+  def handle_event("mapbox_save", %{"mapbox" => params}, socket) do
+    actor = get_actor(socket)
+    record = socket.assigns.mapbox_settings || load_mapbox_settings(actor)
+    update_params = build_mapbox_update_params(params)
+
+    result =
+      case record do
+        %MapboxSettings{} ->
+          MapboxSettings.update_settings(record, update_params, actor: actor)
+
+        _ ->
+          MapboxSettings.create(update_params, actor: actor)
+      end
+
+    case result do
+      {:ok, %MapboxSettings{} = updated} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Mapbox settings saved")
+         |> assign(:mapbox_settings, updated)
+         |> assign(:mapbox_form, mapbox_settings_to_form(updated))}
+
+      {:error, err} ->
+        {:noreply,
+         socket |> put_flash(:error, "Failed to save Mapbox settings: #{format_ash_error(err)}")}
     end
   end
 
@@ -421,6 +472,85 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     end)
   end
 
+  defp normalize_settings_tab(nil), do: "crm_ipam"
+  defp normalize_settings_tab(""), do: "crm_ipam"
+
+  defp normalize_settings_tab(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "mapbox" -> "mapbox"
+      "crm_ipam" -> "crm_ipam"
+      _ -> "crm_ipam"
+    end
+  end
+
+  defp normalize_settings_tab(_), do: "crm_ipam"
+
+  defp load_mapbox_settings(actor) do
+    case MapboxSettings.get_settings(actor: actor) do
+      {:ok, %MapboxSettings{} = settings} ->
+        settings
+
+      _ ->
+        case MapboxSettings.create(%{}, actor: actor) do
+          {:ok, %MapboxSettings{} = settings} -> settings
+          _ -> nil
+        end
+    end
+  end
+
+  defp mapbox_settings_to_form(nil), do: nil
+
+  defp mapbox_settings_to_form(%MapboxSettings{} = settings) do
+    %{
+      "enabled" => truthy(settings.enabled),
+      "style_light" => settings.style_light || "mapbox://styles/mapbox/light-v11",
+      "style_dark" => settings.style_dark || "mapbox://styles/mapbox/dark-v11",
+      "clear_access_token" => false
+    }
+    |> to_form(as: "mapbox")
+  end
+
+  defp mapbox_settings_to_form(_), do: nil
+
+  defp build_mapbox_update_params(params) when is_map(params) do
+    base = %{
+      enabled: truthy_param?(Map.get(params, "enabled")),
+      style_light: Map.get(params, "style_light") |> to_string() |> String.trim(),
+      style_dark: Map.get(params, "style_dark") |> to_string() |> String.trim(),
+      clear_access_token: truthy_param?(Map.get(params, "clear_access_token"))
+    }
+
+    token = Map.get(params, "access_token")
+
+    if is_binary(token) and String.trim(token) != "" do
+      Map.put(base, :access_token, String.trim(token))
+    else
+      base
+    end
+  end
+
+  defp build_mapbox_update_params(_), do: %{}
+
+  defp truthy(true), do: true
+  defp truthy("true"), do: true
+  defp truthy("1"), do: true
+  defp truthy(_), do: false
+
+  defp truthy_param?(true), do: true
+  defp truthy_param?("true"), do: true
+  defp truthy_param?("1"), do: true
+  defp truthy_param?("on"), do: true
+  defp truthy_param?(_), do: false
+
+  defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
+    Enum.map_join(errors, ", ", fn
+      %{message: message} -> message
+      _ -> "Validation error"
+    end)
+  end
+
+  defp format_ash_error(_), do: "Unexpected error"
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -454,7 +584,24 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
         </div>
 
-        <.ui_panel>
+        <div class="mt-4">
+          <div class="tabs tabs-boxed">
+            <.link
+              patch={~p"/settings/networks/integrations?tab=crm_ipam"}
+              class={["tab", @settings_tab == "crm_ipam" && "tab-active"]}
+            >
+              CRM/IPAM
+            </.link>
+            <.link
+              patch={~p"/settings/networks/integrations?tab=mapbox"}
+              class={["tab", @settings_tab == "mapbox" && "tab-active"]}
+            >
+              Mapbox
+            </.link>
+          </div>
+        </div>
+
+        <.ui_panel :if={@settings_tab == "crm_ipam"}>
           <:header>
             <div>
               <div class="text-sm font-semibold">Sources</div>
@@ -590,6 +737,103 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </table>
             <% end %>
           </div>
+        </.ui_panel>
+
+        <.ui_panel :if={@settings_tab == "mapbox"}>
+          <:header>
+            <div>
+              <div class="text-sm font-semibold">Mapbox</div>
+              <p class="text-xs text-base-content/60">
+                Configure the Mapbox token and map style used for flow details maps.
+              </p>
+            </div>
+          </:header>
+
+          <%= if @mapbox_form do %>
+            <form phx-submit="mapbox_save" class="space-y-4">
+              <label class="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  class="toggle toggle-primary"
+                  name="mapbox[enabled]"
+                  value="true"
+                  checked={truthy_param?(Map.get(@mapbox_form.source, "enabled"))}
+                />
+                <span>Enable Mapbox maps</span>
+              </label>
+
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <div class="text-xs uppercase tracking-wider text-base-content/60 mb-1">
+                    Style (Light)
+                  </div>
+                  <input
+                    type="text"
+                    name="mapbox[style_light]"
+                    value={
+                      Map.get(@mapbox_form.source, "style_light") ||
+                        "mapbox://styles/mapbox/light-v11"
+                    }
+                    class="input input-bordered w-full"
+                    placeholder="mapbox://styles/..."
+                  />
+                </div>
+                <div>
+                  <div class="text-xs uppercase tracking-wider text-base-content/60 mb-1">
+                    Style (Dark)
+                  </div>
+                  <input
+                    type="text"
+                    name="mapbox[style_dark]"
+                    value={
+                      Map.get(@mapbox_form.source, "style_dark") || "mapbox://styles/mapbox/dark-v11"
+                    }
+                    class="input input-bordered w-full"
+                    placeholder="mapbox://styles/..."
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div class="text-xs uppercase tracking-wider text-base-content/60 mb-1">
+                  Access token
+                </div>
+                <input
+                  type="password"
+                  name="mapbox[access_token]"
+                  value=""
+                  class="input input-bordered w-full font-mono"
+                  placeholder="pk.... (leave blank to keep existing)"
+                  autocomplete="off"
+                />
+                <div class="mt-1 flex items-center gap-2 text-xs text-base-content/60">
+                  <span>
+                    Saved:
+                    <%= if @mapbox_settings && Map.get(@mapbox_settings, :access_token_present) do %>
+                      <span class="badge badge-xs badge-success">yes</span>
+                    <% else %>
+                      <span class="badge badge-xs">no</span>
+                    <% end %>
+                  </span>
+                  <label class="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-xs"
+                      name="mapbox[clear_access_token]"
+                      value="true"
+                    />
+                    <span>Clear token</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-end gap-2">
+                <button type="submit" class="btn btn-primary btn-sm">Save</button>
+              </div>
+            </form>
+          <% else %>
+            <div class="text-sm text-base-content/60">Mapbox settings are unavailable.</div>
+          <% end %>
         </.ui_panel>
       </.settings_shell>
 
@@ -1515,9 +1759,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   end
 
   # Dynamic credential fields based on source type
-  attr :form, :any, required: true
-  attr :source_type, :atom, required: true
-  attr :mode, :atom, default: :create
+  attr(:form, :any, required: true)
+  attr(:source_type, :atom, required: true)
+  attr(:mode, :atom, default: :create)
 
   defp dynamic_credentials_fields(assigns) do
     ~H"""

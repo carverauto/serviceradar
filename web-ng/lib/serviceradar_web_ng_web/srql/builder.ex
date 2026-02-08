@@ -133,11 +133,32 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp normalize_time(nil), do: ""
 
-  defp normalize_time(time) when time in ["", "last_1h", "last_24h", "last_7d", "last_30d"] do
+  defp normalize_time(time)
+       when time in ["", "last_1h", "last_6h", "last_12h", "last_24h", "last_7d", "last_30d"] do
     time
   end
 
+  # Allow absolute ranges like: time:[2026-02-07T22:50:00Z,2026-02-07T22:55:00Z]
+  # These are common when clicking into time buckets in charts.
+  defp normalize_time(time) when is_binary(time) do
+    time = String.trim(time)
+
+    if bracketed_time_range?(time) do
+      time
+    else
+      ""
+    end
+  end
+
   defp normalize_time(_), do: ""
+
+  defp bracketed_time_range?(value) when is_binary(value) do
+    # Keep this intentionally permissive; SRQL parsing is the source of truth.
+    String.starts_with?(value, "[") and String.ends_with?(value, "]") and
+      String.contains?(value, ",")
+  end
+
+  defp bracketed_time_range?(_), do: false
 
   defp normalize_bucket(%{downsample: true} = config, value) do
     candidate =

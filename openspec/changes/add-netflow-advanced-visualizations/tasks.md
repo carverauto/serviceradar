@@ -31,3 +31,7 @@ Notes:
 - Timeseries downsample (24h, 5m buckets): ~147 ms execution time using the hypertable time index.
 - Sankey 3-way group-by is expensive for long windows (24h): ~6.1 s execution time with external merge sort + large group aggregate. We keep the SRQL query bounded via top-N preselection and caps; the Sankey visualization renders for any selected time window and may be slower for longer windows. With `time:last_1h`, the same 3-way group-by runs in ~99 ms (bitmap scan on the hypertable time index + hash aggregate).
 - Sankey filter bugfix: ensure the preselection filter uses `dst_endpoint_port` (SRQL field name) rather than `dst_port`, otherwise edges can be empty.
+
+Recent demo blockers (as of 2026-02-08):
+- SRQL `time:[start,end]` ranges were being parsed as a list by the top-level token parser, which caused errors like `expected scalar value` on bucket drill-down and could cascade into empty Sankey/heatmap widgets after interaction. Fixed by treating the raw `time:` token value as a scalar when parsing SRQL.
+- The NetFlow Sankey UI is being migrated from a server-rendered SVG to a LiveView hook using `d3-sankey` so it renders reliably and looks consistent at different sizes.

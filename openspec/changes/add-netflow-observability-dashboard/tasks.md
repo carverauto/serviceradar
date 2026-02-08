@@ -62,14 +62,14 @@ All ipinfo usage is background-only; SRQL query execution never makes external A
 
 ## 5. Web-NG UI Enhancements
 - [x] 5.1 Add/extend dashboard widgets: top talkers, top ports, protocol distribution, total bandwidth, active flows
-- [x] 5.2 Add traffic time-series chart (stacked by protocol or service where feasible)
+- [x] 5.2 Add traffic time-series chart, plus a stacked area chart driven by SRQL (toggle: top ports vs top talkers)
 - [x] 5.3 Add drill-down interactions: clicking chart segments applies filters to the flows table
 - [x] 5.4 Add compact/striped table mode toggle and consistent unit auto-scaling (bytes, bps, pps)
 - [x] 5.5 Add row detail side panel with enrichment details and “related flows” pivot actions
 - [x] 5.6 Ensure filters are server-side, paginated, and URL-addressable (shareable deep links)
 
 Notes (5.3):
-SRQL `time:` filters accept a scalar token; for absolute time range drill-down we encode it as `time:"[start,end]"` (quoted) so SRQL doesn't parse it as a list.
+SRQL `time:` filters accept a scalar token. Absolute time range drill-down can be encoded as `time:"[start,end]"` (quoted) or `time:[start,end]` now that SRQL treats the raw `time:` token value as a scalar during parsing.
 
 ## 6. Security Intelligence (Optional / Phased)
 - [x] 6.1 Add threat intel indicator matching and UI badges (feature-flagged)
@@ -122,11 +122,11 @@ persist direction at ingestion time or precompute it in rollups, but that's not 
 Notes (8.6/8.7):
 As of 2026-02-07, demo verification requires redeploying updated `core-elx` and `web-ng` images that include:
 - SRQL datetime parsing fixes for the timeseries response shape (so `Traffic over time` renders points).
-- SRQL time range quoting in compare-mode drill-down (`time:"[start,end]"`) to avoid `expected scalar value`.
+- SRQL time range parsing fix for absolute ranges (`time:[start,end]`) so bucket drill-down doesn't error with `expected scalar value`.
 - Netflow settings fixes so saving `ipinfo_api_key` works via Ash (avoid `NoSuchAttribute :ipinfo_api_key`).
 - rDNS display in the NetFlow details panel and NetFlow table (table now shows hostname on the second line when present).
 - GeoIP/ASN display in the NetFlow details panel (reads from `platform.ip_geo_enrichment_cache`).
-- Sankey edges query fixes so it renders consistently (SRQL-driven).
+- Sankey visualization reliability improvements (SRQL-driven edges + D3 Sankey rendering via LiveView hook).
 - Default NetFlow view tuned to `time:last_1h` to reduce density and align with enrichment scan window.
 - Stacked traffic mix chart (protocol) rendered from SRQL bucket queries.
 - ipinfo.io/lite on-demand cache fill from local MMDB when opening flow details (no external calls).
