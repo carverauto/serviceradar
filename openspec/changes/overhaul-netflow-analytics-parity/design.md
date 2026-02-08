@@ -4,6 +4,10 @@ ServiceRadar's NetFlow analytics is currently a tab within the observability pag
 
 Key stakeholders: network operators, security analysts, capacity planners.
 
+## Delivery Strategy
+
+This change describes the target parity end-state and the decisions needed to get there. It is intentionally too large to implement as a single PR. The implementation MUST be split into smaller, independently shippable OpenSpec changes with clear acceptance criteria (route + state model first, then chart suite, then enrichment and performance).
+
 ## Goals / Non-Goals
 
 ### Goals
@@ -44,6 +48,19 @@ Akvorado uses ECharts (vue-echarts). We will implement equivalent chart types in
 **Alternatives considered:**
 - ECharts → Would introduce a second charting library, inconsistent with existing D3 charts
 - Chart.js → Less flexible than D3 for custom chart types like Sankey
+
+### Decision: SRQL-First Filter And Dimension Model (No Second Expression Language)
+
+Akvorado uses a separate SQL-like filter language. ServiceRadar MUST keep a single query language for NetFlow analytics: SRQL. The Visualize UI will build SRQL queries (and optionally store a structured state model for the UI) but the underlying execution path is SRQL only.
+
+**Alternatives considered:**
+- Add an akvorado-like filter language → duplicates parsing/validation and breaks the "all SRQL" constraint
+
+### Decision: Shareable State Uses A Versioned Compressed Payload
+
+The Visualize page options are a structured state (time range, dimensions, units, graph type, options like bidirectional/previous period). This state will be encoded in the URL as a single parameter (example: `nf=v1-<compressed>`), with a version prefix and strict validation.
+
+When state cannot be parsed, the UI must fall back to sane defaults and preserve the raw SRQL query string.
 
 ### Decision: Interface Resolution via Inventory Join
 
@@ -105,16 +122,15 @@ A new `platform.network_dictionaries` + `platform.network_dictionary_entries` pa
 
 ## Migration Plan
 
-1. Create new route `/netflow` with basic layout
-2. Add redirect from `/observability` netflows tab to `/netflow`
-3. Build chart components incrementally (stacked area first, then add others)
-4. Add interface resolution cache and enrichment worker
-5. Add application IP range database and import mechanism
-6. Add continuous aggregates (non-destructive, additive migration)
-7. Add network dictionary system
-8. Add AlienVault OTX integration
-9. Build dashboard homepage widgets
-10. Remove legacy netflow tab code from observability page
+1. Create new route `/netflow` with basic layout and SRQL-backed query execution
+2. Add redirect from `/observability` netflows tab to `/netflow` (preserve SRQL query in URL)
+3. Extract/standardize D3 hooks into a shared chart toolkit, then add missing chart types
+4. Add dimension selector and ranking/truncation controls (builds SRQL queries)
+5. Add interface/exporter cache and derived SRQL dimensions; then add units/pct-of-capacity
+6. Add CAGGs and SRQL auto-resolution for scale
+7. Add deep enrichment (app IP ranges, dictionaries, OTX)
+8. Build dashboard homepage widgets
+9. Remove legacy netflows tab code from observability page
 
 Rollback: Each step is independently reversible. The redirect can be removed to restore the old tab. New tables/CAGGs can be dropped without affecting raw flow data.
 

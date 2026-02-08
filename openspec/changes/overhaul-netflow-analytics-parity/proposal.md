@@ -1,4 +1,4 @@
-# Change: Overhaul NetFlow Analytics UI and Enrichment for Akvorado Feature Parity
+# Change: NetFlow Analytics Parity Program (Akvorado Benchmark, SRQL-Driven)
 
 ## Why
 
@@ -6,7 +6,14 @@ ServiceRadar's NetFlow analytics UI is functional but embedded as a tab within t
 
 ## What Changes
 
-### UI Overhaul (Complete Rebuild of NetFlow Analytics)
+This change is a program-level proposal that defines the target end-state and the delivery plan. Implementation will be split across multiple smaller OpenSpec changes so we can ship incrementally, validate in demo, and avoid an all-or-nothing rewrite.
+
+### Guiding Constraints
+- All NetFlow charts and widgets SHALL be driven by SRQL queries (no Ecto queries for chart data).
+- Database schema changes SHALL be done via Elixir migrations under `elixir/serviceradar_core/priv/repo/migrations/` in the `platform` schema.
+- We keep D3-based visualization hooks for consistency with existing `web-ng` patterns.
+
+### UI Overhaul (Delivered In Slices)
 
 - **Dedicated `/netflow` route** with left-panel options (time range, dimensions, filters, graph type, units, SRQL query) and right-panel visualization + data table. No longer embedded as a tab in `/observability`.
 - **5 chart types** rendered in D3 (consistent with rest of platform): stacked area, 100% stacked area, line series, grid (multi-panel), and sankey diagram.
@@ -47,3 +54,52 @@ ServiceRadar's NetFlow analytics UI is functional but embedded as a tab within t
   - Database migrations for new schema fields, continuous aggregates, network dictionaries
 - **BREAKING**: The NetFlows tab in `/observability` will be replaced by the dedicated `/netflow` route. Bookmarks to the old tab path should redirect.
 - Dependencies: Existing `add-netflow-observability-dashboard`, `add-netflow-advanced-visualizations`, `add-netflow-application-analytics`, and `add-interface-classification` changes provide the foundation. This change builds on top of them.
+
+## Delivery Plan (Phased)
+
+Phase boundaries are defined by operator-visible value and by minimizing cross-cutting schema work.
+
+### Phase A: Visualize Page Skeleton + State Model
+- Add `/netflow` LiveView with left options panel and right viz surface.
+- Implement shareable URL state for visualize options (compressed).
+- Reuse existing SRQL query execution paths and existing chart hooks where possible.
+
+### Phase B: Chart Parity (D3 Hooks)
+- Promote existing stacked area and sankey into a shared chart framework.
+- Add 100% stacked, lines, and grid.
+- Add consistent tooltips, legend toggles, and responsive layout.
+
+### Phase C: Dimension System (Akvorado-like)
+- Multi-dimension selection and ordering.
+- IP truncation controls for IP dimensions.
+- Top-N limit and `limitType` ranking modes.
+
+### Phase D: Interface/Exporter Enrichment
+- Add `platform.flow_interface_cache` + refresh worker and SRQL dimensions.
+- Add units, including pct-of-capacity (depends on interface speed).
+
+### Phase E: Scale And Rollups
+- Expand flow CAGGs and implement SRQL auto-resolution selection.
+- Validate query plans and performance.
+
+### Phase F: Deep Enrichment And Admin Systems
+- Application IP range DB + importer + SRQL 3-tier COALESCE.
+- Network dictionaries + SRQL group-by.
+- AlienVault OTX feed type and settings.
+
+### Phase G: NetFlow Dashboard Homepage
+- Widget grid with persisted per-user layout and top-N widgets.
+
+## Proposed Change Breakdown (Work Items Become Separate Changes)
+
+This program will be executed as smaller changes (IDs are proposed and can be adjusted):
+- `add-netflow-visualize-page`
+- `add-netflow-d3-chart-suite`
+- `add-netflow-dimensions-and-ranking`
+- `add-netflow-interface-exporter-cache`
+- `add-netflow-units-and-capacity`
+- `add-netflow-caggs-auto-resolution`
+- `add-netflow-app-ip-ranges`
+- `add-netflow-network-dictionaries`
+- `add-netflow-otx-feed`
+- `add-netflow-dashboard-home`
