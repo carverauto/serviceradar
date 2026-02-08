@@ -128,6 +128,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         snmp_config = load_snmp_config(agent_id)
         plugin_assignments = load_plugin_assignments(agent_id)
         plugin_engine_limits = load_plugin_engine_limits(agent_id)
+
         plugin_config = %{
           assignments: plugin_assignments,
           engine_limits: plugin_engine_limits
@@ -285,9 +286,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       []
   end
 
-  defp has_approved_package?(%PluginAssignment{
-         plugin_package: %PluginPackage{status: :approved}
-       } = assignment) do
+  defp has_approved_package?(
+         %PluginAssignment{
+           plugin_package: %PluginPackage{status: :approved}
+         } = assignment
+       ) do
     if wasm_available?(assignment.plugin_package) do
       true
     else

@@ -520,7 +520,7 @@ defmodule Monitoring.ControlStreamRequest do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  oneof :payload, 0
+  oneof(:payload, 0)
 
   field :hello, 1, type: Monitoring.ControlStreamHello, oneof: 0
   field :command_ack, 2, type: Monitoring.CommandAck, json_name: "commandAck", oneof: 0
@@ -542,7 +542,7 @@ defmodule Monitoring.ControlStreamResponse do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  oneof :payload, 0
+  oneof(:payload, 0)
 
   field :command, 1, type: Monitoring.CommandRequest, oneof: 0
   field :config, 2, type: Monitoring.AgentConfigResponse, oneof: 0
@@ -760,11 +760,11 @@ defmodule Monitoring.AgentService.Service do
 
   use GRPC.Service, name: "monitoring.AgentService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc :GetStatus, Monitoring.StatusRequest, Monitoring.StatusResponse
+  rpc(:GetStatus, Monitoring.StatusRequest, Monitoring.StatusResponse)
 
-  rpc :GetResults, Monitoring.ResultsRequest, Monitoring.ResultsResponse
+  rpc(:GetResults, Monitoring.ResultsRequest, Monitoring.ResultsResponse)
 
-  rpc :StreamResults, Monitoring.ResultsRequest, stream(Monitoring.ResultsChunk)
+  rpc(:StreamResults, Monitoring.ResultsRequest, stream(Monitoring.ResultsChunk))
 end
 
 defmodule Monitoring.AgentService.Stub do
@@ -778,17 +778,19 @@ defmodule Monitoring.AgentGatewayService.Service do
 
   use GRPC.Service, name: "monitoring.AgentGatewayService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc :Hello, Monitoring.AgentHelloRequest, Monitoring.AgentHelloResponse
+  rpc(:Hello, Monitoring.AgentHelloRequest, Monitoring.AgentHelloResponse)
 
-  rpc :GetConfig, Monitoring.AgentConfigRequest, Monitoring.AgentConfigResponse
+  rpc(:GetConfig, Monitoring.AgentConfigRequest, Monitoring.AgentConfigResponse)
 
-  rpc :PushStatus, Monitoring.GatewayStatusRequest, Monitoring.GatewayStatusResponse
+  rpc(:PushStatus, Monitoring.GatewayStatusRequest, Monitoring.GatewayStatusResponse)
 
-  rpc :StreamStatus, stream(Monitoring.GatewayStatusChunk), Monitoring.GatewayStatusResponse
+  rpc(:StreamStatus, stream(Monitoring.GatewayStatusChunk), Monitoring.GatewayStatusResponse)
 
-  rpc :ControlStream,
-      stream(Monitoring.ControlStreamRequest),
-      stream(Monitoring.ControlStreamResponse)
+  rpc(
+    :ControlStream,
+    stream(Monitoring.ControlStreamRequest),
+    stream(Monitoring.ControlStreamResponse)
+  )
 end
 
 defmodule Monitoring.AgentGatewayService.Stub do

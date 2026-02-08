@@ -75,7 +75,7 @@ defmodule ServiceRadar.Identity.RoleMapping do
       claim_value = get_key(claims, claim_key)
 
       case claim_value do
-        list when is_list(list) -> Enum.any?(list, &normalize_value(&1) == value)
+        list when is_list(list) -> Enum.any?(list, &(normalize_value(&1) == value))
         other -> normalize_value(other) == value
       end
     end

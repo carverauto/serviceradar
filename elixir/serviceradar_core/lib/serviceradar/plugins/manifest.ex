@@ -230,6 +230,7 @@ defmodule ServiceRadar.Plugins.Manifest do
   end
 
   defp validate_semver(nil, errors), do: errors
+
   defp validate_semver(version, errors) when is_binary(version) do
     case Version.parse(version) do
       {:ok, _} -> errors
@@ -355,9 +356,14 @@ defmodule ServiceRadar.Plugins.Manifest do
 
   defp optional_string_list(map, key, errors) do
     case fetch(map, key) do
-      nil -> {[], errors}
-      value when is_list(value) -> {normalize_string_list(value), validate_optional_string_list(key, value, errors)}
-      _ -> {[], ["#{key} must be a list of strings" | errors]}
+      nil ->
+        {[], errors}
+
+      value when is_list(value) ->
+        {normalize_string_list(value), validate_optional_string_list(key, value, errors)}
+
+      _ ->
+        {[], ["#{key} must be a list of strings" | errors]}
     end
   end
 

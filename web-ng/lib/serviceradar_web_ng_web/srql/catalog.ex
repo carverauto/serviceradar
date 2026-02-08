@@ -122,7 +122,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_filter_field: "src_endpoint_ip",
       filter_fields: [
         "src_endpoint_ip",
+        "src_ip",
         "dst_endpoint_ip",
+        "dst_ip",
         "src_port",
         "dst_port",
         "protocol_name",

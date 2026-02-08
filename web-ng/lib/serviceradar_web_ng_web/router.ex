@@ -363,6 +363,11 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job)
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
 
+      # NetFlow settings (directionality + enrichment configuration)
+      live("/settings/netflows", Settings.NetflowLive.Index, :index)
+      live("/settings/netflows/new", Settings.NetflowLive.Index, :new)
+      live("/settings/netflows/:id/edit", Settings.NetflowLive.Index, :edit)
+
       # Integration sources configuration
       live("/settings/networks/integrations", Settings.IntegrationsLive.Index, :index)
       live("/settings/networks/integrations/new", Settings.IntegrationsLive.Index, :new)

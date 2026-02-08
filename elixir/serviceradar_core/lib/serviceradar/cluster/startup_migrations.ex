@@ -208,7 +208,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         System.get_env("CNPG_PASSWORD")
 
     if password in [nil, ""] do
-      raise RuntimeError, "missing CNPG app password (CNPG_APP_PASSWORD[_FILE] or CNPG_PASSWORD[_FILE])"
+      raise RuntimeError,
+            "missing CNPG app password (CNPG_APP_PASSWORD[_FILE] or CNPG_PASSWORD[_FILE])"
     end
 
     password
@@ -335,7 +336,9 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     # Check if schema exists using the admin connection
     case Postgrex.query!(conn, "SELECT 1 FROM pg_namespace WHERE nspname = $1", [graph_name]) do
       %{rows: []} ->
-        Logger.debug("[StartupMigrations] AGE graph schema #{graph_name} does not exist; skipping privileges")
+        Logger.debug(
+          "[StartupMigrations] AGE graph schema #{graph_name} does not exist; skipping privileges"
+        )
 
       _ ->
         Logger.info("[StartupMigrations] Granting privileges on AGE graph schema #{graph_name}")
@@ -453,7 +456,10 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         end
 
       {:error, reason} ->
-        Logger.error("[StartupMigrations] Failed to connect as admin for AGE privileges: #{inspect(reason)}")
+        Logger.error(
+          "[StartupMigrations] Failed to connect as admin for AGE privileges: #{inspect(reason)}"
+        )
+
         raise RuntimeError, "Failed to connect as admin: #{inspect(reason)}"
     end
   end
@@ -489,7 +495,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   defp ownership_statement(oid, name, "S", app_user) do
     if sequence_owned_by_table?(oid),
       do: nil,
-      else: "ALTER SEQUENCE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+      else:
+        "ALTER SEQUENCE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
   end
 
   defp ownership_statement(_oid, name, "v", app_user) do
@@ -654,7 +661,10 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         {app_user(), admin_password}
 
       true ->
-        Logger.warning("[StartupMigrations] CNPG superuser credentials missing; falling back to app credentials")
+        Logger.warning(
+          "[StartupMigrations] CNPG superuser credentials missing; falling back to app credentials"
+        )
+
         {app_user(), app_password!()}
     end
   end

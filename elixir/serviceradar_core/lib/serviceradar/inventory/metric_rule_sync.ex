@@ -123,6 +123,7 @@ defmodule ServiceRadar.Inventory.MetricRuleSync do
     selected =
       settings.metrics_enabled == true and
         normalize_metric_name(metric_name) in normalize_selected(settings.metrics_selected)
+
     enabled = config_bool(config, :enabled, true)
     comparison = blank_to_nil(config_value(config, :comparison))
     value = config_value(config, :value)

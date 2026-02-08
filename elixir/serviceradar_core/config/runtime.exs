@@ -3,6 +3,50 @@ import Config
 # Runtime configuration for production deployments.
 # This file is executed at runtime, not compile time.
 
+# GeoLite2 MMDB configuration (all environments)
+geolite_dir = System.get_env("GEOLITE_MMDB_DIR", "/var/lib/serviceradar/geoip")
+
+geolite_city_enabled =
+  System.get_env("GEOLITE_CITY_ENABLED", "false")
+  |> String.downcase()
+  |> then(&(&1 in ["1", "true", "yes", "on"]))
+
+config :serviceradar_core,
+  geolite_mmdb_dir: geolite_dir
+
+base_geolite_dbs = [
+  %{
+    id: :geolite2_asn,
+    adapter: Geolix.Adapter.MMDB2,
+    source: Path.join(geolite_dir, "GeoLite2-ASN.mmdb")
+  },
+  %{
+    id: :geolite2_country,
+    adapter: Geolix.Adapter.MMDB2,
+    source: Path.join(geolite_dir, "GeoLite2-Country.mmdb")
+  }
+]
+
+city_geolite_dbs =
+  (geolite_city_enabled &&
+     [
+       %{
+         id: :geolite2_city,
+         adapter: Geolix.Adapter.MMDB2,
+         source: Path.join(geolite_dir, "GeoLite2-City.mmdb")
+       }
+     ]) || []
+
+ipinfo_dbs = [
+  %{
+    id: :ipinfo_lite,
+    adapter: Geolix.Adapter.MMDB2,
+    source: Path.join(geolite_dir, "ipinfo_lite.mmdb")
+  }
+]
+
+config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
 if config_env() == :prod do
   # AshCloak encryption key (required for PII encryption)
   cloak_key =

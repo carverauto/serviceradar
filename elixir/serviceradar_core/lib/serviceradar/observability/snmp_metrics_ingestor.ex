@@ -51,12 +51,20 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
              upsert_identity: :unique_timeseries_metric,
              upsert_fields: []
            ) do
-        %Ash.BulkResult{status: :success} -> :ok
+        %Ash.BulkResult{status: :success} ->
+          :ok
+
         %Ash.BulkResult{status: :error, errors: errors} = result ->
           {:error, errors || result}
-        {:ok, _} -> :ok
-        {:error, error} -> {:error, error}
-        other -> {:error, other}
+
+        {:ok, _} ->
+          :ok
+
+        {:error, error} ->
+          {:error, error}
+
+        other ->
+          {:error, other}
       end
     end
   rescue
@@ -182,14 +190,21 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
     value = fetch_value(result, ["if_index", "ifIndex", "interface_index", "interfaceIndex"])
 
     case value do
-      int when is_integer(int) -> int
+      int when is_integer(int) ->
+        int
+
       bin when is_binary(bin) ->
         case Integer.parse(bin) do
-          {parsed, _} -> parsed
+          {parsed, _} ->
+            parsed
+
           :error ->
-            parse_if_index_from_interface_uid(fetch_value(result, ["interface_uid", "interfaceUid"])) ||
+            parse_if_index_from_interface_uid(
+              fetch_value(result, ["interface_uid", "interfaceUid"])
+            ) ||
               parse_if_index_from_oid(oid)
         end
+
       _ ->
         parse_if_index_from_interface_uid(fetch_value(result, ["interface_uid", "interfaceUid"])) ||
           parse_if_index_from_oid(oid)
@@ -218,8 +233,12 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
     |> String.split(".")
     |> List.last()
     |> case do
-      nil -> nil
-      "" -> nil
+      nil ->
+        nil
+
+      "" ->
+        nil
+
       last ->
         case Integer.parse(last) do
           {parsed, _} -> parsed
@@ -231,7 +250,7 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
   defp parse_numeric(nil), do: {nil, false}
   defp parse_numeric(v) when is_integer(v), do: {v / 1, true}
   defp parse_numeric(v) when is_float(v), do: {v, true}
-  defp parse_numeric(v) when is_boolean(v), do: {(if v, do: 1.0, else: 0.0), true}
+  defp parse_numeric(v) when is_boolean(v), do: {if(v, do: 1.0, else: 0.0), true}
 
   defp parse_numeric(v) when is_binary(v) do
     case Float.parse(v) do
@@ -282,7 +301,9 @@ defmodule ServiceRadar.Observability.SnmpMetricsIngestor do
     metric_name
     |> String.trim()
     |> case do
-      "" -> nil
+      "" ->
+        nil
+
       name ->
         case String.split(name, "::", parts: 2) do
           [base, _suffix] -> base

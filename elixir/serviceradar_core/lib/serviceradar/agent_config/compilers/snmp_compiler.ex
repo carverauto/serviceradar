@@ -291,7 +291,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       |> apply_device_filters(filters)
 
     case Page.unwrap(Ash.read(query, actor: actor)) do
-      {:ok, devices} -> devices
+      {:ok, devices} ->
+        devices
+
       {:error, reason} ->
         Logger.warning("SNMPCompiler: failed to query devices - #{inspect(reason)}")
         []
@@ -458,15 +460,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       Logger.debug("SNMPCompiler: skipping device #{device.uid} (no OIDs)")
       nil
     else
-    # Get host address - prefer IP, fall back to hostname
-    host = device.ip || device.hostname
+      # Get host address - prefer IP, fall back to hostname
+      host = device.ip || device.hostname
 
-    if missing_host?(host) do
-      Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
-      nil
-    else
-      compile_device_target_with_host(device, profile, oids, actor, host)
-    end
+      if missing_host?(host) do
+        Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
+        nil
+      else
+        compile_device_target_with_host(device, profile, oids, actor, host)
+      end
     end
   end
 

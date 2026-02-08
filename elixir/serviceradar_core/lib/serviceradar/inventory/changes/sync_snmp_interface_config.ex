@@ -107,7 +107,8 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   defp cleanup_target(settings, opts) do
     with {:ok, interface} <- load_interface(settings, opts),
          {:ok, profile} <- load_default_profile(opts),
-         host when is_binary(host) and host != "" <- resolve_target_host(settings, interface, opts),
+         host when is_binary(host) and host != "" <-
+           resolve_target_host(settings, interface, opts),
          {:ok, target} <- find_target(profile.id, host, opts) do
       sync_target_oids(settings, interface, target, opts)
       prune_empty_target(target, opts)
@@ -380,7 +381,8 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
       %{
         oid: "#{oid}.#{if_index}",
         name: metric_oid_name(metric_name, interface.interface_uid),
-        data_type: normalize_data_type(Map.get(metric, "data_type") || Map.get(metric, :data_type)),
+        data_type:
+          normalize_data_type(Map.get(metric, "data_type") || Map.get(metric, :data_type)),
         scale: 1.0,
         delta: metric_delta?(metric)
       }

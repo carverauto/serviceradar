@@ -18,6 +18,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     MapperSeed,
     MapperUnifiController
   }
+
   alias ServiceRadar.SNMPProfiles.CredentialResolver
 
   @default_workers 20

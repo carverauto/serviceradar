@@ -27,13 +27,13 @@ cnpg_ca_file =
 cnpg_cert_file =
   System.get_env(
     "CNPG_CERT_FILE",
-    if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "workstation.pem"), else: "")
+    if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "db-client.pem"), else: "")
   )
 
 cnpg_key_file =
   System.get_env(
     "CNPG_KEY_FILE",
-    if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "workstation-key.pem"), else: "")
+    if(cnpg_cert_dir != "", do: Path.join(cnpg_cert_dir, "db-client-key.pem"), else: "")
   )
 
 cnpg_verify_peer = cnpg_ssl_mode in ~w(verify-ca verify-full)

@@ -104,7 +104,11 @@ defmodule ServiceRadar.Plugins.ManifestTest do
   end
 
   test "config schema validation rejects unsupported keys" do
-    schema = %{"type" => "object", "properties" => %{"url" => %{"type" => "string", "foo" => "bar"}}}
+    schema = %{
+      "type" => "object",
+      "properties" => %{"url" => %{"type" => "string", "foo" => "bar"}}
+    }
+
     assert {:error, errors} = Manifest.validate_config_schema(schema)
     assert Enum.any?(errors, &String.contains?(&1, "unsupported keys"))
   end

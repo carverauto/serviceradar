@@ -65,6 +65,7 @@ defmodule ServiceRadar.Identity.UserAuthEvent do
       allow_nil? true
       public? false
     end
+
     create_timestamp :inserted_at
   end
 

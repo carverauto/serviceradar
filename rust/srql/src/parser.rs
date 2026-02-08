@@ -219,7 +219,10 @@ pub fn parse(input: &str) -> Result<QueryAst> {
                 order.extend(parse_order(value.as_scalar()?));
             }
             "time" | "timeframe" => {
-                time_filter = Some(parse_time_value(value.as_scalar()?)?);
+                // `parse_value` treats bracketed ranges like `[start,end]` as a list, but the SRQL
+                // time parser supports bracketed absolute ranges as a scalar string.
+                // Use the raw token value so both presets (`last_1h`) and absolute ranges work.
+                time_filter = Some(parse_time_value(raw_value)?);
             }
             "bucket" | "downsample" => {
                 downsample_bucket_seconds = Some(parse_bucket_seconds(value.as_scalar()?)?);

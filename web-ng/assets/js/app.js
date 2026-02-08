@@ -24,6 +24,10 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 
+import * as d3 from "d3"
+import {sankey as d3Sankey, sankeyLinkHorizontal as d3SankeyLinkHorizontal} from "d3-sankey"
+import mapboxgl from "mapbox-gl"
+
 // Preload JDM editor CSS - ensures styles are bundled
 import '@gorules/jdm-editor/dist/style.css'
 
@@ -189,6 +193,97 @@ const Hooks = {
       if (this.reactRoot) {
         this.reactRoot.unmount();
       }
+    }
+  },
+
+  SRQLTimeCookie: {
+    mounted() {
+      this._input = this.el.querySelector('input[name="q"]')
+      if (!this._input) return
+
+      this._debounceTimer = null
+
+      const hasQParam = () => {
+        try {
+          return new URLSearchParams(window.location.search).has("q")
+        } catch (_e) {
+          return false
+        }
+      }
+
+      const cookieGet = (name) => {
+        const needle = `${name}=`
+        const parts = (document.cookie || "").split(";").map((s) => s.trim())
+        for (const part of parts) {
+          if (part.startsWith(needle)) return decodeURIComponent(part.slice(needle.length))
+        }
+        return null
+      }
+
+      const cookieSet = (name, value, days = 365) => {
+        if (!value) return
+        const maxAge = days * 24 * 60 * 60
+        document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${maxAge}; Path=/; SameSite=Lax`
+      }
+
+      const extractTimeToken = (q) => {
+        if (!q || typeof q !== "string") return null
+        const m = q.match(/(?:^|\\s)time:(?:\"([^\"]+)\"|(\\S+))/)
+        return m ? (m[1] || m[2] || null) : null
+      }
+
+      const upsertTimeToken = (q, timeToken) => {
+        if (!q || typeof q !== "string") q = ""
+        const trimmed = q.trim()
+        const replacement = ` time:${timeToken}`
+        if (/(?:^|\\s)time:(?:\"[^\"]+\"|\\S+)/.test(trimmed)) {
+          return trimmed.replace(/(?:^|\\s)time:(?:\"[^\"]+\"|\\S+)/, replacement).trim()
+        }
+        return (trimmed + replacement).trim()
+      }
+
+      const persistFromInput = () => {
+        const token = extractTimeToken(this._input.value)
+        if (token) cookieSet("srql_time", token)
+      }
+
+      const maybeRestore = () => {
+        if (hasQParam()) {
+          // Respect deep links; just persist whatever the URL/query contains.
+          persistFromInput()
+          return
+        }
+
+        const token = cookieGet("srql_time")
+        if (!token) return
+
+        const current = (this._input.value || "").toString()
+        const next = upsertTimeToken(current, token)
+        if (next !== current) {
+          this._input.value = next
+          if (typeof this.el.requestSubmit === "function") {
+            this.el.requestSubmit()
+          } else {
+            this.el.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+          }
+        }
+      }
+
+      this._onInput = () => {
+        clearTimeout(this._debounceTimer)
+        this._debounceTimer = setTimeout(() => persistFromInput(), 150)
+      }
+      this._onSubmit = () => persistFromInput()
+
+      this._input.addEventListener("input", this._onInput)
+      this.el.addEventListener("submit", this._onSubmit)
+
+      maybeRestore()
+    },
+    destroyed() {
+      if (this._input && this._onInput) this._input.removeEventListener("input", this._onInput)
+      if (this._onSubmit) this.el.removeEventListener("submit", this._onSubmit)
+      clearTimeout(this._debounceTimer)
     }
   },
 
@@ -399,6 +494,453 @@ const Hooks = {
     destroyed() {
       if (this.cleanup) this.cleanup()
     }
+  },
+
+  NetflowSankeyChart: {
+    mounted() {
+      this._render = () => this._draw()
+      this._resizeObserver = new ResizeObserver(() => this._render())
+      this._resizeObserver.observe(this.el)
+      this._render()
+    },
+    updated() {
+      this._render()
+    },
+    destroyed() {
+      try { this._resizeObserver?.disconnect() } catch (_e) {}
+    },
+    _draw() {
+      const el = this.el
+      const svg = el.querySelector("svg")
+      if (!svg) return
+
+      const edges = JSON.parse(el.dataset.edges || "[]")
+      const width = Math.max(300, el.clientWidth || 0)
+      const height = Math.max(220, el.clientHeight || 0)
+
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`)
+      svg.setAttribute("preserveAspectRatio", "xMidYMid meet")
+
+      // Clear
+      while (svg.firstChild) svg.removeChild(svg.firstChild)
+
+      if (!Array.isArray(edges) || edges.length === 0) {
+        return
+      }
+
+      const formatBytes = (value) => {
+        const abs = Math.abs(value || 0)
+        if (abs >= 1e9) return `${(value / 1e9).toFixed(2)} GB`
+        if (abs >= 1e6) return `${(value / 1e6).toFixed(2)} MB`
+        if (abs >= 1e3) return `${(value / 1e3).toFixed(2)} KB`
+        return `${(value || 0).toFixed(0)} B`
+      }
+
+      const nodeIds = new Map()
+      const nodes = []
+      const addNode = (id, group) => {
+        if (!id) return
+        if (nodeIds.has(id)) return
+        nodeIds.set(id, true)
+        nodes.push({ id, group })
+      }
+
+      const links = []
+      for (const e of edges) {
+        const src = e?.src
+        const mid = e?.mid
+        const dst = e?.dst
+        const bytes = Number(e?.bytes || 0)
+        const port = e?.port
+        if (!src || !mid || !dst || !Number.isFinite(bytes) || bytes <= 0) continue
+
+        addNode(src, "src")
+        addNode(mid, "mid")
+        addNode(dst, "dst")
+
+        // Model as 2-hop links so d3-sankey lays out 3 columns.
+        links.push({ source: src, target: mid, value: bytes, edge: { src, dst, port } })
+        links.push({ source: mid, target: dst, value: bytes, edge: { src, dst, port } })
+      }
+
+      const sankey = d3Sankey()
+        .nodeId((d) => d.id)
+        .nodeWidth(12)
+        .nodePadding(10)
+        .extent([[12, 10], [width - 12, height - 10]])
+
+      const graph = sankey({
+        nodes: nodes.map((d) => ({ ...d })),
+        links: links.map((d) => ({ ...d })),
+      })
+
+      const g = d3.select(svg).append("g")
+
+      const color = d3.scaleOrdinal()
+        .domain(["src", "mid", "dst"])
+        .range(["#60a5fa", "#a78bfa", "#34d399"])
+
+      // Links
+      g.append("g")
+        .attr("fill", "none")
+        .selectAll("path")
+        .data(graph.links)
+        .join("path")
+        .attr("d", d3SankeyLinkHorizontal())
+        .attr("stroke", (d) => {
+          const grp = d?.source?.group || "src"
+          return color(grp)
+        })
+        .attr("stroke-opacity", 0.25)
+        .attr("stroke-width", (d) => Math.max(1, d.width || 1))
+        .style("cursor", "pointer")
+        .on("click", (_evt, d) => {
+          const edge = d?.edge
+          if (!edge) return
+          this.pushEvent("netflow_sankey_edge", {
+            src: edge.src,
+            dst: edge.dst,
+            port: edge.port ?? "",
+          })
+        })
+        .append("title")
+        .text((d) => {
+          const s = d?.source?.id || ""
+          const t = d?.target?.id || ""
+          return `${s} -> ${t}\n${formatBytes(d.value)}`
+        })
+
+      // Nodes
+      const node = g.append("g")
+        .selectAll("g")
+        .data(graph.nodes)
+        .join("g")
+
+      node.append("rect")
+        .attr("x", (d) => d.x0)
+        .attr("y", (d) => d.y0)
+        .attr("height", (d) => Math.max(1, d.y1 - d.y0))
+        .attr("width", (d) => Math.max(1, d.x1 - d.x0))
+        .attr("rx", 3)
+        .attr("fill", (d) => color(d.group || "src"))
+        .attr("fill-opacity", 0.65)
+
+      node.append("title")
+        .text((d) => d.id)
+
+      // Labels (trim aggressively to avoid overlap)
+      node.append("text")
+        .attr("x", (d) => (d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6))
+        .attr("y", (d) => (d.y0 + d.y1) / 2)
+        .attr("dy", "0.35em")
+        .attr("text-anchor", (d) => (d.x0 < width / 2 ? "start" : "end"))
+        .attr("font-size", 10)
+        .attr("fill", "currentColor")
+        .attr("opacity", 0.75)
+        .text((d) => {
+          const s = String(d.id || "")
+          return s.length > 24 ? s.slice(0, 21) + "..." : s
+        })
+    }
+  },
+
+  NetflowStackedAreaChart: {
+    mounted() {
+      this._render = () => this._draw()
+      this._resizeObserver = new ResizeObserver(() => this._render())
+      this._resizeObserver.observe(this.el)
+      this._render()
+    },
+    updated() {
+      this._render()
+    },
+    destroyed() {
+      try { this._resizeObserver?.disconnect() } catch (_e) {}
+    },
+    _draw() {
+      const el = this.el
+      const svg = el.querySelector("svg")
+      if (!svg) return
+
+      const raw = JSON.parse(el.dataset.points || "[]")
+      const keys = JSON.parse(el.dataset.keys || "[]")
+      const width = Math.max(360, el.clientWidth || 0)
+      const height = Math.max(220, el.clientHeight || 0)
+      const m = { top: 8, right: 10, bottom: 18, left: 36 }
+      const iw = Math.max(1, width - m.left - m.right)
+      const ih = Math.max(1, height - m.top - m.bottom)
+
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`)
+      svg.setAttribute("preserveAspectRatio", "xMidYMid meet")
+      while (svg.firstChild) svg.removeChild(svg.firstChild)
+
+      if (!Array.isArray(raw) || raw.length === 0 || !Array.isArray(keys) || keys.length === 0) {
+        return
+      }
+
+      const data = raw
+        .map((d) => {
+          const t = new Date(d.t)
+          const out = { t }
+          for (const k of keys) out[k] = Number(d[k] || 0)
+          return out
+        })
+        .filter((d) => d.t instanceof Date && !isNaN(d.t.getTime()))
+        .sort((a, b) => a.t - b.t)
+
+      if (data.length === 0) return
+
+      const stack = d3.stack().keys(keys)
+      const series = stack(data)
+
+      const maxY = d3.max(series, (s) => d3.max(s, (d) => d[1])) || 1
+      const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
+      const y = d3.scaleLinear().domain([0, maxY]).nice().range([ih, 0])
+
+      const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
+
+      const color = d3.scaleOrdinal()
+        .domain(keys)
+        .range(d3.schemeTableau10.concat(d3.schemeSet3).slice(0, keys.length))
+
+      const area = d3.area()
+        .x((d) => x(d.data.t))
+        .y0((d) => y(d[0]))
+        .y1((d) => y(d[1]))
+        .curve(d3.curveMonotoneX)
+
+      g.append("g")
+        .selectAll("path")
+        .data(series)
+        .join("path")
+        .attr("d", area)
+        .attr("fill", (d) => color(d.key))
+        .attr("fill-opacity", 0.55)
+
+      g.append("g")
+        .attr("transform", `translate(0,${ih})`)
+        .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
+        .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+
+      g.append("g")
+        .call(d3.axisLeft(y).ticks(4).tickSizeOuter(0))
+        .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+    }
+  },
+
+  MapboxFlowMap: {
+    mounted() {
+      this._initOrUpdate()
+      this._themeObserver = new MutationObserver(() => this._applyThemeStyle())
+      // daisyUI typically drives theme via `data-theme` on <html>, but be resilient:
+      // some pages/toggles may update `class`, inline styles, or set theme on <body>.
+      this._themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme", "class", "style"],
+      })
+      this._themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["data-theme", "class", "style"],
+      })
+
+      this._colorSchemeMql = window.matchMedia?.("(prefers-color-scheme: dark)") || null
+      this._onColorSchemeChange = () => this._applyThemeStyle()
+      if (this._colorSchemeMql?.addEventListener) {
+        this._colorSchemeMql.addEventListener("change", this._onColorSchemeChange)
+      } else if (this._colorSchemeMql?.addListener) {
+        // Safari
+        this._colorSchemeMql.addListener(this._onColorSchemeChange)
+      }
+    },
+    updated() {
+      this._initOrUpdate()
+    },
+    destroyed() {
+      try {
+        this._themeObserver?.disconnect()
+      } catch (_e) {}
+      try {
+        if (this._colorSchemeMql?.removeEventListener && this._onColorSchemeChange) {
+          this._colorSchemeMql.removeEventListener("change", this._onColorSchemeChange)
+        } else if (this._colorSchemeMql?.removeListener && this._onColorSchemeChange) {
+          this._colorSchemeMql.removeListener(this._onColorSchemeChange)
+        }
+      } catch (_e) {}
+      try {
+        this._map?.remove()
+      } catch (_e) {}
+      this._map = null
+      this._markers = []
+    },
+    _initOrUpdate() {
+      const token = this.el.dataset.accessToken || ""
+      const enabled = (this.el.dataset.enabled || "false") === "true"
+      const styleLight = this.el.dataset.styleLight || "mapbox://styles/mapbox/light-v11"
+      const styleDark = this.el.dataset.styleDark || "mapbox://styles/mapbox/dark-v11"
+      const markers = JSON.parse(this.el.dataset.markers || "[]")
+
+      if (!enabled || !token || !Array.isArray(markers) || markers.length === 0) {
+        try {
+          this._map?.remove()
+        } catch (_e) {}
+        this._map = null
+        this._markers = []
+        return
+      }
+
+      this._token = token
+      this._styleLight = styleLight
+      this._styleDark = styleDark
+      this._markerData = markers
+
+      if (!this._map) {
+        mapboxgl.accessToken = token
+        const style = this._currentStyle()
+
+        this._map = new mapboxgl.Map({
+          container: this.el,
+          style,
+          center: [0, 0],
+          zoom: 1.2,
+          attributionControl: false,
+        })
+
+        this._map.addControl(new mapboxgl.NavigationControl({ showCompass: true }), "top-right")
+
+        this._map.on("load", () => {
+          this._syncMarkers()
+          this._fitToMarkers()
+          this._stampStyleUrl(style)
+        })
+      } else {
+        if (mapboxgl.accessToken !== token) {
+          try {
+            this._map?.remove()
+          } catch (_e) {}
+          this._map = null
+          this._markers = []
+          this._initOrUpdate()
+          return
+        }
+
+        this._applyThemeStyle()
+        this._syncMarkers()
+        this._fitToMarkers()
+      }
+    },
+    _currentStyle() {
+      return this._isDarkMode() ? this._styleDark : this._styleLight
+    },
+    _isDarkMode() {
+      // 1) Prefer computed `color-scheme` (best signal when themes set it)
+      try {
+        const cs = window.getComputedStyle(document.documentElement).colorScheme
+        if (typeof cs === "string") {
+          if (cs.includes("dark")) return true
+          if (cs.includes("light")) return false
+        }
+      } catch (_e) {}
+
+      // 2) Fall back to explicit theme names for the common case
+      const themeAttr =
+        document.documentElement.getAttribute("data-theme") ||
+        document.body?.getAttribute?.("data-theme") ||
+        ""
+      const theme = String(themeAttr || "").toLowerCase().trim()
+      if (theme === "dark") return true
+      if (theme === "light") return false
+
+      // 3) Infer from background luminance (works even for custom themes)
+      const bg =
+        (document.body && window.getComputedStyle(document.body).backgroundColor) ||
+        window.getComputedStyle(document.documentElement).backgroundColor ||
+        ""
+      const m = String(bg).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
+      if (m) {
+        const r = Number(m[1]) / 255
+        const g = Number(m[2]) / 255
+        const b = Number(m[3]) / 255
+        // Relative luminance (sRGB)
+        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return lum < 0.45
+      }
+
+      // 4) Last resort: OS preference
+      return !!this._colorSchemeMql?.matches
+    },
+    _styleUrlFromMeta() {
+      try {
+        const meta = this._map?.getStyle()?.metadata || {}
+        return meta["sr_style_url"]
+      } catch (_e) {
+        return null
+      }
+    },
+    _stampStyleUrl(url) {
+      try {
+        const style = this._map.getStyle()
+        style.metadata = { ...(style.metadata || {}), sr_style_url: url }
+      } catch (_e) {}
+    },
+    _applyThemeStyle() {
+      if (!this._map) return
+      const desired = this._currentStyle()
+      const current = this._styleUrlFromMeta()
+      if (current === desired) return
+
+      this._map.setStyle(desired, { diff: true })
+      this._map.once("style.load", () => {
+        this._stampStyleUrl(desired)
+        this._syncMarkers()
+      })
+    },
+    _syncMarkers() {
+      if (!this._map) return
+      const data = Array.isArray(this._markerData) ? this._markerData : []
+
+      for (const m of this._markers || []) {
+        try {
+          m.remove()
+        } catch (_e) {}
+      }
+      this._markers = []
+
+      for (const d of data) {
+        const lng = Number(d?.lng)
+        const lat = Number(d?.lat)
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue
+
+        const label = String(d?.label || "")
+        const popup = label ? new mapboxgl.Popup({ offset: 20 }).setText(label) : null
+
+        const marker = new mapboxgl.Marker().setLngLat([lng, lat])
+        if (popup) marker.setPopup(popup)
+        marker.addTo(this._map)
+
+        this._markers.push(marker)
+      }
+    },
+    _fitToMarkers() {
+      if (!this._map || !Array.isArray(this._markerData) || this._markerData.length === 0) return
+
+      const coords = this._markerData
+        .map((d) => [Number(d?.lng), Number(d?.lat)])
+        .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat))
+
+      if (coords.length === 0) return
+
+      if (coords.length === 1) {
+        this._map.easeTo({ center: coords[0], zoom: 3.2, duration: 250 })
+        return
+      }
+
+      const bounds = coords.reduce(
+        (b, c) => b.extend(c),
+        new mapboxgl.LngLatBounds(coords[0], coords[0])
+      )
+
+      this._map.fitBounds(bounds, { padding: 28, duration: 250, maxZoom: 6 })
+    },
   },
 
   BulkEditTagsToggle: {

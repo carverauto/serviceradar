@@ -146,14 +146,14 @@ defmodule ServiceRadar.Identity.AuthSettings do
 
       # Broadcast change for cache invalidation
       change after_action(fn _changeset, result, _context ->
-        Phoenix.PubSub.broadcast(
-          ServiceRadarWebNG.PubSub,
-          "auth_settings:changed",
-          {:auth_settings_updated, result}
-        )
+               Phoenix.PubSub.broadcast(
+                 ServiceRadarWebNG.PubSub,
+                 "auth_settings:changed",
+                 {:auth_settings_updated, result}
+               )
 
-        {:ok, result}
-      end)
+               {:ok, result}
+             end)
     end
   end
 

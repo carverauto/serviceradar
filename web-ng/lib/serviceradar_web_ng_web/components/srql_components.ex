@@ -9,14 +9,14 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
-  attr :query, :string, default: nil
-  attr :draft, :string, default: nil
-  attr :loading, :boolean, default: false
-  attr :builder_available, :boolean, default: true
-  attr :builder_open, :boolean, default: false
-  attr :builder_supported, :boolean, default: true
-  attr :builder_sync, :boolean, default: true
-  attr :builder, :map, default: %{}
+  attr(:query, :string, default: nil)
+  attr(:draft, :string, default: nil)
+  attr(:loading, :boolean, default: false)
+  attr(:builder_available, :boolean, default: true)
+  attr(:builder_open, :boolean, default: false)
+  attr(:builder_supported, :boolean, default: true)
+  attr(:builder_sync, :boolean, default: true)
+  attr(:builder, :map, default: %{})
 
   def srql_query_bar(assigns) do
     assigns =
@@ -27,6 +27,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     ~H"""
     <div class="w-full max-w-4xl">
       <form
+        id="srql-query-bar"
+        phx-hook="SRQLTimeCookie"
         phx-change="srql_change"
         phx-submit="srql_submit"
         class="flex items-center gap-2 w-full"
@@ -61,13 +63,13 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     """
   end
 
-  attr :id, :string, required: true
-  attr :rows, :list, default: []
-  attr :columns, :list, default: nil
-  attr :max_columns, :integer, default: 10
-  attr :container, :boolean, default: true
-  attr :class, :any, default: nil
-  attr :empty_message, :string, default: "No results."
+  attr(:id, :string, required: true)
+  attr(:rows, :list, default: [])
+  attr(:columns, :list, default: nil)
+  attr(:max_columns, :integer, default: 10)
+  attr(:container, :boolean, default: true)
+  attr(:class, :any, default: nil)
+  attr(:empty_message, :string, default: "No results.")
 
   def srql_results_table(assigns) do
     columns =
@@ -132,8 +134,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     """
   end
 
-  attr :col, :string, required: true
-  attr :value, :any, default: nil
+  attr(:col, :string, required: true)
+  attr(:value, :any, default: nil)
 
   def srql_cell(assigns) do
     assigns =
@@ -163,7 +165,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     """
   end
 
-  attr :viz, :any, default: :none
+  attr(:viz, :any, default: :none)
 
   def srql_auto_viz(assigns) do
     ~H"""
@@ -187,7 +189,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     """
   end
 
-  attr :viz, :any, required: true
+  attr(:viz, :any, required: true)
 
   defp timeseries_viz(%{viz: {:timeseries, %{x: x, y: y, points: points}}} = assigns) do
     assigns =
@@ -220,7 +222,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   defp timeseries_viz(assigns), do: assigns |> assign(:viz, :none) |> timeseries_viz()
 
-  attr :viz, :any, required: true
+  attr(:viz, :any, required: true)
 
   defp categories_viz(
          %{viz: {:categories, %{label: label, value: value, items: items}}} = assigns
@@ -270,7 +272,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   defp ensure_positive_max(value) when is_number(value) and value > 0, do: value
   defp ensure_positive_max(_value), do: 1.0
 
-  attr :points, :list, default: []
+  attr(:points, :list, default: [])
 
   def srql_sparkline(assigns) do
     assigns = assign(assigns, :spark, sparkline(assigns.points))
@@ -611,9 +613,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   defp format_category_label(value), do: to_string(value)
 
-  attr :supported, :boolean, default: true
-  attr :sync, :boolean, default: true
-  attr :builder, :map, default: %{}
+  attr(:supported, :boolean, default: true)
+  attr(:sync, :boolean, default: true)
+  attr(:builder, :map, default: %{})
 
   def srql_query_builder(assigns) do
     assigns = assign_new(assigns, :builder, fn -> %{} end)
@@ -681,8 +683,21 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                 <.query_builder_pill label="Time">
                   <.ui_inline_select name="builder[time]" disabled={not @supported}>
                     <option value="" selected={(@builder["time"] || "") == ""}>Any</option>
+                    <%= if is_binary(@builder["time"]) and
+                          String.starts_with?(@builder["time"], "[") and
+                          String.ends_with?(@builder["time"], "]") do %>
+                      <option value={@builder["time"]} selected>
+                        Custom range
+                      </option>
+                    <% end %>
                     <option value="last_1h" selected={@builder["time"] == "last_1h"}>
                       Last 1h
+                    </option>
+                    <option value="last_6h" selected={@builder["time"] == "last_6h"}>
+                      Last 6h
+                    </option>
+                    <option value="last_12h" selected={@builder["time"] == "last_12h"}>
+                      Last 12h
                     </option>
                     <option value="last_24h" selected={@builder["time"] == "last_24h"}>
                       Last 24h

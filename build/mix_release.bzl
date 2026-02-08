@@ -189,6 +189,15 @@ patch_file(
     ],
 )
 
+# Patch permit to avoid struct-update typing warnings under Elixir 1.19.
+patch_file(
+    Path("deps/permit/lib/permit/permissions/disjunctive_normal_form.ex"),
+    [
+        ("def add_clauses(dnf, clauses) do\\n", "def add_clauses(%DNF{} = dnf, clauses) do\\n"),
+        ("def add_clauses(dnf, clause) do\\n", "def add_clauses(%DNF{} = dnf, clause) do\\n"),
+    ],
+)
+
 # Patch protobuf extension.ex for Context struct updates
 patch_file(
     Path("deps/protobuf/lib/protobuf/protoc/generator/extension.ex"),

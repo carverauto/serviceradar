@@ -61,8 +61,11 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettingsSeeder do
 
   defp create_default(opts) do
     case DeviceCleanupSettings.create_settings(%{}, opts) do
-      {:ok, _} -> :ok
-      {:error, reason} -> Logger.warning("Failed to seed device cleanup settings: #{inspect(reason)}")
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to seed device cleanup settings: #{inspect(reason)}")
     end
   end
 

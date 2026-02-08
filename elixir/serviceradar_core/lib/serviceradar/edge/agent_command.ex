@@ -171,8 +171,19 @@ defmodule ServiceRadar.Edge.AgentCommand do
       authorize_if actor_attribute_equals(:role, :operator)
     end
 
-    policy action([:create, :mark_sent, :acknowledge, :start, :update_progress, :complete, :fail,
-                   :expire, :cancel, :mark_offline, :destroy]) do
+    policy action([
+             :create,
+             :mark_sent,
+             :acknowledge,
+             :start,
+             :update_progress,
+             :complete,
+             :fail,
+             :expire,
+             :cancel,
+             :mark_offline,
+             :destroy
+           ]) do
       authorize_if actor_attribute_equals(:role, :system)
     end
   end
@@ -197,16 +208,16 @@ defmodule ServiceRadar.Edge.AgentCommand do
       allow_nil? false
 
       constraints one_of: [
-                   :queued,
-                   :sent,
-                   :acknowledged,
-                   :running,
-                   :completed,
-                   :failed,
-                   :expired,
-                   :canceled,
-                   :offline
-                 ]
+                    :queued,
+                    :sent,
+                    :acknowledged,
+                    :running,
+                    :completed,
+                    :failed,
+                    :expired,
+                    :canceled,
+                    :offline
+                  ]
 
       default :queued
     end

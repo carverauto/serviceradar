@@ -233,12 +233,14 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
 
     # Create checks
     policy action(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "services.create"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "services.create"}
     end
 
     # Update checks
     policy action([:update, :enable, :disable, :reassign_device]) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "services.update"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "services.update"}
     end
 
     # Record results: Operators/admins

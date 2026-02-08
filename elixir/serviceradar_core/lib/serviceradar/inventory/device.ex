@@ -79,39 +79,49 @@ defmodule ServiceRadar.Inventory.Device do
 
     read :by_uid do
       argument :uid, :string, allow_nil?: false
+
       argument :include_deleted, :boolean do
         allow_nil? true
         default false
       end
+
       get? true
       filter expr(uid == ^arg(:uid) and (is_nil(deleted_at) or ^arg(:include_deleted)))
     end
 
     read :by_ip do
       argument :ip, :string, allow_nil?: false
+
       argument :include_deleted, :boolean do
         allow_nil? true
         default false
       end
+
       filter expr(ip == ^arg(:ip) and (is_nil(deleted_at) or ^arg(:include_deleted)))
     end
 
     read :by_mac do
       argument :mac, :string, allow_nil?: false
+
       argument :include_deleted, :boolean do
         allow_nil? true
         default false
       end
+
       filter expr(mac == ^arg(:mac) and (is_nil(deleted_at) or ^arg(:include_deleted)))
     end
 
     read :by_gateway do
       argument :gateway_id, :string, allow_nil?: false
+
       argument :include_deleted, :boolean do
         allow_nil? true
         default false
       end
-      filter expr(gateway_id == ^arg(:gateway_id) and (is_nil(deleted_at) or ^arg(:include_deleted)))
+
+      filter expr(
+               gateway_id == ^arg(:gateway_id) and (is_nil(deleted_at) or ^arg(:include_deleted))
+             )
     end
 
     read :available do
@@ -275,10 +285,13 @@ defmodule ServiceRadar.Inventory.Device do
           |> Ash.Query.filter(uid in ^device_uids)
 
         result =
-          Ash.bulk_update(query, :soft_delete, %{
-            deleted_reason: deleted_reason,
-            deleted_by: deleted_by
-          },
+          Ash.bulk_update(
+            query,
+            :soft_delete,
+            %{
+              deleted_reason: deleted_reason,
+              deleted_by: deleted_by
+            },
             actor: actor,
             return_errors?: true,
             return_records?: false
@@ -358,7 +371,8 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     policy action(:bulk_soft_delete) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "devices.bulk_delete"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "devices.bulk_delete"}
     end
   end
 
