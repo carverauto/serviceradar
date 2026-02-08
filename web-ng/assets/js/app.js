@@ -28,6 +28,18 @@ import * as d3 from "d3"
 import {sankey as d3Sankey, sankeyLinkHorizontal as d3SankeyLinkHorizontal} from "d3-sankey"
 import mapboxgl from "mapbox-gl"
 
+import {
+  attachTimeTooltip as nfAttachTimeTooltip,
+  buildLegend as nfBuildLegend,
+  chartDims as nfChartDims,
+  clearSVG as nfClearSVG,
+  colorScale as nfColorScale,
+  ensureSVG as nfEnsureSVG,
+  fmtPct as nfFmtPct,
+  normalizeTimeSeries as nfNormalizeTimeSeries,
+  parseSeriesData as nfParseSeriesData,
+} from "./netflow_charts/util"
+
 // Preload JDM editor CSS - ensures styles are bundled
 import '@gorules/jdm-editor/dist/style.css'
 
@@ -508,6 +520,7 @@ const Hooks = {
     },
     destroyed() {
       try { this._resizeObserver?.disconnect() } catch (_e) {}
+      try { this._tooltipCleanup?.() } catch (_e) {}
     },
     _draw() {
       const el = this.el
@@ -649,6 +662,7 @@ const Hooks = {
       this._render = () => this._draw()
       this._resizeObserver = new ResizeObserver(() => this._render())
       this._resizeObserver.observe(this.el)
+      this._hidden = this._hidden || new Set()
       this._render()
     },
     updated() {
@@ -656,41 +670,34 @@ const Hooks = {
     },
     destroyed() {
       try { this._resizeObserver?.disconnect() } catch (_e) {}
+      try { this._tooltipCleanup?.() } catch (_e) {}
     },
     _draw() {
       const el = this.el
-      const svg = el.querySelector("svg")
+      const svg = nfEnsureSVG(el)
       if (!svg) return
 
-      const raw = JSON.parse(el.dataset.points || "[]")
-      const keys = JSON.parse(el.dataset.keys || "[]")
-      const width = Math.max(360, el.clientWidth || 0)
-      const height = Math.max(220, el.clientHeight || 0)
-      const m = { top: 8, right: 10, bottom: 18, left: 36 }
-      const iw = Math.max(1, width - m.left - m.right)
-      const ih = Math.max(1, height - m.top - m.bottom)
+      const { raw, keys, colors } = nfParseSeriesData(el)
+      const { width, height, margin: m, iw, ih } = nfChartDims(el, {
+        minW: 360,
+        minH: 220,
+        margin: { top: 8, right: 110, bottom: 18, left: 44 },
+      })
 
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`)
-      svg.setAttribute("preserveAspectRatio", "xMidYMid meet")
-      while (svg.firstChild) svg.removeChild(svg.firstChild)
+      nfClearSVG(svg, width, height)
 
       if (!Array.isArray(raw) || raw.length === 0 || !Array.isArray(keys) || keys.length === 0) {
         return
       }
 
-      const data = raw
-        .map((d) => {
-          const t = new Date(d.t)
-          const out = { t }
-          for (const k of keys) out[k] = Number(d[k] || 0)
-          return out
-        })
-        .filter((d) => d.t instanceof Date && !isNaN(d.t.getTime()))
-        .sort((a, b) => a.t - b.t)
+      const data = nfNormalizeTimeSeries(raw, keys)
 
       if (data.length === 0) return
 
-      const stack = d3.stack().keys(keys)
+      const visibleKeys = keys.filter((k) => !this._hidden.has(k))
+      if (visibleKeys.length === 0) return
+
+      const stack = d3.stack().keys(visibleKeys)
       const series = stack(data)
 
       const maxY = d3.max(series, (s) => d3.max(s, (d) => d[1])) || 1
@@ -699,13 +706,7 @@ const Hooks = {
 
       const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
 
-      const provided = (() => {
-        try { return JSON.parse(el.dataset.colors || "{}") } catch (_e) { return {} }
-      })()
-      const fallback = d3.schemeTableau10.concat(d3.schemeSet3).slice(0, Math.max(3, keys.length))
-      const color = d3.scaleOrdinal()
-        .domain(keys)
-        .range(keys.map((k, i) => provided?.[k] || fallback[i % fallback.length]))
+      const color = nfColorScale(keys, colors)
 
       const area = d3.area()
         .x((d) => x(d.data.t))
@@ -727,6 +728,16 @@ const Hooks = {
           this.pushEvent("netflow_stack_series", { field, value: d.key })
         })
 
+      const legend = g.append("g").attr("transform", `translate(${iw + 12}, 6)`)
+      nfBuildLegend(legend, keys, color, this._hidden, (k) => {
+        if (this._hidden.has(k)) {
+          this._hidden.delete(k)
+        } else {
+          this._hidden.add(k)
+        }
+        this._render()
+      })
+
       g.append("g")
         .attr("transform", `translate(0,${ih})`)
         .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
@@ -735,6 +746,310 @@ const Hooks = {
       g.append("g")
         .call(d3.axisLeft(y).ticks(4).tickSizeOuter(0))
         .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+
+      try { this._tooltipCleanup?.() } catch (_e) {}
+      this._tooltipCleanup = nfAttachTimeTooltip(el, {
+        data,
+        keys: visibleKeys,
+        x,
+        valueAt: (row, k) => row?.[k] || 0,
+      })
+    }
+  },
+
+  NetflowStacked100Chart: {
+    mounted() {
+      this._render = () => this._draw()
+      this._resizeObserver = new ResizeObserver(() => this._render())
+      this._resizeObserver.observe(this.el)
+      this._hidden = this._hidden || new Set()
+      this._render()
+    },
+    updated() {
+      this._render()
+    },
+    destroyed() {
+      try { this._resizeObserver?.disconnect() } catch (_e) {}
+      try { this._tooltipCleanup?.() } catch (_e) {}
+    },
+    _draw() {
+      const el = this.el
+      const svg = nfEnsureSVG(el)
+      if (!svg) return
+
+      const { raw, keys, colors } = nfParseSeriesData(el)
+      const { width, height, margin: m, iw, ih } = nfChartDims(el, {
+        minW: 360,
+        minH: 220,
+        margin: { top: 8, right: 110, bottom: 18, left: 44 },
+      })
+
+      nfClearSVG(svg, width, height)
+
+      if (!Array.isArray(raw) || raw.length === 0 || !Array.isArray(keys) || keys.length === 0) {
+        return
+      }
+
+      const visibleKeys = keys.filter((k) => !this._hidden.has(k))
+      if (visibleKeys.length === 0) return
+
+      const data = raw
+        .map((d) => {
+          const t = new Date(d.t)
+          const out = { t }
+          let sum = 0
+          for (const k of visibleKeys) {
+            const v = Number(d[k] || 0)
+            out[k] = v
+            sum += v
+          }
+          out.__sum = sum
+          return out
+        })
+        .filter((d) => d.t instanceof Date && !isNaN(d.t.getTime()))
+        .sort((a, b) => a.t - b.t)
+        .map((d) => {
+          const denom = d.__sum || 1
+          const out = { t: d.t }
+          for (const k of visibleKeys) out[k] = (Number(d[k] || 0) / denom)
+          return out
+        })
+
+      if (data.length === 0) return
+
+      const stack = d3.stack().keys(visibleKeys)
+      const series = stack(data)
+
+      const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
+      const y = d3.scaleLinear().domain([0, 1]).nice().range([ih, 0])
+
+      const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
+
+      const color = nfColorScale(keys, colors)
+
+      const area = d3.area()
+        .x((d) => x(d.data.t))
+        .y0((d) => y(d[0]))
+        .y1((d) => y(d[1]))
+        .curve(d3.curveMonotoneX)
+
+      g.append("g")
+        .selectAll("path")
+        .data(series)
+        .join("path")
+        .attr("d", area)
+        .attr("fill", (d) => color(d.key))
+        .attr("fill-opacity", 0.55)
+
+      const legend = g.append("g").attr("transform", `translate(${iw + 12}, 6)`)
+      nfBuildLegend(legend, keys, color, this._hidden, (k) => {
+        if (this._hidden.has(k)) {
+          this._hidden.delete(k)
+        } else {
+          this._hidden.add(k)
+        }
+        this._render()
+      })
+
+      g.append("g")
+        .attr("transform", `translate(0,${ih})`)
+        .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
+        .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+
+      g.append("g")
+        .call(d3.axisLeft(y).ticks(4).tickFormat(d3.format(".0%")).tickSizeOuter(0))
+        .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+
+      try { this._tooltipCleanup?.() } catch (_e) {}
+      this._tooltipCleanup = nfAttachTimeTooltip(el, {
+        data,
+        keys: visibleKeys,
+        x,
+        valueAt: (row, k) => row?.[k] || 0,
+        formatValue: (v) => nfFmtPct(v),
+      })
+    }
+  },
+
+  NetflowLineSeriesChart: {
+    mounted() {
+      this._render = () => this._draw()
+      this._resizeObserver = new ResizeObserver(() => this._render())
+      this._resizeObserver.observe(this.el)
+      this._hidden = this._hidden || new Set()
+      this._render()
+    },
+    updated() {
+      this._render()
+    },
+    destroyed() {
+      try { this._resizeObserver?.disconnect() } catch (_e) {}
+    },
+    _draw() {
+      const el = this.el
+      const svg = nfEnsureSVG(el)
+      if (!svg) return
+
+      const { raw, keys, colors } = nfParseSeriesData(el)
+      const { width, height, margin: m, iw, ih } = nfChartDims(el, {
+        minW: 360,
+        minH: 220,
+        margin: { top: 8, right: 110, bottom: 18, left: 44 },
+      })
+
+      nfClearSVG(svg, width, height)
+
+      if (!Array.isArray(raw) || raw.length === 0 || !Array.isArray(keys) || keys.length === 0) {
+        return
+      }
+
+      const data = nfNormalizeTimeSeries(raw, keys)
+
+      if (data.length === 0) return
+
+      const visibleKeys = keys.filter((k) => !this._hidden.has(k))
+      if (visibleKeys.length === 0) return
+
+      const maxY = d3.max(visibleKeys, (k) => d3.max(data, (d) => d[k])) || 1
+      const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
+      const y = d3.scaleLinear().domain([0, maxY]).nice().range([ih, 0])
+
+      const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
+
+      const color = nfColorScale(keys, colors)
+
+      const line = (k) => d3.line()
+        .x((d) => x(d.t))
+        .y((d) => y(d[k]))
+        .curve(d3.curveMonotoneX)
+
+      g.append("g")
+        .selectAll("path")
+        .data(visibleKeys)
+        .join("path")
+        .attr("fill", "none")
+        .attr("stroke", (k) => color(k))
+        .attr("stroke-opacity", 0.85)
+        .attr("stroke-width", 1.75)
+        .attr("d", (k) => line(k)(data))
+
+      const legend = g.append("g").attr("transform", `translate(${iw + 12}, 6)`)
+      nfBuildLegend(legend, keys, color, this._hidden, (k) => {
+        if (this._hidden.has(k)) {
+          this._hidden.delete(k)
+        } else {
+          this._hidden.add(k)
+        }
+        this._render()
+      })
+
+      g.append("g")
+        .attr("transform", `translate(0,${ih})`)
+        .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
+        .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+
+      g.append("g")
+        .call(d3.axisLeft(y).ticks(4).tickSizeOuter(0))
+        .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+
+      try { this._tooltipCleanup?.() } catch (_e) {}
+      this._tooltipCleanup = nfAttachTimeTooltip(el, {
+        data,
+        keys: visibleKeys,
+        x,
+        valueAt: (row, k) => row?.[k] || 0,
+      })
+    }
+  },
+
+  NetflowGridChart: {
+    mounted() {
+      this._render = () => this._draw()
+      this._resizeObserver = new ResizeObserver(() => this._render())
+      this._resizeObserver.observe(this.el)
+      this._render()
+    },
+    updated() {
+      this._render()
+    },
+    destroyed() {
+      try { this._resizeObserver?.disconnect() } catch (_e) {}
+    },
+    _draw() {
+      const el = this.el
+      const svg = nfEnsureSVG(el)
+      if (!svg) return
+
+      const { raw, keys, colors } = nfParseSeriesData(el)
+      const { width, height, margin: m, iw, ih } = nfChartDims(el, {
+        minW: 360,
+        minH: 220,
+        margin: { top: 10, right: 10, bottom: 10, left: 10 },
+      })
+
+      nfClearSVG(svg, width, height)
+
+      if (!Array.isArray(raw) || raw.length === 0 || !Array.isArray(keys) || keys.length === 0) {
+        return
+      }
+
+      const data = nfNormalizeTimeSeries(raw, keys)
+
+      if (data.length === 0) return
+
+      const n = keys.length
+      const cols = Math.ceil(Math.sqrt(n))
+      const rows = Math.ceil(n / cols)
+      const pad = 10
+      const cw = Math.max(1, (iw - pad * (cols - 1)) / cols)
+      const ch = Math.max(1, (ih - pad * (rows - 1)) / rows)
+
+      const color = nfColorScale(keys, colors)
+
+      const root = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
+
+      for (let i = 0; i < n; i++) {
+        const k = keys[i]
+        const c = i % cols
+        const r = Math.floor(i / cols)
+        const x0 = c * (cw + pad)
+        const y0 = r * (ch + pad)
+
+        const panel = root.append("g").attr("transform", `translate(${x0},${y0})`)
+        panel.append("rect")
+          .attr("x", 0)
+          .attr("y", 0)
+          .attr("width", cw)
+          .attr("height", ch)
+          .attr("rx", 8)
+          .attr("fill", "none")
+          .attr("stroke", "currentColor")
+          .attr("opacity", 0.12)
+
+        const px = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([10, cw - 10])
+        const maxY = d3.max(data, (d) => d[k]) || 1
+        const py = d3.scaleLinear().domain([0, maxY]).nice().range([ch - 18, 18])
+
+        const ln = d3.line()
+          .x((d) => px(d.t))
+          .y((d) => py(d[k]))
+          .curve(d3.curveMonotoneX)
+
+        panel.append("path")
+          .datum(data)
+          .attr("fill", "none")
+          .attr("stroke", color(k))
+          .attr("stroke-width", 1.75)
+          .attr("stroke-opacity", 0.85)
+          .attr("d", ln)
+
+        panel.append("text")
+          .attr("x", 10)
+          .attr("y", 14)
+          .attr("font-size", 10)
+          .attr("opacity", 0.75)
+          .text(String(k).length > 18 ? String(k).slice(0, 15) + "..." : String(k))
+      }
     }
   },
 

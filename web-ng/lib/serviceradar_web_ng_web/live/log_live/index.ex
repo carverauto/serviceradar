@@ -77,6 +77,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:netflow_geo_heatmap, [])
      |> assign(:netflow_sankey_prefix, 24)
      |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
+     |> assign(:netflow_sankey_edges_json, "[]")
      |> assign(:netflow_stack_mode, @default_netflow_stack_mode)
      |> assign(:sparklines, %{})
      |> assign(:summary, %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0})
@@ -111,62 +112,90 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   def handle_params(params, uri, socket) do
     path = uri |> to_string() |> URI.parse() |> Map.get(:path)
     tab = normalize_tab(Map.get(params, "tab"), path)
-    {entity, list_key} = tab_entity(tab)
-    {default_limit, max_limit} = tab_limits(tab)
-    params = maybe_default_netflows_query(params, tab)
-    netflow_compact? = truthy_param?(Map.get(params, "compact"))
-    netflow_talker_cidr = parse_netflow_talker_cidr(Map.get(params, "talker_cidr"))
-    netflow_compare_mode = parse_netflow_compare_mode(Map.get(params, "compare"))
-    netflow_geo_side = parse_netflow_geo_side(Map.get(params, "geo"))
-    netflow_sankey_prefix = parse_netflow_sankey_prefix(Map.get(params, "sankey_prefix"))
-    netflow_stack_mode = parse_netflow_stack_mode(Map.get(params, "stack"))
 
-    socket =
-      socket
-      |> assign(:active_tab, tab)
-      |> assign(:logs, [])
-      |> assign(:traces, [])
-      |> assign(:metrics, [])
-      |> assign(:events, [])
-      |> assign(:alerts, [])
-      |> assign(:netflows, [])
-      |> assign(:selected_netflow, nil)
-      |> assign(:netflow_context, nil)
-      |> assign(:netflow_top_talkers, [])
-      |> assign(:netflow_top_ports, [])
-      |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
-      |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
-      |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
-      |> assign(:netflow_protocol_activity, %{
-        bucket_seconds: 300,
-        keys: [],
-        points: [],
-        colors: %{}
-      })
-      |> assign(:netflow_app_activity, %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
-      |> assign(:netflow_frequent_talkers_packets, [])
-      |> assign(:netflow_frequent_talkers_bytes, [])
-      |> assign(:netflow_rdns_map, %{})
-      |> assign(:netflow_compact?, netflow_compact?)
-      |> assign(:netflow_talker_cidr, netflow_talker_cidr)
-      |> assign(:netflow_compare_mode, netflow_compare_mode)
-      |> assign(:netflow_geo_side, netflow_geo_side)
-      |> assign(:netflow_geo_heatmap, [])
-      |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
-      |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
-      |> assign(:netflow_stack_mode, netflow_stack_mode)
-      |> ensure_srql_entity(entity, default_limit)
-      |> SRQLPage.load_list(params, uri, list_key,
-        default_limit: default_limit,
-        max_limit: max_limit
-      )
+    # NetFlow analytics has moved to a dedicated /netflow page. Preserve SRQL `q`
+    # and best-effort preserve netflow-specific options so bookmarks keep working.
+    if path == "/observability" and tab == "netflows" do
+      nav_params =
+        params
+        |> Map.drop(["tab"])
+        |> Map.take([
+          "q",
+          "limit",
+          "compact",
+          "talker_cidr",
+          "compare",
+          "geo",
+          "sankey_prefix",
+          "stack"
+        ])
+        |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
 
-    socket =
-      socket
-      |> apply_tab_assigns(tab, srql_module())
-      |> stream_active_tab(tab)
+      to =
+        case nav_params do
+          %{} = p when map_size(p) > 0 -> "/netflow?" <> URI.encode_query(p)
+          _ -> "/netflow"
+        end
 
-    {:noreply, socket}
+      {:noreply, push_navigate(socket, to: to)}
+    else
+      {entity, list_key} = tab_entity(tab)
+      {default_limit, max_limit} = tab_limits(tab)
+      params = maybe_default_netflows_query(params, tab)
+      netflow_compact? = truthy_param?(Map.get(params, "compact"))
+      netflow_talker_cidr = parse_netflow_talker_cidr(Map.get(params, "talker_cidr"))
+      netflow_compare_mode = parse_netflow_compare_mode(Map.get(params, "compare"))
+      netflow_geo_side = parse_netflow_geo_side(Map.get(params, "geo"))
+      netflow_sankey_prefix = parse_netflow_sankey_prefix(Map.get(params, "sankey_prefix"))
+      netflow_stack_mode = parse_netflow_stack_mode(Map.get(params, "stack"))
+
+      socket =
+        socket
+        |> assign(:active_tab, tab)
+        |> assign(:logs, [])
+        |> assign(:traces, [])
+        |> assign(:metrics, [])
+        |> assign(:events, [])
+        |> assign(:alerts, [])
+        |> assign(:netflows, [])
+        |> assign(:selected_netflow, nil)
+        |> assign(:netflow_context, nil)
+        |> assign(:netflow_top_talkers, [])
+        |> assign(:netflow_top_ports, [])
+        |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
+        |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
+        |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
+        |> assign(:netflow_protocol_activity, %{
+          bucket_seconds: 300,
+          keys: [],
+          points: [],
+          colors: %{}
+        })
+        |> assign(:netflow_app_activity, %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
+        |> assign(:netflow_frequent_talkers_packets, [])
+        |> assign(:netflow_frequent_talkers_bytes, [])
+        |> assign(:netflow_rdns_map, %{})
+        |> assign(:netflow_compact?, netflow_compact?)
+        |> assign(:netflow_talker_cidr, netflow_talker_cidr)
+        |> assign(:netflow_compare_mode, netflow_compare_mode)
+        |> assign(:netflow_geo_side, netflow_geo_side)
+        |> assign(:netflow_geo_heatmap, [])
+        |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
+        |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
+        |> assign(:netflow_stack_mode, netflow_stack_mode)
+        |> ensure_srql_entity(entity, default_limit)
+        |> SRQLPage.load_list(params, uri, list_key,
+          default_limit: default_limit,
+          max_limit: max_limit
+        )
+
+      socket =
+        socket
+        |> apply_tab_assigns(tab, srql_module())
+        |> stream_active_tab(tab)
+
+      {:noreply, socket}
+    end
   end
 
   @impl true

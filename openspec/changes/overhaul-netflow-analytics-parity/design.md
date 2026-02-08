@@ -62,6 +62,41 @@ The Visualize page options are a structured state (time range, dimensions, units
 
 When state cannot be parsed, the UI must fall back to sane defaults and preserve the raw SRQL query string.
 
+## Akvorado Field And Chart Driver Matrix (For SRQL Parity)
+
+Akvorado's Visualize page is powered by two backend endpoints:
+- `graph/line`: time-series with optional bidirectional and previous-period overlays
+- `graph/sankey`: sankey edges built from a grouped stats query
+
+Both endpoints are driven by:
+- `Dimensions[]`: group-by dimensions (ordered)
+- `Limit` and `LimitType`: rank rows by `avg|max|last`, bucket the rest into `Other`
+- `Units`: values expressed as per-second rates (or capacity percentages)
+- `truncate-v4`/`truncate-v6`: truncate IP dimensions prior to grouping
+
+This is the mapping we should use to pick SRQL fields and SRQL query shapes:
+
+| Akvorado Concept | Akvorado Backend Shape | SRQL Equivalent (Today) | SRQL Equivalent (Planned) |
+| --- | --- | --- | --- |
+| Time series value | `Units / Interval` | `downsample value_field:bytes_total` scaled by bucket seconds (Bps/bps) | `downsample value_field:bytes_in|bytes_out` for bidirectional, `pct` requires interface capacity |
+| PPS | `pps` | `downsample value_field:packets_total` scaled by bucket seconds | same |
+| L3 bps | `l3bps` | `bytes_total * 8` scaled by bucket seconds | same |
+| Sankey value | `Units / range` | `stats:"sum(bytes_total) as total_bytes by ..."` (bytes) | add `packets_total`/bps variants as needed |
+| LimitType avg | rank by total sum | `top_n` scored by average bucket value | keep; optionally rank by total window sum for Sankey parity |
+| LimitType max | rank by max(bucket) | `top_n` scored by max bucket value | same |
+| LimitType last | rank by last(bucket) | `top_n` scored by last bucket value | same |
+| Dimension: SrcAddr | truncation-aware IP | `series:src_ip` (no truncation in downsample) | add SRQL downsample series for `src_cidr:<n>` (requires SRQL support), or pivot to stats query for IP dims |
+| Dimension: DstAddr | truncation-aware IP | `series:dst_ip` (no truncation in downsample) | add SRQL downsample series for `dst_cidr:<n>` |
+| Dimension: DstPort | port | `series:dst_port` | same |
+| Dimension: Proto | protocol | `series:protocol_group` or `protocol_name` | add richer classification dictionaries |
+| Dimension: Exporter | exporter address/name | `series:sampler_address` | `exporter_name` (cache + SRQL dimension) |
+| Dimension: Interfaces | in/out ifName, speed | not supported | `in_if_name`, `out_if_name`, `in_if_speed_bps`, `out_if_speed_bps` via cache |
+| Dimension: Geo/ASN | country/asn | not supported in SRQL | `src_country`, `dst_country`, `src_asn`, `dst_asn` once enrichment is surfaced in SRQL |
+
+Notes:
+- Akvorado applies truncation at the source select step when a dimension is marked as "truncate IP". For SRQL parity we either need SRQL-native `src_cidr:<bits>` and `dst_cidr:<bits>` as downsample `series:` options, or we need to implement IP-dimension time-series via a stats query plus time bucketing in SRQL.
+- Akvorado's bidirectional overlay swaps the direction of the filter and reverses dimension direction. For SRQL parity we will need a safe SRQL token swap for `src_*` and `dst_*` filters, and/or a dedicated SRQL `direction` dimension that can be toggled.
+
 ### Decision: Interface Resolution via Inventory Join
 
 Akvorado gets interface names from SNMP polling embedded in its enrichment pipeline. We already collect SNMP interface data in our inventory system (Interface resource with if_index, if_name, if_description, if_speed, device_id). We can join flow `input_snmp`/`output_snmp` + `sampler_address` → device_id + if_index → interface record at either:
