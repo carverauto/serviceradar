@@ -1131,6 +1131,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:talker_cidr, :integer, default: nil)
 
   defp netflow_summary(assigns) do
+    # This function is sometimes called directly (not as a component) with a
+    # manually-built assigns map. Guard against missing keys that would
+    # otherwise crash rendering (e.g. sankey JSON edges).
+    assigns =
+      assigns
+      |> assign_new(:netflow_sankey_edges_json, fn -> "[]" end)
+      |> assign_new(:sankey_prefix, fn -> 24 end)
+      |> assign_new(:stack_mode, fn -> @default_netflow_stack_mode end)
+
     summary = assigns.summary
 
     assigns =

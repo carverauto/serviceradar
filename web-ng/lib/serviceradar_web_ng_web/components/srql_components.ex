@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       <form
         id="srql-query-bar"
         phx-hook="SRQLTimeCookie"
+        data-query={@query || ""}
         phx-change="srql_change"
         phx-submit="srql_submit"
         class="flex items-center gap-2 w-full"

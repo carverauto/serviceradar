@@ -37,6 +37,7 @@ Plan/proposal is valid (`openspec validate overhaul-netflow-analytics-parity --s
 - Sankey rendering/edges are not reliably present in demo windows with traffic.
 - Geo heatmap click handling has a type mismatch (country ISO2 value being treated as an integer in DB query).
 - SRQL builder cannot fully represent some valid flow queries (absolute time window + extra filters) without forcing “Replace query”.
+- `/netflow` Visualize time dropdown now emits SRQL that overrides any existing `time:` token, so the chart X axis window changes when switching (e.g. `last_24h` -> `last_1h`).
 
 ### UI Overhaul (Delivered In Slices)
 

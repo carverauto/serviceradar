@@ -12,7 +12,8 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 3600, states: [:available, :scheduled, :executing, :retryable]]
+    # Daily refresh; don't let retries/parallel instances hammer GitHub.
+    unique: [period: 86_400, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.GeoIP
@@ -28,6 +29,8 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   # GeoLite2-City is ~60MB; 20s is frequently too aggressive in Kubernetes.
   @default_timeout_ms 180_000
   @default_reschedule_seconds 86_400
+  # If a download fails (429/network policy, etc.), back off instead of retrying immediately.
+  @default_failure_reschedule_seconds 6 * 3600
 
   @default_files %{
     "GeoLite2-ASN.mmdb" =>
@@ -65,35 +68,48 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   end
 
   @impl Oban.Worker
-  def perform(_job) do
+  def perform(%Oban.Job{} = job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     dir = Keyword.get(config, :dir, System.get_env("GEOLITE_MMDB_DIR") || @default_dir)
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
+    failure_reschedule_seconds =
+      Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
     files = Keyword.get(config, :files, @default_files)
 
     now = DateTime.utc_now()
     actor = SystemActor.system(:geolite_mmdb_download)
-    record_mmdb_attempt(actor, now)
+    force? = Map.get(job.args || %{}, "force") == true
+    settings = load_settings(actor)
 
-    File.mkdir_p!(dir)
-
-    results =
-      files
-      |> Enum.map(fn {name, url} ->
-        dest = Path.join(dir, name)
-        download_file(url, dest, timeout_ms)
-      end)
-
-    if Enum.any?(results, &match?({:error, _}, &1)) do
-      record_mmdb_failure(actor, now, "download_failed")
-      {:error, :download_failed}
-    else
-      # Ensure Geolix sees newly downloaded databases without requiring a pod restart.
-      _ = GeoIP.reload()
-      record_mmdb_success(actor, now)
-      ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 3_600)))
+    # Throttle: this job may be manually triggered; skip if we've refreshed recently unless forced.
+    if not force? and recently_succeeded?(settings, now, reschedule_seconds) do
+      schedule_in = seconds_until_next(settings, now, reschedule_seconds)
+      ObanSupport.safe_insert(new(%{}, schedule_in: schedule_in))
       :ok
+    else
+      record_mmdb_attempt(settings, actor, now)
+
+      File.mkdir_p!(dir)
+
+      results =
+        files
+        |> Enum.map(fn {name, url} ->
+          dest = Path.join(dir, name)
+          download_file(url, dest, timeout_ms)
+        end)
+
+      if Enum.any?(results, &match?({:error, _}, &1)) do
+        record_mmdb_failure(settings, actor, now, "download_failed")
+        ObanSupport.safe_insert(new(%{}, schedule_in: max(failure_reschedule_seconds, 3_600)))
+        :ok
+      else
+        # Ensure Geolix sees newly downloaded databases without requiring a pod restart.
+        _ = GeoIP.reload()
+        record_mmdb_success(settings, actor, now)
+        ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 3_600)))
+        :ok
+      end
     end
   end
 
@@ -104,6 +120,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
 
     req_opts = [
       receive_timeout: timeout_ms,
+      retry: false,
       finch: ServiceRadar.Finch
     ]
 
@@ -143,57 +160,71 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     end
   end
 
-  defp record_mmdb_attempt(actor, %DateTime{} = now) do
-    case load_settings(actor) do
-      %NetflowSettings{} = s ->
-        _ =
-          NetflowSettings.update_enrichment_status(s, %{geolite_mmdb_last_attempt_at: now},
-            actor: actor
-          )
+  defp record_mmdb_attempt(%NetflowSettings{} = s, actor, %DateTime{} = now) do
+    _ =
+      NetflowSettings.update_enrichment_status(s, %{geolite_mmdb_last_attempt_at: now}, actor: actor)
 
-        :ok
+    :ok
+  end
+
+  defp record_mmdb_attempt(_settings, _actor, _now), do: :ok
+
+  defp record_mmdb_success(%NetflowSettings{} = s, actor, %DateTime{} = now) do
+    _ =
+      NetflowSettings.update_enrichment_status(
+        s,
+        %{
+          geolite_mmdb_last_success_at: now,
+          geolite_mmdb_last_error: nil
+        },
+        actor: actor
+      )
+
+    :ok
+  end
+
+  defp record_mmdb_success(_settings, _actor, _now), do: :ok
+
+  defp record_mmdb_failure(%NetflowSettings{} = s, actor, %DateTime{} = _now, err) do
+    _ =
+      NetflowSettings.update_enrichment_status(
+        s,
+        %{
+          geolite_mmdb_last_error: to_string(err)
+        },
+        actor: actor
+      )
+
+    :ok
+  end
+
+  defp record_mmdb_failure(_settings, _actor, _now, _err), do: :ok
+
+  defp recently_succeeded?(%NetflowSettings{} = s, %DateTime{} = now, seconds)
+       when is_integer(seconds) and seconds > 0 do
+    case Map.get(s, :geolite_mmdb_last_success_at) do
+      %DateTime{} = last ->
+        DateTime.diff(now, last, :second) < seconds - 600
 
       _ ->
-        :ok
+        false
     end
   end
 
-  defp record_mmdb_success(actor, %DateTime{} = now) do
-    case load_settings(actor) do
-      %NetflowSettings{} = s ->
-        _ =
-          NetflowSettings.update_enrichment_status(
-            s,
-            %{
-              geolite_mmdb_last_success_at: now,
-              geolite_mmdb_last_error: nil
-            },
-            actor: actor
-          )
+  defp recently_succeeded?(_settings, _now, _seconds), do: false
 
-        :ok
+  defp seconds_until_next(%NetflowSettings{} = s, %DateTime{} = now, seconds)
+       when is_integer(seconds) and seconds > 0 do
+    case Map.get(s, :geolite_mmdb_last_success_at) do
+      %DateTime{} = last ->
+        elapsed = max(DateTime.diff(now, last, :second), 0)
+        max(seconds - elapsed, 3_600)
 
       _ ->
-        :ok
+        max(seconds, 3_600)
     end
   end
 
-  defp record_mmdb_failure(actor, %DateTime{} = _now, err) do
-    case load_settings(actor) do
-      %NetflowSettings{} = s ->
-        _ =
-          NetflowSettings.update_enrichment_status(
-            s,
-            %{
-              geolite_mmdb_last_error: to_string(err)
-            },
-            actor: actor
-          )
-
-        :ok
-
-      _ ->
-        :ok
-    end
-  end
+  defp seconds_until_next(_settings, _now, seconds) when is_integer(seconds),
+    do: max(seconds, 3_600)
 end

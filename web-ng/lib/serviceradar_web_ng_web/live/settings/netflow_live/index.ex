@@ -260,7 +260,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     scope = socket.assigns.current_scope
 
     if RBAC.can?(scope, "settings.netflow.manage") do
-      case ObanSupport.safe_insert(GeoLiteMmdbDownloadWorker.new(%{})) do
+      case ObanSupport.safe_insert(GeoLiteMmdbDownloadWorker.new(%{force: true})) do
         {:ok, _job} ->
           {:noreply, socket |> put_flash(:info, "Queued MMDB refresh job")}
 
@@ -284,6 +284,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
       case ObanSupport.safe_insert(IpEnrichmentRefreshWorker.new(%{})) do
         {:ok, _job} ->
           {:noreply, socket |> put_flash(:info, "Queued enrichment refresh job")}
+
+        {:error, :oban_unavailable} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Oban is unavailable in this environment.")}
+
+        {:error, err} ->
+          {:noreply, socket |> put_flash(:error, "Failed to queue job: #{inspect(err)}")}
+      end
+    else
+      {:noreply, socket |> put_flash(:error, "Not authorized")}
+    end
+  end
+
+  def handle_event("run_ipinfo_mmdb_refresh", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    if RBAC.can?(scope, "settings.netflow.manage") do
+      case ObanSupport.safe_insert(
+             ServiceRadar.Observability.IpinfoMmdbDownloadWorker.new(%{force: true})
+           ) do
+        {:ok, _job} ->
+          {:noreply, socket |> put_flash(:info, "Queued ipinfo MMDB refresh job")}
 
         {:error, :oban_unavailable} ->
           {:noreply,
@@ -437,6 +460,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                         />
                         <span>Clear token</span>
                       </label>
+
+                      <div class="flex items-center justify-end">
+                        <button
+                          type="button"
+                          class="btn btn-sm"
+                          phx-click="run_ipinfo_mmdb_refresh"
+                        >
+                          Run ipinfo MMDB refresh
+                        </button>
+                      </div>
                     </div>
                   </div>
 

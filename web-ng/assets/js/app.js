@@ -215,6 +215,7 @@ const Hooks = {
       if (!this._input) return
 
       this._debounceTimer = null
+      this._lastSynced = (this.el.dataset.query || "").toString()
 
       const hasQParam = () => {
         try {
@@ -292,6 +293,22 @@ const Hooks = {
       this.el.addEventListener("submit", this._onSubmit)
 
       maybeRestore()
+    },
+    updated() {
+      // LiveView keeps form inputs "sticky" to preserve user typing, which is usually good.
+      // For SRQL-driven pages, other UI controls can emit SRQL via push_patch, and we want
+      // the topbar query to reflect that new query. Sync it when the input isn't focused.
+      if (!this._input) return
+      if (document.activeElement === this._input) return
+
+      const desired = (this.el.dataset.query || "").toString()
+      if (!desired) return
+
+      const current = (this._input.value || "").toString()
+      if (current !== desired) {
+        this._input.value = desired
+        this._lastSynced = desired
+      }
     },
     destroyed() {
       if (this._input && this._onInput) this._input.removeEventListener("input", this._onInput)

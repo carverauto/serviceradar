@@ -11,7 +11,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 3600, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: 86_400, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.GeoIP
@@ -25,6 +25,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   @default_dir "/var/lib/serviceradar/geoip"
   @default_timeout_ms 20_000
   @default_reschedule_seconds 86_400
+  @default_failure_reschedule_seconds 6 * 3600
   @mmdb_filename "ipinfo_lite.mmdb"
 
   @doc """
@@ -54,48 +55,62 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   end
 
   @impl Oban.Worker
-  def perform(_job) do
+  def perform(%Oban.Job{} = job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     dir = Keyword.get(config, :dir, System.get_env("GEOLITE_MMDB_DIR") || @default_dir)
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
+    failure_reschedule_seconds =
+      Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
 
     File.mkdir_p!(dir)
 
     actor = SystemActor.system(:ipinfo_mmdb_download)
     settings = load_settings(actor)
+    force? = Map.get(job.args || %{}, "force") == true
 
-    token =
-      case settings do
-        %NetflowSettings{} = s when s.ipinfo_enabled == true ->
-          token = Map.get(s, :ipinfo_api_key)
-          if is_binary(token), do: String.trim(token), else: ""
+    token = download_token(settings)
+    dest = Path.join(dir, @mmdb_filename)
 
-        _ ->
-          ""
-      end
+    cond do
+      token == "" ->
+        Logger.debug("Ipinfo MMDB download skipped (missing token or disabled)")
+        schedule_next(reschedule_seconds)
 
-    if token == "" do
-      Logger.debug("Ipinfo MMDB download skipped (missing token or disabled)")
-      ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 3_600)))
-      :ok
-    else
-      url = build_url(token)
-      dest = Path.join(dir, @mmdb_filename)
+      not force? and recently_updated?(dest, reschedule_seconds) ->
+        schedule_next(reschedule_seconds)
 
-      case download_file(url, dest, timeout_ms) do
-        {:ok, _} ->
-          # Ensure Geolix sees newly downloaded databases without requiring a pod restart.
-          _ = GeoIP.reload()
-          ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 3_600)))
-          :ok
+      true ->
+        url = build_url(token)
 
-        {:error, reason} ->
-          Logger.warning("Ipinfo MMDB download failed", error: inspect(reason))
-          {:error, reason}
-      end
+        case download_file(url, dest, timeout_ms) do
+          {:ok, _} ->
+            # Ensure Geolix sees newly downloaded databases without requiring a pod restart.
+            _ = GeoIP.reload()
+            schedule_next(reschedule_seconds)
+
+          {:error, reason} ->
+            Logger.warning("Ipinfo MMDB download failed", error: inspect(reason))
+            schedule_next(failure_reschedule_seconds)
+        end
     end
   end
+
+  defp schedule_next(seconds) when is_integer(seconds) do
+    _ = ObanSupport.safe_insert(new(%{}, schedule_in: max(seconds, 3_600)))
+    :ok
+  end
+
+  defp download_token(%NetflowSettings{} = s) do
+    if s.ipinfo_enabled == true do
+      token = Map.get(s, :ipinfo_api_key)
+      if is_binary(token), do: String.trim(token), else: ""
+    else
+      ""
+    end
+  end
+
+  defp download_token(_), do: ""
 
   defp load_settings(actor) do
     # We need to load the decrypted token for download.
@@ -126,6 +141,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
 
     req_opts = [
       receive_timeout: timeout_ms,
+      retry: false,
       finch: ServiceRadar.Finch
     ]
 
@@ -142,5 +158,25 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
         File.rm(tmp)
         {:error, e}
     end
+  end
+
+  defp recently_updated?(path, seconds) when is_binary(path) and is_integer(seconds) and seconds > 0 do
+    case File.stat(path) do
+      {:ok, %File.Stat{mtime: mtime}} ->
+        now = DateTime.utc_now() |> DateTime.to_unix(:second)
+
+        modified =
+          mtime
+          |> NaiveDateTime.from_erl!()
+          |> DateTime.from_naive!("Etc/UTC")
+          |> DateTime.to_unix(:second)
+
+        now - modified < seconds - 600
+
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
   end
 end

@@ -500,7 +500,13 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   defp ownership_statement(_oid, name, "v", app_user) do
-    "ALTER VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+    # TimescaleDB continuous aggregates are exposed as relkind 'v' but must be altered as
+    # materialized views (ALTER VIEW isn't supported).
+    if continuous_aggregate_view?(name) do
+      "ALTER MATERIALIZED VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+    else
+      "ALTER VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+    end
   end
 
   defp ownership_statement(_oid, name, "m", app_user) do
@@ -516,6 +522,26 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       Logger.warning(
         "[StartupMigrations] Skipping ownership update for #{name}: #{Exception.message(error)}"
       )
+  end
+
+  defp continuous_aggregate_view?(name) when is_binary(name) do
+    if repo_enabled?() do
+      try do
+        %{rows: rows} =
+          ServiceRadar.Repo.query!(
+            "SELECT 1 FROM timescaledb_information.continuous_aggregates\n" <>
+              "WHERE view_schema = 'platform' AND view_name = $1\n" <>
+              "LIMIT 1",
+            [name]
+          )
+
+        rows != []
+      rescue
+        _ -> false
+      end
+    else
+      false
+    end
   end
 
   defp sequence_owned_by_table?(sequence_oid) do

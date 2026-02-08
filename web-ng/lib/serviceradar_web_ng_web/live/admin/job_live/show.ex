@@ -679,10 +679,12 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
   defp source_label(:cron_plugin), do: "Cron"
   defp source_label(:ash_oban), do: "AshOban"
+  defp source_label(:self_scheduling), do: "Self"
   defp source_label(_), do: "Unknown"
 
   defp source_variant(:cron_plugin), do: "info"
   defp source_variant(:ash_oban), do: "accent"
+  defp source_variant(:self_scheduling), do: "neutral"
   defp source_variant(_), do: "ghost"
 
   defp format_datetime(nil), do: "—"
