@@ -29,14 +29,14 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbScheduler do
   end
 
   defp ensure_jobs do
-    if not oban_jobs_ready?() do
-      Logger.debug("GeoLite MMDB scheduling skipped; Oban tables not ready")
-      :ok
-    else
+    if oban_jobs_ready?() do
       case GeoLiteMmdbDownloadWorker.ensure_scheduled() do
         {:ok, _} -> :ok
         {:error, reason} -> Logger.debug("GeoLite MMDB scheduling skipped", reason: reason)
       end
+    else
+      Logger.debug("GeoLite MMDB scheduling skipped; Oban tables not ready")
+      :ok
     end
   end
 

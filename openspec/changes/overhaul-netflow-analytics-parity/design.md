@@ -4,6 +4,13 @@ ServiceRadar's NetFlow analytics is currently a tab within the observability pag
 
 Key stakeholders: network operators, security analysts, capacity planners.
 
+## Status (2026-02-08)
+
+Child changes have been scaffolded and the program plan is in place, but we are not yet at "Phase B demo-ready parity":
+- Sankey edges/rendering needs to be reliable in windows with known traffic.
+- Geo heatmap click handling needs correct typing (country ISO2 value should not be treated as an integer).
+- The SRQL builder UX needs to better tolerate queries that exceed builder expressiveness (absolute time ranges + extra filters) without breaking drill-down workflows.
+
 ## Delivery Strategy
 
 This change describes the target parity end-state and the decisions needed to get there. It is intentionally too large to implement as a single PR. The implementation MUST be split into smaller, independently shippable OpenSpec changes with clear acceptance criteria (route + state model first, then chart suite, then enrichment and performance).

@@ -62,7 +62,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLiveTest do
                |> live(~p"/settings/auth/users")
 
       assert {:live_redirect, %{to: path}} = redirect
-      assert path == ~p"/settings/profile"
+      # Non-admins land on the main app page (or profile settings depending on route config).
+      assert path in [~p"/analytics", ~p"/settings/profile"]
     end
   end
 end

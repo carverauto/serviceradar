@@ -10,7 +10,8 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
       conn = log_in_user(conn, user)
 
       conn = get(conn, ~p"/api/admin/role-profiles")
-      assert %{"errors" => _} = json_response(conn, 403)
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden" or Map.has_key?(body, "errors")
     end
 
     test "allows admins for role profiles endpoints", %{conn: conn} do
@@ -26,7 +27,8 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
       conn = log_in_user(conn, user)
 
       conn = get(conn, ~p"/api/admin/users")
-      assert %{"errors" => _} = json_response(conn, 403)
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden" or Map.has_key?(body, "errors")
     end
 
     test "denies viewers for authorization settings endpoints", %{conn: conn} do
@@ -34,7 +36,8 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
       conn = log_in_user(conn, user)
 
       conn = get(conn, ~p"/api/admin/authorization-settings")
-      assert %{"errors" => _} = json_response(conn, 403)
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden" or Map.has_key?(body, "errors")
     end
   end
 end

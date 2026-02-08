@@ -33,11 +33,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityScheduler do
   end
 
   defp ensure_scheduled(worker) do
-    if not oban_jobs_ready?() do
-      Logger.debug("NetFlow security scheduler skipped; Oban tables not ready",
-        worker: inspect(worker)
-      )
-    else
+    if oban_jobs_ready?() do
       case worker.ensure_scheduled() do
         {:ok, :already_scheduled} ->
           :ok
@@ -51,6 +47,10 @@ defmodule ServiceRadar.Observability.NetflowSecurityScheduler do
             reason: inspect(reason)
           )
       end
+    else
+      Logger.debug("NetFlow security scheduler skipped; Oban tables not ready",
+        worker: inspect(worker)
+      )
     end
   end
 

@@ -152,4 +152,14 @@ _ =
     []
   )
 
+# Ensure RBAC system role profiles exist for tests that depend on them.
+# In test env we keep seeders disabled to avoid async sandbox ownership issues,
+# so we seed once here during boot.
+try do
+  ServiceRadar.Identity.RoleProfileSeeder.seed()
+rescue
+  e ->
+    IO.warn("Failed to seed role profiles: #{Exception.message(e)}")
+end
+
 Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, :manual)

@@ -241,6 +241,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
     case result do
       {:ok, %NetflowSettings{} = updated} ->
+        # Reload to ensure calculated fields like `ipinfo_api_key_present` are available
+        # for immediate UI feedback after saving a token.
+        updated = load_settings(scope) || updated
+
         {:noreply,
          socket
          |> put_flash(:info, "Saved settings")

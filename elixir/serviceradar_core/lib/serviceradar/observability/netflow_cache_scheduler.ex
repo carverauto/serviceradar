@@ -34,10 +34,7 @@ defmodule ServiceRadar.Observability.NetflowCacheScheduler do
   end
 
   defp ensure_scheduled(worker) do
-    if not oban_jobs_ready?() do
-      Logger.debug("NetFlow cache scheduler skipped; Oban tables not ready", worker: inspect(worker))
-      :ok
-    else
+    if oban_jobs_ready?() do
       case worker.ensure_scheduled() do
         {:ok, :already_scheduled} ->
           :ok
@@ -51,6 +48,9 @@ defmodule ServiceRadar.Observability.NetflowCacheScheduler do
             reason: inspect(reason)
           )
       end
+    else
+      Logger.debug("NetFlow cache scheduler skipped; Oban tables not ready", worker: inspect(worker))
+      :ok
     end
   end
 

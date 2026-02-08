@@ -13,6 +13,31 @@ This change is a program-level proposal that defines the target end-state and th
 - Database schema changes SHALL be done via Elixir migrations under `elixir/serviceradar_core/priv/repo/migrations/` in the `platform` schema.
 - We keep D3-based visualization hooks for consistency with existing `web-ng` patterns.
 
+## v1 Scope (Must-Haves)
+
+This is the minimum operator-visible parity slice we consider "usable" for v1:
+- Dedicated `/netflow` Visualize page (left options panel + right visualization surface).
+- SRQL-only chart data paths (no Ecto-based chart queries).
+- 5 chart types: stacked area, 100% stacked, lines, grid, sankey.
+- Overlays: bidirectional and previous-period (where supported).
+- Dimension/ranking controls needed to drive the above (at least 2 dimensions for Sankey).
+
+## Deferred (Post-v1)
+
+Explicitly not required for v1:
+- OTX integration.
+- Network dictionaries system.
+- Deep application classification via SNI / external IP range imports.
+- Per-user dashboard homepage and widget persistence.
+- CAGGs + SRQL auto-resolution selection (unless performance forces it earlier).
+
+## Current Status (2026-02-08)
+
+Plan/proposal is valid (`openspec validate overhaul-netflow-analytics-parity --strict` passes) and child changes have been scaffolded, but demo still has functional gaps that must be closed before we can claim Phase B parity is complete:
+- Sankey rendering/edges are not reliably present in demo windows with traffic.
+- Geo heatmap click handling has a type mismatch (country ISO2 value being treated as an integer in DB query).
+- SRQL builder cannot fully represent some valid flow queries (absolute time window + extra filters) without forcing “Replace query”.
+
 ### UI Overhaul (Delivered In Slices)
 
 - **Dedicated `/netflow` route** with left-panel options (time range, dimensions, filters, graph type, units, SRQL query) and right-panel visualization + data table. No longer embedded as a tab in `/observability`.

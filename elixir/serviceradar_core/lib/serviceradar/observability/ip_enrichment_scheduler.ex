@@ -32,11 +32,11 @@ defmodule ServiceRadar.Observability.IpEnrichmentScheduler do
   end
 
   defp ensure_jobs do
-    if not oban_jobs_ready?() do
+    if oban_jobs_ready?() do
+      do_ensure_jobs()
+    else
       Logger.debug("IP enrichment scheduling skipped; Oban tables not ready")
       :ok
-    else
-      do_ensure_jobs()
     end
   end
 

@@ -29,14 +29,14 @@ defmodule ServiceRadar.Observability.IpinfoMmdbScheduler do
   end
 
   defp ensure_jobs do
-    if not oban_jobs_ready?() do
-      Logger.debug("Ipinfo MMDB scheduling skipped; Oban tables not ready")
-      :ok
-    else
+    if oban_jobs_ready?() do
       case IpinfoMmdbDownloadWorker.ensure_scheduled() do
         {:ok, _} -> :ok
         {:error, reason} -> Logger.debug("Ipinfo MMDB scheduling skipped", reason: reason)
       end
+    else
+      Logger.debug("Ipinfo MMDB scheduling skipped; Oban tables not ready")
+      :ok
     end
   end
 

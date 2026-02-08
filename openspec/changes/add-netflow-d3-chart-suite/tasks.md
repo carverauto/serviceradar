@@ -19,3 +19,8 @@
 ## 5. Validation
 - [x] 5.1 Run `openspec validate add-netflow-d3-chart-suite --strict`
 - [x] 5.2 Run repo checks (`make lint`, `make test`)
+
+## 6. Demo Readiness (Parity Blocking)
+- [ ] 6.1 Sankey renders reliably in demo windows with known traffic (edges non-empty when flows exist)
+- [ ] 6.2 Sankey is not artificially gated by time window size; cost is controlled by SRQL limits/top-N
+- [ ] 6.3 `/netflow` never 500s due to missing Sankey assigns; empty/loading states are safe
