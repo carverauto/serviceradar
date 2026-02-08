@@ -526,9 +526,9 @@ const Hooks = {
     }
   },
 
-  NetflowSankeyChart: {
-    mounted() {
-      this._render = () => this._draw()
+	  NetflowSankeyChart: {
+	    mounted() {
+	      this._render = () => this._draw()
       this._resizeObserver = new ResizeObserver(() => this._render())
       this._resizeObserver.observe(this.el)
       this._hiddenGroups = this._hiddenGroups || new Set()
@@ -541,11 +541,17 @@ const Hooks = {
       try { this._resizeObserver?.disconnect() } catch (_e) {}
       try { this._tooltipCleanup?.() } catch (_e) {}
     },
-    _draw() {
-      const hook = this
-      const el = this.el
-      const svg = el.querySelector("svg")
-      if (!svg) return
+	    _draw() {
+	      const hook = this
+	      const el = this.el
+	      const svg = el.querySelector("svg")
+	      if (!svg) return
+
+	      const groupLabel = {
+	        src: el.dataset.srcLabel || "Source",
+	        mid: el.dataset.midLabel || "Middle",
+	        dst: el.dataset.dstLabel || "Destination",
+	      }
 
       const tooltip = nfEnsureTooltip(el)
       tooltip.classList.add("hidden")
@@ -641,18 +647,18 @@ const Hooks = {
 
       const g = d3.select(svg).append("g")
 
-      const color = d3.scaleOrdinal()
-        .domain(["src", "mid", "dst"])
-        .range(["#60a5fa", "#a78bfa", "#34d399"])
+	      const color = d3.scaleOrdinal()
+	        .domain(["src", "mid", "dst"])
+	        .range(["#60a5fa", "#a78bfa", "#34d399"])
 
       const groupHidden = (grp) => hook._hiddenGroups?.has(grp)
 
-      // Links
-      g.append("g")
-        .attr("fill", "none")
-        .selectAll("path")
-        .data(graph.links)
-        .join("path")
+	      // Links
+	      g.append("g")
+	        .attr("fill", "none")
+	        .selectAll("path")
+	        .data(graph.links)
+	        .join("path")
         .attr("d", d3SankeyLinkHorizontal())
         .attr("stroke", (d) => {
           const grp = d?.source?.group || "src"
@@ -664,18 +670,28 @@ const Hooks = {
         })
         .attr("stroke-width", (d) => Math.max(1, d.width || 1))
         .style("cursor", "pointer")
-        .on("mousemove", (evt, d) => {
-          const edge = d?.edge
-          const s = edge?.src || d?.source?.id || ""
-          const t = edge?.dst || d?.target?.id || ""
-          const port = edge?.port ?? ""
-          const html = `
-            <div class="font-mono text-[11px]">${String(s)} -> ${String(t)}</div>
-            <div class="mt-0.5 text-[11px] opacity-70">port: ${String(port || "-")}</div>
-            <div class="mt-0.5 text-[11px] font-mono">${formatBytes(d?.value || 0)}</div>
-          `
-          showTooltip(evt, html)
-        })
+	        .on("mousemove", (evt, d) => {
+	          const edge = d?.edge
+	          const s = edge?.src || d?.source?.id || ""
+	          const t = edge?.dst || d?.target?.id || ""
+	          const port = edge?.port ?? ""
+	          const mf = String(edge?.mid_field || "")
+	          const mv = String(edge?.mid_value || "")
+
+	          const midLabel = (() => {
+	            if (mf === "dst_port" || mf === "dst_endpoint_port") return `${groupLabel.mid}: ${String(port || mv || "-")}`
+	            if (mf === "app") return `${groupLabel.mid}: ${mv || "-"}`
+	            if (mf === "protocol_group") return `${groupLabel.mid}: ${mv || "-"}`
+	            return `${groupLabel.mid}: ${mv || port || "-"}`
+	          })()
+	          const html = `
+	            <div class="text-[11px]"><span class="opacity-70">${groupLabel.src}:</span> <span class="font-mono">${String(s)}</span></div>
+	            <div class="mt-0.5 text-[11px] opacity-70">${midLabel}</div>
+	            <div class="mt-0.5 text-[11px]"><span class="opacity-70">${groupLabel.dst}:</span> <span class="font-mono">${String(t)}</span></div>
+	            <div class="mt-0.5 text-[11px] font-mono">${formatBytes(d?.value || 0)}</div>
+	          `
+	          showTooltip(evt, html)
+	        })
         .on("mouseleave", hideTooltip)
         .on("click", (_evt, d) => {
           const edge = d?.edge
@@ -716,7 +732,7 @@ const Hooks = {
         .text((d) => d.id)
 
       // Labels (trim aggressively to avoid overlap)
-      node.append("text")
+	      node.append("text")
         .attr("x", (d) => (d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6))
         .attr("y", (d) => (d.y0 + d.y1) / 2)
         .attr("dy", "0.35em")
@@ -728,19 +744,46 @@ const Hooks = {
           const s = String(d.id || "")
           return s.length > 24 ? s.slice(0, 21) + "..." : s
         })
-        .on("mousemove", (evt, d) => {
-          const grp = d?.group || "src"
-          const html = `
-            <div class="text-[11px] font-mono">${String(d?.id || "")}</div>
-            <div class="mt-0.5 text-[11px] opacity-70">group: ${String(grp)}</div>
-          `
-          showTooltip(evt, html)
-        })
+	        .on("mousemove", (evt, d) => {
+	          const grp = d?.group || "src"
+	          const html = `
+	            <div class="text-[11px] font-mono">${String(d?.id || "")}</div>
+	            <div class="mt-0.5 text-[11px] opacity-70">${String(groupLabel[grp] || grp)}</div>
+	          `
+	          showTooltip(evt, html)
+	        })
         .on("mouseleave", hideTooltip)
 
-      // Group legend with toggles (keeps parity with other charts' legend toggles).
-      const groups = ["src", "mid", "dst"]
-      const legend = g.append("g").attr("transform", `translate(${width - 92}, 14)`)
+	      // Column headers (what each column represents).
+	      try {
+	        const centers = {}
+	        for (const n of graph.nodes || []) {
+	          const grp = n?.group || "src"
+	          const cx = (Number(n.x0) + Number(n.x1)) / 2
+	          if (!Number.isFinite(cx)) continue
+	          if (!centers[grp]) centers[grp] = []
+	          centers[grp].push(cx)
+	        }
+
+	        const headerY = 10
+	        for (const grp of ["src", "mid", "dst"]) {
+	          const xs = centers[grp] || []
+	          if (xs.length === 0) continue
+	          const x = xs.reduce((a, b) => a + b, 0) / xs.length
+	          g.append("text")
+	            .attr("x", x)
+	            .attr("y", headerY)
+	            .attr("text-anchor", "middle")
+	            .attr("font-size", 10)
+	            .attr("opacity", 0.7)
+	            .attr("fill", "currentColor")
+	            .text(String(groupLabel[grp] || grp))
+	        }
+	      } catch (_e) {}
+
+	      // Group legend with toggles (keeps parity with other charts' legend toggles).
+	      const groups = ["src", "mid", "dst"]
+	      const legend = g.append("g").attr("transform", `translate(${width - 92}, 14)`)
 
       const legendItem = legend.selectAll("g")
         .data(groups)
@@ -765,16 +808,16 @@ const Hooks = {
         .attr("fill", (grp) => color(grp))
         .attr("fill-opacity", (grp) => (hook._hiddenGroups.has(grp) ? 0.15 : 0.85))
 
-      legendItem.append("text")
-        .attr("x", 14)
-        .attr("y", 0)
-        .attr("dy", "0.32em")
-        .attr("font-size", 10)
-        .attr("opacity", (grp) => (hook._hiddenGroups.has(grp) ? 0.4 : 0.75))
-        .attr("fill", "currentColor")
-        .text((grp) => grp)
-    }
-  },
+	      legendItem.append("text")
+	        .attr("x", 14)
+	        .attr("y", 0)
+	        .attr("dy", "0.32em")
+	        .attr("font-size", 10)
+	        .attr("opacity", (grp) => (hook._hiddenGroups.has(grp) ? 0.4 : 0.75))
+	        .attr("fill", "currentColor")
+	        .text((grp) => String(groupLabel[grp] || grp))
+	    }
+	  },
 
   NetflowStackedAreaChart: {
     mounted() {

@@ -704,11 +704,19 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                 <div class="h-72 w-full">
                   <%= case Map.get(@netflow_viz_state, "graph") do %>
                     <% "sankey" -> %>
+                      <% sankey_dims =
+                        @netflow_viz_state |> dims_from_state() |> sanitize_sankey_dims() %>
+                      <% sankey_src_label = dim_human_label(Enum.at(sankey_dims, 0)) %>
+                      <% sankey_mid_label = dim_human_label(Enum.at(sankey_dims, 1)) %>
+                      <% sankey_dst_label = dim_human_label(Enum.at(sankey_dims, 2)) %>
                       <div
                         id="netflow-sankey"
                         class="w-full h-full"
                         phx-hook="NetflowSankeyChart"
                         data-edges={@netflow_sankey_edges_json || "[]"}
+                        data-src-label={sankey_src_label}
+                        data-mid-label={sankey_mid_label}
+                        data-dst-label={sankey_dst_label}
                       >
                         <svg class="w-full h-full"></svg>
                       </div>
@@ -1325,6 +1333,25 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   defp sanitize_sankey_dims(_), do: ["src_cidr", "dst_port", "dst_cidr"]
+
+  defp dim_human_label(nil), do: ""
+  defp dim_human_label(""), do: ""
+
+  defp dim_human_label(dim) when is_binary(dim) do
+    case String.trim(dim) do
+      "src_ip" -> "Source IP"
+      "src_cidr" -> "Source CIDR"
+      "dst_ip" -> "Destination IP"
+      "dst_cidr" -> "Destination CIDR"
+      "dst_port" -> "Destination Port"
+      "app" -> "Application"
+      "protocol_group" -> "Protocol"
+      "protocol_name" -> "Protocol"
+      other -> other
+    end
+  end
+
+  defp dim_human_label(other), do: to_string(other || "")
 
   defp sankey_max_edges_from_state(%{} = state) do
     # Each edge is rendered as 2 links (src->mid, mid->dst). Keep the sankey readable.
@@ -2324,14 +2351,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp sankey_mid(_), do: {nil, nil, 0}
 
   defp sankey_mid_label("dst_port", _mid_value, port) when is_integer(port) and port > 0,
-    do: "PORT:#{port}"
+    do: to_string(port)
 
   defp sankey_mid_label(_mid_field, mid_value, _port) when is_binary(mid_value) do
     v = String.trim(mid_value)
     if v == "", do: "PORT:?", else: v
   end
 
-  defp sankey_mid_label(_mid_field, _mid_value, _port), do: "PORT:?"
+  defp sankey_mid_label(_mid_field, _mid_value, _port), do: "?"
 
   defp load_overlays(srql_module, base, scope, opts) do
     graph = Keyword.get(opts, :graph, "stacked")
