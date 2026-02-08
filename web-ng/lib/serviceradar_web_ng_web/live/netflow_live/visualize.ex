@@ -219,6 +219,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     mid_field = Map.get(params, "mid_field") |> normalize_optional_string()
     mid_value = Map.get(params, "mid_value") |> normalize_optional_string()
 
+    # Edges involving "Other" are bucketed aggregates (not a concrete endpoint). SRQL doesn't
+    # have a clean way to express "everything except top-N", so clicking these should not
+    # navigate to an empty chart.
+    if src in ["Other", "Unknown"] or dst in ["Other", "Unknown"] do
+      {:noreply,
+       socket
+       |> put_flash(:info, "This edge is bucketed as Other. Increase detail (or switch dims) to drill in.")}
+    else
     # IMPORTANT: The current SRQL query is a chart query (e.g. includes `stats:"..."`).
     # Upserting filters into that string can accidentally match group-by expressions inside
     # the quoted stats expression (e.g. `dst_cidr:24`) and corrupt the query.
@@ -248,6 +256,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
        to:
          build_patch_url(socket, %{"q" => chart_query, "cursor" => nil, "nf" => nf_param(state)})
      )}
+    end
   end
 
   def handle_event("netflow_stack_series", %{"field" => field, "value" => value}, socket) do
@@ -747,6 +756,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                         id="netflow-stacked100"
                         class="w-full h-full"
                         phx-hook="NetflowStacked100Chart"
+                        data-units={Map.get(@netflow_viz_state, "units", "Bps")}
                         data-keys={@netflow_chart_keys_json}
                         data-points={@netflow_chart_points_json}
                         data-colors={@netflow_chart_colors_json}
@@ -759,6 +769,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                         id="netflow-lines"
                         class="w-full h-full"
                         phx-hook="NetflowLineSeriesChart"
+                        data-units={Map.get(@netflow_viz_state, "units", "Bps")}
                         data-keys={@netflow_chart_keys_json}
                         data-points={@netflow_chart_points_json}
                         data-colors={@netflow_chart_colors_json}
@@ -770,6 +781,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                         id="netflow-grid"
                         class="w-full h-full"
                         phx-hook="NetflowGridChart"
+                        data-units={Map.get(@netflow_viz_state, "units", "Bps")}
                         data-keys={@netflow_chart_keys_json}
                         data-points={@netflow_chart_points_json}
                         data-colors={@netflow_chart_colors_json}
@@ -781,6 +793,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                         id="netflow-stacked"
                         class="w-full h-full"
                         phx-hook="NetflowStackedAreaChart"
+                        data-units={Map.get(@netflow_viz_state, "units", "Bps")}
                         data-keys={@netflow_chart_keys_json}
                         data-points={@netflow_chart_points_json}
                         data-colors={@netflow_chart_colors_json}
@@ -1217,10 +1230,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {flows, pagination} =
       case srql_module.query(list_query, %{cursor: cursor, limit: limit, scope: scope}) do
         {:ok, %{"results" => results, "pagination" => pag}} when is_list(results) ->
-          {results, pag || %{}}
+          {extract_srql_rows(results), pag || %{}}
 
         {:ok, %{"results" => results}} when is_list(results) ->
-          {results, %{}}
+          {extract_srql_rows(results), %{}}
 
         _ ->
           {[], %{}}
@@ -1522,6 +1535,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         <% dst_ip = flow_get(@flow, ["dst_endpoint_ip", "dst_ip"]) %>
         <% src_geo = Map.get(@context, :src_geo) %>
         <% dst_geo = Map.get(@context, :dst_geo) %>
+        <% src_device_uid = Map.get(@context, :src_device_uid) %>
+        <% dst_device_uid = Map.get(@context, :dst_device_uid) %>
         <% src_cc =
           flow_get(@flow, ["src_country_iso2"]) ||
             (is_map(src_geo) && Map.get(src_geo, :country_iso2)) %>
@@ -1551,14 +1566,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     {iso2_flag_emoji(src_cc)}
                   </span>
                   <.link
-                    :if={device_uid = Map.get(@context, :src_device_uid)}
-                    navigate={~p"/devices/#{device_uid}"}
+                    :if={is_binary(src_device_uid) and src_device_uid != ""}
+                    navigate={~p"/devices/#{src_device_uid}"}
                     class="min-w-0 truncate hover:underline"
                     title={src_ip}
                   >
                     {src_ip || "—"}
                   </.link>
-                  <span :if={not Map.has_key?(@context, :src_device_uid)} class="min-w-0 truncate">
+                  <span
+                    :if={not (is_binary(src_device_uid) and src_device_uid != "")}
+                    class="min-w-0 truncate"
+                  >
                     {src_ip || "—"}
                   </span>
                   <span class="shrink-0 text-base-content/60">
@@ -1576,19 +1594,26 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   <div :if={is_binary(src_if_uid) and src_if_uid != ""}>
                     if_uid: <span class="font-mono">{src_if_uid}</span>
                   </div>
-                  <div :if={is_binary(src_mac) and src_mac != ""}>
+                  <div>
                     mac:
-                    <.link
-                      :if={device_uid = Map.get(@context, :src_device_uid)}
-                      navigate={~p"/devices/#{device_uid}"}
-                      class="font-mono hover:underline"
-                      title="Open device"
-                    >
-                      {src_mac}
-                    </.link>
-                    <span :if={not Map.has_key?(@context, :src_device_uid)} class="font-mono">
-                      {src_mac}
-                    </span>
+                    <%= if is_binary(src_mac) and src_mac != "" do %>
+                      <.link
+                        :if={is_binary(src_device_uid) and src_device_uid != ""}
+                        navigate={~p"/devices/#{src_device_uid}"}
+                        class="font-mono hover:underline"
+                        title="Open device"
+                      >
+                        {src_mac}
+                      </.link>
+                      <span
+                        :if={not (is_binary(src_device_uid) and src_device_uid != "")}
+                        class="font-mono"
+                      >
+                        {src_mac}
+                      </span>
+                    <% else %>
+                      <span class="font-mono text-base-content/50">n/a</span>
+                    <% end %>
                   </div>
                 </div>
               </div>
@@ -1603,14 +1628,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     {iso2_flag_emoji(dst_cc)}
                   </span>
                   <.link
-                    :if={device_uid = Map.get(@context, :dst_device_uid)}
-                    navigate={~p"/devices/#{device_uid}"}
+                    :if={is_binary(dst_device_uid) and dst_device_uid != ""}
+                    navigate={~p"/devices/#{dst_device_uid}"}
                     class="min-w-0 truncate hover:underline"
                     title={dst_ip}
                   >
                     {dst_ip || "—"}
                   </.link>
-                  <span :if={not Map.has_key?(@context, :dst_device_uid)} class="min-w-0 truncate">
+                  <span
+                    :if={not (is_binary(dst_device_uid) and dst_device_uid != "")}
+                    class="min-w-0 truncate"
+                  >
                     {dst_ip || "—"}
                   </span>
                   <span class="shrink-0 text-base-content/60">
@@ -1628,19 +1656,26 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   <div :if={is_binary(dst_if_uid) and dst_if_uid != ""}>
                     if_uid: <span class="font-mono">{dst_if_uid}</span>
                   </div>
-                  <div :if={is_binary(dst_mac) and dst_mac != ""}>
+                  <div>
                     mac:
-                    <.link
-                      :if={device_uid = Map.get(@context, :dst_device_uid)}
-                      navigate={~p"/devices/#{device_uid}"}
-                      class="font-mono hover:underline"
-                      title="Open device"
-                    >
-                      {dst_mac}
-                    </.link>
-                    <span :if={not Map.has_key?(@context, :dst_device_uid)} class="font-mono">
-                      {dst_mac}
-                    </span>
+                    <%= if is_binary(dst_mac) and dst_mac != "" do %>
+                      <.link
+                        :if={is_binary(dst_device_uid) and dst_device_uid != ""}
+                        navigate={~p"/devices/#{dst_device_uid}"}
+                        class="font-mono hover:underline"
+                        title="Open device"
+                      >
+                        {dst_mac}
+                      </.link>
+                      <span
+                        :if={not (is_binary(dst_device_uid) and dst_device_uid != "")}
+                        class="font-mono"
+                      >
+                        {dst_mac}
+                      </span>
+                    <% else %>
+                      <span class="font-mono text-base-content/50">n/a</span>
+                    <% end %>
                   </div>
                 </div>
               </div>

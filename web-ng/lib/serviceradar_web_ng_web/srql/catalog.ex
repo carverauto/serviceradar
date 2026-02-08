@@ -134,7 +134,27 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "app",
         "sampler_address"
       ],
-      downsample: false
+      downsample: true,
+      default_bucket: "5m",
+      default_agg: "sum",
+      default_value_field: "bytes_total",
+      default_series_field: "app",
+      value_fields: ["bytes_total", "packets_total"],
+      series_fields: [
+        "protocol_group",
+        "protocol_name",
+        "app",
+        "dst_port",
+        "src_ip",
+        "dst_ip",
+        "direction",
+        "sampler_address",
+        "exporter_name",
+        "in_if_name",
+        "out_if_name",
+        "src_cidr",
+        "dst_cidr"
+      ]
     },
     %{
       id: "services",

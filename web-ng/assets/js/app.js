@@ -69,6 +69,46 @@ function getPhoenixTheme() {
   return 'light';
 }
 
+function nfFormatBytes(n) {
+  const v = Number(n || 0)
+  if (!Number.isFinite(v)) return "0 B"
+  const abs = Math.abs(v)
+  if (abs >= 1e12) return `${(v / 1e12).toFixed(2)} TB`
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)} GB`
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)} MB`
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)} KB`
+  return `${v.toFixed(0)} B`
+}
+
+function nfFormatBits(n) {
+  const v = Number(n || 0)
+  if (!Number.isFinite(v)) return "0 b"
+  const abs = Math.abs(v)
+  if (abs >= 1e12) return `${(v / 1e12).toFixed(2)} Tb`
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)} Gb`
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)} Mb`
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)} Kb`
+  return `${v.toFixed(0)} b`
+}
+
+function nfFormatCountPerSec(n) {
+  const v = Number(n || 0)
+  if (!Number.isFinite(v)) return "0 /s"
+  const abs = Math.abs(v)
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)} G/s`
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)} M/s`
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)} K/s`
+  return `${v.toFixed(2)} /s`
+}
+
+function nfFormatRateValue(units, n) {
+  const u = String(units || "").trim()
+  if (u === "bps") return `${nfFormatBits(n)}/s`
+  if (u === "Bps") return `${nfFormatBytes(n)}/s`
+  if (u === "pps") return nfFormatCountPerSec(n)
+  return nfFormatBytes(n)
+}
+
 // Custom hooks
 const Hooks = {
   /**
@@ -526,35 +566,67 @@ const Hooks = {
     }
   },
 
-	  NetflowSankeyChart: {
-	    mounted() {
-	      this._render = () => this._draw()
-      this._resizeObserver = new ResizeObserver(() => this._render())
-      this._resizeObserver.observe(this.el)
-      this._hiddenGroups = this._hiddenGroups || new Set()
-      this._render()
-    },
-    updated() {
-      this._render()
-    },
-    destroyed() {
-      try { this._resizeObserver?.disconnect() } catch (_e) {}
-      try { this._tooltipCleanup?.() } catch (_e) {}
-    },
-	    _draw() {
-	      const hook = this
-	      const el = this.el
-	      const svg = el.querySelector("svg")
-	      if (!svg) return
+		  NetflowSankeyChart: {
+		    mounted() {
+		      this._render = () => this._draw()
+	      this._resizeObserver = new ResizeObserver(() => this._render())
+	      this._resizeObserver.observe(this.el)
+	      this._hiddenGroups = this._hiddenGroups || new Set()
+	      this._render()
+	    },
+	    updated() {
+	      this._render()
+	    },
+	    destroyed() {
+	      try { this._resizeObserver?.disconnect() } catch (_e) {}
+	      try { this._tooltipCleanup?.() } catch (_e) {}
+	    },
+		    _draw() {
+		      const hook = this
+		      const el = this.el
+		      const svg = el.querySelector("svg")
+		      if (!svg) return
 
-	      const groupLabel = {
-	        src: el.dataset.srcLabel || "Source",
-	        mid: el.dataset.midLabel || "Middle",
-	        dst: el.dataset.dstLabel || "Destination",
-	      }
+		      const renderMessage = (msg, detail) => {
+		        // Clear existing SVG children.
+		        while (svg.firstChild) svg.removeChild(svg.firstChild)
 
-      const tooltip = nfEnsureTooltip(el)
-      tooltip.classList.add("hidden")
+		        const width = Math.max(300, el.clientWidth || 0)
+		        const height = Math.max(220, el.clientHeight || 0)
+		        svg.setAttribute("viewBox", `0 0 ${width} ${height}`)
+		        svg.setAttribute("preserveAspectRatio", "xMidYMid meet")
+
+		        const g = document.createElementNS("http://www.w3.org/2000/svg", "g")
+		        const text = document.createElementNS("http://www.w3.org/2000/svg", "text")
+		        text.setAttribute("x", "16")
+		        text.setAttribute("y", "24")
+		        text.setAttribute("fill", "currentColor")
+		        text.setAttribute("font-size", "12")
+		        text.textContent = msg || "No Sankey edges in this window."
+		        g.appendChild(text)
+
+		        if (detail) {
+		          const t2 = document.createElementNS("http://www.w3.org/2000/svg", "text")
+		          t2.setAttribute("x", "16")
+		          t2.setAttribute("y", "44")
+		          t2.setAttribute("fill", "currentColor")
+		          t2.setAttribute("font-size", "11")
+		          t2.setAttribute("opacity", "0.7")
+		          t2.textContent = detail
+		          g.appendChild(t2)
+		        }
+
+		        svg.appendChild(g)
+		      }
+
+		      const groupLabel = {
+		        src: el.dataset.srcLabel || "Source",
+		        mid: el.dataset.midLabel || "Middle",
+		        dst: el.dataset.dstLabel || "Destination",
+		      }
+
+	      const tooltip = nfEnsureTooltip(el)
+	      tooltip.classList.add("hidden")
 
       const showTooltip = (evt, html) => {
         if (!html) return
@@ -578,61 +650,67 @@ const Hooks = {
         tooltip.classList.add("hidden")
       }
 
-      let edges = []
-      try {
-        edges = JSON.parse(el.dataset.edges || "[]")
-      } catch (_e) {
-        edges = []
-      }
-      const width = Math.max(300, el.clientWidth || 0)
-      const height = Math.max(220, el.clientHeight || 0)
+	      let edges = []
+	      try {
+	        edges = JSON.parse(el.dataset.edges || "[]")
+	      } catch (_e) {
+	        edges = []
+	      }
 
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`)
-      svg.setAttribute("preserveAspectRatio", "xMidYMid meet")
+	      const width = Math.max(300, el.clientWidth || 0)
+	      const height = Math.max(220, el.clientHeight || 0)
 
-      // Clear
-      while (svg.firstChild) svg.removeChild(svg.firstChild)
+	      try {
+	        svg.setAttribute("viewBox", `0 0 ${width} ${height}`)
+	        svg.setAttribute("preserveAspectRatio", "xMidYMid meet")
 
-      if (!Array.isArray(edges) || edges.length === 0) {
-        return
-      }
+	        // Clear
+	        while (svg.firstChild) svg.removeChild(svg.firstChild)
 
-      const formatBytes = (value) => {
-        const abs = Math.abs(value || 0)
-        if (abs >= 1e9) return `${(value / 1e9).toFixed(2)} GB`
-        if (abs >= 1e6) return `${(value / 1e6).toFixed(2)} MB`
+	        if (!Array.isArray(edges) || edges.length === 0) {
+	          renderMessage("No Sankey edges in this window.", "Try widening the time range or switching dimensions.")
+	          return
+	        }
+
+	      const formatBytes = (value) => {
+	        const abs = Math.abs(value || 0)
+	        if (abs >= 1e9) return `${(value / 1e9).toFixed(2)} GB`
+	        if (abs >= 1e6) return `${(value / 1e6).toFixed(2)} MB`
         if (abs >= 1e3) return `${(value / 1e3).toFixed(2)} KB`
         return `${(value || 0).toFixed(0)} B`
       }
 
-      const nodeIds = new Map()
-      const nodes = []
-      const addNode = (id, group) => {
-        if (!id) return
-        if (nodeIds.has(id)) return
-        nodeIds.set(id, true)
-        nodes.push({ id, group })
-      }
+	      const nodeIds = new Map()
+	      const nodes = []
+	      const nodeKey = (group, label) => `${String(group || "")}:${String(label || "")}`
+	      const addNode = (id, group) => {
+	        if (!id) return
+	        const key = nodeKey(group, id)
+	        if (nodeIds.has(key)) return
+	        nodeIds.set(key, true)
+	        // Keep a stable, namespaced id for layout, but preserve the original label for display.
+	        nodes.push({ id: key, label: id, group })
+	      }
 
-      const links = []
-      for (const e of edges) {
-        const src = e?.src
-        const mid = e?.mid
-        const dst = e?.dst
-        const bytes = Number(e?.bytes || 0)
-        const port = e?.port
-        if (!src || !mid || !dst || !Number.isFinite(bytes) || bytes <= 0) continue
+	      const links = []
+	      for (const e of edges) {
+	        const src = e?.src
+	        const mid = e?.mid
+	        const dst = e?.dst
+	        const bytes = Number(e?.bytes || 0)
+	        const port = e?.port
+	        if (!src || !mid || !dst || !Number.isFinite(bytes) || bytes <= 0) continue
 
-        addNode(src, "src")
-        addNode(mid, "mid")
-        addNode(dst, "dst")
+	        addNode(src, "src")
+	        addNode(mid, "mid")
+	        addNode(dst, "dst")
 
-        // Model as 2-hop links so d3-sankey lays out 3 columns.
-        const mid_field = e?.mid_field ?? ""
-        const mid_value = e?.mid_value ?? ""
-        links.push({ source: src, target: mid, value: bytes, edge: { src, dst, port, mid_field, mid_value } })
-        links.push({ source: mid, target: dst, value: bytes, edge: { src, dst, port, mid_field, mid_value } })
-      }
+	        // Model as 2-hop links so d3-sankey lays out 3 columns.
+	        const mid_field = e?.mid_field ?? ""
+	        const mid_value = e?.mid_value ?? ""
+	        links.push({ source: nodeKey("src", src), target: nodeKey("mid", mid), value: bytes, edge: { src, dst, port, mid_field, mid_value } })
+	        links.push({ source: nodeKey("mid", mid), target: nodeKey("dst", dst), value: bytes, edge: { src, dst, port, mid_field, mid_value } })
+	      }
 
       const sankey = d3Sankey()
         .nodeId((d) => d.id)
@@ -640,10 +718,10 @@ const Hooks = {
         .nodePadding(10)
         .extent([[12, 10], [width - 12, height - 10]])
 
-      const graph = sankey({
-        nodes: nodes.map((d) => ({ ...d })),
-        links: links.map((d) => ({ ...d })),
-      })
+	      const graph = sankey({
+	        nodes: nodes.map((d) => ({ ...d })),
+	        links: links.map((d) => ({ ...d })),
+	      })
 
       const g = d3.select(svg).append("g")
 
@@ -704,16 +782,16 @@ const Hooks = {
             mid_value: edge.mid_value ?? "",
           })
         })
-        .append("title")
-        .text((d) => {
-          const s = d?.source?.id || ""
-          const t = d?.target?.id || ""
-          return `${s} -> ${t}\n${formatBytes(d.value)}`
-        })
+	        .append("title")
+	        .text((d) => {
+	          const s = d?.source?.label || d?.source?.id || ""
+	          const t = d?.target?.label || d?.target?.id || ""
+	          return `${s} -> ${t}\n${formatBytes(d.value)}`
+	        })
 
-      // Nodes
-      const node = g.append("g")
-        .selectAll("g")
+		      // Nodes
+		      const node = g.append("g")
+		        .selectAll("g")
         .data(graph.nodes)
         .join("g")
         .attr("opacity", (d) => (groupHidden(d.group || "src") ? 0.15 : 1))
@@ -728,11 +806,11 @@ const Hooks = {
         .attr("fill", (d) => color(d.group || "src"))
         .attr("fill-opacity", 0.65)
 
-      node.append("title")
-        .text((d) => d.id)
+	      node.append("title")
+	        .text((d) => d.label || d.id)
 
       // Labels (trim aggressively to avoid overlap)
-	      node.append("text")
+		      node.append("text")
         .attr("x", (d) => (d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6))
         .attr("y", (d) => (d.y0 + d.y1) / 2)
         .attr("dy", "0.35em")
@@ -740,18 +818,18 @@ const Hooks = {
         .attr("font-size", 10)
         .attr("fill", "currentColor")
         .attr("opacity", 0.75)
-        .text((d) => {
-          const s = String(d.id || "")
-          return s.length > 24 ? s.slice(0, 21) + "..." : s
-        })
-	        .on("mousemove", (evt, d) => {
-	          const grp = d?.group || "src"
-	          const html = `
-	            <div class="text-[11px] font-mono">${String(d?.id || "")}</div>
-	            <div class="mt-0.5 text-[11px] opacity-70">${String(groupLabel[grp] || grp)}</div>
-	          `
-	          showTooltip(evt, html)
+	        .text((d) => {
+	          const s = String(d.label || d.id || "")
+	          return s.length > 24 ? s.slice(0, 21) + "..." : s
 	        })
+		        .on("mousemove", (evt, d) => {
+		          const grp = d?.group || "src"
+		          const html = `
+		            <div class="text-[11px] font-mono">${String(d?.label || d?.id || "")}</div>
+		            <div class="mt-0.5 text-[11px] opacity-70">${String(groupLabel[grp] || grp)}</div>
+		          `
+		          showTooltip(evt, html)
+		        })
         .on("mouseleave", hideTooltip)
 
 	      // Column headers (what each column represents).
@@ -778,11 +856,16 @@ const Hooks = {
 	            .attr("opacity", 0.7)
 	            .attr("fill", "currentColor")
 	            .text(String(groupLabel[grp] || grp))
-	        }
-	      } catch (_e) {}
+		        }
+		      } catch (_e) {}
 
-	    }
-	  },
+		      } catch (e) {
+		        renderMessage("Sankey failed to render.", String(e?.message || e || "unknown error"))
+		        return
+		      }
+
+		    }
+		  },
 
   NetflowStackedAreaChart: {
     mounted() {
@@ -943,6 +1026,7 @@ const Hooks = {
         keys: visibleKeys,
         x,
         valueAt: (row, k) => row?.[k] || 0,
+        formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
       })
     }
   },
@@ -1241,6 +1325,7 @@ const Hooks = {
         keys: visibleKeys,
         x,
         valueAt: (row, k) => row?.[k] || 0,
+        formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
       })
     }
   },
@@ -1358,6 +1443,7 @@ const Hooks = {
         keys: visibleKeys,
         x,
         valueAt: (row, k) => row?.[k] || 0,
+        formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
       })
     }
   },
