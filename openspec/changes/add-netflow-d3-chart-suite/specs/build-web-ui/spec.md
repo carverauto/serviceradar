@@ -15,3 +15,16 @@ NetFlow chart hooks SHALL accept datasets via `data-*` attributes (`data-keys`, 
 - **GIVEN** `data-keys` and `data-points` are present
 - **WHEN** the hook mounts
 - **THEN** it renders the visualization without client-side fetching
+
+### Requirement: Consistent Chart Interactivity
+NetFlow Visualize chart hooks SHALL provide consistent interactivity patterns: responsive rendering, hover tooltips, and legend toggles where applicable.
+
+#### Scenario: User toggles series visibility
+- **GIVEN** a time-series chart with a legend
+- **WHEN** the user clicks a legend item
+- **THEN** the chart toggles that series visibility without reloading the page
+
+#### Scenario: User hovers for a tooltip
+- **GIVEN** a rendered NetFlow chart
+- **WHEN** the user hovers over the chart area
+- **THEN** the chart shows a tooltip with values and a timestamp (or edge details for sankey)

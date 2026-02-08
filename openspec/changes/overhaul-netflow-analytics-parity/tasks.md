@@ -13,7 +13,7 @@ This is an umbrella change that defines the target parity end-state and the deli
 - [x] 2.1 Create child change: `add-netflow-visualize-page` (route + state model + redirect)
 - [x] 2.2 Create child change: `add-netflow-d3-chart-suite` (shared D3 toolkit + missing chart types)
 - [x] 2.3 Create child change: `add-netflow-dimensions-and-ranking` (dimensions UI + IP truncation + limitType)
-- [ ] 2.4 Create child change: `add-netflow-interface-exporter-cache` (cache table + worker + SRQL dims)
+- [x] 2.4 Create child change: `add-netflow-interface-exporter-cache` (cache table + worker + SRQL dims)
 - [ ] 2.5 Create child change: `add-netflow-units-and-capacity` (units + pct-of-capacity)
 - [ ] 2.6 Create child change: `add-netflow-caggs-auto-resolution` (CAGGs + SRQL auto-resolution)
 - [ ] 2.7 Create child change: `add-netflow-app-ip-ranges` (ip range DB + importer + SRQL tiering)
@@ -24,8 +24,8 @@ This is an umbrella change that defines the target parity end-state and the deli
 
 ## 3. Acceptance Criteria Per Phase (Program-Level)
 - [x] 3.1 Phase A acceptance: `/netflow` exists with left panel options and shareable URL state; old netflows tab redirects preserving SRQL query
-- [ ] 3.2 Phase B acceptance: 5 chart types exist and share consistent interactivity patterns (legend toggle, tooltip, responsive)
-- [ ] 3.3 Phase B acceptance: bidirectional and previous-period overlays work on supported chart types
+- [x] 3.2 Phase B acceptance: 5 chart types exist and share consistent interactivity patterns (legend toggle, tooltip, responsive)
+- [x] 3.3 Phase B acceptance: bidirectional and previous-period overlays work on supported chart types
 - [ ] 3.4 Phase C acceptance: dimension selector supports multi-dim ordering, top-N, limitType, and IP truncation for IP dims
 - [ ] 3.5 Phase D acceptance: interface/exporter metadata appears in SRQL and UI (names, speeds, boundaries)
 - [ ] 3.6 Phase E acceptance: long windows auto-use rollups; performance validated with EXPLAIN and demo data

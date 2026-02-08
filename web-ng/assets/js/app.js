@@ -34,6 +34,7 @@ import {
   chartDims as nfChartDims,
   clearSVG as nfClearSVG,
   colorScale as nfColorScale,
+  ensureTooltip as nfEnsureTooltip,
   ensureSVG as nfEnsureSVG,
   fmtPct as nfFmtPct,
   normalizeTimeSeries as nfNormalizeTimeSeries,
@@ -513,6 +514,7 @@ const Hooks = {
       this._render = () => this._draw()
       this._resizeObserver = new ResizeObserver(() => this._render())
       this._resizeObserver.observe(this.el)
+      this._hiddenGroups = this._hiddenGroups || new Set()
       this._render()
     },
     updated() {
@@ -523,11 +525,42 @@ const Hooks = {
       try { this._tooltipCleanup?.() } catch (_e) {}
     },
     _draw() {
+      const hook = this
       const el = this.el
       const svg = el.querySelector("svg")
       if (!svg) return
 
-      const edges = JSON.parse(el.dataset.edges || "[]")
+      const tooltip = nfEnsureTooltip(el)
+      tooltip.classList.add("hidden")
+
+      const showTooltip = (evt, html) => {
+        if (!html) return
+        const rect = el.getBoundingClientRect()
+        const x = evt.clientX - rect.left
+        const y = evt.clientY - rect.top
+
+        tooltip.innerHTML = html
+        tooltip.classList.remove("hidden")
+
+        const pad = 8
+        const ttRect = tooltip.getBoundingClientRect()
+        const maxLeft = rect.width - (ttRect.width || 180) - pad
+        const left = Math.max(pad, Math.min(maxLeft, x + 12))
+        const top = Math.max(pad, Math.min(rect.height - 48, y - 12))
+        tooltip.style.left = `${left}px`
+        tooltip.style.top = `${top}px`
+      }
+
+      const hideTooltip = () => {
+        tooltip.classList.add("hidden")
+      }
+
+      let edges = []
+      try {
+        edges = JSON.parse(el.dataset.edges || "[]")
+      } catch (_e) {
+        edges = []
+      }
       const width = Math.max(300, el.clientWidth || 0)
       const height = Math.max(220, el.clientHeight || 0)
 
@@ -593,6 +626,8 @@ const Hooks = {
         .domain(["src", "mid", "dst"])
         .range(["#60a5fa", "#a78bfa", "#34d399"])
 
+      const groupHidden = (grp) => hook._hiddenGroups?.has(grp)
+
       // Links
       g.append("g")
         .attr("fill", "none")
@@ -604,9 +639,25 @@ const Hooks = {
           const grp = d?.source?.group || "src"
           return color(grp)
         })
-        .attr("stroke-opacity", 0.25)
+        .attr("stroke-opacity", (d) => {
+          const grp = d?.source?.group || "src"
+          return groupHidden(grp) ? 0.03 : 0.25
+        })
         .attr("stroke-width", (d) => Math.max(1, d.width || 1))
         .style("cursor", "pointer")
+        .on("mousemove", (evt, d) => {
+          const edge = d?.edge
+          const s = edge?.src || d?.source?.id || ""
+          const t = edge?.dst || d?.target?.id || ""
+          const port = edge?.port ?? ""
+          const html = `
+            <div class="font-mono text-[11px]">${String(s)} -> ${String(t)}</div>
+            <div class="mt-0.5 text-[11px] opacity-70">port: ${String(port || "-")}</div>
+            <div class="mt-0.5 text-[11px] font-mono">${formatBytes(d?.value || 0)}</div>
+          `
+          showTooltip(evt, html)
+        })
+        .on("mouseleave", hideTooltip)
         .on("click", (_evt, d) => {
           const edge = d?.edge
           if (!edge) return
@@ -628,6 +679,8 @@ const Hooks = {
         .selectAll("g")
         .data(graph.nodes)
         .join("g")
+        .attr("opacity", (d) => (groupHidden(d.group || "src") ? 0.15 : 1))
+        .style("pointer-events", (d) => (groupHidden(d.group || "src") ? "none" : "all"))
 
       node.append("rect")
         .attr("x", (d) => d.x0)
@@ -654,6 +707,51 @@ const Hooks = {
           const s = String(d.id || "")
           return s.length > 24 ? s.slice(0, 21) + "..." : s
         })
+        .on("mousemove", (evt, d) => {
+          const grp = d?.group || "src"
+          const html = `
+            <div class="text-[11px] font-mono">${String(d?.id || "")}</div>
+            <div class="mt-0.5 text-[11px] opacity-70">group: ${String(grp)}</div>
+          `
+          showTooltip(evt, html)
+        })
+        .on("mouseleave", hideTooltip)
+
+      // Group legend with toggles (keeps parity with other charts' legend toggles).
+      const groups = ["src", "mid", "dst"]
+      const legend = g.append("g").attr("transform", `translate(${width - 92}, 14)`)
+
+      const legendItem = legend.selectAll("g")
+        .data(groups)
+        .join("g")
+        .attr("transform", (_d, i) => `translate(0, ${i * 14})`)
+        .style("cursor", "pointer")
+        .on("click", (_evt, grp) => {
+          if (hook._hiddenGroups.has(grp)) {
+            hook._hiddenGroups.delete(grp)
+          } else {
+            hook._hiddenGroups.add(grp)
+          }
+          hook._render()
+        })
+
+      legendItem.append("rect")
+        .attr("x", 0)
+        .attr("y", -9)
+        .attr("width", 10)
+        .attr("height", 10)
+        .attr("rx", 2)
+        .attr("fill", (grp) => color(grp))
+        .attr("fill-opacity", (grp) => (hook._hiddenGroups.has(grp) ? 0.15 : 0.85))
+
+      legendItem.append("text")
+        .attr("x", 14)
+        .attr("y", 0)
+        .attr("dy", "0.32em")
+        .attr("font-size", 10)
+        .attr("opacity", (grp) => (hook._hiddenGroups.has(grp) ? 0.4 : 0.75))
+        .attr("fill", "currentColor")
+        .text((grp) => grp)
     }
   },
 
@@ -1123,6 +1221,7 @@ const Hooks = {
       this._render = () => this._draw()
       this._resizeObserver = new ResizeObserver(() => this._render())
       this._resizeObserver.observe(this.el)
+      this._hidden = this._hidden || new Set()
       this._render()
     },
     updated() {
@@ -1130,6 +1229,7 @@ const Hooks = {
     },
     destroyed() {
       try { this._resizeObserver?.disconnect() } catch (_e) {}
+      try { this._tooltipCleanup?.() } catch (_e) {}
     },
     _draw() {
       const el = this.el
@@ -1140,7 +1240,7 @@ const Hooks = {
       const { width, height, margin: m, iw, ih } = nfChartDims(el, {
         minW: 360,
         minH: 220,
-        margin: { top: 10, right: 10, bottom: 10, left: 10 },
+        margin: { top: 10, right: 110, bottom: 10, left: 10 },
       })
 
       nfClearSVG(svg, width, height)
@@ -1153,7 +1253,10 @@ const Hooks = {
 
       if (data.length === 0) return
 
-      const n = keys.length
+      const visibleKeys = keys.filter((k) => !this._hidden.has(k))
+      if (visibleKeys.length === 0) return
+
+      const n = visibleKeys.length
       const cols = Math.ceil(Math.sqrt(n))
       const rows = Math.ceil(n / cols)
       const pad = 10
@@ -1164,8 +1267,18 @@ const Hooks = {
 
       const root = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
 
+      const legend = root.append("g").attr("transform", `translate(${iw + 12}, 6)`)
+      nfBuildLegend(legend, keys, color, this._hidden, (k) => {
+        if (this._hidden.has(k)) {
+          this._hidden.delete(k)
+        } else {
+          this._hidden.add(k)
+        }
+        this._render()
+      })
+
       for (let i = 0; i < n; i++) {
-        const k = keys[i]
+        const k = visibleKeys[i]
         const c = i % cols
         const r = Math.floor(i / cols)
         const x0 = c * (cw + pad)
@@ -1206,6 +1319,16 @@ const Hooks = {
           .attr("opacity", 0.75)
           .text(String(k).length > 18 ? String(k).slice(0, 15) + "..." : String(k))
       }
+
+      // Shared tooltip across all series (matches other time-series charts).
+      const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
+      try { this._tooltipCleanup?.() } catch (_e) {}
+      this._tooltipCleanup = nfAttachTimeTooltip(el, {
+        data,
+        keys: visibleKeys,
+        x,
+        valueAt: (row, k) => row?.[k] || 0,
+      })
     }
   },
 

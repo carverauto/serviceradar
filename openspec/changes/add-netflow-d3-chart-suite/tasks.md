@@ -10,6 +10,7 @@
 - [x] 3.3 Line series (new)
 - [x] 3.4 Grid (small multiples) (new)
 - [x] 3.5 Sankey (standardize existing)
+- [x] 3.6 Standardize interactivity across chart types (responsive + tooltip + legend toggles where applicable)
 
 ## 4. /netflow Wiring
 - [x] 4.1 Load SRQL-driven datasets for selected chart type
