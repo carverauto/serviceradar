@@ -1544,18 +1544,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
           <div class="mt-3">
             <div
-              :if={Map.get(@sankey, :edges, []) == []}
-              class="py-8 text-center text-sm text-base-content/60"
-            >
-              No Sankey edges in this window.
-            </div>
-            <div
-              :if={Map.get(@sankey, :edges, []) != []}
               id={"netflow-sankey-#{@sankey_prefix}"}
               phx-hook="NetflowSankeyChart"
               data-edges={@netflow_sankey_edges_json || "[]"}
               class="w-full"
-            />
+            >
+              <svg class="w-full h-64"></svg>
+              <div
+                :if={Map.get(@sankey, :edges, []) == []}
+                class="py-8 text-center text-sm text-base-content/60"
+              >
+                No Sankey edges in this window.
+              </div>
+            </div>
           </div>
         </.ui_panel>
 
@@ -6072,7 +6073,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp netflow_base_query(query) when is_binary(query) do
     query = String.trim(query)
-    if query == "", do: "in:flows time:#{@default_netflow_window}", else: query
+
+    cond do
+      query == "" ->
+        "in:flows time:#{@default_netflow_window}"
+
+      # All NetFlow charts (especially multi-dimension stats like Sankey) require an explicit time window.
+      Regex.match?(~r/(?:^|\s)time:/, query) ->
+        query
+
+      true ->
+        query <> " time:#{@default_netflow_window}"
+    end
   end
 
   defp load_netflow_rdns_map(flows, top_talkers, scope) when is_list(flows) do
