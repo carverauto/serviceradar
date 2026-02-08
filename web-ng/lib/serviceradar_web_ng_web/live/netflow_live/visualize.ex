@@ -15,6 +15,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     NetflowPortScanFlag
   }
 
+  alias ServiceRadar.Integrations.MapboxSettings
+
   require Ash.Query
 
   @default_limit 100
@@ -215,15 +217,35 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     mid_field = Map.get(params, "mid_field") |> normalize_optional_string()
     mid_value = Map.get(params, "mid_value") |> normalize_optional_string()
 
-    query = Map.get(socket.assigns.srql, :query) || ""
+    # IMPORTANT: The current SRQL query is a chart query (e.g. includes `stats:"..."`).
+    # Upserting filters into that string can accidentally match group-by expressions inside
+    # the quoted stats expression (e.g. `dst_cidr:24`) and corrupt the query.
+    #
+    # Instead:
+    # 1) derive a base flows query without chart tokens
+    # 2) apply filters to the base query
+    # 3) re-emit a chart query from the current visualize state
+    state = Map.get(socket.assigns, :netflow_viz_state, %{})
+    time = Map.get(state, "time", @default_time)
 
-    new_query =
-      query
+    base =
+      socket.assigns.srql
+      |> Map.get(:query, "")
+      |> chart_base_query(time)
+
+    filtered_base =
+      base
       |> apply_endpoint_filter(:src, src)
       |> apply_endpoint_filter(:dst, dst)
       |> apply_mid_filter(mid_field, mid_value, port)
 
-    {:noreply, push_patch(socket, to: build_patch_url(socket, %{"q" => new_query}))}
+    chart_query = chart_query_from_state(filtered_base, state)
+
+    {:noreply,
+     push_patch(socket,
+       to:
+         build_patch_url(socket, %{"q" => chart_query, "cursor" => nil, "nf" => nf_param(state)})
+     )}
   end
 
   def handle_event("netflow_stack_series", %{"field" => field, "value" => value}, socket) do
@@ -1367,6 +1389,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         <% dst_mac = get_in(ocsf, ["unmapped", "dst_mac"]) %>
         <% sampler =
           flow_get(@flow, ["sampler_address"]) || get_in(ocsf, ["observables", Access.at(0), "value"]) %>
+        <% mapbox = Map.get(@context, :mapbox) %>
+        <% map_markers = netflow_map_markers(@context, @flow) %>
 
         <div class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
           <div class="space-y-3 lg:col-span-2">
@@ -1478,6 +1502,40 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     flow_type: <span class="font-mono">{ft}</span>
                   </div>
                 </div>
+              </div>
+
+              <div class="p-3 rounded-lg border border-base-200 bg-base-200/30 md:col-span-2">
+                <div class="text-xs uppercase tracking-wider text-base-content/50">Map</div>
+
+                <%= if mapbox && mapbox.enabled &&
+                      is_binary(Map.get(mapbox, :access_token)) &&
+                      String.trim(Map.get(mapbox, :access_token)) != "" &&
+                      map_markers != [] do %>
+                  <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
+                    <div
+                      id="netflow-flow-map"
+                      class="h-72 w-full"
+                      phx-hook="MapboxFlowMap"
+                      data-enabled="true"
+                      data-access-token={Map.get(mapbox, :access_token) || ""}
+                      data-style-light={
+                        Map.get(mapbox, :style_light) || "mapbox://styles/mapbox/light-v11"
+                      }
+                      data-style-dark={
+                        Map.get(mapbox, :style_dark) || "mapbox://styles/mapbox/dark-v11"
+                      }
+                      data-markers={Jason.encode!(map_markers)}
+                    >
+                    </div>
+                  </div>
+                  <div class="mt-1 text-xs text-base-content/60">
+                    Tip: click markers for details.
+                  </div>
+                <% else %>
+                  <div class="mt-2 text-sm text-base-content/60">
+                    Mapbox is disabled or no GeoIP coordinates are available for this flow.
+                  </div>
+                <% end %>
               </div>
             </div>
 
@@ -1669,6 +1727,47 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     """
   end
 
+  defp netflow_map_markers(context, flow) when is_map(context) and is_map(flow) do
+    src_ip = flow_get(flow, ["src_endpoint_ip", "src_ip"])
+    dst_ip = flow_get(flow, ["dst_endpoint_ip", "dst_ip"])
+
+    []
+    |> maybe_add_geo_marker("Source", src_ip, Map.get(context, :src_geo))
+    |> maybe_add_geo_marker("Dest", dst_ip, Map.get(context, :dst_geo))
+    |> Enum.take(2)
+  end
+
+  defp netflow_map_markers(_context, _flow), do: []
+
+  defp maybe_add_geo_marker(markers, side, ip, geo) when is_list(markers) do
+    cond do
+      not is_map(geo) ->
+        markers
+
+      not is_number(Map.get(geo, :latitude)) or not is_number(Map.get(geo, :longitude)) ->
+        markers
+
+      true ->
+        label =
+          [side, ip, Map.get(geo, :city), Map.get(geo, :region), Map.get(geo, :country_name)]
+          |> Enum.filter(&is_binary/1)
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.join(" - ")
+
+        markers ++
+          [
+            %{
+              lng: Map.get(geo, :longitude),
+              lat: Map.get(geo, :latitude),
+              label: label
+            }
+          ]
+    end
+  end
+
+  defp maybe_add_geo_marker(markers, _side, _ip, _geo), do: markers
+
   defp load_flow_context(flow, scope) when is_map(flow) do
     user = scope && scope.user
     src_ip = flow_get(flow, ["src_endpoint_ip", "src_ip"]) |> normalize_ip()
@@ -1676,6 +1775,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     dst_port = flow_get(flow, ["dst_endpoint_port", "dst_port"]) |> to_int()
 
     %{
+      mapbox: read_mapbox(user),
       src_rdns: read_rdns(user, src_ip),
       dst_rdns: read_rdns(user, dst_ip),
       src_geo: read_geo(user, src_ip),
@@ -1711,6 +1811,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
+      _ -> nil
+    end
+  end
+
+  defp read_mapbox(nil), do: nil
+
+  defp read_mapbox(user) do
+    case MapboxSettings.get_settings(actor: user) do
+      {:ok, %MapboxSettings{} = settings} -> settings
       _ -> nil
     end
   end

@@ -1538,11 +1538,66 @@ const Hooks = {
         const label = String(d?.label || "")
         const popup = label ? new mapboxgl.Popup({ offset: 20 }).setText(label) : null
 
-        const marker = new mapboxgl.Marker().setLngLat([lng, lat])
+        const side =
+          label.toLowerCase().startsWith("source") ? "source" :
+          label.toLowerCase().startsWith("dest") ? "dest" : null
+
+        const markerColor =
+          side === "source" ? "#22c55e" : // green-500
+          side === "dest" ? "#ef4444" :   // red-500
+          "#64748b"                       // slate-500
+
+        const marker = new mapboxgl.Marker({ color: markerColor }).setLngLat([lng, lat])
         if (popup) marker.setPopup(popup)
         marker.addTo(this._map)
 
         this._markers.push(marker)
+      }
+
+      this._syncLine()
+    },
+    _syncLine() {
+      if (!this._map) return
+
+      const coords = (Array.isArray(this._markerData) ? this._markerData : [])
+        .map((d) => [Number(d?.lng), Number(d?.lat)])
+        .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat))
+
+      const sourceId = "sr-flow-line"
+      const layerId = "sr-flow-line-layer"
+
+      // Remove if we don't have a full src/dst pair.
+      if (coords.length < 2) {
+        try { if (this._map.getLayer(layerId)) this._map.removeLayer(layerId) } catch (_e) {}
+        try { if (this._map.getSource(sourceId)) this._map.removeSource(sourceId) } catch (_e) {}
+        return
+      }
+
+      const line = {
+        type: "FeatureCollection",
+        features: [{
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: [coords[0], coords[1]] },
+          properties: {},
+        }],
+      }
+
+      if (this._map.getSource(sourceId)) {
+        try { this._map.getSource(sourceId).setData(line) } catch (_e) {}
+      } else {
+        try {
+          this._map.addSource(sourceId, { type: "geojson", data: line })
+          this._map.addLayer({
+            id: layerId,
+            type: "line",
+            source: sourceId,
+            paint: {
+              "line-color": "#0ea5e9", // sky-500
+              "line-width": 3,
+              "line-opacity": 0.75,
+            },
+          })
+        } catch (_e) {}
       }
     },
     _fitToMarkers() {
