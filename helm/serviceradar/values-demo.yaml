@@ -63,6 +63,11 @@ networkPolicy:
       # Allow ipinfo lite MMDB refresh from ipinfo.io. (Resolved as 34.117.59.81 on 2026-02-07.)
       # Note: this is a best-effort allowlist and may need adjustment if ipinfo changes their IPs.
       - "34.117.0.0/16"
+      # ipinfo MMDB download currently redirects to dl.assets.ipinfo.io (Cloudflare).
+      # Allow the observed /24s (resolved on 2026-02-07 to 104.18.22.73 and 104.18.23.73).
+      # Note: Cloudflare anycast can change; if downloads fail again, re-resolve and update.
+      - "104.18.22.0/24"
+      - "104.18.23.0/24"
   calicoLogDenied:
     enabled: true
     selector: "all()"

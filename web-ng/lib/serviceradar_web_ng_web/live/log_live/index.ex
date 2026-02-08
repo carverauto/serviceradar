@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.FlowPubSub
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
+  alias ServiceRadar.Observability.IpInfo
   alias ServiceRadar.Observability.IpIpinfoCache
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.IpThreatIntelCache
@@ -28,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @max_events_limit 100
   @default_alerts_limit 25
   @max_alerts_limit 200
+  @default_netflow_window "last_1h"
   @default_netflow_limit 50
   @max_netflow_limit 200
 
@@ -55,6 +57,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:netflow_top_ports, [])
      |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
      |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
+     |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
      |> assign(:netflow_rdns_map, %{})
      |> assign(:netflow_compact?, false)
      |> assign(:netflow_talker_cidr, nil)
@@ -98,6 +101,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     tab = normalize_tab(Map.get(params, "tab"), path)
     {entity, list_key} = tab_entity(tab)
     {default_limit, max_limit} = tab_limits(tab)
+    params = maybe_default_netflows_query(params, tab)
     netflow_compact? = truthy_param?(Map.get(params, "compact"))
     netflow_talker_cidr = parse_netflow_talker_cidr(Map.get(params, "talker_cidr"))
     netflow_compare_mode = parse_netflow_compare_mode(Map.get(params, "compare"))
@@ -119,6 +123,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:netflow_top_ports, [])
       |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
       |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
+      |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
       |> assign(:netflow_rdns_map, %{})
       |> assign(:netflow_compact?, netflow_compact?)
       |> assign(:netflow_talker_cidr, netflow_talker_cidr)
@@ -358,6 +363,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      )}
   end
 
+  defp maybe_default_netflows_query(params, tab) when is_map(params) do
+    if tab == "netflows" and Map.get(params, "q") in [nil, ""] do
+      Map.put(params, "q", "in:flows time:#{@default_netflow_window} sort:time:desc")
+    else
+      params
+    end
+  end
+
+  defp maybe_default_netflows_query(params, _tab), do: params
+
   defp load_netflow_context(flow, scope) when is_map(flow) do
     user = scope && scope.user
 
@@ -411,13 +426,52 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       query = IpIpinfoCache |> Ash.Query.for_read(:by_ip, %{ip: ip})
 
       case Ash.read_one(query, actor: user) do
-        {:ok, record} -> record
-        _ -> nil
+        {:ok, %IpIpinfoCache{} = record} ->
+          record
+
+        _ ->
+          maybe_enrich_ipinfo(user, ip)
       end
     end
   end
 
   defp read_ipinfo(_user, _ip), do: nil
+
+  defp maybe_enrich_ipinfo(nil, _ip), do: nil
+
+  defp maybe_enrich_ipinfo(user, ip) when is_binary(ip) do
+    if IpInfo.available?() do
+      now = DateTime.utc_now()
+      expires_at = DateTime.add(now, 604_800, :second)
+
+      {attrs, err} =
+        case IpInfo.lookup(ip) do
+          {:ok, %{} = a} -> {a, nil}
+          {:error, reason} -> {nil, inspect(reason)}
+        end
+
+      attrs =
+        (attrs || %{})
+        |> Map.merge(%{
+          ip: ip,
+          looked_up_at: now,
+          expires_at: expires_at,
+          error: err,
+          error_count: if(is_nil(err), do: 0, else: 1)
+        })
+
+      changeset = IpIpinfoCache |> Ash.Changeset.for_create(:upsert, attrs)
+
+      case Ash.create(changeset, actor: user) do
+        {:ok, %IpIpinfoCache{} = record} -> record
+        _ -> nil
+      end
+    else
+      nil
+    end
+  rescue
+    _ -> nil
+  end
 
   defp read_geo(nil, _ip), do: nil
 
@@ -542,6 +596,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             rdns_map={@netflow_rdns_map}
             timeseries={@netflow_timeseries}
             timeseries_compare={@netflow_timeseries_compare}
+            timeseries_stacked={@netflow_timeseries_stacked}
             geo_heatmap={@netflow_geo_heatmap}
             geo_side={@netflow_geo_side}
             compare_mode={@netflow_compare_mode}
@@ -930,6 +985,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:rdns_map, :map, default: %{})
   attr(:timeseries, :map, required: true)
   attr(:timeseries_compare, :map, default: %{bucket_seconds: 300, points: []})
+  attr(:timeseries_stacked, :map, default: %{bucket_seconds: 300, points: []})
   attr(:compare_mode, :string, default: "off")
   attr(:geo_heatmap, :list, default: [])
   attr(:geo_side, :string, default: "dst")
@@ -969,6 +1025,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             compare_points={Map.get(@timeseries_compare, :points, [])}
             bucket_seconds={@timeseries.bucket_seconds}
             compare_mode={@compare_mode}
+          />
+        </div>
+        <div class="px-3 pb-3">
+          <div class="text-xs uppercase tracking-wider text-base-content/50 mb-2">
+            Traffic Mix (Stacked)
+          </div>
+          <.netflow_timeseries_stacked_area_chart
+            points={Map.get(@timeseries_stacked, :points, [])}
+            bucket_seconds={@timeseries.bucket_seconds}
           />
         </div>
       </.ui_panel>
@@ -1900,6 +1965,61 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
+  attr(:points, :list, default: [])
+  attr(:bucket_seconds, :integer, required: true)
+
+  defp netflow_timeseries_stacked_area_chart(assigns) do
+    points = Enum.filter(assigns.points, &is_map/1)
+
+    max_total =
+      points
+      |> Enum.map(&Map.get(&1, :total_bytes, 0))
+      |> Enum.max(fn -> 0 end)
+
+    assigns =
+      assigns
+      |> assign(:points, points)
+      |> assign(:max_total, max_total)
+
+    ~H"""
+    <div :if={@points == []} class="py-6 text-center text-sm text-base-content/60">
+      No protocol samples in this window.
+    </div>
+
+    <div :if={@points != []} class="w-full">
+      <svg
+        viewBox="0 0 1000 140"
+        class="w-full h-32"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="NetFlow traffic mix over time"
+      >
+        <path
+          d={stacked_area_path(@points, @max_total, 1000, 120, :tcp)}
+          class="fill-success/25 stroke-success/60"
+          stroke-width="1"
+        />
+        <path
+          d={stacked_area_path(@points, @max_total, 1000, 120, :udp)}
+          class="fill-info/25 stroke-info/60"
+          stroke-width="1"
+        />
+        <path
+          d={stacked_area_path(@points, @max_total, 1000, 120, :other)}
+          class="fill-base-content/10 stroke-base-content/30"
+          stroke-width="1"
+        />
+      </svg>
+
+      <div class="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-base-content/60 font-mono">
+        <span><span class="inline-block size-2 rounded-sm bg-success/60"></span> TCP</span>
+        <span><span class="inline-block size-2 rounded-sm bg-info/60"></span> UDP</span>
+        <span><span class="inline-block size-2 rounded-sm bg-base-content/30"></span> Other</span>
+      </div>
+    </div>
+    """
+  end
+
   attr(:label, :string, required: true)
   attr(:count, :integer, required: true)
   attr(:tone, :string, required: true)
@@ -1998,11 +2118,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     query = Map.get(assigns.srql, :query) || ""
 
     presets = [
-      %{label: "Recent", query: "in:flows time:last_24h sort:time:desc"},
-      %{label: "Top Bytes", query: "in:flows time:last_24h sort:bytes_total:desc"},
-      %{label: "Top Packets", query: "in:flows time:last_24h sort:packets_total:desc"},
-      %{label: "TCP", query: "in:flows time:last_24h proto:6 sort:bytes_total:desc"},
-      %{label: "UDP", query: "in:flows time:last_24h proto:17 sort:bytes_total:desc"}
+      %{label: "Recent", query: "in:flows time:#{@default_netflow_window} sort:time:desc"},
+      %{
+        label: "Top Bytes",
+        query: "in:flows time:#{@default_netflow_window} sort:bytes_total:desc"
+      },
+      %{
+        label: "Top Packets",
+        query: "in:flows time:#{@default_netflow_window} sort:packets_total:desc"
+      },
+      %{
+        label: "TCP",
+        query: "in:flows time:#{@default_netflow_window} proto:6 sort:bytes_total:desc"
+      },
+      %{
+        label: "UDP",
+        query: "in:flows time:#{@default_netflow_window} proto:17 sort:bytes_total:desc"
+      }
     ]
 
     assigns =
@@ -3020,10 +3152,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp netflows_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
+    <div class="w-full">
       <% patch_opts =
         netflow_patch_opts(@compact?, @talker_cidr, @compare_mode, @geo_side, @sankey_prefix) %>
-      <table class={["table table-zebra w-full", (@compact? && "table-xs") || "table-sm"]}>
+      <table class={[
+        "table table-zebra w-full table-fixed",
+        (@compact? && "table-xs") || "table-sm"
+      ]}>
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
@@ -3057,9 +3192,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <td class="whitespace-nowrap text-xs font-mono">
                 {format_netflow_timestamp(flow)}
               </td>
-              <td class="whitespace-nowrap text-xs">
+              <td class="text-xs align-top">
                 <% src_ip = netflow_addr(flow, :src) %>
-                <div class="font-mono">
+                <div class="min-w-0 font-mono break-all">
                   <.link
                     :if={netflow_present?(src_ip)}
                     patch={
@@ -3089,11 +3224,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   {hostname}
                 </div>
               </td>
-              <td class="whitespace-nowrap text-xs">
+              <td class="text-xs align-top">
                 <% dst_ip = netflow_addr(flow, :dst) %>
-                <div class="flex flex-col gap-0.5">
-                  <div class="flex items-center gap-2">
-                    <div class="font-mono">
+                <div class="flex flex-col gap-0.5 min-w-0">
+                  <div class="flex items-start gap-2 min-w-0">
+                    <div class="min-w-0 font-mono break-all">
                       <.link
                         :if={netflow_present?(dst_ip)}
                         patch={
@@ -3582,6 +3717,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           Enum.filter([info.city, info.region, info.country_code], &(&1 && &1 != "")),
                           ", "
                         )}
+                        <%= if is_integer(info.as_number) and info.as_number > 0 do %>
+                          <span class="ml-2">AS{info.as_number}</span>
+                        <% end %>
+                        <%= if is_binary(info.as_name) and info.as_name != "" do %>
+                          <span class="ml-2 text-base-content/60">{info.as_name}</span>
+                        <% end %>
                       </span>
                     </div>
                   <% else %>
@@ -3598,6 +3739,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           Enum.filter([info.city, info.region, info.country_code], &(&1 && &1 != "")),
                           ", "
                         )}
+                        <%= if is_integer(info.as_number) and info.as_number > 0 do %>
+                          <span class="ml-2">AS{info.as_number}</span>
+                        <% end %>
+                        <%= if is_binary(info.as_name) and info.as_name != "" do %>
+                          <span class="ml-2 text-base-content/60">{info.as_name}</span>
+                        <% end %>
                       </span>
                     </div>
                   <% else %>
@@ -5059,6 +5206,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         Map.get(timeseries, :bucket_seconds, 300)
       )
 
+    timeseries_stacked =
+      load_netflow_timeseries_stacked(
+        srql_module,
+        Map.get(socket.assigns.srql, :query),
+        scope,
+        Map.get(timeseries, :bucket_seconds, 300),
+        Map.get(timeseries, :points, [])
+      )
+
     geo_side = Map.get(socket.assigns, :netflow_geo_side, "dst")
 
     geo_heatmap =
@@ -5086,6 +5242,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:netflow_top_ports, top_ports)
     |> assign(:netflow_timeseries, timeseries)
     |> assign(:netflow_timeseries_compare, timeseries_compare)
+    |> assign(:netflow_timeseries_stacked, timeseries_stacked)
     |> assign(:netflow_geo_heatmap, geo_heatmap)
     |> assign(:netflow_sankey, sankey)
     |> assign(:event_summary, empty_event_summary())
@@ -5296,12 +5453,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    time_token = extract_time_from_query(base_query) || "last_24h"
+    time_token = extract_time_from_query(base_query) || @default_netflow_window
 
     window_seconds =
       case resolve_srql_time(time_token) do
         {:ok, %{start: start_dt, end: end_dt}} -> max(DateTime.diff(end_dt, start_dt, :second), 1)
-        _ -> 24 * 60 * 60
+        _ -> 60 * 60
       end
 
     total_query = ~s|#{base_query} stats:"count(*) as total" limit:1|
@@ -5419,12 +5576,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp extract_stats_rows(_), do: []
 
-  defp netflow_base_query(nil), do: "in:flows time:last_24h"
-  defp netflow_base_query(""), do: "in:flows time:last_24h"
+  defp netflow_base_query(nil), do: "in:flows time:#{@default_netflow_window}"
+  defp netflow_base_query(""), do: "in:flows time:#{@default_netflow_window}"
 
   defp netflow_base_query(query) when is_binary(query) do
     query = String.trim(query)
-    if query == "", do: "in:flows time:last_24h", else: query
+    if query == "", do: "in:flows time:#{@default_netflow_window}", else: query
   end
 
   defp load_netflow_rdns_map(flows, top_talkers, scope) when is_list(flows) do
@@ -5506,7 +5663,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    time_token = extract_time_from_query(base_query) || "last_24h"
+    time_token = extract_time_from_query(base_query) || @default_netflow_window
 
     bucket_seconds =
       case resolve_srql_time(time_token) do
@@ -5560,6 +5717,90 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       %{bucket_seconds: 300, points: []}
   end
 
+  defp load_netflow_timeseries_stacked(
+         srql_module,
+         current_query,
+         scope,
+         bucket_seconds,
+         total_points
+       )
+       when is_integer(bucket_seconds) and is_list(total_points) do
+    base_query =
+      current_query
+      |> netflow_base_query()
+      |> sanitize_srql_for_stats()
+
+    bucket = bucket_seconds_to_srql(bucket_seconds)
+
+    tcp_map =
+      load_netflow_timeseries_bytes_map(srql_module, scope, base_query, bucket, " proto:6")
+
+    udp_map =
+      load_netflow_timeseries_bytes_map(srql_module, scope, base_query, bucket, " proto:17")
+
+    points =
+      total_points
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn p ->
+        start_dt = Map.get(p, :bucket_start)
+        total_bytes = to_int(Map.get(p, :bytes))
+        tcp_bytes = to_int(Map.get(tcp_map, start_dt, 0))
+        udp_bytes = to_int(Map.get(udp_map, start_dt, 0))
+        other_bytes = max(total_bytes - tcp_bytes - udp_bytes, 0)
+
+        %{
+          bucket_start: start_dt,
+          bucket_end: Map.get(p, :bucket_end),
+          total_bytes: total_bytes,
+          tcp_bytes: tcp_bytes,
+          udp_bytes: udp_bytes,
+          other_bytes: other_bytes
+        }
+      end)
+      |> Enum.take(120)
+
+    %{bucket_seconds: bucket_seconds, points: points}
+  rescue
+    _ ->
+      %{bucket_seconds: bucket_seconds, points: []}
+  end
+
+  defp load_netflow_timeseries_stacked(
+         _srql_module,
+         _current_query,
+         _scope,
+         bucket_seconds,
+         _points
+       ),
+       do: %{bucket_seconds: bucket_seconds, points: []}
+
+  defp load_netflow_timeseries_bytes_map(srql_module, scope, base_query, bucket, filter_suffix)
+       when is_binary(base_query) and is_binary(bucket) and is_binary(filter_suffix) do
+    query =
+      ~s|#{base_query}#{filter_suffix} bucket:#{bucket} agg:sum value_field:bytes_total limit:120|
+
+    rows =
+      case srql_module.query(query, %{scope: scope}) do
+        {:ok, %{"results" => results}} when is_list(results) -> results
+        _ -> []
+      end
+
+    Enum.reduce(rows, %{}, fn
+      %{"timestamp" => ts, "value" => value}, acc ->
+        with {:ok, dt} <- parse_srql_datetime(ts),
+             bytes when is_number(bytes) <- to_number(value) do
+          Map.update(acc, dt, bytes, &(&1 + bytes))
+        else
+          _ -> acc
+        end
+
+      _row, acc ->
+        acc
+    end)
+  rescue
+    _ -> %{}
+  end
+
   defp load_netflow_timeseries_compare(
          _srql_module,
          _current_query,
@@ -5584,7 +5825,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    time_token = extract_time_from_query(base_query) || "last_24h"
+    time_token = extract_time_from_query(base_query) || @default_netflow_window
 
     case resolve_srql_time(time_token) do
       {:ok, %{start: start_dt, end: end_dt}} ->
@@ -5934,6 +6175,67 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       y = 150 - netflow_chart_h(Map.get(p, :bytes, 0), max_bytes, height)
       "#{Float.round(x, 1)},#{Float.round(y, 1)}"
     end)
+  end
+
+  defp stacked_area_path(points, max_total, width, height, series)
+       when is_list(points) and is_integer(width) and is_integer(height) do
+    total = length(points)
+
+    top =
+      points
+      |> Enum.with_index()
+      |> Enum.map(fn {p, idx} ->
+        x = netflow_chart_x(idx, total, width)
+        y = stacked_y(p, max_total, height, series, :top)
+        {x, y}
+      end)
+
+    bottom =
+      points
+      |> Enum.with_index()
+      |> Enum.reverse()
+      |> Enum.map(fn {p, idx} ->
+        x = netflow_chart_x(idx, total, width)
+        y = stacked_y(p, max_total, height, series, :bottom)
+        {x, y}
+      end)
+
+    {first_x, first_y} = List.first(top)
+
+    top_seg =
+      top
+      |> tl()
+      |> Enum.map_join(" ", fn {x, y} -> "L #{Float.round(x, 1)} #{Float.round(y, 1)}" end)
+
+    bottom_seg =
+      bottom
+      |> Enum.map_join(" ", fn {x, y} -> "L #{Float.round(x, 1)} #{Float.round(y, 1)}" end)
+
+    "M #{Float.round(first_x, 1)} #{Float.round(first_y, 1)} " <>
+      top_seg <> " " <> bottom_seg <> " Z"
+  end
+
+  defp stacked_y(p, max_total, height, series, which) do
+    total = to_int(Map.get(p, :total_bytes))
+    tcp = to_int(Map.get(p, :tcp_bytes))
+    udp = to_int(Map.get(p, :udp_bytes))
+    other = max(total - tcp - udp, 0)
+
+    {low, high} =
+      case series do
+        :tcp -> {0, tcp}
+        :udp -> {tcp, tcp + udp}
+        :other -> {tcp + udp, tcp + udp + other}
+      end
+
+    value =
+      case which do
+        :top -> high
+        :bottom -> low
+      end
+
+    # SVG y increases downward.
+    130 - netflow_chart_h(value, max(max_total, 1), height)
   end
 
   defp format_bucket(seconds) when is_integer(seconds) and seconds < 60, do: "#{seconds}s"

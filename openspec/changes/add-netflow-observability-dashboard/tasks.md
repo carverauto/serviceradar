@@ -116,7 +116,8 @@ persist direction at ingestion time or precompute it in rollups, but that's not 
 - [x] 8.4 Mount shared GeoLite MMDB storage into `core` and `web-ng` so enrichment workers can load the local DBs
 - [x] 8.5 Verify `platform.ip_geo_enrichment_cache` has non-zero `country_iso2` and `asn` counts in demo after refresh
 - [ ] 8.6 Verify `Traffic over time` renders points and click-through opens a valid flows list SRQL query
-- [ ] 8.7 Verify rDNS and GeoIP enrichment fields appear in the NetFlow details panel and table chips
+- [ ] 8.7 Verify rDNS, GeoIP/ASN, and ipinfo.io/lite enrichment fields appear in the NetFlow details panel and table
+- [x] 8.8 Allow demo egress for ipinfo MMDB refresh, including `dl.assets.ipinfo.io` redirect target (CIDR allowlist)
 
 Notes (8.6/8.7):
 As of 2026-02-07, demo verification requires redeploying updated `core-elx` and `web-ng` images that include:
@@ -124,12 +125,18 @@ As of 2026-02-07, demo verification requires redeploying updated `core-elx` and 
 - SRQL time range quoting in compare-mode drill-down (`time:"[start,end]"`) to avoid `expected scalar value`.
 - Netflow settings fixes so saving `ipinfo_api_key` works via Ash (avoid `NoSuchAttribute :ipinfo_api_key`).
 - rDNS display in the NetFlow details panel and NetFlow table (table now shows hostname on the second line when present).
+- GeoIP/ASN display in the NetFlow details panel (reads from `platform.ip_geo_enrichment_cache`).
+- Sankey edges query fixes so it renders consistently (SRQL-driven).
+- Default NetFlow view tuned to `time:last_1h` to reduce density and align with enrichment scan window.
+- Stacked traffic mix chart (protocol) rendered from SRQL bucket queries.
+- ipinfo.io/lite on-demand cache fill from local MMDB when opening flow details (no external calls).
 - CA trust store fix for HTTPS downloads in release images (Finch configured with `castore`) so MMDB refresh workers can download over TLS.
 
 Demo progress (2026-02-07):
 - `web-ng` pushed/restarted at `sha-2ae7e87db1a2f07779be6bd00cccad885fa494b4` (includes NetFlow table rDNS rendering fix).
 - `core-elx` pushed/restarted at `sha-5cacebeab086914d5e28066b17ea76ae61c08f49` (increased GeoLite MMDB download timeout to support the ~60MB City DB).
 - GeoLite MMDB files now exist in demo at `/var/lib/serviceradar/geoip/` and the enrichment refresh job populated `platform.ip_geo_enrichment_cache` with non-zero `country_iso2` and `asn` counts.
+- Demo egress allowlist now includes ipinfo.io (`34.117.0.0/16`) and the observed `dl.assets.ipinfo.io` redirect targets (`104.18.22.0/24`, `104.18.23.0/24`); core downloaded `ipinfo_lite.mmdb` to `/var/lib/serviceradar/geoip/ipinfo_lite.mmdb`.
 
 After redeploy, re-run:
 - open `/observability?tab=netflows` and confirm `Traffic over time` shows points for `last_1h` and clicking a point pushes a valid SRQL query.
