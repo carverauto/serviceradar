@@ -781,41 +781,6 @@ const Hooks = {
 	        }
 	      } catch (_e) {}
 
-	      // Group legend with toggles (keeps parity with other charts' legend toggles).
-	      const groups = ["src", "mid", "dst"]
-	      const legend = g.append("g").attr("transform", `translate(${width - 92}, 14)`)
-
-      const legendItem = legend.selectAll("g")
-        .data(groups)
-        .join("g")
-        .attr("transform", (_d, i) => `translate(0, ${i * 14})`)
-        .style("cursor", "pointer")
-        .on("click", (_evt, grp) => {
-          if (hook._hiddenGroups.has(grp)) {
-            hook._hiddenGroups.delete(grp)
-          } else {
-            hook._hiddenGroups.add(grp)
-          }
-          hook._render()
-        })
-
-      legendItem.append("rect")
-        .attr("x", 0)
-        .attr("y", -9)
-        .attr("width", 10)
-        .attr("height", 10)
-        .attr("rx", 2)
-        .attr("fill", (grp) => color(grp))
-        .attr("fill-opacity", (grp) => (hook._hiddenGroups.has(grp) ? 0.15 : 0.85))
-
-	      legendItem.append("text")
-	        .attr("x", 14)
-	        .attr("y", 0)
-	        .attr("dy", "0.32em")
-	        .attr("font-size", 10)
-	        .attr("opacity", (grp) => (hook._hiddenGroups.has(grp) ? 0.4 : 0.75))
-	        .attr("fill", "currentColor")
-	        .text((grp) => String(groupLabel[grp] || grp))
 	    }
 	  },
 
@@ -1381,6 +1346,7 @@ const Hooks = {
           .attr("y", 14)
           .attr("font-size", 10)
           .attr("opacity", 0.75)
+          .attr("fill", "currentColor")
           .text(String(k).length > 18 ? String(k).slice(0, 15) + "..." : String(k))
       }
 
@@ -1445,9 +1411,14 @@ const Hooks = {
       const enabled = (this.el.dataset.enabled || "false") === "true"
       const styleLight = this.el.dataset.styleLight || "mapbox://styles/mapbox/light-v11"
       const styleDark = this.el.dataset.styleDark || "mapbox://styles/mapbox/dark-v11"
-      const markers = JSON.parse(this.el.dataset.markers || "[]")
+      let markers = []
+      try {
+        markers = JSON.parse(this.el.dataset.markers || "[]")
+      } catch (_e) {
+        markers = []
+      }
 
-      if (!enabled || !token || !Array.isArray(markers) || markers.length === 0) {
+      if (!enabled || !token) {
         try {
           this._map?.remove()
         } catch (_e) {}
@@ -1459,7 +1430,7 @@ const Hooks = {
       this._token = token
       this._styleLight = styleLight
       this._styleDark = styleDark
-      this._markerData = markers
+      this._markerData = Array.isArray(markers) ? markers : []
 
       if (!this._map) {
         mapboxgl.accessToken = token
@@ -1689,7 +1660,29 @@ const Hooks = {
     destroyed() {
       if (this.cleanup) this.cleanup()
     }
-  }
+  },
+
+  LocalTime: {
+    mounted() {
+      this._apply()
+    },
+    updated() {
+      this._apply()
+    },
+    _apply() {
+      const iso = this.el.dataset.iso || ""
+      if (!iso) return
+      const d = new Date(iso)
+      if (!(d instanceof Date) || isNaN(d.getTime())) return
+
+      // Local time. Full ISO remains on the parent cell title.
+      try {
+        this.el.textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      } catch (_e) {
+        this.el.textContent = d.toISOString().slice(11, 19)
+      }
+    },
+  },
 }
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")

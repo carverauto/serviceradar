@@ -48,7 +48,7 @@ pub(super) const FLOW_DIRECTION_EXPR: &str = r#"
           FROM netflow_local_cidrs c
           WHERE c.enabled
             AND (c.partition IS NULL OR c.partition = partition)
-            AND (NULLIF(src_endpoint_ip, '')::inet <<= c.cidr)
+            AND (try_inet(NULLIF(src_endpoint_ip, '')) <<= c.cidr)
         ) THEN 2 ELSE 0 END
       ) + (
         CASE WHEN EXISTS (
@@ -56,7 +56,7 @@ pub(super) const FLOW_DIRECTION_EXPR: &str = r#"
           FROM netflow_local_cidrs c
           WHERE c.enabled
             AND (c.partition IS NULL OR c.partition = partition)
-            AND (NULLIF(dst_endpoint_ip, '')::inet <<= c.cidr)
+            AND (try_inet(NULLIF(dst_endpoint_ip, '')) <<= c.cidr)
         ) THEN 1 ELSE 0 END
       ) AS mask
   ) flags)
@@ -183,8 +183,8 @@ pub(super) const FLOW_APP_EXPR: &str = r#"
       AND (r.protocol_num IS NULL OR r.protocol_num = protocol_num)
       AND (r.dst_port IS NULL OR r.dst_port = dst_endpoint_port)
       AND (r.src_port IS NULL OR r.src_port = src_endpoint_port)
-      AND (r.src_cidr IS NULL OR (NULLIF(src_endpoint_ip, '')::inet <<= r.src_cidr))
-      AND (r.dst_cidr IS NULL OR (NULLIF(dst_endpoint_ip, '')::inet <<= r.dst_cidr))
+      AND (r.src_cidr IS NULL OR (try_inet(NULLIF(src_endpoint_ip, '')) <<= r.src_cidr))
+      AND (r.dst_cidr IS NULL OR (try_inet(NULLIF(dst_endpoint_ip, '')) <<= r.dst_cidr))
     ORDER BY
       r.priority DESC,
       (
@@ -586,7 +586,7 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
         "src_cidr" => {
             let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
             let within = sql::<diesel::sql_types::Bool>(&format!(
-                "(NULLIF(src_endpoint_ip, '')::inet <<= '{cidr}'::cidr)"
+                "(try_inet(NULLIF(src_endpoint_ip, '')) <<= '{cidr}'::cidr)"
             ));
 
             match filter.op {
@@ -602,7 +602,7 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
         "dst_cidr" => {
             let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
             let within = sql::<diesel::sql_types::Bool>(&format!(
-                "(NULLIF(dst_endpoint_ip, '')::inet <<= '{cidr}'::cidr)"
+                "(try_inet(NULLIF(dst_endpoint_ip, '')) <<= '{cidr}'::cidr)"
             ));
 
             match filter.op {
@@ -1011,10 +1011,10 @@ impl FlowGroupSpec {
         match self {
             Self::Field(field) => field.group_expr().to_string(),
             Self::SrcCidr { prefix } => format!(
-                "COALESCE(set_masklen(NULLIF(src_endpoint_ip, '')::inet, {prefix})::text, 'Unknown')"
+                "COALESCE(set_masklen(try_inet(NULLIF(src_endpoint_ip, '')), {prefix})::text, 'Unknown')"
             ),
             Self::DstCidr { prefix } => format!(
-                "COALESCE(set_masklen(NULLIF(dst_endpoint_ip, '')::inet, {prefix})::text, 'Unknown')"
+                "COALESCE(set_masklen(try_inet(NULLIF(dst_endpoint_ip, '')), {prefix})::text, 'Unknown')"
             ),
         }
     }
@@ -1572,10 +1572,10 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
                     binds.push(FlowSqlBindValue::Text(cidr));
                     match filter.op {
                         FilterOp::Eq => {
-                            Ok("(NULLIF(f.src_endpoint_ip, '')::inet <<= ?::cidr)".to_string())
+                            Ok("(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr)".to_string())
                         }
                         FilterOp::NotEq => Ok(
-                            "(NULLIF(f.src_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.src_endpoint_ip, '')::inet <<= ?::cidr))"
+                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),
@@ -1593,11 +1593,11 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
                     binds.push(FlowSqlBindValue::TextArray(out));
                     match filter.op {
                         FilterOp::In => Ok(
-                            "(NULLIF(f.src_endpoint_ip, '')::inet <<= ANY(?::cidr[]))"
+                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ANY(?::cidr[]))"
                                 .to_string(),
                         ),
                         FilterOp::NotIn => Ok(
-                            "(NULLIF(f.src_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.src_endpoint_ip, '')::inet <<= ANY(?::cidr[])))"
+                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ANY(?::cidr[])))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),
@@ -1616,10 +1616,10 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
                     binds.push(FlowSqlBindValue::Text(cidr));
                     match filter.op {
                         FilterOp::Eq => Ok(
-                            "(NULLIF(f.dst_endpoint_ip, '')::inet <<= ?::cidr)".to_string(),
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr)".to_string(),
                         ),
                         FilterOp::NotEq => Ok(
-                            "(NULLIF(f.dst_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.dst_endpoint_ip, '')::inet <<= ?::cidr))"
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),
@@ -1637,11 +1637,11 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
                     binds.push(FlowSqlBindValue::TextArray(out));
                     match filter.op {
                         FilterOp::In => Ok(
-                            "(NULLIF(f.dst_endpoint_ip, '')::inet <<= ANY(?::cidr[]))"
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ANY(?::cidr[]))"
                                 .to_string(),
                         ),
                         FilterOp::NotIn => Ok(
-                            "(NULLIF(f.dst_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.dst_endpoint_ip, '')::inet <<= ANY(?::cidr[])))"
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ANY(?::cidr[])))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),

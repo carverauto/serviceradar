@@ -71,6 +71,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> assign(:flows, [])
       |> assign(:flows_pagination, %{})
       |> assign(:rdns_map, %{})
+      |> assign(:geo_iso2_map, %{})
+      |> assign(:flows_window_label, nil)
       |> SRQLPage.init("flows", default_limit: @default_limit)
 
     {:ok, socket}
@@ -444,49 +446,55 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     <div class="text-xs font-semibold text-base-content/70 mb-1">Dimensions</div>
                     <form phx-change="nf_state_change" class="space-y-2">
                       <% graph = Map.get(@netflow_viz_state, "graph", "stacked") %>
-                      <select
-                        name="state[dims][]"
-                        class="select select-bordered select-sm w-full font-mono text-xs h-28"
-                        multiple
-                      >
-                        <%= if graph == "sankey" do %>
-                          <optgroup label="Source">
-                            <%= for {label, value} <- @sankey_src_dims do %>
-                              <option
-                                value={value}
-                                selected={
-                                  Enum.member?(Map.get(@netflow_viz_state, "dims", []), value)
-                                }
-                              >
-                                {label}
-                              </option>
-                            <% end %>
-                          </optgroup>
-                          <optgroup label="Middle">
-                            <%= for {label, value} <- @sankey_mid_dims do %>
-                              <option
-                                value={value}
-                                selected={
-                                  Enum.member?(Map.get(@netflow_viz_state, "dims", []), value)
-                                }
-                              >
-                                {label}
-                              </option>
-                            <% end %>
-                          </optgroup>
-                          <optgroup label="Destination">
-                            <%= for {label, value} <- @sankey_dst_dims do %>
-                              <option
-                                value={value}
-                                selected={
-                                  Enum.member?(Map.get(@netflow_viz_state, "dims", []), value)
-                                }
-                              >
-                                {label}
-                              </option>
-                            <% end %>
-                          </optgroup>
-                        <% else %>
+                      <%= if graph == "sankey" do %>
+                        <% dims = @netflow_viz_state |> dims_from_state() |> sanitize_sankey_dims() %>
+                        <div class="grid grid-cols-3 gap-2">
+                          <div class="space-y-1">
+                            <div class="text-[11px] text-base-content/60">Source</div>
+                            <select
+                              name="state[dims][]"
+                              class="select select-bordered select-sm w-full font-mono text-xs"
+                            >
+                              <%= for {label, value} <- @sankey_src_dims do %>
+                                <option value={value} selected={Enum.at(dims, 0) == value}>
+                                  {label}
+                                </option>
+                              <% end %>
+                            </select>
+                          </div>
+                          <div class="space-y-1">
+                            <div class="text-[11px] text-base-content/60">Middle</div>
+                            <select
+                              name="state[dims][]"
+                              class="select select-bordered select-sm w-full font-mono text-xs"
+                            >
+                              <%= for {label, value} <- @sankey_mid_dims do %>
+                                <option value={value} selected={Enum.at(dims, 1) == value}>
+                                  {label}
+                                </option>
+                              <% end %>
+                            </select>
+                          </div>
+                          <div class="space-y-1">
+                            <div class="text-[11px] text-base-content/60">Destination</div>
+                            <select
+                              name="state[dims][]"
+                              class="select select-bordered select-sm w-full font-mono text-xs"
+                            >
+                              <%= for {label, value} <- @sankey_dst_dims do %>
+                                <option value={value} selected={Enum.at(dims, 2) == value}>
+                                  {label}
+                                </option>
+                              <% end %>
+                            </select>
+                          </div>
+                        </div>
+                      <% else %>
+                        <select
+                          name="state[dims][]"
+                          class="select select-bordered select-sm w-full font-mono text-xs h-28"
+                          multiple
+                        >
                           <%= for {label, value} <- @nf_dims_ordered do %>
                             <option
                               value={value}
@@ -495,8 +503,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                               {label}
                             </option>
                           <% end %>
-                        <% end %>
-                      </select>
+                        </select>
+                      <% end %>
 
                       <div class="text-[11px] text-base-content/60">
                         Time-series charts use the first selected dimension; Sankey uses source -> middle -> destination.
@@ -709,6 +717,20 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                       <% sankey_src_label = dim_human_label(Enum.at(sankey_dims, 0)) %>
                       <% sankey_mid_label = dim_human_label(Enum.at(sankey_dims, 1)) %>
                       <% sankey_dst_label = dim_human_label(Enum.at(sankey_dims, 2)) %>
+                      <div class="mb-2 flex items-center gap-3 text-xs text-base-content/60">
+                        <div class="flex items-center gap-1">
+                          <span class="inline-block size-2 rounded" style="background:#60a5fa"></span>
+                          <span>{sankey_src_label}</span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                          <span class="inline-block size-2 rounded" style="background:#a78bfa"></span>
+                          <span>{sankey_mid_label}</span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                          <span class="inline-block size-2 rounded" style="background:#34d399"></span>
+                          <span>{sankey_dst_label}</span>
+                        </div>
+                      </div>
                       <div
                         id="netflow-sankey"
                         class="w-full h-full"
@@ -774,7 +796,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             <div class="card bg-base-100 border border-base-200 shadow-sm">
               <div class="card-body gap-3">
                 <div class="flex items-center justify-between gap-3">
-                  <div class="text-sm font-semibold">Flows</div>
+                  <div class="flex items-baseline gap-2 min-w-0">
+                    <div class="text-sm font-semibold">Flows</div>
+                    <div
+                      :if={is_binary(@flows_window_label) and String.trim(@flows_window_label) != ""}
+                      class="text-[11px] text-base-content/50 font-mono truncate"
+                      title={@flows_window_label}
+                    >
+                      {@flows_window_label}
+                    </div>
+                  </div>
                   <div class="text-[11px] text-base-content/50 font-mono">
                     limit:{@limit}
                   </div>
@@ -783,6 +814,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                 <.flows_table
                   flows={@flows}
                   rdns_map={@rdns_map}
+                  geo_iso2_map={@geo_iso2_map}
                   base_path="/netflow"
                   query={Map.get(@srql, :query) || ""}
                   limit={@limit}
@@ -822,6 +854,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   attr(:flows, :list, default: [])
   attr(:rdns_map, :map, default: %{})
+  attr(:geo_iso2_map, :map, default: %{})
   attr(:base_path, :string, required: true)
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
@@ -858,13 +891,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             <% dst_ip = flow_get(flow, ["dst_endpoint_ip", "dst_ip"]) %>
             <% src_port = flow_get(flow, ["src_endpoint_port"]) %>
             <% dst_port = flow_get(flow, ["dst_endpoint_port", "dst_port"]) %>
-            <% src_cc = flow_get(flow, ["src_country_iso2"]) %>
-            <% dst_cc = flow_get(flow, ["dst_country_iso2"]) %>
+            <% src_cc = flow_get(flow, ["src_country_iso2"]) || Map.get(@geo_iso2_map, src_ip) %>
+            <% dst_cc = flow_get(flow, ["dst_country_iso2"]) || Map.get(@geo_iso2_map, dst_ip) %>
 
             <tr class="hover:bg-base-200/40">
               <% t_raw = flow_get(flow, ["time", "timestamp"]) %>
               <td class="whitespace-nowrap text-xs font-mono truncate overflow-hidden" title={t_raw}>
-                {format_flow_time_short(t_raw) || "—"}
+                <span id={"nf-time-#{idx}"} phx-hook="LocalTime" data-iso={t_raw}>
+                  {format_flow_time_short(t_raw) || "—"}
+                </span>
               </td>
               <td class="text-xs font-mono min-w-0">
                 <div class="min-w-0">
@@ -1174,6 +1209,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       chart_base_query(chart_query, fallback_time)
       |> ensure_sort_time_desc()
 
+    window_label = flows_window_label_from_query(list_query, fallback_time)
+
     cursor = Map.get(params, "cursor") |> normalize_optional_string()
     limit = Map.get(socket.assigns, :limit, @default_limit)
 
@@ -1193,12 +1230,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     |> assign(:flows, flows)
     |> assign(:flows_pagination, pagination)
     |> assign(:rdns_map, rdns_map_for_flows(flows, scope))
+    |> assign(:geo_iso2_map, geo_iso2_map_for_flows(flows, scope))
+    |> assign(:flows_window_label, window_label)
   rescue
     _ ->
       socket
       |> assign(:flows, [])
       |> assign(:flows_pagination, %{})
       |> assign(:rdns_map, %{})
+      |> assign(:geo_iso2_map, %{})
+      |> assign(:flows_window_label, nil)
   end
 
   defp ensure_sort_time_desc(query) when is_binary(query) do
@@ -1246,6 +1287,78 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   defp rdns_map_for_flows(_flows, _scope), do: %{}
+
+  defp geo_iso2_map_for_flows(flows, scope) when is_list(flows) do
+    ips =
+      flows
+      |> Enum.flat_map(fn row ->
+        [
+          flow_get(row, ["src_endpoint_ip", "src_ip"]),
+          flow_get(row, ["dst_endpoint_ip", "dst_ip"])
+        ]
+      end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    query =
+      IpGeoEnrichmentCache
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(ip in ^ips)
+
+    with [_ | _] <- ips,
+         {:ok, rows} when is_list(rows) <- Ash.read(query, scope: scope) do
+      rows
+      |> Enum.filter(fn row ->
+        is_binary(row.country_iso2) and String.length(String.trim(row.country_iso2)) == 2
+      end)
+      |> Map.new(fn row -> {row.ip, String.upcase(String.trim(row.country_iso2))} end)
+    else
+      _ -> %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp geo_iso2_map_for_flows(_flows, _scope), do: %{}
+
+  defp flows_window_label_from_query(query, fallback_time)
+       when is_binary(query) and is_binary(fallback_time) do
+    # Prefer explicit bracket range, otherwise show the state time token.
+    case parse_time_window_from_query(query) do
+      {:ok, {start_dt, end_dt}} ->
+        # Keep this short in the UI; full query is already visible in the SRQL bar.
+        "#{DateTime.to_iso8601(start_dt)} - #{DateTime.to_iso8601(end_dt)}"
+
+      _ ->
+        human_time_token(fallback_time)
+    end
+  rescue
+    _ -> human_time_token(fallback_time)
+  end
+
+  defp flows_window_label_from_query(_query, fallback_time), do: human_time_token(fallback_time)
+
+  defp human_time_token(nil), do: nil
+  defp human_time_token(""), do: nil
+
+  defp human_time_token(token) when is_binary(token) do
+    t = String.trim(token)
+
+    cond do
+      String.starts_with?(t, "last_") ->
+        String.replace_prefix(t, "last_", "Last ")
+
+      bracket_range?(t) ->
+        "Custom range"
+
+      true ->
+        t
+    end
+  end
+
+  defp human_time_token(other), do: to_string(other || "")
 
   defp chart_query_from_state(base_query, %{} = state) do
     time = Map.get(state, "time", @default_time)
@@ -1371,7 +1484,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       end
 
     n = max(n, 1)
-    max(min(n * 4, 120), 40)
+    max(min(n * 2, 60), 20)
   end
 
   defp sankey_src_group_by("src_ip", _cidr_prefix), do: "src_endpoint_ip"
@@ -1407,8 +1520,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
         <% src_ip = flow_get(@flow, ["src_endpoint_ip", "src_ip"]) %>
         <% dst_ip = flow_get(@flow, ["dst_endpoint_ip", "dst_ip"]) %>
-        <% src_cc = flow_get(@flow, ["src_country_iso2"]) %>
-        <% dst_cc = flow_get(@flow, ["dst_country_iso2"]) %>
+        <% src_geo = Map.get(@context, :src_geo) %>
+        <% dst_geo = Map.get(@context, :dst_geo) %>
+        <% src_cc =
+          flow_get(@flow, ["src_country_iso2"]) ||
+            (is_map(src_geo) && Map.get(src_geo, :country_iso2)) %>
+        <% dst_cc =
+          flow_get(@flow, ["dst_country_iso2"]) ||
+            (is_map(dst_geo) && Map.get(dst_geo, :country_iso2)) %>
         <% ocsf = flow_get(@flow, ["ocsf_payload"]) || %{} %>
         <% src_if_uid = get_in(ocsf, ["src_endpoint", "interface_uid"]) %>
         <% dst_if_uid = get_in(ocsf, ["dst_endpoint", "interface_uid"]) %>
@@ -1431,7 +1550,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   >
                     {iso2_flag_emoji(src_cc)}
                   </span>
-                  <span class="min-w-0 truncate">{src_ip || "—"}</span>
+                  <.link
+                    :if={device_uid = Map.get(@context, :src_device_uid)}
+                    navigate={~p"/devices/#{device_uid}"}
+                    class="min-w-0 truncate hover:underline"
+                    title={src_ip}
+                  >
+                    {src_ip || "—"}
+                  </.link>
+                  <span :if={not Map.has_key?(@context, :src_device_uid)} class="min-w-0 truncate">
+                    {src_ip || "—"}
+                  </span>
                   <span class="shrink-0 text-base-content/60">
                     {if p = flow_get(@flow, ["src_endpoint_port", "src_port"]), do: ":#{p}", else: ""}
                   </span>
@@ -1448,7 +1577,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     if_uid: <span class="font-mono">{src_if_uid}</span>
                   </div>
                   <div :if={is_binary(src_mac) and src_mac != ""}>
-                    mac: <span class="font-mono">{src_mac}</span>
+                    mac:
+                    <.link
+                      :if={device_uid = Map.get(@context, :src_device_uid)}
+                      navigate={~p"/devices/#{device_uid}"}
+                      class="font-mono hover:underline"
+                      title="Open device"
+                    >
+                      {src_mac}
+                    </.link>
+                    <span :if={not Map.has_key?(@context, :src_device_uid)} class="font-mono">
+                      {src_mac}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1462,7 +1602,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   >
                     {iso2_flag_emoji(dst_cc)}
                   </span>
-                  <span class="min-w-0 truncate">{dst_ip || "—"}</span>
+                  <.link
+                    :if={device_uid = Map.get(@context, :dst_device_uid)}
+                    navigate={~p"/devices/#{device_uid}"}
+                    class="min-w-0 truncate hover:underline"
+                    title={dst_ip}
+                  >
+                    {dst_ip || "—"}
+                  </.link>
+                  <span :if={not Map.has_key?(@context, :dst_device_uid)} class="min-w-0 truncate">
+                    {dst_ip || "—"}
+                  </span>
                   <span class="shrink-0 text-base-content/60">
                     {if p = flow_get(@flow, ["dst_endpoint_port", "dst_port"]), do: ":#{p}", else: ""}
                   </span>
@@ -1479,7 +1629,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     if_uid: <span class="font-mono">{dst_if_uid}</span>
                   </div>
                   <div :if={is_binary(dst_mac) and dst_mac != ""}>
-                    mac: <span class="font-mono">{dst_mac}</span>
+                    mac:
+                    <.link
+                      :if={device_uid = Map.get(@context, :dst_device_uid)}
+                      navigate={~p"/devices/#{device_uid}"}
+                      class="font-mono hover:underline"
+                      title="Open device"
+                    >
+                      {dst_mac}
+                    </.link>
+                    <span :if={not Map.has_key?(@context, :dst_device_uid)} class="font-mono">
+                      {dst_mac}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1536,8 +1697,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
                 <%= if mapbox && mapbox.enabled &&
                       is_binary(Map.get(mapbox, :access_token)) &&
-                      String.trim(Map.get(mapbox, :access_token)) != "" &&
-                      map_markers != [] do %>
+                      String.trim(Map.get(mapbox, :access_token)) != "" do %>
                   <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
                     <div
                       id="netflow-flow-map"
@@ -1556,7 +1716,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     </div>
                   </div>
                   <div class="mt-1 text-xs text-base-content/60">
-                    Tip: click markers for details.
+                    <%= if map_markers != [] do %>
+                      Tip: click markers for details.
+                    <% else %>
+                      No GeoIP coordinates available for this flow yet (showing default map).
+                    <% end %>
                   </div>
                 <% else %>
                   <div class="mt-2 text-sm text-base-content/60">
@@ -1796,10 +1960,23 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp maybe_add_geo_marker(markers, _side, _ip, _geo), do: markers
 
   defp load_flow_context(flow, scope) when is_map(flow) do
+    srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
     user = scope && scope.user
     src_ip = flow_get(flow, ["src_endpoint_ip", "src_ip"]) |> normalize_ip()
     dst_ip = flow_get(flow, ["dst_endpoint_ip", "dst_ip"]) |> normalize_ip()
     dst_port = flow_get(flow, ["dst_endpoint_port", "dst_port"]) |> to_int()
+
+    src_mac =
+      get_in(flow_get(flow, ["ocsf_payload"]) || %{}, ["unmapped", "src_mac"]) |> normalize_mac()
+
+    dst_mac =
+      get_in(flow_get(flow, ["ocsf_payload"]) || %{}, ["unmapped", "dst_mac"]) |> normalize_mac()
+
+    src_device_uid =
+      lookup_device_uid_by_ip_or_mac(srql_module, scope, src_ip, src_mac)
+
+    dst_device_uid =
+      lookup_device_uid_by_ip_or_mac(srql_module, scope, dst_ip, dst_mac)
 
     %{
       mapbox: read_mapbox(user),
@@ -1812,7 +1989,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       src_threat: read_threat(user, src_ip),
       dst_threat: read_threat(user, dst_ip),
       src_port_scan: read_port_scan(user, src_ip),
-      dst_port_anomaly: read_port_anomaly(user, dst_port)
+      dst_port_anomaly: read_port_anomaly(user, dst_port),
+      src_device_uid: src_device_uid,
+      dst_device_uid: dst_device_uid
     }
   rescue
     _ -> %{}
@@ -1829,6 +2008,74 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   defp normalize_ip(_), do: nil
+
+  defp normalize_mac(nil), do: nil
+  defp normalize_mac(""), do: nil
+
+  defp normalize_mac(mac) when is_binary(mac) do
+    mac
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace(":", "")
+    |> String.replace("-", "")
+    |> String.upcase()
+    |> case do
+      "" -> nil
+      v -> v
+    end
+  end
+
+  defp normalize_mac(_), do: nil
+
+  defp escape_value(value) when is_binary(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\"", "\\\"")
+    |> String.replace("\n", " ")
+    |> String.replace("\r", " ")
+    |> String.trim()
+  end
+
+  defp escape_value(other), do: escape_value(to_string(other || ""))
+
+  defp lookup_device_uid_by_ip_or_mac(_srql_module, _scope, nil, nil), do: nil
+
+  defp lookup_device_uid_by_ip_or_mac(srql_module, scope, ip, mac) do
+    lookup_device_uid_by_ip(srql_module, scope, ip) ||
+      lookup_device_uid_by_mac(srql_module, scope, mac)
+  end
+
+  defp lookup_device_uid_by_ip(_srql_module, _scope, nil), do: nil
+
+  defp lookup_device_uid_by_ip(srql_module, scope, ip) when is_binary(ip) do
+    q = "in:devices ip:#{escape_value(ip)} limit:1"
+
+    case srql_module.query(q, %{scope: scope}) do
+      {:ok, %{"results" => [%{} = row | _]}} ->
+        Map.get(row, "uid") || Map.get(row, "id")
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp lookup_device_uid_by_mac(_srql_module, _scope, nil), do: nil
+
+  defp lookup_device_uid_by_mac(srql_module, scope, mac) when is_binary(mac) do
+    q = "in:devices mac:#{escape_value(mac)} limit:1"
+
+    case srql_module.query(q, %{scope: scope}) do
+      {:ok, %{"results" => [%{} = row | _]}} ->
+        Map.get(row, "uid") || Map.get(row, "id")
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
 
   defp read_rdns(nil, _ip), do: nil
   defp read_rdns(_user, nil), do: nil
@@ -1946,7 +2193,20 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     next = Map.merge(current, Map.delete(allowed, "dims"))
 
     if Map.has_key?(allowed, "dims") do
-      Map.put(next, "dims", merge_dim_selection(Map.get(current, "dims", []), allowed["dims"]))
+      if Map.get(next, "graph") == "sankey" do
+        # Sankey dims are positional and should not require multi-select keyboard interaction.
+        dims =
+          allowed["dims"]
+          |> List.wrap()
+          |> Enum.map(&to_string/1)
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.take(3)
+
+        Map.put(next, "dims", dims)
+      else
+        Map.put(next, "dims", merge_dim_selection(Map.get(current, "dims", []), allowed["dims"]))
+      end
     else
       next
     end
@@ -1968,7 +2228,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     preserved = Enum.filter(current, &Enum.member?(incoming, &1))
     added = Enum.reject(incoming, &Enum.member?(preserved, &1))
 
-    (preserved ++ added)
+    # Prefer "latest selection wins": newly selected dimensions become the primary series.
+    # This makes the chart respond immediately when users click additional dimensions.
+    (added ++ preserved)
     |> Enum.uniq()
   end
 
@@ -2058,29 +2320,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       "sankey" ->
         max_edges = sankey_max_edges_from_state(state)
 
-        edges =
-          case srql_module.query(chart_query, %{scope: scope}) do
-            {:ok, %{"results" => results}} when is_list(results) ->
-              results
-              |> extract_srql_rows()
-              |> Enum.map(&srql_sankey_edge_from_row/1)
-              |> Enum.reject(&is_nil/1)
-              |> Enum.sort_by(&(-Map.get(&1, :bytes, 0)))
-              |> Enum.take(max_edges)
+        edges = load_sankey_edges(srql_module, chart_query, base, state, scope, max_edges)
 
-            _ ->
-              prefix = sankey_prefix_from_state(state)
-              dims = state |> dims_from_state() |> sanitize_sankey_dims()
-
-              sankey =
-                NFQuery.load_sankey(srql_module, base, scope,
-                  prefix: prefix,
-                  dims: dims,
-                  max_edges: max_edges
-                )
-
-              Map.get(sankey, :edges, [])
-          end
+        dims = state |> dims_from_state() |> sanitize_sankey_dims()
+        edges = reduce_sankey_clutter(edges, dims, max_edges)
 
         edges_json = Jason.encode!(edges)
 
@@ -2146,6 +2389,135 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp load_visualize_chart(socket, other, %{} = state),
     do: load_visualize_chart(socket, to_string(other || ""), state)
+
+  defp load_sankey_edges(srql_module, chart_query, base, state, scope, max_edges)
+       when is_integer(max_edges) and max_edges > 0 do
+    prefix = sankey_prefix_from_state(state)
+    dims = state |> dims_from_state() |> sanitize_sankey_dims()
+
+    case srql_module.query(chart_query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        edges =
+          results
+          |> extract_srql_rows()
+          |> Enum.map(&srql_sankey_edge_from_row/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.sort_by(&(-Map.get(&1, :bytes, 0)))
+          |> Enum.take(max_edges)
+
+        if edges == [] do
+          sankey =
+            NFQuery.load_sankey(srql_module, base, scope,
+              prefix: prefix,
+              dims: dims,
+              max_edges: max_edges
+            )
+
+          Map.get(sankey, :edges, [])
+        else
+          edges
+        end
+
+      _ ->
+        sankey =
+          NFQuery.load_sankey(srql_module, base, scope,
+            prefix: prefix,
+            dims: dims,
+            max_edges: max_edges
+          )
+
+        Map.get(sankey, :edges, [])
+    end
+  rescue
+    _ -> []
+  end
+
+  defp reduce_sankey_clutter(edges, dims, max_edges)
+       when is_list(edges) and is_list(dims) and is_integer(max_edges) do
+    # IP-mode Sankey gets unreadable quickly (too many unique endpoints). We bucket low-volume
+    # endpoints into "Other" and then re-aggregate the edge weights.
+    src_dim = Enum.at(dims, 0) || "src_cidr"
+    dst_dim = Enum.at(dims, 2) || "dst_cidr"
+
+    # Prefer more aggressive bucketing when showing per-IP.
+    top_src = if src_dim == "src_ip", do: 8, else: 12
+    top_dst = if dst_dim == "dst_ip", do: 8, else: 12
+
+    {top_src_set, top_dst_set} = sankey_top_endpoint_sets(edges, top_src, top_dst)
+
+    edges =
+      edges
+      |> Enum.map(fn
+        %{src: src, dst: dst} = e ->
+          src = if src in top_src_set, do: src, else: "Other"
+          dst = if dst in top_dst_set, do: dst, else: "Other"
+          %{e | src: src, dst: dst}
+
+        other ->
+          other
+      end)
+      |> sankey_aggregate_edges()
+      |> Enum.sort_by(&(-Map.get(&1, :bytes, 0)))
+      |> Enum.take(max_edges)
+
+    edges
+  rescue
+    _ -> edges
+  end
+
+  defp reduce_sankey_clutter(edges, _dims, _max_edges), do: edges
+
+  defp sankey_top_endpoint_sets(edges, top_src, top_dst)
+       when is_list(edges) and is_integer(top_src) and is_integer(top_dst) do
+    {src_bytes, dst_bytes} =
+      Enum.reduce(edges, {%{}, %{}}, fn
+        %{src: src, dst: dst, bytes: bytes}, {sa, da}
+        when is_binary(src) and is_binary(dst) and is_integer(bytes) ->
+          sa = Map.update(sa, src, bytes, &(&1 + bytes))
+          da = Map.update(da, dst, bytes, &(&1 + bytes))
+          {sa, da}
+
+        _e, acc ->
+          acc
+      end)
+
+    src_top =
+      src_bytes
+      |> Enum.sort_by(fn {_k, v} -> -v end)
+      |> Enum.take(max(top_src, 1))
+      |> Enum.map(fn {k, _} -> k end)
+      |> MapSet.new()
+
+    dst_top =
+      dst_bytes
+      |> Enum.sort_by(fn {_k, v} -> -v end)
+      |> Enum.take(max(top_dst, 1))
+      |> Enum.map(fn {k, _} -> k end)
+      |> MapSet.new()
+
+    {src_top, dst_top}
+  end
+
+  defp sankey_top_endpoint_sets(_edges, _top_src, _top_dst), do: {MapSet.new(), MapSet.new()}
+
+  defp sankey_aggregate_edges(edges) when is_list(edges) do
+    edges
+    |> Enum.reduce(%{}, fn
+      %{src: src, mid: mid, dst: dst, bytes: bytes} = e, acc
+      when is_binary(src) and is_binary(mid) and is_binary(dst) and is_integer(bytes) ->
+        key = {src, mid, dst}
+
+        Map.update(acc, key, e, fn prev ->
+          Map.update(prev, :bytes, bytes, &(&1 + bytes))
+        end)
+
+      _e, acc ->
+        acc
+    end)
+    |> Map.values()
+  end
+
+  defp sankey_aggregate_edges(other), do: other
 
   defp extract_srql_rows(results) when is_list(results) do
     Enum.map(results, fn
@@ -2228,8 +2600,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp to_int(value) when is_binary(value) do
     case Integer.parse(value) do
-      {i, ""} -> i
-      _ -> 0
+      {i, ""} ->
+        i
+
+      _ ->
+        # SRQL may serialize aggregates as float strings (e.g. "123.0" or "1.23e4").
+        case Float.parse(value) do
+          {f, ""} -> trunc(f)
+          _ -> 0
+        end
     end
   end
 
@@ -2724,13 +3103,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
     case DateTime.from_iso8601(v) do
       {:ok, dt, _} ->
-        Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S") <> "Z"
+        Calendar.strftime(dt, "%H:%M:%S")
 
       _ ->
         case NaiveDateTime.from_iso8601(v) do
           {:ok, ndt} ->
             dt = DateTime.from_naive!(ndt, "Etc/UTC")
-            Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S") <> "Z"
+            Calendar.strftime(dt, "%H:%M:%S")
 
           _ ->
             v

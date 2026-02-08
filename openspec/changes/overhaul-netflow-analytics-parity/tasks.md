@@ -26,13 +26,18 @@ This is an umbrella change that defines the target parity end-state and the deli
 - [x] 3.1 Phase A acceptance: `/netflow` exists with left panel options and shareable URL state; old netflows tab redirects preserving SRQL query
 - [x] 3.1.1 `/netflow` uses the global SRQL bar only (no duplicate in-page SRQL input)
 - [x] 3.1.2 `/netflow` includes a paginated flows table and a working flow details affordance (modal)
-- [ ] 3.2 Phase B acceptance: 5 chart types render end-to-end on demo data and share consistent interactivity patterns (legend toggle, tooltip, responsive)
-- [ ] 3.3 Phase B acceptance: bidirectional and previous-period overlays work end-to-end on supported chart types in demo
+- [x] 3.2 Phase B acceptance: 5 chart types render end-to-end on demo data and share consistent interactivity patterns (legend toggle, tooltip, responsive)
+- [x] 3.3 Phase B acceptance: bidirectional and previous-period overlays work end-to-end on supported chart types in demo
 - [ ] 3.4 Phase C acceptance: dimension selector supports multi-dim ordering, top-N, limitType, and IP truncation for IP dims
 - [ ] 3.5 Phase D acceptance: interface/exporter metadata appears in SRQL and UI (names, speeds, boundaries)
 - [ ] 3.6 Phase E acceptance: long windows auto-use rollups; performance validated with EXPLAIN and demo data
 - [ ] 3.7 Phase F acceptance: app IP ranges, dictionaries, and OTX are configurable and visible in SRQL/UI
 - [ ] 3.8 Phase G acceptance: dashboard homepage widgets exist and persist per user
+
+## 5. Follow-Ups / QoL
+- [ ] 5.1 Sankey auto-switch: if endpoint node-count explodes for `src_ip`/`dst_ip`, automatically switch to CIDR dims (preserve user intent; show toast)
+- [x] 5.2 Sankey top-talkers policy: Sankey defaults to top talkers (aggressive bucketing + edge cap) to keep charts readable
+- [x] 5.3 Dimensions UX: for Sankey, use 3 single-selects (Source/Middle/Destination) with no multi-select keyboard requirement
 
 ## 4. Ongoing Program Hygiene
 - [x] 4.1 Keep `proposal.md` and `design.md` updated as phases are completed

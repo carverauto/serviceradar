@@ -304,7 +304,11 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
        when is_binary(query) and is_binary(label) do
     case apply(srql_module, :query, [query, %{scope: scope}]) do
       {:ok, %{"results" => results}} when is_list(results) ->
-        results
+        Enum.map(results, fn
+          %{"payload" => %{} = payload} -> payload
+          %{} = row -> row
+          _ -> %{}
+        end)
 
       {:ok, _} = ok ->
         extract_stats_rows(ok)
@@ -545,8 +549,15 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
 
   defp to_int(value) when is_binary(value) do
     case Integer.parse(value) do
-      {i, ""} -> i
-      _ -> 0
+      {i, ""} ->
+        i
+
+      _ ->
+        # SRQL may serialize aggregates as float strings (e.g. "123.0" or "1.23e4").
+        case Float.parse(value) do
+          {f, ""} -> trunc(f)
+          _ -> 0
+        end
     end
   end
 
