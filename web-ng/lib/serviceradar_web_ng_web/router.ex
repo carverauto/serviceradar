@@ -9,11 +9,13 @@ defmodule ServiceRadarWebNGWeb.Router do
   alias ServiceRadarWebNG.Accounts.Scope
 
   @csp "default-src 'self'; " <>
-         "script-src 'self'; " <>
+         "script-src 'self' blob:; " <>
          "style-src 'self' 'unsafe-inline'; " <>
-         "img-src 'self' data:; " <>
+         "img-src 'self' data: blob: https://*.mapbox.com; " <>
          "font-src 'self' data:; " <>
          "connect-src 'self' https: wss:; " <>
+         "worker-src blob:; " <>
+         "child-src blob:; " <>
          "frame-src 'none'; " <>
          "object-src 'none'; " <>
          "base-uri 'self'; " <>

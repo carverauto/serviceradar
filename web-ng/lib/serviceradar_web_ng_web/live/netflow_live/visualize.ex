@@ -73,6 +73,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> assign(:rdns_map, %{})
       |> assign(:geo_iso2_map, %{})
       |> assign(:flows_window_label, nil)
+      |> assign(:viz_loading, true)
       |> SRQLPage.init("flows", default_limit: @default_limit)
 
     {:ok, socket}
@@ -112,12 +113,31 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
            })
        )}
     else
+      # Set SRQL assigns immediately (lightweight, no I/O) so the query bar renders.
+      # Defer heavy chart + flows loading to handle_info so the page shell renders fast.
       socket =
         socket
         |> load_srql_assigns(q_param, uri, parse_limit_param(Map.get(params, "limit")))
+        |> assign(:viz_loading, true)
+
+      send(self(), {:load_viz_data, q_param, state, params})
+
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_info({:load_viz_data, q_param, state, params}, socket) do
+    # Only load if state hasn't changed since we scheduled this
+    if socket.assigns.netflow_viz_state == state do
+      socket =
+        socket
         |> load_visualize_chart(q_param, state)
         |> load_flows_list(params, state)
+        |> assign(:viz_loading, false)
 
+      {:noreply, socket}
+    else
       {:noreply, socket}
     end
   end
@@ -716,7 +736,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           </aside>
 
           <section class="w-full min-w-0 flex-1 flex flex-col gap-4">
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
+            <div :if={@viz_loading} class="flex items-center justify-center py-12">
+              <span class="loading loading-spinner loading-lg text-primary"></span>
+            </div>
+            <div :if={not @viz_loading} class="card bg-base-100 border border-base-200 shadow-sm">
               <div class="card-body gap-3">
                 <div class="flex items-center justify-between gap-3">
                   <div class="text-sm font-semibold">Chart</div>
@@ -813,7 +836,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               </div>
             </div>
 
-            <div class="card bg-base-100 border border-base-200 shadow-sm">
+            <div :if={not @viz_loading} class="card bg-base-100 border border-base-200 shadow-sm">
               <div class="card-body gap-3">
                 <div class="flex items-center justify-between gap-3">
                   <div class="flex items-baseline gap-2 min-w-0">

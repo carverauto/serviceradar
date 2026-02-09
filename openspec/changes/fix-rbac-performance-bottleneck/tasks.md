@@ -19,16 +19,22 @@
 - [x] 1.3.1 Update `WebRBAC.can?/2` in `web-ng/lib/serviceradar_web_ng/rbac.ex` to check `scope.permissions` directly when available, falling back to `RBAC.has_permission?` for backward compatibility
 - [x] 1.3.2 Update `WebRBAC.permissions_for_scope/1` to return `scope.permissions` when available
 
-### 1.4 Build verification
-- [ ] 1.4.1 Verify `mix compile` succeeds for web-ng
-- [ ] 1.4.2 Verify `mix compile` succeeds for serviceradar_core
-- [ ] 1.4.3 Verify Bazel build succeeds (if accessible)
+### 1.4 Async LiveView data loading
+- [x] 1.4.1 Defer `LogLive.Index` handle_params data loading to handle_info via `:load_tab_data`
+- [x] 1.4.2 Add `tab_loading` assign with loading spinner to observability page
+- [x] 1.4.3 Defer `NetflowLive.Visualize` handle_params data loading to handle_info via `:load_viz_data`
+- [x] 1.4.4 Add `viz_loading` assign with loading spinner to netflow visualize page
 
-### 1.5 Functional verification
-- [ ] 1.5.1 Verify authenticated page loads (analytics, devices, settings)
-- [ ] 1.5.2 Verify RBAC.can? checks render correct UI elements based on user role
-- [ ] 1.5.3 Verify Ash operations work with enriched actor (create, read, update, delete)
-- [ ] 1.5.4 Verify Permit-protected settings pages still enforce authorization
+### 1.5 Build verification
+- [x] 1.5.1 Verify `mix compile` succeeds for web-ng (clean, no warnings)
+- [x] 1.5.2 Verify `mix compile` succeeds for serviceradar_core (clean)
+- [ ] 1.5.3 Verify Bazel build succeeds (if accessible)
+
+### 1.6 Functional verification
+- [ ] 1.6.1 Verify authenticated page loads (analytics, devices, settings)
+- [ ] 1.6.2 Verify RBAC.can? checks render correct UI elements based on user role
+- [ ] 1.6.3 Verify Ash operations work with enriched actor (create, read, update, delete)
+- [ ] 1.6.4 Verify Permit-protected settings pages still enforce authorization
 
 ## 2. Phase 2: OpenTelemetry Observability (Separate PR)
 
