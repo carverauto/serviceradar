@@ -28,6 +28,9 @@ import (
 )
 
 func TestSysmonService_DrainMetrics(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: requires real CPU sampling")
+	}
 	t.Parallel()
 
 	ctx := context.Background()

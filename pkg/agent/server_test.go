@@ -64,6 +64,9 @@ func setupServerConfig() *ServerConfig {
 // In server_test.go
 
 func TestNewServerBasic(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: NewServer starts sysmon with real CPU sampling")
+	}
 	t.Parallel()
 
 	tmpDir, cleanup := setupTempDir(t)
@@ -89,10 +92,12 @@ func TestNewServerBasic(t *testing.T) {
 	err := s.loadConfigurations(context.Background(), cfgLoader)
 	require.NoError(t, err)
 
-	server, err := NewServer(context.Background(), tmpDir, config, createTestLogger())
+	ctx := context.Background()
+	server, err := NewServer(ctx, tmpDir, config, createTestLogger())
 
 	require.NoError(t, err)
 	require.NotNil(t, server)
+	defer func() { _ = server.Close(ctx) }()
 
 	assert.Equal(t, config.Security, server.SecurityConfig())
 }
