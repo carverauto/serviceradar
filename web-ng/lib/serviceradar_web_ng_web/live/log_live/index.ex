@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @default_limit 20
   @max_limit 100
   @default_stats_window "last_24h"
+  @refresh_debounce_ms 5_000
   @default_events_limit 20
   @max_events_limit 100
   @default_alerts_limit 25
@@ -205,7 +206,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       socket =
         if connected?(socket) do
           cond do
-            not socket.assigns[:_initial_load_done] ->
+            !socket.assigns[:_initial_load_done] ->
               # Initial page load — defer so the page shell renders immediately
               send(self(), {:load_tab_data, tab, params, uri})
               socket
@@ -703,17 +704,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   def handle_info({:logs_ingested, _event}, socket) do
-    {:noreply, maybe_refresh_tab(socket, "logs")}
+    {:noreply, schedule_debounced_refresh(socket, "logs")}
   end
 
   @impl true
   def handle_info({:ocsf_event, _event}, socket) do
-    {:noreply, maybe_refresh_tab(socket, "events")}
+    {:noreply, schedule_debounced_refresh(socket, "events")}
   end
 
   @impl true
   def handle_info({:flows_ingested, _event}, socket) do
-    {:noreply, maybe_refresh_tab(socket, "netflows")}
+    {:noreply, schedule_debounced_refresh(socket, "netflows")}
+  end
+
+  def handle_info({:debounced_refresh, tab}, socket) do
+    socket = assign(socket, :_refresh_timer, nil)
+    {:noreply, maybe_refresh_tab(socket, tab)}
   end
 
   @impl true
@@ -940,7 +946,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </.link>
           <.link
             patch={
-              ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc"}}"
+              ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT,error,ERROR,err,ERR) time:last_24h sort:timestamp:desc"}}"
             }
             class="btn btn-ghost btn-xs text-error"
           >
@@ -949,8 +955,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <.level_stat label="Fatal" count={@fatal} total={@total} color="error" level="fatal,FATAL" />
-        <.level_stat label="Error" count={@error} total={@total} color="warning" level="error,ERROR" />
+        <.level_stat label="Fatal" count={@fatal} total={@total} color="error" level="fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT" />
+        <.level_stat label="Error" count={@error} total={@total} color="warning" level="error,ERROR,err,ERR" />
         <.level_stat
           label="Warning"
           count={@warning}
@@ -958,7 +964,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           color="info"
           level="warn,warning,WARN,WARNING"
         />
-        <.level_stat label="Info" count={@info} total={@total} color="primary" level="info,INFO" />
+        <.level_stat label="Info" count={@info} total={@total} color="primary" level="info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE" />
         <.level_stat
           label="Debug"
           count={@debug}
@@ -5400,11 +5406,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         do: "in:logs time:#{time} service_name:\"#{service_filter}\"",
         else: "in:logs time:#{time}"
 
+    # Severity groupings must match the CAGG (logs_severity_stats_5m) definitions exactly
     queries = %{
-      fatal: ~s|#{base} severity_text:(fatal,FATAL) stats:"count() as total"|,
-      error: ~s|#{base} severity_text:(error,ERROR) stats:"count() as total"|,
+      fatal: ~s|#{base} severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT) stats:"count() as total"|,
+      error: ~s|#{base} severity_text:(error,ERROR,err,ERR) stats:"count() as total"|,
       warning: ~s|#{base} severity_text:(warning,warn,WARNING,WARN) stats:"count() as total"|,
-      info: ~s|#{base} severity_text:(info,INFO) stats:"count() as total"|,
+      info: ~s|#{base} severity_text:(info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE) stats:"count() as total"|,
       debug: ~s|#{base} severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as total"|
     }
 
@@ -5885,6 +5892,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> stream_active_tab(tab)
     |> assign(:_initial_load_done, true)
     |> assign(:_loaded_tab, tab)
+  end
+
+  defp schedule_debounced_refresh(socket, tab) do
+    # If a refresh timer is already pending, skip — it will fire soon
+    if socket.assigns[:_refresh_timer] do
+      socket
+    else
+      timer = Process.send_after(self(), {:debounced_refresh, tab}, @refresh_debounce_ms)
+      assign(socket, :_refresh_timer, timer)
+    end
   end
 
   defp maybe_refresh_tab(socket, tab) do

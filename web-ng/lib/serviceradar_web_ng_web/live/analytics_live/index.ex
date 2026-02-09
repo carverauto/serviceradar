@@ -175,7 +175,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       devices_online: ~s|in:devices is_available:true stats:"count() as online"|,
       devices_offline: ~s|in:devices is_available:false stats:"count() as offline"|,
       logs_critical_recent:
-        "in:logs time:last_24h severity_text:(fatal,FATAL,error,ERROR) sort:timestamp:desc limit:5",
+        "in:logs time:last_24h severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT,error,ERROR,err,ERR) sort:timestamp:desc limit:5",
       trace_stats:
         "in:otel_trace_summaries time:last_24h " <>
           ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|,
@@ -221,13 +221,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       if is_nil(logs_severity_cagg) do
         Map.merge(queries, %{
           logs_fatal_count:
-            ~s|in:logs severity_text:(fatal,FATAL) time:last_24h stats:"count() as total"|,
+            ~s|in:logs severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT) time:last_24h stats:"count() as total"|,
           logs_error_count:
-            ~s|in:logs severity_text:(error,ERROR) time:last_24h stats:"count() as total"|,
+            ~s|in:logs severity_text:(error,ERROR,err,ERR) time:last_24h stats:"count() as total"|,
           logs_warning_count:
             ~s|in:logs severity_text:(warning,warn,WARNING,WARN) time:last_24h stats:"count() as total"|,
           logs_info_count:
-            ~s|in:logs severity_text:(info,INFO) time:last_24h stats:"count() as total"|,
+            ~s|in:logs severity_text:(info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE) time:last_24h stats:"count() as total"|,
           logs_debug_count:
             ~s|in:logs severity_text:(debug,trace,DEBUG,TRACE) time:last_24h stats:"count() as total"|
         })
@@ -1281,7 +1281,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </.link>
         <.link
           href={
-            ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"
+            ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT,error,ERROR,err,ERR) time:last_24h sort:timestamp:desc limit:100"}}"
           }
           class="text-base-content/60 hover:text-primary"
           title="View critical logs"
@@ -1310,7 +1310,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="error"
               href={
-                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,FATAL) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT) time:last_24h sort:timestamp:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -1319,7 +1319,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="warning"
               href={
-                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(error,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(error,ERROR,err,ERR) time:last_24h sort:timestamp:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -1337,7 +1337,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="primary"
               href={
-                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(info,INFO) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE) time:last_24h sort:timestamp:desc limit:100"}}"
               }
             />
             <.severity_row

@@ -405,7 +405,8 @@ if config_env() == :prod do
     end
 
   extra_cron_entries = [
-    {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+    {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
+    {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance}
   ]
 
   add_cron_entries = fn config, entries ->
