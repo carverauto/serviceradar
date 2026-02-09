@@ -1,10 +1,13 @@
 # ServiceRadar v1.0.92
 
-Device inventory fixes for create, delete, and restore flows.
+Performance and reliability improvements for the observability dashboard and RBAC system.
 
 ## Whats New
 
 **1.0.92**
+- RBAC permission lookups now use a tiered cache: in-memory ETS first, then database failover — eliminating redundant DB round-trips on every request.
+- Observability page queries are dramatically faster: replaced coalesce(observed_timestamp, timestamp) with direct timestamp filtering, enabling TimescaleDB chunk exclusion and index usage instead of full sequential scans.
+- Added NATS ingest notifier for live dashboard refresh: a lightweight GenServer subscribes to processed log/flow subjects and bridges notifications to PubSub with debounce, so the observability page updates automatically when new data arrives.
 - Fixed device creation via the UI by removing the pre-read race and handling unique UID conflicts cleanly.
 - Fixed device delete and restore actions (proper deleted_by/reason handling plus stale-record recovery).
 - Added error logging for device create/delete/restore failures so issues show up in server logs.
