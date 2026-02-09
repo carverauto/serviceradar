@@ -311,6 +311,7 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 
 func (p *BaseProcessor) processTCPResult(shard *ProcessorShard, host *models.HostResult, result *models.Result) {
 	if result.Available {
+		host.Available = true
 		p.updatePortStatus(shard, host, result)
 	}
 }

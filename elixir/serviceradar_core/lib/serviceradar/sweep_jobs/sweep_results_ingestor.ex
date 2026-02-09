@@ -413,14 +413,33 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp open_ports(result) do
-    result["tcp_ports_open"] || result["tcpPortsOpen"] ||
-      []
-      |> List.wrap()
-      |> Enum.map(&parse_integer/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.filter(&valid_port?/1)
-      |> Enum.uniq()
-      |> Enum.sort()
+    ports_from_legacy =
+      case result["tcp_ports_open"] || result["tcpPortsOpen"] do
+        nil -> []
+        ports when is_list(ports) -> ports
+        port -> [port]
+      end
+
+    ports_from_port_results =
+      case result["port_results"] || result["portResults"] do
+        nil ->
+          []
+
+        port_results when is_list(port_results) ->
+          port_results
+          |> Enum.filter(fn pr -> pr["available"] == true end)
+          |> Enum.map(fn pr -> pr["port"] end)
+
+        _ ->
+          []
+      end
+
+    (ports_from_legacy ++ ports_from_port_results)
+    |> Enum.map(&parse_integer/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.filter(&valid_port?/1)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp parse_integer(value) when is_integer(value), do: value
@@ -446,7 +465,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp build_modes_results(result) do
-    icmp = if result_available?(result), do: "success", else: "failed"
+    icmp_status = result["icmp_status"] || result["icmpStatus"]
+
+    icmp =
+      cond do
+        is_map(icmp_status) && icmp_status["available"] == true -> "success"
+        result["icmp_available"] == true || result["icmpAvailable"] == true -> "success"
+        is_map(icmp_status) -> "failed"
+        true -> "no_response"
+      end
+
     tcp = if Enum.empty?(open_ports(result)), do: "no_response", else: "success"
 
     %{"icmp" => icmp, "tcp" => tcp}
