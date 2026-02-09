@@ -3,7 +3,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
-  @max_limit 500
+  # Builder-side safety cap; must be high enough to represent chart queries (e.g. flows downsample uses 4000).
+  @max_limit 5000
   @allowed_filter_ops ["contains", "not_contains", "equals", "not_equals"]
   @allowed_downsample_aggs ["avg", "min", "max", "sum", "count"]
 
@@ -17,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       "time" => config.default_time || "",
       "bucket" => config[:default_bucket] || "",
       "agg" => config[:default_agg] || "avg",
+      "value_field" => config[:default_value_field] || "",
       "series" => config[:default_series_field] || "",
       "sort_field" => config.default_sort_field,
       "sort_dir" => config.default_sort_dir,
@@ -36,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     time = Map.get(state, "time", "")
     bucket = Map.get(state, "bucket", "")
     agg = Map.get(state, "agg", "avg")
+    value_field = Map.get(state, "value_field", "")
     series = Map.get(state, "series", "")
     sort_field = Map.get(state, "sort_field", default_sort_field(entity))
     sort_dir = Map.get(state, "sort_dir", "desc")
@@ -45,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     tokens =
       ["in:#{entity}"]
       |> maybe_add_time(time)
-      |> maybe_add_downsample(entity, time, bucket, agg, series)
+      |> maybe_add_downsample(entity, time, bucket, agg, value_field, series)
       |> maybe_add_filters(entity, filters)
       |> maybe_add_sort(sort_field, sort_dir)
       |> Kernel.++(["limit:#{limit}"])
@@ -68,13 +71,21 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     with {:ok, parts} <- parse_tokens(tokens),
          :ok <- reject_unknown_tokens(tokens, parts),
          :ok <- validate_filter_fields(parts.entity, parts.filters),
-         :ok <- validate_downsample(parts.entity, parts.bucket, parts.agg, parts.series) do
+         :ok <-
+           validate_downsample(
+             parts.entity,
+             parts.bucket,
+             parts.agg,
+             parts.value_field,
+             parts.series
+           ) do
       {:ok,
        %{
          "entity" => parts.entity,
          "time" => parts.time,
          "bucket" => parts.bucket,
          "agg" => parts.agg,
+         "value_field" => parts.value_field,
          "series" => parts.series,
          "sort_field" => parts.sort_field,
          "sort_dir" => parts.sort_dir,
@@ -110,6 +121,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
     bucket = normalize_bucket(config, Map.get(state, "bucket"))
     agg = normalize_agg(config, Map.get(state, "agg"))
+    value_field = normalize_value_field(config, Map.get(state, "value_field"))
     series = normalize_series_field(config, Map.get(state, "series"))
 
     time =
@@ -123,6 +135,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       "time" => time,
       "bucket" => bucket,
       "agg" => agg,
+      "value_field" => value_field,
       "series" => series,
       "sort_field" => normalize_sort_field(entity, Map.get(state, "sort_field")),
       "sort_dir" => sort_dir,
@@ -210,6 +223,23 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp normalize_series_field(_config, _), do: ""
 
+  defp normalize_value_field(%{downsample: true} = config, value) do
+    candidate = value |> safe_to_string() |> String.trim()
+    allowed = Map.get(config, :value_fields) || Map.get(config, "value_fields") || []
+    default = safe_to_string(Map.get(config, :default_value_field) || "")
+
+    first = if is_list(allowed), do: List.first(allowed) || "", else: ""
+    fallback = if default != "" and default in allowed, do: default, else: first
+
+    cond do
+      not is_list(allowed) or allowed == [] -> ""
+      candidate in allowed -> candidate
+      true -> fallback
+    end
+  end
+
+  defp normalize_value_field(_config, _), do: ""
+
   defp ensure_downsample_time(time, %{downsample: true} = config, bucket) do
     if bucket != "" and time == "" do
       safe_to_string(config.default_time || "last_24h")
@@ -281,7 +311,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp maybe_add_time(tokens, nil), do: tokens
   defp maybe_add_time(tokens, time), do: tokens ++ ["time:#{time}"]
 
-  defp maybe_add_downsample(tokens, entity, time, bucket, agg, series) do
+  defp maybe_add_downsample(tokens, entity, time, bucket, agg, value_field, series) do
     config = Catalog.entity(entity)
 
     cond do
@@ -297,18 +327,30 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       true ->
         bucket = safe_to_string(bucket) |> String.trim()
         agg = safe_to_string(agg) |> String.trim() |> String.downcase()
+        value_field = safe_to_string(value_field) |> String.trim()
         series = safe_to_string(series) |> String.trim()
 
         tokens =
           tokens
           |> Kernel.++(["bucket:#{bucket}"])
           |> Kernel.++(if agg != "", do: ["agg:#{agg}"], else: [])
+          |> Kernel.++(maybe_value_field_token(config, value_field))
 
         if series != "" do
           tokens ++ ["series:#{series}"]
         else
           tokens
         end
+    end
+  end
+
+  defp maybe_value_field_token(config, value_field) do
+    allowed = Map.get(config, :value_fields) || Map.get(config, "value_fields") || []
+
+    if value_field != "" and is_list(allowed) and allowed != [] do
+      ["value_field:#{value_field}"]
+    else
+      []
     end
   end
 
@@ -450,6 +492,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       time: "",
       bucket: "",
       agg: "avg",
+      value_field: "",
       series: "",
       sort_field: nil,
       sort_dir: "desc",
@@ -499,6 +542,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       String.starts_with?(token, "agg:") ->
         agg = String.replace_prefix(token, "agg:", "")
         {:ok, %{acc | agg: agg}}
+
+      String.starts_with?(token, "value_field:") ->
+        value_field = String.replace_prefix(token, "value_field:", "")
+        {:ok, %{acc | value_field: value_field}}
 
       String.starts_with?(token, "series:") ->
         series = String.replace_prefix(token, "series:", "")
@@ -589,7 +636,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   defp reject_unknown_tokens(tokens, parts) do
-    known_prefixes = ["in:", "time:", "bucket:", "agg:", "series:", "sort:", "limit:"]
+    known_prefixes = [
+      "in:",
+      "time:",
+      "bucket:",
+      "agg:",
+      "value_field:",
+      "series:",
+      "sort:",
+      "limit:"
+    ]
 
     unknown =
       Enum.reject(tokens, fn token ->
@@ -603,19 +659,20 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     if unknown == [], do: :ok, else: {:error, {:unsupported_tokens, unknown}}
   end
 
-  defp validate_downsample(entity, bucket, agg, series) do
+  defp validate_downsample(entity, bucket, agg, value_field, series) do
     config = Catalog.entity(entity)
 
     if Map.get(config, :downsample, false) do
-      validate_downsample_fields(config, bucket, agg, series)
+      validate_downsample_fields(config, bucket, agg, value_field, series)
     else
       validate_downsample_unsupported(bucket)
     end
   end
 
-  defp validate_downsample_fields(config, bucket, agg, series) do
+  defp validate_downsample_fields(config, bucket, agg, value_field, series) do
     bucket = safe_to_string(bucket) |> String.trim()
     agg = safe_to_string(agg) |> String.trim() |> String.downcase()
+    value_field = safe_to_string(value_field) |> String.trim()
     series = safe_to_string(series) |> String.trim()
 
     cond do
@@ -629,7 +686,24 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
         {:error, {:invalid_agg, agg}}
 
       true ->
-        validate_downsample_series(config, series)
+        with :ok <- validate_downsample_value_field(config, value_field) do
+          validate_downsample_series(config, series)
+        end
+    end
+  end
+
+  defp validate_downsample_value_field(config, value_field) do
+    allowed = Map.get(config, :value_fields) || Map.get(config, "value_fields")
+
+    cond do
+      value_field == "" ->
+        :ok
+
+      is_list(allowed) and allowed != [] and value_field not in allowed ->
+        {:error, {:unsupported_value_field, value_field}}
+
+      true ->
+        :ok
     end
   end
 

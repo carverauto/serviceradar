@@ -27,7 +27,7 @@ type FlowsQuery<'a> =
 //
 // NOTE: `netflow_local_cidrs` is stored under the `platform` schema, but SRQL
 // typically runs with `search_path=platform,...`, so we intentionally omit the schema prefix.
-const FLOW_DIRECTION_EXPR: &str = r#"
+pub(super) const FLOW_DIRECTION_EXPR: &str = r#"
 (SELECT
   CASE
     WHEN NULLIF(src_endpoint_ip, '') IS NULL OR NULLIF(dst_endpoint_ip, '') IS NULL THEN 'unknown'
@@ -48,7 +48,7 @@ const FLOW_DIRECTION_EXPR: &str = r#"
           FROM netflow_local_cidrs c
           WHERE c.enabled
             AND (c.partition IS NULL OR c.partition = partition)
-            AND (NULLIF(src_endpoint_ip, '')::inet <<= c.cidr)
+            AND (try_inet(NULLIF(src_endpoint_ip, '')) <<= c.cidr)
         ) THEN 2 ELSE 0 END
       ) + (
         CASE WHEN EXISTS (
@@ -56,10 +56,147 @@ const FLOW_DIRECTION_EXPR: &str = r#"
           FROM netflow_local_cidrs c
           WHERE c.enabled
             AND (c.partition IS NULL OR c.partition = partition)
-            AND (NULLIF(dst_endpoint_ip, '')::inet <<= c.cidr)
+            AND (try_inet(NULLIF(dst_endpoint_ip, '')) <<= c.cidr)
         ) THEN 1 ELSE 0 END
       ) AS mask
   ) flags)
+"#;
+
+pub(super) const FLOW_PROTOCOL_GROUP_EXPR: &str =
+    "CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END";
+
+// Exporter/interface metadata projections for SRQL.
+//
+// These expressions are deliberately written without a table alias so they work in:
+// - row queries (Diesel query builder)
+// - stats queries (raw SQL with alias `f`)
+// - downsample queries (raw SQL without alias)
+//
+// NOTE: cache tables live under `platform`, but SRQL assumes `search_path=platform,...`.
+pub(super) const FLOW_EXPORTER_NAME_EXPR: &str = r#"
+(SELECT ec.exporter_name
+ FROM netflow_exporter_cache ec
+ WHERE ec.sampler_address = sampler_address
+ LIMIT 1)
+"#;
+
+pub(super) const FLOW_IN_IF_NAME_EXPR: &str = r#"
+(SELECT ic.if_name
+ FROM netflow_interface_cache ic
+ WHERE ic.sampler_address = sampler_address
+   AND ic.if_index = (CASE
+     WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$'
+     THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int
+     ELSE NULL
+   END)
+ LIMIT 1)
+"#;
+
+pub(super) const FLOW_OUT_IF_NAME_EXPR: &str = r#"
+(SELECT ic.if_name
+ FROM netflow_interface_cache ic
+ WHERE ic.sampler_address = sampler_address
+   AND ic.if_index = (CASE
+     WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$'
+     THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int
+     ELSE NULL
+   END)
+ LIMIT 1)
+"#;
+
+pub(super) const FLOW_IN_IF_SPEED_BPS_EXPR: &str = r#"
+(SELECT ic.if_speed_bps
+ FROM netflow_interface_cache ic
+ WHERE ic.sampler_address = sampler_address
+   AND ic.if_index = (CASE
+     WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$'
+     THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int
+     ELSE NULL
+   END)
+ LIMIT 1)
+"#;
+
+pub(super) const FLOW_OUT_IF_SPEED_BPS_EXPR: &str = r#"
+(SELECT ic.if_speed_bps
+ FROM netflow_interface_cache ic
+ WHERE ic.sampler_address = sampler_address
+   AND ic.if_index = (CASE
+     WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$'
+     THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int
+     ELSE NULL
+   END)
+ LIMIT 1)
+"#;
+
+pub(super) const FLOW_EXPORTER_NAME_GROUP_EXPR: &str =
+    "COALESCE((SELECT ec.exporter_name FROM netflow_exporter_cache ec WHERE ec.sampler_address = sampler_address LIMIT 1), 'Unknown')";
+
+pub(super) const FLOW_IN_IF_NAME_GROUP_EXPR: &str =
+    "COALESCE((SELECT ic.if_name FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+
+pub(super) const FLOW_OUT_IF_NAME_GROUP_EXPR: &str =
+    "COALESCE((SELECT ic.if_name FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+
+pub(super) const FLOW_IN_IF_SPEED_BPS_GROUP_EXPR: &str =
+    "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+
+pub(super) const FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR: &str =
+    "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+
+// Application classification for flows.
+//
+// This is a derived label used by SRQL (`app:` filter, `by app` group-by, and downsample series).
+// It is computed at query time using:
+// - baseline protocol/port mapping
+// - optional admin override rules in `netflow_app_classification_rules`
+//
+// NOTE: Table lives under `platform`, but SRQL assumes `search_path=platform,...`.
+pub(super) const FLOW_APP_EXPR: &str = r#"
+(SELECT
+  COALESCE(override_rule.app_label, baseline.app_label, 'unknown')
+  FROM LATERAL (
+    SELECT
+      CASE
+        WHEN dst_endpoint_port IS NULL THEN NULL
+        WHEN protocol_num = 6 AND dst_endpoint_port = 443 THEN 'https'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 80 THEN 'http'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 22 THEN 'ssh'
+        WHEN dst_endpoint_port = 53 THEN 'dns'
+        WHEN dst_endpoint_port = 123 THEN 'ntp'
+        WHEN protocol_num = 6 AND dst_endpoint_port IN (25, 465, 587) THEN 'smtp'
+        WHEN protocol_num = 6 AND dst_endpoint_port IN (143, 993) THEN 'imap'
+        WHEN protocol_num = 6 AND dst_endpoint_port IN (110, 995) THEN 'pop3'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 3389 THEN 'rdp'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 5432 THEN 'postgres'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 3306 THEN 'mysql'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 6379 THEN 'redis'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 27017 THEN 'mongodb'
+        WHEN protocol_num = 6 AND dst_endpoint_port = 9200 THEN 'elasticsearch'
+        ELSE NULL
+      END AS app_label
+  ) baseline
+  LEFT JOIN LATERAL (
+    SELECT r.app_label
+    FROM netflow_app_classification_rules r
+    WHERE r.enabled
+      AND (r.partition IS NULL OR r.partition = partition)
+      AND (r.protocol_num IS NULL OR r.protocol_num = protocol_num)
+      AND (r.dst_port IS NULL OR r.dst_port = dst_endpoint_port)
+      AND (r.src_port IS NULL OR r.src_port = src_endpoint_port)
+      AND (r.src_cidr IS NULL OR (try_inet(NULLIF(src_endpoint_ip, '')) <<= r.src_cidr))
+      AND (r.dst_cidr IS NULL OR (try_inet(NULLIF(dst_endpoint_ip, '')) <<= r.dst_cidr))
+    ORDER BY
+      r.priority DESC,
+      (
+        (CASE WHEN r.protocol_num IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN r.dst_port IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN r.src_port IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN r.src_cidr IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN r.dst_cidr IS NULL THEN 0 ELSE 1 END)
+      ) DESC,
+      r.id ASC
+    LIMIT 1
+  ) override_rule ON TRUE)
 "#;
 
 #[derive(Queryable, Selectable, Serialize, Deserialize)]
@@ -197,6 +334,26 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
         "sampler_address" => {
             query = apply_text_filter!(query, filter, sampler_address)?;
         }
+        "exporter_name" => {
+            let expr = sql::<Text>(FLOW_EXPORTER_NAME_GROUP_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "in_if_name" => {
+            let expr = sql::<Text>(FLOW_IN_IF_NAME_GROUP_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "out_if_name" => {
+            let expr = sql::<Text>(FLOW_OUT_IF_NAME_GROUP_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "in_if_speed_bps" => {
+            let expr = sql::<Text>(FLOW_IN_IF_SPEED_BPS_GROUP_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "out_if_speed_bps" => {
+            let expr = sql::<Text>(FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
         "protocol_num" | "proto" => {
             let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
                 ServiceError::InvalidRequest("protocol_num must be an integer".into())
@@ -305,6 +462,83 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
                 }
             }
         }
+        "protocol_group" | "proto_group" => {
+            let expr = sql::<Text>(FLOW_PROTOCOL_GROUP_EXPR);
+            match filter.op {
+                FilterOp::Eq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.eq(value));
+                }
+                FilterOp::NotEq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.ne(value));
+                }
+                FilterOp::Like => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.ilike(value));
+                }
+                FilterOp::NotLike => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.not_ilike(value));
+                }
+                FilterOp::In => {
+                    let values = filter.value.as_list()?.to_vec();
+                    if !values.is_empty() {
+                        query = query.filter(expr.eq_any(values));
+                    }
+                }
+                FilterOp::NotIn => {
+                    let values = filter.value.as_list()?.to_vec();
+                    if !values.is_empty() {
+                        query = query.filter(not(expr.eq_any(values)));
+                    }
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "protocol_group filter only supports equality, wildcard, or list matching"
+                            .into(),
+                    ));
+                }
+            }
+        }
+        "app" => {
+            let expr = sql::<Text>(FLOW_APP_EXPR);
+            match filter.op {
+                FilterOp::Eq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.eq(value));
+                }
+                FilterOp::NotEq => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.ne(value));
+                }
+                FilterOp::Like => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.ilike(value));
+                }
+                FilterOp::NotLike => {
+                    let value = filter.value.as_scalar()?.to_string();
+                    query = query.filter(expr.not_ilike(value));
+                }
+                FilterOp::In => {
+                    let values = filter.value.as_list()?.to_vec();
+                    if !values.is_empty() {
+                        query = query.filter(expr.eq_any(values));
+                    }
+                }
+                FilterOp::NotIn => {
+                    let values = filter.value.as_list()?.to_vec();
+                    if !values.is_empty() {
+                        query = query.filter(not(expr.eq_any(values)));
+                    }
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "app filter only supports equality, wildcard, or list matching".into(),
+                    ));
+                }
+            }
+        }
         "src_country_iso2" | "src_country" => {
             let cc = filter.value.as_scalar()?.to_string().to_uppercase();
             if cc.len() != 2 || !cc.chars().all(|c| c.is_ascii_alphabetic()) {
@@ -352,7 +586,7 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
         "src_cidr" => {
             let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
             let within = sql::<diesel::sql_types::Bool>(&format!(
-                "(NULLIF(src_endpoint_ip, '')::inet <<= '{cidr}'::cidr)"
+                "(try_inet(NULLIF(src_endpoint_ip, '')) <<= '{cidr}'::cidr)"
             ));
 
             match filter.op {
@@ -368,7 +602,7 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
         "dst_cidr" => {
             let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
             let within = sql::<diesel::sql_types::Bool>(&format!(
-                "(NULLIF(dst_endpoint_ip, '')::inet <<= '{cidr}'::cidr)"
+                "(try_inet(NULLIF(dst_endpoint_ip, '')) <<= '{cidr}'::cidr)"
             ));
 
             match filter.op {
@@ -442,7 +676,10 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
         "src_endpoint_ip" | "src_ip" | "dst_endpoint_ip" | "dst_ip" | "protocol_name"
-        | "sampler_address" | "direction" => collect_text_params(params, filter),
+        | "sampler_address" | "direction" | "exporter_name" | "in_if_name" | "out_if_name"
+        | "in_if_speed_bps" | "out_if_speed_bps" => {
+            collect_text_params(params, filter)
+        }
         // These filters are implemented using inline SQL literals in `apply_filter` (no binds),
         // so we must not collect bind params for them or we'll shift LIMIT/OFFSET binds.
         "src_country_iso2" | "src_country" | "dst_country_iso2" | "dst_country" => Ok(()),
@@ -643,8 +880,15 @@ enum FlowGroupField {
     DstEndpointPort,
     ProtocolNum,
     ProtocolName,
+    ProtocolGroup,
     SamplerAddress,
+    ExporterName,
+    InIfName,
+    OutIfName,
+    InIfSpeedBps,
+    OutIfSpeedBps,
     Direction,
+    App,
     SrcCountryIso2,
     DstCountryIso2,
 }
@@ -658,8 +902,15 @@ impl FlowGroupField {
             "dst_endpoint_port" | "dst_port" => Some(Self::DstEndpointPort),
             "protocol_num" | "proto" => Some(Self::ProtocolNum),
             "protocol_name" => Some(Self::ProtocolName),
+            "protocol_group" | "proto_group" => Some(Self::ProtocolGroup),
             "sampler_address" => Some(Self::SamplerAddress),
+            "exporter_name" => Some(Self::ExporterName),
+            "in_if_name" => Some(Self::InIfName),
+            "out_if_name" => Some(Self::OutIfName),
+            "in_if_speed_bps" => Some(Self::InIfSpeedBps),
+            "out_if_speed_bps" => Some(Self::OutIfSpeedBps),
             "direction" => Some(Self::Direction),
+            "app" => Some(Self::App),
             "src_country_iso2" | "src_country" => Some(Self::SrcCountryIso2),
             "dst_country_iso2" | "dst_country" => Some(Self::DstCountryIso2),
             _ => None,
@@ -674,8 +925,15 @@ impl FlowGroupField {
             Self::DstEndpointPort => "dst_endpoint_port",
             Self::ProtocolNum => "protocol_num",
             Self::ProtocolName => "protocol_name",
+            Self::ProtocolGroup => "protocol_group",
             Self::SamplerAddress => "sampler_address",
+            Self::ExporterName => "exporter_name",
+            Self::InIfName => "in_if_name",
+            Self::OutIfName => "out_if_name",
+            Self::InIfSpeedBps => "in_if_speed_bps",
+            Self::OutIfSpeedBps => "out_if_speed_bps",
             Self::Direction => "direction",
+            Self::App => "app",
             Self::SrcCountryIso2 => "src_country_iso2",
             Self::DstCountryIso2 => "dst_country_iso2",
         }
@@ -689,8 +947,15 @@ impl FlowGroupField {
             Self::DstEndpointPort => "dst_endpoint_port",
             Self::ProtocolNum => "protocol_num",
             Self::ProtocolName => "protocol_name",
+            Self::ProtocolGroup => FLOW_PROTOCOL_GROUP_EXPR,
             Self::SamplerAddress => "sampler_address",
+            Self::ExporterName => FLOW_EXPORTER_NAME_GROUP_EXPR,
+            Self::InIfName => FLOW_IN_IF_NAME_GROUP_EXPR,
+            Self::OutIfName => FLOW_OUT_IF_NAME_GROUP_EXPR,
+            Self::InIfSpeedBps => FLOW_IN_IF_SPEED_BPS_GROUP_EXPR,
+            Self::OutIfSpeedBps => FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR,
             Self::Direction => FLOW_DIRECTION_EXPR,
+            Self::App => FLOW_APP_EXPR,
             Self::SrcCountryIso2 => "COALESCE(src_geo.country_iso2, 'Unknown')",
             Self::DstCountryIso2 => "COALESCE(dst_geo.country_iso2, 'Unknown')",
         }
@@ -746,10 +1011,10 @@ impl FlowGroupSpec {
         match self {
             Self::Field(field) => field.group_expr().to_string(),
             Self::SrcCidr { prefix } => format!(
-                "COALESCE(set_masklen(NULLIF(src_endpoint_ip, '')::inet, {prefix})::text, 'Unknown')"
+                "COALESCE(set_masklen(try_inet(NULLIF(src_endpoint_ip, '')), {prefix})::text, 'Unknown')"
             ),
             Self::DstCidr { prefix } => format!(
-                "COALESCE(set_masklen(NULLIF(dst_endpoint_ip, '')::inet, {prefix})::text, 'Unknown')"
+                "COALESCE(set_masklen(try_inet(NULLIF(dst_endpoint_ip, '')), {prefix})::text, 'Unknown')"
             ),
         }
     }
@@ -1276,6 +1541,18 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
         "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("f.dst_endpoint_ip", filter, binds),
         "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
         "sampler_address" => build_stats_text_filter("f.sampler_address", filter, binds),
+        "exporter_name" => build_stats_text_filter(FLOW_EXPORTER_NAME_GROUP_EXPR, filter, binds),
+        "in_if_name" => build_stats_text_filter(FLOW_IN_IF_NAME_GROUP_EXPR, filter, binds),
+        "out_if_name" => build_stats_text_filter(FLOW_OUT_IF_NAME_GROUP_EXPR, filter, binds),
+        "in_if_speed_bps" => {
+            build_stats_text_filter(FLOW_IN_IF_SPEED_BPS_GROUP_EXPR, filter, binds)
+        }
+        "out_if_speed_bps" => {
+            build_stats_text_filter(FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR, filter, binds)
+        }
+        "protocol_group" | "proto_group" => {
+            build_stats_text_filter(FLOW_PROTOCOL_GROUP_EXPR, filter, binds)
+        }
         "protocol_num" | "proto" => {
             // protocol_num is int4; cast to bigint to keep bind typing consistent.
             build_stats_bigint_filter("f.protocol_num::bigint", filter, binds, "protocol_num")
@@ -1295,10 +1572,10 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
                     binds.push(FlowSqlBindValue::Text(cidr));
                     match filter.op {
                         FilterOp::Eq => {
-                            Ok("(NULLIF(f.src_endpoint_ip, '')::inet <<= ?::cidr)".to_string())
+                            Ok("(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr)".to_string())
                         }
                         FilterOp::NotEq => Ok(
-                            "(NULLIF(f.src_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.src_endpoint_ip, '')::inet <<= ?::cidr))"
+                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),
@@ -1316,11 +1593,11 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
                     binds.push(FlowSqlBindValue::TextArray(out));
                     match filter.op {
                         FilterOp::In => Ok(
-                            "(NULLIF(f.src_endpoint_ip, '')::inet <<= ANY(?::cidr[]))"
+                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ANY(?::cidr[]))"
                                 .to_string(),
                         ),
                         FilterOp::NotIn => Ok(
-                            "(NULLIF(f.src_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.src_endpoint_ip, '')::inet <<= ANY(?::cidr[])))"
+                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ANY(?::cidr[])))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),
@@ -1339,10 +1616,10 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
                     binds.push(FlowSqlBindValue::Text(cidr));
                     match filter.op {
                         FilterOp::Eq => Ok(
-                            "(NULLIF(f.dst_endpoint_ip, '')::inet <<= ?::cidr)".to_string(),
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr)".to_string(),
                         ),
                         FilterOp::NotEq => Ok(
-                            "(NULLIF(f.dst_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.dst_endpoint_ip, '')::inet <<= ?::cidr))"
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),
@@ -1360,11 +1637,11 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
                     binds.push(FlowSqlBindValue::TextArray(out));
                     match filter.op {
                         FilterOp::In => Ok(
-                            "(NULLIF(f.dst_endpoint_ip, '')::inet <<= ANY(?::cidr[]))"
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ANY(?::cidr[]))"
                                 .to_string(),
                         ),
                         FilterOp::NotIn => Ok(
-                            "(NULLIF(f.dst_endpoint_ip, '')::inet IS NULL OR NOT (NULLIF(f.dst_endpoint_ip, '')::inet <<= ANY(?::cidr[])))"
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ANY(?::cidr[])))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),
@@ -1377,6 +1654,10 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
         }
         "direction" => {
             let expr = format!("({})", FLOW_DIRECTION_EXPR);
+            build_stats_text_filter(&expr, filter, binds)
+        }
+        "app" => {
+            let expr = format!("({})", FLOW_APP_EXPR);
             build_stats_text_filter(&expr, filter, binds)
         }
         "src_country_iso2" | "src_country" => {
@@ -1440,6 +1721,88 @@ mod tests {
             FlowGroupSpec::Field(FlowGroupField::Direction)
         );
         assert_eq!(spec.group_by[0].response_key(), "direction");
+    }
+
+    #[test]
+    fn parse_stats_expr_supports_app_group_by() {
+        let expr = "sum(bytes_total) as total_bytes by app";
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.group_by.len(), 1);
+        assert_eq!(spec.group_by[0], FlowGroupSpec::Field(FlowGroupField::App));
+        assert_eq!(spec.group_by[0].response_key(), "app");
+    }
+
+    #[test]
+    fn parse_stats_expr_supports_exporter_and_interface_group_by() {
+        let expr = "count(*) as total_flows by exporter_name, in_if_name, out_if_name";
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.group_by.len(), 3);
+        assert_eq!(
+            spec.group_by[0],
+            FlowGroupSpec::Field(FlowGroupField::ExporterName)
+        );
+        assert_eq!(
+            spec.group_by[1],
+            FlowGroupSpec::Field(FlowGroupField::InIfName)
+        );
+        assert_eq!(
+            spec.group_by[2],
+            FlowGroupSpec::Field(FlowGroupField::OutIfName)
+        );
+    }
+
+    #[test]
+    fn translate_grouped_stats_exporter_name_includes_cache_table() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "count(*) as total_flows by exporter_name",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+        assert!(
+            sql.contains("netflow_exporter_cache"),
+            "expected exporter cache in SQL, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn translate_grouped_stats_in_if_name_includes_cache_table() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "count(*) as total_flows by in_if_name",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+        assert!(
+            sql.contains("netflow_interface_cache"),
+            "expected interface cache in SQL, got: {sql}"
+        );
     }
 
     #[test]
@@ -1542,6 +1905,33 @@ mod tests {
             "should order by agg_value, not JSON alias"
         );
         assert_eq!(params.len(), 4, "expected time + 2 filter binds");
+    }
+
+    #[test]
+    fn translate_grouped_stats_app_group_by_includes_rule_table() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as total_bytes by app",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+        assert!(
+            sql.contains("netflow_app_classification_rules"),
+            "expected SQL to reference netflow_app_classification_rules for app derivation: {sql}"
+        );
     }
 
     #[test]

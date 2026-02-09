@@ -13,6 +13,22 @@ Baseline strategy:
 2. Otherwise map `{protocol, dst_port}` (and optionally `{protocol, src_port}`) to an application label.
 3. If no mapping matches, label the flow as `unknown`.
 
+Baseline mapping (initial):
+- `tcp/443` -> `https`
+- `tcp/80` -> `http`
+- `tcp/22` -> `ssh`
+- `tcp|udp/53` -> `dns`
+- `tcp|udp/123` -> `ntp`
+- `tcp/25,465,587` -> `smtp`
+- `tcp/143,993` -> `imap`
+- `tcp/110,995` -> `pop3`
+- `tcp/3389` -> `rdp`
+- `tcp/5432` -> `postgres`
+- `tcp/3306` -> `mysql`
+- `tcp/6379` -> `redis`
+- `tcp/27017` -> `mongodb`
+- `tcp/9200` -> `elasticsearch`
+
 Override strategy:
 - Admin-defined rules can override the baseline mapping for a subset of traffic.
 - Rule evaluation MUST be deterministic and bounded in cost.
@@ -36,6 +52,11 @@ Planned fields (draft):
 Precedence:
 - First match by `priority DESC`, then most-specific match (ports + cidrs), then stable tie-break (id).
 
+Extending the ruleset:
+- Prefer adding override rules in Settings instead of changing code.
+- Use `partition` to scope rules to specific collectors/tenants-of-one (deployment partition), otherwise leave blank for global behavior.
+- Keep the number of rules small (tens to low hundreds) to avoid per-row rule evaluation overhead.
+
 Performance notes:
 - Evaluate rules using indexed predicates (port/protocol first, then CIDR containment only when CIDRs are present).
 - Consider a two-phase evaluation: compute baseline label first, then override only if there exist enabled rules for the selected protocol/port.
@@ -55,4 +76,3 @@ Add three primary widgets in the NetFlows view:
 
 Orientation:
 - Charts will follow the existing convention: time on the x-axis, traffic metric (bytes/packets) on the y-axis.
-

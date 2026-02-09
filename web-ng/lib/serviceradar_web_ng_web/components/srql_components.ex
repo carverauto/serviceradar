@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       <form
         id="srql-query-bar"
         phx-hook="SRQLTimeCookie"
+        data-query={@query || ""}
         phx-change="srql_change"
         phx-submit="srql_submit"
         class="flex items-center gap-2 w-full"
@@ -624,6 +625,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     config = Catalog.entity(entity)
     supports_downsample = Map.get(config, :downsample, false)
     series_fields = Map.get(config, :series_fields, [])
+    value_fields = Map.get(config, :value_fields, [])
     boolean_fields = Map.get(config, :boolean_fields, [])
 
     assigns =
@@ -632,6 +634,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> assign(:config, config)
       |> assign(:supports_downsample, supports_downsample)
       |> assign(:series_fields, series_fields)
+      |> assign(:value_fields, value_fields)
       |> assign(:boolean_fields, boolean_fields)
 
     ~H"""
@@ -736,6 +739,16 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                       <option value="max" selected={@builder["agg"] == "max"}>max</option>
                       <option value="sum" selected={@builder["agg"] == "sum"}>sum</option>
                       <option value="count" selected={@builder["agg"] == "count"}>count</option>
+                    </.ui_inline_select>
+                  </.query_builder_pill>
+
+                  <.query_builder_pill :if={@value_fields != []} label="Value">
+                    <.ui_inline_select name="builder[value_field]" disabled={not @supported}>
+                      <%= for field <- @value_fields do %>
+                        <option value={field} selected={@builder["value_field"] == field}>
+                          {field}
+                        </option>
+                      <% end %>
                     </.ui_inline_select>
                   </.query_builder_pill>
 

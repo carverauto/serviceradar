@@ -57,8 +57,8 @@ defmodule ServiceRadar.Application do
     ensure_started(:ash_state_machine)
     ensure_started(:ssl)
 
-    children =
-      [
+      children =
+        [
         # Encryption vault for AshCloak (must start before repo for encrypted field access)
         vault_child(),
 
@@ -144,11 +144,12 @@ defmodule ServiceRadar.Application do
         # Default RBAC role profiles seed
         role_profile_seeder_child(),
 
-        # NetFlow enrichment background maintenance
+        # NetFlow enrichment background maintenance (scheduled on coordinator only)
         ip_enrichment_scheduler_child(),
         geolite_mmdb_scheduler_child(),
         ipinfo_mmdb_scheduler_child(),
         netflow_security_scheduler_child(),
+        netflow_cache_scheduler_child(),
 
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
@@ -248,7 +249,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp sweep_schedule_reconciler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
       ServiceRadar.SweepJobs.SweepScheduleReconciler
     else
       nil
@@ -256,8 +257,16 @@ defmodule ServiceRadar.Application do
   end
 
   defp netflow_security_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
       ServiceRadar.Observability.NetflowSecurityScheduler
+    else
+      nil
+    end
+  end
+
+  defp netflow_cache_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.Observability.NetflowCacheScheduler
     else
       nil
     end
@@ -437,7 +446,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp ip_enrichment_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
       ServiceRadar.Observability.IpEnrichmentScheduler
     else
       nil
@@ -445,7 +454,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp geolite_mmdb_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
       ServiceRadar.Observability.GeoLiteMmdbScheduler
     else
       nil
@@ -453,11 +462,23 @@ defmodule ServiceRadar.Application do
   end
 
   defp ipinfo_mmdb_scheduler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
       ServiceRadar.Observability.IpinfoMmdbScheduler
     else
       nil
     end
+  end
+
+  # Only one node should be responsible for inserting periodic/scheduled jobs.
+  # In clustered deployments, that's the cluster coordinator (core-elx).
+  # In non-clustered deployments, schedule locally.
+  defp job_scheduler_node? do
+    cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
+
+    cluster_coordinator =
+      Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
+
+    if cluster_enabled, do: cluster_coordinator, else: true
   end
 
   defp datasvc_enabled? do

@@ -1,5 +1,6 @@
 defmodule ServiceRadarWebNG.ApiQueryControllerPropertyTest do
-  use ExUnit.Case, async: true
+  # Mutates global application env (`:srql_module`), so cannot be async.
+  use ExUnit.Case, async: false
   use ExUnitProperties
 
   alias ServiceRadarWebNG.Generators.SRQLGenerators
