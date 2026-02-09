@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Router do
          "font-src 'self' data:; " <>
          "connect-src 'self' https: wss:; " <>
          "worker-src 'self' blob:; " <>
+         "child-src blob:; " <>
          "frame-src 'none'; " <>
          "object-src 'none'; " <>
          "base-uri 'self'; " <>
@@ -458,10 +459,15 @@ defmodule ServiceRadarWebNGWeb.Router do
   # Includes partition context from request header or session
   defp set_ash_actor(conn, _opts) do
     case conn.assigns[:current_scope] do
-      %Scope{user: user} when not is_nil(user) ->
+      %Scope{user: user, permissions: scope_permissions} when not is_nil(user) ->
         partition_id = get_partition_id_from_request(conn)
 
-        permissions = ServiceRadar.Identity.RBAC.permissions_for_user(user)
+        permissions =
+          if is_list(scope_permissions) do
+            scope_permissions
+          else
+            ServiceRadar.Identity.RBAC.permissions_for_user(user)
+          end
 
         actor = %{
           id: user.id,

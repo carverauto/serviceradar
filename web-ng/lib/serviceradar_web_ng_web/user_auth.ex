@@ -257,7 +257,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   defp authenticate_with_token(conn, token, :bearer) do
     case Guardian.verify_token(token, token_type: "access") do
       {:ok, user, _claims} ->
-        assign(conn, :current_scope, Scope.for_user(user))
+        assign(conn, :current_scope, create_scope(user))
 
       {:error, reason} ->
         log_session_failure(conn, reason)
@@ -268,7 +268,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   defp refresh_and_assign_scope(conn, user, claims) do
     case refresh_session(conn, user, claims) do
       {:ok, refreshed_conn} ->
-        assign(refreshed_conn, :current_scope, Scope.for_user(user))
+        assign(refreshed_conn, :current_scope, create_scope(user))
 
       {:error, refreshed_conn} ->
         assign(refreshed_conn, :current_scope, Scope.for_user(nil))
@@ -362,8 +362,15 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
           _ -> nil
         end
 
-      Scope.for_user(user)
+      create_scope(user)
     end)
+  end
+
+  defp create_scope(nil), do: Scope.for_user(nil)
+
+  defp create_scope(user) do
+    permissions = ServiceRadar.Identity.RBAC.permissions_for_user(user)
+    Scope.for_user(user, permissions: permissions)
   end
 
   @doc "Returns the path to redirect to after log in."
