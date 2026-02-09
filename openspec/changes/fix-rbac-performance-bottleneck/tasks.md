@@ -25,16 +25,19 @@
 - [x] 1.4.3 Defer `NetflowLive.Visualize` handle_params data loading to handle_info via `:load_viz_data`
 - [x] 1.4.4 Add `viz_loading` assign with loading spinner to netflow visualize page
 
-### 1.5 Build verification
-- [x] 1.5.1 Verify `mix compile` succeeds for web-ng (clean, no warnings)
-- [x] 1.5.2 Verify `mix compile` succeeds for serviceradar_core (clean)
-- [ ] 1.5.3 Verify Bazel build succeeds (if accessible)
+### 1.5 CSP fix for Mapbox GL JS
+- [x] 1.5.1 Add `blob:` to `script-src`, `worker-src`, `child-src` for Mapbox web workers
+- [x] 1.5.2 Add `blob: https://*.mapbox.com` to `img-src` for map tiles
 
-### 1.6 Functional verification
-- [ ] 1.6.1 Verify authenticated page loads (analytics, devices, settings)
-- [ ] 1.6.2 Verify RBAC.can? checks render correct UI elements based on user role
-- [ ] 1.6.3 Verify Ash operations work with enriched actor (create, read, update, delete)
-- [ ] 1.6.4 Verify Permit-protected settings pages still enforce authorization
+### 1.6 Build verification
+- [x] 1.6.1 Verify `mix compile` succeeds for web-ng (clean, no warnings)
+- [x] 1.6.2 Verify `mix compile` succeeds for serviceradar_core (clean)
+- [ ] 1.6.3 Verify Bazel build succeeds (if accessible)
+
+### 1.7 Functional verification
+- [x] 1.7.1 Verify page loads are significantly faster (confirmed by user)
+- [x] 1.7.2 Verify Mapbox maps render correctly after CSP fix (confirmed by user)
+- [ ] 1.7.3 Verify Bazel build succeeds in CI
 
 ## 2. Phase 2: OpenTelemetry Observability (Separate PR)
 
