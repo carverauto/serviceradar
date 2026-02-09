@@ -78,6 +78,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
         "" -> nil
         "cron_plugin" -> :cron_plugin
         "ash_oban" -> :ash_oban
+        "self_scheduling" -> :self_scheduling
         _ -> nil
       end
 
@@ -222,7 +223,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                 </p>
               </div>
             </:header>
-            <div class="grid gap-3 sm:grid-cols-3">
+            <div class="grid gap-3 sm:grid-cols-4">
               <div
                 :if={@show_leader_info}
                 class="rounded-lg border border-base-200/60 bg-base-200/30 p-3"
@@ -248,6 +249,14 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                 </div>
                 <div class="mt-1 text-sm font-semibold text-base-content">
                   {@ash_oban_count}
+                </div>
+              </div>
+              <div class="rounded-lg border border-base-200/60 bg-base-200/30 p-3">
+                <div class="text-[11px] uppercase tracking-wide text-base-content/60">
+                  Self-scheduling
+                </div>
+                <div class="mt-1 text-sm font-semibold text-base-content">
+                  {@self_scheduling_count}
                 </div>
               </div>
             </div>
@@ -296,6 +305,9 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                   </option>
                   <option value="ash_oban" selected={@filter_source == :ash_oban}>
                     AshOban Triggers
+                  </option>
+                  <option value="self_scheduling" selected={@filter_source == :self_scheduling}>
+                    Self-scheduling
                   </option>
                 </select>
               </form>
@@ -554,6 +566,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
     cron_count = Enum.count(all_jobs, &(&1.source == :cron_plugin))
     ash_oban_count = Enum.count(all_jobs, &(&1.source == :ash_oban))
+    self_scheduling_count = Enum.count(all_jobs, &(&1.source == :self_scheduling))
 
     total_pages = ceil(filtered_count / socket.assigns.per_page)
 
@@ -570,6 +583,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     |> assign(:total_pages, total_pages)
     |> assign(:cron_job_count, cron_count)
     |> assign(:ash_oban_count, ash_oban_count)
+    |> assign(:self_scheduling_count, self_scheduling_count)
     |> assign(:leader_node, leader)
     |> assign(:show_oban_web, show_oban_web)
     |> assign(:show_leader_info, show_leader_info)
@@ -633,10 +647,12 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   defp source_label(:cron_plugin), do: "Cron"
   defp source_label(:ash_oban), do: "AshOban"
+  defp source_label(:self_scheduling), do: "Self"
   defp source_label(_), do: "Unknown"
 
   defp source_variant(:cron_plugin), do: "info"
   defp source_variant(:ash_oban), do: "accent"
+  defp source_variant(:self_scheduling), do: "neutral"
   defp source_variant(_), do: "ghost"
 
   defp format_datetime_short(nil), do: "—"

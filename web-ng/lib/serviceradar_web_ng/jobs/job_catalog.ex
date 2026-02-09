@@ -5,10 +5,12 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   This module provides a unified view of:
   1. Oban.Plugins.Cron jobs (config-based system maintenance)
   2. AshOban triggered jobs (resource-based scheduled actions)
+  3. Self-scheduling workers (workers that implement `ensure_scheduled/0` and re-schedule themselves)
 
   The old ng_job_schedules table approach is deprecated in favor of:
   - Using Oban.Plugins.Cron for simple, fixed-schedule maintenance jobs
   - Using AshOban triggers for resource-action based scheduling
+  - Using self-scheduling workers for dynamic/feature-gated periodic work (e.g. netflow enrichment)
   """
 
   require Logger
@@ -21,7 +23,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
           id: String.t(),
           name: String.t(),
           description: String.t(),
-          source: :cron_plugin | :ash_oban,
+          source: :cron_plugin | :ash_oban | :self_scheduling,
           cron: String.t() | nil,
           queue: atom(),
           enabled: boolean(),
@@ -37,7 +39,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   """
   @spec list_all_jobs() :: [job_entry()]
   def list_all_jobs do
-    cron_jobs() ++ ash_oban_jobs()
+    cron_jobs() ++ ash_oban_jobs() ++ self_scheduling_jobs()
   end
 
   @doc """
@@ -168,6 +170,32 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     |> Enum.flat_map(&resource_triggers/1)
   end
 
+  @doc """
+  List periodic jobs implemented as self-scheduling workers.
+
+  These workers aren't configured in `Oban.Plugins.Cron` and aren't AshOban triggers; instead
+  they insert their next run from `perform/1` and expose `ensure_scheduled/0` to seed the first run.
+  """
+  @spec self_scheduling_jobs() :: [job_entry()]
+  def self_scheduling_jobs do
+    Enum.map(self_scheduling_workers(), fn worker ->
+      %{
+        id: "self:#{inspect(worker)}",
+        name: worker_name(worker),
+        description: worker_description(worker),
+        source: :self_scheduling,
+        cron: self_schedule_hint(worker),
+        queue: worker_queue(worker),
+        enabled: worker_seeded?(worker),
+        worker: worker,
+        resource: nil,
+        action: nil,
+        last_run_at: get_last_run(worker),
+        next_run_at: next_scheduled_at(worker)
+      }
+    end)
+  end
+
   defp ash_oban_resources do
     [
       PollingSchedule,
@@ -248,6 +276,15 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   def trigger_job(%{source: :ash_oban, worker: worker}) when not is_nil(worker) do
     # For AshOban, we insert the scheduler worker which will process due records
+    try do
+      job = worker.new(%{})
+      Router.insert(job)
+    rescue
+      e -> {:error, Exception.message(e)}
+    end
+  end
+
+  def trigger_job(%{source: :self_scheduling, worker: worker}) when not is_nil(worker) do
     try do
       job = worker.new(%{})
       Router.insert(job)
@@ -507,6 +544,105 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     rescue
       _ -> nil
     end
+  end
+
+  defp next_scheduled_at(worker) when is_atom(worker) do
+    import Ecto.Query
+
+    try do
+      Oban.Job
+      |> where([j], j.worker == ^inspect(worker))
+      |> where([j], j.state == "scheduled")
+      |> order_by([j], asc: j.scheduled_at)
+      |> limit(1)
+      |> select([j], j.scheduled_at)
+      |> ServiceRadar.Repo.one(prefix: oban_prefix())
+    rescue
+      _ -> nil
+    end
+  end
+
+  defp worker_seeded?(worker) when is_atom(worker) do
+    import Ecto.Query
+
+    try do
+      Oban.Job
+      |> where([j], j.worker == ^inspect(worker))
+      |> where([j], j.state in ["available", "scheduled", "executing", "retryable"])
+      |> limit(1)
+      |> ServiceRadar.Repo.exists?(prefix: oban_prefix())
+    rescue
+      _ -> false
+    end
+  end
+
+  defp oban_prefix do
+    try do
+      case Application.get_env(:serviceradar_core, Oban) do
+        config when is_list(config) -> Keyword.get(config, :prefix, "platform")
+        _ -> "platform"
+      end
+    rescue
+      _ -> "platform"
+    end
+  end
+
+  defp worker_queue(worker) when is_atom(worker) do
+    case worker.__info__(:attributes) do
+      attrs when is_list(attrs) ->
+        case Keyword.get(attrs, :oban_worker) do
+          [{opts}] when is_list(opts) -> Keyword.get(opts, :queue, :default)
+          _ -> :default
+        end
+
+      _ ->
+        :default
+    end
+  rescue
+    _ -> :default
+  end
+
+  defp self_schedule_hint(worker) when is_atom(worker) do
+    config = Application.get_env(:serviceradar_core, worker, [])
+
+    case Keyword.get(config, :reschedule_seconds) do
+      seconds when is_integer(seconds) and seconds > 0 -> "every #{format_seconds(seconds)}"
+      _ -> "self"
+    end
+  rescue
+    _ -> "self"
+  end
+
+  defp format_seconds(seconds) when is_integer(seconds) and seconds > 0 do
+    cond do
+      rem(seconds, 3600) == 0 -> "#{div(seconds, 3600)}h"
+      rem(seconds, 60) == 0 -> "#{div(seconds, 60)}m"
+      true -> "#{seconds}s"
+    end
+  end
+
+  defp self_scheduling_workers do
+    [
+      # Inventory + cleanup
+      ServiceRadar.Inventory.InterfaceThresholdWorker,
+      ServiceRadar.Inventory.DeviceCleanupWorker,
+      ServiceRadar.Edge.AgentCommandCleanupWorker,
+
+      # Observability / netflow periodic workers
+      ServiceRadar.Observability.GeoLiteMmdbDownloadWorker,
+      ServiceRadar.Observability.IpinfoMmdbDownloadWorker,
+      ServiceRadar.Observability.IpEnrichmentRefreshWorker,
+      ServiceRadar.Observability.IpEnrichmentCleanupWorker,
+      ServiceRadar.Observability.NetflowExporterCacheRefreshWorker,
+      ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker,
+      ServiceRadar.Observability.ThreatIntelFeedRefreshWorker,
+      ServiceRadar.Observability.NetflowSecurityRefreshWorker,
+      ServiceRadar.Observability.StatefulAlertCleanupWorker,
+
+      # Sweep jobs
+      ServiceRadar.SweepJobs.SweepMonitorWorker,
+      ServiceRadar.SweepJobs.SweepDataCleanupWorker
+    ]
   end
 
   # Calculate next run time from cron expression

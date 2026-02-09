@@ -44,10 +44,7 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
         user
 
       role when role in [:viewer, :helpdesk, :operator, :admin] ->
-        # Avoid "cannot remove the last active admin account" when demoting a user.
-        if role != :admin do
-          :ok = AshTestHelpers.ensure_admin_user()
-        end
+        :ok = maybe_ensure_second_admin(user, role)
 
         {:ok, updated} =
           ServiceRadar.Identity.Users.update_role(user, role,
@@ -59,6 +56,33 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
 
       _ ->
         user
+    end
+  end
+
+  defp maybe_ensure_second_admin(_user, :admin), do: :ok
+
+  defp maybe_ensure_second_admin(user, _role) do
+    # If this user is the only admin (common when it's the first registered user),
+    # create a second admin before demoting to avoid the "last active admin" guardrail.
+    case other_admin_exists?(user) do
+      true -> :ok
+      false -> _admin = AshTestHelpers.admin_user_fixture()
+    end
+
+    :ok
+  end
+
+  defp other_admin_exists?(user) do
+    alias ServiceRadar.Identity.User
+
+    require Ash.Query
+    import Ash.Expr
+
+    q = User |> Ash.Query.filter(expr(role == :admin and id != ^user.id))
+
+    case Ash.read_one(q, actor: AshTestHelpers.system_actor()) do
+      {:ok, %User{}} -> true
+      _ -> false
     end
   end
 

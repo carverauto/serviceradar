@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias AshPhoenix.Form
+  alias ServiceRadar.Observability.NetflowAppClassificationRule
   alias ServiceRadar.Observability.NetflowLocalCidr
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.{GeoLiteMmdbDownloadWorker, IpEnrichmentRefreshWorker}
@@ -31,11 +32,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
        |> assign(:page_title, "NetFlow Settings")
        |> assign(:current_path, "/settings/netflows")
        |> assign(:cidrs, load_cidrs(scope))
+       |> assign(:app_rules, load_app_rules(scope))
        |> assign(:settings, settings)
        |> assign(:settings_form, settings_to_form(settings))
        |> assign(:selected, nil)
        |> assign(:ash_form, nil)
-       |> assign(:form, nil)}
+       |> assign(:form, nil)
+       |> assign(:form_kind, nil)}
     else
       {:ok,
        socket
@@ -56,6 +59,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     |> assign(:selected, nil)
     |> assign(:ash_form, nil)
     |> assign(:form, nil)
+    |> assign(:form_kind, nil)
   end
 
   defp apply_action(socket, :new, _params) do
@@ -70,6 +74,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     |> assign(:selected, nil)
     |> assign(:ash_form, ash_form)
     |> assign(:form, to_form(ash_form))
+    |> assign(:form_kind, :cidr)
   end
 
   defp apply_action(socket, :edit, %{"id" => id}) do
@@ -91,6 +96,48 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
         |> assign(:selected, cidr)
         |> assign(:ash_form, ash_form)
         |> assign(:form, to_form(ash_form))
+        |> assign(:form_kind, :cidr)
+    end
+  end
+
+  defp apply_action(socket, :new_app_rule, _params) do
+    scope = socket.assigns.current_scope
+
+    ash_form =
+      Form.for_create(NetflowAppClassificationRule, :create,
+        domain: ServiceRadar.Observability,
+        scope: scope
+      )
+
+    socket
+    |> assign(:page_title, "Add App Rule")
+    |> assign(:current_path, "/settings/netflows")
+    |> assign(:selected, nil)
+    |> assign(:ash_form, ash_form)
+    |> assign(:form, to_form(ash_form))
+    |> assign(:form_kind, :app_rule)
+  end
+
+  defp apply_action(socket, :edit_app_rule, %{"id" => id}) do
+    scope = socket.assigns.current_scope
+
+    case get_app_rule(scope, id) do
+      nil ->
+        socket
+        |> put_flash(:error, "Rule not found")
+        |> push_navigate(to: ~p"/settings/netflows")
+
+      rule ->
+        ash_form =
+          Form.for_update(rule, :update, domain: ServiceRadar.Observability, scope: scope)
+
+        socket
+        |> assign(:page_title, "Edit App Rule")
+        |> assign(:current_path, "/settings/netflows")
+        |> assign(:selected, rule)
+        |> assign(:ash_form, ash_form)
+        |> assign(:form, to_form(ash_form))
+        |> assign(:form_kind, :app_rule)
     end
   end
 
@@ -114,6 +161,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
          socket
          |> put_flash(:info, "Saved")
          |> assign(:cidrs, load_cidrs(socket.assigns.current_scope))
+         |> assign(:app_rules, load_app_rules(socket.assigns.current_scope))
          |> push_navigate(to: ~p"/settings/netflows")}
 
       {:error, ash_form} ->
@@ -146,6 +194,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     end
   end
 
+  def handle_event("delete_rule", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case get_app_rule(scope, id) do
+      nil ->
+        {:noreply, socket |> put_flash(:error, "Rule not found")}
+
+      rule ->
+        case Ash.destroy(rule, actor: scope.user) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Deleted")
+             |> assign(:app_rules, load_app_rules(scope))}
+
+          {:error, _} ->
+            {:noreply, socket |> put_flash(:error, "Failed to delete rule")}
+        end
+    end
+  end
+
   def handle_event("settings_validate", %{"settings" => params}, socket) do
     # Keep the in-memory form state in sync; we intentionally avoid clearing secrets
     # unless the user explicitly checks the "clear" box.
@@ -172,6 +241,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
     case result do
       {:ok, %NetflowSettings{} = updated} ->
+        # Reload to ensure calculated fields like `ipinfo_api_key_present` are available
+        # for immediate UI feedback after saving a token.
+        updated = load_settings(scope) || updated
+
         {:noreply,
          socket
          |> put_flash(:info, "Saved settings")
@@ -187,7 +260,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     scope = socket.assigns.current_scope
 
     if RBAC.can?(scope, "settings.netflow.manage") do
-      case ObanSupport.safe_insert(GeoLiteMmdbDownloadWorker.new(%{})) do
+      case ObanSupport.safe_insert(GeoLiteMmdbDownloadWorker.new(%{force: true})) do
         {:ok, _job} ->
           {:noreply, socket |> put_flash(:info, "Queued MMDB refresh job")}
 
@@ -211,6 +284,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
       case ObanSupport.safe_insert(IpEnrichmentRefreshWorker.new(%{})) do
         {:ok, _job} ->
           {:noreply, socket |> put_flash(:info, "Queued enrichment refresh job")}
+
+        {:error, :oban_unavailable} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Oban is unavailable in this environment.")}
+
+        {:error, err} ->
+          {:noreply, socket |> put_flash(:error, "Failed to queue job: #{inspect(err)}")}
+      end
+    else
+      {:noreply, socket |> put_flash(:error, "Not authorized")}
+    end
+  end
+
+  def handle_event("run_ipinfo_mmdb_refresh", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    if RBAC.can?(scope, "settings.netflow.manage") do
+      case ObanSupport.safe_insert(
+             ServiceRadar.Observability.IpinfoMmdbDownloadWorker.new(%{force: true})
+           ) do
+        {:ok, _job} ->
+          {:noreply, socket |> put_flash(:info, "Queued ipinfo MMDB refresh job")}
 
         {:error, :oban_unavailable} ->
           {:noreply,
@@ -364,6 +460,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                         />
                         <span>Clear token</span>
                       </label>
+
+                      <div class="flex items-center justify-end">
+                        <button
+                          type="button"
+                          class="btn btn-sm"
+                          phx-click="run_ipinfo_mmdb_refresh"
+                        >
+                          Run ipinfo MMDB refresh
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -495,6 +601,82 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                 </tbody>
               </table>
             </div>
+
+            <div class="flex items-center justify-between pt-2">
+              <h2 class="text-sm font-semibold">Application Classification Rules</h2>
+              <.link navigate={~p"/settings/netflows/app-rules/new"} class="btn btn-sm btn-primary">
+                Add Rule
+              </.link>
+            </div>
+
+            <div class="overflow-x-auto rounded-xl border border-base-200 bg-base-100">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Partition</th>
+                    <th>App</th>
+                    <th>Proto</th>
+                    <th>Dst Port</th>
+                    <th>Src Port</th>
+                    <th>CIDRs</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for rule <- @app_rules do %>
+                    <tr id={"app-rule-#{rule.id}"}>
+                      <td class="font-mono text-xs">{rule.partition || "*"}</td>
+                      <td class="font-mono text-xs">{rule.app_label}</td>
+                      <td class="font-mono text-xs">{rule.protocol_num || "*"}</td>
+                      <td class="font-mono text-xs">{rule.dst_port || "*"}</td>
+                      <td class="font-mono text-xs">{rule.src_port || "*"}</td>
+                      <td class="font-mono text-xs">
+                        <span :if={rule.src_cidr}>src:{rule.src_cidr}</span>
+                        <span :if={rule.dst_cidr} class={if(rule.src_cidr, do: "ml-2", else: "")}>
+                          dst:{rule.dst_cidr}
+                        </span>
+                        <span :if={is_nil(rule.src_cidr) and is_nil(rule.dst_cidr)}>*</span>
+                      </td>
+                      <td class="font-mono text-xs">{rule.priority}</td>
+                      <td>
+                        <span class={[
+                          "badge badge-sm",
+                          (rule.enabled && "badge-success") || "badge-ghost"
+                        ]}>
+                          {if(rule.enabled, do: "enabled", else: "disabled")}
+                        </span>
+                      </td>
+                      <td class="text-right space-x-2">
+                        <.link
+                          navigate={~p"/settings/netflows/app-rules/#{rule.id}/edit"}
+                          class="btn btn-xs"
+                        >
+                          Edit
+                        </.link>
+                        <button
+                          type="button"
+                          class="btn btn-xs btn-ghost text-error"
+                          phx-click="delete_rule"
+                          phx-value-id={rule.id}
+                          data-confirm="Delete this rule?"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  <% end %>
+                  <%= if Enum.empty?(@app_rules) do %>
+                    <tr>
+                      <td colspan="9" class="text-sm text-base-content/60">
+                        No app rules configured yet.
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
           </section>
 
           <section class="space-y-4">
@@ -518,15 +700,80 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
             <%= if @form do %>
               <div class="rounded-xl border border-base-200 bg-base-100 p-4">
                 <h2 class="text-sm font-semibold">
-                  {if(@selected, do: "Edit CIDR", else: "Add CIDR")}
+                  <%= case @form_kind do %>
+                    <% :app_rule -> %>
+                      {if(@selected, do: "Edit App Rule", else: "Add App Rule")}
+                    <% _ -> %>
+                      {if(@selected, do: "Edit CIDR", else: "Add CIDR")}
+                  <% end %>
                 </h2>
 
-                <.form for={@form} id="netflow-cidr-form" phx-change="validate" phx-submit="save">
+                <.form
+                  for={@form}
+                  id={
+                    if(@form_kind == :app_rule,
+                      do: "netflow-app-rule-form",
+                      else: "netflow-cidr-form"
+                    )
+                  }
+                  phx-change="validate"
+                  phx-submit="save"
+                >
                   <div class="space-y-3 mt-3">
-                    <.input field={@form[:partition]} type="text" label="Partition (optional)" />
-                    <.input field={@form[:label]} type="text" label="Label (optional)" />
-                    <.input field={@form[:cidr]} type="text" label="CIDR" placeholder="10.0.0.0/8" />
-                    <.input field={@form[:enabled]} type="checkbox" label="Enabled" />
+                    <%= if @form_kind == :app_rule do %>
+                      <.input field={@form[:partition]} type="text" label="Partition (optional)" />
+                      <.input
+                        field={@form[:app_label]}
+                        type="text"
+                        label="App label"
+                        placeholder="github"
+                      />
+                      <.input field={@form[:priority]} type="number" label="Priority" />
+                      <.input field={@form[:enabled]} type="checkbox" label="Enabled" />
+
+                      <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <.input
+                          field={@form[:protocol_num]}
+                          type="number"
+                          label="Protocol #"
+                          placeholder="6"
+                        />
+                        <.input
+                          field={@form[:dst_port]}
+                          type="number"
+                          label="Dst port"
+                          placeholder="443"
+                        />
+                        <.input
+                          field={@form[:src_port]}
+                          type="number"
+                          label="Src port"
+                          placeholder=""
+                        />
+                      </div>
+
+                      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <.input
+                          field={@form[:src_cidr]}
+                          type="text"
+                          label="Src CIDR (optional)"
+                          placeholder="10.0.0.0/8"
+                        />
+                        <.input
+                          field={@form[:dst_cidr]}
+                          type="text"
+                          label="Dst CIDR (optional)"
+                          placeholder="140.82.112.0/20"
+                        />
+                      </div>
+
+                      <.input field={@form[:notes]} type="textarea" label="Notes (optional)" />
+                    <% else %>
+                      <.input field={@form[:partition]} type="text" label="Partition (optional)" />
+                      <.input field={@form[:label]} type="text" label="Label (optional)" />
+                      <.input field={@form[:cidr]} type="text" label="CIDR" placeholder="10.0.0.0/8" />
+                      <.input field={@form[:enabled]} type="checkbox" label="Enabled" />
+                    <% end %>
                   </div>
 
                   <div class="mt-5 flex items-center justify-between">
@@ -565,9 +812,34 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
     end
   end
 
+  defp load_app_rules(scope) do
+    query =
+      NetflowAppClassificationRule
+      |> Ash.Query.for_read(:list, %{})
+      |> Ash.Query.sort(enabled: :desc, priority: :desc, partition: :asc, app_label: :asc)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, %Ash.Page.Keyset{} = page} -> page.results
+      {:ok, rows} when is_list(rows) -> rows
+      _ -> []
+    end
+  end
+
   defp get_cidr(scope, id) do
     query =
       NetflowLocalCidr
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(id == ^id)
+
+    case Ash.read_one(query, scope: scope) do
+      {:ok, record} -> record
+      _ -> nil
+    end
+  end
+
+  defp get_app_rule(scope, id) do
+    query =
+      NetflowAppClassificationRule
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(id == ^id)
 

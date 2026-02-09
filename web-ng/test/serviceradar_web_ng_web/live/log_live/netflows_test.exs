@@ -24,42 +24,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     %{conn: conn}
   end
 
-  test "direction chips patch the SRQL query", %{conn: conn} do
+  test "legacy /netflows redirects to /netflow preserving SRQL params", %{conn: conn} do
     q = "in:flows time:last_24h"
-    {:ok, lv, html} = live(conn, ~p"/netflows?#{%{q: q, limit: 50}}")
+    assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/netflows?#{%{q: q, limit: 50}}")
 
-    assert html =~ "Direction"
-    assert has_element?(lv, "a", "Internal")
-    assert has_element?(lv, "a", "Outbound")
-    assert has_element?(lv, "a", "Inbound")
-    assert has_element?(lv, "a", "External")
+    uri = URI.parse(to)
+    assert uri.path == "/netflow"
 
-    lv
-    |> element("a[data-phx-link='patch']", "Internal")
-    |> render_click()
-
-    expected_query = "#{q} direction:internal"
-
-    # Preserve ordering by using a keyword list; the LiveView builds the query in this order.
-    expected_path =
-      "/netflows?" <>
-        Plug.Conn.Query.encode(
-          tab: "netflows",
-          limit: 50,
-          q: expected_query,
-          geo: "dst",
-          sankey_prefix: "24"
-        )
-
-    assert_patch(lv, expected_path)
+    params = Plug.Conn.Query.decode(uri.query || "")
+    assert params["q"] == q
+    assert params["limit"] == "50"
   end
 
-  test "renders Sankey and Geo panels with SRQL-driven placeholders", %{conn: conn} do
+  test "netflow visualize page renders after redirect", %{conn: conn} do
     q = "in:flows time:last_24h"
-    {:ok, _lv, html} = live(conn, ~p"/netflows?#{%{q: q, limit: 50}}")
+    assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/netflows?#{%{q: q, limit: 50}}")
 
-    assert html =~ "Traffic Sankey"
-    assert html =~ "Geo Heatmap"
-    assert html =~ "Compare"
+    {:ok, _lv, html} = live(conn, to)
+    assert html =~ "NetFlow Visualize"
   end
 end

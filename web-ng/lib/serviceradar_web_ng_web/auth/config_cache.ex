@@ -49,18 +49,21 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
   the settings are updated via the admin UI.
   """
   def get_config do
+    ttl_ms = current_ttl_ms()
+
     case :ets.lookup(@table, :auth_settings) do
       [{:auth_settings, settings, expires_at}] ->
         if System.monotonic_time(:millisecond) < expires_at do
           {:ok, settings}
         else
-          # TTL expired, refresh
-          GenServer.call(__MODULE__, :refresh)
+          # TTL expired. Refresh in the caller process (avoids Ecto SQL sandbox ownership issues
+          # when ConfigCache is running in tests and the GenServer isn't allowed).
+          load_and_cache(ttl_ms)
         end
 
       [] ->
-        # Cache miss, fetch and cache
-        GenServer.call(__MODULE__, :refresh)
+        # Cache miss, fetch and cache (in caller).
+        load_and_cache(ttl_ms)
     end
   end
 
@@ -82,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
   Useful after manual database changes outside of the normal update flow.
   """
   def refresh do
-    GenServer.call(__MODULE__, :refresh)
+    load_and_cache(current_ttl_ms())
   end
 
   @doc """
@@ -190,8 +193,8 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
 
     ttl_ms = Keyword.get(opts, :ttl_ms, @default_ttl_ms)
 
-    # Initial load
-    load_and_cache(ttl_ms)
+    # Store TTL in ETS so refreshes can happen in the caller process without a GenServer call.
+    :ets.insert(@table, {:ttl_ms, ttl_ms})
 
     {:ok, %{ttl_ms: ttl_ms}}
   end
@@ -236,5 +239,12 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
   defp cache_settings(settings, ttl_ms) do
     expires_at = System.monotonic_time(:millisecond) + ttl_ms
     :ets.insert(@table, {:auth_settings, settings, expires_at})
+  end
+
+  defp current_ttl_ms do
+    case :ets.lookup(@table, :ttl_ms) do
+      [{:ttl_ms, ttl_ms}] when is_integer(ttl_ms) and ttl_ms > 0 -> ttl_ms
+      _ -> @default_ttl_ms
+    end
   end
 end

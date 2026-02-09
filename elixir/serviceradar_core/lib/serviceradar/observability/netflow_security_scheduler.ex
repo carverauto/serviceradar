@@ -6,6 +6,8 @@ defmodule ServiceRadar.Observability.NetflowSecurityScheduler do
   use GenServer
 
   alias ServiceRadar.Observability.{NetflowSecurityRefreshWorker, ThreatIntelFeedRefreshWorker}
+  alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
 
@@ -31,18 +33,40 @@ defmodule ServiceRadar.Observability.NetflowSecurityScheduler do
   end
 
   defp ensure_scheduled(worker) do
-    case worker.ensure_scheduled() do
-      {:ok, :already_scheduled} ->
-        :ok
+    if oban_jobs_ready?() do
+      case worker.ensure_scheduled() do
+        {:ok, :already_scheduled} ->
+          :ok
 
-      {:ok, _job} ->
-        :ok
+        {:ok, _job} ->
+          :ok
 
-      {:error, reason} ->
-        Logger.debug("NetFlow security scheduler skipped",
-          worker: inspect(worker),
-          reason: inspect(reason)
-        )
+        {:error, reason} ->
+          Logger.debug("NetFlow security scheduler skipped",
+            worker: inspect(worker),
+            reason: inspect(reason)
+          )
+      end
+    else
+      Logger.debug("NetFlow security scheduler skipped; Oban tables not ready",
+        worker: inspect(worker)
+      )
     end
+  end
+
+  defp oban_jobs_ready? do
+    if ObanSupport.available?() do
+      prefix = ObanSupport.prefix()
+
+      case Ecto.Adapters.SQL.query(Repo, "SELECT to_regclass($1)", ["#{prefix}.oban_jobs"]) do
+        {:ok, %{rows: [[nil]]}} -> false
+        {:ok, _} -> true
+        {:error, _} -> false
+      end
+    else
+      false
+    end
+  rescue
+    _ -> false
   end
 end

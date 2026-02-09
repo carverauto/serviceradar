@@ -28,6 +28,19 @@ import * as d3 from "d3"
 import {sankey as d3Sankey, sankeyLinkHorizontal as d3SankeyLinkHorizontal} from "d3-sankey"
 import mapboxgl from "mapbox-gl"
 
+import {
+  attachTimeTooltip as nfAttachTimeTooltip,
+  buildLegend as nfBuildLegend,
+  chartDims as nfChartDims,
+  clearSVG as nfClearSVG,
+  colorScale as nfColorScale,
+  ensureTooltip as nfEnsureTooltip,
+  ensureSVG as nfEnsureSVG,
+  fmtPct as nfFmtPct,
+  normalizeTimeSeries as nfNormalizeTimeSeries,
+  parseSeriesData as nfParseSeriesData,
+} from "./netflow_charts/util"
+
 // Preload JDM editor CSS - ensures styles are bundled
 import '@gorules/jdm-editor/dist/style.css'
 
@@ -54,6 +67,46 @@ function getPhoenixTheme() {
     return 'dark';
   }
   return 'light';
+}
+
+function nfFormatBytes(n) {
+  const v = Number(n || 0)
+  if (!Number.isFinite(v)) return "0 B"
+  const abs = Math.abs(v)
+  if (abs >= 1e12) return `${(v / 1e12).toFixed(2)} TB`
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)} GB`
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)} MB`
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)} KB`
+  return `${v.toFixed(0)} B`
+}
+
+function nfFormatBits(n) {
+  const v = Number(n || 0)
+  if (!Number.isFinite(v)) return "0 b"
+  const abs = Math.abs(v)
+  if (abs >= 1e12) return `${(v / 1e12).toFixed(2)} Tb`
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)} Gb`
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)} Mb`
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)} Kb`
+  return `${v.toFixed(0)} b`
+}
+
+function nfFormatCountPerSec(n) {
+  const v = Number(n || 0)
+  if (!Number.isFinite(v)) return "0 /s"
+  const abs = Math.abs(v)
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)} G/s`
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)} M/s`
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)} K/s`
+  return `${v.toFixed(2)} /s`
+}
+
+function nfFormatRateValue(units, n) {
+  const u = String(units || "").trim()
+  if (u === "bps") return `${nfFormatBits(n)}/s`
+  if (u === "Bps") return `${nfFormatBytes(n)}/s`
+  if (u === "pps") return nfFormatCountPerSec(n)
+  return nfFormatBytes(n)
 }
 
 // Custom hooks
@@ -202,6 +255,7 @@ const Hooks = {
       if (!this._input) return
 
       this._debounceTimer = null
+      this._lastSynced = (this.el.dataset.query || "").toString()
 
       const hasQParam = () => {
         try {
@@ -279,6 +333,22 @@ const Hooks = {
       this.el.addEventListener("submit", this._onSubmit)
 
       maybeRestore()
+    },
+    updated() {
+      // LiveView keeps form inputs "sticky" to preserve user typing, which is usually good.
+      // For SRQL-driven pages, other UI controls can emit SRQL via push_patch, and we want
+      // the topbar query to reflect that new query. Sync it when the input isn't focused.
+      if (!this._input) return
+      if (document.activeElement === this._input) return
+
+      const desired = (this.el.dataset.query || "").toString()
+      if (!desired) return
+
+      const current = (this._input.value || "").toString()
+      if (current !== desired) {
+        this._input.value = desired
+        this._lastSynced = desired
+      }
     },
     destroyed() {
       if (this._input && this._onInput) this._input.removeEventListener("input", this._onInput)
@@ -496,104 +566,269 @@ const Hooks = {
     }
   },
 
-  NetflowSankeyChart: {
-    mounted() {
-      this._render = () => this._draw()
-      this._resizeObserver = new ResizeObserver(() => this._render())
-      this._resizeObserver.observe(this.el)
-      this._render()
-    },
-    updated() {
-      this._render()
-    },
-    destroyed() {
-      try { this._resizeObserver?.disconnect() } catch (_e) {}
-    },
-    _draw() {
-      const el = this.el
-      const svg = el.querySelector("svg")
-      if (!svg) return
+		  NetflowSankeyChart: {
+		    mounted() {
+		      this._render = () => this._draw()
+	      this._resizeObserver = new ResizeObserver(() => this._render())
+	      this._resizeObserver.observe(this.el)
+	      this._hiddenGroups = this._hiddenGroups || new Set()
+	      this._render()
+	    },
+	    updated() {
+	      this._render()
+	    },
+	    destroyed() {
+	      try { this._resizeObserver?.disconnect() } catch (_e) {}
+	      try { this._tooltipCleanup?.() } catch (_e) {}
+	    },
+		    _draw() {
+		      const hook = this
+		      const el = this.el
+		      const svg = el.querySelector("svg")
+		      if (!svg) return
 
-      const edges = JSON.parse(el.dataset.edges || "[]")
-      const width = Math.max(300, el.clientWidth || 0)
-      const height = Math.max(220, el.clientHeight || 0)
+		      const renderMessage = (msg, detail) => {
+		        // Clear existing SVG children.
+		        while (svg.firstChild) svg.removeChild(svg.firstChild)
 
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`)
-      svg.setAttribute("preserveAspectRatio", "xMidYMid meet")
+		        const width = Math.max(300, el.clientWidth || 0)
+		        const height = Math.max(220, el.clientHeight || 0)
+		        svg.setAttribute("viewBox", `0 0 ${width} ${height}`)
+		        svg.setAttribute("preserveAspectRatio", "xMidYMid meet")
 
-      // Clear
-      while (svg.firstChild) svg.removeChild(svg.firstChild)
+		        const g = document.createElementNS("http://www.w3.org/2000/svg", "g")
+		        const text = document.createElementNS("http://www.w3.org/2000/svg", "text")
+		        text.setAttribute("x", "16")
+		        text.setAttribute("y", "24")
+		        text.setAttribute("fill", "currentColor")
+		        text.setAttribute("font-size", "12")
+		        text.textContent = msg || "No Sankey edges in this window."
+		        g.appendChild(text)
 
-      if (!Array.isArray(edges) || edges.length === 0) {
-        return
+		        if (detail) {
+		          const t2 = document.createElementNS("http://www.w3.org/2000/svg", "text")
+		          t2.setAttribute("x", "16")
+		          t2.setAttribute("y", "44")
+		          t2.setAttribute("fill", "currentColor")
+		          t2.setAttribute("font-size", "11")
+		          t2.setAttribute("opacity", "0.7")
+		          t2.textContent = detail
+		          g.appendChild(t2)
+		        }
+
+		        svg.appendChild(g)
+		      }
+
+		      const groupLabel = {
+		        src: el.dataset.srcLabel || "Source",
+		        mid: el.dataset.midLabel || "Middle",
+		        dst: el.dataset.dstLabel || "Destination",
+		      }
+
+	      const tooltip = nfEnsureTooltip(el)
+	      tooltip.classList.add("hidden")
+
+      const showTooltip = (evt, html) => {
+        if (!html) return
+        const rect = el.getBoundingClientRect()
+        const x = evt.clientX - rect.left
+        const y = evt.clientY - rect.top
+
+        tooltip.innerHTML = html
+        tooltip.classList.remove("hidden")
+
+        const pad = 8
+        const ttRect = tooltip.getBoundingClientRect()
+        const maxLeft = rect.width - (ttRect.width || 180) - pad
+        const left = Math.max(pad, Math.min(maxLeft, x + 12))
+        const top = Math.max(pad, Math.min(rect.height - 48, y - 12))
+        tooltip.style.left = `${left}px`
+        tooltip.style.top = `${top}px`
       }
 
-      const formatBytes = (value) => {
-        const abs = Math.abs(value || 0)
-        if (abs >= 1e9) return `${(value / 1e9).toFixed(2)} GB`
-        if (abs >= 1e6) return `${(value / 1e6).toFixed(2)} MB`
+      const hideTooltip = () => {
+        tooltip.classList.add("hidden")
+      }
+
+	      let edges = []
+	      try {
+	        edges = JSON.parse(el.dataset.edges || "[]")
+	      } catch (_e) {
+	        edges = []
+	      }
+
+	      const width = Math.max(300, el.clientWidth || 0)
+	      const height = Math.max(220, el.clientHeight || 0)
+
+	      try {
+	        svg.setAttribute("viewBox", `0 0 ${width} ${height}`)
+	        svg.setAttribute("preserveAspectRatio", "xMidYMid meet")
+
+	        // Clear
+	        while (svg.firstChild) svg.removeChild(svg.firstChild)
+
+	        if (!Array.isArray(edges) || edges.length === 0) {
+	          renderMessage("No Sankey edges in this window.", "Try widening the time range or switching dimensions.")
+	          return
+	        }
+
+	      const formatBytes = (value) => {
+	        const abs = Math.abs(value || 0)
+	        if (abs >= 1e9) return `${(value / 1e9).toFixed(2)} GB`
+	        if (abs >= 1e6) return `${(value / 1e6).toFixed(2)} MB`
         if (abs >= 1e3) return `${(value / 1e3).toFixed(2)} KB`
         return `${(value || 0).toFixed(0)} B`
       }
 
-      const nodeIds = new Map()
-      const nodes = []
-      const addNode = (id, group) => {
-        if (!id) return
-        if (nodeIds.has(id)) return
-        nodeIds.set(id, true)
-        nodes.push({ id, group })
-      }
+	      const nodeIds = new Map()
+	      const nodes = []
+	      const nodeKey = (group, label) => `${String(group || "")}:${String(label || "")}`
+	      const addNode = (id, group) => {
+	        if (!id) return
+	        const key = nodeKey(group, id)
+	        if (nodeIds.has(key)) return
+	        nodeIds.set(key, true)
+	        // Keep a stable, namespaced id for layout, but preserve the original label for display.
+	        nodes.push({ id: key, label: id, group })
+	      }
 
-      const links = []
-      for (const e of edges) {
-        const src = e?.src
-        const mid = e?.mid
-        const dst = e?.dst
-        const bytes = Number(e?.bytes || 0)
-        const port = e?.port
-        if (!src || !mid || !dst || !Number.isFinite(bytes) || bytes <= 0) continue
+	      const links = []
+	      for (const e of edges) {
+	        const src = e?.src
+	        const mid = e?.mid
+	        const dst = e?.dst
+	        const bytes = Number(e?.bytes || 0)
+	        const port = e?.port
+	        if (!src || !mid || !dst || !Number.isFinite(bytes) || bytes <= 0) continue
 
-        addNode(src, "src")
-        addNode(mid, "mid")
-        addNode(dst, "dst")
+	        addNode(src, "src")
+	        addNode(mid, "mid")
+	        addNode(dst, "dst")
 
-        // Model as 2-hop links so d3-sankey lays out 3 columns.
-        links.push({ source: src, target: mid, value: bytes, edge: { src, dst, port } })
-        links.push({ source: mid, target: dst, value: bytes, edge: { src, dst, port } })
-      }
+	        // Model as 2-hop links so d3-sankey lays out 3 columns.
+	        const mid_field = e?.mid_field ?? ""
+	        const mid_value = e?.mid_value ?? ""
+	        links.push({ source: nodeKey("src", src), target: nodeKey("mid", mid), value: bytes, edge: { src, dst, port, mid_field, mid_value } })
+	        links.push({ source: nodeKey("mid", mid), target: nodeKey("dst", dst), value: bytes, edge: { src, dst, port, mid_field, mid_value } })
+	      }
 
-      const sankey = d3Sankey()
-        .nodeId((d) => d.id)
-        .nodeWidth(12)
-        .nodePadding(10)
-        .extent([[12, 10], [width - 12, height - 10]])
+	      const buildSankey = (nodeList, linkList) => {
+	        const sankey = d3Sankey()
+	          .nodeId((d) => d.id)
+	          .nodeWidth(12)
+	          .nodePadding(10)
+	          .extent([[12, 10], [width - 12, height - 10]])
 
-      const graph = sankey({
-        nodes: nodes.map((d) => ({ ...d })),
-        links: links.map((d) => ({ ...d })),
-      })
+	        return sankey({
+	          nodes: nodeList.map((d) => ({ ...d })),
+	          links: linkList.map((d) => ({ ...d })),
+	        })
+	      }
+
+	      // d3-sankey requires a DAG. In practice we only emit src->mid->dst edges, but if upstream
+	      // data ever produces a cycle (or the browser is running a stale bundle), degrade gracefully
+	      // to a 2-column sankey (src->dst aggregated across the middle).
+	      let graph
+	      let degraded = false
+	      try {
+	        graph = buildSankey(nodes, links)
+	      } catch (e) {
+	        const msg = String(e?.message || e || "")
+	        if (!msg.toLowerCase().includes("circular link")) throw e
+	        degraded = true
+
+	        // Aggregate to src->dst only.
+	        const nodeIds2 = new Map()
+	        const nodes2 = []
+	        const add2 = (id, group) => {
+	          if (!id) return
+	          const key = nodeKey(group, id)
+	          if (nodeIds2.has(key)) return
+	          nodeIds2.set(key, true)
+	          nodes2.push({ id: key, label: id, group })
+	        }
+
+	        const byPair = new Map()
+	        for (const e2 of edges) {
+	          const src2 = e2?.src
+	          const dst2 = e2?.dst
+	          const bytes2 = Number(e2?.bytes || 0)
+	          if (!src2 || !dst2 || !Number.isFinite(bytes2) || bytes2 <= 0) continue
+	          add2(src2, "src")
+	          add2(dst2, "dst")
+	          const key = `${nodeKey("src", src2)}|${nodeKey("dst", dst2)}`
+	          const cur = byPair.get(key) || 0
+	          byPair.set(key, cur + bytes2)
+	        }
+
+	        const links2 = []
+	        for (const [key, value] of byPair.entries()) {
+	          const [s, t] = key.split("|")
+	          if (!s || !t) continue
+	          links2.push({ source: s, target: t, value })
+	        }
+
+	        graph = buildSankey(nodes2, links2)
+	      }
 
       const g = d3.select(svg).append("g")
+	      if (degraded) {
+	        g.append("text")
+	          .attr("x", width - 12)
+	          .attr("y", height - 10)
+	          .attr("text-anchor", "end")
+	          .attr("font-size", 10)
+	          .attr("opacity", 0.6)
+	          .attr("fill", "currentColor")
+	          .text("Simplified (cycle detected)")
+	      }
 
-      const color = d3.scaleOrdinal()
-        .domain(["src", "mid", "dst"])
-        .range(["#60a5fa", "#a78bfa", "#34d399"])
+	      const color = d3.scaleOrdinal()
+	        .domain(["src", "mid", "dst"])
+	        .range(["#60a5fa", "#a78bfa", "#34d399"])
 
-      // Links
-      g.append("g")
-        .attr("fill", "none")
-        .selectAll("path")
-        .data(graph.links)
-        .join("path")
+      const groupHidden = (grp) => hook._hiddenGroups?.has(grp)
+
+	      // Links
+	      g.append("g")
+	        .attr("fill", "none")
+	        .selectAll("path")
+	        .data(graph.links)
+	        .join("path")
         .attr("d", d3SankeyLinkHorizontal())
         .attr("stroke", (d) => {
           const grp = d?.source?.group || "src"
           return color(grp)
         })
-        .attr("stroke-opacity", 0.25)
+        .attr("stroke-opacity", (d) => {
+          const grp = d?.source?.group || "src"
+          return groupHidden(grp) ? 0.03 : 0.25
+        })
         .attr("stroke-width", (d) => Math.max(1, d.width || 1))
         .style("cursor", "pointer")
+	        .on("mousemove", (evt, d) => {
+	          const edge = d?.edge
+	          const s = edge?.src || d?.source?.id || ""
+	          const t = edge?.dst || d?.target?.id || ""
+	          const port = edge?.port ?? ""
+	          const mf = String(edge?.mid_field || "")
+	          const mv = String(edge?.mid_value || "")
+
+	          const midLabel = (() => {
+	            if (mf === "dst_port" || mf === "dst_endpoint_port") return `${groupLabel.mid}: ${String(port || mv || "-")}`
+	            if (mf === "app") return `${groupLabel.mid}: ${mv || "-"}`
+	            if (mf === "protocol_group") return `${groupLabel.mid}: ${mv || "-"}`
+	            return `${groupLabel.mid}: ${mv || port || "-"}`
+	          })()
+	          const html = `
+	            <div class="text-[11px]"><span class="opacity-70">${groupLabel.src}:</span> <span class="font-mono">${String(s)}</span></div>
+	            <div class="mt-0.5 text-[11px] opacity-70">${midLabel}</div>
+	            <div class="mt-0.5 text-[11px]"><span class="opacity-70">${groupLabel.dst}:</span> <span class="font-mono">${String(t)}</span></div>
+	            <div class="mt-0.5 text-[11px] font-mono">${formatBytes(d?.value || 0)}</div>
+	          `
+	          showTooltip(evt, html)
+	        })
+        .on("mouseleave", hideTooltip)
         .on("click", (_evt, d) => {
           const edge = d?.edge
           if (!edge) return
@@ -601,20 +836,24 @@ const Hooks = {
             src: edge.src,
             dst: edge.dst,
             port: edge.port ?? "",
+            mid_field: edge.mid_field ?? "",
+            mid_value: edge.mid_value ?? "",
           })
         })
-        .append("title")
-        .text((d) => {
-          const s = d?.source?.id || ""
-          const t = d?.target?.id || ""
-          return `${s} -> ${t}\n${formatBytes(d.value)}`
-        })
+	        .append("title")
+	        .text((d) => {
+	          const s = d?.source?.label || d?.source?.id || ""
+	          const t = d?.target?.label || d?.target?.id || ""
+	          return `${s} -> ${t}\n${formatBytes(d.value)}`
+	        })
 
-      // Nodes
-      const node = g.append("g")
-        .selectAll("g")
+		      // Nodes
+		      const node = g.append("g")
+		        .selectAll("g")
         .data(graph.nodes)
         .join("g")
+        .attr("opacity", (d) => (groupHidden(d.group || "src") ? 0.15 : 1))
+        .style("pointer-events", (d) => (groupHidden(d.group || "src") ? "none" : "all"))
 
       node.append("rect")
         .attr("x", (d) => d.x0)
@@ -625,11 +864,11 @@ const Hooks = {
         .attr("fill", (d) => color(d.group || "src"))
         .attr("fill-opacity", 0.65)
 
-      node.append("title")
-        .text((d) => d.id)
+	      node.append("title")
+	        .text((d) => d.label || d.id)
 
       // Labels (trim aggressively to avoid overlap)
-      node.append("text")
+		      node.append("text")
         .attr("x", (d) => (d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6))
         .attr("y", (d) => (d.y0 + d.y1) / 2)
         .attr("dy", "0.35em")
@@ -637,18 +876,61 @@ const Hooks = {
         .attr("font-size", 10)
         .attr("fill", "currentColor")
         .attr("opacity", 0.75)
-        .text((d) => {
-          const s = String(d.id || "")
-          return s.length > 24 ? s.slice(0, 21) + "..." : s
-        })
-    }
-  },
+	        .text((d) => {
+	          const s = String(d.label || d.id || "")
+	          return s.length > 24 ? s.slice(0, 21) + "..." : s
+	        })
+		        .on("mousemove", (evt, d) => {
+		          const grp = d?.group || "src"
+		          const html = `
+		            <div class="text-[11px] font-mono">${String(d?.label || d?.id || "")}</div>
+		            <div class="mt-0.5 text-[11px] opacity-70">${String(groupLabel[grp] || grp)}</div>
+		          `
+		          showTooltip(evt, html)
+		        })
+        .on("mouseleave", hideTooltip)
+
+	      // Column headers (what each column represents).
+	      try {
+	        const centers = {}
+	        for (const n of graph.nodes || []) {
+	          const grp = n?.group || "src"
+	          const cx = (Number(n.x0) + Number(n.x1)) / 2
+	          if (!Number.isFinite(cx)) continue
+	          if (!centers[grp]) centers[grp] = []
+	          centers[grp].push(cx)
+	        }
+
+	        const headerY = 10
+	        for (const grp of ["src", "mid", "dst"]) {
+	          const xs = centers[grp] || []
+	          if (xs.length === 0) continue
+	          const x = xs.reduce((a, b) => a + b, 0) / xs.length
+	          g.append("text")
+	            .attr("x", x)
+	            .attr("y", headerY)
+	            .attr("text-anchor", "middle")
+	            .attr("font-size", 10)
+	            .attr("opacity", 0.7)
+	            .attr("fill", "currentColor")
+	            .text(String(groupLabel[grp] || grp))
+		        }
+		      } catch (_e) {}
+
+		      } catch (e) {
+		        renderMessage("Sankey failed to render.", String(e?.message || e || "unknown error"))
+		        return
+		      }
+
+		    }
+		  },
 
   NetflowStackedAreaChart: {
     mounted() {
       this._render = () => this._draw()
       this._resizeObserver = new ResizeObserver(() => this._render())
       this._resizeObserver.observe(this.el)
+      this._hidden = this._hidden || new Set()
       this._render()
     },
     updated() {
@@ -656,41 +938,51 @@ const Hooks = {
     },
     destroyed() {
       try { this._resizeObserver?.disconnect() } catch (_e) {}
+      try { this._tooltipCleanup?.() } catch (_e) {}
     },
     _draw() {
       const el = this.el
-      const svg = el.querySelector("svg")
+      const svg = nfEnsureSVG(el)
       if (!svg) return
 
-      const raw = JSON.parse(el.dataset.points || "[]")
-      const keys = JSON.parse(el.dataset.keys || "[]")
-      const width = Math.max(360, el.clientWidth || 0)
-      const height = Math.max(220, el.clientHeight || 0)
-      const m = { top: 8, right: 10, bottom: 18, left: 36 }
-      const iw = Math.max(1, width - m.left - m.right)
-      const ih = Math.max(1, height - m.top - m.bottom)
+      const { raw, keys, colors } = nfParseSeriesData(el)
+      let overlays = []
+      try {
+        overlays = JSON.parse(el.dataset.overlays || "[]")
+      } catch (_e) {
+        overlays = []
+      }
 
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`)
-      svg.setAttribute("preserveAspectRatio", "xMidYMid meet")
-      while (svg.firstChild) svg.removeChild(svg.firstChild)
+      const { width, height, margin: m, iw, ih } = nfChartDims(el, {
+        minW: 360,
+        minH: 220,
+        margin: { top: 8, right: 110, bottom: 18, left: 44 },
+      })
+
+      nfClearSVG(svg, width, height)
 
       if (!Array.isArray(raw) || raw.length === 0 || !Array.isArray(keys) || keys.length === 0) {
         return
       }
 
-      const data = raw
-        .map((d) => {
-          const t = new Date(d.t)
-          const out = { t }
-          for (const k of keys) out[k] = Number(d[k] || 0)
-          return out
-        })
-        .filter((d) => d.t instanceof Date && !isNaN(d.t.getTime()))
-        .sort((a, b) => a.t - b.t)
+      const data = nfNormalizeTimeSeries(raw, keys)
 
       if (data.length === 0) return
 
-      const stack = d3.stack().keys(keys)
+      const visibleKeys = keys.filter((k) => !this._hidden.has(k))
+      if (visibleKeys.length === 0) return
+
+      // Draw order matters: if the largest series is drawn last, it visually hides thin layers.
+      // Sort keys by descending total so big series go "under" smaller ones.
+      const keyTotals = new Map()
+      for (const k of visibleKeys) {
+        let sum = 0
+        for (const row of data) sum += Number(row?.[k] || 0)
+        keyTotals.set(k, sum)
+      }
+      const stackKeys = visibleKeys.slice().sort((a, b) => (keyTotals.get(b) || 0) - (keyTotals.get(a) || 0))
+
+      const stack = d3.stack().keys(stackKeys)
       const series = stack(data)
 
       const maxY = d3.max(series, (s) => d3.max(s, (d) => d[1])) || 1
@@ -699,9 +991,189 @@ const Hooks = {
 
       const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
 
-      const color = d3.scaleOrdinal()
-        .domain(keys)
-        .range(d3.schemeTableau10.concat(d3.schemeSet3).slice(0, keys.length))
+      const color = nfColorScale(keys, colors)
+
+      const area = d3.area()
+        .x((d) => x(d.data.t))
+        .y0((d) => y(d[0]))
+        .y1((d) => y(d[1]))
+        .curve(d3.curveMonotoneX)
+
+      g.append("g")
+        .selectAll("path")
+        .data(series)
+        .join("path")
+        .attr("d", area)
+        .attr("fill", (d) => color(d.key))
+        .attr("fill-opacity", 0.55)
+        .attr("cursor", el.dataset.seriesField ? "pointer" : "default")
+        .on("click", (_event, d) => {
+          const field = el.dataset.seriesField || ""
+          if (!field) return
+          this.pushEvent("netflow_stack_series", { field, value: d.key })
+        })
+
+      // Total overlays: render dashed lines on top of the stacked area.
+      // These come from SRQL (series-less) downsample queries and are keyed as `rev:*` and `prev:*`.
+      if (Array.isArray(overlays) && overlays.length > 0) {
+        const overlayStrokeForKey = (k) => {
+          if (String(k).startsWith("prev:")) return "#94a3b8"
+          if (String(k).startsWith("rev:")) return "#10b981"
+          return "#94a3b8"
+        }
+
+        const overlayDashForKey = (k) => {
+          if (String(k).startsWith("prev:")) return "6,4"
+          if (String(k).startsWith("rev:")) return "3,2"
+          return "6,4"
+        }
+
+        const line = d3.line()
+          .x((d) => x(d.t))
+          .y((d) => y(d.v))
+          .curve(d3.curveMonotoneX)
+
+        const og = g.append("g").attr("pointer-events", "none")
+
+        for (const ov of overlays) {
+          if (!ov || typeof ov.key !== "string") continue
+          const k = String(ov.key || "")
+          const pts = Array.isArray(ov?.points) ? ov.points : []
+          const dataPts = pts
+            .map((p) => ({ t: new Date(p.t), v: Number(p.v || 0) }))
+            .filter((d) => d.t instanceof Date && !isNaN(d.t.getTime()) && isFinite(d.v))
+            .sort((a, b) => a.t - b.t)
+
+          if (dataPts.length === 0) continue
+
+          og.append("path")
+            .datum(dataPts)
+            .attr("fill", "none")
+            .attr("stroke", overlayStrokeForKey(k))
+            .attr("stroke-width", 1.75)
+            .attr("stroke-opacity", 0.8)
+            .attr("stroke-dasharray", overlayDashForKey(k))
+            .attr("d", line)
+
+          const last = dataPts[dataPts.length - 1]
+          const label = k.startsWith("prev:") ? "prev" : (k.startsWith("rev:") ? "rev" : k)
+
+          og.append("text")
+            .attr("x", Math.min(iw - 2, x(last.t) + 4))
+            .attr("y", y(last.v))
+            .attr("dy", "0.35em")
+            .attr("font-size", 10)
+            .attr("opacity", 0.7)
+            .attr("fill", "currentColor")
+            .text(label)
+        }
+      }
+
+      const legend = g.append("g").attr("transform", `translate(${iw + 12}, 6)`)
+      nfBuildLegend(legend, keys, color, this._hidden, (k) => {
+        if (this._hidden.has(k)) {
+          this._hidden.delete(k)
+        } else {
+          this._hidden.add(k)
+        }
+        this._render()
+      })
+
+      g.append("g")
+        .attr("transform", `translate(0,${ih})`)
+        .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
+        .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+
+      g.append("g")
+        .call(d3.axisLeft(y).ticks(4).tickSizeOuter(0))
+        .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+
+      try { this._tooltipCleanup?.() } catch (_e) {}
+      this._tooltipCleanup = nfAttachTimeTooltip(el, {
+        data,
+        keys: visibleKeys,
+        x,
+        valueAt: (row, k) => row?.[k] || 0,
+        formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
+      })
+    }
+  },
+
+  NetflowStacked100Chart: {
+    mounted() {
+      this._render = () => this._draw()
+      this._resizeObserver = new ResizeObserver(() => this._render())
+      this._resizeObserver.observe(this.el)
+      this._hidden = this._hidden || new Set()
+      this._render()
+    },
+    updated() {
+      this._render()
+    },
+    destroyed() {
+      try { this._resizeObserver?.disconnect() } catch (_e) {}
+      try { this._tooltipCleanup?.() } catch (_e) {}
+    },
+    _draw() {
+      const el = this.el
+      const svg = nfEnsureSVG(el)
+      if (!svg) return
+
+      const { raw, keys, colors } = nfParseSeriesData(el)
+      let overlays = []
+      try {
+        overlays = JSON.parse(el.dataset.overlays || "[]")
+      } catch (_e) {
+        overlays = []
+      }
+      const { width, height, margin: m, iw, ih } = nfChartDims(el, {
+        minW: 360,
+        minH: 220,
+        margin: { top: 8, right: 110, bottom: 18, left: 44 },
+      })
+
+      nfClearSVG(svg, width, height)
+
+      if (!Array.isArray(raw) || raw.length === 0 || !Array.isArray(keys) || keys.length === 0) {
+        return
+      }
+
+      const visibleKeys = keys.filter((k) => !this._hidden.has(k))
+      if (visibleKeys.length === 0) return
+
+      const data = raw
+        .map((d) => {
+          const t = new Date(d.t)
+          const out = { t }
+          let sum = 0
+          for (const k of visibleKeys) {
+            const v = Number(d[k] || 0)
+            out[k] = v
+            sum += v
+          }
+          out.__sum = sum
+          return out
+        })
+        .filter((d) => d.t instanceof Date && !isNaN(d.t.getTime()))
+        .sort((a, b) => a.t - b.t)
+        .map((d) => {
+          const denom = d.__sum || 1
+          const out = { t: d.t }
+          for (const k of visibleKeys) out[k] = (Number(d[k] || 0) / denom)
+          return out
+        })
+
+      if (data.length === 0) return
+
+      const stack = d3.stack().keys(visibleKeys)
+      const series = stack(data)
+
+      const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
+      const y = d3.scaleLinear().domain([0, 1]).nice().range([ih, 0])
+
+      const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
+
+      const color = nfColorScale(keys, colors)
 
       const area = d3.area()
         .x((d) => x(d.data.t))
@@ -717,6 +1189,195 @@ const Hooks = {
         .attr("fill", (d) => color(d.key))
         .attr("fill-opacity", 0.55)
 
+      const normalizeToPct = (points) => {
+        const data = points
+          .map((d) => {
+            const t = new Date(d.t)
+            const out = { t }
+            let sum = 0
+            for (const k of visibleKeys) {
+              const v = Number(d[k] || 0)
+              out[k] = v
+              sum += v
+            }
+            out.__sum = sum
+            return out
+          })
+          .filter((d) => d.t instanceof Date && !isNaN(d.t.getTime()))
+          .sort((a, b) => a.t - b.t)
+          .map((d) => {
+            const denom = d.__sum || 1
+            const out = { t: d.t }
+            for (const k of visibleKeys) out[k] = (Number(d[k] || 0) / denom)
+            return out
+          })
+
+        return data
+      }
+
+      // Composition overlays: dashed boundary lines (y1) per series layer.
+      // We keep the same keys so the overlay reads as "previous composition" / "reverse composition".
+      if (Array.isArray(overlays) && overlays.length > 0) {
+        const overlaysByType = overlays
+          .filter((o) => o && typeof o.type === "string" && Array.isArray(o.points))
+
+        const dashForType = (t) => {
+          if (t === "prev") return "6,4"
+          if (t === "rev") return "3,2"
+          return "6,4"
+        }
+
+        const opacityForType = (t) => {
+          if (t === "prev") return 0.45
+          if (t === "rev") return 0.55
+          return 0.45
+        }
+
+        for (const ov of overlaysByType) {
+          const od = normalizeToPct(ov.points || [])
+          if (!Array.isArray(od) || od.length === 0) continue
+
+          const oseries = d3.stack().keys(visibleKeys)(od)
+          const line = d3.line()
+            .x((d) => x(d.data.t))
+            .y((d) => y(d[1]))
+            .curve(d3.curveMonotoneX)
+
+          const og = g.append("g").attr("pointer-events", "none")
+
+          og.selectAll("path")
+            .data(oseries)
+            .join("path")
+            .attr("fill", "none")
+            .attr("stroke", (d) => color(d.key))
+            .attr("stroke-width", 1.1)
+            .attr("stroke-opacity", opacityForType(ov.type))
+            .attr("stroke-dasharray", dashForType(ov.type))
+            .attr("d", (d) => line(d))
+        }
+      }
+
+      const legend = g.append("g").attr("transform", `translate(${iw + 12}, 6)`)
+      nfBuildLegend(legend, keys, color, this._hidden, (k) => {
+        if (this._hidden.has(k)) {
+          this._hidden.delete(k)
+        } else {
+          this._hidden.add(k)
+        }
+        this._render()
+      })
+
+      g.append("g")
+        .attr("transform", `translate(0,${ih})`)
+        .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
+        .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+
+      g.append("g")
+        .call(d3.axisLeft(y).ticks(4).tickFormat(d3.format(".0%")).tickSizeOuter(0))
+        .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+
+      try { this._tooltipCleanup?.() } catch (_e) {}
+      this._tooltipCleanup = nfAttachTimeTooltip(el, {
+        data,
+        keys: visibleKeys,
+        x,
+        valueAt: (row, k) => row?.[k] || 0,
+        formatValue: (v) => nfFmtPct(v),
+      })
+    }
+  },
+
+  NetflowLineSeriesChart: {
+    mounted() {
+      this._render = () => this._draw()
+      this._resizeObserver = new ResizeObserver(() => this._render())
+      this._resizeObserver.observe(this.el)
+      this._hidden = this._hidden || new Set()
+      this._render()
+    },
+    updated() {
+      this._render()
+    },
+    destroyed() {
+      try { this._resizeObserver?.disconnect() } catch (_e) {}
+    },
+    _draw() {
+      const el = this.el
+      const svg = nfEnsureSVG(el)
+      if (!svg) return
+
+      const { raw, keys, colors } = nfParseSeriesData(el)
+      const { width, height, margin: m, iw, ih } = nfChartDims(el, {
+        minW: 360,
+        minH: 220,
+        margin: { top: 8, right: 110, bottom: 18, left: 44 },
+      })
+
+      nfClearSVG(svg, width, height)
+
+      if (!Array.isArray(raw) || raw.length === 0 || !Array.isArray(keys) || keys.length === 0) {
+        return
+      }
+
+      const data = nfNormalizeTimeSeries(raw, keys)
+
+      if (data.length === 0) return
+
+      const visibleKeys = keys.filter((k) => !this._hidden.has(k))
+      if (visibleKeys.length === 0) return
+
+      const maxY = d3.max(visibleKeys, (k) => d3.max(data, (d) => d[k])) || 1
+      const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
+      const y = d3.scaleLinear().domain([0, maxY]).nice().range([ih, 0])
+
+      const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
+
+      const color = nfColorScale(keys, colors)
+
+      const strokeForKey = (k) => {
+        if (String(k).startsWith("prev:")) return "#94a3b8"
+        if (String(k).startsWith("rev:")) return color(String(k).slice(4))
+        return color(k)
+      }
+
+      const dashForKey = (k) => {
+        if (String(k).startsWith("prev:")) return "6,4"
+        if (String(k).startsWith("rev:")) return "3,2"
+        return null
+      }
+
+      const opacityForKey = (k) => {
+        if (String(k).startsWith("prev:")) return 0.75
+        if (String(k).startsWith("rev:")) return 0.65
+        return 0.85
+      }
+
+      const line = (k) => d3.line()
+        .x((d) => x(d.t))
+        .y((d) => y(d[k]))
+        .curve(d3.curveMonotoneX)
+
+      g.append("g")
+        .selectAll("path")
+        .data(visibleKeys)
+        .join("path")
+        .attr("fill", "none")
+        .attr("stroke", (k) => strokeForKey(k))
+        .attr("stroke-opacity", (k) => opacityForKey(k))
+        .attr("stroke-width", 1.75)
+        .attr("stroke-dasharray", (k) => dashForKey(k))
+        .attr("d", (k) => line(k)(data))
+
+      const legend = g.append("g").attr("transform", `translate(${iw + 12}, 6)`)
+      nfBuildLegend(legend, keys, strokeForKey, this._hidden, (k) => {
+        if (this._hidden.has(k)) {
+          this._hidden.delete(k)
+        } else {
+          this._hidden.add(k)
+        }
+        this._render()
+      })
+
       g.append("g")
         .attr("transform", `translate(0,${ih})`)
         .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
@@ -725,6 +1386,133 @@ const Hooks = {
       g.append("g")
         .call(d3.axisLeft(y).ticks(4).tickSizeOuter(0))
         .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+
+      try { this._tooltipCleanup?.() } catch (_e) {}
+      this._tooltipCleanup = nfAttachTimeTooltip(el, {
+        data,
+        keys: visibleKeys,
+        x,
+        valueAt: (row, k) => row?.[k] || 0,
+        formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
+      })
+    }
+  },
+
+  NetflowGridChart: {
+    mounted() {
+      this._render = () => this._draw()
+      this._resizeObserver = new ResizeObserver(() => this._render())
+      this._resizeObserver.observe(this.el)
+      this._hidden = this._hidden || new Set()
+      this._render()
+    },
+    updated() {
+      this._render()
+    },
+    destroyed() {
+      try { this._resizeObserver?.disconnect() } catch (_e) {}
+      try { this._tooltipCleanup?.() } catch (_e) {}
+    },
+    _draw() {
+      const el = this.el
+      const svg = nfEnsureSVG(el)
+      if (!svg) return
+
+      const { raw, keys, colors } = nfParseSeriesData(el)
+      const { width, height, margin: m, iw, ih } = nfChartDims(el, {
+        minW: 360,
+        minH: 220,
+        margin: { top: 10, right: 110, bottom: 10, left: 10 },
+      })
+
+      nfClearSVG(svg, width, height)
+
+      if (!Array.isArray(raw) || raw.length === 0 || !Array.isArray(keys) || keys.length === 0) {
+        return
+      }
+
+      const data = nfNormalizeTimeSeries(raw, keys)
+
+      if (data.length === 0) return
+
+      const visibleKeys = keys.filter((k) => !this._hidden.has(k))
+      if (visibleKeys.length === 0) return
+
+      const n = visibleKeys.length
+      const cols = Math.ceil(Math.sqrt(n))
+      const rows = Math.ceil(n / cols)
+      const pad = 10
+      const cw = Math.max(1, (iw - pad * (cols - 1)) / cols)
+      const ch = Math.max(1, (ih - pad * (rows - 1)) / rows)
+
+      const color = nfColorScale(keys, colors)
+
+      const root = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
+
+      const legend = root.append("g").attr("transform", `translate(${iw + 12}, 6)`)
+      nfBuildLegend(legend, keys, color, this._hidden, (k) => {
+        if (this._hidden.has(k)) {
+          this._hidden.delete(k)
+        } else {
+          this._hidden.add(k)
+        }
+        this._render()
+      })
+
+      for (let i = 0; i < n; i++) {
+        const k = visibleKeys[i]
+        const c = i % cols
+        const r = Math.floor(i / cols)
+        const x0 = c * (cw + pad)
+        const y0 = r * (ch + pad)
+
+        const panel = root.append("g").attr("transform", `translate(${x0},${y0})`)
+        panel.append("rect")
+          .attr("x", 0)
+          .attr("y", 0)
+          .attr("width", cw)
+          .attr("height", ch)
+          .attr("rx", 8)
+          .attr("fill", "none")
+          .attr("stroke", "currentColor")
+          .attr("opacity", 0.12)
+
+        const px = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([10, cw - 10])
+        const maxY = d3.max(data, (d) => d[k]) || 1
+        const py = d3.scaleLinear().domain([0, maxY]).nice().range([ch - 18, 18])
+
+        const ln = d3.line()
+          .x((d) => px(d.t))
+          .y((d) => py(d[k]))
+          .curve(d3.curveMonotoneX)
+
+        panel.append("path")
+          .datum(data)
+          .attr("fill", "none")
+          .attr("stroke", color(k))
+          .attr("stroke-width", 1.75)
+          .attr("stroke-opacity", 0.85)
+          .attr("d", ln)
+
+        panel.append("text")
+          .attr("x", 10)
+          .attr("y", 14)
+          .attr("font-size", 10)
+          .attr("opacity", 0.75)
+          .attr("fill", "currentColor")
+          .text(String(k).length > 18 ? String(k).slice(0, 15) + "..." : String(k))
+      }
+
+      // Shared tooltip across all series (matches other time-series charts).
+      const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
+      try { this._tooltipCleanup?.() } catch (_e) {}
+      this._tooltipCleanup = nfAttachTimeTooltip(el, {
+        data,
+        keys: visibleKeys,
+        x,
+        valueAt: (row, k) => row?.[k] || 0,
+        formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
+      })
     }
   },
 
@@ -777,9 +1565,14 @@ const Hooks = {
       const enabled = (this.el.dataset.enabled || "false") === "true"
       const styleLight = this.el.dataset.styleLight || "mapbox://styles/mapbox/light-v11"
       const styleDark = this.el.dataset.styleDark || "mapbox://styles/mapbox/dark-v11"
-      const markers = JSON.parse(this.el.dataset.markers || "[]")
+      let markers = []
+      try {
+        markers = JSON.parse(this.el.dataset.markers || "[]")
+      } catch (_e) {
+        markers = []
+      }
 
-      if (!enabled || !token || !Array.isArray(markers) || markers.length === 0) {
+      if (!enabled || !token) {
         try {
           this._map?.remove()
         } catch (_e) {}
@@ -791,7 +1584,7 @@ const Hooks = {
       this._token = token
       this._styleLight = styleLight
       this._styleDark = styleDark
-      this._markerData = markers
+      this._markerData = Array.isArray(markers) ? markers : []
 
       if (!this._map) {
         mapboxgl.accessToken = token
@@ -913,11 +1706,66 @@ const Hooks = {
         const label = String(d?.label || "")
         const popup = label ? new mapboxgl.Popup({ offset: 20 }).setText(label) : null
 
-        const marker = new mapboxgl.Marker().setLngLat([lng, lat])
+        const side =
+          label.toLowerCase().startsWith("source") ? "source" :
+          label.toLowerCase().startsWith("dest") ? "dest" : null
+
+        const markerColor =
+          side === "source" ? "#22c55e" : // green-500
+          side === "dest" ? "#ef4444" :   // red-500
+          "#64748b"                       // slate-500
+
+        const marker = new mapboxgl.Marker({ color: markerColor }).setLngLat([lng, lat])
         if (popup) marker.setPopup(popup)
         marker.addTo(this._map)
 
         this._markers.push(marker)
+      }
+
+      this._syncLine()
+    },
+    _syncLine() {
+      if (!this._map) return
+
+      const coords = (Array.isArray(this._markerData) ? this._markerData : [])
+        .map((d) => [Number(d?.lng), Number(d?.lat)])
+        .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat))
+
+      const sourceId = "sr-flow-line"
+      const layerId = "sr-flow-line-layer"
+
+      // Remove if we don't have a full src/dst pair.
+      if (coords.length < 2) {
+        try { if (this._map.getLayer(layerId)) this._map.removeLayer(layerId) } catch (_e) {}
+        try { if (this._map.getSource(sourceId)) this._map.removeSource(sourceId) } catch (_e) {}
+        return
+      }
+
+      const line = {
+        type: "FeatureCollection",
+        features: [{
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: [coords[0], coords[1]] },
+          properties: {},
+        }],
+      }
+
+      if (this._map.getSource(sourceId)) {
+        try { this._map.getSource(sourceId).setData(line) } catch (_e) {}
+      } else {
+        try {
+          this._map.addSource(sourceId, { type: "geojson", data: line })
+          this._map.addLayer({
+            id: layerId,
+            type: "line",
+            source: sourceId,
+            paint: {
+              "line-color": "#0ea5e9", // sky-500
+              "line-width": 3,
+              "line-opacity": 0.75,
+            },
+          })
+        } catch (_e) {}
       }
     },
     _fitToMarkers() {
@@ -966,7 +1814,29 @@ const Hooks = {
     destroyed() {
       if (this.cleanup) this.cleanup()
     }
-  }
+  },
+
+  LocalTime: {
+    mounted() {
+      this._apply()
+    },
+    updated() {
+      this._apply()
+    },
+    _apply() {
+      const iso = this.el.dataset.iso || ""
+      if (!iso) return
+      const d = new Date(iso)
+      if (!(d instanceof Date) || isNaN(d.getTime())) return
+
+      // Local time. Full ISO remains on the parent cell title.
+      try {
+        this.el.textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      } catch (_e) {
+        this.el.textContent = d.toISOString().slice(11, 19)
+      }
+    },
+  },
 }
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")

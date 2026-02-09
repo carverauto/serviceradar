@@ -398,19 +398,23 @@ if config_env() != :test do
   oban_default_queue_limit =
     System.get_env("OBAN_DEFAULT_QUEUE_LIMIT", "10") |> String.to_integer()
 
+  # web-ng should not execute external/network maintenance jobs (GeoLite/ipinfo downloads,
+  # enrichment refresh, threat intel refresh, etc.). core-elx owns those.
   oban_maintenance_queue_limit =
-    System.get_env("OBAN_MAINTENANCE_QUEUE_LIMIT", "2") |> String.to_integer()
+    System.get_env("OBAN_MAINTENANCE_QUEUE_LIMIT", "0")
+    |> String.to_integer()
+    |> then(fn
+      n when is_integer(n) and n > 0 -> n
+      _ -> nil
+    end)
 
   oban_node = System.get_env("OBAN_NODE")
 
   # web-ng should NOT run scheduled jobs - core-elx is the Oban coordinator
   # web-ng only processes jobs, it doesn't schedule them
-  oban_config = [
-    repo: ServiceRadar.Repo,
-    prefix: "platform",
-    queues: [
+  queues =
+    [
       default: oban_default_queue_limit,
-      maintenance: oban_maintenance_queue_limit,
       alerts: 5,
       service_checks: 10,
       notifications: 5,
@@ -419,7 +423,21 @@ if config_env() != :test do
       sweeps: 20,
       edge: 10,
       integrations: 5
-    ],
+    ]
+    |> then(fn q ->
+      # Omitting a queue entirely prevents this node from processing jobs in it.
+      # Oban does not accept 0 as a queue limit.
+      if is_integer(oban_maintenance_queue_limit) do
+        Keyword.put(q, :maintenance, oban_maintenance_queue_limit)
+      else
+        q
+      end
+    end)
+
+  oban_config = [
+    repo: ServiceRadar.Repo,
+    prefix: "platform",
+    queues: queues,
     plugins: [
       {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
       # No Cron plugin - core-elx handles all scheduled jobs

@@ -33,3 +33,8 @@ We also need a consistent, configurable definition of "application" for NetFlow 
 - A full analytics "dashboard generator" (multi-panel auto-generation).
 - Per-tenant or multi-deployment routing (this remains a single-deployment system).
 
+## Progress (Updated 2026-02-08)
+- Implemented SRQL-driven protocol/app stacked area charts and frequent talkers tables in `web-ng/`.
+- Added `platform.netflow_app_classification_rules` (migration + Ash resource) and wired admin UI.
+- Extended SRQL `in:flows` with `app` and `protocol_group` (filters + stats/downsample support) and added tests.
+- Validation: `openspec validate ... --strict`, `make lint`, and `make test` are passing.
