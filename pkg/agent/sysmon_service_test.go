@@ -99,6 +99,9 @@ func TestSysmonServiceName(t *testing.T) {
 }
 
 func TestSysmonServiceLifecycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: requires real CPU sampling")
+	}
 	t.Parallel()
 
 	ctx := context.Background()
@@ -156,6 +159,9 @@ func TestSysmonServiceGetStatus_NotStarted(t *testing.T) {
 }
 
 func TestSysmonServiceGetStatusPayload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: requires real CPU sampling")
+	}
 	t.Parallel()
 
 	ctx := context.Background()
@@ -197,6 +203,9 @@ func TestSysmonServiceGetStatusPayload(t *testing.T) {
 }
 
 func TestSysmonServiceReconfigure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: requires real CPU sampling")
+	}
 	t.Parallel()
 
 	ctx := context.Background()
@@ -236,6 +245,9 @@ func TestSysmonServiceReconfigure(t *testing.T) {
 }
 
 func TestSysmonServiceGetLatestSample(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: requires real CPU sampling")
+	}
 	t.Parallel()
 
 	ctx := context.Background()
@@ -271,6 +283,9 @@ func TestSysmonServiceGetLatestSample(t *testing.T) {
 }
 
 func TestSysmonServiceStartIdempotent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: requires real CPU sampling")
+	}
 	t.Parallel()
 
 	ctx := context.Background()
@@ -297,6 +312,9 @@ func TestSysmonServiceStartIdempotent(t *testing.T) {
 }
 
 func TestSysmonServiceStopIdempotent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: requires real CPU sampling")
+	}
 	t.Parallel()
 
 	ctx := context.Background()
@@ -323,6 +341,9 @@ func TestSysmonServiceStopIdempotent(t *testing.T) {
 }
 
 func TestSysmonServiceConfigSource(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: requires real CPU sampling")
+	}
 	t.Parallel()
 
 	ctx := context.Background()
@@ -380,6 +401,9 @@ func TestComputeConfigHash(t *testing.T) {
 }
 
 func TestSysmonServiceConfigCaching(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: requires real CPU sampling")
+	}
 	t.Parallel()
 
 	// Skip if we can't write to temp directory
@@ -424,6 +448,9 @@ func TestSysmonServiceConfigCaching(t *testing.T) {
 // TestLocalOverrideTakesPrecedence verifies that local config takes precedence
 // over remote/cached config (task 5.2 from sysmon-consolidation spec).
 func TestLocalOverrideTakesPrecedence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: requires real CPU sampling")
+	}
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -572,6 +599,9 @@ func TestCacheFallbackWhenLocalUnavailable(t *testing.T) {
 // TestConfigRefreshPreservesLocalOverride verifies that config refresh
 // doesn't override a local config with a remote one.
 func TestConfigRefreshPreservesLocalOverride(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: requires real CPU sampling")
+	}
 	t.Parallel()
 
 	tmpDir := t.TempDir()
