@@ -296,5 +296,185 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       assert record.open_ports == []
     end
+
+    test "extracts open ports from Go port_results format" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host" => "10.0.0.1",
+          "available" => true,
+          "port_results" => [
+            %{"port" => 22, "available" => true, "response_time" => 1_000_000},
+            %{"port" => 80, "available" => false, "response_time" => 0},
+            %{"port" => 443, "available" => true, "response_time" => 2_000_000}
+          ]
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.open_ports == [22, 443]
+    end
+
+    test "extracts open ports from camelCase portResults format" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host" => "10.0.0.1",
+          "available" => true,
+          "portResults" => [
+            %{"port" => 8080, "available" => true, "response_time" => 500_000},
+            %{"port" => 8443, "available" => true, "response_time" => 800_000}
+          ]
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.open_ports == [8080, 8443]
+    end
+
+    test "returns empty list when all ports in port_results are unavailable" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host" => "10.0.0.1",
+          "available" => false,
+          "port_results" => [
+            %{"port" => 22, "available" => false, "response_time" => 0},
+            %{"port" => 80, "available" => false, "response_time" => 0}
+          ]
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.open_ports == []
+    end
+
+    test "combines legacy tcp_ports_open with port_results" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host" => "10.0.0.1",
+          "available" => true,
+          "tcp_ports_open" => [22],
+          "port_results" => [
+            %{"port" => 80, "available" => true, "response_time" => 1_000_000}
+          ]
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.open_ports == [22, 80]
+    end
+
+    test "deduplicates ports from both sources" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host" => "10.0.0.1",
+          "available" => true,
+          "tcp_ports_open" => [22, 80],
+          "port_results" => [
+            %{"port" => 22, "available" => true, "response_time" => 1_000_000},
+            %{"port" => 443, "available" => true, "response_time" => 2_000_000}
+          ]
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.open_ports == [22, 80, 443]
+    end
+  end
+
+  describe "composite availability" do
+    test "host is available when composite available field is true (Go HostResult format)" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host" => "10.0.0.1",
+          "available" => true,
+          "icmp_status" => %{"available" => false},
+          "port_results" => [
+            %{"port" => 80, "available" => true, "response_time" => 1_000_000}
+          ]
+        }
+      ]
+
+      {[record], stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.status == :available
+      assert stats.hosts_available == 1
+    end
+
+    test "host is unavailable when all checks fail" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host" => "10.0.0.1",
+          "available" => false,
+          "icmp_status" => %{"available" => false},
+          "port_results" => [
+            %{"port" => 22, "available" => false, "response_time" => 0},
+            %{"port" => 80, "available" => false, "response_time" => 0}
+          ]
+        }
+      ]
+
+      {[record], stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.status == :unavailable
+      assert stats.hosts_failed == 1
+    end
+
+    test "sweep_modes_results reflects actual ICMP and TCP status" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host" => "10.0.0.1",
+          "available" => true,
+          "icmp_status" => %{"available" => false, "round_trip" => 0},
+          "port_results" => [
+            %{"port" => 80, "available" => true, "response_time" => 1_000_000}
+          ]
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.sweep_modes_results["icmp"] == "failed"
+      assert record.sweep_modes_results["tcp"] == "success"
+    end
+
+    test "sweep_modes_results shows ICMP success when icmp_status available" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host" => "10.0.0.1",
+          "available" => true,
+          "icmp_status" => %{"available" => true, "round_trip" => 5_000_000},
+          "port_results" => [
+            %{"port" => 22, "available" => false, "response_time" => 0}
+          ]
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.sweep_modes_results["icmp"] == "success"
+      assert record.sweep_modes_results["tcp"] == "no_response"
+    end
   end
 end
