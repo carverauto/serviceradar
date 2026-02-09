@@ -177,7 +177,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     show_stale = socket.assigns.show_stale_aliases
 
     # Phase 2: Run sysmon filter resolution + all independent queries in parallel
-    sysmon_task = Task.async(fn -> resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope) end)
+    sysmon_task =
+      Task.async(fn -> resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope) end)
 
     parallel_tasks = [
       Task.async(fn -> {:availability, load_availability(srql_module, uid, scope)} end),
@@ -196,8 +197,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     sysmon_presence = sysmon_filters != []
 
     # Phase 3: Fire sysmon-dependent queries while independent queries finish
-    metrics_task = Task.async(fn -> {:metrics, load_metric_sections(srql_module, sysmon_filters, scope)} end)
-    process_task = Task.async(fn -> {:process, load_process_metrics(srql_module, sysmon_filters, scope)} end)
+    metrics_task =
+      Task.async(fn -> {:metrics, load_metric_sections(srql_module, sysmon_filters, scope)} end)
+
+    process_task =
+      Task.async(fn -> {:process, load_process_metrics(srql_module, sysmon_filters, scope)} end)
 
     # Collect all parallel results
     parallel_results =

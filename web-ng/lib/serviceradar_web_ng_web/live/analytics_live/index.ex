@@ -362,8 +362,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
     logs_counts =
       case results[:logs_severity] do
-        %{total: _} = counts -> Map.take(counts, [:total, :fatal, :error, :warning, :info, :debug])
-        _ -> %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
+        %{total: _} = counts ->
+          Map.take(counts, [:total, :fatal, :error, :warning, :info, :debug])
+
+        _ ->
+          %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
       end
 
     logs_summary = build_logs_summary(logs_rows, logs_counts)

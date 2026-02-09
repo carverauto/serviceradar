@@ -188,7 +188,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             points: [],
             colors: %{}
           })
-          |> assign(:netflow_app_activity, %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
+          |> assign(:netflow_app_activity, %{
+            bucket_seconds: 300,
+            keys: [],
+            points: [],
+            colors: %{}
+          })
           |> assign(:netflow_frequent_talkers_packets, [])
           |> assign(:netflow_frequent_talkers_bytes, [])
           |> assign(:netflow_rdns_map, %{})
@@ -942,8 +947,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <.level_stat label="Fatal" count={@fatal} total={@total} color="error" level="fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT" />
-        <.level_stat label="Error" count={@error} total={@total} color="warning" level="error,ERROR,err,ERR" />
+        <.level_stat
+          label="Fatal"
+          count={@fatal}
+          total={@total}
+          color="error"
+          level="fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT"
+        />
+        <.level_stat
+          label="Error"
+          count={@error}
+          total={@total}
+          color="warning"
+          level="error,ERROR,err,ERR"
+        />
         <.level_stat
           label="Warning"
           count={@warning}
@@ -951,7 +968,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           color="info"
           level="warn,warning,WARN,WARNING"
         />
-        <.level_stat label="Info" count={@info} total={@total} color="primary" level="info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE" />
+        <.level_stat
+          label="Info"
+          count={@info}
+          total={@total}
+          color="primary"
+          level="info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE"
+        />
         <.level_stat
           label="Debug"
           count={@debug}
@@ -5386,10 +5409,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     # Severity groupings must match the CAGG (logs_severity_stats_5m) definitions exactly
     queries = %{
-      fatal: ~s|#{base} severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT) stats:"count() as total"|,
+      fatal:
+        ~s|#{base} severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT) stats:"count() as total"|,
       error: ~s|#{base} severity_text:(error,ERROR,err,ERR) stats:"count() as total"|,
       warning: ~s|#{base} severity_text:(warning,warn,WARNING,WARN) stats:"count() as total"|,
-      info: ~s|#{base} severity_text:(info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE) stats:"count() as total"|,
+      info:
+        ~s|#{base} severity_text:(info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE) stats:"count() as total"|,
       debug: ~s|#{base} severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as total"|
     }
 
@@ -5406,7 +5431,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       end)
 
     %{
-      total: Map.get(counts, :fatal, 0) + Map.get(counts, :error, 0) + Map.get(counts, :warning, 0) + Map.get(counts, :info, 0) + Map.get(counts, :debug, 0),
+      total:
+        Map.get(counts, :fatal, 0) + Map.get(counts, :error, 0) + Map.get(counts, :warning, 0) +
+          Map.get(counts, :info, 0) + Map.get(counts, :debug, 0),
       fatal: Map.get(counts, :fatal, 0),
       error: Map.get(counts, :error, 0),
       warning: Map.get(counts, :warning, 0),
@@ -5419,18 +5446,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     row
     |> Map.values()
     |> Enum.find_value(0, fn
-      v when is_integer(v) -> v
+      v when is_integer(v) ->
+        v
+
       v when is_binary(v) ->
         case Integer.parse(String.trim(v)) do
           {n, ""} -> n
           _ -> nil
         end
-      _ -> nil
+
+      _ ->
+        nil
     end)
   end
 
   defp extract_stats_count(_), do: 0
-
 
   defp extract_time_from_query(nil), do: nil
   defp extract_time_from_query(""), do: nil
@@ -5456,7 +5486,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       _ -> nil
     end
   end
-
 
   defp truthy_param?(value) when is_binary(value) do
     value = value |> String.trim() |> String.downcase()
@@ -7540,5 +7569,4 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       v -> v |> to_string() |> String.slice(0, 300)
     end
   end
-
 end
