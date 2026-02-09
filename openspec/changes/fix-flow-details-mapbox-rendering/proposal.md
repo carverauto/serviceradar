@@ -1,17 +1,18 @@
 # Change: Fix Flow Details Mapbox Basemap Not Rendering
 
 ## Why
-The Mapbox map in the NetFlow flow details panel displays a blank container — the basemap tiles never load (GH #2742). The `MapboxFlowMap` JS hook initialises the map instance but has no error handling, no style-load validation, and no user feedback when the token or style URL is invalid. CSS conflicts with daisyUI/Tailwind may also prevent tile rendering.
+The Mapbox map in the NetFlow flow details panel displays a blank/black container with a globe outline but no basemap tiles (GH #2742). The root cause is the Content Security Policy in `router.ex` — `img-src` only allows `'self' data:` which blocks Mapbox tile images from `api.mapbox.com` and `*.tiles.mapbox.com`. Additionally, `worker-src` and `script-src blob:` are missing, which Mapbox GL JS v3 needs for its web workers that decode tiles.
+
+Secondary issues: the `MapboxFlowMap` JS hook had no error handling, no `map.resize()` after mount, and no user-visible fallback when configuration is missing or broken — making the CSP issue invisible to diagnose without browser DevTools.
 
 ## What Changes
-- Add `error` and `style.load` event handlers to the `MapboxFlowMap` hook so Mapbox GL failures surface instead of silently swallowing.
-- Validate the access token and style URLs before passing them to `mapboxgl.Map`; show a user-visible fallback message when configuration is missing or broken.
-- Ensure the map container has explicit dimensions that survive Tailwind/daisyUI resets and parent grid constraints.
-- Add debug logging (gated behind a flag or `console.warn`) so future rendering issues are diagnosable from the browser console.
+- **CSP fix**: Add Mapbox domains to `img-src`, add `worker-src blob:` and `script-src blob:` for Mapbox GL web workers.
+- **Error handling**: Add `map.on("error", ...)` handler and user-visible fallback messages to the `MapboxFlowMap` hook.
+- **Container sizing**: Add `position: relative`, explicit `min-height`, and `map.resize()` calls to ensure the canvas fills the container after LiveView mount.
 
 ## Impact
 - Affected specs: `ui-maps`
 - Affected code:
+  - `web-ng/lib/serviceradar_web_ng_web/router.ex` — CSP policy
   - `web-ng/assets/js/app.js` — `MapboxFlowMap` hook
   - `web-ng/lib/serviceradar_web_ng_web/live/netflow_live/visualize.ex` — map container markup
-  - `web-ng/assets/css/app.css` — Mapbox GL CSS isolation (if needed)
