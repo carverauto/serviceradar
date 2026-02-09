@@ -168,8 +168,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     event_stats = initial.event_stats
     service_counts = initial.service_counts
 
-    # Build SRQL queries — logs severity counts now come from the CAGG above,
-    # so we only need a small targeted query for recent critical logs.
+    # Check if logs severity CAGG returned real data
+    logs_severity_cagg =
+      case initial.logs_severity do
+        %{total: total} when total > 0 -> initial.logs_severity
+        _ -> nil
+      end
+
     queries = %{
       devices_total: ~s|in:devices stats:"count() as total"|,
       devices_online: ~s|in:devices is_available:true stats:"count() as online"|,
@@ -216,6 +221,25 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         queries
       end
 
+    # Fall back to individual SRQL count queries if CAGG didn't return data
+    queries =
+      if is_nil(logs_severity_cagg) do
+        Map.merge(queries, %{
+          logs_fatal_count:
+            ~s|in:logs severity_text:(fatal,FATAL) time:last_24h stats:"count() as total"|,
+          logs_error_count:
+            ~s|in:logs severity_text:(error,ERROR) time:last_24h stats:"count() as total"|,
+          logs_warning_count:
+            ~s|in:logs severity_text:(warning,warn,WARNING,WARN) time:last_24h stats:"count() as total"|,
+          logs_info_count:
+            ~s|in:logs severity_text:(info,INFO) time:last_24h stats:"count() as total"|,
+          logs_debug_count:
+            ~s|in:logs severity_text:(debug,trace,DEBUG,TRACE) time:last_24h stats:"count() as total"|
+        })
+      else
+        queries
+      end
+
     queries =
       if is_nil(event_stats) do
         Map.put(
@@ -257,10 +281,30 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         results
       end
 
+    # Use CAGG data if available, otherwise build from individual count queries
+    logs_severity =
+      if logs_severity_cagg do
+        logs_severity_cagg
+      else
+        %{
+          total:
+            extract_count(results[:logs_fatal_count]) +
+              extract_count(results[:logs_error_count]) +
+              extract_count(results[:logs_warning_count]) +
+              extract_count(results[:logs_info_count]) +
+              extract_count(results[:logs_debug_count]),
+          fatal: extract_count(results[:logs_fatal_count]),
+          error: extract_count(results[:logs_error_count]),
+          warning: extract_count(results[:logs_warning_count]),
+          info: extract_count(results[:logs_info_count]),
+          debug: extract_count(results[:logs_debug_count])
+        }
+      end
+
     results =
       results
       |> Map.put(:service_counts, service_counts)
-      |> Map.put(:logs_severity, initial.logs_severity)
+      |> Map.put(:logs_severity, logs_severity)
 
     {stats, device_availability, events_summary, logs_summary, observability, high_utilization,
      bandwidth, error} =
