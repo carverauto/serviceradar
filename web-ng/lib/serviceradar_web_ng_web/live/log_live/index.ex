@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @default_limit 20
   @max_limit 100
   @default_stats_window "last_24h"
+  @refresh_debounce_ms 5_000
   @default_events_limit 20
   @max_events_limit 100
   @default_alerts_limit 25
@@ -47,7 +48,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      socket
      |> assign(:page_title, "Observability")
      |> assign(:active_tab, "logs")
-     |> assign(:tab_loading, false)
      |> assign(:logs, [])
      |> assign(:traces, [])
      |> assign(:metrics, [])
@@ -142,6 +142,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     else
       {entity, _list_key} = tab_entity(tab)
       {default_limit, _max_limit} = tab_limits(tab)
+      params = maybe_default_netflows_query(params, tab)
       netflow_compact? = truthy_param?(Map.get(params, "compact"))
       netflow_talker_cidr = parse_netflow_talker_cidr(Map.get(params, "talker_cidr"))
       netflow_compare_mode = parse_netflow_compare_mode(Map.get(params, "compare"))
@@ -149,47 +150,71 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       netflow_sankey_prefix = parse_netflow_sankey_prefix(Map.get(params, "sankey_prefix"))
       netflow_stack_mode = parse_netflow_stack_mode(Map.get(params, "stack"))
 
-      # Set the tab and empty state immediately so the page shell renders fast.
-      # Heavy data loading is deferred to handle_info via :load_tab_data.
-      socket =
-        socket
-        |> assign(:active_tab, tab)
-        |> assign(:tab_loading, true)
-        |> assign(:logs, [])
-        |> assign(:traces, [])
-        |> assign(:metrics, [])
-        |> assign(:events, [])
-        |> assign(:alerts, [])
-        |> assign(:netflows, [])
-        |> assign(:selected_netflow, nil)
-        |> assign(:netflow_context, nil)
-        |> assign(:netflow_top_talkers, [])
-        |> assign(:netflow_top_ports, [])
-        |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
-        |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
-        |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
-        |> assign(:netflow_protocol_activity, %{
-          bucket_seconds: 300,
-          keys: [],
-          points: [],
-          colors: %{}
-        })
-        |> assign(:netflow_app_activity, %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
-        |> assign(:netflow_frequent_talkers_packets, [])
-        |> assign(:netflow_frequent_talkers_bytes, [])
-        |> assign(:netflow_rdns_map, %{})
-        |> assign(:netflow_compact?, netflow_compact?)
-        |> assign(:netflow_talker_cidr, netflow_talker_cidr)
-        |> assign(:netflow_compare_mode, netflow_compare_mode)
-        |> assign(:netflow_geo_side, netflow_geo_side)
-        |> assign(:netflow_geo_heatmap, [])
-        |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
-        |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
-        |> assign(:netflow_stack_mode, netflow_stack_mode)
-        |> ensure_srql_entity(entity, default_limit)
+      same_tab_query_change =
+        socket.assigns[:_initial_load_done] && tab == socket.assigns[:_loaded_tab]
 
-      # Defer data loading so tabs and page shell render immediately
-      send(self(), {:load_tab_data, tab, params, uri})
+      # For same-tab query changes (stat card clicks), keep current data visible.
+      # For tab switches and initial loads, reset to empty defaults.
+      socket =
+        if same_tab_query_change do
+          socket
+          |> assign(:active_tab, tab)
+          |> assign(:netflow_compact?, netflow_compact?)
+          |> assign(:netflow_talker_cidr, netflow_talker_cidr)
+          |> assign(:netflow_compare_mode, netflow_compare_mode)
+          |> assign(:netflow_geo_side, netflow_geo_side)
+          |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
+          |> assign(:netflow_stack_mode, netflow_stack_mode)
+          |> ensure_srql_entity(entity, default_limit)
+        else
+          socket
+          |> assign(:active_tab, tab)
+          |> assign(:logs, [])
+          |> assign(:traces, [])
+          |> assign(:metrics, [])
+          |> assign(:events, [])
+          |> assign(:alerts, [])
+          |> assign(:netflows, [])
+          |> assign(:selected_netflow, nil)
+          |> assign(:netflow_context, nil)
+          |> assign(:netflow_top_talkers, [])
+          |> assign(:netflow_top_ports, [])
+          |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
+          |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
+          |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
+          |> assign(:netflow_protocol_activity, %{
+            bucket_seconds: 300,
+            keys: [],
+            points: [],
+            colors: %{}
+          })
+          |> assign(:netflow_app_activity, %{
+            bucket_seconds: 300,
+            keys: [],
+            points: [],
+            colors: %{}
+          })
+          |> assign(:netflow_frequent_talkers_packets, [])
+          |> assign(:netflow_frequent_talkers_bytes, [])
+          |> assign(:netflow_rdns_map, %{})
+          |> assign(:netflow_compact?, netflow_compact?)
+          |> assign(:netflow_talker_cidr, netflow_talker_cidr)
+          |> assign(:netflow_compare_mode, netflow_compare_mode)
+          |> assign(:netflow_geo_side, netflow_geo_side)
+          |> assign(:netflow_geo_heatmap, [])
+          |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
+          |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
+          |> assign(:netflow_stack_mode, netflow_stack_mode)
+          |> ensure_srql_entity(entity, default_limit)
+        end
+
+      socket =
+        if connected?(socket) do
+          dispatch_tab_load(socket, tab, params, uri)
+        else
+          # Disconnected mount — skip entirely (static HTML is replaced by WebSocket)
+          socket
+        end
 
       {:noreply, socket}
     end
@@ -652,40 +677,41 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   @impl true
   def handle_info({:load_tab_data, tab, params, uri}, socket) do
-    # Only load if the tab hasn't changed since we scheduled this
     if socket.assigns.active_tab == tab do
-      {_entity, list_key} = tab_entity(tab)
-      {default_limit, max_limit} = tab_limits(tab)
-      params = maybe_default_netflows_query(params, tab)
-
-      socket =
-        socket
-        |> SRQLPage.load_list(params, uri, list_key,
-          default_limit: default_limit,
-          max_limit: max_limit
-        )
-        |> apply_tab_assigns(tab, srql_module())
-        |> stream_active_tab(tab)
-        |> assign(:tab_loading, false)
-
+      {:noreply, load_tab(socket, tab, params, uri)}
+    else
       {:noreply, socket}
+    end
+  end
+
+  def handle_info({:load_log_summary_counts, srql_module, scope}, socket) do
+    if socket.assigns.active_tab == "logs" do
+      summary = load_summary_counts(srql_module, scope)
+      {:noreply, assign(socket, :summary, summary)}
     else
       {:noreply, socket}
     end
   end
 
   def handle_info({:logs_ingested, _event}, socket) do
-    {:noreply, maybe_refresh_tab(socket, "logs")}
+    {:noreply, schedule_debounced_refresh(socket, "logs")}
   end
 
   @impl true
   def handle_info({:ocsf_event, _event}, socket) do
-    {:noreply, maybe_refresh_tab(socket, "events")}
+    {:noreply, schedule_debounced_refresh(socket, "events")}
   end
 
   @impl true
   def handle_info({:flows_ingested, _event}, socket) do
-    {:noreply, maybe_refresh_tab(socket, "netflows")}
+    {:noreply, schedule_debounced_refresh(socket, "netflows")}
+  end
+
+  @impl true
+  def handle_info({:debounced_refresh, tab}, socket) do
+    timers = Map.delete(socket.assigns[:_refresh_timers] || %{}, tab)
+    socket = assign(socket, :_refresh_timers, timers)
+    {:noreply, maybe_refresh_tab(socket, tab)}
   end
 
   @impl true
@@ -708,30 +734,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
           <.observability_tabs active={@active_tab} />
 
-          <div :if={@tab_loading} class="flex items-center justify-center py-12">
-            <span class="loading loading-spinner loading-lg text-primary"></span>
-          </div>
-
-          <.log_summary :if={not @tab_loading and @active_tab == "logs"} summary={@summary} />
-          <.event_summary
-            :if={not @tab_loading and @active_tab == "events"}
-            summary={@event_summary}
-          />
-          <.alert_summary
-            :if={not @tab_loading and @active_tab == "alerts"}
-            summary={@alert_summary}
-          />
+          <.log_summary :if={@active_tab == "logs"} summary={@summary} />
+          <.event_summary :if={@active_tab == "events"} summary={@event_summary} />
+          <.alert_summary :if={@active_tab == "alerts"} summary={@alert_summary} />
           <.traces_summary
-            :if={not @tab_loading and @active_tab == "traces"}
+            :if={@active_tab == "traces"}
             stats={@trace_stats}
             latency={@trace_latency}
           />
-          <.metrics_summary
-            :if={not @tab_loading and @active_tab == "metrics"}
-            stats={@metrics_stats}
-          />
+          <.metrics_summary :if={@active_tab == "metrics"} stats={@metrics_stats} />
           <.netflow_summary
-            :if={not @tab_loading and @active_tab == "netflows"}
+            :if={@active_tab == "netflows"}
             summary={@netflow_summary}
             top_talkers={@netflow_top_talkers}
             top_ports={@netflow_top_ports}
@@ -757,7 +770,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             talker_cidr={@netflow_talker_cidr}
           />
 
-          <.ui_panel :if={not @tab_loading}>
+          <.ui_panel>
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold">{panel_title(@active_tab)}</div>
@@ -925,7 +938,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </.link>
           <.link
             patch={
-              ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc"}}"
+              ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT,error,ERROR,err,ERR) time:last_24h sort:timestamp:desc"}}"
             }
             class="btn btn-ghost btn-xs text-error"
           >
@@ -934,8 +947,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <.level_stat label="Fatal" count={@fatal} total={@total} color="error" level="fatal,FATAL" />
-        <.level_stat label="Error" count={@error} total={@total} color="warning" level="error,ERROR" />
+        <.level_stat
+          label="Fatal"
+          count={@fatal}
+          total={@total}
+          color="error"
+          level="fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT"
+        />
+        <.level_stat
+          label="Error"
+          count={@error}
+          total={@total}
+          color="warning"
+          level="error,ERROR,err,ERR"
+        />
         <.level_stat
           label="Warning"
           count={@warning}
@@ -943,7 +968,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           color="info"
           level="warn,warning,WARN,WARNING"
         />
-        <.level_stat label="Info" count={@info} total={@total} color="primary" level="info,INFO" />
+        <.level_stat
+          label="Info"
+          count={@info}
+          total={@total}
+          color="primary"
+          level="info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE"
+        />
         <.level_stat
           label="Debug"
           count={@debug}
@@ -5370,27 +5401,66 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  # Use pre-computed CAGG via rollup_stats pattern for accurate counts
-  defp load_summary(srql_module, current_query, scope) do
-    opts = build_summary_opts(current_query, srql_module, scope)
-    Stats.logs_severity(opts)
+  # Fetch accurate log severity counts via individual SRQL count queries.
+  # Used as async fallback when CAGG data is unavailable.
+  # Uses the same unfiltered last_24h window as the analytics page.
+  defp load_summary_counts(srql_module, scope) do
+    base = "in:logs time:#{@default_stats_window}"
+
+    # Severity groupings must match the CAGG (logs_severity_stats_5m) definitions exactly
+    queries = %{
+      fatal:
+        ~s|#{base} severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT) stats:"count() as total"|,
+      error: ~s|#{base} severity_text:(error,ERROR,err,ERR) stats:"count() as total"|,
+      warning: ~s|#{base} severity_text:(warning,warn,WARNING,WARN) stats:"count() as total"|,
+      info:
+        ~s|#{base} severity_text:(info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE) stats:"count() as total"|,
+      debug: ~s|#{base} severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as total"|
+    }
+
+    counts =
+      queries
+      |> Task.async_stream(
+        fn {level, q} -> {level, extract_stats_count(srql_module.query(q, %{scope: scope}))} end,
+        ordered: false,
+        timeout: 15_000
+      )
+      |> Enum.reduce(%{}, fn
+        {:ok, {level, count}}, acc -> Map.put(acc, level, count)
+        _, acc -> acc
+      end)
+
+    %{
+      total:
+        Map.get(counts, :fatal, 0) + Map.get(counts, :error, 0) + Map.get(counts, :warning, 0) +
+          Map.get(counts, :info, 0) + Map.get(counts, :debug, 0),
+      fatal: Map.get(counts, :fatal, 0),
+      error: Map.get(counts, :error, 0),
+      warning: Map.get(counts, :warning, 0),
+      info: Map.get(counts, :info, 0),
+      debug: Map.get(counts, :debug, 0)
+    }
   end
 
-  defp build_summary_opts(current_query, srql_module, scope) do
-    base_opts = [srql_module: srql_module, scope: scope]
+  defp extract_stats_count({:ok, %{"results" => [%{} = row | _]}}) do
+    row
+    |> Map.values()
+    |> Enum.find_value(0, fn
+      v when is_integer(v) ->
+        v
 
-    # Extract time range from query if present, otherwise use default
-    time = extract_time_from_query(current_query) || @default_stats_window
+      v when is_binary(v) ->
+        case Integer.parse(String.trim(v)) do
+          {n, ""} -> n
+          _ -> nil
+        end
 
-    # Extract service_name filter if present
-    service_name = extract_filter_from_query(current_query, "service_name")
-    source = extract_filter_from_query(current_query, "source")
-
-    base_opts
-    |> Keyword.put(:time, time)
-    |> maybe_put(:service_name, service_name)
-    |> maybe_put(:source, source)
+      _ ->
+        nil
+    end)
   end
+
+  defp extract_stats_count(_), do: 0
 
   defp extract_time_from_query(nil), do: nil
   defp extract_time_from_query(""), do: nil
@@ -5416,10 +5486,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       _ -> nil
     end
   end
-
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, _key, ""), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp truthy_param?(value) when is_binary(value) do
     value = value |> String.trim() |> String.downcase()
@@ -5792,12 +5858,60 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     socket
     |> assign(:summary, summary)
+    |> assign(:_summary_loaded, true)
     |> assign(:event_summary, empty_event_summary())
     |> assign(:alert_summary, empty_alert_summary())
     |> assign(:netflow_summary, empty_netflow_summary())
     |> assign(:trace_stats, empty_trace_stats())
     |> assign(:trace_latency, empty_trace_latency())
     |> assign(:metrics_stats, empty_metrics_stats())
+  end
+
+  defp dispatch_tab_load(socket, tab, params, uri) do
+    cond do
+      !socket.assigns[:_initial_load_done] ->
+        # Initial page load — defer so the page shell renders immediately
+        send(self(), {:load_tab_data, tab, params, uri})
+        socket
+
+      tab != socket.assigns[:_loaded_tab] ->
+        # Tab switch — load synchronously for instant transition (no flash)
+        load_tab(socket, tab, params, uri)
+
+      true ->
+        # Same-tab query change (e.g. stat card click) — load async so the UI
+        # stays responsive. Current data remains visible until results arrive.
+        send(self(), {:load_tab_data, tab, params, uri})
+        socket
+    end
+  end
+
+  defp load_tab(socket, tab, params, uri) do
+    {_entity, list_key} = tab_entity(tab)
+    {default_limit, max_limit} = tab_limits(tab)
+    params = maybe_default_netflows_query(params, tab)
+
+    socket
+    |> SRQLPage.load_list(params, uri, list_key,
+      default_limit: default_limit,
+      max_limit: max_limit
+    )
+    |> apply_tab_assigns(tab, srql_module())
+    |> stream_active_tab(tab)
+    |> assign(:_initial_load_done, true)
+    |> assign(:_loaded_tab, tab)
+  end
+
+  defp schedule_debounced_refresh(socket, tab) do
+    timers = socket.assigns[:_refresh_timers] || %{}
+
+    # If a refresh timer is already pending for this tab, skip
+    if Map.has_key?(timers, tab) do
+      socket
+    else
+      timer = Process.send_after(self(), {:debounced_refresh, tab}, @refresh_debounce_ms)
+      assign(socket, :_refresh_timers, Map.put(timers, tab, timer))
+    end
   end
 
   defp maybe_refresh_tab(socket, tab) do
@@ -5818,6 +5932,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     uri = Map.get(srql, :page_path, "/observability")
 
     socket
+    # Clear summary cache so PubSub refresh gets fresh counts
+    |> assign(:_summary_loaded, false)
     |> ensure_srql_entity(entity, default_limit)
     |> SRQLPage.load_list(params, uri, list_key,
       default_limit: default_limit,
@@ -5847,14 +5963,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp maybe_load_log_summary(socket, srql_module, scope) do
-    summary = load_summary(srql_module, Map.get(socket.assigns.srql, :query), scope)
+    # If we already attempted to load the summary (even if still 0 while async
+    # counts are pending), don't re-query on every handle_params/refresh call.
+    # The summary shows overall 24h breakdown — it doesn't change per-query.
+    if socket.assigns[:_summary_loaded] do
+      socket.assigns.summary
+    else
+      fetch_log_summary(socket, srql_module, scope)
+    end
+  end
 
-    case summary do
-      %{total: 0} when is_list(socket.assigns.logs) and socket.assigns.logs != [] ->
-        compute_summary(socket.assigns.logs)
+  defp fetch_log_summary(socket, srql_module, scope) do
+    # Use the same simple call as the analytics page — no query-specific filters.
+    # The stat cards always show the overall 24h picture.
+    cagg_result = Stats.logs_severity(srql_module: srql_module, scope: scope)
 
-      other ->
-        other
+    case cagg_result do
+      %{total: total} when total > 0 ->
+        cagg_result
+
+      _ ->
+        # CAGG unavailable — schedule async count fetch
+        if connected?(socket) do
+          send(self(), {:load_log_summary_counts, srql_module, scope})
+        end
+
+        %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
     end
   end
 
@@ -7435,28 +7569,4 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       v -> v |> to_string() |> String.slice(0, 300)
     end
   end
-
-  # Compute summary stats from logs
-  # Must match the same patterns as severity_badge for consistency
-  defp compute_summary(logs) when is_list(logs) do
-    initial = %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
-
-    Enum.reduce(logs, initial, fn log, acc ->
-      severity = normalize_severity(Map.get(log, "severity_text"))
-
-      updated =
-        case severity do
-          s when s in ["fatal", "critical"] -> Map.update!(acc, :fatal, &(&1 + 1))
-          s when s in ["error", "err"] -> Map.update!(acc, :error, &(&1 + 1))
-          s when s in ["warn", "warning", "high"] -> Map.update!(acc, :warning, &(&1 + 1))
-          s when s in ["info", "information", "medium"] -> Map.update!(acc, :info, &(&1 + 1))
-          s when s in ["debug", "trace", "low", "ok"] -> Map.update!(acc, :debug, &(&1 + 1))
-          _ -> acc
-        end
-
-      Map.update!(updated, :total, &(&1 + 1))
-    end)
-  end
-
-  defp compute_summary(_), do: %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
 end

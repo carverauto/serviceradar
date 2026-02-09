@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNG.RBAC do
     RBAC.catalog()
   end
 
-  def permissions_for_scope(%Scope{permissions: permissions}) when is_list(permissions) do
+  def permissions_for_scope(%Scope{permissions: %MapSet{} = permissions}) do
     permissions
   end
 
@@ -18,11 +18,11 @@ defmodule ServiceRadarWebNG.RBAC do
     RBAC.permissions_for_user(user)
   end
 
-  def permissions_for_scope(_), do: []
+  def permissions_for_scope(_), do: MapSet.new()
 
-  def can?(%Scope{permissions: permissions}, permission)
-      when is_list(permissions) and is_binary(permission) do
-    permission in permissions
+  def can?(%Scope{permissions: %MapSet{} = permissions}, permission)
+      when is_binary(permission) do
+    MapSet.member?(permissions, permission)
   end
 
   def can?(%Scope{user: user}, permission) when is_binary(permission) do

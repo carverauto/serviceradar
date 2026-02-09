@@ -463,10 +463,9 @@ defmodule ServiceRadarWebNGWeb.Router do
         partition_id = get_partition_id_from_request(conn)
 
         permissions =
-          if is_list(scope_permissions) do
-            scope_permissions
-          else
-            ServiceRadar.Identity.RBAC.permissions_for_user(user)
+          case scope_permissions do
+            %MapSet{} -> scope_permissions
+            _ -> ServiceRadar.Identity.RBAC.permissions_for_user(user)
           end
 
         actor = %{

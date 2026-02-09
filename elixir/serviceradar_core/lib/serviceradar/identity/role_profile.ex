@@ -48,22 +48,26 @@ defmodule ServiceRadar.Identity.RoleProfile do
       change set_attribute(:system, false)
       change set_attribute(:system_name, nil)
       validate ServiceRadar.Identity.Validations.PermissionKeys
+      change ServiceRadar.Identity.Changes.InvalidateRbacCache
     end
 
     create :create_system do
       accept [:system_name, :name, :description, :permissions]
       change set_attribute(:system, true)
       validate ServiceRadar.Identity.Validations.PermissionKeys
+      change ServiceRadar.Identity.Changes.InvalidateRbacCache
     end
 
     update :update do
       accept [:name, :description, :permissions]
       change ServiceRadar.Identity.Changes.DisallowSystemProfileEdit
       validate ServiceRadar.Identity.Validations.PermissionKeys
+      change ServiceRadar.Identity.Changes.InvalidateRbacCache
     end
 
     destroy :destroy do
       change ServiceRadar.Identity.Changes.DisallowSystemProfileEdit
+      change ServiceRadar.Identity.Changes.InvalidateRbacCache
     end
   end
 

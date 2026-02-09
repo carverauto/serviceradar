@@ -172,7 +172,11 @@ defmodule ServiceRadar.Policies.Checks do
       permission = Keyword.get(opts, :permission)
 
       if is_binary(permission) do
-        RBAC.has_permission?(actor, permission)
+        # Fast path: if actor map already has a MapSet of permissions, check directly
+        case actor do
+          %{permissions: %MapSet{} = perms} -> MapSet.member?(perms, permission)
+          _ -> RBAC.has_permission?(actor, permission)
+        end
       else
         false
       end
