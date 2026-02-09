@@ -694,9 +694,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  def handle_info({:load_log_summary_counts, srql_module, current_query, scope}, socket) do
+  def handle_info({:load_log_summary_counts, srql_module, scope}, socket) do
     if socket.assigns.active_tab == "logs" do
-      summary = load_summary_counts(srql_module, current_query, scope)
+      summary = load_summary_counts(srql_module, scope)
       {:noreply, assign(socket, :summary, summary)}
     else
       {:noreply, socket}
@@ -5395,18 +5395,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   # Fetch accurate log severity counts via individual SRQL count queries.
   # Used as async fallback when CAGG data is unavailable.
-  defp load_summary_counts(srql_module, current_query, scope) do
-    load_summary_via_counts(srql_module, current_query, scope)
-  end
-
-  defp load_summary_via_counts(srql_module, current_query, scope) do
-    time = extract_time_from_query(current_query) || @default_stats_window
-    service_filter = extract_filter_from_query(current_query, "service_name")
-
-    base =
-      if is_binary(service_filter) and service_filter != "",
-        do: "in:logs time:#{time} service_name:\"#{service_filter}\"",
-        else: "in:logs time:#{time}"
+  # Uses the same unfiltered last_24h window as the analytics page.
+  defp load_summary_counts(srql_module, scope) do
+    base = "in:logs time:#{@default_stats_window}"
 
     # Severity groupings must match the CAGG (logs_severity_stats_5m) definitions exactly
     queries = %{
@@ -5455,21 +5446,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp extract_stats_count(_), do: 0
 
-  defp build_summary_opts(current_query, srql_module, scope) do
-    base_opts = [srql_module: srql_module, scope: scope]
-
-    # Extract time range from query if present, otherwise use default
-    time = extract_time_from_query(current_query) || @default_stats_window
-
-    # Extract service_name filter if present
-    service_name = extract_filter_from_query(current_query, "service_name")
-    source = extract_filter_from_query(current_query, "source")
-
-    base_opts
-    |> Keyword.put(:time, time)
-    |> maybe_put(:service_name, service_name)
-    |> maybe_put(:source, source)
-  end
 
   defp extract_time_from_query(nil), do: nil
   defp extract_time_from_query(""), do: nil
@@ -5496,9 +5472,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, _key, ""), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp truthy_param?(value) when is_binary(value) do
     value = value |> String.trim() |> String.downcase()
@@ -5926,6 +5899,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     uri = Map.get(srql, :page_path, "/observability")
 
     socket
+    # Clear summary cache so PubSub refresh gets fresh counts
+    |> assign(:_summary_loaded, false)
     |> ensure_srql_entity(entity, default_limit)
     |> SRQLPage.load_list(params, uri, list_key,
       default_limit: default_limit,
@@ -5961,9 +5936,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     if socket.assigns[:_summary_loaded] do
       socket.assigns.summary
     else
-      current_query = Map.get(socket.assigns.srql, :query)
-      opts = build_summary_opts(current_query, srql_module, scope)
-      cagg_result = Stats.logs_severity(opts)
+      # Use the same simple call as the analytics page — no query-specific filters.
+      # The stat cards always show the overall 24h picture.
+      cagg_result = Stats.logs_severity(srql_module: srql_module, scope: scope)
 
       case cagg_result do
         %{total: total} when total > 0 ->
@@ -5972,7 +5947,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         _ ->
           # CAGG unavailable — schedule async count fetch
           if connected?(socket) do
-            send(self(), {:load_log_summary_counts, srql_module, current_query, scope})
+            send(self(), {:load_log_summary_counts, srql_module, scope})
           end
 
           %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
