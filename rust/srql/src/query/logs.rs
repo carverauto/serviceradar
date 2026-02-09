@@ -118,7 +118,7 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 }
 
 fn effective_timestamp_expr() -> SqlLiteral<Timestamptz> {
-    sql::<Timestamptz>("coalesce(observed_timestamp, timestamp)")
+    sql::<Timestamptz>("timestamp")
 }
 
 fn build_query(plan: &QueryPlan) -> Result<LogsQuery<'static>> {
@@ -273,9 +273,9 @@ fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>> {
     let mut clauses = Vec::new();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        clauses.push("coalesce(observed_timestamp, timestamp) >= ?".to_string());
+        clauses.push("timestamp >= ?".to_string());
         binds.push(SqlBindValue::Timestamp(*start));
-        clauses.push("coalesce(observed_timestamp, timestamp) <= ?".to_string());
+        clauses.push("timestamp <= ?".to_string());
         binds.push(SqlBindValue::Timestamp(*end));
     }
 
