@@ -123,7 +123,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:active_tab, active_tab)
        |> assign(:srql, srql)}
     else
-      load_device_data(socket, uid, limit, requested_tab, params, uri)
+      if connected?(socket) do
+        load_device_data(socket, uid, limit, requested_tab, params, uri)
+      else
+        # Disconnected render — show page shell with empty defaults from mount/3
+        {:noreply,
+         socket
+         |> assign(:device_uid, uid)
+         |> assign(:limit, limit)
+         |> assign(:active_tab, requested_tab)}
+      end
     end
   end
 
@@ -143,6 +152,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     srql_module = srql_module()
     scope = Map.get(socket.assigns, :current_scope)
 
+    # Phase 1: Main device query (must be first — everything depends on device_row)
     {results, error, viz} = execute_srql_query(srql_module, query, scope)
 
     page_path = uri |> to_string() |> URI.parse() |> Map.get(:path)
@@ -162,35 +172,58 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     srql_response = %{"results" => results, "viz" => viz}
 
     device_row = List.first(Enum.filter(results, &is_map/1))
-    sysmon_identity = sysmon_identity(device_row, uid)
-    sysmon_filters = resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
-
-    metric_sections = load_metric_sections(srql_module, sysmon_filters, scope)
-    sysmon_presence = sysmon_filters != []
-    process_metrics = load_process_metrics(srql_module, sysmon_filters, scope)
-    availability = load_availability(srql_module, uid, scope)
-    healthcheck_summary = load_healthcheck_summary(srql_module, uid, scope)
-
-    # Load sweep results for this device's IP
     device_ip = get_device_ip(results)
-    sweep_results = load_sweep_results(socket.assigns.current_scope, device_ip)
+    sysmon_identity = sysmon_identity(device_row, uid)
+    show_stale = socket.assigns.show_stale_aliases
 
-    # Load sysmon profile info
-    {sysmon_profile_info, available_profiles} = load_sysmon_profile_info(scope, uid)
+    # Phase 2: Run sysmon filter resolution + all independent queries in parallel
+    sysmon_task = Task.async(fn -> resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope) end)
 
-    # Load network interfaces via SRQL
-    {network_interfaces, interfaces_error} = load_interfaces(srql_module, uid, scope)
+    parallel_tasks = [
+      Task.async(fn -> {:availability, load_availability(srql_module, uid, scope)} end),
+      Task.async(fn -> {:healthcheck, load_healthcheck_summary(srql_module, uid, scope)} end),
+      Task.async(fn -> {:sweep, load_sweep_results(socket.assigns.current_scope, device_ip)} end),
+      Task.async(fn -> {:profile, load_sysmon_profile_info(scope, uid)} end),
+      Task.async(fn -> {:interfaces, load_interfaces(srql_module, uid, scope)} end),
+      Task.async(fn -> {:mapper, load_mapper_jobs_for_device(scope, device_row)} end),
+      Task.async(fn -> {:iface_settings, load_interface_settings(scope, uid)} end),
+      Task.async(fn -> {:snmp, load_device_snmp_credential(scope, uid)} end),
+      Task.async(fn -> {:aliases, load_ip_aliases(scope, uid, show_stale)} end)
+    ]
 
-    discovery_jobs = load_mapper_jobs_for_device(scope, device_row)
+    # Await sysmon filters first (needed for metric_sections + process_metrics)
+    sysmon_filters = Task.await(sysmon_task, 15_000)
+    sysmon_presence = sysmon_filters != []
+
+    # Phase 3: Fire sysmon-dependent queries while independent queries finish
+    metrics_task = Task.async(fn -> {:metrics, load_metric_sections(srql_module, sysmon_filters, scope)} end)
+    process_task = Task.async(fn -> {:process, load_process_metrics(srql_module, sysmon_filters, scope)} end)
+
+    # Collect all parallel results
+    parallel_results =
+      (parallel_tasks ++ [metrics_task, process_task])
+      |> Task.await_many(30_000)
+      |> Map.new()
+
+    availability = parallel_results.availability
+    healthcheck_summary = parallel_results.healthcheck
+    sweep_results = parallel_results.sweep
+    {sysmon_profile_info, available_profiles} = parallel_results.profile
+    {network_interfaces, interfaces_error} = parallel_results.interfaces
+    discovery_jobs = parallel_results.mapper
+    interface_settings = parallel_results.iface_settings
+    device_snmp_credential = parallel_results.snmp
+    {ip_aliases, ip_alias_error} = parallel_results.aliases
+    metric_sections = parallel_results.metrics
+    process_metrics = parallel_results.process
+
     discovery_job = pick_discovery_job(discovery_jobs)
     has_discovery_job = not is_nil(discovery_job)
 
-    # Load interface settings (favorites, metrics enabled)
-    interface_settings = load_interface_settings(scope, uid)
     favorited_interfaces = interface_settings.favorited
     metrics_enabled_interfaces = interface_settings.metrics_enabled
 
-    # Load interface metrics for favorited interfaces
+    # Load interface metrics (depends on interfaces + settings from above)
     interface_metrics =
       load_interface_metrics(
         srql_module,
@@ -202,11 +235,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       )
 
     network_interfaces = apply_interface_settings(network_interfaces, interface_settings.by_uid)
-
-    device_snmp_credential = load_device_snmp_credential(scope, uid)
-
-    {ip_aliases, ip_alias_error} =
-      load_ip_aliases(scope, uid, socket.assigns.show_stale_aliases)
 
     has_ifaces =
       is_binary(interfaces_error) or

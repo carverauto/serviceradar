@@ -41,15 +41,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   @impl true
   def handle_params(_params, _uri, socket) do
-    send(self(), :load_analytics)
-    {:noreply, socket}
-  end
-
-  @impl true
-  def handle_info(:load_analytics, socket) do
     {:noreply, load_analytics(socket)}
   end
 
+  @impl true
   def handle_info(:refresh_data, socket) do
     schedule_refresh()
     {:noreply, load_analytics(socket)}

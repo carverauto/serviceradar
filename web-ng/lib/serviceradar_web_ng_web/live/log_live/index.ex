@@ -185,20 +185,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_stack_mode, netflow_stack_mode)
         |> ensure_srql_entity(entity, default_limit)
 
-      # Skip expensive queries on disconnected mount — the page shell renders
-      # with empty defaults from mount/3, then data loads on the connected render.
       socket =
-        if connected?(socket) do
-          socket
-          |> SRQLPage.load_list(params, uri, list_key,
-            default_limit: default_limit,
-            max_limit: max_limit
-          )
-          |> apply_tab_assigns(tab, srql_module())
-          |> stream_active_tab(tab)
-        else
-          socket
-        end
+        socket
+        |> SRQLPage.load_list(params, uri, list_key,
+          default_limit: default_limit,
+          max_limit: max_limit
+        )
+        |> apply_tab_assigns(tab, srql_module())
+        |> stream_active_tab(tab)
 
       {:noreply, socket}
     end
@@ -660,6 +654,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp read_port_anomaly(_user, _port), do: nil
 
   @impl true
+  def handle_info({:load_log_summary_counts, srql_module, current_query, scope}, socket) do
+    if socket.assigns.active_tab == "logs" do
+      summary = load_summary_counts(srql_module, current_query, scope)
+      {:noreply, assign(socket, :summary, summary)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:logs_ingested, _event}, socket) do
     {:noreply, maybe_refresh_tab(socket, "logs")}
   end
@@ -5343,11 +5346,66 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  # Use pre-computed CAGG via rollup_stats pattern for accurate counts
-  defp load_summary(srql_module, current_query, scope) do
-    opts = build_summary_opts(current_query, srql_module, scope)
-    Stats.logs_severity(opts)
+  # Fetch accurate log severity counts via individual SRQL count queries.
+  # Used as async fallback when CAGG data is unavailable.
+  defp load_summary_counts(srql_module, current_query, scope) do
+    load_summary_via_counts(srql_module, current_query, scope)
   end
+
+  defp load_summary_via_counts(srql_module, current_query, scope) do
+    time = extract_time_from_query(current_query) || @default_stats_window
+    service_filter = extract_filter_from_query(current_query, "service_name")
+
+    base =
+      if is_binary(service_filter) and service_filter != "",
+        do: "in:logs time:#{time} service_name:\"#{service_filter}\"",
+        else: "in:logs time:#{time}"
+
+    queries = %{
+      fatal: ~s|#{base} severity_text:(fatal,FATAL) stats:"count() as total"|,
+      error: ~s|#{base} severity_text:(error,ERROR) stats:"count() as total"|,
+      warning: ~s|#{base} severity_text:(warning,warn,WARNING,WARN) stats:"count() as total"|,
+      info: ~s|#{base} severity_text:(info,INFO) stats:"count() as total"|,
+      debug: ~s|#{base} severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as total"|
+    }
+
+    counts =
+      queries
+      |> Task.async_stream(
+        fn {level, q} -> {level, extract_stats_count(srql_module.query(q, %{scope: scope}))} end,
+        ordered: false,
+        timeout: 15_000
+      )
+      |> Enum.reduce(%{}, fn
+        {:ok, {level, count}}, acc -> Map.put(acc, level, count)
+        _, acc -> acc
+      end)
+
+    %{
+      total: Map.get(counts, :fatal, 0) + Map.get(counts, :error, 0) + Map.get(counts, :warning, 0) + Map.get(counts, :info, 0) + Map.get(counts, :debug, 0),
+      fatal: Map.get(counts, :fatal, 0),
+      error: Map.get(counts, :error, 0),
+      warning: Map.get(counts, :warning, 0),
+      info: Map.get(counts, :info, 0),
+      debug: Map.get(counts, :debug, 0)
+    }
+  end
+
+  defp extract_stats_count({:ok, %{"results" => [%{} = row | _]}}) do
+    row
+    |> Map.values()
+    |> Enum.find_value(0, fn
+      v when is_integer(v) -> v
+      v when is_binary(v) ->
+        case Integer.parse(String.trim(v)) do
+          {n, ""} -> n
+          _ -> nil
+        end
+      _ -> nil
+    end)
+  end
+
+  defp extract_stats_count(_), do: 0
 
   defp build_summary_opts(current_query, srql_module, scope) do
     base_opts = [srql_module: srql_module, scope: scope]
@@ -5820,14 +5878,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp maybe_load_log_summary(socket, srql_module, scope) do
-    summary = load_summary(srql_module, Map.get(socket.assigns.srql, :query), scope)
+    current_query = Map.get(socket.assigns.srql, :query)
+    opts = build_summary_opts(current_query, srql_module, scope)
+    cagg_result = Stats.logs_severity(opts)
 
-    case summary do
-      %{total: 0} when is_list(socket.assigns.logs) and socket.assigns.logs != [] ->
-        compute_summary(socket.assigns.logs)
+    case cagg_result do
+      %{total: total} when total > 0 ->
+        cagg_result
 
-      other ->
-        other
+      _ ->
+        # CAGG unavailable — schedule async count fetch so handle_params isn't blocked
+        if connected?(socket) do
+          send(self(), {:load_log_summary_counts, srql_module, current_query, scope})
+        end
+
+        %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
     end
   end
 
@@ -7409,27 +7474,4 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  # Compute summary stats from logs
-  # Must match the same patterns as severity_badge for consistency
-  defp compute_summary(logs) when is_list(logs) do
-    initial = %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
-
-    Enum.reduce(logs, initial, fn log, acc ->
-      severity = normalize_severity(Map.get(log, "severity_text"))
-
-      updated =
-        case severity do
-          s when s in ["fatal", "critical"] -> Map.update!(acc, :fatal, &(&1 + 1))
-          s when s in ["error", "err"] -> Map.update!(acc, :error, &(&1 + 1))
-          s when s in ["warn", "warning", "high"] -> Map.update!(acc, :warning, &(&1 + 1))
-          s when s in ["info", "information", "medium"] -> Map.update!(acc, :info, &(&1 + 1))
-          s when s in ["debug", "trace", "low", "ok"] -> Map.update!(acc, :debug, &(&1 + 1))
-          _ -> acc
-        end
-
-      Map.update!(updated, :total, &(&1 + 1))
-    end)
-  end
-
-  defp compute_summary(_), do: %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
 end
