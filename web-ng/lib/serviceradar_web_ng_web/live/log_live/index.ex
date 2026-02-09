@@ -184,15 +184,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
         |> assign(:netflow_stack_mode, netflow_stack_mode)
         |> ensure_srql_entity(entity, default_limit)
-        |> SRQLPage.load_list(params, uri, list_key,
-          default_limit: default_limit,
-          max_limit: max_limit
-        )
 
+      # Skip expensive queries on disconnected mount — the page shell renders
+      # with empty defaults from mount/3, then data loads on the connected render.
       socket =
-        socket
-        |> apply_tab_assigns(tab, srql_module())
-        |> stream_active_tab(tab)
+        if connected?(socket) do
+          socket
+          |> SRQLPage.load_list(params, uri, list_key,
+            default_limit: default_limit,
+            max_limit: max_limit
+          )
+          |> apply_tab_assigns(tab, srql_module())
+          |> stream_active_tab(tab)
+        else
+          socket
+        end
 
       {:noreply, socket}
     end
