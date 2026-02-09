@@ -12,7 +12,7 @@ defmodule ServiceRadar.Observability.NatsIngestNotifier do
   require Logger
 
   alias ServiceRadar.NATS.Connection
-  alias ServiceRadar.Observability.{LogPubSub, FlowPubSub}
+  alias ServiceRadar.Observability.{FlowPubSub, LogPubSub}
 
   @log_subject "logs.*.processed"
   @flow_subject "flows.*.processed"

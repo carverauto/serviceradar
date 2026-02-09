@@ -205,22 +205,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
       socket =
         if connected?(socket) do
-          cond do
-            !socket.assigns[:_initial_load_done] ->
-              # Initial page load — defer so the page shell renders immediately
-              send(self(), {:load_tab_data, tab, params, uri})
-              socket
-
-            tab != socket.assigns[:_loaded_tab] ->
-              # Tab switch — load synchronously for instant transition (no flash)
-              load_tab(socket, tab, params, uri)
-
-            true ->
-              # Same-tab query change (e.g. stat card click) — load async so the UI
-              # stays responsive. Current data remains visible until results arrive.
-              send(self(), {:load_tab_data, tab, params, uri})
-              socket
-          end
+          dispatch_tab_load(socket, tab, params, uri)
         else
           # Disconnected mount — skip entirely (static HTML is replaced by WebSocket)
           socket
@@ -5853,6 +5838,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:metrics_stats, empty_metrics_stats())
   end
 
+  defp dispatch_tab_load(socket, tab, params, uri) do
+    cond do
+      !socket.assigns[:_initial_load_done] ->
+        # Initial page load — defer so the page shell renders immediately
+        send(self(), {:load_tab_data, tab, params, uri})
+        socket
+
+      tab != socket.assigns[:_loaded_tab] ->
+        # Tab switch — load synchronously for instant transition (no flash)
+        load_tab(socket, tab, params, uri)
+
+      true ->
+        # Same-tab query change (e.g. stat card click) — load async so the UI
+        # stays responsive. Current data remains visible until results arrive.
+        send(self(), {:load_tab_data, tab, params, uri})
+        socket
+    end
+  end
+
   defp load_tab(socket, tab, params, uri) do
     {_entity, list_key} = tab_entity(tab)
     {default_limit, max_limit} = tab_limits(tab)
@@ -5936,22 +5940,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     if socket.assigns[:_summary_loaded] do
       socket.assigns.summary
     else
-      # Use the same simple call as the analytics page — no query-specific filters.
-      # The stat cards always show the overall 24h picture.
-      cagg_result = Stats.logs_severity(srql_module: srql_module, scope: scope)
+      fetch_log_summary(socket, srql_module, scope)
+    end
+  end
 
-      case cagg_result do
-        %{total: total} when total > 0 ->
-          cagg_result
+  defp fetch_log_summary(socket, srql_module, scope) do
+    # Use the same simple call as the analytics page — no query-specific filters.
+    # The stat cards always show the overall 24h picture.
+    cagg_result = Stats.logs_severity(srql_module: srql_module, scope: scope)
 
-        _ ->
-          # CAGG unavailable — schedule async count fetch
-          if connected?(socket) do
-            send(self(), {:load_log_summary_counts, srql_module, scope})
-          end
+    case cagg_result do
+      %{total: total} when total > 0 ->
+        cagg_result
 
-          %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
-      end
+      _ ->
+        # CAGG unavailable — schedule async count fetch
+        if connected?(socket) do
+          send(self(), {:load_log_summary_counts, srql_module, scope})
+        end
+
+        %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
     end
   end
 
