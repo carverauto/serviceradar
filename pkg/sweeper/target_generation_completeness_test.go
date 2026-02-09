@@ -46,7 +46,7 @@ func TestTargetGeneration_AllPortsForEveryIP(t *testing.T) {
 	targets := sweeper.createTargetsForIP(ip, config.SweepModes, nil)
 
 	// Should get: 1 ICMP + 5 TCP = 6 targets
-	assert.Equal(t, 6, len(targets),
+	assert.Len(t, targets, 6,
 		"Must generate 1 ICMP target + 1 TCP target per port (5 ports)")
 
 	// Verify ICMP target
@@ -87,10 +87,10 @@ func TestTargetGeneration_TCPOnlyMode(t *testing.T) {
 	targets := sweeper.createTargetsForIP("10.0.0.1", config.SweepModes, nil)
 
 	// Should get only TCP targets: 3 ports × 1 TCP = 3 targets
-	assert.Equal(t, 3, len(targets), "TCP-only mode should generate one target per port")
+	assert.Len(t, targets, 3, "TCP-only mode should generate one target per port")
 
 	icmpTargets := filterByMode(targets, models.ModeICMP)
-	assert.Len(t, icmpTargets, 0, "Should have no ICMP targets in TCP-only mode")
+	assert.Empty(t, icmpTargets, "Should have no ICMP targets in TCP-only mode")
 
 	tcpTargets := filterByMode(targets, models.ModeTCP)
 	assert.Len(t, tcpTargets, 3, "Should have one TCP target per configured port")
@@ -114,13 +114,13 @@ func TestTargetGeneration_ICMPOnlyMode(t *testing.T) {
 	targets := sweeper.createTargetsForIP("10.0.0.1", config.SweepModes, nil)
 
 	// ICMP only: 1 target
-	assert.Equal(t, 1, len(targets), "ICMP-only mode should generate exactly 1 target per IP")
+	assert.Len(t, targets, 1, "ICMP-only mode should generate exactly 1 target per IP")
 
 	icmpTargets := filterByMode(targets, models.ModeICMP)
 	assert.Len(t, icmpTargets, 1)
 
 	tcpTargets := filterByMode(targets, models.ModeTCP)
-	assert.Len(t, tcpTargets, 0, "Should have no TCP targets in ICMP-only mode")
+	assert.Empty(t, tcpTargets, "Should have no TCP targets in ICMP-only mode")
 }
 
 // TestTargetGeneration_AllModesIncludingTCPConnect verifies all three scan modes.
@@ -140,7 +140,7 @@ func TestTargetGeneration_AllModesIncludingTCPConnect(t *testing.T) {
 	targets := sweeper.createTargetsForIP("10.0.0.1", config.SweepModes, nil)
 
 	// 1 ICMP + 2 TCP + 2 TCPConnect = 5 targets
-	assert.Equal(t, 5, len(targets))
+	assert.Len(t, targets, 5)
 
 	icmpTargets := filterByMode(targets, models.ModeICMP)
 	tcpTargets := filterByMode(targets, models.ModeTCP)
@@ -269,7 +269,7 @@ func TestTargetGeneration_MultiIPDevice(t *testing.T) {
 	require.NoError(t, err)
 
 	// 3 IPs × (1 ICMP + 3 TCP) = 3 × 4 = 12 targets
-	assert.Equal(t, 12, len(targets),
+	assert.Len(t, targets, 12,
 		"3 IPs × (1 ICMP + 3 TCP ports) = 12 total targets")
 
 	// Verify each IP has all targets

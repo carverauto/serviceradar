@@ -18,7 +18,6 @@ package scan
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -30,23 +29,43 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+// listenTCP starts a TCP listener on a random port using the context-aware ListenConfig.
+func listenTCP(t *testing.T, ctx context.Context) net.Listener {
+	t.Helper()
+
+	lc := net.ListenConfig{}
+
+	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = ln.Close() })
+
+	return ln
+}
+
+// collectResults drains a result channel into a slice.
+func collectResults(ch <-chan models.Result) []models.Result {
+	results := make([]models.Result, 0)
+	for r := range ch {
+		results = append(results, r)
+	}
+
+	return results
+}
+
 // TestTCPScanner_AllPortsChecked verifies that every configured target is scanned.
 // This is a critical guarantee: if ports [22, 80, 443] are configured, all three
 // MUST be checked for every host, even if one succeeds early.
 func TestTCPScanner_AllPortsChecked(t *testing.T) {
 	t.Parallel()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	// Start listeners on multiple ports to have some succeed and some fail
 	ports := make([]int, 3)
-	listeners := make([]net.Listener, 3)
-
-	for i := 0; i < 3; i++ {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		require.NoError(t, err, "Failed to start test listener %d", i)
-
-		defer ln.Close()
-
-		listeners[i] = ln
+	for i := range 3 {
+		ln := listenTCP(t, ctx)
 		ports[i] = ln.Addr().(*net.TCPAddr).Port
 	}
 
@@ -75,20 +94,13 @@ func TestTCPScanner_AllPortsChecked(t *testing.T) {
 
 	scanner := NewTCPSweeper(2*time.Second, 10, logger.NewTestLogger())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	resultCh, err := scanner.Scan(ctx, targets)
 	require.NoError(t, err)
 
-	// Collect all results
-	results := make([]models.Result, 0, len(targets))
-	for r := range resultCh {
-		results = append(results, r)
-	}
+	results := collectResults(resultCh)
 
 	// CRITICAL: We must get exactly one result per target
-	assert.Equal(t, len(targets), len(results),
+	assert.Len(t, results, len(targets),
 		"Must get exactly one result per target - no targets should be skipped")
 
 	// Verify every target appears in results
@@ -125,10 +137,11 @@ func TestTCPScanner_AllPortsChecked(t *testing.T) {
 func TestTCPScanner_NoEarlyExitOnSuccess(t *testing.T) {
 	t.Parallel()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	// Start a listener on one port only
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
+	ln := listenTCP(t, ctx)
 
 	openPort := ln.Addr().(*net.TCPAddr).Port
 	closedPort1 := openPort + 10000 // very unlikely to be in use
@@ -143,19 +156,13 @@ func TestTCPScanner_NoEarlyExitOnSuccess(t *testing.T) {
 
 	scanner := NewTCPSweeper(2*time.Second, 10, logger.NewTestLogger())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	resultCh, err := scanner.Scan(ctx, targets)
 	require.NoError(t, err)
 
-	results := make([]models.Result, 0, 3)
-	for r := range resultCh {
-		results = append(results, r)
-	}
+	results := collectResults(resultCh)
 
 	// Must get ALL three results, not just the one that succeeded
-	assert.Equal(t, 3, len(results),
+	assert.Len(t, results, 3,
 		"Scanner must check ALL ports even after finding an open one")
 
 	// Verify we have results for each specific port
@@ -177,14 +184,12 @@ func TestTCPScanner_NoEarlyExitOnSuccess(t *testing.T) {
 func TestTCPScanner_LargePortList(t *testing.T) {
 	t.Parallel()
 
-	// Start listeners on 2 out of 20 ports
-	ln1, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln1.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
-	ln2, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln2.Close()
+	// Start listeners on 2 out of 20 ports
+	ln1 := listenTCP(t, ctx)
+	ln2 := listenTCP(t, ctx)
 
 	openPort1 := ln1.Addr().(*net.TCPAddr).Port
 	openPort2 := ln2.Addr().(*net.TCPAddr).Port
@@ -194,7 +199,7 @@ func TestTCPScanner_LargePortList(t *testing.T) {
 	targets = append(targets, models.Target{Host: "127.0.0.1", Port: openPort1, Mode: models.ModeTCP})
 	targets = append(targets, models.Target{Host: "127.0.0.1", Port: openPort2, Mode: models.ModeTCP})
 
-	for i := 0; i < 18; i++ {
+	for i := range 18 {
 		targets = append(targets, models.Target{
 			Host: "127.0.0.1",
 			Port: 29000 + i, // unlikely to be in use
@@ -204,18 +209,12 @@ func TestTCPScanner_LargePortList(t *testing.T) {
 
 	scanner := NewTCPSweeper(2*time.Second, 50, logger.NewTestLogger())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
 	resultCh, err := scanner.Scan(ctx, targets)
 	require.NoError(t, err)
 
-	results := make([]models.Result, 0, 20)
-	for r := range resultCh {
-		results = append(results, r)
-	}
+	results := collectResults(resultCh)
 
-	assert.Equal(t, 20, len(results),
+	assert.Len(t, results, 20,
 		"Must get results for ALL 20 ports - no port should be skipped")
 
 	// Count available vs unavailable
@@ -235,10 +234,11 @@ func TestTCPScanner_LargePortList(t *testing.T) {
 func TestTCPScanner_MultiHostAllPortsChecked(t *testing.T) {
 	t.Parallel()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	// Start a listener
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
+	ln := listenTCP(t, ctx)
 
 	openPort := ln.Addr().(*net.TCPAddr).Port
 	closedPort := openPort + 10000
@@ -261,20 +261,14 @@ func TestTCPScanner_MultiHostAllPortsChecked(t *testing.T) {
 
 	scanner := NewTCPSweeper(2*time.Second, 10, logger.NewTestLogger())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	resultCh, err := scanner.Scan(ctx, targets)
 	require.NoError(t, err)
 
-	results := make([]models.Result, 0, len(targets))
-	for r := range resultCh {
-		results = append(results, r)
-	}
+	results := collectResults(resultCh)
 
 	// Must get one result per target
-	assert.Equal(t, len(targets), len(results),
-		"Must get results for every host×port combination")
+	assert.Len(t, results, len(targets),
+		"Must get results for every host x port combination")
 
 	// Verify each host has results for each port
 	type hostPort struct {
@@ -293,7 +287,7 @@ func TestTCPScanner_MultiHostAllPortsChecked(t *testing.T) {
 		for _, port := range portsToCheck {
 			key := hostPort{host: host, port: port}
 			assert.True(t, seen[key],
-				fmt.Sprintf("Missing result for %s:%d - scanner skipped it!", host, port))
+				"Missing result for %s:%d - scanner skipped it!", host, port)
 		}
 	}
 }

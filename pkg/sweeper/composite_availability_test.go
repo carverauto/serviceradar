@@ -28,12 +28,36 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// TestCompositeAvailability_InMemoryStore tests the critical business rule:
-// A device is available if ANY check (ICMP or TCP on any port) succeeds.
-// This tests through the InMemoryStore which is the actual code path that
-// builds the host summary sent to the Elixir platform.
-func TestCompositeAvailability_InMemoryStore(t *testing.T) {
-	t.Parallel()
+const testHost = "192.168.1.1"
+
+// saveAndCheckAvailability is a test helper that prunes the store, saves the given results,
+// retrieves the sweep summary, and asserts the single host's availability matches wantAvailable.
+func saveAndCheckAvailability(
+	t *testing.T,
+	store Store,
+	ctx context.Context,
+	results []*models.Result,
+	wantAvailable bool,
+	msg string,
+) {
+	t.Helper()
+
+	require.NoError(t, store.PruneResults(ctx, 0))
+
+	for _, r := range results {
+		require.NoError(t, store.SaveResult(ctx, r))
+	}
+
+	summary, err := store.GetSweepSummary(ctx)
+	require.NoError(t, err)
+	require.Len(t, summary.Hosts, 1)
+
+	assert.Equal(t, wantAvailable, summary.Hosts[0].Available, msg)
+}
+
+// newTestStore creates an InMemoryStore configured for testing.
+func newTestStore(t *testing.T) Store {
+	t.Helper()
 
 	log := logger.NewTestLogger()
 	cfg := &models.Config{SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP}}
@@ -44,143 +68,71 @@ func TestCompositeAvailability_InMemoryStore(t *testing.T) {
 		t.Cleanup(func() { _ = closer.Close() })
 	}
 
+	return store
+}
+
+// TestCompositeAvailability_InMemoryStore tests the critical business rule:
+// A device is available if ANY check (ICMP or TCP on any port) succeeds.
+// This tests through the InMemoryStore which is the actual code path that
+// builds the host summary sent to the Elixir platform.
+func TestCompositeAvailability_InMemoryStore(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
 	ctx := context.Background()
-	host := "192.168.1.1"
 	now := time.Now()
 
 	t.Run("ICMP fails, TCP 22 fails, TCP 80 succeeds = device available", func(t *testing.T) {
-		// Clear previous results
-		require.NoError(t, store.PruneResults(ctx, 0))
-
-		// Save results: ICMP fail, TCP 22 fail, TCP 80 success
-		results := []*models.Result{
-			{Target: models.Target{Host: host, Mode: models.ModeICMP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 22, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 80, Mode: models.ModeTCP}, Available: true, LastSeen: now},
-		}
-
-		for _, r := range results {
-			require.NoError(t, store.SaveResult(ctx, r))
-		}
-
-		summary, err := store.GetSweepSummary(ctx)
-		require.NoError(t, err)
-		require.Len(t, summary.Hosts, 1)
-
-		assert.True(t, summary.Hosts[0].Available,
-			"Device must be available when TCP port 80 succeeds, even if ICMP and TCP 22 fail")
+		saveAndCheckAvailability(t, store, ctx, []*models.Result{
+			{Target: models.Target{Host: testHost, Mode: models.ModeICMP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 22, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 80, Mode: models.ModeTCP}, Available: true, LastSeen: now},
+		}, true, "Device must be available when TCP port 80 succeeds, even if ICMP and TCP 22 fail")
 	})
 
-	t.Run("ICMP fails, TCP 22 fails, TCP 80 fails, TCP 443 fails = device unavailable", func(t *testing.T) {
-		require.NoError(t, store.PruneResults(ctx, 0))
-
-		results := []*models.Result{
-			{Target: models.Target{Host: host, Mode: models.ModeICMP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 22, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 443, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-		}
-
-		for _, r := range results {
-			require.NoError(t, store.SaveResult(ctx, r))
-		}
-
-		summary, err := store.GetSweepSummary(ctx)
-		require.NoError(t, err)
-		require.Len(t, summary.Hosts, 1)
-
-		assert.False(t, summary.Hosts[0].Available,
-			"Device must be unavailable when all checks fail")
+	t.Run("all checks fail = device unavailable", func(t *testing.T) {
+		saveAndCheckAvailability(t, store, ctx, []*models.Result{
+			{Target: models.Target{Host: testHost, Mode: models.ModeICMP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 22, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 443, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+		}, false, "Device must be unavailable when all checks fail")
 	})
 
 	t.Run("ICMP succeeds, all TCP fails = device available", func(t *testing.T) {
-		require.NoError(t, store.PruneResults(ctx, 0))
-
-		results := []*models.Result{
-			{Target: models.Target{Host: host, Mode: models.ModeICMP}, Available: true, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 22, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 443, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-		}
-
-		for _, r := range results {
-			require.NoError(t, store.SaveResult(ctx, r))
-		}
-
-		summary, err := store.GetSweepSummary(ctx)
-		require.NoError(t, err)
-		require.Len(t, summary.Hosts, 1)
-
-		assert.True(t, summary.Hosts[0].Available,
-			"Device must be available when ICMP succeeds, even if all TCP ports fail")
+		saveAndCheckAvailability(t, store, ctx, []*models.Result{
+			{Target: models.Target{Host: testHost, Mode: models.ModeICMP}, Available: true, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 22, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 443, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+		}, true, "Device must be available when ICMP succeeds, even if all TCP ports fail")
 	})
 
 	t.Run("ICMP fails, one TCP out of many succeeds = device available", func(t *testing.T) {
-		require.NoError(t, store.PruneResults(ctx, 0))
-
-		// Simulate checking many ports where only one succeeds
-		results := []*models.Result{
-			{Target: models.Target{Host: host, Mode: models.ModeICMP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 22, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 443, Mode: models.ModeTCP}, Available: true, LastSeen: now}, // Only this succeeds
-			{Target: models.Target{Host: host, Port: 8080, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 8443, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-		}
-
-		for _, r := range results {
-			require.NoError(t, store.SaveResult(ctx, r))
-		}
-
-		summary, err := store.GetSweepSummary(ctx)
-		require.NoError(t, err)
-		require.Len(t, summary.Hosts, 1)
-
-		assert.True(t, summary.Hosts[0].Available,
-			"Device must be available when any single TCP port succeeds")
+		saveAndCheckAvailability(t, store, ctx, []*models.Result{
+			{Target: models.Target{Host: testHost, Mode: models.ModeICMP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 22, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 443, Mode: models.ModeTCP}, Available: true, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 8080, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 8443, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+		}, true, "Device must be available when any single TCP port succeeds")
 	})
 
 	t.Run("TCP-only mode, some ports succeed = device available", func(t *testing.T) {
-		require.NoError(t, store.PruneResults(ctx, 0))
-
-		// No ICMP at all, only TCP checks
-		results := []*models.Result{
-			{Target: models.Target{Host: host, Port: 22, Mode: models.ModeTCP}, Available: true, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 443, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-		}
-
-		for _, r := range results {
-			require.NoError(t, store.SaveResult(ctx, r))
-		}
-
-		summary, err := store.GetSweepSummary(ctx)
-		require.NoError(t, err)
-		require.Len(t, summary.Hosts, 1)
-
-		assert.True(t, summary.Hosts[0].Available,
-			"Device must be available in TCP-only mode when any port succeeds")
+		saveAndCheckAvailability(t, store, ctx, []*models.Result{
+			{Target: models.Target{Host: testHost, Port: 22, Mode: models.ModeTCP}, Available: true, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 443, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+		}, true, "Device must be available in TCP-only mode when any port succeeds")
 	})
 
 	t.Run("TCP-only mode, all ports fail = device unavailable", func(t *testing.T) {
-		require.NoError(t, store.PruneResults(ctx, 0))
-
-		results := []*models.Result{
-			{Target: models.Target{Host: host, Port: 22, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-			{Target: models.Target{Host: host, Port: 443, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-		}
-
-		for _, r := range results {
-			require.NoError(t, store.SaveResult(ctx, r))
-		}
-
-		summary, err := store.GetSweepSummary(ctx)
-		require.NoError(t, err)
-		require.Len(t, summary.Hosts, 1)
-
-		assert.False(t, summary.Hosts[0].Available,
-			"Device must be unavailable in TCP-only mode when all ports fail")
+		saveAndCheckAvailability(t, store, ctx, []*models.Result{
+			{Target: models.Target{Host: testHost, Port: 22, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+			{Target: models.Target{Host: testHost, Port: 443, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+		}, false, "Device must be unavailable in TCP-only mode when all ports fail")
 	})
 }
 
@@ -189,23 +141,15 @@ func TestCompositeAvailability_InMemoryStore(t *testing.T) {
 func TestCompositeAvailability_MultipleHosts(t *testing.T) {
 	t.Parallel()
 
-	log := logger.NewTestLogger()
-	cfg := &models.Config{SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP}}
-	processor := NewBaseProcessor(cfg, log)
-	store := NewInMemoryStore(processor, log, WithoutPreallocation(), WithCleanupInterval(0))
-
-	if closer, ok := store.(interface{ Close() error }); ok {
-		t.Cleanup(func() { _ = closer.Close() })
-	}
-
+	store := newTestStore(t)
 	ctx := context.Background()
 	now := time.Now()
 
 	require.NoError(t, store.PruneResults(ctx, 0))
 
-	// Host A: ICMP fails, TCP 80 succeeds → available
-	// Host B: all checks fail → unavailable
-	// Host C: ICMP succeeds, no TCP → available
+	// Host A: ICMP fails, TCP 80 succeeds -> available
+	// Host B: all checks fail -> unavailable
+	// Host C: ICMP succeeds, no TCP -> available
 	results := []*models.Result{
 		// Host A
 		{Target: models.Target{Host: "10.0.0.1", Mode: models.ModeICMP}, Available: false, LastSeen: now},
@@ -243,21 +187,12 @@ func TestCompositeAvailability_MultipleHosts(t *testing.T) {
 func TestCompositeAvailability_PruneResetsState(t *testing.T) {
 	t.Parallel()
 
-	log := logger.NewTestLogger()
-	cfg := &models.Config{SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP}}
-	processor := NewBaseProcessor(cfg, log)
-	store := NewInMemoryStore(processor, log, WithoutPreallocation(), WithCleanupInterval(0))
-
-	if closer, ok := store.(interface{ Close() error }); ok {
-		t.Cleanup(func() { _ = closer.Close() })
-	}
-
+	store := newTestStore(t)
 	ctx := context.Background()
-	host := "192.168.1.1"
 
 	// Sweep 1: device is available (ICMP succeeds)
 	require.NoError(t, store.SaveResult(ctx, &models.Result{
-		Target: models.Target{Host: host, Mode: models.ModeICMP}, Available: true, LastSeen: time.Now(),
+		Target: models.Target{Host: testHost, Mode: models.ModeICMP}, Available: true, LastSeen: time.Now(),
 	}))
 
 	summary, err := store.GetSweepSummary(ctx)
@@ -271,10 +206,10 @@ func TestCompositeAvailability_PruneResetsState(t *testing.T) {
 	// Sweep 2: device is unavailable (ICMP fails, no TCP succeeds)
 	now := time.Now()
 	require.NoError(t, store.SaveResult(ctx, &models.Result{
-		Target: models.Target{Host: host, Mode: models.ModeICMP}, Available: false, LastSeen: now,
+		Target: models.Target{Host: testHost, Mode: models.ModeICMP}, Available: false, LastSeen: now,
 	}))
 	require.NoError(t, store.SaveResult(ctx, &models.Result{
-		Target: models.Target{Host: host, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now,
+		Target: models.Target{Host: testHost, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now,
 	}))
 
 	summary, err = store.GetSweepSummary(ctx)
@@ -289,27 +224,18 @@ func TestCompositeAvailability_PruneResetsState(t *testing.T) {
 func TestCompositeAvailability_PortResultsConsistency(t *testing.T) {
 	t.Parallel()
 
-	log := logger.NewTestLogger()
-	cfg := &models.Config{SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP}}
-	processor := NewBaseProcessor(cfg, log)
-	store := NewInMemoryStore(processor, log, WithoutPreallocation(), WithCleanupInterval(0))
-
-	if closer, ok := store.(interface{ Close() error }); ok {
-		t.Cleanup(func() { _ = closer.Close() })
-	}
-
+	store := newTestStore(t)
 	ctx := context.Background()
-	host := "192.168.1.1"
 	now := time.Now()
 
 	require.NoError(t, store.PruneResults(ctx, 0))
 
 	// ICMP fails, TCP 22 succeeds, TCP 80 fails, TCP 443 succeeds
 	results := []*models.Result{
-		{Target: models.Target{Host: host, Mode: models.ModeICMP}, Available: false, LastSeen: now},
-		{Target: models.Target{Host: host, Port: 22, Mode: models.ModeTCP}, Available: true, LastSeen: now},
-		{Target: models.Target{Host: host, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
-		{Target: models.Target{Host: host, Port: 443, Mode: models.ModeTCP}, Available: true, LastSeen: now},
+		{Target: models.Target{Host: testHost, Mode: models.ModeICMP}, Available: false, LastSeen: now},
+		{Target: models.Target{Host: testHost, Port: 22, Mode: models.ModeTCP}, Available: true, LastSeen: now},
+		{Target: models.Target{Host: testHost, Port: 80, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+		{Target: models.Target{Host: testHost, Port: 443, Mode: models.ModeTCP}, Available: true, LastSeen: now},
 	}
 
 	for _, r := range results {
