@@ -104,6 +104,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         do: url_tab,
         else: socket.assigns.active_tab
 
+    # When only the tab changed on the same device, skip reloading all data
+    if uid == socket.assigns.device_uid and limit == socket.assigns.limit do
+      active_tab =
+        if requested_tab == "interfaces" and not socket.assigns.has_ifaces,
+          do: "details",
+          else: requested_tab
+
+      srql =
+        if active_tab == "interfaces" do
+          srql_for_tab("interfaces", uid, limit, socket.assigns.srql)
+        else
+          socket.assigns.srql
+        end
+
+      {:noreply,
+       socket
+       |> assign(:active_tab, active_tab)
+       |> assign(:srql, srql)}
+    else
+      load_device_data(socket, uid, limit, requested_tab, params, uri)
+    end
+  end
+
+  defp load_device_data(socket, uid, limit, requested_tab, params, uri) do
     default_query = default_device_query(uid, limit)
 
     query =
