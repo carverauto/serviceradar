@@ -78,6 +78,72 @@ PACKAGES = {
             "/etc/serviceradar/checkers/sweep/sweep.json",
         ],
     },
+    "core-elx": {
+        "package_name": "serviceradar-core-elx",
+        "description": "ServiceRadar Core Elixir service (core-elx)",
+        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+        "architecture": "amd64",
+        "section": "utils",
+        "priority": "optional",
+        "deb_depends": ["systemd"],
+        "rpm_requires": ["systemd"],
+        "rpm_tags": [],
+        "files": [
+            {
+                "src": "//elixir/serviceradar_core_elx:release_tar",
+                "dest": "/usr/local/share/serviceradar-core-elx/serviceradar-core-elx.tar.gz",
+                "mode": "0644",
+            },
+            {
+                "src": "config/core-elx.env",
+                "dest": "/etc/serviceradar/core-elx.env",
+                "mode": "0644",
+                "rpm_filetag": "config(noreplace)",
+            },
+        ],
+        "systemd": {
+            "src": "systemd/serviceradar-core-elx.service",
+            "dest": "/lib/systemd/system/serviceradar-core-elx.service",
+        },
+        "postinst": "scripts/postinstall.sh",
+        "prerm": "scripts/preremove.sh",
+        "conffiles": [
+            "/etc/serviceradar/core-elx.env",
+        ],
+    },
+    "agent-gateway": {
+        "package_name": "serviceradar-agent-gateway",
+        "description": "ServiceRadar Agent Gateway service (agent-gateway)",
+        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+        "architecture": "amd64",
+        "section": "utils",
+        "priority": "optional",
+        "deb_depends": ["systemd"],
+        "rpm_requires": ["systemd"],
+        "rpm_tags": [],
+        "files": [
+            {
+                "src": "//elixir/serviceradar_agent_gateway:release_tar",
+                "dest": "/usr/local/share/serviceradar-agent-gateway/serviceradar-agent-gateway.tar.gz",
+                "mode": "0644",
+            },
+            {
+                "src": "config/agent-gateway.env",
+                "dest": "/etc/serviceradar/agent-gateway.env",
+                "mode": "0644",
+                "rpm_filetag": "config(noreplace)",
+            },
+        ],
+        "systemd": {
+            "src": "systemd/serviceradar-agent-gateway.service",
+            "dest": "/lib/systemd/system/serviceradar-agent-gateway.service",
+        },
+        "postinst": "scripts/postinstall.sh",
+        "prerm": "scripts/preremove.sh",
+        "conffiles": [
+            "/etc/serviceradar/agent-gateway.env",
+        ],
+    },
     "datasvc": {
         "package_name": "serviceradar-datasvc",
         "description": "ServiceRadar Data Service (KV + object store)",
