@@ -717,8 +717,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     {:noreply, schedule_debounced_refresh(socket, "netflows")}
   end
 
+  @impl true
   def handle_info({:debounced_refresh, tab}, socket) do
-    socket = assign(socket, :_refresh_timer, nil)
+    timers = Map.delete(socket.assigns[:_refresh_timers] || %{}, tab)
+    socket = assign(socket, :_refresh_timers, timers)
     {:noreply, maybe_refresh_tab(socket, tab)}
   end
 
@@ -5895,12 +5897,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp schedule_debounced_refresh(socket, tab) do
-    # If a refresh timer is already pending, skip — it will fire soon
-    if socket.assigns[:_refresh_timer] do
+    timers = socket.assigns[:_refresh_timers] || %{}
+
+    # If a refresh timer is already pending for this tab, skip
+    if Map.has_key?(timers, tab) do
       socket
     else
       timer = Process.send_after(self(), {:debounced_refresh, tab}, @refresh_debounce_ms)
-      assign(socket, :_refresh_timer, timer)
+      assign(socket, :_refresh_timers, Map.put(timers, tab, timer))
     end
   end
 
