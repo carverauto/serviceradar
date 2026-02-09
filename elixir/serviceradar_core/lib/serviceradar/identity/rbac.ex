@@ -20,12 +20,24 @@ defmodule ServiceRadar.Identity.RBAC do
   def permissions_for_user(user, opts \\ [])
 
   def permissions_for_user(%User{} = user, opts) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:rbac))
+    key = {:rbac_permissions, user.id}
 
-    case effective_profile(user, actor) do
-      {:ok, %RoleProfile{permissions: permissions}} -> permissions
-      {:ok, nil} -> Catalog.permissions_for_role(user.role)
-      {:error, _} -> Catalog.permissions_for_role(user.role)
+    case Process.get(key) do
+      permissions when is_list(permissions) ->
+        permissions
+
+      nil ->
+        actor = Keyword.get(opts, :actor, SystemActor.system(:rbac))
+
+        permissions =
+          case effective_profile(user, actor) do
+            {:ok, %RoleProfile{permissions: permissions}} -> permissions
+            {:ok, nil} -> Catalog.permissions_for_role(user.role)
+            {:error, _} -> Catalog.permissions_for_role(user.role)
+          end
+
+        Process.put(key, permissions)
+        permissions
     end
   end
 
@@ -39,6 +51,15 @@ defmodule ServiceRadar.Identity.RBAC do
   end
 
   def permissions_for_user(_, _opts), do: []
+
+  @doc "Clears the process-level RBAC cache."
+  def clear_process_cache do
+    Process.get_keys()
+    |> Enum.each(fn
+      {:rbac_permissions, _} = key -> Process.delete(key)
+      _ -> :ok
+    end)
+  end
 
   @spec has_permission?(User.t() | map(), String.t(), keyword()) :: boolean()
   def has_permission?(user, permission, opts \\ []) do

@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
 
   alias ServiceRadar.Identity.User
 
-  defstruct user: nil
+  defstruct user: nil, permissions: nil
 
   @doc """
   Creates a scope for the given user.
@@ -29,18 +29,20 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   Returns a scope struct with the user, or nil user if not authenticated.
   The schema context is implicit from the PostgreSQL search_path.
   """
-  def for_user(user, _opts \\ [])
+  def for_user(user, opts \\ [])
 
-  def for_user(%User{} = user, _opts) do
-    %__MODULE__{user: user}
+  def for_user(%User{} = user, opts) do
+    permissions = Keyword.get(opts, :permissions)
+    %__MODULE__{user: user, permissions: permissions}
   end
 
   # Also accept map-like users (for backwards compatibility during transition)
-  def for_user(%{id: _, email: _} = user, _opts) do
-    %__MODULE__{user: user}
+  def for_user(%{id: _, email: _} = user, opts) do
+    permissions = Keyword.get(opts, :permissions)
+    %__MODULE__{user: user, permissions: permissions}
   end
 
-  def for_user(nil, _opts), do: %__MODULE__{user: nil}
+  def for_user(nil, _opts), do: %__MODULE__{user: nil, permissions: nil}
 
   @doc """
   Returns true if the user has admin role.
