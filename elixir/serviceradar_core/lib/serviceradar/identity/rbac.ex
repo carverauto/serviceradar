@@ -36,34 +36,32 @@ defmodule ServiceRadar.Identity.RBAC do
         permissions
 
       nil ->
-        # L2: Shared ETS cache
-        permissions =
-          case Cache.get(user.id) do
-            {:ok, %MapSet{} = cached} ->
-              cached
-
-            :miss ->
-              # L3: Database query
-              actor = Keyword.get(opts, :actor, SystemActor.system(:rbac))
-
-              perms =
-                case effective_profile(user, actor) do
-                  {:ok, %RoleProfile{permissions: permissions}} ->
-                    MapSet.new(permissions)
-
-                  {:ok, nil} ->
-                    Catalog.permissions_for_role(user.role)
-
-                  {:error, _} ->
-                    Catalog.permissions_for_role(user.role)
-                end
-
-              Cache.put(user.id, perms)
-              perms
-          end
-
+        permissions = fetch_cached_or_query(user, opts)
         Process.put(process_key, permissions)
         permissions
+    end
+  end
+
+  # L2: Shared ETS cache → L3: Database query
+  defp fetch_cached_or_query(user, opts) do
+    case Cache.get(user.id) do
+      {:ok, %MapSet{} = cached} ->
+        cached
+
+      :miss ->
+        perms = query_permissions(user, opts)
+        Cache.put(user.id, perms)
+        perms
+    end
+  end
+
+  defp query_permissions(user, opts) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:rbac))
+
+    case effective_profile(user, actor) do
+      {:ok, %RoleProfile{permissions: permissions}} -> MapSet.new(permissions)
+      {:ok, nil} -> Catalog.permissions_for_role(user.role)
+      {:error, _} -> Catalog.permissions_for_role(user.role)
     end
   end
 
