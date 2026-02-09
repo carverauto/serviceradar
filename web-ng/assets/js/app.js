@@ -712,18 +712,76 @@ const Hooks = {
 	        links.push({ source: nodeKey("mid", mid), target: nodeKey("dst", dst), value: bytes, edge: { src, dst, port, mid_field, mid_value } })
 	      }
 
-      const sankey = d3Sankey()
-        .nodeId((d) => d.id)
-        .nodeWidth(12)
-        .nodePadding(10)
-        .extent([[12, 10], [width - 12, height - 10]])
+	      const buildSankey = (nodeList, linkList) => {
+	        const sankey = d3Sankey()
+	          .nodeId((d) => d.id)
+	          .nodeWidth(12)
+	          .nodePadding(10)
+	          .extent([[12, 10], [width - 12, height - 10]])
 
-	      const graph = sankey({
-	        nodes: nodes.map((d) => ({ ...d })),
-	        links: links.map((d) => ({ ...d })),
-	      })
+	        return sankey({
+	          nodes: nodeList.map((d) => ({ ...d })),
+	          links: linkList.map((d) => ({ ...d })),
+	        })
+	      }
+
+	      // d3-sankey requires a DAG. In practice we only emit src->mid->dst edges, but if upstream
+	      // data ever produces a cycle (or the browser is running a stale bundle), degrade gracefully
+	      // to a 2-column sankey (src->dst aggregated across the middle).
+	      let graph
+	      let degraded = false
+	      try {
+	        graph = buildSankey(nodes, links)
+	      } catch (e) {
+	        const msg = String(e?.message || e || "")
+	        if (!msg.toLowerCase().includes("circular link")) throw e
+	        degraded = true
+
+	        // Aggregate to src->dst only.
+	        const nodeIds2 = new Map()
+	        const nodes2 = []
+	        const add2 = (id, group) => {
+	          if (!id) return
+	          const key = nodeKey(group, id)
+	          if (nodeIds2.has(key)) return
+	          nodeIds2.set(key, true)
+	          nodes2.push({ id: key, label: id, group })
+	        }
+
+	        const byPair = new Map()
+	        for (const e2 of edges) {
+	          const src2 = e2?.src
+	          const dst2 = e2?.dst
+	          const bytes2 = Number(e2?.bytes || 0)
+	          if (!src2 || !dst2 || !Number.isFinite(bytes2) || bytes2 <= 0) continue
+	          add2(src2, "src")
+	          add2(dst2, "dst")
+	          const key = `${nodeKey("src", src2)}|${nodeKey("dst", dst2)}`
+	          const cur = byPair.get(key) || 0
+	          byPair.set(key, cur + bytes2)
+	        }
+
+	        const links2 = []
+	        for (const [key, value] of byPair.entries()) {
+	          const [s, t] = key.split("|")
+	          if (!s || !t) continue
+	          links2.push({ source: s, target: t, value })
+	        }
+
+	        graph = buildSankey(nodes2, links2)
+	      }
 
       const g = d3.select(svg).append("g")
+	      if (degraded) {
+	        g.append("text")
+	          .attr("x", width - 12)
+	          .attr("y", height - 10)
+	          .attr("text-anchor", "end")
+	          .attr("font-size", 10)
+	          .attr("opacity", 0.6)
+	          .attr("fill", "currentColor")
+	          .text("Simplified (cycle detected)")
+	      }
 
 	      const color = d3.scaleOrdinal()
 	        .domain(["src", "mid", "dst"])
@@ -914,7 +972,17 @@ const Hooks = {
       const visibleKeys = keys.filter((k) => !this._hidden.has(k))
       if (visibleKeys.length === 0) return
 
-      const stack = d3.stack().keys(visibleKeys)
+      // Draw order matters: if the largest series is drawn last, it visually hides thin layers.
+      // Sort keys by descending total so big series go "under" smaller ones.
+      const keyTotals = new Map()
+      for (const k of visibleKeys) {
+        let sum = 0
+        for (const row of data) sum += Number(row?.[k] || 0)
+        keyTotals.set(k, sum)
+      }
+      const stackKeys = visibleKeys.slice().sort((a, b) => (keyTotals.get(b) || 0) - (keyTotals.get(a) || 0))
+
+      const stack = d3.stack().keys(stackKeys)
       const series = stack(data)
 
       const maxY = d3.max(series, (s) => d3.max(s, (d) => d[1])) || 1

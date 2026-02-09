@@ -38,6 +38,8 @@ This is an umbrella change that defines the target parity end-state and the deli
 - [ ] 5.1 Sankey auto-switch: if endpoint node-count explodes for `src_ip`/`dst_ip`, automatically switch to CIDR dims (preserve user intent; show toast)
 - [x] 5.2 Sankey top-talkers policy: Sankey defaults to top talkers (aggressive bucketing + edge cap) to keep charts readable
 - [x] 5.3 Dimensions UX: for Sankey, use 3 single-selects (Source/Middle/Destination) with no multi-select keyboard requirement
+- [x] 5.4 Sankey robustness: avoid \"circular link\" failures (namespaced node IDs, per-column \"Other\" labels, and a 2-column fallback render when cycles are detected)
+- [x] 5.5 Flow details resilience: ensure src/dst IP + MAC + OCSF subfields render even if SRQL results are atom-keyed maps (safe allowlist access; no atom leak)
 
 ## 4. Ongoing Program Hygiene
 - [x] 4.1 Keep `proposal.md` and `design.md` updated as phases are completed

@@ -72,7 +72,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
          :ok <- reject_unknown_tokens(tokens, parts),
          :ok <- validate_filter_fields(parts.entity, parts.filters),
          :ok <-
-           validate_downsample(parts.entity, parts.bucket, parts.agg, parts.value_field, parts.series) do
+           validate_downsample(
+             parts.entity,
+             parts.bucket,
+             parts.agg,
+             parts.value_field,
+             parts.series
+           ) do
       {:ok,
        %{
          "entity" => parts.entity,
@@ -630,7 +636,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   defp reject_unknown_tokens(tokens, parts) do
-    known_prefixes = ["in:", "time:", "bucket:", "agg:", "value_field:", "series:", "sort:", "limit:"]
+    known_prefixes = [
+      "in:",
+      "time:",
+      "bucket:",
+      "agg:",
+      "value_field:",
+      "series:",
+      "sort:",
+      "limit:"
+    ]
 
     unknown =
       Enum.reject(tokens, fn token ->

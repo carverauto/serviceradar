@@ -222,40 +222,49 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     # Edges involving "Other" are bucketed aggregates (not a concrete endpoint). SRQL doesn't
     # have a clean way to express "everything except top-N", so clicking these should not
     # navigate to an empty chart.
-    if src in ["Other", "Unknown"] or dst in ["Other", "Unknown"] do
+    src_bucketed =
+      is_binary(src) and (src in ["Other", "Unknown"] or String.starts_with?(src, "Other"))
+
+    dst_bucketed =
+      is_binary(dst) and (dst in ["Other", "Unknown"] or String.starts_with?(dst, "Other"))
+
+    if src_bucketed or dst_bucketed do
       {:noreply,
        socket
-       |> put_flash(:info, "This edge is bucketed as Other. Increase detail (or switch dims) to drill in.")}
+       |> put_flash(
+         :info,
+         "This edge is bucketed as Other. Increase detail (or switch dims) to drill in."
+       )}
     else
-    # IMPORTANT: The current SRQL query is a chart query (e.g. includes `stats:"..."`).
-    # Upserting filters into that string can accidentally match group-by expressions inside
-    # the quoted stats expression (e.g. `dst_cidr:24`) and corrupt the query.
-    #
-    # Instead:
-    # 1) derive a base flows query without chart tokens
-    # 2) apply filters to the base query
-    # 3) re-emit a chart query from the current visualize state
-    state = Map.get(socket.assigns, :netflow_viz_state, %{})
-    time = Map.get(state, "time", @default_time)
+      # IMPORTANT: The current SRQL query is a chart query (e.g. includes `stats:"..."`).
+      # Upserting filters into that string can accidentally match group-by expressions inside
+      # the quoted stats expression (e.g. `dst_cidr:24`) and corrupt the query.
+      #
+      # Instead:
+      # 1) derive a base flows query without chart tokens
+      # 2) apply filters to the base query
+      # 3) re-emit a chart query from the current visualize state
+      state = Map.get(socket.assigns, :netflow_viz_state, %{})
+      time = Map.get(state, "time", @default_time)
 
-    base =
-      socket.assigns.srql
-      |> Map.get(:query, "")
-      |> chart_base_query(time)
+      base =
+        socket.assigns.srql
+        |> Map.get(:query, "")
+        |> chart_base_query(time)
 
-    filtered_base =
-      base
-      |> apply_endpoint_filter(:src, src)
-      |> apply_endpoint_filter(:dst, dst)
-      |> apply_mid_filter(mid_field, mid_value, port)
+      filtered_base =
+        base
+        |> apply_endpoint_filter(:src, src)
+        |> apply_endpoint_filter(:dst, dst)
+        |> apply_mid_filter(mid_field, mid_value, port)
 
-    chart_query = chart_query_from_state(filtered_base, state)
+      chart_query = chart_query_from_state(filtered_base, state)
 
-    {:noreply,
-     push_patch(socket,
-       to:
-         build_patch_url(socket, %{"q" => chart_query, "cursor" => nil, "nf" => nf_param(state)})
-     )}
+      {:noreply,
+       push_patch(socket,
+         to:
+           build_patch_url(socket, %{"q" => chart_query, "cursor" => nil, "nf" => nf_param(state)})
+       )}
     end
   end
 
@@ -499,16 +508,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                           </div>
                         </div>
                       <% else %>
+                        <% primary = Map.get(@netflow_viz_state, "dims", []) |> List.wrap() |> List.first() %>
                         <select
                           name="state[dims][]"
-                          class="select select-bordered select-sm w-full font-mono text-xs h-28"
-                          multiple
+                          class="select select-bordered select-sm w-full font-mono text-xs"
                         >
                           <%= for {label, value} <- @nf_dims_ordered do %>
-                            <option
-                              value={value}
-                              selected={Enum.member?(Map.get(@netflow_viz_state, "dims", []), value)}
-                            >
+                            <option value={value} selected={primary == value}>
                               {label}
                             </option>
                           <% end %>
@@ -516,7 +522,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                       <% end %>
 
                       <div class="text-[11px] text-base-content/60">
-                        Time-series charts use the first selected dimension; Sankey uses source -> middle -> destination.
+                        Time-series charts group by the selected dimension; Sankey uses source -> middle -> destination.
                         Exporter/interface dimensions may appear as
                         <span class="font-mono">Unknown</span>
                         until the NetFlow cache refresh job populates metadata.
@@ -524,7 +530,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     </form>
 
                     <div
-                      :if={graph != "sankey" and length(Map.get(@netflow_viz_state, "dims", [])) > 0}
+                      :if={graph != "sankey" and length(Map.get(@netflow_viz_state, "dims", [])) > 1}
                       class="mt-2 space-y-1"
                     >
                       <div class="text-[11px] text-base-content/60">Order</div>
@@ -993,9 +999,19 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                 </div>
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">
-                <.ui_badge variant="ghost" size="xs" class="font-mono">
-                  {flow_get(flow, ["protocol_group", "protocol_name", "proto"]) || "—"}
-                </.ui_badge>
+                <% proto = flow_get(flow, ["protocol_group", "protocol_name", "proto"]) || "—" %>
+                <% app = flow_app_label(flow) %>
+                <div class="flex flex-col items-end gap-0.5 leading-tight">
+                  <.ui_badge variant="ghost" size="xs" class="font-mono">
+                    {proto}
+                  </.ui_badge>
+                  <div
+                    :if={is_binary(app) and String.trim(app) != "" and app != "unknown"}
+                    class="text-[10px] text-base-content/60 font-mono"
+                  >
+                    {app}
+                  </div>
+                </div>
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">
                 <% packets = flow_get(flow, ["packets_total", "packets"]) %>
@@ -1074,12 +1090,45 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
   defp flow_get(nil, _keys), do: nil
 
+  # SRQL results are typically JSON maps with string keys, but some code paths can hand us
+  # atom-keyed maps (e.g. if decoded/normalized elsewhere). Avoid `String.to_atom/1` here
+  # (atom leak); instead, use a fixed allowlist of atoms that exist at compile time.
+  @flow_key_atoms [
+    :time,
+    :timestamp,
+    :src_endpoint_ip,
+    :dst_endpoint_ip,
+    :src_ip,
+    :dst_ip,
+    :src_endpoint_port,
+    :dst_endpoint_port,
+    :src_port,
+    :dst_port,
+    :protocol_name,
+    :protocol_group,
+    :proto,
+    :protocol_num,
+    :tcp_flags,
+    :packets_total,
+    :packets,
+    :bytes_total,
+    :bytes,
+    :bytes_in,
+    :bytes_out,
+    :sampler_address,
+    :src_country_iso2,
+    :dst_country_iso2,
+    :ocsf_payload,
+    :ocsf
+  ]
+
+  @flow_key_atom_map Map.new(@flow_key_atoms, fn a -> {Atom.to_string(a), a} end)
+
   defp flow_get(flow, keys) when is_map(flow) and is_list(keys) do
     Enum.find_value(keys, fn k ->
       Map.get(flow, k) ||
-        try do
-          Map.get(flow, String.to_existing_atom(k))
-        rescue
+        case Map.get(@flow_key_atom_map, k) do
+          a when is_atom(a) -> Map.get(flow, a)
           _ -> nil
         end
     end)
@@ -1088,6 +1137,50 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       v -> v
     end
   end
+
+  defp flow_get_in(map, path) when is_map(map) and is_list(path) do
+    Enum.reduce_while(path, map, fn key, acc ->
+      case flow_map_get(acc, key) do
+        nil -> {:halt, nil}
+        v -> {:cont, v}
+      end
+    end)
+  end
+
+  defp flow_get_in(_map, _path), do: nil
+
+  defp flow_map_get(%{} = acc, key) when is_atom(key) do
+    Map.get(acc, key) || Map.get(acc, Atom.to_string(key))
+  end
+
+  defp flow_map_get(%{} = acc, key) when is_binary(key) do
+    Map.get(acc, key) ||
+      case Map.get(@flow_key_atom_map, key) do
+        a when is_atom(a) -> Map.get(acc, a)
+        _ -> nil
+      end
+  end
+
+  defp flow_map_get(%{} = acc, key), do: Map.get(acc, key)
+  defp flow_map_get(_acc, _key), do: nil
+
+  defp flow_app_label(flow) when is_map(flow) do
+    # Prefer any computed/app-labeled field if present, otherwise use a small pragmatic mapping
+    # for common ports so the flows table shows useful L7 hints.
+    flow_get(flow, ["app", "app_label"]) ||
+      case to_int(flow_get(flow, ["dst_endpoint_port", "dst_port"])) do
+        53 -> "dns"
+        80 -> "http"
+        443 -> "https"
+        22 -> "ssh"
+        123 -> "ntp"
+        _ -> "unknown"
+      end
+  rescue
+    _ -> "unknown"
+  end
+
+  defp flow_app_label(_), do: "unknown"
 
   defp iso2_flag_emoji(nil), do: nil
 
@@ -1544,12 +1637,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           flow_get(@flow, ["dst_country_iso2"]) ||
             (is_map(dst_geo) && Map.get(dst_geo, :country_iso2)) %>
         <% ocsf = flow_get(@flow, ["ocsf_payload"]) || %{} %>
-        <% src_if_uid = get_in(ocsf, ["src_endpoint", "interface_uid"]) %>
-        <% dst_if_uid = get_in(ocsf, ["dst_endpoint", "interface_uid"]) %>
-        <% src_mac = get_in(ocsf, ["unmapped", "src_mac"]) %>
-        <% dst_mac = get_in(ocsf, ["unmapped", "dst_mac"]) %>
+        <% src_if_uid = flow_get_in(ocsf, ["src_endpoint", "interface_uid"]) %>
+        <% dst_if_uid = flow_get_in(ocsf, ["dst_endpoint", "interface_uid"]) %>
+        <% src_mac = flow_get_in(ocsf, ["unmapped", "src_mac"]) %>
+        <% dst_mac = flow_get_in(ocsf, ["unmapped", "dst_mac"]) %>
         <% sampler =
-          flow_get(@flow, ["sampler_address"]) || get_in(ocsf, ["observables", Access.at(0), "value"]) %>
+          flow_get(@flow, ["sampler_address"]) ||
+            flow_get_in(ocsf, ["observables"])
+            |> case do
+              [%{} = first | _] -> flow_get(first, ["value"]) || flow_get(first, ["name"])
+              _ -> nil
+            end %>
         <% mapbox = Map.get(@context, :mapbox) %>
         <% map_markers = netflow_map_markers(@context, @flow) %>
 
@@ -2484,8 +2582,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       edges
       |> Enum.map(fn
         %{src: src, dst: dst} = e ->
-          src = if src in top_src_set, do: src, else: "Other"
-          dst = if dst in top_dst_set, do: dst, else: "Other"
+          # Use per-column "Other" labels to avoid Sankey cycles when labels collide across columns.
+          src = if src in top_src_set, do: src, else: "Other (src)"
+          dst = if dst in top_dst_set, do: dst, else: "Other (dst)"
           %{e | src: src, dst: dst}
 
         other ->
