@@ -47,7 +47,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      socket
      |> assign(:page_title, "Observability")
      |> assign(:active_tab, "logs")
-     |> assign(:tab_loading, false)
      |> assign(:logs, [])
      |> assign(:traces, [])
      |> assign(:metrics, [])
@@ -140,8 +139,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
       {:noreply, push_navigate(socket, to: to)}
     else
-      {entity, _list_key} = tab_entity(tab)
-      {default_limit, _max_limit} = tab_limits(tab)
+      {entity, list_key} = tab_entity(tab)
+      {default_limit, max_limit} = tab_limits(tab)
+      params = maybe_default_netflows_query(params, tab)
       netflow_compact? = truthy_param?(Map.get(params, "compact"))
       netflow_talker_cidr = parse_netflow_talker_cidr(Map.get(params, "talker_cidr"))
       netflow_compare_mode = parse_netflow_compare_mode(Map.get(params, "compare"))
@@ -149,12 +149,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       netflow_sankey_prefix = parse_netflow_sankey_prefix(Map.get(params, "sankey_prefix"))
       netflow_stack_mode = parse_netflow_stack_mode(Map.get(params, "stack"))
 
-      # Set the tab and empty state immediately so the page shell renders fast.
-      # Heavy data loading is deferred to handle_info via :load_tab_data.
       socket =
         socket
         |> assign(:active_tab, tab)
-        |> assign(:tab_loading, true)
         |> assign(:logs, [])
         |> assign(:traces, [])
         |> assign(:metrics, [])
@@ -187,9 +184,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
         |> assign(:netflow_stack_mode, netflow_stack_mode)
         |> ensure_srql_entity(entity, default_limit)
+        |> SRQLPage.load_list(params, uri, list_key,
+          default_limit: default_limit,
+          max_limit: max_limit
+        )
 
-      # Defer data loading so tabs and page shell render immediately
-      send(self(), {:load_tab_data, tab, params, uri})
+      socket =
+        socket
+        |> apply_tab_assigns(tab, srql_module())
+        |> stream_active_tab(tab)
 
       {:noreply, socket}
     end
@@ -651,29 +654,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp read_port_anomaly(_user, _port), do: nil
 
   @impl true
-  def handle_info({:load_tab_data, tab, params, uri}, socket) do
-    # Only load if the tab hasn't changed since we scheduled this
-    if socket.assigns.active_tab == tab do
-      {_entity, list_key} = tab_entity(tab)
-      {default_limit, max_limit} = tab_limits(tab)
-      params = maybe_default_netflows_query(params, tab)
-
-      socket =
-        socket
-        |> SRQLPage.load_list(params, uri, list_key,
-          default_limit: default_limit,
-          max_limit: max_limit
-        )
-        |> apply_tab_assigns(tab, srql_module())
-        |> stream_active_tab(tab)
-        |> assign(:tab_loading, false)
-
-      {:noreply, socket}
-    else
-      {:noreply, socket}
-    end
-  end
-
   def handle_info({:logs_ingested, _event}, socket) do
     {:noreply, maybe_refresh_tab(socket, "logs")}
   end
@@ -708,30 +688,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
           <.observability_tabs active={@active_tab} />
 
-          <div :if={@tab_loading} class="flex items-center justify-center py-12">
-            <span class="loading loading-spinner loading-lg text-primary"></span>
-          </div>
-
-          <.log_summary :if={not @tab_loading and @active_tab == "logs"} summary={@summary} />
-          <.event_summary
-            :if={not @tab_loading and @active_tab == "events"}
-            summary={@event_summary}
-          />
-          <.alert_summary
-            :if={not @tab_loading and @active_tab == "alerts"}
-            summary={@alert_summary}
-          />
+          <.log_summary :if={@active_tab == "logs"} summary={@summary} />
+          <.event_summary :if={@active_tab == "events"} summary={@event_summary} />
+          <.alert_summary :if={@active_tab == "alerts"} summary={@alert_summary} />
           <.traces_summary
-            :if={not @tab_loading and @active_tab == "traces"}
+            :if={@active_tab == "traces"}
             stats={@trace_stats}
             latency={@trace_latency}
           />
-          <.metrics_summary
-            :if={not @tab_loading and @active_tab == "metrics"}
-            stats={@metrics_stats}
-          />
+          <.metrics_summary :if={@active_tab == "metrics"} stats={@metrics_stats} />
           <.netflow_summary
-            :if={not @tab_loading and @active_tab == "netflows"}
+            :if={@active_tab == "netflows"}
             summary={@netflow_summary}
             top_talkers={@netflow_top_talkers}
             top_ports={@netflow_top_ports}
@@ -757,7 +724,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             talker_cidr={@netflow_talker_cidr}
           />
 
-          <.ui_panel :if={not @tab_loading}>
+          <.ui_panel>
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold">{panel_title(@active_tab)}</div>

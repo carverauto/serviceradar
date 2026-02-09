@@ -42,6 +42,21 @@ defmodule ServiceRadar.Identity.RBAC do
     end
   end
 
+  # Backward compat for map actors with pre-loaded permissions
+  def permissions_for_user(%{permissions: %MapSet{} = permissions}, _opts) do
+    permissions
+  end
+
+  def permissions_for_user(%{permissions: permissions}, _opts) when is_list(permissions) do
+    MapSet.new(permissions)
+  end
+
+  def permissions_for_user(%{role: role}, _opts) do
+    Catalog.permissions_for_role(role)
+  end
+
+  def permissions_for_user(_, _opts), do: MapSet.new()
+
   # L2: Shared ETS cache → L3: Database query
   defp fetch_cached_or_query(user, opts) do
     case Cache.get(user.id) do
@@ -64,20 +79,6 @@ defmodule ServiceRadar.Identity.RBAC do
       {:error, _} -> Catalog.permissions_for_role(user.role)
     end
   end
-
-  def permissions_for_user(%{permissions: %MapSet{} = permissions}, _opts) do
-    permissions
-  end
-
-  def permissions_for_user(%{permissions: permissions}, _opts) when is_list(permissions) do
-    MapSet.new(permissions)
-  end
-
-  def permissions_for_user(%{role: role}, _opts) do
-    Catalog.permissions_for_role(role)
-  end
-
-  def permissions_for_user(_, _opts), do: MapSet.new()
 
   @doc "Clears the process-level RBAC cache."
   def clear_process_cache do
