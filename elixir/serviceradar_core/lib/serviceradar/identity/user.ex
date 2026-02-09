@@ -215,10 +215,12 @@ defmodule ServiceRadar.Identity.User do
       accept [:role]
       require_atomic? false
       change ServiceRadar.Identity.Changes.DisallowLastAdminLockout
+      change ServiceRadar.Identity.Changes.InvalidateUserRbacCache
     end
 
     update :update_role_profile do
       accept [:role_profile_id]
+      change ServiceRadar.Identity.Changes.InvalidateUserRbacCache
     end
 
     update :change_password do

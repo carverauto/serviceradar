@@ -71,6 +71,9 @@ defmodule ServiceRadar.Application do
         # PubSub for cluster events (always needed)
         {Phoenix.PubSub, name: ServiceRadar.PubSub},
 
+        # RBAC permission cache (shared ETS, must start after PubSub)
+        ServiceRadar.Identity.RBAC.Cache,
+
         # Minimal HTTP client for background jobs (GeoLite downloads, optional ipinfo refresh)
         finch_child(),
 
@@ -162,6 +165,9 @@ defmodule ServiceRadar.Application do
 
         # Log promotion consumer for processed logs
         log_promotion_consumer_child(),
+
+        # NATS ingest notification → PubSub bridge (lightweight, no ack needed)
+        nats_ingest_notifier_child(),
 
         # EventWriter for NATS JetStream → CNPG consumption (optional)
         event_writer_child()
@@ -619,6 +625,14 @@ defmodule ServiceRadar.Application do
   defp log_promotion_consumer_child do
     if ServiceRadar.Observability.LogPromotionConsumer.enabled?() do
       ServiceRadar.Observability.LogPromotionConsumer
+    else
+      nil
+    end
+  end
+
+  defp nats_ingest_notifier_child do
+    if nats_enabled?() do
+      ServiceRadar.Observability.NatsIngestNotifier
     else
       nil
     end

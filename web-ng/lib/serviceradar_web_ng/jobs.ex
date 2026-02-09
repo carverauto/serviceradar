@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Jobs do
 
   alias Oban.Cron.Expression
   alias Oban.Job
+  alias ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker
   alias ServiceRadarWebNG.Jobs.Schedule
@@ -22,6 +23,17 @@ defmodule ServiceRadarWebNG.Jobs do
       label: "Trace summaries refresh",
       description: "Refresh the otel_trace_summaries materialized view.",
       worker: RefreshTraceSummariesWorker,
+      queue: :maintenance,
+      args: %{},
+      default_cron: "*/2 * * * *",
+      unique_period_seconds: 180
+    },
+    "refresh_logs_severity_stats" => %{
+      key: "refresh_logs_severity_stats",
+      label: "Logs severity stats refresh",
+      description:
+        "Refresh the logs_severity_stats_5m continuous aggregate to keep severity counts current.",
+      worker: RefreshLogsSeverityStatsWorker,
       queue: :maintenance,
       args: %{},
       default_cron: "*/2 * * * *",

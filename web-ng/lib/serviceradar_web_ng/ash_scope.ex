@@ -18,19 +18,19 @@ defimpl Ash.Scope.ToOpts, for: ServiceRadarWebNG.Accounts.Scope do
   @doc """
   Extract the actor (user) from the Scope.
   """
-  def get_actor(%{user: user, permissions: permissions}) when not is_nil(user) do
-    # If permissions are pre-loaded in scope, return an enriched actor map.
-    # This prevents Ash policies from triggering DB lookups for RBAC.
-    if is_list(permissions) do
-      actor =
-        user
-        |> Map.take([:id, :email, :role, :role_profile_id])
-        |> Map.put(:permissions, permissions)
+  def get_actor(%{user: user, permissions: %MapSet{} = permissions}) when not is_nil(user) do
+    # Permissions are pre-loaded as MapSet in scope — enrich the actor map
+    # so ActorHasPermission.match? can do O(1) MapSet.member? directly.
+    actor =
+      user
+      |> Map.take([:id, :email, :role, :role_profile_id])
+      |> Map.put(:permissions, permissions)
 
-      {:ok, actor}
-    else
-      {:ok, user}
-    end
+    {:ok, actor}
+  end
+
+  def get_actor(%{user: user}) when not is_nil(user) do
+    {:ok, user}
   end
 
   def get_actor(%{user: user}), do: {:ok, user}

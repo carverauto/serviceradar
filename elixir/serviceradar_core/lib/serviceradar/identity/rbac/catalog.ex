@@ -345,6 +345,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
     |> Enum.flat_map(& &1.permissions)
     |> Enum.filter(fn permission -> role in permission.default_roles end)
     |> Enum.map(& &1.key)
+    |> MapSet.new()
   end
 
   def permissions_for_role(role) when is_binary(role) do
@@ -352,7 +353,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
     |> String.to_existing_atom()
     |> permissions_for_role()
   rescue
-    ArgumentError -> []
+    ArgumentError -> MapSet.new()
   end
 
   def system_profile_for_role(role) when is_atom(role) do

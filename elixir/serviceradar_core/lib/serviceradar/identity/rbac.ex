@@ -1,11 +1,19 @@
 defmodule ServiceRadar.Identity.RBAC do
   @moduledoc """
   RBAC evaluation helpers for role profiles.
+
+  Uses a two-tier permission cache:
+  - **L1**: Process dictionary (fastest, per-process)
+  - **L2**: Shared ETS table via `RBAC.Cache` (cross-process, TTL-based)
+  - **L3**: Database query via `effective_profile/2` (fallback)
+
+  Permissions are stored as `MapSet.t(String.t())` for O(1) membership checks.
   """
 
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
@@ -16,41 +24,61 @@ defmodule ServiceRadar.Identity.RBAC do
   @spec permission_keys() :: list(String.t())
   def permission_keys, do: Catalog.permission_keys()
 
-  @spec permissions_for_user(User.t() | map(), keyword()) :: list(String.t())
+  @spec permissions_for_user(User.t() | map(), keyword()) :: MapSet.t(String.t())
   def permissions_for_user(user, opts \\ [])
 
   def permissions_for_user(%User{} = user, opts) do
-    key = {:rbac_permissions, user.id}
+    process_key = {:rbac_permissions, user.id}
 
-    case Process.get(key) do
-      permissions when is_list(permissions) ->
+    # L1: Process dictionary (fastest)
+    case Process.get(process_key) do
+      %MapSet{} = permissions ->
         permissions
 
       nil ->
-        actor = Keyword.get(opts, :actor, SystemActor.system(:rbac))
-
-        permissions =
-          case effective_profile(user, actor) do
-            {:ok, %RoleProfile{permissions: permissions}} -> permissions
-            {:ok, nil} -> Catalog.permissions_for_role(user.role)
-            {:error, _} -> Catalog.permissions_for_role(user.role)
-          end
-
-        Process.put(key, permissions)
+        permissions = fetch_cached_or_query(user, opts)
+        Process.put(process_key, permissions)
         permissions
     end
   end
 
-  def permissions_for_user(%{permissions: permissions} = _user, _opts)
-      when is_list(permissions) do
+  # Backward compat for map actors with pre-loaded permissions
+  def permissions_for_user(%{permissions: %MapSet{} = permissions}, _opts) do
     permissions
   end
 
-  def permissions_for_user(%{role: role} = _user, _opts) do
+  def permissions_for_user(%{permissions: permissions}, _opts) when is_list(permissions) do
+    MapSet.new(permissions)
+  end
+
+  def permissions_for_user(%{role: role}, _opts) do
     Catalog.permissions_for_role(role)
   end
 
-  def permissions_for_user(_, _opts), do: []
+  def permissions_for_user(_, _opts), do: MapSet.new()
+
+  # L2: Shared ETS cache → L3: Database query
+  defp fetch_cached_or_query(user, opts) do
+    case Cache.get(user.id) do
+      {:ok, %MapSet{} = cached} ->
+        cached
+
+      :miss ->
+        perms = query_permissions(user, opts)
+        Cache.put(user.id, perms)
+        perms
+    end
+  end
+
+  defp query_permissions(user, opts) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:rbac))
+
+    case effective_profile(user, actor) do
+      {:ok, %RoleProfile{permissions: permissions}} -> MapSet.new(permissions)
+      {:ok, nil} -> Catalog.permissions_for_role(user.role)
+      {:error, _} -> Catalog.permissions_for_role(user.role)
+    end
+  end
 
   @doc "Clears the process-level RBAC cache."
   def clear_process_cache do
@@ -63,7 +91,44 @@ defmodule ServiceRadar.Identity.RBAC do
 
   @spec has_permission?(User.t() | map(), String.t(), keyword()) :: boolean()
   def has_permission?(user, permission, opts \\ []) do
-    permission in permissions_for_user(user, opts)
+    MapSet.member?(permissions_for_user(user, opts), permission)
+  end
+
+  @doc """
+  Broadcasts a cache invalidation for the given user ID.
+  Call this when a user's role or profile changes.
+  """
+  @spec invalidate_user_cache(String.t()) :: :ok
+  def invalidate_user_cache(user_id) when is_binary(user_id) do
+    Cache.invalidate(user_id)
+
+    if Process.whereis(ServiceRadar.PubSub) do
+      Phoenix.PubSub.broadcast(
+        ServiceRadar.PubSub,
+        "rbac:cache_invalidation",
+        {:rbac_cache_invalidate, user_id}
+      )
+    end
+
+    :ok
+  end
+
+  @doc """
+  Broadcasts a full cache invalidation (e.g. when a RoleProfile changes).
+  """
+  @spec invalidate_all_caches() :: :ok
+  def invalidate_all_caches do
+    Cache.invalidate_all()
+
+    if Process.whereis(ServiceRadar.PubSub) do
+      Phoenix.PubSub.broadcast(
+        ServiceRadar.PubSub,
+        "rbac:cache_invalidation",
+        {:rbac_cache_invalidate_all}
+      )
+    end
+
+    :ok
   end
 
   @spec effective_profile(User.t(), map()) :: {:ok, RoleProfile.t()} | {:error, term()}
