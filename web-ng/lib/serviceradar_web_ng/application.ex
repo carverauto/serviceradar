@@ -9,10 +9,6 @@ defmodule ServiceRadarWebNG.Application do
 
   @impl true
   def start(_type, _args) do
-    # Initialize OpenTelemetry
-    OpentelemetryPhoenix.setup(adapter: :cowboy2)
-    OpentelemetryLiveView.setup()
-
     # Auto-start distributed Erlang if not already running and cluster is enabled
     maybe_start_distribution()
 

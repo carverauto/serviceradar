@@ -87,13 +87,6 @@ defmodule ServiceRadarCore.MixProject do
       {:telemetry, "~> 1.0"},
       {:telemetry_metrics, "~> 1.0"},
 
-      # OpenTelemetry
-      {:opentelemetry, "~> 1.3"},
-      {:opentelemetry_api, "~> 1.2"},
-      {:opentelemetry_exporter, "~> 1.6"},
-      {:opentelemetry_ecto, "~> 1.1"},
-      {:ash_opentelemetry, "~> 0.2"},
-
       # Utilities
       {:jason, "~> 1.4"},
       {:ex_json_schema, "~> 0.10"},
