@@ -185,12 +185,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_stack_mode, netflow_stack_mode)
         |> ensure_srql_entity(entity, default_limit)
 
-      # Defer data loading so the page shell renders immediately.
-      # On disconnected mount we skip entirely (static HTML is replaced by WebSocket).
-      # On connected mount, data arrives via handle_info and hydrates in.
-      if connected?(socket) do
-        send(self(), {:load_tab_data, tab, params, uri})
-      end
+      socket =
+        if connected?(socket) do
+          if socket.assigns[:_initial_load_done] do
+            # Tab switch — load synchronously for instant transition (no empty-state flash)
+            socket
+            |> load_tab(tab, params, uri)
+          else
+            # Initial page load — defer so the page shell renders immediately
+            send(self(), {:load_tab_data, tab, params, uri})
+            socket
+          end
+        else
+          # Disconnected mount — skip entirely (static HTML is replaced by WebSocket)
+          socket
+        end
 
       {:noreply, socket}
     end
@@ -654,20 +663,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @impl true
   def handle_info({:load_tab_data, tab, params, uri}, socket) do
     if socket.assigns.active_tab == tab do
-      {_entity, list_key} = tab_entity(tab)
-      {default_limit, max_limit} = tab_limits(tab)
-      params = maybe_default_netflows_query(params, tab)
-
-      socket =
-        socket
-        |> SRQLPage.load_list(params, uri, list_key,
-          default_limit: default_limit,
-          max_limit: max_limit
-        )
-        |> apply_tab_assigns(tab, srql_module())
-        |> stream_active_tab(tab)
-
-      {:noreply, socket}
+      {:noreply, load_tab(socket, tab, params, uri)}
     else
       {:noreply, socket}
     end
@@ -5848,6 +5844,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:trace_stats, empty_trace_stats())
     |> assign(:trace_latency, empty_trace_latency())
     |> assign(:metrics_stats, empty_metrics_stats())
+  end
+
+  defp load_tab(socket, tab, params, uri) do
+    {_entity, list_key} = tab_entity(tab)
+    {default_limit, max_limit} = tab_limits(tab)
+    params = maybe_default_netflows_query(params, tab)
+
+    socket
+    |> SRQLPage.load_list(params, uri, list_key,
+      default_limit: default_limit,
+      max_limit: max_limit
+    )
+    |> apply_tab_assigns(tab, srql_module())
+    |> stream_active_tab(tab)
+    |> assign(:_initial_load_done, true)
   end
 
   defp maybe_refresh_tab(socket, tab) do
