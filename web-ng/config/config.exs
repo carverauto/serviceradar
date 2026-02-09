@@ -230,6 +230,29 @@ config :rustler, :tmp_dir, System.get_env("RUSTLER_TMPDIR") || System.tmp_dir!()
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# OpenTelemetry Configuration
+config :opentelemetry, :resource,
+  service: [
+    name: "serviceradar-web-ng",
+    namespace: "serviceradar"
+  ]
+
+config :opentelemetry, :processors,
+  otel_batch_processor: %{
+    exporter: {
+      :opentelemetry_exporter,
+      %{
+        endpoints: ["http://serviceradar-otel:4317"],
+        protocol: :grpc
+      }
+    }
+  }
+
+# Ash OpenTelemetry
+config :ash, :tracer, [
+  Ash.Tracer.OpenTelemetry
+]
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

@@ -104,6 +104,15 @@ defmodule ServiceRadarWebNG.MixProject do
       # Igniter - code generation and refactoring
       {:igniter, "~> 0.5", only: [:dev, :test]},
 
+      # OpenTelemetry
+      {:opentelemetry, "~> 1.3"},
+      {:opentelemetry_api, "~> 1.2"},
+      {:opentelemetry_exporter, "~> 1.6"},
+      {:opentelemetry_phoenix, "~> 1.1"},
+      {:opentelemetry_live_view, "~> 1.0.0-rc.4"},
+      {:opentelemetry_cowboy, "~> 0.2"},
+      {:ash_opentelemetry, "~> 0.2"},
+
       # Phoenix React Server - Server-side rendering for React components
       {:phoenix_react_server, "~> 0.7.3"}
     ]

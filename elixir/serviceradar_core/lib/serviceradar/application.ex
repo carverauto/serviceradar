@@ -53,6 +53,8 @@ defmodule ServiceRadar.Application do
 
   @impl true
   def start(_type, _args) do
+    OpentelemetryEcto.setup(:serviceradar_core, ServiceRadar.Repo)
+
     ensure_started(:telemetry)
     ensure_started(:ash_state_machine)
     ensure_started(:ssl)
