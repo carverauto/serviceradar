@@ -5908,21 +5908,29 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp maybe_load_log_summary(socket, srql_module, scope) do
-    current_query = Map.get(socket.assigns.srql, :query)
-    opts = build_summary_opts(current_query, srql_module, scope)
-    cagg_result = Stats.logs_severity(opts)
-
-    case cagg_result do
+    # If we already have a non-zero summary (from initial load or async fetch),
+    # keep it — don't block PubSub refreshes with another CAGG network call.
+    case socket.assigns[:summary] do
       %{total: total} when total > 0 ->
-        cagg_result
+        socket.assigns.summary
 
       _ ->
-        # CAGG unavailable — schedule async count fetch so handle_params isn't blocked
-        if connected?(socket) do
-          send(self(), {:load_log_summary_counts, srql_module, current_query, scope})
-        end
+        current_query = Map.get(socket.assigns.srql, :query)
+        opts = build_summary_opts(current_query, srql_module, scope)
+        cagg_result = Stats.logs_severity(opts)
 
-        %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
+        case cagg_result do
+          %{total: total} when total > 0 ->
+            cagg_result
+
+          _ ->
+            # CAGG unavailable — schedule async count fetch so handle_params isn't blocked
+            if connected?(socket) do
+              send(self(), {:load_log_summary_counts, srql_module, current_query, scope})
+            end
+
+            %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
+        end
     end
   end
 
