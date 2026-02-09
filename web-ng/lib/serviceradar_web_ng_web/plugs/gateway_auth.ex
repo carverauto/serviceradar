@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   """
 
   import Plug.Conn
+  import Phoenix.Controller, only: [put_flash: 3, redirect: 2]
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
@@ -72,7 +73,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
         end
 
       {:error, :no_token} ->
-        send_unauthorized(conn, "Gateway authentication required")
+        # Don't enforce here. The UI's normal auth guardrails (require_authenticated_user)
+        # will redirect to the login page. This plug's main job is to *establish*
+        # a user context when a gateway injects an identity token.
+        conn
     end
   end
 
@@ -381,9 +385,18 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   end
 
   defp send_unauthorized(conn, message) do
-    conn
-    |> put_resp_content_type("application/json")
-    |> send_resp(401, Jason.encode!(%{error: "unauthorized", message: message}))
-    |> halt()
+    case conn.private[:phoenix_format] do
+      "html" ->
+        conn
+        |> put_flash(:error, message)
+        |> redirect(to: "/users/log-in")
+        |> halt()
+
+      _ ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(401, Jason.encode!(%{error: "unauthorized", message: message}))
+        |> halt()
+    end
   end
 end
