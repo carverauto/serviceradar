@@ -508,7 +508,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                           </div>
                         </div>
                       <% else %>
-                        <% primary = Map.get(@netflow_viz_state, "dims", []) |> List.wrap() |> List.first() %>
+                        <% primary =
+                          Map.get(@netflow_viz_state, "dims", []) |> List.wrap() |> List.first() %>
                         <select
                           name="state[dims][]"
                           class="select select-bordered select-sm w-full font-mono text-xs"
