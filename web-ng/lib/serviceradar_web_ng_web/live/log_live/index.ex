@@ -149,52 +149,76 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       netflow_sankey_prefix = parse_netflow_sankey_prefix(Map.get(params, "sankey_prefix"))
       netflow_stack_mode = parse_netflow_stack_mode(Map.get(params, "stack"))
 
+      same_tab_query_change =
+        socket.assigns[:_initial_load_done] && tab == socket.assigns[:_loaded_tab]
+
+      # For same-tab query changes (stat card clicks), keep current data visible.
+      # For tab switches and initial loads, reset to empty defaults.
       socket =
-        socket
-        |> assign(:active_tab, tab)
-        |> assign(:logs, [])
-        |> assign(:traces, [])
-        |> assign(:metrics, [])
-        |> assign(:events, [])
-        |> assign(:alerts, [])
-        |> assign(:netflows, [])
-        |> assign(:selected_netflow, nil)
-        |> assign(:netflow_context, nil)
-        |> assign(:netflow_top_talkers, [])
-        |> assign(:netflow_top_ports, [])
-        |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
-        |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
-        |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
-        |> assign(:netflow_protocol_activity, %{
-          bucket_seconds: 300,
-          keys: [],
-          points: [],
-          colors: %{}
-        })
-        |> assign(:netflow_app_activity, %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
-        |> assign(:netflow_frequent_talkers_packets, [])
-        |> assign(:netflow_frequent_talkers_bytes, [])
-        |> assign(:netflow_rdns_map, %{})
-        |> assign(:netflow_compact?, netflow_compact?)
-        |> assign(:netflow_talker_cidr, netflow_talker_cidr)
-        |> assign(:netflow_compare_mode, netflow_compare_mode)
-        |> assign(:netflow_geo_side, netflow_geo_side)
-        |> assign(:netflow_geo_heatmap, [])
-        |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
-        |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
-        |> assign(:netflow_stack_mode, netflow_stack_mode)
-        |> ensure_srql_entity(entity, default_limit)
+        if same_tab_query_change do
+          socket
+          |> assign(:active_tab, tab)
+          |> assign(:netflow_compact?, netflow_compact?)
+          |> assign(:netflow_talker_cidr, netflow_talker_cidr)
+          |> assign(:netflow_compare_mode, netflow_compare_mode)
+          |> assign(:netflow_geo_side, netflow_geo_side)
+          |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
+          |> assign(:netflow_stack_mode, netflow_stack_mode)
+          |> ensure_srql_entity(entity, default_limit)
+        else
+          socket
+          |> assign(:active_tab, tab)
+          |> assign(:logs, [])
+          |> assign(:traces, [])
+          |> assign(:metrics, [])
+          |> assign(:events, [])
+          |> assign(:alerts, [])
+          |> assign(:netflows, [])
+          |> assign(:selected_netflow, nil)
+          |> assign(:netflow_context, nil)
+          |> assign(:netflow_top_talkers, [])
+          |> assign(:netflow_top_ports, [])
+          |> assign(:netflow_timeseries, %{bucket_seconds: 300, points: []})
+          |> assign(:netflow_timeseries_compare, %{bucket_seconds: 300, points: []})
+          |> assign(:netflow_timeseries_stacked, %{bucket_seconds: 300, points: []})
+          |> assign(:netflow_protocol_activity, %{
+            bucket_seconds: 300,
+            keys: [],
+            points: [],
+            colors: %{}
+          })
+          |> assign(:netflow_app_activity, %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
+          |> assign(:netflow_frequent_talkers_packets, [])
+          |> assign(:netflow_frequent_talkers_bytes, [])
+          |> assign(:netflow_rdns_map, %{})
+          |> assign(:netflow_compact?, netflow_compact?)
+          |> assign(:netflow_talker_cidr, netflow_talker_cidr)
+          |> assign(:netflow_compare_mode, netflow_compare_mode)
+          |> assign(:netflow_geo_side, netflow_geo_side)
+          |> assign(:netflow_geo_heatmap, [])
+          |> assign(:netflow_sankey_prefix, netflow_sankey_prefix)
+          |> assign(:netflow_sankey, %{edges: [], sources: [], mids: [], dests: []})
+          |> assign(:netflow_stack_mode, netflow_stack_mode)
+          |> ensure_srql_entity(entity, default_limit)
+        end
 
       socket =
         if connected?(socket) do
-          if socket.assigns[:_initial_load_done] do
-            # Tab switch — load synchronously for instant transition (no empty-state flash)
-            socket
-            |> load_tab(tab, params, uri)
-          else
-            # Initial page load — defer so the page shell renders immediately
-            send(self(), {:load_tab_data, tab, params, uri})
-            socket
+          cond do
+            not socket.assigns[:_initial_load_done] ->
+              # Initial page load — defer so the page shell renders immediately
+              send(self(), {:load_tab_data, tab, params, uri})
+              socket
+
+            tab != socket.assigns[:_loaded_tab] ->
+              # Tab switch — load synchronously for instant transition (no flash)
+              load_tab(socket, tab, params, uri)
+
+            true ->
+              # Same-tab query change (e.g. stat card click) — load async so the UI
+              # stays responsive. Current data remains visible until results arrive.
+              send(self(), {:load_tab_data, tab, params, uri})
+              socket
           end
         else
           # Disconnected mount — skip entirely (static HTML is replaced by WebSocket)
@@ -5860,6 +5884,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> apply_tab_assigns(tab, srql_module())
     |> stream_active_tab(tab)
     |> assign(:_initial_load_done, true)
+    |> assign(:_loaded_tab, tab)
   end
 
   defp maybe_refresh_tab(socket, tab) do
