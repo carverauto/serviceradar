@@ -139,8 +139,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
       {:noreply, push_navigate(socket, to: to)}
     else
-      {entity, list_key} = tab_entity(tab)
-      {default_limit, max_limit} = tab_limits(tab)
+      {entity, _list_key} = tab_entity(tab)
+      {default_limit, _max_limit} = tab_limits(tab)
       params = maybe_default_netflows_query(params, tab)
       netflow_compact? = truthy_param?(Map.get(params, "compact"))
       netflow_talker_cidr = parse_netflow_talker_cidr(Map.get(params, "talker_cidr"))
@@ -185,14 +185,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_stack_mode, netflow_stack_mode)
         |> ensure_srql_entity(entity, default_limit)
 
-      socket =
-        socket
-        |> SRQLPage.load_list(params, uri, list_key,
-          default_limit: default_limit,
-          max_limit: max_limit
-        )
-        |> apply_tab_assigns(tab, srql_module())
-        |> stream_active_tab(tab)
+      # Defer data loading so the page shell renders immediately.
+      # On disconnected mount we skip entirely (static HTML is replaced by WebSocket).
+      # On connected mount, data arrives via handle_info and hydrates in.
+      if connected?(socket) do
+        send(self(), {:load_tab_data, tab, params, uri})
+      end
 
       {:noreply, socket}
     end
@@ -654,6 +652,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp read_port_anomaly(_user, _port), do: nil
 
   @impl true
+  def handle_info({:load_tab_data, tab, params, uri}, socket) do
+    if socket.assigns.active_tab == tab do
+      {_entity, list_key} = tab_entity(tab)
+      {default_limit, max_limit} = tab_limits(tab)
+      params = maybe_default_netflows_query(params, tab)
+
+      socket =
+        socket
+        |> SRQLPage.load_list(params, uri, list_key,
+          default_limit: default_limit,
+          max_limit: max_limit
+        )
+        |> apply_tab_assigns(tab, srql_module())
+        |> stream_active_tab(tab)
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:load_log_summary_counts, srql_module, current_query, scope}, socket) do
     if socket.assigns.active_tab == "logs" do
       summary = load_summary_counts(srql_module, current_query, scope)
