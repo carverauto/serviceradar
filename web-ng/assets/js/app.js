@@ -1542,6 +1542,7 @@ const Hooks = {
     },
     updated() {
       this._initOrUpdate()
+      try { this._map?.resize() } catch (_e) {}
     },
     destroyed() {
       try {
@@ -1578,9 +1579,13 @@ const Hooks = {
         } catch (_e) {}
         this._map = null
         this._markers = []
+        this._showFallback(
+          !enabled ? "Maps are disabled" : "Mapbox access token not configured"
+        )
         return
       }
 
+      this._clearFallback()
       this._token = token
       this._styleLight = styleLight
       this._styleDark = styleDark
@@ -1601,9 +1606,18 @@ const Hooks = {
         this._map.addControl(new mapboxgl.NavigationControl({ showCompass: true }), "top-right")
 
         this._map.on("load", () => {
+          this._map.resize()
           this._syncMarkers()
           this._fitToMarkers()
           this._stampStyleUrl(style)
+        })
+
+        this._map.on("error", (e) => {
+          const msg = e?.error?.message || e?.message || "Unknown map error"
+          console.warn("[MapboxFlowMap] map error:", msg)
+          if (msg.includes("access token") || msg.includes("401") || msg.includes("403")) {
+            this._showFallback("Invalid Mapbox access token")
+          }
         })
       } else {
         if (mapboxgl.accessToken !== token) {
@@ -1788,6 +1802,24 @@ const Hooks = {
       )
 
       this._map.fitBounds(bounds, { padding: 28, duration: 250, maxZoom: 6 })
+    },
+    _showFallback(message) {
+      if (!this.el) return
+      let fb = this.el.querySelector("[data-map-fallback]")
+      if (!fb) {
+        fb = document.createElement("div")
+        fb.setAttribute("data-map-fallback", "")
+        fb.className =
+          "flex items-center justify-center h-full w-full text-xs text-base-content/50"
+        this.el.appendChild(fb)
+      }
+      fb.textContent = message
+      fb.style.display = ""
+    },
+    _clearFallback() {
+      if (!this.el) return
+      const fb = this.el.querySelector("[data-map-fallback]")
+      if (fb) fb.style.display = "none"
     },
   },
 
