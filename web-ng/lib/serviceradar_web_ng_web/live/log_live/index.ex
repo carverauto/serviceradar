@@ -5838,6 +5838,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     socket
     |> assign(:summary, summary)
+    |> assign(:_summary_loaded, true)
     |> assign(:event_summary, empty_event_summary())
     |> assign(:alert_summary, empty_alert_summary())
     |> assign(:netflow_summary, empty_netflow_summary())
@@ -5908,29 +5909,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp maybe_load_log_summary(socket, srql_module, scope) do
-    # If we already have a non-zero summary (from initial load or async fetch),
-    # keep it — don't block PubSub refreshes with another CAGG network call.
-    case socket.assigns[:summary] do
-      %{total: total} when total > 0 ->
-        socket.assigns.summary
+    # If we already attempted to load the summary (even if still 0 while async
+    # counts are pending), don't re-query on every handle_params/refresh call.
+    # The summary shows overall 24h breakdown — it doesn't change per-query.
+    if socket.assigns[:_summary_loaded] do
+      socket.assigns.summary
+    else
+      current_query = Map.get(socket.assigns.srql, :query)
+      opts = build_summary_opts(current_query, srql_module, scope)
+      cagg_result = Stats.logs_severity(opts)
 
-      _ ->
-        current_query = Map.get(socket.assigns.srql, :query)
-        opts = build_summary_opts(current_query, srql_module, scope)
-        cagg_result = Stats.logs_severity(opts)
+      case cagg_result do
+        %{total: total} when total > 0 ->
+          cagg_result
 
-        case cagg_result do
-          %{total: total} when total > 0 ->
-            cagg_result
+        _ ->
+          # CAGG unavailable — schedule async count fetch
+          if connected?(socket) do
+            send(self(), {:load_log_summary_counts, srql_module, current_query, scope})
+          end
 
-          _ ->
-            # CAGG unavailable — schedule async count fetch so handle_params isn't blocked
-            if connected?(socket) do
-              send(self(), {:load_log_summary_counts, srql_module, current_query, scope})
-            end
-
-            %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
-        end
+          %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
+      end
     end
   end
 
