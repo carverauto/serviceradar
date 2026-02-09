@@ -1835,7 +1835,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
                     <div
                       id="netflow-flow-map"
-                      class="h-72 w-full"
+                      class="relative h-72 w-full"
+                      style="min-height:18rem"
                       phx-hook="MapboxFlowMap"
                       data-enabled="true"
                       data-access-token={Map.get(mapbox, :access_token) || ""}

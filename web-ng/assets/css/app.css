@@ -18,6 +18,12 @@
 /* Mapbox GL JS styles (used for netflow flow details map). */
 @import "../node_modules/mapbox-gl/dist/mapbox-gl.css";
 
+/* Force Mapbox popups to use dark text — the default white background
+   inherits the page's light text color in dark mode themes. */
+.mapboxgl-popup-content {
+  color: #1e293b;
+}
+
 /* Custom themes defined as CSS variables - compatible with Tailwind v4 and daisyUI */
 :root, [data-theme="light"] {
   color-scheme: light;
