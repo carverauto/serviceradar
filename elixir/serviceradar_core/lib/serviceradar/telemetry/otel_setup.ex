@@ -136,7 +136,22 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
   end
 
   defp setup_log_handler do
-    if Code.ensure_loaded?(:otel_log_handler) do
+    cond do
+      not Code.ensure_loaded?(:otel_log_handler) ->
+        :ok
+
+      # `otel_log_handler` (from :opentelemetry_experimental) will attempt to call
+      # `otel_exporter_logs_otlp:export/3` when configured with the OTLP exporter.
+      # Some dependency sets include the handler but not the logs OTLP exporter,
+      # which results in noisy `undef` warnings at runtime.
+      not (Code.ensure_loaded?(:otel_exporter_logs_otlp) and function_exported?(:otel_exporter_logs_otlp, :export, 3)) ->
+        Logger.info(
+          "[OtelSetup] OTLP log exporter not available (missing otel_exporter_logs_otlp:export/3); skipping log handler registration"
+        )
+
+        :ok
+
+      true ->
       handler_config = %{
         config: %{
           exporter: {:opentelemetry_exporter, %{protocol: :grpc}}
