@@ -27,7 +27,8 @@ defmodule ServiceRadarAgentGateway.MixProject do
         :horde,
         :grpc,
         :ranch,
-        :opentelemetry
+        :opentelemetry,
+        :opentelemetry_experimental
       ],
       mod: {ServiceRadarAgentGateway.Application, []}
     ]

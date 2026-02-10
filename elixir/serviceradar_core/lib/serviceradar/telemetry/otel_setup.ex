@@ -4,7 +4,8 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
 
   The OTEL SDK and exporter are configured in each app's `config/runtime.exs`
   (which runs before any OTP applications start). This module handles attaching
-  telemetry event handlers for auto-instrumentation libraries (Phoenix, Ecto, Oban).
+  telemetry event handlers for auto-instrumentation libraries (Phoenix, Ecto, Oban)
+  and registering the OTLP log handler.
 
   ## Environment Variables
 
@@ -28,10 +29,11 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
   require Logger
 
   @doc """
-  Attaches telemetry event handlers for auto-instrumentation libraries.
+  Attaches telemetry event handlers for auto-instrumentation libraries
+  and registers the OTLP log handler.
 
   Call this in `Application.start/2`. The OTEL SDK is already configured
-  via `runtime.exs`; this only attaches telemetry handlers.
+  via `runtime.exs`; this attaches telemetry handlers and the log exporter.
 
   Options:
   - `:instrumentations` - List of instrumentation modules to set up.
@@ -57,6 +59,8 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
       setup_oban()
     end
 
+    setup_log_handler()
+
     :ok
   end
 
@@ -75,12 +79,14 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
     cert_dir = System.get_env("OTEL_CERT_DIR")
     cert_name = System.get_env("OTEL_CERT_NAME")
 
-    if cert_dir && cert_name do
+    with true <- is_binary(cert_dir) and cert_dir != "" and is_binary(cert_name) and cert_name != "" do
       ca_file = Path.join(cert_dir, "root.pem")
       cert_file = Path.join(cert_dir, "#{cert_name}.pem")
       key_file = Path.join(cert_dir, "#{cert_name}-key.pem")
 
-      if File.exists?(ca_file) and File.exists?(cert_file) and File.exists?(key_file) do
+      missing_files = missing_files([{ca_file, "CA"}, {cert_file, "cert"}, {key_file, "key"}])
+
+      if missing_files == [] do
         IO.puts("[OtelSetup] Using mTLS certs from #{cert_dir} (#{cert_name})")
 
         [
@@ -91,17 +97,15 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
         ]
       else
         missing =
-          [{ca_file, "CA"}, {cert_file, "cert"}, {key_file, "key"}]
-          |> Enum.reject(fn {f, _} -> File.exists?(f) end)
-          |> Enum.map(fn {f, label} -> "#{label}=#{f}" end)
-          |> Enum.join(", ")
+          Enum.map_join(missing_files, ", ", fn {f, label} -> "#{label}=#{f}" end)
 
         IO.puts("[OtelSetup] WARNING: Missing TLS files: #{missing}. Using verify_none.")
         [verify: :verify_none]
       end
     else
-      IO.puts("[OtelSetup] No OTEL_CERT_DIR/OTEL_CERT_NAME set, using verify_none for TLS")
-      [verify: :verify_none]
+      _ ->
+        IO.puts("[OtelSetup] No OTEL_CERT_DIR/OTEL_CERT_NAME set, using verify_none for TLS")
+        [verify: :verify_none]
     end
   end
 
@@ -131,10 +135,36 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
     end
   end
 
+  defp setup_log_handler do
+    if Code.ensure_loaded?(:otel_log_handler) do
+      handler_config = %{
+        config: %{
+          exporter: {:opentelemetry_exporter, %{protocol: :grpc}}
+        },
+        level: :info
+      }
+
+      case :logger.add_handler(:otel_log_handler, :otel_log_handler, handler_config) do
+        :ok ->
+          Logger.info("[OtelSetup] OTLP log handler registered")
+
+        {:error, {:already_exist, _}} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("[OtelSetup] Failed to register OTLP log handler: #{inspect(reason)}")
+      end
+    end
+  end
+
   defp telemetry_prefix(repo) do
     repo
     |> Module.split()
     |> Enum.map(&Macro.underscore/1)
     |> Enum.map(&String.to_atom/1)
+  end
+
+  defp missing_files(files) when is_list(files) do
+    Enum.reject(files, fn {f, _label} -> File.exists?(f) end)
   end
 end

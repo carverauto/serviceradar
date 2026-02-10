@@ -36,6 +36,7 @@ defmodule ServiceRadarCore.MixProject do
         :swoosh,
         :telemetry,
         :opentelemetry,
+        :opentelemetry_experimental,
         :ash_state_machine
       ],
       mod: {ServiceRadar.Application, []}
@@ -97,10 +98,14 @@ defmodule ServiceRadarCore.MixProject do
       {:opentelemetry_phoenix, "~> 2.0"},
       {:opentelemetry_bandit, "~> 0.2"},
       {:opentelemetry_ecto, "~> 1.2"},
-      {:opentelemetry_oban, "~> 1.1"},
+      {:opentelemetry_oban, path: "../vendor/opentelemetry_oban", override: true},
       # Override: opentelemetry_oban declares ~> 0.2 but works fine with 1.27;
       # upstream fix pending (open-telemetry/opentelemetry-erlang-contrib#528).
       {:opentelemetry_semantic_conventions, "~> 1.27", override: true},
+
+      # OTLP log export via OTP :logger handler
+      {:opentelemetry_experimental, "~> 0.5"},
+      {:opentelemetry_api_experimental, "~> 0.5"},
 
       # Utilities
       {:jason, "~> 1.4"},

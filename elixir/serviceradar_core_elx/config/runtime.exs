@@ -18,6 +18,12 @@ if otel_endpoint do
     otlp_protocol: :grpc,
     otlp_endpoint: otel_endpoint,
     ssl_options: ssl_opts
+
+  # Log exporter uses the same endpoint/protocol/TLS as traces
+  config :opentelemetry_experimental,
+    otlp_protocol: :grpc,
+    otlp_endpoint: otel_endpoint,
+    ssl_options: ssl_opts
 else
   # No endpoint configured — disable export to avoid connection errors
   config :opentelemetry,
