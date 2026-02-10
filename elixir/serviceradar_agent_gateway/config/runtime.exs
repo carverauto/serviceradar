@@ -15,7 +15,14 @@ if otel_endpoint do
 
   config :opentelemetry,
     span_processor: :batch,
-    traces_exporter: :otlp
+    traces_exporter:
+      {:serviceradar_otel_exporter_traces_otlp,
+       %{
+         rpc_timeout_ms: 10_000,
+         retry_max_attempts: 5,
+         retry_base_delay_ms: 200,
+         retry_max_delay_ms: 5_000
+       }}
 
   config :opentelemetry_exporter,
     otlp_protocol: :grpc,

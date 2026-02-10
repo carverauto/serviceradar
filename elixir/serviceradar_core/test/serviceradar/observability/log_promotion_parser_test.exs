@@ -61,4 +61,19 @@ defmodule ServiceRadar.Observability.LogPromotionParserTest do
     assert log.severity_number == 11
     assert %DateTime{} = log.timestamp
   end
+
+  test "parses otel processed payloads with char-code body arrays" do
+    payload =
+      Jason.encode!(%{
+        "body" => [84, 101, 115, 116],
+        "resource_attributes" => %{"service.name" => "serviceradar-core-elx"},
+        "severity_text" => "info",
+        "timestamp" => 1_770_095_683_000_000_000
+      })
+
+    [log] = LogPromotionParser.parse_payload(payload, "logs.otel.processed")
+
+    assert log.service_name == "serviceradar-core-elx"
+    assert log.body == "Test"
+  end
 end

@@ -3,9 +3,11 @@ package dbeventwriter
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -405,9 +407,58 @@ func firstString(entry map[string]interface{}, keys ...string) string {
 					return text
 				}
 			}
+
+			// OTEL logs can arrive with `body` encoded as a JSON array of char codes,
+			// e.g. [84,101,115,116] for "Test". Promote that into a string so we
+			// don't fall back to the NATS subject as the message body.
+			if text, ok := stringFromCharCodeArray(value); ok {
+				return text
+			}
 		}
 	}
 	return ""
+}
+
+func stringFromCharCodeArray(value interface{}) (string, bool) {
+	arr, ok := value.([]interface{})
+	if !ok || len(arr) == 0 {
+		return "", false
+	}
+
+	runes := make([]rune, 0, len(arr))
+	for _, elem := range arr {
+		var code int64
+		switch typed := elem.(type) {
+		case float64:
+			if typed != math.Trunc(typed) {
+				return "", false
+			}
+			code = int64(typed)
+		case json.Number:
+			n, err := typed.Int64()
+			if err != nil {
+				return "", false
+			}
+			code = n
+		case int:
+			code = int64(typed)
+		case int64:
+			code = typed
+		default:
+			return "", false
+		}
+
+		if code < 0 || code > int64(unicode.MaxRune) {
+			return "", false
+		}
+		runes = append(runes, rune(code))
+	}
+
+	text := strings.TrimSpace(string(runes))
+	if text == "" {
+		return "", false
+	}
+	return text, true
 }
 
 func parseFlexibleTime(value interface{}) (time.Time, bool) {

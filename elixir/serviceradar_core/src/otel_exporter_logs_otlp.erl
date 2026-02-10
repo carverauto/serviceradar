@@ -24,6 +24,10 @@
 -include_lib("kernel/include/logger.hrl").
 
 -define(DEFAULT_LOGS_PATH, "v1/logs").
+-define(DEFAULT_RPC_TIMEOUT_MS, 10000).
+-define(DEFAULT_RETRY_MAX_ATTEMPTS, 5).
+-define(DEFAULT_RETRY_BASE_DELAY_MS, 200).
+-define(DEFAULT_RETRY_MAX_DELAY_MS, 5000).
 
 -record(state, {channel :: term(),
                 httpc_profile :: atom() | undefined,
@@ -100,17 +104,20 @@ export(Logs, Resource, #state{protocol=http_protobuf,
             error;
         Address ->
             {Batch, HandlerConfig} = normalize_logs_arg(Logs),
-            RequestMap = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
+            RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
+            RequestMap = normalize_request_map(RequestMap0),
             Body = opentelemetry_exporter_logs_service_pb:encode_msg(RequestMap, export_logs_service_request),
             otel_exporter_otlp:export_http(Address, Headers, Body, Compression, SSLOptions, HttpcProfile)
     end;
 export(Logs, Resource, #state{protocol=grpc,
                               grpc_metadata=Metadata,
-                              channel=Channel}) ->
+                              channel=Channel,
+                              endpoints=Endpoints,
+                              compression=Compression}) ->
     {Batch, HandlerConfig} = normalize_logs_arg(Logs),
-    RequestMap = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
-    GrpcCtx = ctx:new(),
-    otel_exporter_otlp:export_grpc(GrpcCtx, opentelemetry_logs_service, Metadata, RequestMap, Channel);
+    RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
+    RequestMap = normalize_request_map(RequestMap0),
+    export_grpc_with_retry(opentelemetry_logs_service, Metadata, RequestMap, Channel, Endpoints, Compression);
 export(_Logs, _Resource, _State) ->
     {error, unimplemented}.
 
@@ -124,12 +131,243 @@ normalize_logs_arg(Batch) when is_map(Batch) ->
 normalize_logs_arg(_Other) ->
     {#{}, #{}}.
 
+%% `otel_otlp_common:to_any_value/1` encodes Erlang lists as arrays, which is
+%% usually correct but breaks log bodies because formatted logger messages are
+%% commonly charlists (e.g. "Hello" as [72,101,108,108,111]).
+%%
+%% Downstream processors (zen -> db-event-writer) expect `body` to be a string,
+%% so convert charlist-like any_value arrays back into OTLP `string_value`.
+normalize_request_map(#{resource_logs := ResourceLogs}=Req) when is_list(ResourceLogs) ->
+    Req#{resource_logs := [normalize_resource_log(RL) || RL <- ResourceLogs]};
+normalize_request_map(Req) ->
+    Req.
+
+normalize_resource_log(#{scope_logs := ScopeLogs}=RL) when is_list(ScopeLogs) ->
+    RL#{scope_logs := [normalize_scope_logs(SL) || SL <- ScopeLogs]};
+normalize_resource_log(RL) ->
+    RL.
+
+normalize_scope_logs(#{log_records := LogRecords}=SL) when is_list(LogRecords) ->
+    SL#{log_records := [normalize_log_record(LR) || LR <- LogRecords]};
+normalize_scope_logs(SL) ->
+    SL.
+
+normalize_log_record(#{body := AnyValue}=LR) when is_map(AnyValue) ->
+    LR#{body := normalize_any_value(AnyValue)};
+normalize_log_record(LR) ->
+    LR.
+
+normalize_any_value(#{value := {array_value, #{values := Values}}}=AnyValue) when is_list(Values) ->
+    case charlist_from_any_values(Values) of
+        {ok, Chars} ->
+            %% Use unicode conversion so non-ASCII survives.
+            Bin = unicode:characters_to_binary(Chars),
+            #{value => {string_value, Bin}};
+        error ->
+            AnyValue
+    end;
+normalize_any_value(AnyValue) ->
+    AnyValue.
+
+charlist_from_any_values(Values) ->
+    try
+        Chars = [I || #{value := {int_value, I}} <- Values],
+        case length(Chars) =:= length(Values) of
+            true ->
+                {ok, Chars};
+            false ->
+                error
+        end
+    catch
+        _:_ ->
+            error
+    end.
+
 %% @doc Shutdown the exporter.
-shutdown(#state{channel_pid=undefined}) ->
+shutdown(#state{channel=undefined}) ->
     ok;
-shutdown(#state{channel_pid=Pid}) ->
-    _ = grpcbox_channel:stop(Pid),
+shutdown(#state{channel=Channel}) ->
+    %% stop by channel name, not pid
+    try grpcbox_channel:stop(Channel, {shutdown, force_delete}) catch _:_ -> ok end,
     ok.
+
+%% Retry wrapper around grpcbox unary export.
+%% We intentionally implement this here (instead of relying on upstream exporter)
+%% because upstream currently surfaces transient errors (timeout/unavailable)
+%% without backoff, which makes rollouts noisy and can drop data.
+export_grpc_with_retry(GrpcServiceModule, Metadata, RequestMap, Channel, Endpoints, Compression) ->
+    export_grpc_with_retry(GrpcServiceModule,
+                           Metadata,
+                           RequestMap,
+                           Channel,
+                           Endpoints,
+                           Compression,
+                           ?DEFAULT_RETRY_MAX_ATTEMPTS,
+                           ?DEFAULT_RETRY_BASE_DELAY_MS,
+                           ?DEFAULT_RETRY_MAX_DELAY_MS,
+                           ?DEFAULT_RPC_TIMEOUT_MS).
+
+export_grpc_with_retry(_GrpcServiceModule, _Metadata, _RequestMap, _Channel, _Endpoints, _Compression,
+                       Attempts, _BaseDelay, _MaxDelay, _TimeoutMs)
+  when Attempts =< 0 ->
+    error;
+export_grpc_with_retry(GrpcServiceModule, Metadata, RequestMap, Channel, Endpoints, Compression,
+                       Attempts, BaseDelay, MaxDelay, TimeoutMs) ->
+    GrpcCtx = ctx:with_deadline_after(TimeoutMs, millisecond),
+    GrpcCtx1 = grpcbox_metadata:append_to_outgoing_ctx(GrpcCtx, Metadata),
+    Res = GrpcServiceModule:export(GrpcCtx1, RequestMap, #{channel => Channel}),
+    case Res of
+        {ok, _Response, _ResponseMetadata} ->
+            ok;
+        {error, {Status, _Message}, _TrailerMetadata} ->
+            maybe_retry_grpc({grpc_status, Status},
+                             fun() ->
+                                     export_grpc_with_retry(GrpcServiceModule,
+                                                            Metadata,
+                                                            RequestMap,
+                                                            Channel,
+                                                            Endpoints,
+                                                            Compression,
+                                                            Attempts - 1,
+                                                            next_delay(BaseDelay, MaxDelay),
+                                                            MaxDelay,
+                                                            TimeoutMs)
+                             end,
+                             Attempts,
+                             BaseDelay,
+                             Channel,
+                             Endpoints,
+                             Compression);
+        {http_error, {Status, _}, _} ->
+            maybe_retry_grpc({http_error, Status},
+                             fun() ->
+                                     export_grpc_with_retry(GrpcServiceModule,
+                                                            Metadata,
+                                                            RequestMap,
+                                                            Channel,
+                                                            Endpoints,
+                                                            Compression,
+                                                            Attempts - 1,
+                                                            next_delay(BaseDelay, MaxDelay),
+                                                            MaxDelay,
+                                                            TimeoutMs)
+                             end,
+                             Attempts,
+                             BaseDelay,
+                             Channel,
+                             Endpoints,
+                             Compression);
+        {error, Reason} ->
+            maybe_retry_grpc({export_error, Reason, Channel},
+                             fun() ->
+                                     export_grpc_with_retry(GrpcServiceModule,
+                                                            Metadata,
+                                                            RequestMap,
+                                                            Channel,
+                                                            Endpoints,
+                                                            Compression,
+                                                            Attempts - 1,
+                                                            next_delay(BaseDelay, MaxDelay),
+                                                            MaxDelay,
+                                                            TimeoutMs)
+                             end,
+                             Attempts,
+                             BaseDelay,
+                             Channel,
+                             Endpoints,
+                             Compression);
+        _ ->
+            error
+    end.
+
+maybe_retry_grpc(Reason, RetryFun, Attempts, DelayMs, Channel, Endpoints, Compression) ->
+    case retryable_reason(Reason) of
+        true when Attempts > 1 ->
+            _ = maybe_restart_channel(Reason, Channel, Endpoints, Compression),
+            %% add a tiny deterministic jitter to avoid stampedes during rollouts
+            Jitter = (erlang:phash2({self(), erlang:monotonic_time()}) rem 100),
+            timer:sleep(DelayMs + Jitter),
+            RetryFun();
+        _ ->
+            ?LOG_INFO("OTLP grpc export failed with error: ~p", [Reason]),
+            error
+    end.
+
+retryable_reason(timeout) -> true;
+retryable_reason({stream_down, _}) -> true;
+retryable_reason({error, {stream_down, _}}) -> true;
+retryable_reason({grpc_status, <<"UNAVAILABLE">>}) -> true;
+retryable_reason({grpc_status, <<"DEADLINE_EXCEEDED">>}) -> true;
+retryable_reason({grpc_status, <<"RESOURCE_EXHAUSTED">>}) -> true;
+retryable_reason({http_error, _}) -> true;
+retryable_reason(no_endpoints) -> true;
+retryable_reason(undefined_channel) -> true;
+retryable_reason({export_error, no_endpoints, _Channel}) -> true;
+retryable_reason({export_error, undefined_channel, _Channel}) -> true;
+retryable_reason({export_error, {error, no_endpoints}, _Channel}) -> true;
+retryable_reason({export_error, {error, undefined_channel}, _Channel}) -> true;
+retryable_reason(_) -> false.
+
+next_delay(Cur, Max) when Cur >= Max -> Max;
+next_delay(Cur, Max) ->
+    Next = Cur * 2,
+    case Next > Max of
+        true -> Max;
+        false -> Next
+    end.
+
+maybe_restart_channel({export_error, no_endpoints, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({export_error, undefined_channel, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({export_error, {error, no_endpoints}, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({export_error, {error, undefined_channel}, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({export_error, {stream_down, _}, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({export_error, {error, {stream_down, _}}, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel(no_endpoints, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel(undefined_channel, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({stream_down, _}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({error, {stream_down, _}}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({error, no_endpoints}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({error, undefined_channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel(_, _Channel, _Endpoints, _Compression) ->
+    ok.
+
+restart_channel(Channel, Endpoints, Compression) ->
+    %% grpcbox doesn't automatically repopulate its subchannel pool if the
+    %% underlying connections fail during startup. When that happens we get
+    %% `no_endpoints` and log export silently stops. Best-effort restart.
+    EndpointTuples = grpcbox_endpoints(Endpoints),
+    ChannelOpts = maps:merge(channel_opts(Compression), #{sync_start => true}),
+    ?LOG_INFO("OTLP grpc channel has no endpoints; restarting channel=~p endpoints=~p", [Channel, length(EndpointTuples)]),
+    %% Prefer a graceful shutdown so workers are removed cleanly.
+    try grpcbox_channel:stop(Channel, shutdown) catch _:_ -> ok end,
+    _ = grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts),
+    ok.
+
+channel_opts(undefined) -> #{};
+channel_opts(gzip) -> #{encoding => gzip};
+channel_opts(_) -> #{}.
+
+grpcbox_endpoints(Endpoints) ->
+    [{scheme(Scheme), Host, Port, maps:get(ssl_options, Endpoint, [])} ||
+        #{scheme := Scheme, host := Host, port := Port} = Endpoint <- Endpoints].
+
+scheme(<<"https">>) -> https;
+scheme(<<"http">>) -> http;
+scheme("https") -> https;
+scheme("http") -> http;
+scheme(_) -> http.
 
 merge_with_environment(Opts) ->
     %% See `otel_exporter_traces_otlp:merge_with_environment/1` for rationale.

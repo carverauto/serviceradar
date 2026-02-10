@@ -137,38 +137,41 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
 
   defp setup_log_handler do
     cond do
-      not Code.ensure_loaded?(:otel_log_handler) ->
+      not Code.ensure_loaded?(:serviceradar_otel_log_handler_v2) ->
+        Logger.warning(
+          "[OtelSetup] serviceradar_otel_log_handler_v2 module not available; skipping OTLP log handler registration"
+        )
+
         :ok
 
-      # `otel_log_handler` (from :opentelemetry_experimental) will attempt to call
-      # `otel_exporter_logs_otlp:export/3` when configured with the OTLP exporter.
-      # Some dependency sets include the handler but not the logs OTLP exporter,
-      # which results in noisy `undef` warnings at runtime.
       not (Code.ensure_loaded?(:otel_exporter_logs_otlp) and function_exported?(:otel_exporter_logs_otlp, :export, 3)) ->
-        Logger.info(
-          "[OtelSetup] OTLP log exporter not available (missing otel_exporter_logs_otlp:export/3); skipping log handler registration"
+        Logger.warning(
+          "[OtelSetup] OTLP log exporter not available (missing otel_exporter_logs_otlp:export/3); skipping OTLP log handler registration"
         )
 
         :ok
 
       true ->
-      handler_config = %{
-        config: %{
-          exporter: {:opentelemetry_exporter, %{protocol: :grpc}}
-        },
-        level: :info
-      }
+        handler_config = %{
+          config: %{
+            exporter: {:opentelemetry_exporter, %{protocol: :grpc}}
+          },
+          level: :info
+        }
 
-      case :logger.add_handler(:otel_log_handler, :otel_log_handler, handler_config) do
-        :ok ->
-          Logger.info("[OtelSetup] OTLP log handler registered")
+        # Use a local copy of the handler implementation. The upstream
+        # `otel_log_handler` can get stuck in the `exporting` state when a timer
+        # tick fires with an empty batch, which halts further log exporting.
+        case :logger.add_handler(:otel_log_handler, :serviceradar_otel_log_handler_v2, handler_config) do
+          :ok ->
+            Logger.info("[OtelSetup] OTLP log handler registered")
 
-        {:error, {:already_exist, _}} ->
-          :ok
+          {:error, {:already_exist, _}} ->
+            :ok
 
-        {:error, reason} ->
-          Logger.warning("[OtelSetup] Failed to register OTLP log handler: #{inspect(reason)}")
-      end
+          {:error, reason} ->
+            Logger.warning("[OtelSetup] Failed to register OTLP log handler: #{inspect(reason)}")
+        end
     end
   end
 
