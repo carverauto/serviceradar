@@ -57,7 +57,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
-    assert has_element?(view, "[data-testid='sysmon-profile-label']", "Unassigned")
+    # Badge should not render when no sysmon profile is assigned
+    refute has_element?(view, "[data-testid='sysmon-profile-label']")
   end
 
   test "shows deleted badge and restore action for deleted devices", %{conn: conn, user: user} do
