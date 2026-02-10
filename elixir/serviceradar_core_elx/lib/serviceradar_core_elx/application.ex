@@ -31,10 +31,8 @@ defmodule ServiceRadarCoreElx.Application do
   def start(_type, _args) do
     Logger.info("Starting ServiceRadar Core-ELX node: #{node()}")
 
-    # Configure OpenTelemetry SDK with OTLP exporter (must happen before spans are created)
-    ServiceRadar.Telemetry.OtelSetup.configure(
-      service_name: "serviceradar-core-elx",
-      service_version: "0.1.0",
+    # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
+    ServiceRadar.Telemetry.OtelSetup.attach_instrumentations(
       instrumentations: [:ecto, :oban],
       ecto_repo: ServiceRadar.Repo
     )

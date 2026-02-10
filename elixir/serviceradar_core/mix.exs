@@ -95,8 +95,12 @@ defmodule ServiceRadarCore.MixProject do
 
       # OpenTelemetry auto-instrumentation libraries
       {:opentelemetry_phoenix, "~> 2.0"},
+      {:opentelemetry_bandit, "~> 0.2"},
       {:opentelemetry_ecto, "~> 1.2"},
       {:opentelemetry_oban, "~> 1.1"},
+      # Override: opentelemetry_oban declares ~> 0.2 but works fine with 1.27;
+      # upstream fix pending (open-telemetry/opentelemetry-erlang-contrib#528).
+      {:opentelemetry_semantic_conventions, "~> 1.27", override: true},
 
       # Utilities
       {:jason, "~> 1.4"},

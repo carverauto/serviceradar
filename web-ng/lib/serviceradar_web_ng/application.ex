@@ -12,10 +12,8 @@ defmodule ServiceRadarWebNG.Application do
     # Auto-start distributed Erlang if not already running and cluster is enabled
     maybe_start_distribution()
 
-    # Configure OpenTelemetry SDK with OTLP exporter
-    ServiceRadar.Telemetry.OtelSetup.configure(
-      service_name: "serviceradar-web-ng",
-      service_version: "0.1.0",
+    # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
+    ServiceRadar.Telemetry.OtelSetup.attach_instrumentations(
       instrumentations: [:phoenix, :ecto],
       ecto_repo: ServiceRadar.Repo
     )

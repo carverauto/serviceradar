@@ -3,18 +3,21 @@ import Config
 # =============================================================================
 # OpenTelemetry Configuration
 # =============================================================================
-# OTEL SDK configuration is primarily driven by env vars read at runtime by
-# ServiceRadar.Telemetry.OtelSetup. We set the base Application env here so
-# the SDK starts in a usable state even before OtelSetup.configure/1 runs.
+# All OTEL exporter config MUST live here — runtime.exs runs before OTP apps
+# start, so the opentelemetry SDK picks up these values at boot.
+otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
 
-if System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT") do
+if otel_endpoint do
+  ssl_opts = ServiceRadar.Telemetry.OtelSetup.ssl_options()
+
   config :opentelemetry,
     span_processor: :batch,
     traces_exporter: :otlp
 
   config :opentelemetry_exporter,
     otlp_protocol: :grpc,
-    otlp_endpoint: System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+    otlp_endpoint: otel_endpoint,
+    ssl_options: ssl_opts
 else
   # No endpoint configured — disable export to avoid connection errors
   config :opentelemetry,

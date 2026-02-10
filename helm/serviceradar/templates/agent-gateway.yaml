@@ -44,6 +44,8 @@ spec:
           containerPort: {{ default 50052 $gateway.service.port }}
           protocol: TCP
         env:
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
         - name: GATEWAY_PARTITION_ID
           value: {{ default "default" $gateway.partitionId | quote }}
         - name: GATEWAY_ID

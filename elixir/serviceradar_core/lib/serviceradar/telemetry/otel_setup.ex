@@ -1,14 +1,16 @@
 defmodule ServiceRadar.Telemetry.OtelSetup do
   @moduledoc """
-  Shared OpenTelemetry configuration for ServiceRadar Elixir applications.
+  Shared OpenTelemetry instrumentation setup for ServiceRadar Elixir applications.
 
-  Configures the OpenTelemetry SDK with an OTLP/gRPC exporter targeting the
-  ServiceRadar OTEL collector. Supports mTLS via environment variables.
+  The OTEL SDK and exporter are configured in each app's `config/runtime.exs`
+  (which runs before any OTP applications start). This module handles attaching
+  telemetry event handlers for auto-instrumentation libraries (Phoenix, Ecto, Oban).
 
   ## Environment Variables
 
+  These are read in `runtime.exs` to configure the SDK:
   - `OTEL_EXPORTER_OTLP_ENDPOINT` - OTLP endpoint (e.g. `https://serviceradar-otel:4317`)
-  - `OTEL_SERVICE_NAME` - Override service name (optional, defaults to app-provided name)
+  - `OTEL_SERVICE_NAME` - Override service name
   - `OTEL_CERT_DIR` - Directory containing TLS certificates
   - `OTEL_CERT_NAME` - Certificate name prefix (e.g. `core` for `core.pem`, `core-key.pem`)
   - `OTEL_ENABLED` - Set to `false` to disable OTEL export (default: `true`)
@@ -17,181 +19,33 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
   ## Usage
 
       # In your Application.start/2:
-      ServiceRadar.Telemetry.OtelSetup.configure(
-        service_name: "serviceradar-core-elx",
-        service_version: "0.1.0"
+      ServiceRadar.Telemetry.OtelSetup.attach_instrumentations(
+        instrumentations: [:phoenix, :ecto, :oban],
+        ecto_repo: ServiceRadar.Repo
       )
   """
 
   require Logger
 
   @doc """
-  Configures the OpenTelemetry SDK for the calling application.
+  Attaches telemetry event handlers for auto-instrumentation libraries.
+
+  Call this in `Application.start/2`. The OTEL SDK is already configured
+  via `runtime.exs`; this only attaches telemetry handlers.
 
   Options:
-  - `:service_name` - Required. The OTEL service.name resource attribute.
-  - `:service_version` - Optional. The service.version resource attribute.
-  - `:instrumentations` - Optional. List of instrumentation modules to set up.
+  - `:instrumentations` - List of instrumentation modules to set up.
     Supported: `:phoenix`, `:ecto`, `:oban`. Defaults to `[]`.
-  - `:ecto_repo` - Required when `:ecto` is in instrumentations. The Ecto repo module.
+  - `:phoenix_adapter` - `:bandit` (default) or `:cowboy2`.
+  - `:ecto_repo` - Required when `:ecto` is in instrumentations.
   """
-  @spec configure(keyword()) :: :ok
-  def configure(opts) do
-    if enabled?() do
-      service_name =
-        System.get_env("OTEL_SERVICE_NAME") ||
-          Keyword.fetch!(opts, :service_name)
-
-      service_version = Keyword.get(opts, :service_version, "0.1.0")
-
-      configure_resource(service_name, service_version)
-      configure_exporter()
-      setup_instrumentations(opts)
-
-      Logger.info(
-        "[OtelSetup] OpenTelemetry configured for #{service_name} " <>
-          "-> #{endpoint()}"
-      )
-    else
-      Logger.info("[OtelSetup] OpenTelemetry export disabled (OTEL_ENABLED=false or no endpoint)")
-    end
-
-    :ok
-  end
-
-  @doc """
-  Returns true if OTEL export is enabled and an endpoint is configured.
-  """
-  @spec enabled?() :: boolean()
-  def enabled? do
-    case System.get_env("OTEL_ENABLED", "true") do
-      val when val in ["false", "0", "no"] -> false
-      _ -> endpoint() != nil
-    end
-  end
-
-  # ============================================================================
-  # Private
-  # ============================================================================
-
-  defp endpoint do
-    System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
-  end
-
-  defp configure_resource(service_name, service_version) do
-    env = System.get_env("OTEL_DEPLOYMENT_ENVIRONMENT", "production")
-
-    # The opentelemetry SDK reads OTEL_RESOURCE_ATTRIBUTES env var automatically,
-    # but we also set them programmatically for clarity.
-    resource_attrs = %{
-      "service.name": service_name,
-      "service.version": service_version,
-      "deployment.environment": env,
-      "service.namespace": "serviceradar",
-      "telemetry.sdk.language": "erlang"
-    }
-
-    Application.put_env(:opentelemetry, :resource, resource_attrs)
-  end
-
-  defp configure_exporter do
-    otlp_endpoint = endpoint()
-
-    # Build exporter config
-    exporter_config = [
-      endpoint: otlp_endpoint,
-      protocol: :grpc
-    ]
-
-    # Add TLS/mTLS config if cert dir is provided
-    exporter_config =
-      case tls_config() do
-        nil -> exporter_config
-        tls_opts -> Keyword.put(exporter_config, :ssl_options, tls_opts)
-      end
-
-    Application.put_env(:opentelemetry_exporter, :otlp_protocol, :grpc)
-    Application.put_env(:opentelemetry_exporter, :otlp_endpoint, otlp_endpoint)
-
-    if tls_config() do
-      Application.put_env(:opentelemetry_exporter, :ssl_options, tls_config())
-    end
-
-    # Configure the SDK to use the OTLP exporter
-    Application.put_env(:opentelemetry, :processors, [
-      {:otel_batch_processor,
-       %{
-         exporter: {:opentelemetry_exporter, exporter_config}
-       }}
-    ])
-
-    # Configure sampler
-    sampler_arg =
-      System.get_env("OTEL_TRACES_SAMPLER_ARG", "1.0")
-      |> String.to_float()
-
-    Application.put_env(:opentelemetry, :sampler, {:parent_based, %{root: {:trace_id_ratio_based, sampler_arg}}})
-  end
-
-  defp tls_config do
-    cert_dir = System.get_env("OTEL_CERT_DIR")
-    cert_name = System.get_env("OTEL_CERT_NAME")
-
-    cond do
-      cert_dir && cert_name ->
-        ca_file = Path.join(cert_dir, "root.pem")
-        cert_file = Path.join(cert_dir, "#{cert_name}.pem")
-        key_file = Path.join(cert_dir, "#{cert_name}-key.pem")
-
-        if File.exists?(ca_file) and File.exists?(cert_file) and File.exists?(key_file) do
-          [
-            verify: :verify_peer,
-            cacertfile: String.to_charlist(ca_file),
-            certfile: String.to_charlist(cert_file),
-            keyfile: String.to_charlist(key_file)
-          ]
-        else
-          Logger.warning(
-            "[OtelSetup] TLS cert files not found in #{cert_dir} for #{cert_name}, " <>
-              "falling back to insecure connection"
-          )
-
-          nil
-        end
-
-      # Fall back to SPIFFE cert dir if OTEL-specific vars not set
-      true ->
-        spiffe_cert_dir = System.get_env("SPIFFE_CERT_DIR")
-
-        if spiffe_cert_dir do
-          ca_file = Path.join(spiffe_cert_dir, "root.pem")
-          # Try common cert names
-          possible_names = ["core", "web-ng", "agent-gateway"]
-
-          Enum.find_value(possible_names, fn name ->
-            cert_file = Path.join(spiffe_cert_dir, "#{name}.pem")
-            key_file = Path.join(spiffe_cert_dir, "#{name}-key.pem")
-
-            if File.exists?(cert_file) and File.exists?(key_file) and File.exists?(ca_file) do
-              [
-                verify: :verify_peer,
-                cacertfile: String.to_charlist(ca_file),
-                certfile: String.to_charlist(cert_file),
-                keyfile: String.to_charlist(key_file)
-              ]
-            end
-          end)
-        else
-          nil
-        end
-    end
-  end
-
-  defp setup_instrumentations(opts) do
+  @spec attach_instrumentations(keyword()) :: :ok
+  def attach_instrumentations(opts \\ []) do
     instrumentations = Keyword.get(opts, :instrumentations, [])
 
     if :phoenix in instrumentations do
-      setup_phoenix()
+      adapter = Keyword.get(opts, :phoenix_adapter, :bandit)
+      setup_phoenix(adapter)
     end
 
     if :ecto in instrumentations do
@@ -202,19 +56,68 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
     if :oban in instrumentations do
       setup_oban()
     end
+
+    :ok
   end
 
-  defp setup_phoenix do
+  @doc """
+  Builds the SSL options keyword list for the OTLP exporter.
+
+  Reads `OTEL_CERT_DIR` and `OTEL_CERT_NAME` env vars. Returns mTLS options
+  if certs are found, basic TLS options (verify_none) if not. Intended to be
+  called from `runtime.exs`.
+
+  Always returns a list (never nil) so the opentelemetry_exporter never falls
+  back to `tls_certificate_check` which fails on minimal containers.
+  """
+  @spec ssl_options() :: keyword()
+  def ssl_options do
+    cert_dir = System.get_env("OTEL_CERT_DIR")
+    cert_name = System.get_env("OTEL_CERT_NAME")
+
+    if cert_dir && cert_name do
+      ca_file = Path.join(cert_dir, "root.pem")
+      cert_file = Path.join(cert_dir, "#{cert_name}.pem")
+      key_file = Path.join(cert_dir, "#{cert_name}-key.pem")
+
+      if File.exists?(ca_file) and File.exists?(cert_file) and File.exists?(key_file) do
+        IO.puts("[OtelSetup] Using mTLS certs from #{cert_dir} (#{cert_name})")
+
+        [
+          verify: :verify_peer,
+          cacertfile: String.to_charlist(ca_file),
+          certfile: String.to_charlist(cert_file),
+          keyfile: String.to_charlist(key_file)
+        ]
+      else
+        missing =
+          [{ca_file, "CA"}, {cert_file, "cert"}, {key_file, "key"}]
+          |> Enum.reject(fn {f, _} -> File.exists?(f) end)
+          |> Enum.map(fn {f, label} -> "#{label}=#{f}" end)
+          |> Enum.join(", ")
+
+        IO.puts("[OtelSetup] WARNING: Missing TLS files: #{missing}. Using verify_none.")
+        [verify: :verify_none]
+      end
+    else
+      IO.puts("[OtelSetup] No OTEL_CERT_DIR/OTEL_CERT_NAME set, using verify_none for TLS")
+      [verify: :verify_none]
+    end
+  end
+
+  # ============================================================================
+  # Private - instrumentation setup
+  # ============================================================================
+
+  defp setup_phoenix(adapter) do
     if Code.ensure_loaded?(OpentelemetryPhoenix) do
-      OpentelemetryPhoenix.setup()
-      Logger.debug("[OtelSetup] Phoenix instrumentation attached")
+      OpentelemetryPhoenix.setup(adapter: adapter)
+      Logger.debug("[OtelSetup] Phoenix instrumentation attached (adapter: #{adapter})")
     end
   end
 
   defp setup_ecto(repo) do
     if Code.ensure_loaded?(OpentelemetryEcto) do
-      # OpentelemetryEcto expects the telemetry prefix of the repo
-      # e.g. ServiceRadar.Repo -> [:service_radar, :repo]
       repo_prefix = telemetry_prefix(repo)
       OpentelemetryEcto.setup(repo_prefix)
       Logger.debug("[OtelSetup] Ecto instrumentation attached for #{inspect(repo)}")
