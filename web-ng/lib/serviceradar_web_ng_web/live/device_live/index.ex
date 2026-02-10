@@ -965,7 +965,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                           has_sysmon={has_sysmon}
                         />
                         <.sysmon_profile_badge
-                          :if={has_sysmon}
+                          :if={has_sysmon and is_map(Map.get(@sysmon_profiles_by_device, device_uid))}
                           profile={Map.get(@sysmon_profiles_by_device, device_uid)}
                         />
                       </div>

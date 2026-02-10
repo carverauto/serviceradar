@@ -104,7 +104,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     actor = SystemActor.system(:gateway_sync)
 
     # Build device update from agent metadata
-    device_update = build_device_update_from_agent(attrs)
+    device_update = build_device_update_from_agent(agent_id, attrs)
 
     # Resolve device ID using DIRE
     case IdentityReconciler.resolve_device_id(device_update, actor: actor) do
@@ -129,13 +129,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp build_device_update_from_agent(attrs) do
+  defp build_device_update_from_agent(agent_id, attrs) do
     %{
       device_id: nil,
       ip: Map.get(attrs, :source_ip) || Map.get(attrs, :host),
       mac: nil,
       partition: Map.get(attrs, :partition, "default"),
       metadata: %{
+        "agent_id" => agent_id,
         "hostname" => Map.get(attrs, :hostname),
         "os" => Map.get(attrs, :os),
         "arch" => Map.get(attrs, :arch)

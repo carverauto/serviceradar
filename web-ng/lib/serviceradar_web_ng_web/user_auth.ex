@@ -240,28 +240,30 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
         # header containing a non-Guardian JWT. Avoid treating that as a
         # ServiceRadar bearer token.
         if passive_proxy_mode?() do
-          token = get_session(conn, @user_token_key)
-
-          if is_binary(token) do
-            authenticate_with_token(conn, token, :session)
-          else
-            assign(conn, :current_scope, Scope.for_user(nil))
-          end
+          authenticate_from_session(conn)
         else
-          case bearer_token(conn) do
-            {:ok, token} ->
-              authenticate_with_token(conn, token, :bearer)
-
-            :error ->
-              token = get_session(conn, @user_token_key)
-
-              if is_binary(token) do
-                authenticate_with_token(conn, token, :session)
-              else
-                assign(conn, :current_scope, Scope.for_user(nil))
-              end
-          end
+          authenticate_from_bearer_or_session(conn)
         end
+    end
+  end
+
+  defp authenticate_from_session(conn) do
+    token = get_session(conn, @user_token_key)
+
+    if is_binary(token) do
+      authenticate_with_token(conn, token, :session)
+    else
+      assign(conn, :current_scope, Scope.for_user(nil))
+    end
+  end
+
+  defp authenticate_from_bearer_or_session(conn) do
+    case bearer_token(conn) do
+      {:ok, token} ->
+        authenticate_with_token(conn, token, :bearer)
+
+      :error ->
+        authenticate_from_session(conn)
     end
   end
 
