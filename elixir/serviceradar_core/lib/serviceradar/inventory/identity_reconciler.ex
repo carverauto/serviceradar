@@ -8,7 +8,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
   ## Resolution Priority
 
-  1. Strong identifiers (Armis ID > Integration ID > NetBox ID > MAC)
+  1. Strong identifiers (Agent ID > Armis ID > Integration ID > NetBox ID > MAC)
      - Hash to deterministic `sr:` UUID
   2. Existing `sr:` UUID in update
      - Preserve as-is
@@ -18,10 +18,11 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   ## Strong Identifier Priority
 
   Identifiers are processed in priority order:
-  1. `armis_device_id` - Armis platform device ID
-  2. `integration_id` - Generic integration ID
-  3. `netbox_device_id` - NetBox device ID
-  4. `mac` - MAC address (normalized)
+  1. `agent_id` - ServiceRadar agent ID (mTLS-validated, stable across pod restarts)
+  2. `armis_device_id` - Armis platform device ID
+  3. `integration_id` - Generic integration ID
+  4. `netbox_device_id` - NetBox device ID
+  5. `mac` - MAC address (normalized)
 
   IP is a "weak" identifier only used when no strong identifiers are present.
   """
@@ -38,9 +39,10 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   import Bitwise
 
   # Identifier types in priority order (lower index = higher priority)
-  @identifier_priority [:armis_device_id, :integration_id, :netbox_device_id, :mac]
+  @identifier_priority [:agent_id, :armis_device_id, :integration_id, :netbox_device_id, :mac]
 
   @type strong_identifiers :: %{
+          agent_id: String.t() | nil,
           armis_id: String.t() | nil,
           integration_id: String.t() | nil,
           netbox_id: String.t() | nil,
@@ -110,6 +112,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     partition = (update[:partition] || "default") |> String.trim()
 
     %{
+      agent_id: get_trimmed(metadata, "agent_id"),
       armis_id: get_trimmed(metadata, "armis_device_id"),
       integration_id: get_integration_id(metadata),
       netbox_id: get_trimmed(metadata, "netbox_device_id"),
@@ -150,7 +153,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   """
   @spec has_strong_identifier?(strong_identifiers()) :: boolean()
   def has_strong_identifier?(ids) do
-    ids.armis_id != nil or
+    ids.agent_id != nil or
+      ids.armis_id != nil or
       ids.integration_id != nil or
       ids.netbox_id != nil or
       ids.mac != nil
@@ -162,6 +166,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   @spec highest_priority_identifier(strong_identifiers()) :: {atom() | nil, String.t() | nil}
   def highest_priority_identifier(ids) do
     cond do
+      ids.agent_id != nil -> {:agent_id, ids.agent_id}
       ids.armis_id != nil -> {:armis_device_id, ids.armis_id}
       ids.integration_id != nil -> {:integration_id, ids.integration_id}
       ids.netbox_id != nil -> {:netbox_device_id, ids.netbox_id}
@@ -197,6 +202,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     end
   end
 
+  defp get_identifier_value(ids, :agent_id), do: ids.agent_id
   defp get_identifier_value(ids, :armis_device_id), do: ids.armis_id
   defp get_identifier_value(ids, :integration_id), do: ids.integration_id
   defp get_identifier_value(ids, :netbox_device_id), do: ids.netbox_id
@@ -364,6 +370,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     # Build seeds from strong identifiers in priority order
     seeds =
       []
+      |> maybe_add_seed("agent", ids.agent_id)
       |> maybe_add_seed("armis", ids.armis_id)
       |> maybe_add_seed("integration", ids.integration_id)
       |> maybe_add_seed("netbox", ids.netbox_id)
@@ -433,6 +440,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
     identifiers_to_register =
       []
+      |> maybe_add_identifier(canonical_id, :agent_id, ids.agent_id, partition)
       |> maybe_add_identifier(canonical_id, :armis_device_id, ids.armis_id, partition)
       |> maybe_add_identifier(canonical_id, :integration_id, ids.integration_id, partition)
       |> maybe_add_identifier(canonical_id, :netbox_device_id, ids.netbox_id, partition)
@@ -462,6 +470,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
           details: %{
             source: "identifier_registration",
             identifiers: %{
+              agent_id: ids.agent_id,
               armis_id: ids.armis_id,
               integration_id: ids.integration_id,
               netbox_id: ids.netbox_id,
