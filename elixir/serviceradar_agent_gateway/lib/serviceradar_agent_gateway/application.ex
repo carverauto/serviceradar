@@ -91,6 +91,13 @@ defmodule ServiceRadarAgentGateway.Application do
       capabilities: capabilities
     )
 
+    # Configure OpenTelemetry SDK with OTLP exporter
+    ServiceRadar.Telemetry.OtelSetup.configure(
+      service_name: "serviceradar-agent-gateway",
+      service_version: "0.1.0",
+      instrumentations: []
+    )
+
     Logger.info("Starting ServiceRadar Agent Gateway: #{gateway_id}, domain: #{domain}")
     Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
 

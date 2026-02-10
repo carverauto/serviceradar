@@ -306,6 +306,20 @@ spec:
         - name: GEOLITE_MMDB_DIR
           value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
         {{- end }}
+        {{- with .Values.otelExporter }}
+        {{- if .enabled }}
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: {{ .endpoint | quote }}
+        - name: OTEL_CERT_DIR
+          value: {{ default "/etc/serviceradar/certs" .certDir | quote }}
+        - name: OTEL_CERT_NAME
+          value: "core"
+        - name: OTEL_SERVICE_NAME
+          value: "serviceradar-core-elx"
+        - name: OTEL_TRACES_SAMPLER_ARG
+          value: {{ default "1.0" .samplingRatio | quote }}
+        {{- end }}
+        {{- end }}
         {{- with $coreVals.extraEnv }}
         {{- range $name, $value := . }}
         - name: {{ $name | quote }}

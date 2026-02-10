@@ -4,6 +4,22 @@ import Config
 # It is executed in both release and dev/test modes.
 
 # =============================================================================
+# OpenTelemetry Configuration
+# =============================================================================
+if System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT") do
+  config :opentelemetry,
+    span_processor: :batch,
+    traces_exporter: :otlp
+
+  config :opentelemetry_exporter,
+    otlp_protocol: :grpc,
+    otlp_endpoint: System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+else
+  config :opentelemetry,
+    traces_exporter: :none
+end
+
+# =============================================================================
 # Cluster Configuration
 # =============================================================================
 # All Elixir nodes (agent gateway, web/core) join the same ERTS cluster for:

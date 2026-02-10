@@ -12,6 +12,14 @@ defmodule ServiceRadarWebNG.Application do
     # Auto-start distributed Erlang if not already running and cluster is enabled
     maybe_start_distribution()
 
+    # Configure OpenTelemetry SDK with OTLP exporter
+    ServiceRadar.Telemetry.OtelSetup.configure(
+      service_name: "serviceradar-web-ng",
+      service_version: "0.1.0",
+      instrumentations: [:phoenix, :ecto],
+      ecto_repo: ServiceRadar.Repo
+    )
+
     # Build children list, conditionally adding PubSub if not already running
     # (serviceradar_core may have already started these)
     base_children =

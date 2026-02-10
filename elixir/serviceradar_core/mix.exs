@@ -35,6 +35,7 @@ defmodule ServiceRadarCore.MixProject do
         :public_key,
         :swoosh,
         :telemetry,
+        :opentelemetry,
         :ash_state_machine
       ],
       mod: {ServiceRadar.Application, []}
@@ -86,6 +87,16 @@ defmodule ServiceRadarCore.MixProject do
       # Telemetry
       {:telemetry, "~> 1.0"},
       {:telemetry_metrics, "~> 1.0"},
+
+      # OpenTelemetry SDK, API, and OTLP exporter
+      {:opentelemetry, "~> 1.7"},
+      {:opentelemetry_api, "~> 1.5"},
+      {:opentelemetry_exporter, "~> 1.10"},
+
+      # OpenTelemetry auto-instrumentation libraries
+      {:opentelemetry_phoenix, "~> 2.0"},
+      {:opentelemetry_ecto, "~> 1.2"},
+      {:opentelemetry_oban, "~> 1.1"},
 
       # Utilities
       {:jason, "~> 1.4"},

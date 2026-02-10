@@ -26,7 +26,8 @@ defmodule ServiceRadarAgentGateway.MixProject do
         :phoenix_pubsub,
         :horde,
         :grpc,
-        :ranch
+        :ranch,
+        :opentelemetry
       ],
       mod: {ServiceRadarAgentGateway.Application, []}
     ]

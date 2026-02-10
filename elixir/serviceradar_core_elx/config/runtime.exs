@@ -1,6 +1,27 @@
 import Config
 
 # =============================================================================
+# OpenTelemetry Configuration
+# =============================================================================
+# OTEL SDK configuration is primarily driven by env vars read at runtime by
+# ServiceRadar.Telemetry.OtelSetup. We set the base Application env here so
+# the SDK starts in a usable state even before OtelSetup.configure/1 runs.
+
+if System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT") do
+  config :opentelemetry,
+    span_processor: :batch,
+    traces_exporter: :otlp
+
+  config :opentelemetry_exporter,
+    otlp_protocol: :grpc,
+    otlp_endpoint: System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+else
+  # No endpoint configured — disable export to avoid connection errors
+  config :opentelemetry,
+    traces_exporter: :none
+end
+
+# =============================================================================
 # GeoLite2 MMDB / GeoIP Configuration
 # =============================================================================
 # The core release must configure Geolix itself at runtime so enrichment workers

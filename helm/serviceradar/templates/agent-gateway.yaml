@@ -88,6 +88,20 @@ spec:
           value: {{ $clusterCoreNodeBasename | quote }}
         - name: GATEWAY_CERT_DIR
           value: "/etc/serviceradar/certs"
+        {{- with $.Values.otelExporter }}
+        {{- if .enabled }}
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: {{ .endpoint | quote }}
+        - name: OTEL_CERT_DIR
+          value: {{ default "/etc/serviceradar/certs" .certDir | quote }}
+        - name: OTEL_CERT_NAME
+          value: "gateway"
+        - name: OTEL_SERVICE_NAME
+          value: "serviceradar-agent-gateway"
+        - name: OTEL_TRACES_SAMPLER_ARG
+          value: {{ default "1.0" .samplingRatio | quote }}
+        {{- end }}
+        {{- end }}
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs

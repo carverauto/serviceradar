@@ -22,6 +22,22 @@ if System.get_env("PHX_SERVER") do
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint, server: true
 end
 
+# =============================================================================
+# OpenTelemetry Configuration
+# =============================================================================
+if System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT") do
+  config :opentelemetry,
+    span_processor: :batch,
+    traces_exporter: :otlp
+
+  config :opentelemetry_exporter,
+    otlp_protocol: :grpc,
+    otlp_endpoint: System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+else
+  config :opentelemetry,
+    traces_exporter: :none
+end
+
 # GeoLite2 MMDB configuration (for GeoIP/ASN enrichment via Geolix).
 # Note: when `serviceradar_core` is used as a dependency in the web-ng release, its
 # `config/runtime.exs` is not executed; we must configure Geolix here too.
