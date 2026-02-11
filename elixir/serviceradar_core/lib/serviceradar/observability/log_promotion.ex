@@ -260,7 +260,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     status_id = event_status_id(event_overrides)
 
     %{
-      id: Ecto.UUID.generate(),
+      id: Ecto.UUID.bingenerate(),
       time: log_time,
       class_uid: class_uid,
       category_uid: category_uid,
