@@ -322,7 +322,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp cached_device_id(ids, existing_mappings) do
-    lookup_cached(:armis_device_id, ids.armis_id, ids.partition, existing_mappings) ||
+    lookup_cached(:agent_id, ids.agent_id, ids.partition, existing_mappings) ||
+      lookup_cached(:armis_device_id, ids.armis_id, ids.partition, existing_mappings) ||
       lookup_cached(:integration_id, ids.integration_id, ids.partition, existing_mappings) ||
       lookup_cached(:netbox_device_id, ids.netbox_id, ids.partition, existing_mappings) ||
       lookup_cached(:mac, ids.mac, ids.partition, existing_mappings)
@@ -427,6 +428,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       partition = ids.partition
 
       []
+      |> maybe_add_identifier_record(device_id, :agent_id, ids.agent_id, partition)
       |> maybe_add_identifier_record(device_id, :armis_device_id, ids.armis_id, partition)
       |> maybe_add_identifier_record(device_id, :integration_id, ids.integration_id, partition)
       |> maybe_add_identifier_record(device_id, :netbox_device_id, ids.netbox_id, partition)
