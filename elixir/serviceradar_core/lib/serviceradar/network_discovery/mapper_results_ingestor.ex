@@ -4,6 +4,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   """
 
   require Logger
+  require Ash.Query
 
   import Ecto.Query
 
@@ -18,7 +19,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     with {:ok, updates} <- decode_payload(message),
          records <- build_interface_records(updates),
-         resolved_records <- resolve_device_ids(records),
+         resolved_records <- resolve_device_ids(records, actor),
          classified_records <- InterfaceClassifier.classify_interfaces(resolved_records, actor) do
       if classified_records == [] do
         Logger.debug("No interfaces to ingest after device ID resolution")
@@ -120,9 +121,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # Resolve device_ids from device_ip addresses by looking up existing devices.
   # The agent sends device_id as "partition:ip" but Device.uid is "sr:<uuid>".
   # We need to look up the actual device UID from the IP address.
-  defp resolve_device_ids([]), do: []
+  # For IPs with no existing device, creates one via DIRE.
+  defp resolve_device_ids([], _actor), do: []
 
-  defp resolve_device_ids(records) do
+  defp resolve_device_ids(records, actor) do
     # Extract unique device IPs from records
     device_ips =
       records
@@ -133,12 +135,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     # Look up device UIDs by IP address
     ip_to_uid = lookup_device_uids_by_ip(device_ips)
 
+    # For IPs with no existing device, create devices via DIRE
+    ip_to_uid = create_missing_devices(records, ip_to_uid, actor)
+
     # Update records with resolved device_ids, filtering out those we can't resolve
     records
     |> Enum.map(fn record ->
       case Map.get(ip_to_uid, record.device_ip) do
         nil ->
-          # No device found for this IP - log and skip
           Logger.debug("No device found for interface IP: #{record.device_ip}")
           nil
 
@@ -147,6 +151,135 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       end
     end)
     |> Enum.reject(&is_nil/1)
+  end
+
+  # Creates devices via DIRE for IPs that have no existing device record.
+  # This closes the device creation gap for SNMP-polled devices that don't run agents.
+  defp create_missing_devices(records, ip_to_uid, actor) do
+    records
+    |> Enum.map(& &1.device_ip)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.reject(&Map.has_key?(ip_to_uid, &1))
+    |> Enum.reduce(ip_to_uid, fn device_ip, acc ->
+      case create_device_for_ip(device_ip, records, actor) do
+        {:ok, device_uid} ->
+          Map.put(acc, device_ip, device_uid)
+
+        {:error, reason} ->
+          Logger.warning(
+            "Failed to create device for mapper-discovered IP #{device_ip}: #{inspect(reason)}"
+          )
+
+          acc
+      end
+    end)
+  end
+
+  defp create_device_for_ip(device_ip, records, actor) do
+    # Get partition from the first record matching this IP
+    partition = partition_for_device_ip(device_ip, records)
+
+    # Collect MACs from interface records for this IP to use as DIRE identifiers
+    macs =
+      records
+      |> Enum.filter(&(&1.device_ip == device_ip))
+      |> interface_macs()
+
+    # Build identifiers for DIRE — use first MAC if available, otherwise IP-only
+    first_mac = List.first(macs)
+
+    ids = %{
+      agent_id: nil,
+      armis_id: nil,
+      integration_id: nil,
+      netbox_id: nil,
+      mac: first_mac,
+      ip: device_ip,
+      partition: partition
+    }
+
+    # Generate deterministic sr: UUID via DIRE
+    device_uid = IdentityReconciler.generate_deterministic_device_id(ids)
+
+    # Create the device record
+    attrs = %{
+      uid: device_uid,
+      ip: device_ip,
+      discovery_sources: ["mapper"]
+    }
+
+    case Device
+         |> Ash.Changeset.for_create(:create, attrs)
+         |> Ash.create(actor: actor) do
+      {:ok, _device} ->
+        Logger.info("Mapper created device #{device_uid} for IP #{device_ip}")
+        invalidate_stale_aliases(device_ip, device_uid, partition, actor)
+        {:ok, device_uid}
+
+      {:error, %Ash.Error.Invalid{errors: errors}} ->
+        recover_existing_device_uid(device_ip, errors)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp partition_for_device_ip(device_ip, records) do
+    records
+    |> Enum.find(fn record -> record.device_ip == device_ip end)
+    |> case do
+      nil -> "default"
+      record -> record.partition || "default"
+    end
+  end
+
+  defp recover_existing_device_uid(device_ip, errors) do
+    # Device may have been created concurrently; recover by re-reading by IP.
+    if Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)) do
+      case lookup_device_uids_by_ip([device_ip]) do
+        %{^device_ip => uid} -> {:ok, uid}
+        _ -> {:error, errors}
+      end
+    else
+      {:error, errors}
+    end
+  end
+
+  # Invalidate IP aliases on other devices when a new device is created at that IP.
+  # Transitions active aliases to :stale so they no longer resolve in DIRE lookups.
+  defp invalidate_stale_aliases(ip, new_device_uid, partition, actor) do
+    alias ServiceRadar.Identity.DeviceAliasState
+
+    query =
+      DeviceAliasState
+      |> Ash.Query.filter(
+        alias_type == :ip and alias_value == ^ip and
+          device_id != ^new_device_uid and
+          partition == ^partition and
+          state in [:confirmed, :updated, :detected]
+      )
+
+    case Ash.read(query, actor: actor) do
+      {:ok, aliases} when aliases != [] ->
+        Logger.info(
+          "Invalidating #{length(aliases)} stale IP alias(es) for #{ip} " <>
+            "(new device: #{new_device_uid})"
+        )
+
+        Enum.each(aliases, fn alias_state ->
+          alias_state
+          |> Ash.Changeset.for_update(:mark_stale, %{})
+          |> Ash.update(actor: actor)
+        end)
+
+      _ ->
+        :ok
+    end
+  rescue
+    e ->
+      Logger.warning("Failed to invalidate stale aliases for #{ip}: #{inspect(e)}")
+      :ok
   end
 
   defp lookup_device_uids_by_ip([]), do: %{}
@@ -159,7 +292,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       )
 
     Repo.all(query)
-    |> Map.new()
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Map.new(fn {ip, uids} ->
+      # Prefer sr: UIDs over sweep-/other legacy device IDs
+      uid = Enum.find(uids, List.first(uids), &String.starts_with?(&1, "sr:"))
+      {ip, uid}
+    end)
   rescue
     e ->
       Logger.warning("Device UID lookup failed: #{inspect(e)}")
@@ -173,11 +311,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.group_by(& &1.device_id)
     |> Enum.each(fn {device_id, iface_records} ->
       partition = iface_records |> Enum.find_value(& &1.partition) || "default"
-      agent_id = iface_records |> Enum.find_value(& &1.agent_id)
 
       iface_records
       |> interface_macs()
-      |> Enum.each(&register_interface_mac(device_id, &1, partition, agent_id, actor))
+      |> Enum.each(&register_interface_mac(device_id, &1, partition, actor))
     end)
   end
 
@@ -188,11 +325,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.uniq()
   end
 
-  defp register_interface_mac(device_id, mac, partition, agent_id, actor) do
+  defp register_interface_mac(device_id, mac, partition, actor) do
     ids = %{
-      # If an upstream component still assumes :agent_id exists in the map and
-      # uses dot-access, ensure it's always present here.
-      agent_id: agent_id,
+      agent_id: nil,
       armis_id: nil,
       integration_id: nil,
       netbox_id: nil,
