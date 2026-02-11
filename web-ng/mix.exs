@@ -47,6 +47,7 @@ defmodule ServiceRadarWebNG.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:usage_rules, "~> 1.0", only: [:dev]},
       # ServiceRadar Core - Ash domains, cluster, registry
       {:serviceradar_core, path: "../elixir/serviceradar_core"},
 
