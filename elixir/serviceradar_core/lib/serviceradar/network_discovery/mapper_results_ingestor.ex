@@ -172,9 +172,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     records
     |> Enum.group_by(& &1.device_id)
     |> Enum.each(fn {device_id, iface_records} ->
+      partition = iface_records |> Enum.find_value(& &1.partition) || "default"
+
       iface_records
       |> interface_macs()
-      |> Enum.each(&register_interface_mac(device_id, &1, actor))
+      |> Enum.each(&register_interface_mac(device_id, &1, partition, actor))
     end)
   end
 
@@ -185,14 +187,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.uniq()
   end
 
-  defp register_interface_mac(device_id, mac, actor) do
+  defp register_interface_mac(device_id, mac, partition, actor) do
     ids = %{
+      agent_id: nil,
       armis_id: nil,
       integration_id: nil,
       netbox_id: nil,
       mac: mac,
       ip: "",
-      partition: "default"
+      partition: partition
     }
 
     case IdentityReconciler.register_identifiers(device_id, ids, actor: actor) do
@@ -278,6 +281,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       interface_uid: interface_uid,
       agent_id: get_string(update, ["agent_id", :agent_id]),
       gateway_id: get_string(update, ["gateway_id", :gateway_id]),
+      partition: get_string(update, ["partition", :partition]) || "default",
       device_ip: get_string(update, ["device_ip", :device_ip]),
       if_index: if_index,
       if_name: if_name,

@@ -67,6 +67,11 @@ func NewSweepService(
 		return nil, fmt.Errorf("failed to create network sweeper: %w", err)
 	}
 
+	// Initialize execution context from the provided config.
+	// The sweep results payload includes `sweep_group_id`; without seeding this value
+	// the core sweep ingestor cannot create the SweepGroupExecution row.
+	sweepGroupID := strings.TrimSpace(config.SweepGroupID)
+
 	return &SweepService{
 		sweeper:            sweeperInstance,
 		config:             config,
@@ -75,6 +80,8 @@ func NewSweepService(
 		cachedResults:      nil,
 		lastSweepTimestamp: 0,
 		currentSequence:    0,
+		sweepGroupID:       sweepGroupID,
+		configHash:         strings.TrimSpace(config.ConfigHash),
 	}, nil
 }
 
@@ -318,6 +325,12 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 
 	currentSeqStr := fmt.Sprintf("%d", s.currentSequence)
 
+	sweepGroupID := s.sweepGroupID
+	if sweepGroupID == "" {
+		// Back-compat / safety: prefer config value if execution context hasn't been set yet.
+		sweepGroupID = strings.TrimSpace(s.config.SweepGroupID)
+	}
+
 	// If the caller's sequence is up to date, return no new data
 	if lastSequence != "" && lastSequence == currentSeqStr {
 		s.logger.Debug().Str("callerSequence", lastSequence).Str("currentSequence", currentSeqStr).Msg("No new sweep data")
@@ -328,7 +341,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 			ServiceName:     networkSweepServiceName,
 			ServiceType:     "sweep",
 			ExecutionId:     s.executionID,
-			SweepGroupId:    s.sweepGroupID,
+			SweepGroupId:    sweepGroupID,
 			Available:       true,
 			Timestamp:       time.Now().Unix(),
 		}, nil
@@ -347,7 +360,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 			ServiceName:     networkSweepServiceName,
 			ServiceType:     "sweep",
 			ExecutionId:     s.executionID,
-			SweepGroupId:    s.sweepGroupID,
+			SweepGroupId:    sweepGroupID,
 			Available:       true,
 			Timestamp:       time.Now().Unix(),
 		}, nil
@@ -362,7 +375,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		"ports":           s.cachedResults.Ports,
 		"hosts":           s.cachedResults.Hosts,
 		"execution_id":    s.executionID,
-		"sweep_group_id":  s.sweepGroupID,
+		"sweep_group_id":  sweepGroupID,
 	}
 
 	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
@@ -386,7 +399,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 	sweepCompletion := &proto.SweepCompletionStatus{
 		Status:           proto.SweepCompletionStatus_COMPLETED,
 		ExecutionId:      s.executionID,
-		SweepGroupId:     s.sweepGroupID,
+		SweepGroupId:     sweepGroupID,
 		TotalTargets:     int32(len(s.cachedResults.Hosts)),
 		CompletedTargets: int32(len(s.cachedResults.Hosts)),
 		CompletionTime:   time.Now().Unix(),
@@ -419,7 +432,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		Available:       true,
 		Timestamp:       time.Now().Unix(),
 		ExecutionId:     s.executionID,
-		SweepGroupId:    s.sweepGroupID,
+		SweepGroupId:    sweepGroupID,
 		SweepCompletion: sweepCompletion,
 	}, nil
 }
