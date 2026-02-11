@@ -153,11 +153,11 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   """
   @spec has_strong_identifier?(strong_identifiers()) :: boolean()
   def has_strong_identifier?(ids) do
-    ids.agent_id != nil or
-      ids.armis_id != nil or
-      ids.integration_id != nil or
-      ids.netbox_id != nil or
-      ids.mac != nil
+    ids_get(ids, :agent_id) != nil or
+      ids_get(ids, :armis_id) != nil or
+      ids_get(ids, :integration_id) != nil or
+      ids_get(ids, :netbox_id) != nil or
+      ids_get(ids, :mac) != nil
   end
 
   @doc """
@@ -166,11 +166,11 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   @spec highest_priority_identifier(strong_identifiers()) :: {atom() | nil, String.t() | nil}
   def highest_priority_identifier(ids) do
     cond do
-      ids.agent_id != nil -> {:agent_id, ids.agent_id}
-      ids.armis_id != nil -> {:armis_device_id, ids.armis_id}
-      ids.integration_id != nil -> {:integration_id, ids.integration_id}
-      ids.netbox_id != nil -> {:netbox_device_id, ids.netbox_id}
-      ids.mac != nil -> {:mac, ids.mac}
+      ids_get(ids, :agent_id) != nil -> {:agent_id, ids_get(ids, :agent_id)}
+      ids_get(ids, :armis_id) != nil -> {:armis_device_id, ids_get(ids, :armis_id)}
+      ids_get(ids, :integration_id) != nil -> {:integration_id, ids_get(ids, :integration_id)}
+      ids_get(ids, :netbox_id) != nil -> {:netbox_device_id, ids_get(ids, :netbox_id)}
+      ids_get(ids, :mac) != nil -> {:mac, ids_get(ids, :mac)}
       true -> {nil, nil}
     end
   end
@@ -202,11 +202,12 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     end
   end
 
-  defp get_identifier_value(ids, :agent_id), do: ids.agent_id
-  defp get_identifier_value(ids, :armis_device_id), do: ids.armis_id
-  defp get_identifier_value(ids, :integration_id), do: ids.integration_id
-  defp get_identifier_value(ids, :netbox_device_id), do: ids.netbox_id
-  defp get_identifier_value(ids, :mac), do: ids.mac
+  defp get_identifier_value(ids, :agent_id), do: ids_get(ids, :agent_id)
+  defp get_identifier_value(ids, :armis_device_id), do: ids_get(ids, :armis_id)
+  defp get_identifier_value(ids, :integration_id), do: ids_get(ids, :integration_id)
+  defp get_identifier_value(ids, :netbox_device_id), do: ids_get(ids, :netbox_id)
+  defp get_identifier_value(ids, :mac), do: ids_get(ids, :mac)
+  defp get_identifier_value(_ids, _type), do: nil
 
   defp lookup_device_identifier(id_type, id_value, partition, actor) do
     query_opts = if actor, do: [actor: actor], else: []
@@ -236,16 +237,18 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
           {:ok, String.t() | nil} | {:error, term()}
   def lookup_by_ip(ids, actor, opts \\ []) do
     allow_strong = Keyword.get(opts, :allow_strong, false)
+    ip = ids_get_string(ids, :ip)
+    partition = ids_get_partition(ids)
 
-    if (has_strong_identifier?(ids) and not allow_strong) or ids.ip == "" do
+    if (has_strong_identifier?(ids) and not allow_strong) or ip == "" do
       {:ok, nil}
     else
-      case lookup_alias_device_id(ids.ip, ids.partition, actor) do
+      case lookup_alias_device_id(ip, partition, actor) do
         {:ok, device_id} when is_binary(device_id) and device_id != "" ->
           {:ok, device_id}
 
         _ ->
-          do_lookup_by_ip(ids.ip, actor)
+          do_lookup_by_ip(ip, actor)
       end
     end
   end
@@ -331,9 +334,12 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp maybe_merge_ip_alias_device(device_id, ids, actor) do
-    with true <- present_id?(ids.ip),
+    ip = ids_get_string(ids, :ip)
+    partition = ids_get_partition(ids)
+
+    with true <- present_id?(ip),
          {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" <-
-           lookup_alias_device_id(ids.ip, ids.partition, actor),
+           lookup_alias_device_id(ip, partition, actor),
          true <- alias_device_id != device_id,
          false <- service_device_id?(alias_device_id) do
       _ =
@@ -342,7 +348,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
           reason: "ip_alias_conflict",
           details: %{
             source: "identity_reconciler",
-            alias_ip: ids.ip
+            alias_ip: ip
           }
         )
     end
@@ -365,16 +371,16 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   """
   @spec generate_deterministic_device_id(strong_identifiers()) :: String.t()
   def generate_deterministic_device_id(ids) do
-    partition = if ids.partition == "", do: "default", else: ids.partition
+    partition = ids_get_partition(ids)
 
     # Build seeds from strong identifiers in priority order
     seeds =
       []
-      |> maybe_add_seed("agent", ids.agent_id)
-      |> maybe_add_seed("armis", ids.armis_id)
-      |> maybe_add_seed("integration", ids.integration_id)
-      |> maybe_add_seed("netbox", ids.netbox_id)
-      |> maybe_add_seed("mac", ids.mac)
+      |> maybe_add_seed("agent", ids_get(ids, :agent_id))
+      |> maybe_add_seed("armis", ids_get(ids, :armis_id))
+      |> maybe_add_seed("integration", ids_get(ids, :integration_id))
+      |> maybe_add_seed("netbox", ids_get(ids, :netbox_id))
+      |> maybe_add_seed("mac", ids_get(ids, :mac))
 
     hash_input =
       cond do
@@ -382,9 +388,10 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
           # Strong identifiers present - deterministic hash
           "serviceradar-device-v3:partition:#{partition}:" <> Enum.join(seeds, "")
 
-        ids.ip != "" ->
+        ids_get_string(ids, :ip) != "" ->
           # IP-only fallback
-          "serviceradar-device-v3:partition:#{partition}:ip:#{ids.ip}"
+          ip = ids_get_string(ids, :ip)
+          "serviceradar-device-v3:partition:#{partition}:ip:#{ip}"
 
         true ->
           # No identifiers - random UUID
@@ -432,7 +439,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
           :ok | {:error, term()}
   def register_identifiers(device_id, ids, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    partition = if ids.partition == "", do: "default", else: ids.partition
+    partition = ids_get_partition(ids)
     query_opts = if actor, do: [actor: actor], else: []
     canonical_id = resolve_identifier_conflicts(device_id, ids, actor)
 
@@ -440,11 +447,11 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
     identifiers_to_register =
       []
-      |> maybe_add_identifier(canonical_id, :agent_id, ids.agent_id, partition)
-      |> maybe_add_identifier(canonical_id, :armis_device_id, ids.armis_id, partition)
-      |> maybe_add_identifier(canonical_id, :integration_id, ids.integration_id, partition)
-      |> maybe_add_identifier(canonical_id, :netbox_device_id, ids.netbox_id, partition)
-      |> maybe_add_identifier(canonical_id, :mac, ids.mac, partition)
+      |> maybe_add_identifier(canonical_id, :agent_id, ids_get(ids, :agent_id), partition)
+      |> maybe_add_identifier(canonical_id, :armis_device_id, ids_get(ids, :armis_id), partition)
+      |> maybe_add_identifier(canonical_id, :integration_id, ids_get(ids, :integration_id), partition)
+      |> maybe_add_identifier(canonical_id, :netbox_device_id, ids_get(ids, :netbox_id), partition)
+      |> maybe_add_identifier(canonical_id, :mac, ids_get(ids, :mac), partition)
 
     results =
       Enum.map(identifiers_to_register, fn params ->
@@ -470,11 +477,11 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
           details: %{
             source: "identifier_registration",
             identifiers: %{
-              agent_id: ids.agent_id,
-              armis_id: ids.armis_id,
-              integration_id: ids.integration_id,
-              netbox_id: ids.netbox_id,
-              mac: ids.mac
+              agent_id: ids_get(ids, :agent_id),
+              armis_id: ids_get(ids, :armis_id),
+              integration_id: ids_get(ids, :integration_id),
+              netbox_id: ids_get(ids, :netbox_id),
+              mac: ids_get(ids, :mac)
             }
           }
         )
@@ -482,6 +489,23 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       :ok
     else
       :ok
+    end
+  end
+
+  defp ids_get(ids, key) when is_map(ids), do: Map.get(ids, key)
+  defp ids_get(_ids, _key), do: nil
+
+  defp ids_get_string(ids, key) do
+    case ids_get(ids, key) do
+      value when is_binary(value) -> value
+      _ -> ""
+    end
+  end
+
+  defp ids_get_partition(ids) do
+    case ids_get(ids, :partition) do
+      value when is_binary(value) and value != "" -> value
+      _ -> "default"
     end
   end
 
@@ -549,10 +573,12 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp lookup_identifier_matches(ids, actor) do
+    partition = ids_get_partition(ids)
+
     Enum.reduce(@identifier_priority, %{}, fn id_type, acc ->
       with id_value when not is_nil(id_value) <- get_identifier_value(ids, id_type),
            {:ok, device_id} when is_binary(device_id) and device_id != "" <-
-             lookup_device_identifier(id_type, id_value, ids.partition, actor) do
+             lookup_device_identifier(id_type, id_value, partition, actor) do
         Map.put(acc, id_type, %{value: id_value, device_id: device_id})
       else
         _ -> acc
