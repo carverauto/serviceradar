@@ -237,6 +237,11 @@ services:
       - NATS_TLS=true
       - NATS_SERVER_NAME=nats.serviceradar
       - NATS_CREDS_FILE=/etc/serviceradar/creds/platform.creds
+      # OpenTelemetry
+      - OTEL_EXPORTER_OTLP_ENDPOINT=https://otel:4317
+      - OTEL_CERT_DIR=/etc/serviceradar/certs
+      - OTEL_CERT_NAME=core
+      - OTEL_SERVICE_NAME=serviceradar-core-elx
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
@@ -254,6 +259,8 @@ services:
       cnpg:
         condition: service_healthy
       nats:
+        condition: service_started
+      otel:
         condition: service_started
     healthcheck:
       test:
@@ -485,6 +492,11 @@ services:
       - RELEASE_NODE=serviceradar_agent_gateway@agent-gateway
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
+      # OpenTelemetry
+      - OTEL_EXPORTER_OTLP_ENDPOINT=https://otel:4317
+      - OTEL_CERT_DIR=/etc/serviceradar/certs
+      - OTEL_CERT_NAME=gateway
+      - OTEL_SERVICE_NAME=serviceradar-agent-gateway
     ports:
       - "${GATEWAY_PUBLIC_BIND:-127.0.0.1}:${GATEWAY_PUBLIC_PORT:-50052}:50052"
     volumes:
@@ -495,6 +507,8 @@ services:
         condition: service_completed_successfully
       core-elx:
         condition: service_healthy
+      otel:
+        condition: service_started
     healthcheck:
       test: ["CMD", "/app/bin/serviceradar_agent_gateway", "pid"]
       interval: 30s
@@ -747,6 +761,11 @@ services:
       - DATASVC_CERT_DIR=/etc/serviceradar/certs
       - DATASVC_CERT_NAME=web
       - DATASVC_SERVER_NAME=datasvc.serviceradar
+      # OpenTelemetry
+      - OTEL_EXPORTER_OTLP_ENDPOINT=https://otel:4317
+      - OTEL_CERT_DIR=/etc/serviceradar/certs
+      - OTEL_CERT_NAME=web
+      - OTEL_SERVICE_NAME=serviceradar-web-ng
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - admin-creds:/etc/serviceradar/admin:ro
@@ -767,6 +786,8 @@ services:
         condition: service_completed_successfully
       core-elx:
         condition: service_healthy
+      otel:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f serviceradar_web_ng >/dev/null"]
       interval: 30s

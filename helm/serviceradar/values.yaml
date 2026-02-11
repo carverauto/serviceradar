@@ -63,6 +63,17 @@ zenRulesBootstrap:
   # Force reinstall rules even if they already exist in KV.
   # Use this to recover from corrupted rules.
   forceReinstall: false
+# OpenTelemetry exporter configuration for Elixir services (core-elx, web-ng, agent-gateway).
+# Points to the OTEL collector deployed in the same namespace.
+otelExporter:
+  enabled: true
+  # OTLP/gRPC endpoint (uses the in-cluster OTEL collector service)
+  endpoint: "https://serviceradar-otel:4317"
+  # TLS certificate directory (SPIFFE-issued certs)
+  certDir: "/etc/serviceradar/certs"
+  # Trace sampling ratio (0.0 - 1.0). 1.0 = sample everything.
+  samplingRatio: "1.0"
+
 core:
   # KV watch/reload is no longer supported for service configuration.
   configWatchEnabled: false

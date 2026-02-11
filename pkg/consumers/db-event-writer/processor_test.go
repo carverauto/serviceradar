@@ -51,6 +51,24 @@ func TestParseJSONLogsArray(t *testing.T) {
 	}
 }
 
+func TestParseJSONLogsCharCodeBody(t *testing.T) {
+	payload := []byte(`{"body":[84,101,115,116],"severity_text":"info","timestamp":1700000000,"service.name":"core-elx"}`)
+
+	rows, ok := parseJSONLogs(payload, "logs.otel.processed")
+	if !ok {
+		t.Fatalf("expected JSON log parse to succeed")
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0].Body != "Test" {
+		t.Fatalf("unexpected body: %q", rows[0].Body)
+	}
+	if rows[0].ServiceName != "core-elx" {
+		t.Fatalf("unexpected service name: %q", rows[0].ServiceName)
+	}
+}
+
 func TestParseOCSFEvent(t *testing.T) {
 	payload := []byte(`{
 		"id":"c0b2f5af-7d5d-4c1a-8c5b-7c6a9f4c94b2",

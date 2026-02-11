@@ -342,6 +342,21 @@ defmodule ServiceRadar.Observability.LogPromotionParser do
     |> blank_to_nil()
   end
 
+  # OTEL protobuf logs can end up JSON-encoded with `body` as a char-code array
+  # (e.g. [84,101,115,116] for "Test"). Treat that as a string.
+  defp string_from_value(value) when is_list(value) do
+    case Enum.all?(value, &is_integer/1) do
+      true ->
+        value
+        |> to_string()
+        |> String.trim()
+        |> blank_to_nil()
+
+      false ->
+        nil
+    end
+  end
+
   defp string_from_value(value) when is_number(value), do: to_string(value)
   defp string_from_value(_), do: nil
 

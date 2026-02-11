@@ -12,6 +12,12 @@ defmodule ServiceRadarWebNG.Application do
     # Auto-start distributed Erlang if not already running and cluster is enabled
     maybe_start_distribution()
 
+    # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
+    ServiceRadar.Telemetry.OtelSetup.attach_instrumentations(
+      instrumentations: [:phoenix, :ecto],
+      ecto_repo: ServiceRadar.Repo
+    )
+
     # Build children list, conditionally adding PubSub if not already running
     # (serviceradar_core may have already started these)
     base_children =
