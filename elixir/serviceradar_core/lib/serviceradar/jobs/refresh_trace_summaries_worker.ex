@@ -6,7 +6,10 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   (determined by PostgreSQL search_path set by CNPG credentials).
   """
 
-  use Oban.Worker, queue: :maintenance, max_attempts: 3
+  use Oban.Worker,
+    queue: :maintenance,
+    max_attempts: 3,
+    unique: [period: 120, states: [:available, :scheduled, :executing, :retryable]]
 
   require Logger
 
@@ -17,7 +20,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   @impl Oban.Worker
   def perform(_job) do
     # Refresh the materialized view in the current schema (determined by search_path)
-    case Ecto.Adapters.SQL.query(ServiceRadar.Repo, @refresh_sql, []) do
+    case Ecto.Adapters.SQL.query(ServiceRadar.Repo, @refresh_sql, [], timeout: 60_000) do
       {:ok, _result} ->
         Logger.info("Refreshed otel_trace_summaries materialized view")
         :ok
