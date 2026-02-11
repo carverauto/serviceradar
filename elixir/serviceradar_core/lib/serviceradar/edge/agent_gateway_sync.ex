@@ -112,6 +112,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         # Create or update the device record
         case upsert_device_for_agent(device_uid, agent_id, attrs, actor) do
           :ok ->
+            # Register agent_id as a strong identifier so DIRE can resolve
+            # subsequent enrollments (even from different IPs) to this device
+            ids = IdentityReconciler.extract_strong_identifiers(device_update)
+            IdentityReconciler.register_identifiers(device_uid, ids, actor: actor)
+
             # Link the agent to the device
             link_agent_to_device(agent_id, device_uid, actor)
             {:ok, device_uid}
