@@ -2,9 +2,8 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   @moduledoc """
   OpenTelemetry trace summary resource.
 
-  Maps to the `otel_trace_summaries` materialized view. This is a read-only
-  view that aggregates trace data from otel_traces. The schema matches the
-  Go migration exactly.
+  Maps to the `otel_trace_summaries` table, which is incrementally refreshed
+  by RefreshTraceSummariesWorker via upserts from otel_traces.
   """
 
   use Ash.Resource,
@@ -17,7 +16,7 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
     table "otel_trace_summaries"
     repo ServiceRadar.Repo
     schema "platform"
-    # Don't generate migrations - this is a materialized view managed by raw SQL
+    # Don't generate migrations - this table is managed by raw SQL migrations
     migrate? false
   end
 
@@ -34,7 +33,7 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   # DB connection's search_path determines the schema
 
   actions do
-    # Read-only - this is a materialized view
+    # Read-only - this table is populated by RefreshTraceSummariesWorker
     defaults [:read]
 
     read :by_service do
@@ -60,7 +59,7 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   end
 
   attributes do
-    # Primary key is trace_id (unique index on materialized view)
+    # Primary key is trace_id
     attribute :trace_id, :string do
       primary_key? true
       allow_nil? false
