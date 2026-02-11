@@ -273,7 +273,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
         severity: severity,
         source_type: :event,
         source_id: event_id_string(event),
-        event_id: Map.get(event, :id),
+        event_id: event_id_string(event),
         event_time: Map.get(event, :time),
         metadata: event_alert_metadata(event, alert_config)
       }
@@ -552,6 +552,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   defp event_id_string(event) do
     case Map.get(event, :id) do
       nil -> nil
+      <<_::128>> = bin -> Ecto.UUID.load!(bin)
       id -> to_string(id)
     end
   end

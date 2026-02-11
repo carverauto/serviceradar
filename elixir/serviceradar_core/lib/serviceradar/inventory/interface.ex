@@ -79,6 +79,7 @@ defmodule ServiceRadar.Inventory.Interface do
         :duplex,
         :metadata,
         :available_metrics,
+        :partition,
         :created_at
       ]
     end
@@ -192,6 +193,12 @@ defmodule ServiceRadar.Inventory.Interface do
     attribute :gateway_id, :string do
       public? true
       description "Gateway that discovered this interface"
+    end
+
+    attribute :partition, :string do
+      default "default"
+      public? true
+      description "Discovery partition"
     end
 
     attribute :device_ip, :string do
