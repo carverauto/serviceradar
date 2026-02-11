@@ -91,6 +91,9 @@ defmodule ServiceRadarAgentGateway.Application do
       capabilities: capabilities
     )
 
+    # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
+    ServiceRadar.Telemetry.OtelSetup.attach_instrumentations(instrumentations: [])
+
     Logger.info("Starting ServiceRadar Agent Gateway: #{gateway_id}, domain: #{domain}")
     Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
 

@@ -1,6 +1,43 @@
 import Config
 
 # =============================================================================
+# OpenTelemetry Configuration
+# =============================================================================
+# All OTEL exporter config MUST live here — runtime.exs runs before OTP apps
+# start, so the opentelemetry SDK picks up these values at boot.
+otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+if otel_endpoint do
+  ssl_opts = ServiceRadar.Telemetry.OtelSetup.ssl_options()
+
+  config :opentelemetry,
+    span_processor: :batch,
+    traces_exporter:
+      {:serviceradar_otel_exporter_traces_otlp,
+       %{
+         rpc_timeout_ms: 10_000,
+         retry_max_attempts: 5,
+         retry_base_delay_ms: 200,
+         retry_max_delay_ms: 5_000
+       }}
+
+  config :opentelemetry_exporter,
+    otlp_protocol: :grpc,
+    otlp_endpoint: otel_endpoint,
+    ssl_options: ssl_opts
+
+  # Log exporter uses the same endpoint/protocol/TLS as traces
+  config :opentelemetry_experimental,
+    otlp_protocol: :grpc,
+    otlp_endpoint: otel_endpoint,
+    ssl_options: ssl_opts
+else
+  # No endpoint configured — disable export to avoid connection errors
+  config :opentelemetry,
+    traces_exporter: :none
+end
+
+# =============================================================================
 # GeoLite2 MMDB / GeoIP Configuration
 # =============================================================================
 # The core release must configure Geolix itself at runtime so enrichment workers
