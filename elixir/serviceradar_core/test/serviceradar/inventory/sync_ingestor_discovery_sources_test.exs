@@ -10,6 +10,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
 
   @moduletag :integration
 
+  require Ash.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{Device, SyncIngestor}
   alias ServiceRadar.TestSupport

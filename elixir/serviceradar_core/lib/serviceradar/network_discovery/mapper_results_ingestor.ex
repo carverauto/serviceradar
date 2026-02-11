@@ -173,10 +173,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.group_by(& &1.device_id)
     |> Enum.each(fn {device_id, iface_records} ->
       partition = iface_records |> Enum.find_value(& &1.partition) || "default"
+      agent_id = iface_records |> Enum.find_value(& &1.agent_id)
 
       iface_records
       |> interface_macs()
-      |> Enum.each(&register_interface_mac(device_id, &1, partition, actor))
+      |> Enum.each(&register_interface_mac(device_id, &1, partition, agent_id, actor))
     end)
   end
 
@@ -187,9 +188,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.uniq()
   end
 
-  defp register_interface_mac(device_id, mac, partition, actor) do
+  defp register_interface_mac(device_id, mac, partition, agent_id, actor) do
     ids = %{
-      agent_id: nil,
+      # If an upstream component still assumes :agent_id exists in the map and
+      # uses dot-access, ensure it's always present here.
+      agent_id: agent_id,
       armis_id: nil,
       integration_id: nil,
       netbox_id: nil,

@@ -112,7 +112,9 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     partition = (update[:partition] || "default") |> String.trim()
 
     %{
-      agent_id: get_trimmed(metadata, "agent_id"),
+      # agent_id is typically carried in metadata for inventory updates, but some
+      # producers (ex: mapper results) may emit it at the top-level.
+      agent_id: get_trimmed(metadata, "agent_id") || get_agent_id_from_update(update),
       armis_id: get_trimmed(metadata, "armis_device_id"),
       integration_id: get_integration_id(metadata),
       netbox_id: get_trimmed(metadata, "netbox_device_id"),
@@ -121,6 +123,19 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       partition: partition
     }
   end
+
+  defp get_agent_id_from_update(update) when is_map(update) do
+    case update do
+      %{agent_id: value} when is_binary(value) -> String.trim(value) |> blank_to_nil()
+      %{"agent_id" => value} when is_binary(value) -> String.trim(value) |> blank_to_nil()
+      _ -> nil
+    end
+  end
+
+  defp get_agent_id_from_update(_update), do: nil
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
 
   defp get_integration_id(metadata) do
     case metadata["integration_type"] do
@@ -449,8 +464,18 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       []
       |> maybe_add_identifier(canonical_id, :agent_id, ids_get(ids, :agent_id), partition)
       |> maybe_add_identifier(canonical_id, :armis_device_id, ids_get(ids, :armis_id), partition)
-      |> maybe_add_identifier(canonical_id, :integration_id, ids_get(ids, :integration_id), partition)
-      |> maybe_add_identifier(canonical_id, :netbox_device_id, ids_get(ids, :netbox_id), partition)
+      |> maybe_add_identifier(
+        canonical_id,
+        :integration_id,
+        ids_get(ids, :integration_id),
+        partition
+      )
+      |> maybe_add_identifier(
+        canonical_id,
+        :netbox_device_id,
+        ids_get(ids, :netbox_id),
+        partition
+      )
       |> maybe_add_identifier(canonical_id, :mac, ids_get(ids, :mac), partition)
 
     results =
