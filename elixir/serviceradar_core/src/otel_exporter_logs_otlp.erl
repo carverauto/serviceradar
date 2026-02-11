@@ -348,12 +348,21 @@ restart_channel(Channel, Endpoints, Compression) ->
     %% underlying connections fail during startup. When that happens we get
     %% `no_endpoints` and log export silently stops. Best-effort restart.
     EndpointTuples = grpcbox_endpoints(Endpoints),
-    ChannelOpts = maps:merge(channel_opts(Compression), #{sync_start => true}),
-    ?LOG_INFO("OTLP grpc channel has no endpoints; restarting channel=~p endpoints=~p", [Channel, length(EndpointTuples)]),
+    ChannelOpts = channel_opts(Compression),
+    ?LOG_INFO("OTLP grpc channel has no endpoints; restarting channel=~p endpoints=~p",
+              [Channel, length(EndpointTuples)]),
     %% Prefer a graceful shutdown so workers are removed cleanly.
     try grpcbox_channel:stop(Channel, shutdown) catch _:_ -> ok end,
-    _ = grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts),
-    ok.
+    timer:sleep(100),
+    case grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts) of
+        {ok, _Pid} ->
+            ok;
+        {error, {already_started, _Pid}} ->
+            ok;
+        Error ->
+            ?LOG_WARNING("OTLP grpc channel restart failed: ~p", [Error]),
+            ok
+    end.
 
 channel_opts(undefined) -> #{};
 channel_opts(gzip) -> #{encoding => gzip};
