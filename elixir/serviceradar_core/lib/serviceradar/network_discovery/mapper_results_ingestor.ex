@@ -286,7 +286,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       )
 
     Repo.all(query)
-    |> Map.new()
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Map.new(fn {ip, uids} ->
+      # Prefer sr: UIDs over sweep-/other legacy device IDs
+      uid = Enum.find(uids, List.first(uids), &String.starts_with?(&1, "sr:"))
+      {ip, uid}
+    end)
   rescue
     e ->
       Logger.warning("Device UID lookup failed: #{inspect(e)}")
