@@ -28,6 +28,7 @@
 -define(DEFAULT_RETRY_MAX_ATTEMPTS, 5).
 -define(DEFAULT_RETRY_BASE_DELAY_MS, 200).
 -define(DEFAULT_RETRY_MAX_DELAY_MS, 5000).
+-define(RESTART_COOLDOWN_MS, 30000).
 
 -record(state, {channel :: term(),
                 httpc_profile :: atom() | undefined,
@@ -347,13 +348,38 @@ restart_channel(Channel, Endpoints, Compression) ->
     %% grpcbox doesn't automatically repopulate its subchannel pool if the
     %% underlying connections fail during startup. When that happens we get
     %% `no_endpoints` and log export silently stops. Best-effort restart.
+    %% Rate-limit restarts to avoid a tight loop when the collector is down.
+    Now = erlang:monotonic_time(millisecond),
+    Key = {otlp_channel_restart_ts, Channel},
+    case erlang:get(Key) of
+        undefined ->
+            erlang:put(Key, Now),
+            do_restart_channel(Channel, Endpoints, Compression);
+        Last when (Now - Last) >= ?RESTART_COOLDOWN_MS ->
+            erlang:put(Key, Now),
+            do_restart_channel(Channel, Endpoints, Compression);
+        _ ->
+            ok
+    end.
+
+do_restart_channel(Channel, Endpoints, Compression) ->
     EndpointTuples = grpcbox_endpoints(Endpoints),
-    ChannelOpts = maps:merge(channel_opts(Compression), #{sync_start => true}),
-    ?LOG_INFO("OTLP grpc channel has no endpoints; restarting channel=~p endpoints=~p", [Channel, length(EndpointTuples)]),
-    %% Prefer a graceful shutdown so workers are removed cleanly.
-    try grpcbox_channel:stop(Channel, shutdown) catch _:_ -> ok end,
-    _ = grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts),
-    ok.
+    ChannelOpts = channel_opts(Compression),
+    ?LOG_INFO("OTLP grpc channel has no endpoints; restarting channel=~p endpoints=~p",
+              [Channel, length(EndpointTuples)]),
+    %% force_delete ensures gproc_pool is fully cleaned up, preventing
+    %% stale pool entries from blocking the next start_link.
+    try grpcbox_channel:stop(Channel, {shutdown, force_delete}) catch _:_ -> ok end,
+    timer:sleep(100),
+    case grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts) of
+        {ok, _Pid} ->
+            ok;
+        {error, {already_started, _Pid}} ->
+            ok;
+        Error ->
+            ?LOG_WARNING("OTLP grpc channel restart failed: ~p", [Error]),
+            ok
+    end.
 
 channel_opts(undefined) -> #{};
 channel_opts(gzip) -> #{encoding => gzip};
