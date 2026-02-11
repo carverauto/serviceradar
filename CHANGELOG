@@ -1,3 +1,20 @@
+# ServiceRadar v1.1.0
+
+DIRE device deduplication fixes, OpenTelemetry tracing, and gateway hardening.
+
+## Whats New
+
+**1.1.0**
+- Fixed DIRE agent deduplication: `agent_id` is now registered in `device_identifiers` during both agent enrollment (`AgentGatewaySync`) and sync ingestion (`SyncIngestor`), preventing duplicate devices when agents restart with new IPs.
+- Data cleanup migration consolidates duplicate agent devices (e.g. 37+ k8s-agent records) into a single canonical device and backfills missing `agent_id` identifiers.
+- Fixed mapper interface ingestion: `lookup_device_uids_by_ip` now prefers `sr:` device UIDs when multiple devices share an IP, preventing interfaces from being assigned to the wrong device.
+- Fixed binary UUID conversion in DIRE identity reconciler to prevent crashes during device resolution.
+- Added OpenTelemetry tracing support for Elixir applications with trace summary refresh.
+- Hardened gateway proxy authentication and authorization checks.
+- Fixed sweep processor availability checks and missing sweep group ID handling.
+- Fixed GRPC channel restart logic (`restart_channel/3`) for agent gateway connections.
+- Fixed OTEL trace summary materialized view refresh failures.
+
 # ServiceRadar v1.0.92
 
 Performance and reliability improvements for the observability dashboard and RBAC system.
