@@ -19,6 +19,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   require Logger
 
+  alias Ecto.Adapters.SQL
+
   # Upsert traces whose spans fall within a time window [$1, $2).
   # For each matching trace_id, aggregates ALL its spans within 7 days.
   @upsert_sql """
@@ -104,7 +106,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp determine_mode do
-    case Ecto.Adapters.SQL.query(ServiceRadar.Repo, @table_has_data_sql, [], timeout: 10_000) do
+    case SQL.query(ServiceRadar.Repo, @table_has_data_sql, [], timeout: 10_000) do
       {:ok, %{rows: [[true]]}} -> :incremental
       _ -> :backfill
     end
@@ -130,15 +132,19 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       if DateTime.compare(cursor, bound) != :lt do
         nil
       else
-        chunk_end = DateTime.add(cursor, @backfill_chunk_seconds, :second)
-        chunk_end = if DateTime.compare(chunk_end, bound) == :gt, do: bound, else: chunk_end
+        chunk_end = clamp_end(cursor, bound)
         {{cursor, chunk_end}, chunk_end}
       end
     end)
   end
 
+  defp clamp_end(cursor, bound) do
+    candidate = DateTime.add(cursor, @backfill_chunk_seconds, :second)
+    if DateTime.compare(candidate, bound) == :gt, do: bound, else: candidate
+  end
+
   defp run_upsert(window_start, window_end) do
-    case Ecto.Adapters.SQL.query(
+    case SQL.query(
            ServiceRadar.Repo,
            @upsert_sql,
            [window_start, window_end],
@@ -158,7 +164,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp cleanup_old_summaries do
-    case Ecto.Adapters.SQL.query(ServiceRadar.Repo, @cleanup_sql, [], timeout: 10_000) do
+    case SQL.query(ServiceRadar.Repo, @cleanup_sql, [], timeout: 10_000) do
       {:ok, _result} ->
         :ok
 
