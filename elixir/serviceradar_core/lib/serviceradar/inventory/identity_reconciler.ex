@@ -663,15 +663,35 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         end)
     }
 
-    device_ids
-    |> Enum.reject(&(&1 == canonical_id))
-    |> Enum.each(fn from_id ->
-      _ =
-        merge_devices(from_id, canonical_id,
-          actor: actor,
-          reason: "identifier_conflict",
-          details: details
-        )
+    # Check if all shared identifiers are medium-confidence only
+    if medium_confidence_only?(matches) do
+      Logger.warning(
+        "Blocked merge: all shared identifiers are medium-confidence. " <>
+          "Devices: #{inspect(device_ids)}, " <>
+          "identifiers: #{inspect(details.identifiers)}"
+      )
+    else
+      device_ids
+      |> Enum.reject(&(&1 == canonical_id))
+      |> Enum.each(fn from_id ->
+        _ =
+          merge_devices(from_id, canonical_id,
+            actor: actor,
+            reason: "identifier_conflict",
+            details: details
+          )
+      end)
+    end
+  end
+
+  # Returns true if the only shared identifiers that caused the conflict are
+  # MAC addresses that are locally-administered (medium confidence).
+  # Strong identifiers (agent_id, armis_id, etc.) are never medium-confidence.
+  defp medium_confidence_only?(matches) do
+    matches
+    |> Enum.all?(fn
+      {:mac, %{value: value}} -> locally_administered_mac?(value)
+      _ -> false
     end)
   end
 
@@ -951,7 +971,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       Ash.transaction(resources, fn ->
         with {:ok, %Device{} = from_device} <-
                Device.get_by_uid(from_device_id, false, actor: actor),
-             {:ok, %Device{} = _to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
+             {:ok, %Device{} = to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
+             :ok <- check_hostname_conflict(from_device, to_device, details),
              :ok <- reassign_device_identifiers(from_device_id, to_device_id, actor),
              :ok <- reassign_service_checks(from_device_id, to_device_id, actor),
              :ok <- reassign_alerts(from_device_id, to_device_id, actor),
@@ -980,6 +1001,159 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       end
     end
   end
+
+  @doc """
+  Reverse an incorrect merge by recreating the from-device and reassigning
+  its original identifiers back.
+
+  Uses the `merge_audit` trail to identify what was merged.
+  Records an unmerge audit entry for traceability.
+  """
+  @spec unmerge_device(String.t(), keyword()) :: :ok | {:error, term()}
+  def unmerge_device(from_device_id, opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:device_unmerge))
+
+    # Find the merge audit entry for this from_device_id
+    case MergeAudit.get_merged_to(from_device_id, actor: actor) do
+      {:ok, [audit | _]} ->
+        do_unmerge(from_device_id, audit.to_device_id, audit, actor)
+
+      {:ok, []} ->
+        {:error, :no_merge_audit_found}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp do_unmerge(from_device_id, to_device_id, audit, actor) do
+    resources = [Device, DeviceIdentifier, MergeAudit]
+
+    Ash.transaction(resources, fn ->
+      # Recreate the from-device
+      with {:ok, _device} <- recreate_device(from_device_id, audit, actor),
+           :ok <- reassign_original_identifiers(from_device_id, to_device_id, audit, actor),
+           {:ok, _} <-
+             MergeAudit.record(
+               %{
+                 from_device_id: to_device_id,
+                 to_device_id: from_device_id,
+                 reason: "unmerge",
+                 source: "identity_reconciler",
+                 details: %{
+                   original_merge_event_id: audit.event_id,
+                   original_merge_reason: audit.reason,
+                   unmerged_by: "admin"
+                 }
+               },
+               actor: actor
+             ) do
+        Logger.info(
+          "Unmerged device #{from_device_id} from #{to_device_id} " <>
+            "(original merge: #{audit.event_id})"
+        )
+
+        :ok
+      end
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:ok, other} -> other
+      {:error, _} = error -> error
+    end
+  end
+
+  defp recreate_device(from_device_id, audit, actor) do
+    # Extract any metadata from the merge audit that can help reconstruct the device
+    details = audit.details || %{}
+    ip = details["from_device_ip"] || details[:from_device_ip]
+    hostname = details["from_device_hostname"] || details[:from_device_hostname]
+
+    attrs = %{uid: from_device_id}
+    attrs = if ip, do: Map.put(attrs, :ip, ip), else: attrs
+    attrs = if hostname, do: Map.put(attrs, :hostname, hostname), else: attrs
+
+    Device
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(actor: actor)
+  end
+
+  # Reassign identifiers that were originally on the from-device back to it.
+  # Uses the merge audit details to identify which identifiers to reassign.
+  defp reassign_original_identifiers(from_device_id, to_device_id, audit, actor) do
+    details = audit.details || %{}
+    original_identifiers = details["identifiers"] || details[:identifiers] || []
+
+    # Find identifiers on the to-device that match the original merge's identifiers
+    case Ash.read(
+           DeviceIdentifier
+           |> Ash.Query.for_read(:by_device, %{device_id: to_device_id}),
+           actor: actor
+         ) do
+      {:ok, current_identifiers} ->
+        # Match identifiers from the merge details
+        identifiers_to_reassign =
+          Enum.filter(current_identifiers, fn identifier ->
+            Enum.any?(original_identifiers, fn orig ->
+              match_original_identifier?(identifier, orig)
+            end)
+          end)
+
+        Enum.each(identifiers_to_reassign, fn identifier ->
+          identifier
+          |> Ash.Changeset.for_update(:reassign_device, %{device_id: from_device_id})
+          |> Ash.update(actor: actor)
+        end)
+
+        :ok
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp match_original_identifier?(identifier, original) when is_map(original) do
+    orig_type =
+      original["type"] || original[:type] || original["identifier_type"] ||
+        original[:identifier_type]
+
+    orig_value =
+      original["value"] || original[:value] || original["identifier_value"] ||
+        original[:identifier_value]
+
+    to_string(identifier.identifier_type) == to_string(orig_type) &&
+      identifier.identifier_value == orig_value
+  end
+
+  defp match_original_identifier?(_identifier, _original), do: false
+
+  # Block merge when both devices have different non-empty hostnames.
+  defp check_hostname_conflict(from_device, to_device, details) do
+    from_hostname = non_empty_hostname(from_device)
+    to_hostname = non_empty_hostname(to_device)
+
+    if from_hostname && to_hostname && from_hostname != to_hostname do
+      Logger.warning(
+        "Blocked merge: hostname conflict. " <>
+          "From device #{from_device.uid} (#{from_hostname}) " <>
+          "into #{to_device.uid} (#{to_hostname}). " <>
+          "Triggering identifiers: #{inspect(details[:identifiers] || details)}"
+      )
+
+      {:error, {:hostname_conflict, from_hostname, to_hostname}}
+    else
+      :ok
+    end
+  end
+
+  defp non_empty_hostname(%Device{hostname: hostname}) when is_binary(hostname) do
+    case String.trim(hostname) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp non_empty_hostname(_), do: nil
 
   defp reassign_device_identifiers(from_id, to_id, actor) do
     bulk_reassign(
@@ -1133,6 +1307,20 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
   defp maybe_add_identifier(acc, _device_id, _id_type, nil, _partition), do: acc
 
+  defp maybe_add_identifier(acc, device_id, :mac, id_value, partition) do
+    [
+      %{
+        device_id: device_id,
+        identifier_type: :mac,
+        identifier_value: id_value,
+        partition: partition,
+        confidence: mac_confidence(id_value),
+        source: "identity_reconciler"
+      }
+      | acc
+    ]
+  end
+
   defp maybe_add_identifier(acc, device_id, id_type, id_value, partition) do
     [
       %{
@@ -1202,6 +1390,54 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       |> String.replace(".", "")
 
     if normalized == "", do: nil, else: normalized
+  end
+
+  @doc """
+  Check if a MAC address is locally administered (IEEE bit 1 of the first octet).
+
+  Locally-administered MACs are generated by virtualization, Docker, overlay networks,
+  etc. and are not globally unique. They should be registered with medium confidence.
+
+  ## Examples
+
+      iex> IdentityReconciler.locally_administered_mac?("0EEA1432D278")
+      true
+
+      iex> IdentityReconciler.locally_administered_mac?("0CEA1432D278")
+      false
+
+      iex> IdentityReconciler.locally_administered_mac?("F692BF75C722")
+      true
+
+      iex> IdentityReconciler.locally_administered_mac?("F492BF75C722")
+      true
+  """
+  @spec locally_administered_mac?(String.t() | nil) :: boolean()
+  def locally_administered_mac?(nil), do: false
+
+  def locally_administered_mac?(mac) do
+    normalized = normalize_mac(mac)
+
+    case normalized do
+      nil ->
+        false
+
+      normalized when byte_size(normalized) >= 2 ->
+        {first_byte, _} = Integer.parse(String.slice(normalized, 0, 2), 16)
+        band(first_byte, 0x02) != 0
+
+      _ ->
+        false
+    end
+  end
+
+  @doc """
+  Return the appropriate confidence level for a MAC address.
+  Locally-administered MACs get :medium, globally-unique MACs get :strong.
+  """
+  @spec mac_confidence(String.t() | nil) :: :strong | :medium
+  def mac_confidence(mac) do
+    if locally_administered_mac?(mac), do: :medium, else: :strong
   end
 
   @doc """
