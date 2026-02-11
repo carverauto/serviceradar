@@ -528,7 +528,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         )
         |> Map.put(:serviceradar, %{
           stateful_rule: true,
-          rule_id: rule.id,
+          rule_id: to_string(rule.id),
           group_key: snapshot.group_key
         }),
       actor: OCSF.build_actor(app_name: "serviceradar.core", process: "stateful_alert_engine"),
@@ -948,7 +948,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp event_source_details(record) do
     %{
       "source_signal" => "event",
-      "source_event_id" => fetch_attr(record, :id),
+      "source_event_id" => to_string(fetch_attr(record, :id)),
       "source_event_time" => fetch_attr(record, :time),
       "source_log_name" => fetch_attr(record, :log_name),
       "source_log_provider" => fetch_attr(record, :log_provider)
@@ -958,7 +958,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp log_source_details(record) do
     %{
       "source_signal" => "log",
-      "source_log_id" => fetch_attr(record, :id),
+      "source_log_id" => to_string(fetch_attr(record, :id)),
       "source_log_time" => fetch_attr(record, :timestamp),
       "source_service" => fetch_attr(record, :service_name)
     }
