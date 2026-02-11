@@ -8,7 +8,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   3. Upserts into otel_trace_summaries via ON CONFLICT
   4. Cleans up rows older than 7 days
 
-  On first run (empty table), performs a full 7-day backfill.
+  On first run (empty table), performs a chunked backfill in 1-hour windows
+  to avoid timing out on large datasets.
   """
 
   use Oban.Worker,
@@ -18,6 +19,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   require Logger
 
+  # Upsert traces whose spans fall within a time window [$1, $2).
+  # For each matching trace_id, aggregates ALL its spans within 7 days.
   @upsert_sql """
   INSERT INTO otel_trace_summaries (
     trace_id, timestamp, root_span_id, root_span_name, root_service_name,
@@ -43,7 +46,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   FROM otel_traces t
   WHERE t.trace_id IN (
     SELECT DISTINCT trace_id FROM otel_traces
-    WHERE timestamp >= $1 AND trace_id IS NOT NULL
+    WHERE timestamp >= $1 AND timestamp < $2 AND trace_id IS NOT NULL
   )
   AND t.timestamp >= NOW() - INTERVAL '7 days'
   AND t.trace_id IS NOT NULL
@@ -67,18 +70,32 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   @cleanup_sql "DELETE FROM otel_trace_summaries WHERE timestamp < NOW() - INTERVAL '7 days'"
 
-  @table_exists_sql "SELECT EXISTS(SELECT 1 FROM otel_trace_summaries LIMIT 1)"
+  @table_has_data_sql "SELECT EXISTS(SELECT 1 FROM otel_trace_summaries LIMIT 1)"
+
+  # Backfill in 1-hour chunks to keep each query fast
+  @backfill_chunk_seconds 3600
 
   def upsert_sql, do: @upsert_sql
 
   @impl Oban.Worker
   def perform(_job) do
-    lookback = determine_lookback()
+    case determine_mode() do
+      :incremental ->
+        now = DateTime.utc_now()
+        cutoff = DateTime.add(now, -5, :minute)
 
-    with :ok <- upsert_summaries(lookback),
-         :ok <- cleanup_old_summaries() do
-      Logger.info("Refreshed otel_trace_summaries (#{lookback_label(lookback)})")
-      :ok
+        with :ok <- run_upsert(cutoff, now),
+             :ok <- cleanup_old_summaries() do
+          Logger.info("Refreshed otel_trace_summaries (incremental, 5-min lookback)")
+          :ok
+        end
+
+      :backfill ->
+        with :ok <- run_chunked_backfill(),
+             :ok <- cleanup_old_summaries() do
+          Logger.info("Refreshed otel_trace_summaries (chunked 7-day backfill complete)")
+          :ok
+        end
     end
   rescue
     error ->
@@ -86,22 +103,47 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       {:error, error}
   end
 
-  defp determine_lookback do
-    case Ecto.Adapters.SQL.query(ServiceRadar.Repo, @table_exists_sql, [], timeout: 10_000) do
-      {:ok, %{rows: [[true]]}} ->
-        # Table has data — incremental 5-minute lookback
-        :incremental
-
-      _ ->
-        # Table is empty or missing — full 7-day backfill
-        :full
+  defp determine_mode do
+    case Ecto.Adapters.SQL.query(ServiceRadar.Repo, @table_has_data_sql, [], timeout: 10_000) do
+      {:ok, %{rows: [[true]]}} -> :incremental
+      _ -> :backfill
     end
   end
 
-  defp upsert_summaries(lookback) do
-    cutoff = lookback_cutoff(lookback)
+  # Backfill 7 days in 1-hour chunks, oldest-first.
+  # Each chunk is a bounded query that completes well within the 60s timeout.
+  defp run_chunked_backfill do
+    now = DateTime.utc_now()
+    start = DateTime.add(now, -7, :day)
 
-    case Ecto.Adapters.SQL.query(ServiceRadar.Repo, @upsert_sql, [cutoff], timeout: 60_000) do
+    build_windows(start, now)
+    |> Enum.reduce_while(:ok, fn {window_start, window_end}, :ok ->
+      case run_upsert(window_start, window_end) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp build_windows(start, bound) do
+    Stream.unfold(start, fn cursor ->
+      if DateTime.compare(cursor, bound) != :lt do
+        nil
+      else
+        chunk_end = DateTime.add(cursor, @backfill_chunk_seconds, :second)
+        chunk_end = if DateTime.compare(chunk_end, bound) == :gt, do: bound, else: chunk_end
+        {{cursor, chunk_end}, chunk_end}
+      end
+    end)
+  end
+
+  defp run_upsert(window_start, window_end) do
+    case Ecto.Adapters.SQL.query(
+           ServiceRadar.Repo,
+           @upsert_sql,
+           [window_start, window_end],
+           timeout: 60_000
+         ) do
       {:ok, _result} ->
         :ok
 
@@ -128,15 +170,4 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
         {:error, error}
     end
   end
-
-  defp lookback_cutoff(:incremental) do
-    DateTime.utc_now() |> DateTime.add(-5, :minute)
-  end
-
-  defp lookback_cutoff(:full) do
-    DateTime.utc_now() |> DateTime.add(-7, :day)
-  end
-
-  defp lookback_label(:incremental), do: "incremental, 5-min lookback"
-  defp lookback_label(:full), do: "full 7-day backfill"
 end
