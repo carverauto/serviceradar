@@ -18,6 +18,10 @@ import (
 )
 
 func TestExecuteWithWasmHarness(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: WASM execution is too slow for short mode")
+	}
+
 	wasmPath := os.Getenv("WASM_PATH")
 	if wasmPath == "" {
 		_, thisFile, _, ok := runtime.Caller(0)
