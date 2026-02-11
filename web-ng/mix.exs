@@ -11,7 +11,8 @@ defmodule ServiceRadarWebNG.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      usage_rules: usage_rules()
     ]
   end
 
@@ -47,6 +48,7 @@ defmodule ServiceRadarWebNG.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:usage_rules, "~> 1.0", only: [:dev]},
       # ServiceRadar Core - Ash domains, cluster, registry
       {:serviceradar_core, path: "../elixir/serviceradar_core"},
 
@@ -113,6 +115,26 @@ defmodule ServiceRadarWebNG.MixProject do
 
       # Phoenix React Server - Server-side rendering for React components
       {:phoenix_react_server, "~> 0.7.3"}
+    ]
+  end
+
+  defp usage_rules do
+    [
+      skills: [
+        location: ".claude/skills",
+        build: [
+          "ash-framework": [
+            description:
+              "Use this skill working with Ash Framework or any of its extensions. Always consult this when making any domain changes, features or fixes.",
+            usage_rules: [~r/^ash_/]
+          ],
+          "phoenix-framework": [
+            description:
+              "Use this skill working with Phoenix Framework. Consult this when working with the web layer, controllers, views, liveviews etc.",
+            usage_rules: [:phoenix, ~r/^phoenix_/]
+          ]
+        ]
+      ]
     ]
   end
 
