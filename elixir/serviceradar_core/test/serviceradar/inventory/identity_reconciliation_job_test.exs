@@ -7,6 +7,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
 
   @moduletag :integration
 
+  require Ash.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, Interface, MergeAudit}
   alias ServiceRadar.Jobs.JobSchedule

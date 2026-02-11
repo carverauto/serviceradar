@@ -7,6 +7,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
 
   @moduletag :integration
 
+  require Ash.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{Device, IdentityReconciler, Interface}
   alias ServiceRadar.TestSupport
