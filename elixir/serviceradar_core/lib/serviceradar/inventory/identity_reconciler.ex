@@ -1083,6 +1083,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp reassign_original_identifiers(from_device_id, to_device_id, audit, actor) do
     details = audit.details || %{}
     original_identifiers = details["identifiers"] || details[:identifiers] || []
+    original_identifier_keys = original_identifier_keys(original_identifiers)
 
     # Find identifiers on the to-device that match the original merge's identifiers
     case Ash.read(
@@ -1091,13 +1092,11 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
            actor: actor
          ) do
       {:ok, current_identifiers} ->
-        # Match identifiers from the merge details
         identifiers_to_reassign =
-          Enum.filter(current_identifiers, fn identifier ->
-            Enum.any?(original_identifiers, fn orig ->
-              match_original_identifier?(identifier, orig)
-            end)
-          end)
+          Enum.filter(
+            current_identifiers,
+            &identifier_in_original_set?(&1, original_identifier_keys)
+          )
 
         Enum.each(identifiers_to_reassign, fn identifier ->
           identifier
@@ -1112,7 +1111,14 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     end
   end
 
-  defp match_original_identifier?(identifier, original) when is_map(original) do
+  defp original_identifier_keys(original_identifiers) do
+    original_identifiers
+    |> Enum.map(&extract_original_identifier_key/1)
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
+
+  defp extract_original_identifier_key(original) when is_map(original) do
     orig_type =
       original["type"] || original[:type] || original["identifier_type"] ||
         original[:identifier_type]
@@ -1121,11 +1127,19 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       original["value"] || original[:value] || original["identifier_value"] ||
         original[:identifier_value]
 
-    to_string(identifier.identifier_type) == to_string(orig_type) &&
-      identifier.identifier_value == orig_value
+    if is_nil(orig_type) or is_nil(orig_value) do
+      nil
+    else
+      {to_string(orig_type), orig_value}
+    end
   end
 
-  defp match_original_identifier?(_identifier, _original), do: false
+  defp extract_original_identifier_key(_original), do: nil
+
+  defp identifier_in_original_set?(identifier, original_identifier_keys) do
+    key = {to_string(identifier.identifier_type), identifier.identifier_value}
+    MapSet.member?(original_identifier_keys, key)
+  end
 
   # Block merge when both devices have different non-empty hostnames.
   defp check_hostname_conflict(from_device, to_device, details) do

@@ -110,7 +110,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     {:ok, devices} = Ash.read(query, actor: actor)
 
-    assert length(devices) >= 1
+    refute Enum.empty?(devices)
     assert Enum.any?(devices, &(&1.uid == existing.uid))
   end
 end

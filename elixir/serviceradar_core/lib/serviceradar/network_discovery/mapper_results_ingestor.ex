@@ -178,13 +178,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp create_device_for_ip(device_ip, records, actor) do
     # Get partition from the first record matching this IP
-    partition =
-      records
-      |> Enum.find(fn r -> r.device_ip == device_ip end)
-      |> case do
-        nil -> "default"
-        record -> record.partition || "default"
-      end
+    partition = partition_for_device_ip(device_ip, records)
 
     # Collect MACs from interface records for this IP to use as DIRE identifiers
     macs =
@@ -224,19 +218,31 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         {:ok, device_uid}
 
       {:error, %Ash.Error.Invalid{errors: errors}} ->
-        # Check if it's a uniqueness constraint (device already exists)
-        if Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)) do
-          # Device may have been created concurrently — try lookup again
-          case lookup_device_uids_by_ip([device_ip]) do
-            %{^device_ip => uid} -> {:ok, uid}
-            _ -> {:error, errors}
-          end
-        else
-          {:error, errors}
-        end
+        recover_existing_device_uid(device_ip, errors)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp partition_for_device_ip(device_ip, records) do
+    records
+    |> Enum.find(fn record -> record.device_ip == device_ip end)
+    |> case do
+      nil -> "default"
+      record -> record.partition || "default"
+    end
+  end
+
+  defp recover_existing_device_uid(device_ip, errors) do
+    # Device may have been created concurrently; recover by re-reading by IP.
+    if Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)) do
+      case lookup_device_uids_by_ip([device_ip]) do
+        %{^device_ip => uid} -> {:ok, uid}
+        _ -> {:error, errors}
+      end
+    else
+      {:error, errors}
     end
   end
 
