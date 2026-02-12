@@ -14,6 +14,7 @@ fi
 # Create required directories
 mkdir -p /etc/serviceradar
 mkdir -p /var/lib/serviceradar
+mkdir -p /var/lib/serviceradar/cache
 
 
 # Create checkers/sweep directory if it doesnt already exist
@@ -24,7 +25,10 @@ if [ -f /etc/serviceradar/agent.json ]; then
     chown serviceradar:serviceradar /etc/serviceradar/agent.json
 fi
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
+chown -R serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /etc/serviceradar/
+chmod 755 /var/lib/serviceradar
+chmod 755 /var/lib/serviceradar/cache
 
 # Set required capability for ICMP scanning
 if [ -x /usr/local/bin/serviceradar-agent ]; then
