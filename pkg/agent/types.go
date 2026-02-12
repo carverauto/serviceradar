@@ -95,8 +95,9 @@ type SweepGroupsConfig struct {
 
 // ServerConfig holds the configuration for the agent server.
 type ServerConfig struct {
-	AgentID     string                 `json:"agent_id"`              // Unique identifier for this agent
-	AgentName   string                 `json:"agent_name,omitempty"`  // Explicit name for KV namespacing
+	AgentID       string                 `json:"agent_id"`                        // Unique identifier for this agent
+	AgentName     string                 `json:"agent_name,omitempty"`            // Explicit name for KV namespacing
+	ComponentType string                 `json:"component_type,omitempty"`        // Component type (agent, gateway, checker)
 	HostIP      string                 `json:"host_ip,omitempty"`     // Host IP address for device correlation
 	Partition   string                 `json:"partition,omitempty"`   // Partition for device correlation
 	Security    *models.SecurityConfig `json:"security,omitempty"`    // Security config for checker connections
