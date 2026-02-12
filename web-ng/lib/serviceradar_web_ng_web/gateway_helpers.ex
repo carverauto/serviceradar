@@ -22,6 +22,12 @@ defmodule ServiceRadarWebNGWeb.GatewayHelpers do
         %{partition_id: partition} when is_atom(partition) ->
           "#{id} (#{partition})"
 
+        %{partition: partition} when is_binary(partition) and partition != "" ->
+          "#{id} (#{partition})"
+
+        %{partition: partition} when is_atom(partition) ->
+          "#{id} (#{partition})"
+
         _ ->
           id
       end
