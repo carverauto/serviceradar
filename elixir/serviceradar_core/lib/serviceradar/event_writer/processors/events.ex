@@ -84,7 +84,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
         severity = parse_string(json["severity"]) || severity_name(severity_id)
 
         %{
-          id: id,
+          id: Ecto.UUID.dump!(id),
           time: FieldParser.parse_timestamp(json["time"]),
           class_uid: class_uid,
           category_uid: category_uid,
