@@ -1526,7 +1526,9 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		portAlloc:      NewPortAllocator(scanPortStart, scanPortEnd),
 		scanPortStart:  scanPortStart,
 		scanPortEnd:    scanPortEnd,
-		retryAttempts:  1,
+		// Use a single retry by default to reduce false negatives from packet loss
+		// without significantly increasing scan duration.
+		retryAttempts:  2,
 		retryMinJitter: 20 * time.Millisecond,
 		retryMaxJitter: 40 * time.Millisecond,
 		sendBatchSize:  batchSize,
@@ -3260,4 +3262,3 @@ func htons(n uint16) uint16 {
 
 	return n
 }
-
