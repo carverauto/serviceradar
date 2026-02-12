@@ -371,13 +371,17 @@ do_restart_channel(Channel, Endpoints, Compression) ->
     %% stale pool entries from blocking the next start_link.
     try grpcbox_channel:stop(Channel, {shutdown, force_delete}) catch _:_ -> ok end,
     timer:sleep(100),
-    case grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts) of
+    try grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts) of
         {ok, _Pid} ->
             ok;
         {error, {already_started, _Pid}} ->
             ok;
         Error ->
             ?LOG_WARNING("OTLP grpc channel restart failed: ~p", [Error]),
+            ok
+    catch
+        _:Reason ->
+            ?LOG_WARNING("OTLP grpc channel restart threw exception: ~p", [Reason]),
             ok
     end.
 
