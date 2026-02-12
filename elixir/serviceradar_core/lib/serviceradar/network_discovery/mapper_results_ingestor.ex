@@ -162,7 +162,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.uniq()
     |> Enum.reject(&Map.has_key?(ip_to_uid, &1))
     |> Enum.reduce(ip_to_uid, fn device_ip, acc ->
-      case create_device_for_ip(device_ip, records, actor) do
+      case create_device_for_ip(device_ip, records, acc, actor) do
         {:ok, device_uid} ->
           Map.put(acc, device_ip, device_uid)
 
@@ -176,7 +176,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end)
   end
 
-  defp create_device_for_ip(device_ip, records, actor) do
+  defp create_device_for_ip(device_ip, records, ip_to_uid, actor) do
     # Get partition from the first record matching this IP
     partition = partition_for_device_ip(device_ip, records)
 
@@ -202,12 +202,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     # Generate deterministic sr: UUID via DIRE
     device_uid = IdentityReconciler.generate_deterministic_device_id(ids)
 
+    # If this IP appears as an interface address on another device, set management_device_id
+    management_device_id = find_management_device_uid(device_ip, records, ip_to_uid)
+
     # Create the device record
-    attrs = %{
-      uid: device_uid,
-      ip: device_ip,
-      discovery_sources: ["mapper"]
-    }
+    attrs =
+      %{
+        uid: device_uid,
+        ip: device_ip,
+        discovery_sources: ["mapper"]
+      }
+      |> maybe_put(:management_device_id, management_device_id)
 
     case Device
          |> Ash.Changeset.for_create(:create, attrs)
@@ -215,6 +220,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       {:ok, _device} ->
         Logger.info("Mapper created device #{device_uid} for IP #{device_ip}")
         invalidate_stale_aliases(device_ip, device_uid, partition, actor)
+        if management_device_id, do: TopologyGraph.upsert_managed_by(device_uid, management_device_id)
         {:ok, device_uid}
 
       {:error, %Ash.Error.Invalid{errors: errors}} ->
@@ -233,6 +239,32 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       record -> record.partition || "default"
     end
   end
+
+  # Checks if device_ip appears in any interface's ip_addresses belonging to a
+  # different device, and returns that parent device's UID if found.
+  defp find_management_device_uid(device_ip, records, ip_to_uid) do
+    records
+    |> Enum.find(fn record ->
+      record.device_ip != device_ip &&
+        is_list(record.ip_addresses) &&
+        Enum.any?(record.ip_addresses, &ip_matches?(&1, device_ip))
+    end)
+    |> case do
+      nil -> nil
+      record -> Map.get(ip_to_uid, record.device_ip)
+    end
+  end
+
+  # Matches an interface IP (which may include a CIDR suffix like "203.0.113.5/24")
+  # against a bare IP address.
+  defp ip_matches?(interface_ip, device_ip) when is_binary(interface_ip) do
+    interface_ip == device_ip || String.starts_with?(interface_ip, device_ip <> "/")
+  end
+
+  defp ip_matches?(_, _), do: false
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp recover_existing_device_uid(device_ip, errors) do
     # Device may have been created concurrently; recover by re-reading by IP.

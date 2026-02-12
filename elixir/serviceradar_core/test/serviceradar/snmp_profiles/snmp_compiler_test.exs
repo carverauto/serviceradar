@@ -262,6 +262,92 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
   end
 
+  describe "management device fallback" do
+    @tag :integration
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      actor = SystemActor.system(:test)
+
+      # Create a profile with SRQL targeting
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Mgmt Device Test Profile",
+            poll_interval: 60,
+            timeout: 5,
+            retries: 3,
+            is_default: true,
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, actor: actor, profile: profile}
+    end
+
+    @tag :integration
+    test "SNMP target for device with management_device_id uses management device IP", %{
+      actor: actor
+    } do
+      alias ServiceRadar.Inventory.Device
+
+      parent_uid = "sr:" <> Ecto.UUID.generate()
+      child_uid = "sr:" <> Ecto.UUID.generate()
+
+      # Create parent (management) device at reachable IP
+      {:ok, _parent} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{uid: parent_uid, ip: "192.168.1.1"})
+        |> Ash.create(actor: actor)
+
+      # Create child device with unreachable IP, pointing to parent
+      {:ok, child} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: child_uid,
+          ip: "203.0.113.5",
+          management_device_id: parent_uid,
+          discovery_sources: ["mapper"]
+        })
+        |> Ash.create(actor: actor)
+
+      assert child.management_device_id == parent_uid
+
+      # The management device IP should be used when the SNMP compiler
+      # resolves the polling host for this device
+      query =
+        Device
+        |> Ash.Query.filter(uid == ^child_uid)
+        |> Ash.Query.for_read(:read, %{}, actor: actor)
+        |> Ash.Query.limit(1)
+
+      {:ok, [loaded_child]} = Ash.read(query, actor: actor)
+      assert loaded_child.management_device_id == parent_uid
+    end
+
+    @tag :integration
+    test "SNMP target for device without management_device_id uses own IP", %{actor: actor} do
+      alias ServiceRadar.Inventory.Device
+
+      device_uid = "sr:" <> Ecto.UUID.generate()
+
+      {:ok, device} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: device_uid,
+          ip: "10.0.0.1",
+          discovery_sources: ["mapper"]
+        })
+        |> Ash.create(actor: actor)
+
+      assert device.management_device_id == nil
+      assert device.ip == "10.0.0.1"
+    end
+  end
+
   describe "resolve_profile/2" do
     @tag :integration
     setup do

@@ -170,6 +170,7 @@ defmodule ServiceRadar.Inventory.Device do
         :agent_list,
         :gateway_id,
         :agent_id,
+        :management_device_id,
         :discovery_sources,
         :tags,
         :is_available,
@@ -223,6 +224,7 @@ defmodule ServiceRadar.Inventory.Device do
     update :gateway_sync do
       accept [
         :agent_id,
+        :management_device_id,
         :hostname,
         :ip,
         :is_available,
@@ -563,6 +565,11 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :agent_id, :string do
       public? true
       description "Agent reporting this device"
+    end
+
+    attribute :management_device_id, :string do
+      public? true
+      description "UID of the device used to reach this device for management (e.g. SNMP polling)"
     end
 
     attribute :discovery_sources, {:array, :string} do

@@ -23,6 +23,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     :ok
   end
 
+  @doc """
+  Creates a MANAGED_BY edge from a device to its management device.
+  """
+  @spec upsert_managed_by(String.t(), String.t()) :: :ok
+  def upsert_managed_by(device_uid, management_device_uid)
+      when is_binary(device_uid) and is_binary(management_device_uid) do
+    cypher = """
+    MERGE (child:Device {id: '#{Graph.escape(device_uid)}'})
+    MERGE (mgmt:Device {id: '#{Graph.escape(management_device_uid)}'})
+    MERGE (child)-[r:MANAGED_BY]->(mgmt)
+    SET r.source = 'mapper'
+    """
+
+    case Graph.execute(cypher) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("MANAGED_BY graph upsert failed: #{inspect(reason)}")
+    end
+  end
+
   defp upsert_link(link) when is_map(link) do
     case build_link_payload(link) do
       {:ok, payload} ->

@@ -460,8 +460,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       Logger.debug("SNMPCompiler: skipping device #{device.uid} (no OIDs)")
       nil
     else
-      # Get host address - prefer IP, fall back to hostname
-      host = device.ip || device.hostname
+      # If device has a management device, use its IP for polling
+      host = resolve_polling_host(device, actor)
 
       if missing_host?(host) do
         Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
@@ -470,6 +470,43 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         compile_device_target_with_host(device, profile, oids, actor, host)
       end
     end
+  end
+
+  defp resolve_polling_host(%{management_device_id: mgmt_id} = device, actor)
+       when is_binary(mgmt_id) and mgmt_id != "" do
+    case Device
+         |> Ash.Query.filter(uid == ^mgmt_id)
+         |> Ash.Query.for_read(:read, %{}, actor: actor)
+         |> Ash.Query.limit(1)
+         |> Ash.read(actor: actor) do
+      {:ok, [mgmt_device | _]} ->
+        mgmt_ip = mgmt_device.ip || mgmt_device.hostname
+
+        if missing_host?(mgmt_ip) do
+          Logger.warning(
+            "SNMPCompiler: management device #{mgmt_id} for #{device.uid} has no IP, falling back to device IP"
+          )
+
+          device.ip || device.hostname
+        else
+          Logger.debug(
+            "SNMPCompiler: using management device #{mgmt_id} IP #{mgmt_ip} for #{device.uid}"
+          )
+
+          mgmt_ip
+        end
+
+      _ ->
+        Logger.warning(
+          "SNMPCompiler: management device #{mgmt_id} not found for #{device.uid}, falling back to device IP"
+        )
+
+        device.ip || device.hostname
+    end
+  end
+
+  defp resolve_polling_host(device, _actor) do
+    device.ip || device.hostname
   end
 
   defp compile_device_target_with_host(device, profile, oids, actor, host) do
