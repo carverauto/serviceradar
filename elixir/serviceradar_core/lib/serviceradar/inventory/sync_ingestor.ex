@@ -293,8 +293,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     query =
       from(a in DeviceAliasState,
         where:
-          a.alias_type == "ip" and a.alias_value in ^ips and
-            a.state in ["confirmed", "updated"],
+          a.alias_type == :ip and a.alias_value in ^ips and
+            a.state in [:confirmed, :updated],
         select: {a.alias_value, a.device_id}
       )
 
