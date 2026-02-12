@@ -11,13 +11,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
         %{
           "host_ip" => "10.0.0.1",
           "hostname" => "known-host",
-          "icmp_available" => true,
-          "tcp_ports_open" => [22, 443]
+          "available" => true,
+          "port_results" => [
+            %{"port" => 22, "available" => true, "response_time" => 1_000_000},
+            %{"port" => 443, "available" => true, "response_time" => 1_200_000}
+          ]
         },
         %{
           "host_ip" => "10.0.0.2",
           "hostname" => "unknown-host",
-          "icmp_available" => false,
+          "available" => false,
           "error" => "timeout"
         }
       ]
@@ -49,7 +52,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       results = [
         %{
           "host_ip" => "10.0.0.1",
-          "icmp_available" => true,
+          "available" => true,
           # 5ms in nanoseconds
           "icmp_response_time_ns" => 5_000_000
         }
@@ -66,7 +69,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       results = [
         %{
           "host_ip" => "10.0.0.1",
-          "icmp_available" => true,
+          "available" => true,
           # 8ms in nanoseconds
           "icmpResponseTimeNs" => 8_000_000
         }
@@ -83,7 +86,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       results = [
         %{
           "host_ip" => "10.0.0.1",
-          "icmp_available" => true,
+          "available" => true,
           # Go's time.Duration serializes to nanoseconds
           # 12ms in nanoseconds
           "response_time" => 12_000_000
@@ -101,7 +104,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       results = [
         %{
           "host_ip" => "10.0.0.1",
-          "icmp_available" => true
+          "available" => true
         }
       ]
 
@@ -116,7 +119,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       results = [
         %{
           "host_ip" => "10.0.0.1",
-          "icmp_available" => false,
+          "available" => false,
           "icmp_response_time_ns" => 0
         }
       ]
@@ -133,19 +136,19 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       results = [
         %{
           "host_ip" => "10.0.0.1",
-          "icmp_available" => true,
+          "available" => true,
           # 500 microseconds = 500,000 nanoseconds (sub-millisecond)
           "icmp_response_time_ns" => 500_000
         },
         %{
           "host_ip" => "10.0.0.2",
-          "icmp_available" => true,
+          "available" => true,
           # 100 microseconds = 100,000 nanoseconds
           "icmp_response_time_ns" => 100_000
         },
         %{
           "host_ip" => "10.0.0.3",
-          "icmp_available" => true,
+          "available" => true,
           # 999 microseconds = 999,000 nanoseconds (just under 1ms)
           "icmp_response_time_ns" => 999_000
         }
@@ -166,19 +169,19 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       results = [
         %{
           "host_ip" => "10.0.0.1",
-          "icmp_available" => true,
+          "available" => true,
           # Exactly 1ms
           "icmp_response_time_ns" => 1_000_000
         },
         %{
           "host_ip" => "10.0.0.2",
-          "icmp_available" => true,
+          "available" => true,
           # 1.5ms should truncate to 1ms (integer division)
           "icmp_response_time_ns" => 1_500_000
         },
         %{
           "host_ip" => "10.0.0.3",
-          "icmp_available" => true,
+          "available" => true,
           # 2ms
           "icmp_response_time_ns" => 2_000_000
         }
@@ -197,13 +200,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
   end
 
   describe "availability status" do
-    test "marks host as available when icmp_available is true" do
+    test "marks host as available when available is true" do
       execution_id = Ash.UUID.generate()
 
       results = [
         %{
           "host_ip" => "10.0.0.1",
-          "icmp_available" => true
+          "available" => true
         }
       ]
 
@@ -214,13 +217,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       assert stats.hosts_failed == 0
     end
 
-    test "marks host as unavailable when icmp_available is false" do
+    test "marks host as unavailable when available is false" do
       execution_id = Ash.UUID.generate()
 
       results = [
         %{
           "host_ip" => "10.0.0.1",
-          "icmp_available" => false
+          "available" => false
         }
       ]
 
@@ -237,7 +240,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       results = [
         %{
           "host_ip" => "10.0.0.1",
-          "icmp_available" => false,
+          "available" => false,
           "error" => "connection timeout"
         }
       ]
@@ -250,45 +253,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
   end
 
   describe "open_ports parsing" do
-    test "parses tcp_ports_open array" do
-      execution_id = Ash.UUID.generate()
-
-      results = [
-        %{
-          "host_ip" => "10.0.0.1",
-          "icmp_available" => true,
-          "tcp_ports_open" => [22, 80, 443]
-        }
-      ]
-
-      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
-
-      assert record.open_ports == [22, 80, 443]
-    end
-
-    test "parses camelCase tcpPortsOpen" do
-      execution_id = Ash.UUID.generate()
-
-      results = [
-        %{
-          "host_ip" => "10.0.0.1",
-          "icmp_available" => true,
-          "tcpPortsOpen" => [3389, 5900]
-        }
-      ]
-
-      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
-
-      assert record.open_ports == [3389, 5900]
-    end
-
     test "returns empty list when no ports are open" do
       execution_id = Ash.UUID.generate()
 
       results = [
         %{
           "host_ip" => "10.0.0.1",
-          "icmp_available" => true
+          "available" => true
         }
       ]
 
@@ -302,7 +273,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       results = [
         %{
-          "host" => "10.0.0.1",
+          "host_ip" => "10.0.0.1",
           "available" => true,
           "port_results" => [
             %{"port" => 22, "available" => true, "response_time" => 1_000_000},
@@ -317,31 +288,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       assert record.open_ports == [22, 443]
     end
 
-    test "extracts open ports from camelCase portResults format" do
-      execution_id = Ash.UUID.generate()
-
-      results = [
-        %{
-          "host" => "10.0.0.1",
-          "available" => true,
-          "portResults" => [
-            %{"port" => 8080, "available" => true, "response_time" => 500_000},
-            %{"port" => 8443, "available" => true, "response_time" => 800_000}
-          ]
-        }
-      ]
-
-      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
-
-      assert record.open_ports == [8080, 8443]
-    end
-
     test "returns empty list when all ports in port_results are unavailable" do
       execution_id = Ash.UUID.generate()
 
       results = [
         %{
-          "host" => "10.0.0.1",
+          "host_ip" => "10.0.0.1",
           "available" => false,
           "port_results" => [
             %{"port" => 22, "available" => false, "response_time" => 0},
@@ -355,14 +307,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       assert record.open_ports == []
     end
 
-    test "combines legacy tcp_ports_open with port_results" do
+    test "extracts open ports from canonical port_results only" do
       execution_id = Ash.UUID.generate()
 
       results = [
         %{
-          "host" => "10.0.0.1",
+          "host_ip" => "10.0.0.1",
           "available" => true,
-          "tcp_ports_open" => [22],
           "port_results" => [
             %{"port" => 80, "available" => true, "response_time" => 1_000_000}
           ]
@@ -371,27 +322,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
 
-      assert record.open_ports == [22, 80]
-    end
-
-    test "deduplicates ports from both sources" do
-      execution_id = Ash.UUID.generate()
-
-      results = [
-        %{
-          "host" => "10.0.0.1",
-          "available" => true,
-          "tcp_ports_open" => [22, 80],
-          "port_results" => [
-            %{"port" => 22, "available" => true, "response_time" => 1_000_000},
-            %{"port" => 443, "available" => true, "response_time" => 2_000_000}
-          ]
-        }
-      ]
-
-      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
-
-      assert record.open_ports == [22, 80, 443]
+      assert record.open_ports == [80]
     end
   end
 
@@ -401,7 +332,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       results = [
         %{
-          "host" => "10.0.0.1",
+          "host_ip" => "10.0.0.1",
           "available" => true,
           "icmp_status" => %{"available" => false},
           "port_results" => [
@@ -421,7 +352,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       results = [
         %{
-          "host" => "10.0.0.1",
+          "host_ip" => "10.0.0.1",
           "available" => false,
           "icmp_status" => %{"available" => false},
           "port_results" => [
@@ -442,7 +373,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       results = [
         %{
-          "host" => "10.0.0.1",
+          "host_ip" => "10.0.0.1",
           "available" => true,
           "icmp_status" => %{"available" => false, "round_trip" => 0},
           "port_results" => [
@@ -462,7 +393,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       results = [
         %{
-          "host" => "10.0.0.1",
+          "host_ip" => "10.0.0.1",
           "available" => true,
           "icmp_status" => %{"available" => true, "round_trip" => 5_000_000},
           "port_results" => [

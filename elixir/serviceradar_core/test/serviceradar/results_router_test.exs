@@ -146,8 +146,9 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
 
-    assert_receive {:sweep_ingest, results, ^execution_id, opts}
+    assert_receive {:sweep_ingest, results, received_execution_id, opts}
     assert length(results) == 2
+    assert is_binary(received_execution_id)
     assert Enum.any?(results, &(&1["host_ip"] == "192.168.1.10"))
     assert Enum.any?(results, &(&1["host_ip"] == "192.168.1.11"))
 
@@ -163,6 +164,34 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert opts[:chunk_index] == 0
     assert opts[:total_chunks] == 4
     assert opts[:is_final] == false
+  end
+
+  test "rejects non-summary sweep payloads" do
+    execution_id = Ash.UUID.generate()
+
+    payload = [
+      %{
+        "execution_id" => execution_id,
+        "sweep_group_id" => Ash.UUID.generate(),
+        "host" => "10.0.0.10",
+        "available" => true,
+        "portScanResults" => [
+          %{"port" => 443, "available" => true, "response_time_ns" => 700_000},
+          %{"port" => 8443, "available" => true, "response_time_ns" => 900_000}
+        ],
+        "last_sweep_time" => "2026-02-11T01:33:00Z"
+      }
+    ]
+
+    status = %{
+      source: "results",
+      service_type: "sweep",
+      message: Jason.encode!(payload),
+      agent_id: "agent-legacy"
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    refute_receive {:sweep_ingest, _results, ^execution_id, _opts}
   end
 
   test "routes sysmon metrics payloads" do
