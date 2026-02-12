@@ -185,6 +185,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp generate_config_json(package, _join_token, opts) do
     package
     |> build_config_map(nil, opts)
+    |> Map.delete("component_type")
     |> Jason.encode!(pretty: true)
   end
 
