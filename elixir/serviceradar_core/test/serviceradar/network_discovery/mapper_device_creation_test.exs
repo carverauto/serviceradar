@@ -113,4 +113,48 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     refute Enum.empty?(devices)
     assert Enum.any?(devices, &(&1.uid == existing.uid))
   end
+
+  test "device can be created with management_device_id", %{actor: actor} do
+    parent_uid = "sr:" <> Ecto.UUID.generate()
+    child_uid = "sr:" <> Ecto.UUID.generate()
+    parent_ip = "192.168.#{:rand.uniform(200)}.#{:rand.uniform(200)}"
+    child_ip = "203.0.113.#{:rand.uniform(200)}"
+
+    # Create parent device
+    {:ok, _parent} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{uid: parent_uid, ip: parent_ip})
+      |> Ash.create(actor: actor)
+
+    # Create child device with management_device_id pointing to parent
+    {:ok, child} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: child_uid,
+        ip: child_ip,
+        management_device_id: parent_uid,
+        discovery_sources: ["mapper"]
+      })
+      |> Ash.create(actor: actor)
+
+    assert child.management_device_id == parent_uid
+    assert child.ip == child_ip
+  end
+
+  test "device can be created without management_device_id", %{actor: actor} do
+    device_uid = "sr:" <> Ecto.UUID.generate()
+    ip = "10.0.#{:rand.uniform(200)}.#{:rand.uniform(200)}"
+
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: device_uid,
+        ip: ip,
+        discovery_sources: ["mapper"]
+      })
+      |> Ash.create(actor: actor)
+
+    assert device.management_device_id == nil
+    assert device.ip == ip
+  end
 end
