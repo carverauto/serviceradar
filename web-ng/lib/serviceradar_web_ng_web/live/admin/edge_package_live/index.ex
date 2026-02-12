@@ -13,7 +13,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadar.GatewayRegistry
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.GatewayHelpers
 
@@ -1218,14 +1217,27 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp load_gateway_options do
-    gateways =
-      try do
-        GatewayRegistry.all_gateways()
-      rescue
-        _ -> []
-      end
-
+    gateways = fetch_gateways_from_tracker()
     GatewayHelpers.gateway_options(gateways)
+  end
+
+  # Use GatewayTracker (ETS-based) via RPC for reliable gateway discovery.
+  # Horde-based GatewayRegistry is process-linked and can lose registrations.
+  defp fetch_gateways_from_tracker do
+    [Node.self() | Node.list()]
+    |> Task.async_stream(
+      fn node ->
+        :rpc.call(node, ServiceRadar.GatewayTracker, :list_gateways, [], 1_500)
+      end,
+      timeout: 2_000,
+      on_timeout: :kill_task,
+      max_concurrency: 4
+    )
+    |> Enum.flat_map(fn
+      {:ok, gateways} when is_list(gateways) -> gateways
+      _ -> []
+    end)
+    |> Enum.uniq_by(& &1.gateway_id)
   end
 
   defp default_gateway_id([{_label, id}]), do: id
