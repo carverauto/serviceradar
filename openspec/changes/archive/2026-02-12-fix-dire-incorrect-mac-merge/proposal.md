@@ -24,7 +24,7 @@ The mapper discovers interfaces on farm01 (192.168.2.1) via agent-dusk's SNMP po
 
 3. **Locally-administered MAC classification** — Classify MACs using IEEE bit 1 of the first octet. Register locally-administered MACs with `medium` confidence and exclude them from merge decisions. Prevents future false merges from virtual/overlay MACs.
 
-4. **Hostname conflict guard** — Block automatic merges when both devices have different non-empty hostnames. Safety net against similar identity conflicts.
+4. ~~**Hostname conflict guard**~~ — REVERTED. Hostname is not an identity signal — devices commonly share hostnames (same model name) and the same device gets different hostnames from different sources (SNMP sysName vs UniFi display name). MAC confidence classification (#3) provides the correct merge protection.
 
 5. **Device unmerge capability** — Admin action to reverse incorrect merges using the `merge_audit` trail.
 

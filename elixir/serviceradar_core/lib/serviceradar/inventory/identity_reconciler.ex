@@ -971,8 +971,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       Ash.transaction(resources, fn ->
         with {:ok, %Device{} = from_device} <-
                Device.get_by_uid(from_device_id, false, actor: actor),
-             {:ok, %Device{} = to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
-             :ok <- check_hostname_conflict(from_device, to_device, details),
+             {:ok, %Device{}} <- Device.get_by_uid(to_device_id, false, actor: actor),
              :ok <- reassign_device_identifiers(from_device_id, to_device_id, actor),
              :ok <- reassign_service_checks(from_device_id, to_device_id, actor),
              :ok <- reassign_alerts(from_device_id, to_device_id, actor),
@@ -1140,34 +1139,6 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     key = {to_string(identifier.identifier_type), identifier.identifier_value}
     MapSet.member?(original_identifier_keys, key)
   end
-
-  # Block merge when both devices have different non-empty hostnames.
-  defp check_hostname_conflict(from_device, to_device, details) do
-    from_hostname = non_empty_hostname(from_device)
-    to_hostname = non_empty_hostname(to_device)
-
-    if from_hostname && to_hostname && from_hostname != to_hostname do
-      Logger.warning(
-        "Blocked merge: hostname conflict. " <>
-          "From device #{from_device.uid} (#{from_hostname}) " <>
-          "into #{to_device.uid} (#{to_hostname}). " <>
-          "Triggering identifiers: #{inspect(details[:identifiers] || details)}"
-      )
-
-      {:error, {:hostname_conflict, from_hostname, to_hostname}}
-    else
-      :ok
-    end
-  end
-
-  defp non_empty_hostname(%Device{hostname: hostname}) when is_binary(hostname) do
-    case String.trim(hostname) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
-
-  defp non_empty_hostname(_), do: nil
 
   defp reassign_device_identifiers(from_id, to_id, actor) do
     bulk_reassign(

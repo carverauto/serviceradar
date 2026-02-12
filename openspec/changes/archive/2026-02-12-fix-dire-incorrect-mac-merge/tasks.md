@@ -20,11 +20,9 @@
 - [x] 3.4 Add warning log when a medium-confidence-only merge is blocked
 - [x] 3.5 Add tests for MAC classification and confidence-gated merge behavior
 
-## 4. Hostname Conflict Guard (Safety Net)
+## 4. ~~Hostname Conflict Guard (Safety Net)~~ REVERTED
 
-- [x] 4.1 Add hostname lookup before merge in `merge_conflicting_devices`
-- [x] 4.2 Block merge and log warning when both devices have different non-empty hostnames
-- [x] 4.3 Add tests for hostname conflict guard
+- [x] 4.1 ~~Add hostname lookup before merge~~ Removed — hostname is not an identity signal. Devices commonly share hostnames (e.g. same model name) and the same device gets different hostnames from different sources (SNMP sysName vs UniFi display name). MAC confidence classification (task 3) provides the correct merge protection.
 
 ## 5. Device Unmerge
 
@@ -38,4 +36,4 @@
 - [x] 6.2 Remove farm01's MACs from tonka01: delete `device_identifiers` rows on `sr:7588d12c` where `identifier_value` matches `F492BF75C7%` or `F692BF75C7%`
 - [x] 6.3 Remove `agent-dusk` identifier from tonka01: delete `device_identifiers` row on `sr:7588d12c` where `identifier_type='agent_id'` and `identifier_value='agent-dusk'`
 - [x] 6.4 Remove farm01's IP aliases from tonka01: delete `device_alias_states` on `sr:7588d12c` for `152.117.116.178`, `192.168.1.1`, `192.168.2.1`
-- [ ] 6.5 Verify: after next mapper/sweep cycle, farm01 appears as a new `sr:` device with correct identifiers
+- [x] 6.5 Verify: after next mapper/sweep cycle, farm01 appears as a new `sr:` device with correct identifiers

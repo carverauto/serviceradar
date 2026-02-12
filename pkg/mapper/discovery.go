@@ -722,24 +722,18 @@ func (e *DiscoveryEngine) startWorkers(
 
 					return
 				default:
-					// Ping with timeout
+					// Ping is advisory — log but do not skip targets that fail ICMP.
+					// Many managed switches and APs block ICMP but respond to SNMP.
 					pingCtx, pingCancel := context.WithTimeout(job.ctx, 5*time.Second)
 					pingErr := pingHost(pingCtx, target)
 
 					pingCancel()
 
 					if pingErr != nil {
-						e.logger.Debug().Str("job_id", job.ID).
+						e.logger.Info().Str("job_id", job.ID).
 							Str("target", target).
 							Err(pingErr).
-							Msg("Host ping failed")
-						// Send result for failed ping
-						select {
-						case resultChan <- success:
-						default:
-						}
-
-						continue // Process next target
+							Msg("ICMP ping failed, proceeding to SNMP")
 					}
 
 					// Process target with overall timeout

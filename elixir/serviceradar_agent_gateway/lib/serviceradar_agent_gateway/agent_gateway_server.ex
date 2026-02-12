@@ -658,6 +658,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+  defp normalize_partition(_partition), do: "default"
+
   defp log_invalid_service_status(metadata, service, %GRPC.RPCError{} = error) do
     Logger.warning(
       "Dropping invalid service status from agent #{metadata.agent_id}: #{error.status} #{error.message} " <>
@@ -683,18 +685,17 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp message_size(value) when is_binary(value), do: byte_size(value)
   defp message_size(_), do: 0
 
-  defp normalize_partition(_partition), do: "default"
-
   defp normalize_message(msg, source) do
     max_bytes =
       case source do
         "results" -> @max_results_message_bytes
         "sysmon-metrics" -> @max_sysmon_message_bytes
+        "snmp-metrics" -> @max_results_message_bytes
         _ -> @max_status_message_bytes
       end
 
     if byte_size(msg) > max_bytes do
-      if source in ["results", "sysmon-metrics"] do
+      if source in ["results", "sysmon-metrics", "snmp-metrics"] do
         raise GRPC.RPCError,
           status: :resource_exhausted,
           message: "payload exceeds max size"
