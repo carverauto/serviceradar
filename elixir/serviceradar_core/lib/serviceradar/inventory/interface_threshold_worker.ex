@@ -36,7 +36,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.SweepJobs.ObanSupport
-  alias UUID
+
 
   require Logger
   require Ash.Query
@@ -517,7 +517,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     status_id = override_int(config_value(event_config, :status_id)) || OCSF.status_success()
 
     %{
-      id: UUID.uuid4(),
+      id: Ecto.UUID.bingenerate(),
       time: DateTime.utc_now(),
       class_uid: class_uid,
       category_uid: category_uid,

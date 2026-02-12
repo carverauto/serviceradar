@@ -344,7 +344,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
     %{
       # Primary key components
-      id: UUID.uuid4(),
+      id: Ecto.UUID.bingenerate(),
       time: time,
 
       # OCSF Classification (required)
