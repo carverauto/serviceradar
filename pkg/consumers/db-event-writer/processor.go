@@ -284,15 +284,27 @@ func NewProcessorWithStreams(dbService db.Service, streams []StreamConfig, log l
 
 // getTableForSubject returns the table name for a given subject
 func (p *Processor) getTableForSubject(subject string) string {
+	subject = strings.TrimSpace(subject)
+
 	if len(p.streams) > 0 {
 		for _, stream := range p.streams {
-			if stream.Subject == subject || strings.HasPrefix(subject, stream.Subject) {
-				return stream.Table
+			streamSubject := strings.TrimSpace(stream.Subject)
+			if streamSubject == "" {
+				continue
+			}
+
+			// Match exact and prefix forms (for example "otel.metrics" and
+			// "otel.metrics.raw"), and namespaced forms (for example
+			// "demo.otel.metrics").
+			if streamSubject == subject ||
+				strings.HasPrefix(subject, streamSubject+".") ||
+				strings.HasSuffix(subject, "."+streamSubject) {
+				return strings.TrimSpace(stream.Table)
 			}
 		}
 	}
 
-	return p.table // fallback to legacy table
+	return strings.TrimSpace(p.table) // fallback to legacy table
 }
 
 // ProcessBatch writes a batch of messages to appropriate tables and returns the processed messages.
@@ -320,11 +332,10 @@ func (p *Processor) ProcessBatch(ctx context.Context, msgs []jetstream.Msg) ([]j
 		p.logger.Info().Str("table", table).Int("message_count", len(tableMsgs)).Msg("Processing table")
 
 		processedMsgs, err := p.processTableMessages(ctx, table, tableMsgs)
+		processed = append(processed, processedMsgs...)
 		if err != nil {
 			return processed, err
 		}
-
-		processed = append(processed, processedMsgs...)
 	}
 
 	return processed, nil

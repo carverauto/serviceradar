@@ -5,6 +5,67 @@ import (
 	"time"
 )
 
+func TestGetTableForSubject_MultiStreamRouting(t *testing.T) {
+	t.Parallel()
+
+	p := &Processor{
+		streams: []StreamConfig{
+			{Subject: "logs.otel.processed", Table: "logs"},
+			{Subject: "otel.metrics", Table: "otel_metrics"},
+		},
+	}
+
+	tests := []struct {
+		name    string
+		subject string
+		want    string
+	}{
+		{
+			name:    "exact match",
+			subject: "logs.otel.processed",
+			want:    "logs",
+		},
+		{
+			name:    "suffix namespaced match",
+			subject: "demo.logs.otel.processed",
+			want:    "logs",
+		},
+		{
+			name:    "nested prefix match",
+			subject: "otel.metrics.raw",
+			want:    "otel_metrics",
+		},
+		{
+			name:    "legacy fallback when no stream match",
+			subject: "unmapped.subject",
+			want:    "",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := p.getTableForSubject(tc.subject)
+			if got != tc.want {
+				t.Fatalf("expected table %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestGetTableForSubject_LegacyFallback(t *testing.T) {
+	t.Parallel()
+
+	p := &Processor{table: " logs "}
+
+	got := p.getTableForSubject("anything")
+	if got != "logs" {
+		t.Fatalf("expected legacy table fallback to be trimmed %q, got %q", "logs", got)
+	}
+}
+
 func TestParseJSONLogsSingle(t *testing.T) {
 	payload := []byte(`{"message":"test log","severity":"High","timestamp":1700000000,"host":"device-1"}`)
 
