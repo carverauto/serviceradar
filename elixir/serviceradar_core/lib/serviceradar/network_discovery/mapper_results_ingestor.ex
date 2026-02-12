@@ -220,6 +220,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       {:ok, _device} ->
         Logger.info("Mapper created device #{device_uid} for IP #{device_ip}")
         invalidate_stale_aliases(device_ip, device_uid, partition, actor)
+        if management_device_id, do: TopologyGraph.upsert_managed_by(device_uid, management_device_id)
         {:ok, device_uid}
 
       {:error, %Ash.Error.Invalid{errors: errors}} ->
