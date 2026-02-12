@@ -43,22 +43,6 @@ The system SHALL classify MAC addresses as globally-unique or locally-administer
 - **WHEN** DIRE processes the identifier conflict
 - **THEN** DIRE SHALL merge the devices since the MAC is strong-confidence
 
-### Requirement: Hostname Conflict Merge Guard
-The system SHALL block an automatic merge when both the source and target devices have different non-empty hostnames, and SHALL log a warning with the conflicting hostnames and triggering identifier.
-
-#### Scenario: Different hostnames block merge
-- **GIVEN** device A has hostname `tonka01` and device B has hostname `farm01`
-- **AND** they share a MAC address identifier
-- **WHEN** DIRE attempts to merge device B into device A
-- **THEN** the merge SHALL be blocked
-- **AND** a warning log SHALL include both hostnames and the shared identifier
-
-#### Scenario: Empty hostname does not block merge
-- **GIVEN** device A has hostname `tonka01` and device B has no hostname
-- **AND** they share a strong MAC identifier
-- **WHEN** DIRE attempts to merge
-- **THEN** the merge SHALL proceed normally
-
 ### Requirement: Device Unmerge
 The system SHALL provide an administrative `unmerge_device` action that reverses an incorrect merge using the `merge_audit` trail: recreating the from-device, reassigning its original identifiers, and recording an `unmerge_audit` entry.
 
