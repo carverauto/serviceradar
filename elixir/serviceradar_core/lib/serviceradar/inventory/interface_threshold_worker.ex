@@ -37,7 +37,6 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.SweepJobs.ObanSupport
 
-
   require Logger
   require Ash.Query
 
