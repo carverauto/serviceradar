@@ -255,12 +255,13 @@ func (p *MapperResultPublisher) PublishDevice(_ context.Context, device *mapper.
 	}
 
 	update := map[string]interface{}{
-		"device_id":    device.DeviceID,
-		"ip":           device.IP,
-		"source":       models.DiscoverySourceMapper,
-		"timestamp":    time.Now().UTC().Format(time.RFC3339Nano),
-		"is_available": true,
-		"metadata":     buildMapperDeviceMetadata(device),
+		"device_id":        device.DeviceID,
+		"ip":               device.IP,
+		"source":           models.DiscoverySourceMapper,
+		"timestamp":        time.Now().UTC().Format(time.RFC3339Nano),
+		"is_available":     true,
+		"metadata":         buildMapperDeviceMetadata(device),
+		"snmp_fingerprint": buildMapperSNMPFingerprint(device.SNMPFingerprint),
 	}
 
 	if device.Hostname != "" {
@@ -408,20 +409,24 @@ func buildMapperDeviceMetadata(device *mapper.DiscoveredDevice) map[string]strin
 
 	if device.SysDescr != "" {
 		metadata["sys_descr"] = device.SysDescr
+		metadata["snmp_description"] = device.SysDescr
 	}
 	if device.SysObjectID != "" {
 		metadata["sys_object_id"] = device.SysObjectID
 	}
 	if device.SysName != "" {
 		metadata["sys_name"] = device.SysName
+		metadata["snmp_name"] = device.SysName
 	}
 	if device.SysContact != "" {
 		metadata["sys_contact"] = device.SysContact
 		// "sysOwner" is not a standard SNMPv2-MIB scalar; treat sysContact as owner hint.
 		metadata["sys_owner"] = device.SysContact
+		metadata["snmp_owner"] = device.SysContact
 	}
 	if device.SysLocation != "" {
 		metadata["sys_location"] = device.SysLocation
+		metadata["snmp_location"] = device.SysLocation
 	}
 	if device.IPForwarding != 0 {
 		metadata["ip_forwarding"] = fmt.Sprintf("%d", device.IPForwarding)
@@ -438,6 +443,93 @@ func buildMapperDeviceMetadata(device *mapper.DiscoveredDevice) map[string]strin
 	}
 
 	return metadata
+}
+
+func buildMapperSNMPFingerprint(fp *mapper.SNMPFingerprint) map[string]interface{} {
+	if fp == nil {
+		return nil
+	}
+
+	out := map[string]interface{}{}
+
+	if fp.System != nil {
+		out["system"] = map[string]interface{}{
+			"sys_name":      fp.System.SysName,
+			"sys_descr":     fp.System.SysDescr,
+			"sys_object_id": fp.System.SysObjectID,
+			"sys_contact":   fp.System.SysContact,
+			"sys_location":  fp.System.SysLocation,
+			"ip_forwarding": fp.System.IPForwarding,
+		}
+	}
+
+	if fp.Bridge != nil {
+		out["bridge"] = map[string]interface{}{
+			"bridge_base_mac":           fp.Bridge.BridgeBaseMAC,
+			"bridge_port_count":         fp.Bridge.BridgePortCount,
+			"stp_forwarding_port_count": fp.Bridge.STPForwardingPortCount,
+		}
+	}
+
+	if fp.VLAN != nil {
+		vlan := map[string]interface{}{
+			"vlan_ids_seen": fp.VLAN.VLANIDsSeen,
+		}
+
+		pvidDistribution := make([]map[string]interface{}, 0, len(fp.VLAN.PVIDDistribution))
+		for _, c := range fp.VLAN.PVIDDistribution {
+			pvidDistribution = append(pvidDistribution, map[string]interface{}{
+				"pvid":  c.PVID,
+				"count": c.Count,
+			})
+		}
+		vlan["pvid_distribution"] = pvidDistribution
+
+		portEvidence := make([]map[string]interface{}, 0, len(fp.VLAN.PortEvidence))
+		for _, ev := range fp.VLAN.PortEvidence {
+			portEvidence = append(portEvidence, map[string]interface{}{
+				"vlan_id":            ev.VLANID,
+				"egress_ports_hex":   ev.EgressPortsHex,
+				"untagged_ports_hex": ev.UntaggedPortsHex,
+			})
+		}
+		vlan["port_evidence"] = portEvidence
+
+		out["vlan"] = vlan
+	}
+
+	if fp.InterfaceSummary != nil {
+		summary := map[string]interface{}{
+			"interface_count":          fp.InterfaceSummary.InterfaceCount,
+			"bridge_like_name_count":   fp.InterfaceSummary.BridgeLikeNameCount,
+			"wireless_like_name_count": fp.InterfaceSummary.WirelessLikeNameCount,
+		}
+
+		typeCounts := make([]map[string]interface{}, 0, len(fp.InterfaceSummary.IfTypeCounts))
+		for _, c := range fp.InterfaceSummary.IfTypeCounts {
+			typeCounts = append(typeCounts, map[string]interface{}{
+				"if_type": c.IfType,
+				"count":   c.Count,
+			})
+		}
+		summary["if_type_counts"] = typeCounts
+
+		out["interface_summary"] = summary
+	}
+
+	if len(fp.ExtractionErrors) > 0 {
+		errors := make(map[string]interface{}, len(fp.ExtractionErrors))
+		for k, v := range fp.ExtractionErrors {
+			errors[k] = v
+		}
+		out["extraction_errors"] = errors
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }
 
 func buildMapperResultsPayload(updates []map[string]interface{}, agentID, partition string) ([]byte, error) {

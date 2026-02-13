@@ -19,21 +19,27 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
           :ok
 
         {:error, reason} ->
-          {:skip, "Apache AGE graph #{graph_name} not available: #{inspect(reason)}"}
+          {:ok, skip: "Apache AGE graph #{graph_name} not available: #{inspect(reason)}"}
       end
     else
-      {:skip, "Apache AGE is not available (ag_catalog.cypher missing)"}
+      {:ok, skip: "Apache AGE is not available (ag_catalog.cypher missing)"}
     end
   end
 
   setup do
+    Application.put_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 180)
+
     cleanup_graph([
       "dev-1",
       "dev-2",
+      "dev-3",
       "dev-1/eth0",
+      "dev-1/eth2",
       "dev-1/unknown-local",
       "dev-2/Gi1/0/1",
-      "dev-2/aa:bb:cc:dd:ee:ff"
+      "dev-2/aa:bb:cc:dd:ee:ff",
+      "dev-2/eth1",
+      "dev-3/eth5"
     ])
 
     :ok
@@ -78,6 +84,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         local_if_index: 10,
         neighbor_port_id: "Gi1/0/1",
         protocol: "lldp",
+        metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
         timestamp: now,
         created_at: now
       }
@@ -86,10 +93,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     [result] =
       cypher_rows(
         ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/Gi1\/0\/1'})
-      RETURN {source: r.source} AS result/
+      RETURN {source: r.source, tier: r.confidence_tier, score: r.confidence_score} AS result/
       )
 
     assert result["source"] == "lldp"
+    assert result["tier"] == "high"
+    assert result["score"] == 95
   end
 
   test "upsert_links falls back when neighbor port metadata is missing" do
@@ -102,6 +111,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         local_if_index: 21,
         neighbor_chassis_id: "aa:bb:cc:dd:ee:ff",
         protocol: "UniFi-API",
+        metadata: %{"confidence_tier" => "medium", "confidence_score" => 72},
         timestamp: now,
         created_at: now
       }
@@ -110,10 +120,131 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     [result] =
       cypher_rows(
         ~s/MATCH (a:Interface {id:'dev-1\/ifindex:21'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/aa:bb:cc:dd:ee:ff'})
-      RETURN {source: r.source} AS result/
+      RETURN {source: r.source, tier: r.confidence_tier} AS result/
       )
 
     assert result["source"] == "UniFi-API"
+    assert result["tier"] == "medium"
+  end
+
+  test "upsert_links skips low-confidence links from AGE projection" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-2",
+        local_if_name: "eth0",
+        neighbor_port_id: "eth1",
+        protocol: "unknown",
+        metadata: %{"confidence_tier" => "low", "confidence_score" => 20},
+        timestamp: now,
+        created_at: now
+      }
+    ])
+
+    [result] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    assert result["count"] == 0
+  end
+
+  test "upsert_links is idempotent and updates confidence metadata in place" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    later = DateTime.add(now, 30, :second)
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-2",
+        local_if_name: "eth0",
+        neighbor_port_id: "eth1",
+        protocol: "lldp",
+        metadata: %{"confidence_tier" => "medium", "confidence_score" => 66},
+        timestamp: now,
+        created_at: now
+      }
+    ])
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-2",
+        local_if_name: "eth0",
+        neighbor_port_id: "eth1",
+        protocol: "lldp",
+        metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
+        timestamp: later,
+        created_at: later
+      }
+    ])
+
+    [count_result] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    [edge_result] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+      RETURN {tier: r.confidence_tier, score: r.confidence_score, last: r.last_observed_at} AS result/
+      )
+
+    assert count_result["count"] == 1
+    assert edge_result["tier"] == "high"
+    assert edge_result["score"] == 95
+    assert is_binary(edge_result["last"])
+  end
+
+  test "upsert_links prunes stale projected edges by observation timestamp" do
+    Application.put_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 1)
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    stale = DateTime.add(now, -10 * 60, :second)
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-2",
+        local_if_name: "eth0",
+        neighbor_port_id: "eth1",
+        protocol: "lldp",
+        metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
+        timestamp: stale,
+        created_at: stale
+      }
+    ])
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-3",
+        local_if_name: "eth2",
+        neighbor_port_id: "eth5",
+        protocol: "lldp",
+        metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
+        timestamp: now,
+        created_at: now
+      }
+    ])
+
+    [stale_result] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    [fresh_result] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-1\/eth2'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-3\/eth5'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    assert stale_result["count"] == 0
+    assert fresh_result["count"] == 1
   end
 
   defp age_available? do
@@ -159,22 +290,29 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   defp cleanup_graph(ids) when is_list(ids) do
     quoted_ids = Enum.map_join(ids, ", ", &("'" <> &1 <> "'"))
+    graph = graph_name() |> String.replace("'", "\\'")
 
     cypher = "MATCH (n) WHERE n.id IN [#{quoted_ids}] DETACH DELETE n"
 
     _ =
-      SQL.query(Repo, "SELECT * FROM ag_catalog.cypher($1, $$#{cypher}$$) AS (v agtype)", [
-        graph_name()
-      ])
+      SQL.query(
+        Repo,
+        "SELECT ag_catalog.agtype_to_text(v) FROM ag_catalog.cypher('#{graph}', $$#{cypher}$$) AS (v agtype)",
+        []
+      )
 
     :ok
   end
 
   defp cypher_rows(cypher) do
-    sql =
-      "SELECT ag_catalog.agtype_to_text(result) FROM ag_catalog.cypher($1, $$#{cypher}$$) AS (result agtype)"
+    graph = graph_name() |> String.replace("'", "\\'")
 
-    case SQL.query(Repo, sql, [graph_name()]) do
+    sql = """
+    SELECT ag_catalog.agtype_to_text(result)
+    FROM ag_catalog.cypher('#{graph}', $$#{cypher}$$) AS (result agtype)
+    """
+
+    case SQL.query(Repo, sql, []) do
       {:ok, %Postgrex.Result{rows: rows}} ->
         Enum.map(rows, fn
           [text_value] when is_binary(text_value) -> decode_agtype(text_value)

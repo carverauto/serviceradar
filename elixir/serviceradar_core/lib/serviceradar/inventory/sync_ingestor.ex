@@ -32,6 +32,9 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     {"cisco", "Cisco"},
     {"juniper", "Juniper"},
     {"arista", "Arista"},
+    {"ubiquiti", "Ubiquiti"},
+    {"unifi", "Ubiquiti"},
+    {"ubnt", "Ubiquiti"},
     {"mikrotik", "MikroTik"},
     {"fortinet", "Fortinet"},
     {"palo alto", "Palo Alto Networks"},
@@ -516,7 +519,9 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp merge_device_records(existing, incoming) do
     merged_metadata = Map.merge(existing.metadata || %{}, incoming.metadata || %{})
     merged_tags = Map.merge(existing.tags || %{}, incoming.tags || %{})
-    merged_discovery_sources = merge_discovery_sources(existing.discovery_sources, incoming.discovery_sources)
+
+    merged_discovery_sources =
+      merge_discovery_sources(existing.discovery_sources, incoming.discovery_sources)
 
     %{
       existing
@@ -728,13 +733,18 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp normalize_update(update) when is_map(update) do
+    metadata =
+      update
+      |> get_map(["metadata", :metadata])
+      |> merge_snmp_fingerprint_metadata(get_map(update, ["snmp_fingerprint", :snmp_fingerprint]))
+
     %{
       device_id: get_string(update, ["device_id", :device_id]),
       ip: get_string(update, ["ip", :ip]),
       mac: get_string(update, ["mac", :mac]),
       hostname: get_string(update, ["hostname", :hostname]),
       partition: get_string(update, ["partition", :partition]) || "default",
-      metadata: get_map(update, ["metadata", :metadata]),
+      metadata: metadata,
       tags: get_map(update, ["tags", :tags]),
       timestamp: parse_timestamp(get_value(update, ["timestamp", :timestamp])),
       is_available: get_bool(update, ["is_available", :is_available]),
@@ -808,6 +818,81 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 
+  defp merge_snmp_fingerprint_metadata(metadata, snmp_fingerprint)
+       when is_map(metadata) and map_size(snmp_fingerprint) == 0,
+       do: metadata
+
+  defp merge_snmp_fingerprint_metadata(metadata, snmp_fingerprint) when is_map(metadata) do
+    system = map_get_any(snmp_fingerprint, ["system", :system])
+    bridge = map_get_any(snmp_fingerprint, ["bridge", :bridge])
+
+    metadata
+    |> maybe_put("sys_name", map_get_string_any(system, ["sys_name", :sys_name]))
+    |> maybe_put("snmp_name", map_get_string_any(system, ["sys_name", :sys_name]))
+    |> maybe_put("sys_descr", map_get_string_any(system, ["sys_descr", :sys_descr]))
+    |> maybe_put("snmp_description", map_get_string_any(system, ["sys_descr", :sys_descr]))
+    |> maybe_put("sys_object_id", map_get_string_any(system, ["sys_object_id", :sys_object_id]))
+    |> maybe_put("sys_contact", map_get_string_any(system, ["sys_contact", :sys_contact]))
+    |> maybe_put("sys_owner", map_get_string_any(system, ["sys_contact", :sys_contact]))
+    |> maybe_put("snmp_owner", map_get_string_any(system, ["sys_contact", :sys_contact]))
+    |> maybe_put("sys_location", map_get_string_any(system, ["sys_location", :sys_location]))
+    |> maybe_put("snmp_location", map_get_string_any(system, ["sys_location", :sys_location]))
+    |> maybe_put(
+      "ip_forwarding",
+      map_get_int_string_any(system, ["ip_forwarding", :ip_forwarding])
+    )
+    |> maybe_put(
+      "bridge_base_mac",
+      map_get_string_any(bridge, ["bridge_base_mac", :bridge_base_mac])
+    )
+    |> maybe_put(
+      "bridge_port_count",
+      map_get_int_string_any(bridge, ["bridge_port_count", :bridge_port_count])
+    )
+    |> maybe_put(
+      "stp_forwarding_port_count",
+      map_get_int_string_any(bridge, ["stp_forwarding_port_count", :stp_forwarding_port_count])
+    )
+    |> maybe_put("snmp_fingerprint", snmp_fingerprint)
+  end
+
+  defp merge_snmp_fingerprint_metadata(metadata, _), do: metadata
+
+  defp map_get_any(map, keys) when is_map(map) do
+    Enum.find_value(keys, fn key ->
+      case map do
+        %{^key => value} -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp map_get_any(_map, _keys), do: nil
+
+  defp map_get_string_any(map, keys) do
+    case map_get_any(map, keys) do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: nil, else: trimmed
+
+      _ ->
+        nil
+    end
+  end
+
+  defp map_get_int_string_any(map, keys) do
+    case map_get_any(map, keys) do
+      value when is_integer(value) ->
+        Integer.to_string(value)
+
+      value when is_binary(value) ->
+        if(String.trim(value) == "", do: nil, else: String.trim(value))
+
+      _ ->
+        nil
+    end
+  end
+
   defp infer_vendor_name(update, classification) do
     metadata = update.metadata || %{}
     ruled_vendor = Map.get(classification, :vendor_name)
@@ -827,6 +912,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
       ruled_vendor not in [nil, ""] ->
         ruled_vendor
+
+      (sys_object_id = sys_object_id_from_metadata(metadata)) not in [nil, ""] ->
+        vendor_from_sys_object_id(sys_object_id) ||
+          vendor_from_sys_descr(sys_descr_from_metadata(metadata))
 
       (sys_descr = sys_descr_from_metadata(metadata)) not in [nil, ""] ->
         vendor_from_sys_descr(sys_descr)
@@ -849,10 +938,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         ruled_model
 
       (sys_descr = sys_descr_from_metadata(metadata)) not in [nil, ""] ->
-        parse_model_from_sys_descr(sys_descr)
+        parse_model_from_sys_descr(sys_descr) ||
+          parse_model_from_sys_name(get_string(metadata, ["sys_name", "snmp_name", "sysName"]))
 
       true ->
-        nil
+        parse_model_from_sys_name(get_string(metadata, ["sys_name", "snmp_name", "sysName"]))
     end
   end
 
@@ -890,6 +980,32 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end)
   end
 
+  defp vendor_from_sys_object_id(nil), do: nil
+
+  @sys_object_id_vendor_prefixes [
+    {"1.3.6.1.4.1.41112", "Ubiquiti"},
+    {"1.3.6.1.4.1.4413", "Ubiquiti"},
+    {"1.3.6.1.4.1.10002", "Ubiquiti"},
+    {"1.3.6.1.4.1.9", "Cisco"},
+    {"1.3.6.1.4.1.2636", "Juniper"},
+    {"1.3.6.1.4.1.14988", "MikroTik"},
+    {"1.3.6.1.4.1.2011", "Huawei"},
+    {"1.3.6.1.4.1.8072", "Net-SNMP"}
+  ]
+
+  defp vendor_from_sys_object_id(sys_object_id) when is_binary(sys_object_id) do
+    normalized =
+      sys_object_id
+      |> String.trim()
+      |> String.trim_leading(".")
+
+    Enum.find_value(@sys_object_id_vendor_prefixes, fn {prefix, vendor} ->
+      if String.starts_with?(normalized, prefix), do: vendor
+    end)
+  end
+
+  defp vendor_from_sys_object_id(_), do: nil
+
   defp parse_model_from_sys_descr(sys_descr) when is_binary(sys_descr) do
     cleaned = String.trim(sys_descr)
 
@@ -922,8 +1038,29 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     if token == "", do: nil, else: token
   end
 
+  defp parse_model_from_sys_name(nil), do: nil
+
+  defp parse_model_from_sys_name(sys_name) when is_binary(sys_name) do
+    sys_name
+    |> String.trim()
+    |> case do
+      "" -> nil
+      value -> normalize_model_token(value)
+    end
+  end
+
   defp sys_descr_from_metadata(metadata) do
-    get_string(metadata, ["sys_descr", "sysDescr", "sys_description", "sysDescr"])
+    get_string(metadata, [
+      "sys_descr",
+      "snmp_description",
+      "sysDescr",
+      "sys_description",
+      "sysDescr"
+    ])
+  end
+
+  defp sys_object_id_from_metadata(metadata) do
+    get_string(metadata, ["sys_object_id", "sysObjectID", "sys_objectid", "sysObjectId"])
   end
 
   defp infer_device_type(update, classification) do
@@ -950,7 +1087,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         {"Access Point", 99}
 
       true ->
-        {nil, 0}
+        infer_device_type_from_snmp(metadata)
     end
   end
 
@@ -993,6 +1130,59 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     |> get_string(["device_role", "_device_role"])
     |> to_string()
     |> String.downcase()
+  end
+
+  defp infer_device_type_from_snmp(metadata) do
+    sys_descr = String.downcase(to_string(sys_descr_from_metadata(metadata) || ""))
+
+    sys_name =
+      String.downcase(to_string(get_string(metadata, ["sys_name", "snmp_name", "sysName"]) || ""))
+
+    ip_forwarding = parse_int_value(get_string(metadata, ["ip_forwarding", "ipForwarding"]))
+
+    has_router_token? =
+      contains_any_token?(sys_descr, sys_name, ["router", "gateway", "udm", "edgerouter"])
+
+    has_switch_token? =
+      contains_any_token?(sys_descr, sys_name, ["switch", "usw", "ethernet switch"])
+
+    has_ap_token? =
+      contains_any_token?(sys_descr, sys_name, [
+        "access point",
+        "uap",
+        "u6-",
+        "wireless",
+        "nanohd"
+      ])
+
+    cond do
+      has_ap_token? ->
+        {"Access Point", 99}
+
+      has_switch_token? ->
+        {"Switch", 10}
+
+      has_router_token? or ip_forwarding == 1 ->
+        {"Router", 12}
+
+      true ->
+        {nil, 0}
+    end
+  end
+
+  defp contains_any_token?(sys_descr, sys_name, tokens) do
+    Enum.any?(tokens, fn token ->
+      String.contains?(sys_descr, token) || String.contains?(sys_name, token)
+    end)
+  end
+
+  defp parse_int_value(nil), do: nil
+
+  defp parse_int_value(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
   end
 
   defp merge_classification_metadata(metadata, classification) do

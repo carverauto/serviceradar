@@ -176,7 +176,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     stable_interface_ips = grouped_stable_interface_ips(grouped, current_ip)
     mismatched_device_ips = grouped_mismatched_device_ips(grouped, current_ip)
     alias_ips = alias_ips_for_role(role.role, current_ip, stable_interface_ips)
-    candidate_ips = candidate_ips_for_role(role.role, stable_interface_ips, mismatched_device_ips, alias_ips)
+
+    candidate_ips =
+      candidate_ips_for_role(role.role, stable_interface_ips, mismatched_device_ips, alias_ips)
+
     metadata = build_alias_metadata(alias_ips, latest_ts, role, candidate_ips)
 
     %{
@@ -232,8 +235,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     if valid_alias_ip?(current_ip), do: [current_ip], else: []
   end
 
-  defp candidate_ips_for_role("router", _stable_interface_ips, _mismatched_device_ips, _alias_ips),
-    do: []
+  defp candidate_ips_for_role(
+         "router",
+         _stable_interface_ips,
+         _mismatched_device_ips,
+         _alias_ips
+       ),
+       do: []
 
   defp candidate_ips_for_role(_role, stable_interface_ips, mismatched_device_ips, alias_ips) do
     (stable_interface_ips ++ mismatched_device_ips)
@@ -883,9 +891,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   def normalize_interface(_update), do: nil
 
-  defp normalize_topology(update) when is_map(update) do
+  @doc false
+  def normalize_topology(update) when is_map(update) do
+    timestamp = parse_timestamp(get_value(update, ["timestamp", :timestamp]))
+    metadata = get_map(update, ["metadata", :metadata])
+    {tier, score, reason} = score_topology_confidence(update, metadata)
+
+    metadata =
+      metadata
+      |> Map.put("confidence_tier", tier)
+      |> Map.put("confidence_score", score)
+      |> Map.put("confidence_reason", reason)
+
     %{
-      timestamp: parse_timestamp(get_value(update, ["timestamp", :timestamp])),
+      timestamp: timestamp,
       agent_id: get_string(update, ["agent_id", :agent_id]),
       gateway_id: get_string(update, ["gateway_id", :gateway_id]),
       partition: get_string(update, ["partition", :partition]) || "default",
@@ -900,12 +919,75 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       neighbor_port_descr: get_string(update, ["neighbor_port_descr", :neighbor_port_descr]),
       neighbor_system_name: get_string(update, ["neighbor_system_name", :neighbor_system_name]),
       neighbor_mgmt_addr: get_string(update, ["neighbor_mgmt_addr", :neighbor_mgmt_addr]),
-      metadata: get_map(update, ["metadata", :metadata]),
+      metadata: metadata,
       created_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
     }
   end
 
-  defp normalize_topology(_update), do: nil
+  def normalize_topology(_update), do: nil
+
+  defp score_topology_confidence(update, metadata) do
+    protocol = normalize_topology_protocol(get_string(update, ["protocol", :protocol]))
+    source = normalize_topology_source(Map.get(metadata, "source"))
+    has_neighbor_id = has_neighbor_identifier?(update)
+    has_neighbor_ip = present?(get_string(update, ["neighbor_mgmt_addr", :neighbor_mgmt_addr]))
+    has_neighbor_port = has_neighbor_port?(update)
+
+    topology_protocol_confidence(protocol) ||
+      indirect_topology_confidence(source, has_neighbor_id, has_neighbor_port, has_neighbor_ip)
+  end
+
+  defp topology_protocol_confidence("lldp"), do: {"high", 95, "direct_lldp_neighbor"}
+  defp topology_protocol_confidence("cdp"), do: {"high", 95, "direct_cdp_neighbor"}
+  defp topology_protocol_confidence(_), do: nil
+
+  defp indirect_topology_confidence("unifi-api", true, true, true),
+    do: {"medium", 78, "bridge_uplink_with_neighbor_ip"}
+
+  defp indirect_topology_confidence("unifi-api", true, true, false),
+    do: {"medium", 72, "bridge_uplink_without_neighbor_ip"}
+
+  defp indirect_topology_confidence(_source, true, true, _has_neighbor_ip),
+    do: {"medium", 66, "port_neighbor_inference"}
+
+  defp indirect_topology_confidence(_source, true, false, _has_neighbor_ip),
+    do: {"low", 40, "single_identifier_inference"}
+
+  defp indirect_topology_confidence(_source, false, _has_neighbor_port, _has_neighbor_ip),
+    do: {"low", 20, "insufficient_neighbor_evidence"}
+
+  defp normalize_topology_protocol(nil), do: "unknown"
+
+  defp normalize_topology_protocol(protocol) do
+    protocol
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_topology_source(nil), do: ""
+
+  defp normalize_topology_source(source) do
+    source
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp has_neighbor_identifier?(update) do
+    present?(get_string(update, ["neighbor_device_id", :neighbor_device_id])) ||
+      present?(get_string(update, ["neighbor_chassis_id", :neighbor_chassis_id])) ||
+      present?(get_string(update, ["neighbor_system_name", :neighbor_system_name])) ||
+      present?(get_string(update, ["neighbor_mgmt_addr", :neighbor_mgmt_addr]))
+  end
+
+  defp has_neighbor_port?(update) do
+    present?(get_string(update, ["neighbor_port_id", :neighbor_port_id])) ||
+      present?(get_string(update, ["neighbor_port_descr", :neighbor_port_descr]))
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
 
   defp build_interface_uid(nil, if_name, if_descr) do
     cond do
@@ -1229,7 +1311,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp get_string(update, keys) do
     case get_value(update, keys) do
       value when is_binary(value) -> value
-      value when is_atom(value) -> Atom.to_string(value)
+      value when is_atom(value) and not is_nil(value) -> Atom.to_string(value)
       _ -> nil
     end
   end

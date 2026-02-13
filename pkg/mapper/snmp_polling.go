@@ -19,9 +19,11 @@ package mapper
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -47,14 +49,20 @@ func safeInt32(val int) int32 {
 // Common SNMP OIDs - defined as constants for clarity and maintainability
 const (
 	// System OIDs
-	oidSysDescr               = ".1.3.6.1.2.1.1.1.0"
-	oidSysObjectID            = ".1.3.6.1.2.1.1.2.0"
-	oidSysUptime              = ".1.3.6.1.2.1.1.3.0"
-	oidSysContact             = ".1.3.6.1.2.1.1.4.0"
-	oidSysName                = ".1.3.6.1.2.1.1.5.0"
-	oidSysLocation            = ".1.3.6.1.2.1.1.6.0"
-	oidIPForwarding           = ".1.3.6.1.2.1.4.1.0"
-	oidDot1dBaseBridgeAddress = ".1.3.6.1.2.1.17.1.1.0"
+	oidSysDescr                = ".1.3.6.1.2.1.1.1.0"
+	oidSysObjectID             = ".1.3.6.1.2.1.1.2.0"
+	oidSysUptime               = ".1.3.6.1.2.1.1.3.0"
+	oidSysContact              = ".1.3.6.1.2.1.1.4.0"
+	oidSysName                 = ".1.3.6.1.2.1.1.5.0"
+	oidSysLocation             = ".1.3.6.1.2.1.1.6.0"
+	oidIPForwarding            = ".1.3.6.1.2.1.4.1.0"
+	oidDot1dBaseBridgeAddress  = ".1.3.6.1.2.1.17.1.1.0"
+	oidDot1dBaseNumPorts       = ".1.3.6.1.2.1.17.1.2.0"
+	oidDot1dStpPortState       = ".1.3.6.1.2.1.17.2.15.1.3"
+	oidDot1qVlanCurrentEgress  = ".1.3.6.1.2.1.17.7.1.4.2.1.4"
+	oidDot1qVlanStaticEgress   = ".1.3.6.1.2.1.17.7.1.4.3.1.2"
+	oidDot1qVlanStaticUntagged = ".1.3.6.1.2.1.17.7.1.4.3.1.4"
+	oidDot1qPvid               = ".1.3.6.1.2.1.17.7.1.4.5.1.1"
 
 	// Interface table OIDs
 	oidIfTable = ".1.3.6.1.2.1.2.2.1"
@@ -239,6 +247,12 @@ func (e *DiscoveryEngine) setupSNMPClient(job *DiscoveryJob, target string) (*go
 
 // processSNMPVariables processes SNMP variables and populates the device object
 func (e *DiscoveryEngine) processSNMPVariables(device *DiscoveredDevice, variables []gosnmp.SnmpPDU) bool {
+	return e.processSNMPVariablesWithErrors(device, variables, nil)
+}
+
+func (e *DiscoveryEngine) processSNMPVariablesWithErrors(
+	device *DiscoveredDevice, variables []gosnmp.SnmpPDU, extractionErrors map[string]string,
+) bool {
 	foundSomething := false
 
 	for _, v := range variables {
@@ -249,88 +263,147 @@ func (e *DiscoveryEngine) processSNMPVariables(device *DiscoveredDevice, variabl
 
 		foundSomething = true
 
-		e.processSNMPVariable(device, v)
+		updated := e.processSNMPVariable(device, v)
+		if !updated && extractionErrors != nil {
+			if field := snmpFieldKeyForOID(v.Name); field != "" {
+				extractionErrors[field] = fmt.Sprintf("unsupported or malformed %s value", v.Name)
+			}
+		}
 	}
 
 	return foundSomething
 }
 
 // processSNMPVariable processes a single SNMP variable and updates the device
-func (e *DiscoveryEngine) processSNMPVariable(device *DiscoveredDevice, v gosnmp.SnmpPDU) {
+func (e *DiscoveryEngine) processSNMPVariable(device *DiscoveredDevice, v gosnmp.SnmpPDU) bool {
 	switch v.Name {
 	case oidSysDescr:
-		e.setStringValue(&device.SysDescr, v)
+		return e.setStringValue(&device.SysDescr, v)
 	case oidSysObjectID:
-		e.setObjectIDValue(&device.SysObjectID, v)
+		return e.setObjectIDValue(&device.SysObjectID, v)
 	case oidSysUptime:
-		e.setUptimeValue(&device.Uptime, v)
+		return e.setUptimeValue(&device.Uptime, v)
 	case oidSysContact:
-		e.setStringValue(&device.SysContact, v)
+		return e.setStringValue(&device.SysContact, v)
 	case oidSysName:
-		e.setStringValue(&device.SysName, v)
-		if device.Hostname == "" {
+		updated := e.setStringValue(&device.SysName, v)
+		if updated && device.Hostname == "" {
 			device.Hostname = device.SysName
 		}
+		return updated
 	case oidSysLocation:
-		e.setStringValue(&device.SysLocation, v)
+		return e.setStringValue(&device.SysLocation, v)
 	case oidIPForwarding:
-		e.setInt32Value(&device.IPForwarding, v)
+		return e.setInt32Value(&device.IPForwarding, v)
 	case oidDot1dBaseBridgeAddress:
-		e.setBridgeMACValue(&device.BridgeBaseMAC, v)
+		return e.setBridgeMACValue(&device.BridgeBaseMAC, v)
 	}
+
+	return false
 }
 
 // setStringValue sets a string value from an SNMP PDU if it's the correct type
-func (*DiscoveryEngine) setStringValue(target *string, v gosnmp.SnmpPDU) {
-	if v.Type == gosnmp.OctetString {
-		*target = string(v.Value.([]byte))
+func (*DiscoveryEngine) setStringValue(target *string, v gosnmp.SnmpPDU) bool {
+	if val, ok := snmpStringValue(v); ok {
+		*target = val
+		return true
 	}
+
+	return false
 }
 
 // setObjectIDValue sets an object ID value from an SNMP PDU if it's the correct type
-func (*DiscoveryEngine) setObjectIDValue(target *string, v gosnmp.SnmpPDU) {
-	if v.Type == gosnmp.ObjectIdentifier {
-		*target = v.Value.(string)
+func (*DiscoveryEngine) setObjectIDValue(target *string, v gosnmp.SnmpPDU) bool {
+	if val, ok := snmpObjectIDValue(v); ok {
+		*target = val
+		return true
 	}
+
+	return false
 }
 
 // setUptimeValue sets an uptime value from an SNMP PDU if it's the correct type
-func (*DiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) {
-	if v.Type == gosnmp.TimeTicks {
-		*target = int64(v.Value.(uint32))
+func (*DiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) bool {
+	if v.Type != gosnmp.TimeTicks {
+		return false
 	}
+
+	switch val := v.Value.(type) {
+	case uint32:
+		*target = int64(val)
+		return true
+	case int:
+		if val >= 0 {
+			*target = int64(val)
+			return true
+		}
+	case int64:
+		if val >= 0 {
+			*target = val
+			return true
+		}
+	}
+
+	bigVal := gosnmp.ToBigInt(v.Value)
+	if bigVal == nil || bigVal.Sign() < 0 {
+		return false
+	}
+	*target = bigVal.Int64()
+	return true
 }
 
 // setInt32Value sets a signed integer value from an SNMP PDU.
-func (*DiscoveryEngine) setInt32Value(target *int32, v gosnmp.SnmpPDU) {
+func (*DiscoveryEngine) setInt32Value(target *int32, v gosnmp.SnmpPDU) bool {
 	switch val := v.Value.(type) {
 	case int:
 		*target = safeInt32(val)
+		return true
 	case int32:
 		*target = val
+		return true
 	case int64:
 		*target = safeInt32(int(val))
+		return true
 	case uint:
 		*target = safeInt32(int(val))
+		return true
 	case uint32:
 		*target = safeInt32(int(val))
+		return true
 	case uint64:
 		*target = safeInt32(int(val))
+		return true
 	default:
 		bigVal := gosnmp.ToBigInt(v.Value)
 		if bigVal != nil {
 			*target = safeInt32(int(bigVal.Int64()))
+			return true
 		}
 	}
+
+	return false
 }
 
 // setBridgeMACValue sets the bridge base MAC from an OctetString.
-func (*DiscoveryEngine) setBridgeMACValue(target *string, v gosnmp.SnmpPDU) {
-	if v.Type == gosnmp.OctetString {
-		if mac := formatMACAddress(v.Value.([]byte)); mac != "" {
+func (*DiscoveryEngine) setBridgeMACValue(target *string, v gosnmp.SnmpPDU) bool {
+	if v.Type != gosnmp.OctetString {
+		return false
+	}
+
+	switch val := v.Value.(type) {
+	case []byte:
+		if mac := formatMACAddress(val); mac != "" {
 			*target = mac
+			return true
+		}
+	case string:
+		if val != "" {
+			*target = val
+			return true
 		}
 	}
+
+	return false
 }
 
 // getMACAddress tries to get the MAC address of a device using SNMP
@@ -404,11 +477,17 @@ func (e *DiscoveryEngine) querySysInfo(
 	// Create and initialize device
 	device := e.initializeDevice(target)
 
+	extractionErrors := make(map[string]string)
+
 	// Process SNMP variables
-	foundSomething := e.processSNMPVariables(device, result.Variables)
+	foundSomething := e.processSNMPVariablesWithErrors(device, result.Variables, extractionErrors)
 	if !foundSomething {
 		return nil, ErrNoSNMPDataReturned
 	}
+
+	device.SNMPFingerprint = buildSNMPFingerprintFromDevice(device, extractionErrors)
+	e.enrichSNMPBridgeFingerprint(client, device.SNMPFingerprint, extractionErrors)
+	e.enrichSNMPVLANFingerprint(client, device.SNMPFingerprint, extractionErrors)
 
 	// Finalize device setup
 	e.finalizeDevice(job, device, target, job.ID, string(models.DiscoverySourceSNMP))
@@ -422,6 +501,262 @@ func (e *DiscoveryEngine) querySysInfo(
 	e.generateDeviceID(device, target)
 
 	return device, nil
+}
+
+func buildSNMPFingerprintFromDevice(device *DiscoveredDevice, extractionErrors map[string]string) *SNMPFingerprint {
+	if device == nil {
+		return nil
+	}
+
+	var copiedErrors map[string]string
+	if len(extractionErrors) > 0 {
+		copiedErrors = make(map[string]string, len(extractionErrors))
+		for k, v := range extractionErrors {
+			copiedErrors[k] = v
+		}
+	}
+
+	return &SNMPFingerprint{
+		System: &SNMPSystemFingerprint{
+			SysName:      device.SysName,
+			SysDescr:     device.SysDescr,
+			SysObjectID:  device.SysObjectID,
+			SysContact:   device.SysContact,
+			SysLocation:  device.SysLocation,
+			IPForwarding: device.IPForwarding,
+		},
+		Bridge: &SNMPBridgeFingerprint{
+			BridgeBaseMAC: device.BridgeBaseMAC,
+		},
+		ExtractionErrors: copiedErrors,
+	}
+}
+
+func (e *DiscoveryEngine) enrichSNMPBridgeFingerprint(
+	client *gosnmp.GoSNMP, fp *SNMPFingerprint, extractionErrors map[string]string,
+) {
+	if client == nil || fp == nil || fp.Bridge == nil {
+		return
+	}
+
+	if result, err := client.Get([]string{oidDot1dBaseNumPorts}); err == nil && result != nil {
+		for _, v := range result.Variables {
+			if v.Name != oidDot1dBaseNumPorts {
+				continue
+			}
+			if !e.setInt32Value(&fp.Bridge.BridgePortCount, v) {
+				if extractionErrors != nil {
+					extractionErrors["bridge.base_num_ports"] = "malformed dot1dBaseNumPorts value"
+				}
+			}
+		}
+	} else if err != nil && extractionErrors != nil && !isSNMPOIDUnsupportedError(err) {
+		extractionErrors["bridge.base_num_ports"] = err.Error()
+	}
+
+	var forwardingCount int32
+	err := client.BulkWalk(oidDot1dStpPortState, func(pdu gosnmp.SnmpPDU) error {
+		val, ok := e.getInt32FromPDU(pdu, "dot1dStpPortState")
+		if !ok {
+			return nil
+		}
+		// dot1dStpPortState forwarding(5)
+		if val == 5 {
+			forwardingCount++
+		}
+		return nil
+	})
+	if err != nil {
+		if extractionErrors != nil && !isSNMPOIDUnsupportedError(err) {
+			extractionErrors["bridge.stp_port_state"] = err.Error()
+		}
+	} else {
+		fp.Bridge.STPForwardingPortCount = forwardingCount
+	}
+}
+
+func (e *DiscoveryEngine) enrichSNMPVLANFingerprint(
+	client *gosnmp.GoSNMP, fp *SNMPFingerprint, extractionErrors map[string]string,
+) {
+	if client == nil || fp == nil {
+		return
+	}
+
+	vlanIDs := make(map[int32]struct{})
+	pvidDistribution := make(map[int32]int32)
+	portEvidence := make(map[int32]*SNMPVLANPortEvidence)
+	foundAny := false
+
+	err := client.BulkWalk(oidDot1qPvid, func(pdu gosnmp.SnmpPDU) error {
+		pvid, ok := e.getInt32FromPDU(pdu, "dot1qPvid")
+		if !ok {
+			return nil
+		}
+		pvidDistribution[pvid]++
+		vlanIDs[pvid] = struct{}{}
+		foundAny = true
+		return nil
+	})
+	if err != nil && extractionErrors != nil && !isSNMPOIDUnsupportedError(err) {
+		extractionErrors["vlan.pvid_distribution"] = err.Error()
+	}
+
+	collectPortEvidence := func(rootOID string, update func(ev *SNMPVLANPortEvidence, hexValue string)) {
+		walkErr := client.BulkWalk(rootOID, func(pdu gosnmp.SnmpPDU) error {
+			if pdu.Type != gosnmp.OctetString {
+				return nil
+			}
+			raw, ok := pdu.Value.([]byte)
+			if !ok {
+				return nil
+			}
+			vlanID, ok := parseVLANIDFromOID(pdu.Name)
+			if !ok {
+				return nil
+			}
+			vlanIDs[vlanID] = struct{}{}
+			ev, exists := portEvidence[vlanID]
+			if !exists {
+				ev = &SNMPVLANPortEvidence{VLANID: vlanID}
+				portEvidence[vlanID] = ev
+			}
+			update(ev, bytesToHexString(raw))
+			foundAny = true
+			return nil
+		})
+		if walkErr != nil && extractionErrors != nil && !isSNMPOIDUnsupportedError(walkErr) {
+			extractionErrors["vlan."+rootOID] = walkErr.Error()
+		}
+	}
+
+	collectPortEvidence(oidDot1qVlanStaticEgress, func(ev *SNMPVLANPortEvidence, hexValue string) {
+		ev.EgressPortsHex = hexValue
+	})
+	collectPortEvidence(oidDot1qVlanStaticUntagged, func(ev *SNMPVLANPortEvidence, hexValue string) {
+		ev.UntaggedPortsHex = hexValue
+	})
+
+	// Fall back to current egress table when static tables are unavailable.
+	if len(portEvidence) == 0 {
+		collectPortEvidence(oidDot1qVlanCurrentEgress, func(ev *SNMPVLANPortEvidence, hexValue string) {
+			ev.EgressPortsHex = hexValue
+		})
+	}
+
+	if !foundAny {
+		return
+	}
+
+	vlan := &SNMPVLANFingerprint{}
+	for id := range vlanIDs {
+		vlan.VLANIDsSeen = append(vlan.VLANIDsSeen, id)
+	}
+	sort.Slice(vlan.VLANIDsSeen, func(i, j int) bool {
+		return vlan.VLANIDsSeen[i] < vlan.VLANIDsSeen[j]
+	})
+
+	for pvid, count := range pvidDistribution {
+		vlan.PVIDDistribution = append(vlan.PVIDDistribution, SNMPPVIDCount{
+			PVID:  pvid,
+			Count: count,
+		})
+	}
+	sort.Slice(vlan.PVIDDistribution, func(i, j int) bool {
+		return vlan.PVIDDistribution[i].PVID < vlan.PVIDDistribution[j].PVID
+	})
+
+	for _, vlanID := range vlan.VLANIDsSeen {
+		if ev, ok := portEvidence[vlanID]; ok {
+			vlan.PortEvidence = append(vlan.PortEvidence, *ev)
+		}
+	}
+
+	fp.VLAN = vlan
+}
+
+func isSNMPOIDUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such object") ||
+		strings.Contains(msg, "no such instance") ||
+		strings.Contains(msg, "unknown object identifier")
+}
+
+func parseVLANIDFromOID(oid string) (int32, bool) {
+	if oid == "" {
+		return 0, false
+	}
+	parts := strings.Split(strings.TrimPrefix(oid, "."), ".")
+	if len(parts) == 0 {
+		return 0, false
+	}
+	last := parts[len(parts)-1]
+	id64, err := strconv.ParseInt(last, 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return int32(id64), true
+}
+
+func bytesToHexString(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	return strings.ToUpper(hex.EncodeToString(raw))
+}
+
+func snmpStringValue(v gosnmp.SnmpPDU) (string, bool) {
+	//nolint:exhaustive // We only convert textual SNMP types here.
+	switch v.Type {
+	case gosnmp.OctetString, gosnmp.ObjectDescription:
+		switch val := v.Value.(type) {
+		case []byte:
+			return string(val), true
+		case string:
+			return val, true
+		}
+	default:
+		return "", false
+	}
+	return "", false
+}
+
+func snmpObjectIDValue(v gosnmp.SnmpPDU) (string, bool) {
+	if v.Type != gosnmp.ObjectIdentifier {
+		return "", false
+	}
+	switch val := v.Value.(type) {
+	case string:
+		return val, true
+	case []byte:
+		return string(val), true
+	}
+	return "", false
+}
+
+func snmpFieldKeyForOID(oid string) string {
+	switch oid {
+	case oidSysDescr:
+		return "system.sys_descr"
+	case oidSysObjectID:
+		return "system.sys_object_id"
+	case oidSysUptime:
+		return "system.uptime"
+	case oidSysContact:
+		return "system.sys_contact"
+	case oidSysName:
+		return "system.sys_name"
+	case oidSysLocation:
+		return "system.sys_location"
+	case oidIPForwarding:
+		return "system.ip_forwarding"
+	case oidDot1dBaseBridgeAddress:
+		return "bridge.base_mac"
+	default:
+		return ""
+	}
 }
 
 // queryInterfaces queries interface information via SNMP
@@ -578,38 +913,65 @@ const (
 
 // updateIfDescr updates the interface description
 func updateIfDescr(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if pdu.Type == gosnmp.OctetString {
-		iface.IfDescr = string(pdu.Value.([]byte))
+	if val, ok := snmpStringValue(pdu); ok {
+		iface.IfDescr = val
 	}
 }
 
 // updateIfName updates the interface name
 func updateIfName(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if pdu.Type == gosnmp.OctetString {
-		iface.IfName = string(pdu.Value.([]byte))
+	if val, ok := snmpStringValue(pdu); ok {
+		iface.IfName = val
 	}
 }
 
 // updateIfAlias updates the interface alias
 func updateIfAlias(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if pdu.Type == gosnmp.OctetString {
-		iface.IfAlias = string(pdu.Value.([]byte))
+	if val, ok := snmpStringValue(pdu); ok {
+		iface.IfAlias = val
 	}
 }
 
-// getInt32FromPDU safely converts an SNMP Integer PDU value to int32.
+// getInt32FromPDU safely converts a numeric SNMP PDU value to int32.
 func (e *DiscoveryEngine) getInt32FromPDU(pdu gosnmp.SnmpPDU, fieldName string) (int32, bool) {
-	if pdu.Type != gosnmp.Integer {
+	if pdu.Type != gosnmp.Integer && pdu.Type != gosnmp.Gauge32 && pdu.Type != gosnmp.Counter32 {
 		return 0, false
 	}
 
-	val, ok := pdu.Value.(int)
-	if !ok {
-		return 0, false
+	var val int64
+	switch typed := pdu.Value.(type) {
+	case int:
+		val = int64(typed)
+	case int32:
+		val = int64(typed)
+	case int64:
+		val = typed
+	case uint:
+		val = int64(typed)
+	case uint32:
+		val = int64(typed)
+	case uint64:
+		if typed > math.MaxInt64 {
+			val = math.MaxInt64
+		} else {
+			val = int64(typed)
+		}
+	default:
+		if _, isString := pdu.Value.(string); isString {
+			return 0, false
+		}
+		if _, isBytes := pdu.Value.([]byte); isBytes {
+			return 0, false
+		}
+		bigVal := gosnmp.ToBigInt(pdu.Value)
+		if bigVal == nil {
+			return 0, false
+		}
+		val = bigVal.Int64()
 	}
 
 	if val > math.MaxInt32 || val < math.MinInt32 {
-		e.logger.Warn().Str("field_name", fieldName).Int("value", val).
+		e.logger.Warn().Str("field_name", fieldName).Int64("value", val).
 			Msg("Value exceeds int32 range, using closest valid value")
 
 		if val > math.MaxInt32 {
@@ -772,9 +1134,14 @@ func (e *DiscoveryEngine) updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.S
 
 // updateIfPhysAddress updates the interface physical address
 func updateIfPhysAddress(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if pdu.Type == gosnmp.OctetString {
-		iface.IfPhysAddress = formatMACAddress(pdu.Value.([]byte))
+	if pdu.Type != gosnmp.OctetString {
+		return
 	}
+	val, ok := pdu.Value.([]byte)
+	if !ok {
+		return
+	}
+	iface.IfPhysAddress = formatMACAddress(val)
 }
 
 func (e *DiscoveryEngine) updateIfAdminStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {

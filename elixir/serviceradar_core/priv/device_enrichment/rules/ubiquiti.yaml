@@ -26,7 +26,6 @@ rules:
       any:
         sys_descr: ["usw", "switch"]
         sys_name: ["usw", "switch"]
-        hostname: ["usw", "switch"]
     set:
       vendor_name: "Ubiquiti"
       type: "Switch"

@@ -169,6 +169,91 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Ubiquiti UniFi UDM-Pro"
   end
 
+  test "prefers snmp_* metadata aliases for SNMP panel fields", %{conn: conn} do
+    uid = "test-device-snmp-aliases-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 12,
+        hostname: "farm01",
+        ip: "192.168.1.1",
+        metadata: %{
+          "snmp_name" => "farm01-snmp",
+          "sys_name" => "farm01-sys",
+          "snmp_owner" => "NOC Team",
+          "snmp_location" => "Datacenter B",
+          "snmp_description" => "Ubiquiti UniFi UDM-Pro-Max 4.4.6"
+        },
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
+
+    assert html =~ "farm01-snmp"
+    assert html =~ "NOC Team"
+    assert html =~ "Datacenter B"
+    assert html =~ "UDM-Pro-Max 4.4.6"
+    refute html =~ "farm01-sys"
+  end
+
+  test "renders SNMP panel labels even when SNMP metadata values are missing", %{conn: conn} do
+    uid = "test-device-snmp-empty-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "host-no-snmp",
+        ip: "192.168.50.10",
+        metadata: %{},
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
+
+    assert html =~ "SNMP Name"
+    assert html =~ "SNMP Owner"
+    assert html =~ "SNMP Location"
+    assert html =~ "SNMP Description"
+  end
+
+  test "marks SNMP fallback-derived classification in list and details views", %{conn: conn} do
+    uid = "test-device-snmp-fallback-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 12,
+        type: "Router",
+        hostname: "fallback-router",
+        ip: "192.168.60.1",
+        vendor_name: "Ubiquiti",
+        model: "UDM-Pro-Max 4.4.6",
+        metadata: %{
+          "sys_descr" => "Ubiquiti UniFi UDM-Pro-Max 4.4.6 Linux 4.19.152 al324",
+          "sys_object_id" => "1.3.6.1.4.1.8072.3.2.10"
+        },
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _list_view, list_html} = live(conn, ~p"/devices?limit=10")
+    assert list_html =~ "SNMP Fallback"
+
+    {:ok, _details_view, details_html} = live(conn, ~p"/devices/#{uid}")
+    assert details_html =~ "Classification"
+    assert details_html =~ "SNMP fallback-derived"
+  end
+
   test "renders sysmon cpu header gauge and process/memory/disk sections", %{conn: conn} do
     uid = "test-device-sysmon-metrics-#{System.unique_integer([:positive])}"
     now = DateTime.utc_now() |> DateTime.truncate(:second)

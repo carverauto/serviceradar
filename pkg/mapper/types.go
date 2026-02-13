@@ -152,21 +152,82 @@ type DiscoveryResults struct {
 
 // DiscoveredDevice represents a discovered network device.
 type DiscoveredDevice struct {
-	DeviceID      string // Unique identifier for the device (agentID:gatewayID:deviceIP)
-	IP            string
-	MAC           string
-	Hostname      string
-	SysName       string
-	SysDescr      string
-	SysObjectID   string
-	SysContact    string
-	SysLocation   string
-	IPForwarding  int32
-	BridgeBaseMAC string
-	Uptime        int64
-	Metadata      map[string]string
-	FirstSeen     time.Time
-	LastSeen      time.Time
+	DeviceID        string // Unique identifier for the device (agentID:gatewayID:deviceIP)
+	IP              string
+	MAC             string
+	Hostname        string
+	SysName         string
+	SysDescr        string
+	SysObjectID     string
+	SysContact      string
+	SysLocation     string
+	IPForwarding    int32
+	BridgeBaseMAC   string
+	SNMPFingerprint *SNMPFingerprint
+	Uptime          int64
+	Metadata        map[string]string
+	FirstSeen       time.Time
+	LastSeen        time.Time
+}
+
+// SNMPFingerprint captures normalized SNMP evidence for enrichment and identity processing.
+type SNMPFingerprint struct {
+	System           *SNMPSystemFingerprint
+	Bridge           *SNMPBridgeFingerprint
+	VLAN             *SNMPVLANFingerprint
+	InterfaceSummary *SNMPInterfaceSummaryFingerprint
+	ExtractionErrors map[string]string
+}
+
+// SNMPSystemFingerprint stores standard system-level identity fields.
+type SNMPSystemFingerprint struct {
+	SysName      string
+	SysDescr     string
+	SysObjectID  string
+	SysContact   string
+	SysLocation  string
+	IPForwarding int32
+}
+
+// SNMPBridgeFingerprint stores bridge-level identity fields.
+type SNMPBridgeFingerprint struct {
+	BridgeBaseMAC          string
+	BridgePortCount        int32
+	STPForwardingPortCount int32
+}
+
+// SNMPPVIDCount stores a single PVID histogram entry.
+type SNMPPVIDCount struct {
+	PVID  int32
+	Count int32
+}
+
+// SNMPVLANPortEvidence stores per-VLAN port membership evidence.
+type SNMPVLANPortEvidence struct {
+	VLANID           int32
+	EgressPortsHex   string
+	UntaggedPortsHex string
+}
+
+// SNMPVLANFingerprint stores VLAN-related evidence.
+type SNMPVLANFingerprint struct {
+	VLANIDsSeen      []int32
+	PVIDDistribution []SNMPPVIDCount
+	PortEvidence     []SNMPVLANPortEvidence
+}
+
+// SNMPInterfaceTypeCount stores a count for one ifType value.
+type SNMPInterfaceTypeCount struct {
+	IfType int32
+	Count  int32
+}
+
+// SNMPInterfaceSummaryFingerprint stores interface-level summary signals.
+type SNMPInterfaceSummaryFingerprint struct {
+	InterfaceCount        int32
+	IfTypeCounts          []SNMPInterfaceTypeCount
+	BridgeLikeNameCount   int32
+	WirelessLikeNameCount int32
 }
 
 // InterfaceMetric represents an available SNMP metric for an interface.
