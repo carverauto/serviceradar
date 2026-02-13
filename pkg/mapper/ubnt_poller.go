@@ -500,10 +500,6 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 			continue
 		}
 
-		if !contains(device.Features, "switching") && targetIP != "" {
-			continue
-		}
-
 		// generate DeviceID using IP+MAC
 		// deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC)
 		deviceID := ""

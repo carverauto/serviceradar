@@ -96,6 +96,13 @@ core:
     maxInflight: 2
     queueMaxChunks: 10
     async: true
+  deviceEnrichment:
+    rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
+    filesystemOverrides:
+      enabled: false
+      existingConfigMap: ""
+      existingSecret: ""
+      existingClaim: ""
   migrations:
     enabled: true
     markerPath: /var/lib/serviceradar/migrations/complete

@@ -27,7 +27,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   setup do
-    cleanup_graph(["dev-1", "dev-2", "dev-1/eth0", "dev-2/Gi1/0/1"])
+    cleanup_graph([
+      "dev-1",
+      "dev-2",
+      "dev-1/eth0",
+      "dev-1/unknown-local",
+      "dev-2/Gi1/0/1",
+      "dev-2/aa:bb:cc:dd:ee:ff"
+    ])
+
     :ok
   end
 
@@ -82,6 +90,30 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       )
 
     assert result["source"] == "lldp"
+  end
+
+  test "upsert_links falls back when neighbor port metadata is missing" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-2",
+        local_if_index: 21,
+        neighbor_chassis_id: "aa:bb:cc:dd:ee:ff",
+        protocol: "UniFi-API",
+        timestamp: now,
+        created_at: now
+      }
+    ])
+
+    [result] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-1\/ifindex:21'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/aa:bb:cc:dd:ee:ff'})
+      RETURN {source: r.source} AS result/
+      )
+
+    assert result["source"] == "UniFi-API"
   end
 
   defp age_available? do

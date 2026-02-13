@@ -152,18 +152,21 @@ type DiscoveryResults struct {
 
 // DiscoveredDevice represents a discovered network device.
 type DiscoveredDevice struct {
-	DeviceID    string // Unique identifier for the device (agentID:gatewayID:deviceIP)
-	IP          string
-	MAC         string
-	Hostname    string
-	SysDescr    string
-	SysObjectID string
-	SysContact  string
-	SysLocation string
-	Uptime      int64
-	Metadata    map[string]string
-	FirstSeen   time.Time
-	LastSeen    time.Time
+	DeviceID      string // Unique identifier for the device (agentID:gatewayID:deviceIP)
+	IP            string
+	MAC           string
+	Hostname      string
+	SysName       string
+	SysDescr      string
+	SysObjectID   string
+	SysContact    string
+	SysLocation   string
+	IPForwarding  int32
+	BridgeBaseMAC string
+	Uptime        int64
+	Metadata      map[string]string
+	FirstSeen     time.Time
+	LastSeen      time.Time
 }
 
 // InterfaceMetric represents an available SNMP metric for an interface.
