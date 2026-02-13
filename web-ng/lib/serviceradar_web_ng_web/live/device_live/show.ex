@@ -86,6 +86,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
      # Interface metrics for favorited interfaces
      |> assign(:interface_metrics, nil)
+     |> assign(:interface_metrics_layout, "two")
      |> assign(:ip_aliases, [])
      |> assign(:ip_alias_error, nil)
      |> assign(:show_stale_aliases, false)
@@ -660,7 +661,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_event("set_interface_metrics_layout", %{"layout" => layout}, socket) do
+    {:noreply,
+     assign(socket, :interface_metrics_layout, normalize_interface_metrics_layout(layout))}
+  end
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  defp normalize_interface_metrics_layout(layout) do
+    case to_string(layout || "") do
+      "one" -> "one"
+      "two" -> "two"
+      "four" -> "four"
+      _ -> "two"
+    end
+  end
 
   defp format_tags_for_edit(nil), do: ""
   defp format_tags_for_edit(tags) when is_list(tags), do: Enum.join(tags, "\n")
@@ -1835,6 +1850,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               device_uid={@device_uid}
               interface_metrics={@interface_metrics}
               discovery_job={@discovery_job}
+              interface_metrics_layout={@interface_metrics_layout}
             />
           </div>
           
@@ -2269,6 +2285,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :device_uid, :string, required: true
   attr :interface_metrics, :map, default: nil
   attr :discovery_job, :any, default: nil
+  attr :interface_metrics_layout, :string, default: "two"
 
   defp interfaces_tab_content(assigns) do
     selected_count = MapSet.size(assigns.selected_interfaces)
@@ -2293,6 +2310,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       :if={@interface_metrics}
       metrics={@interface_metrics}
       device_uid={@device_uid}
+      layout_mode={@interface_metrics_layout}
     />
 
     <%= if @interfaces == [] and is_nil(@error) do %>
@@ -2574,8 +2592,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   attr :metrics, :map, required: true
   attr :device_uid, :string, required: true
+  attr :layout_mode, :string, default: "two"
 
   defp interface_metrics_section(assigns) do
+    layout_mode = normalize_interface_metrics_layout(assigns.layout_mode)
+    panel_count = length(assigns.metrics.panels)
+
+    panel_layout_class =
+      case layout_mode do
+        "one" ->
+          "space-y-4"
+
+        "two" ->
+          "grid grid-cols-1 xl:grid-cols-2 gap-4"
+
+        "four" ->
+          cond do
+            panel_count >= 4 -> "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4"
+            panel_count == 3 -> "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+            panel_count == 2 -> "grid grid-cols-1 xl:grid-cols-2 gap-4"
+            true -> "space-y-4"
+          end
+      end
+
+    assigns =
+      assigns
+      |> assign(:layout_mode, layout_mode)
+      |> assign(:panel_layout_class, panel_layout_class)
+
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm mb-4">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
@@ -2585,6 +2629,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <span :if={@metrics.favorited_count > 0} class="text-xs text-base-content/50">
             ({@metrics.favorited_count} favorited)
           </span>
+        </div>
+        <div :if={@metrics.panels != []} class="join join-vertical sm:join-horizontal">
+          <button
+            type="button"
+            class={[
+              "btn btn-xs join-item normal-case",
+              @layout_mode == "one" && "btn-primary",
+              @layout_mode != "one" && "btn-ghost"
+            ]}
+            phx-click="set_interface_metrics_layout"
+            phx-value-layout="one"
+            title="One chart per row"
+          >
+            1-up
+          </button>
+          <button
+            type="button"
+            class={[
+              "btn btn-xs join-item normal-case",
+              @layout_mode == "two" && "btn-primary",
+              @layout_mode != "two" && "btn-ghost"
+            ]}
+            phx-click="set_interface_metrics_layout"
+            phx-value-layout="two"
+            title="Two charts per row"
+          >
+            2-up
+          </button>
+          <button
+            type="button"
+            class={[
+              "btn btn-xs join-item normal-case",
+              @layout_mode == "four" && "btn-primary",
+              @layout_mode != "four" && "btn-ghost"
+            ]}
+            phx-click="set_interface_metrics_layout"
+            phx-value-layout="four"
+            title="Four charts per row on wide screens"
+          >
+            4-up
+          </button>
         </div>
       </div>
 
@@ -2622,25 +2707,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       </div>
 
       <%!-- Metrics panels --%>
-      <% panel_count = length(@metrics.panels) %>
       <div
         :if={@metrics.panels != []}
-        class={
-          [
-            "p-4 gap-4",
-            # 1-2 panels: full width stacked
-            panel_count <= 2 && "space-y-4",
-            # 3+ panels: responsive grid
-            panel_count > 2 && "grid grid-cols-1 sm:grid-cols-2"
-          ]
-        }
+        class={["p-4", @panel_layout_class]}
       >
         <%= for {panel, idx} <- Enum.with_index(@metrics.panels) do %>
           <.live_component
             module={panel.plugin}
             id={"interface-metrics-#{@device_uid}-#{panel.id}-#{idx}"}
             title={Map.get(panel.assigns, :interface_label, "Interface Metrics")}
-            panel_assigns={Map.put(panel.assigns, :compact, panel_count > 2)}
+            panel_assigns={Map.put(panel.assigns, :compact, false)}
           />
         <% end %>
       </div>
