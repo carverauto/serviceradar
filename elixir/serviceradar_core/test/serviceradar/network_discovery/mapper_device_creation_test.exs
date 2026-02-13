@@ -11,6 +11,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.TestSupport
@@ -264,5 +265,70 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       })
 
     assert {:ok, []} = Ash.read(query, actor: actor)
+  end
+
+  test "mapper reuses stale IP alias mapping and does not create duplicate device", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    canonical_uid = "sr:" <> Ecto.UUID.generate()
+    canonical_ip = "10.10.#{rem(uniq, 200) + 1}.#{rem(div(uniq, 200), 200) + 1}"
+
+    stale_alias_ip =
+      "198.18.#{rem(div(uniq, 40_000), 200) + 1}.#{rem(div(uniq, 8_000_000), 200) + 1}"
+
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    {:ok, _canonical} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{uid: canonical_uid, ip: canonical_ip})
+      |> Ash.create(actor: actor)
+
+    {:ok, alias_state} =
+      DeviceAliasState.create_detected(
+        %{
+          device_id: canonical_uid,
+          partition: "default",
+          alias_type: :ip,
+          alias_value: stale_alias_ip,
+          metadata: %{"source" => "test"}
+        },
+        actor: actor
+      )
+
+    {:ok, _stale} = DeviceAliasState.mark_stale(alias_state, actor: actor)
+
+    payload =
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{stale_alias_ip}",
+          "partition" => "default",
+          "device_ip" => stale_alias_ip,
+          "if_index" => 1,
+          "if_name" => "eth0",
+          "if_phys_address" => "F4:92:BF:75:C7:21",
+          "timestamp" => ts
+        }
+      ])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    {:ok, by_alias_ip} =
+      Device
+      |> Ash.Query.for_read(:by_ip, %{ip: stale_alias_ip})
+      |> Ash.read(actor: actor)
+
+    # Mapper should not create a new provisional placeholder at stale alias IP.
+    assert by_alias_ip == []
+
+    assert {:ok, still_canonical} = Device.get_by_uid(canonical_uid, false, actor: actor)
+    assert still_canonical.uid == canonical_uid
+
+    {:ok, refreshed_aliases} = DeviceAliasState.lookup_by_value(:ip, stale_alias_ip, actor: actor)
+
+    assert Enum.any?(
+             refreshed_aliases,
+             &(&1.device_id == canonical_uid and &1.state == :confirmed)
+           )
   end
 end
