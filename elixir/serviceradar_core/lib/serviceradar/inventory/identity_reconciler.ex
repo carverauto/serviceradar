@@ -964,13 +964,20 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp emit_blocked_merge_telemetry(blocked_reason, device_ids, identifiers) do
+    identifier_count =
+      cond do
+        is_list(identifiers) -> length(identifiers)
+        is_map(identifiers) -> map_size(identifiers)
+        true -> 0
+      end
+
     :telemetry.execute(
       [:serviceradar, :identity_reconciler, :merge, :blocked],
       %{count: 1},
       %{
         reason: blocked_reason,
         device_count: length(device_ids),
-        identifier_count: length(identifiers)
+        identifier_count: identifier_count
       }
     )
   end
