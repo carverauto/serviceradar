@@ -1244,6 +1244,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       value={Map.get(@device_row, "model")}
                     />
                     <.kv_inline
+                      label="Classification"
+                      value={classification_provenance_label(@device_row)}
+                    />
+                    <.kv_inline
                       :if={agent_device?(@device_row)}
                       label="Agent"
                       value={agent_label(@device_row)}
@@ -1253,10 +1257,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 </div>
               </div>
 
-              <div
-                :if={snmp_summary_present?(@device_row)}
-                class="card bg-base-100 border border-base-300"
-              >
+              <div class="card bg-base-100 border border-base-300">
                 <div class="card-body p-4 gap-2">
                   <div class="flex items-center gap-2">
                     <.icon name="hero-signal" class="size-4 text-info" />
@@ -1264,26 +1265,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   </div>
                   <div class="space-y-1 text-sm">
                     <.kv_inline
-                      :if={present?(metadata_value(@device_row, "sys_name"))}
-                      label="Name"
-                      value={metadata_value(@device_row, "sys_name")}
+                      label="SNMP Name"
+                      value={snmp_metadata_value(@device_row, "snmp_name", "sys_name")}
                     />
                     <.kv_inline
-                      :if={present?(snmp_owner(@device_row))}
-                      label="Owner"
+                      label="SNMP Owner"
                       value={snmp_owner(@device_row)}
                     />
                     <.kv_inline
-                      :if={present?(metadata_value(@device_row, "sys_location"))}
-                      label="Location"
-                      value={metadata_value(@device_row, "sys_location")}
+                      label="SNMP Location"
+                      value={snmp_metadata_value(@device_row, "snmp_location", "sys_location")}
                     />
-                    <div :if={present?(metadata_value(@device_row, "sys_descr"))} class="space-y-1">
-                      <span class="text-base-content/60 text-xs">Description:</span>
-                      <div class="badge badge-outline badge-sm h-auto py-1 text-wrap leading-relaxed">
-                        {metadata_value(@device_row, "sys_descr")}
-                      </div>
-                    </div>
+                    <.kv_inline
+                      label="SNMP Description"
+                      value={snmp_metadata_value(@device_row, "snmp_description", "sys_descr")}
+                    />
                   </div>
                 </div>
               </div>
@@ -2016,6 +2012,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp metadata_value(_row, _key), do: nil
 
+  defp snmp_metadata_value(row, primary_key, fallback_key) when is_map(row) do
+    metadata_value(row, primary_key) || metadata_value(row, fallback_key)
+  end
+
+  defp snmp_metadata_value(_row, _primary_key, _fallback_key), do: nil
+
   defp snmp_owner(row) when is_map(row) do
     owner_name =
       case Map.get(row, "owner") do
@@ -2023,19 +2025,62 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         _ -> nil
       end
 
-    owner_name || metadata_value(row, "sys_owner") || metadata_value(row, "sys_contact")
+    owner_name ||
+      metadata_value(row, "snmp_owner") ||
+      metadata_value(row, "sys_owner") ||
+      metadata_value(row, "sys_contact")
   end
 
   defp snmp_owner(_row), do: nil
 
-  defp snmp_summary_present?(row) when is_map(row) do
-    present?(metadata_value(row, "sys_name")) or
-      present?(snmp_owner(row)) or
-      present?(metadata_value(row, "sys_location")) or
-      present?(metadata_value(row, "sys_descr"))
+  defp classification_provenance_label(row) when is_map(row) do
+    source = metadata_value(row, "classification_source") |> normalize_metadata_source()
+    rule_id = metadata_value(row, "classification_rule_id")
+
+    cond do
+      present?(rule_id) ->
+        "Rule-based (#{rule_id})"
+
+      source in ["snmp_fallback", "snmp_fingerprint_fallback"] or snmp_fallback_derived?(row) ->
+        "SNMP fallback-derived"
+
+      true ->
+        "Unspecified"
+    end
   end
 
-  defp snmp_summary_present?(_row), do: false
+  defp classification_provenance_label(_row), do: "Unspecified"
+
+  defp snmp_fallback_derived?(row) when is_map(row) do
+    metadata = row_metadata(row)
+    has_rule = present?(metadata_value(row, "classification_rule_id"))
+
+    has_display_values =
+      present?(Map.get(row, "type")) or present?(Map.get(row, "vendor_name")) or
+        present?(Map.get(row, "model"))
+
+    has_snmp_evidence =
+      is_map(Map.get(metadata, "snmp_fingerprint")) or
+        present?(Map.get(metadata, "sys_object_id")) or
+        present?(Map.get(metadata, "sys_descr")) or
+        present?(Map.get(metadata, "sys_name")) or
+        present?(Map.get(metadata, "snmp_description")) or
+        present?(Map.get(metadata, "snmp_name")) or
+        present?(Map.get(metadata, "ip_forwarding"))
+
+    not has_rule and has_display_values and has_snmp_evidence
+  end
+
+  defp snmp_fallback_derived?(_row), do: false
+
+  defp normalize_metadata_source(nil), do: ""
+
+  defp normalize_metadata_source(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
 
   # ---------------------------------------------------------------------------
   # OCSF Information Section (OS, Hardware, Network, Compliance)

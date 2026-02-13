@@ -90,7 +90,7 @@ func (s *GRPCDiscoveryService) StartDiscovery(ctx context.Context, req *proto.Di
 		Timeout:     time.Duration(req.TimeoutSeconds) * time.Second,
 		Retries:     int(req.Retries),
 		AgentID:     req.AgentId,
-		GatewayID:    req.GatewayId,
+		GatewayID:   req.GatewayId,
 	}
 
 	// Start discovery
@@ -130,16 +130,91 @@ func convertInterfaceToProto(iface *DiscoveredInterface) (*proto.DiscoveredInter
 // convertDeviceToProto converts a DiscoveredDevice to proto.DiscoveredDevice
 func convertDeviceToProto(device *DiscoveredDevice) *proto.DiscoveredDevice {
 	return &proto.DiscoveredDevice{
-		Ip:          device.IP,
-		Mac:         device.MAC,
-		Hostname:    device.Hostname,
-		SysDescr:    device.SysDescr,
-		SysObjectId: device.SysObjectID,
-		SysContact:  device.SysContact,
-		SysLocation: device.SysLocation,
-		Uptime:      device.Uptime,
-		Metadata:    device.Metadata,
+		Ip:              device.IP,
+		Mac:             device.MAC,
+		Hostname:        device.Hostname,
+		SysDescr:        device.SysDescr,
+		SysObjectId:     device.SysObjectID,
+		SysContact:      device.SysContact,
+		SysLocation:     device.SysLocation,
+		Uptime:          device.Uptime,
+		Metadata:        device.Metadata,
+		SnmpFingerprint: convertSNMPFingerprintToProto(device.SNMPFingerprint),
 	}
+}
+
+func convertSNMPFingerprintToProto(fp *SNMPFingerprint) *proto.SNMPFingerprint {
+	if fp == nil {
+		return nil
+	}
+
+	protoFP := &proto.SNMPFingerprint{
+		ExtractionErrors: fp.ExtractionErrors,
+	}
+
+	if fp.System != nil {
+		protoFP.System = &proto.SNMPSystemFingerprint{
+			SysName:      fp.System.SysName,
+			SysDescr:     fp.System.SysDescr,
+			SysObjectId:  fp.System.SysObjectID,
+			SysContact:   fp.System.SysContact,
+			SysLocation:  fp.System.SysLocation,
+			IpForwarding: fp.System.IPForwarding,
+		}
+	}
+
+	if fp.Bridge != nil {
+		protoFP.Bridge = &proto.SNMPBridgeFingerprint{
+			BridgeBaseMac:          fp.Bridge.BridgeBaseMAC,
+			BridgePortCount:        fp.Bridge.BridgePortCount,
+			StpForwardingPortCount: fp.Bridge.STPForwardingPortCount,
+		}
+	}
+
+	if fp.VLAN != nil {
+		protoVLAN := &proto.SNMPVLANFingerprint{
+			VlanIdsSeen: fp.VLAN.VLANIDsSeen,
+		}
+
+		protoVLAN.PvidDistribution = make([]*proto.SNMPPVIDCount, 0, len(fp.VLAN.PVIDDistribution))
+		for _, c := range fp.VLAN.PVIDDistribution {
+			protoVLAN.PvidDistribution = append(protoVLAN.PvidDistribution, &proto.SNMPPVIDCount{
+				Pvid:  c.PVID,
+				Count: c.Count,
+			})
+		}
+
+		protoVLAN.PortEvidence = make([]*proto.SNMPVLANPortEvidence, 0, len(fp.VLAN.PortEvidence))
+		for _, p := range fp.VLAN.PortEvidence {
+			protoVLAN.PortEvidence = append(protoVLAN.PortEvidence, &proto.SNMPVLANPortEvidence{
+				VlanId:           p.VLANID,
+				EgressPortsHex:   p.EgressPortsHex,
+				UntaggedPortsHex: p.UntaggedPortsHex,
+			})
+		}
+
+		protoFP.Vlan = protoVLAN
+	}
+
+	if fp.InterfaceSummary != nil {
+		protoSummary := &proto.SNMPInterfaceSummaryFingerprint{
+			InterfaceCount:        fp.InterfaceSummary.InterfaceCount,
+			BridgeLikeNameCount:   fp.InterfaceSummary.BridgeLikeNameCount,
+			WirelessLikeNameCount: fp.InterfaceSummary.WirelessLikeNameCount,
+		}
+
+		protoSummary.IfTypeCounts = make([]*proto.SNMPInterfaceTypeCount, 0, len(fp.InterfaceSummary.IfTypeCounts))
+		for _, c := range fp.InterfaceSummary.IfTypeCounts {
+			protoSummary.IfTypeCounts = append(protoSummary.IfTypeCounts, &proto.SNMPInterfaceTypeCount{
+				IfType: c.IfType,
+				Count:  c.Count,
+			})
+		}
+
+		protoFP.InterfaceSummary = protoSummary
+	}
+
+	return protoFP
 }
 
 // convertTopologyLinkToProto converts a TopologyLink to proto.TopologyLink

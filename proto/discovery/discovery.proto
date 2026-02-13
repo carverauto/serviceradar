@@ -129,6 +129,59 @@ message DiscoveredDevice {
   string sys_location = 7;        // System location
   int64 uptime = 8;               // System uptime in seconds
   map<string, string> metadata = 9; // Additional metadata
+  SNMPFingerprint snmp_fingerprint = 10; // Normalized SNMP fingerprint signals
+}
+
+message SNMPFingerprint {
+  SNMPSystemFingerprint system = 1; // Standard system-level identity fields
+  SNMPBridgeFingerprint bridge = 2; // Standard bridge identity fields
+  SNMPVLANFingerprint vlan = 3; // VLAN/PVID evidence summary
+  SNMPInterfaceSummaryFingerprint interface_summary = 4; // Interface summary evidence
+  map<string, string> extraction_errors = 5; // Non-fatal extraction issues by field/table
+}
+
+message SNMPSystemFingerprint {
+  string sys_name = 1;
+  string sys_descr = 2;
+  string sys_object_id = 3;
+  string sys_contact = 4;
+  string sys_location = 5;
+  int32 ip_forwarding = 6;
+}
+
+message SNMPBridgeFingerprint {
+  string bridge_base_mac = 1;
+  int32 bridge_port_count = 2;
+  int32 stp_forwarding_port_count = 3;
+}
+
+message SNMPPVIDCount {
+  int32 pvid = 1;
+  int32 count = 2;
+}
+
+message SNMPVLANPortEvidence {
+  int32 vlan_id = 1;
+  string egress_ports_hex = 2;
+  string untagged_ports_hex = 3;
+}
+
+message SNMPVLANFingerprint {
+  repeated int32 vlan_ids_seen = 1;
+  repeated SNMPPVIDCount pvid_distribution = 2;
+  repeated SNMPVLANPortEvidence port_evidence = 3;
+}
+
+message SNMPInterfaceTypeCount {
+  int32 if_type = 1;
+  int32 count = 2;
+}
+
+message SNMPInterfaceSummaryFingerprint {
+  int32 interface_count = 1;
+  repeated SNMPInterfaceTypeCount if_type_counts = 2;
+  int32 bridge_like_name_count = 3;
+  int32 wireless_like_name_count = 4;
 }
 
 // InterfaceMetric represents an available SNMP metric for an interface

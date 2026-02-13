@@ -6,13 +6,43 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   require Logger
 
   alias ServiceRadar.Graph
+  @default_stale_minutes 180
+  @eligible_confidence_tiers MapSet.new(["high", "medium"])
 
   @spec upsert_links([map()]) :: :ok
   def upsert_links([]), do: :ok
 
   def upsert_links(links) when is_list(links) do
-    Enum.each(links, &upsert_link/1)
+    {local_device_ids, projected_count, skipped_low_count} =
+      Enum.reduce(links, {MapSet.new(), 0, 0}, &reduce_topology_link/2)
+
+    prune_stale_projected_links(MapSet.to_list(local_device_ids))
+
+    if skipped_low_count > 0 do
+      Logger.debug(
+        "Skipped #{skipped_low_count} low-confidence topology link(s); projected #{projected_count} link(s)"
+      )
+    end
+
     :ok
+  end
+
+  defp reduce_topology_link(link, {local_ids, projected, skipped_low}) do
+    case build_link_payload(link) do
+      {:ok, payload} ->
+        local_ids = MapSet.put(local_ids, payload.local_device_id)
+
+        if projectable_confidence_tier?(payload.confidence_tier) do
+          upsert_link_payload(payload)
+          {local_ids, projected + 1, skipped_low}
+        else
+          {local_ids, projected, skipped_low + 1}
+        end
+
+      {:error, :missing_ids} ->
+        Logger.debug("Skipping topology link missing device identifiers")
+        {local_ids, projected, skipped_low}
+    end
   end
 
   @spec upsert_interfaces([map()]) :: :ok
@@ -41,19 +71,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       {:error, reason} -> Logger.warning("MANAGED_BY graph upsert failed: #{inspect(reason)}")
     end
   end
-
-  defp upsert_link(link) when is_map(link) do
-    case build_link_payload(link) do
-      {:ok, payload} ->
-        upsert_link_payload(payload)
-
-      {:error, :missing_ids} ->
-        Logger.debug("Skipping topology link missing device identifiers")
-        :ok
-    end
-  end
-
-  defp upsert_link(_link), do: :ok
 
   defp upsert_interface(interface) when is_map(interface) do
     case build_interface_payload(interface) do
@@ -97,6 +114,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     local_interface_id = local_interface_id(link, local_device_id)
     neighbor_port = neighbor_port(link)
     neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
+    metadata = link_value(link, :metadata) || %{}
+    confidence_tier = confidence_tier(link, metadata)
+    confidence_score = confidence_score(link, metadata)
+    confidence_reason = confidence_reason(link, metadata)
+    observed_at = observed_at(link)
 
     if is_nil(local_device_id) or is_nil(neighbor_device_id) do
       {:error, :missing_ids}
@@ -112,7 +134,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
          local_if_index: link_value(link, :local_if_index),
          neighbor_port_name: neighbor_port,
          neighbor_name: link_value(link, :neighbor_system_name),
-         neighbor_ip: link_value(link, :neighbor_mgmt_addr)
+         neighbor_ip: link_value(link, :neighbor_mgmt_addr),
+         confidence_tier: confidence_tier,
+         confidence_score: confidence_score,
+         confidence_reason: confidence_reason,
+         observed_at: observed_at
        }}
     end
   end
@@ -182,7 +208,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     MERGE (b)-[r2:HAS_INTERFACE]->(bi)
     SET r2.source = 'mapper'
     MERGE (ai)-[r:CONNECTS_TO]->(bi)
+    SET r.first_observed_at = coalesce(r.first_observed_at, '#{Graph.escape(payload.observed_at)}')
+    SET r.ingestor = 'mapper_topology_v1'
     SET r.source = '#{Graph.escape(payload.protocol)}'
+    SET r.protocol = '#{Graph.escape(payload.protocol)}'
+    SET r.confidence_tier = '#{Graph.escape(payload.confidence_tier)}'
+    SET r.confidence_score = #{payload.confidence_score}
+    SET r.confidence_reason = '#{Graph.escape(payload.confidence_reason)}'
+    SET r.observed_at = '#{Graph.escape(payload.observed_at)}'
+    SET r.last_observed_at = '#{Graph.escape(payload.observed_at)}'
     """
 
     case Graph.execute(cypher) do
@@ -197,6 +231,119 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       link_value(link, :neighbor_chassis_id) ||
       link_value(link, :neighbor_system_name)
   end
+
+  defp projectable_confidence_tier?(tier) do
+    MapSet.member?(@eligible_confidence_tiers, normalize_confidence_tier(tier))
+  end
+
+  defp confidence_tier(link, metadata) do
+    link_value(link, :confidence_tier) ||
+      map_value(metadata, :confidence_tier) ||
+      "low"
+  end
+
+  defp confidence_score(link, metadata) do
+    link_value(link, :confidence_score)
+    |> parse_confidence_score()
+    |> case do
+      nil ->
+        metadata
+        |> map_value(:confidence_score)
+        |> parse_confidence_score()
+        |> Kernel.||(0)
+
+      score ->
+        score
+    end
+  end
+
+  defp confidence_reason(link, metadata) do
+    link_value(link, :confidence_reason) ||
+      map_value(metadata, :confidence_reason) ||
+      "unspecified"
+  end
+
+  defp observed_at(link) do
+    case link_value(link, :timestamp) do
+      %DateTime{} = dt ->
+        dt
+        |> DateTime.truncate(:second)
+        |> DateTime.to_iso8601()
+
+      value when is_binary(value) ->
+        value
+
+      _ ->
+        DateTime.utc_now()
+        |> DateTime.truncate(:second)
+        |> DateTime.to_iso8601()
+    end
+  end
+
+  defp prune_stale_projected_links([]), do: :ok
+
+  defp prune_stale_projected_links(local_device_ids) do
+    stale_cutoff = stale_cutoff_iso8601()
+    escaped_ids = Enum.map_join(local_device_ids, ", ", &"'#{Graph.escape(&1)}'")
+
+    cypher = """
+    MATCH (a:Interface)-[r:CONNECTS_TO]->(:Interface)
+    WHERE a.device_id IN [#{escaped_ids}]
+      AND r.ingestor = 'mapper_topology_v1'
+      AND r.last_observed_at IS NOT NULL
+      AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'
+    DELETE r
+    """
+
+    case Graph.execute(cypher) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("Topology stale edge pruning failed: #{inspect(reason)}")
+    end
+  end
+
+  defp stale_cutoff_iso8601 do
+    stale_minutes =
+      Application.get_env(
+        :serviceradar_core,
+        :mapper_topology_edge_stale_minutes,
+        @default_stale_minutes
+      )
+      |> normalize_positive_int(@default_stale_minutes)
+
+    DateTime.utc_now()
+    |> DateTime.add(-stale_minutes * 60, :second)
+    |> DateTime.truncate(:second)
+    |> DateTime.to_iso8601()
+  end
+
+  defp normalize_positive_int(value, _default) when is_integer(value) and value > 0, do: value
+  defp normalize_positive_int(_value, default), do: default
+
+  defp parse_confidence_score(value) when is_integer(value), do: value
+
+  defp parse_confidence_score(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_confidence_score(_value), do: nil
+
+  defp normalize_confidence_tier(nil), do: "low"
+
+  defp normalize_confidence_tier(tier) do
+    tier
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp map_value(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, to_string(key))
+  end
+
+  defp map_value(_map, _key), do: nil
 
   defp link_value(link, key) do
     Map.get(link, key) || Map.get(link, to_string(key))
