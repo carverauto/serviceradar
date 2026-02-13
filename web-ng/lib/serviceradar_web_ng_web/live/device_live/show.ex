@@ -1211,41 +1211,109 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             :if={is_map(@device_row) and not @editing}
             class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
           >
-            <% provenance = device_enrichment_provenance(@device_row) %>
-            <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-              <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
-              <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
-              <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
-              <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
-              <.kv_inline label="Model" value={Map.get(@device_row, "model")} />
-              <.kv_inline label="Enrichment Source" value={provenance.source} />
-              <.kv_inline label="Enrichment Rule" value={provenance.rule_id} mono />
-              <.kv_inline label="Enrichment Confidence" value={provenance.confidence} />
-              <.kv_inline label="Enrichment Reason" value={provenance.reason} />
-              <.kv_inline
-                :if={agent_device?(@device_row)}
-                label="Agent"
-                value={agent_label(@device_row)}
-                mono
-              />
-              <.kv_inline label="Gateway" value={Map.get(@device_row, "gateway_id")} mono />
-              <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
-              <.kv_inline
-                :if={@device_deleted}
-                label="Deleted At"
-                value={Map.get(@device_row, "deleted_at")}
-                mono
-              />
-              <.kv_inline
-                :if={@device_deleted}
-                label="Deleted By"
-                value={Map.get(@device_row, "deleted_by")}
-              />
-              <.kv_inline
-                :if={@device_deleted}
-                label="Deleted Reason"
-                value={Map.get(@device_row, "deleted_reason")}
-              />
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
+              <div class="card bg-base-100 border border-base-300">
+                <div class="card-body p-4 gap-2">
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-identification" class="size-4 text-primary" />
+                    <h3 class="text-sm font-semibold">Identity</h3>
+                  </div>
+                  <div class="space-y-1 text-sm">
+                    <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
+                    <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
+                    <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
+                    <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
+                    <.kv_inline
+                      :if={present?(Map.get(@device_row, "model"))}
+                      label="Model"
+                      value={Map.get(@device_row, "model")}
+                    />
+                    <.kv_inline
+                      :if={agent_device?(@device_row)}
+                      label="Agent"
+                      value={agent_label(@device_row)}
+                      mono
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div
+                :if={snmp_summary_present?(@device_row)}
+                class="card bg-base-100 border border-base-300"
+              >
+                <div class="card-body p-4 gap-2">
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-signal" class="size-4 text-info" />
+                    <h3 class="text-sm font-semibold">SNMP</h3>
+                  </div>
+                  <div class="space-y-1 text-sm">
+                    <.kv_inline
+                      :if={present?(metadata_value(@device_row, "sys_name"))}
+                      label="Name"
+                      value={metadata_value(@device_row, "sys_name")}
+                    />
+                    <.kv_inline
+                      :if={present?(snmp_owner(@device_row))}
+                      label="Owner"
+                      value={snmp_owner(@device_row)}
+                    />
+                    <.kv_inline
+                      :if={present?(metadata_value(@device_row, "sys_location"))}
+                      label="Location"
+                      value={metadata_value(@device_row, "sys_location")}
+                    />
+                    <div :if={present?(metadata_value(@device_row, "sys_descr"))} class="space-y-1">
+                      <span class="text-base-content/60 text-xs">Description:</span>
+                      <div class="badge badge-outline badge-sm h-auto py-1 text-wrap leading-relaxed">
+                        {metadata_value(@device_row, "sys_descr")}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card bg-base-100 border border-base-300">
+                <div class="card-body p-4 gap-2">
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-clock" class="size-4 text-success" />
+                    <h3 class="text-sm font-semibold">Status</h3>
+                  </div>
+                  <div class="space-y-1 text-sm">
+                    <.kv_inline
+                      :if={present?(Map.get(@device_row, "gateway_id"))}
+                      label="Gateway"
+                      value={Map.get(@device_row, "gateway_id")}
+                      mono
+                    />
+                    <.kv_inline
+                      label="Last Seen"
+                      value={
+                        format_timestamp(
+                          Map.get(@device_row, "last_seen") || Map.get(@device_row, "last_seen_time")
+                        )
+                      }
+                      mono
+                    />
+                    <.kv_inline
+                      :if={@device_deleted}
+                      label="Deleted At"
+                      value={Map.get(@device_row, "deleted_at")}
+                      mono
+                    />
+                    <.kv_inline
+                      :if={@device_deleted and present?(Map.get(@device_row, "deleted_by"))}
+                      label="Deleted By"
+                      value={Map.get(@device_row, "deleted_by")}
+                    />
+                    <.kv_inline
+                      :if={@device_deleted and present?(Map.get(@device_row, "deleted_reason"))}
+                      label="Deleted Reason"
+                      value={Map.get(@device_row, "deleted_reason")}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           
@@ -1880,44 +1948,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_label(key), do: to_string(key)
 
-  defp device_enrichment_provenance(row) when is_map(row) do
-    metadata = row_metadata(row)
-
-    %{
-      source: row_value(row, metadata, "classification_source"),
-      rule_id: row_value(row, metadata, "classification_rule_id"),
-      confidence: row_value_int(row, metadata, "classification_confidence"),
-      reason: row_value(row, metadata, "classification_reason")
-    }
-  end
-
-  defp device_enrichment_provenance(_),
-    do: %{source: nil, rule_id: nil, confidence: nil, reason: nil}
-
   defp row_metadata(row) when is_map(row) do
     case Map.get(row, "metadata") || Map.get(row, :metadata) do
       map when is_map(map) -> map
       _ -> %{}
-    end
-  end
-
-  defp row_value(row, metadata, key) do
-    Map.get(row, key) || Map.get(metadata, key)
-  end
-
-  defp row_value_int(row, metadata, key) do
-    case row_value(row, metadata, key) do
-      value when is_integer(value) ->
-        value
-
-      value when is_binary(value) ->
-        case Integer.parse(value) do
-          {parsed, ""} -> parsed
-          _ -> nil
-        end
-
-      _ ->
-        nil
     end
   end
 
@@ -1957,6 +1991,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_value(""), do: "—"
   defp format_value(v) when is_binary(v), do: v
   defp format_value(v), do: to_string(v)
+
+  defp metadata_value(row, key) when is_map(row) and is_binary(key) do
+    row
+    |> row_metadata()
+    |> Map.get(key)
+  end
+
+  defp metadata_value(_row, _key), do: nil
+
+  defp snmp_owner(row) when is_map(row) do
+    owner_name =
+      case Map.get(row, "owner") do
+        %{"name" => name} when is_binary(name) and name != "" -> name
+        _ -> nil
+      end
+
+    owner_name || metadata_value(row, "sys_owner") || metadata_value(row, "sys_contact")
+  end
+
+  defp snmp_owner(_row), do: nil
+
+  defp snmp_summary_present?(row) when is_map(row) do
+    present?(metadata_value(row, "sys_name")) or
+      present?(snmp_owner(row)) or
+      present?(metadata_value(row, "sys_location")) or
+      present?(metadata_value(row, "sys_descr"))
+  end
+
+  defp snmp_summary_present?(_row), do: false
 
   # ---------------------------------------------------------------------------
   # OCSF Information Section (OS, Hardware, Network, Compliance)

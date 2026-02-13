@@ -417,6 +417,8 @@ func buildMapperDeviceMetadata(device *mapper.DiscoveredDevice) map[string]strin
 	}
 	if device.SysContact != "" {
 		metadata["sys_contact"] = device.SysContact
+		// "sysOwner" is not a standard SNMPv2-MIB scalar; treat sysContact as owner hint.
+		metadata["sys_owner"] = device.SysContact
 	}
 	if device.SysLocation != "" {
 		metadata["sys_location"] = device.SysLocation

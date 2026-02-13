@@ -191,6 +191,59 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.metadata["sys_descr"] == "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
   end
 
+  test "maps sys_contact into owner while retaining sys_descr metadata", %{actor: actor} do
+    ip = "10.22.18.#{unique_octet()}"
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "owner-test",
+      "source" => "mapper",
+      "metadata" => %{
+        "sys_descr" => "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324",
+        "sys_contact" => "Network Operations"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    assert {:ok, [device]} = Device |> Ash.Query.filter(ip == ^ip) |> Ash.read(actor: actor)
+    assert device.owner == %{"name" => "Network Operations"}
+    assert device.metadata["sys_descr"] == "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
+    assert device.metadata["sys_contact"] == "Network Operations"
+  end
+
+  test "recovers from active-ip unique conflicts by remapping to existing uid", %{actor: actor} do
+    ip = "10.22.19.#{unique_octet()}"
+    existing_uid = "sr:existing-ip-#{System.unique_integer([:positive])}"
+
+    {:ok, _existing} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: existing_uid,
+        ip: ip,
+        hostname: "existing-host",
+        is_available: true
+      })
+      |> Ash.create(actor: actor)
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "updated-host",
+      "source" => "armis",
+      "armis_device_id" => "armis-#{System.unique_integer([:positive])}",
+      "metadata" => %{
+        "sys_descr" => "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    assert {:ok, [device]} = Device |> Ash.Query.filter(ip == ^ip) |> Ash.read(actor: actor)
+    assert device.uid == existing_uid
+    assert device.hostname == "updated-host"
+    assert device.metadata["sys_descr"] == "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
+  end
+
   defp unique_octet do
     rem(System.unique_integer([:positive]), 200) + 10
   end

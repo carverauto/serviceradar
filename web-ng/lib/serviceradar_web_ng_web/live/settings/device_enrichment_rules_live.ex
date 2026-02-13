@@ -47,6 +47,8 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
         |> assign(:rules_dir, rules_dir)
         |> assign(:rule_files, files)
         |> assign(:selected_file, nil)
+        |> assign(:selected_file_source, nil)
+        |> assign(:selected_file_state, nil)
         |> assign(:selected_file_mtime, nil)
         |> assign(:rules, [])
         |> assign(:show_new_file_modal, false)
@@ -114,6 +116,77 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     {:noreply, load_selected_file(socket, file)}
   end
 
+  def handle_event("deactivate_file", %{"file" => file}, socket) do
+    with {:ok, normalized_file} <- normalize_file_name(file),
+         :ok <- deactivate_override_file(socket.assigns.rules_dir, normalized_file) do
+      record_rules_audit(socket, :deactivate_file, normalized_file, %{status: "success"})
+
+      socket =
+        socket
+        |> assign(:rule_files, list_rule_files(socket.assigns.rules_dir))
+        |> put_flash(:info, "Deactivated #{normalized_file}")
+
+      {:noreply,
+       if socket.assigns.selected_file == normalized_file do
+         load_selected_file(socket, normalized_file)
+       else
+         socket
+       end}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, reason)}
+    end
+  end
+
+  def handle_event("activate_file", %{"file" => file}, socket) do
+    with {:ok, normalized_file} <- normalize_file_name(file),
+         :ok <- activate_override_file(socket.assigns.rules_dir, normalized_file) do
+      record_rules_audit(socket, :activate_file, normalized_file, %{status: "success"})
+
+      socket =
+        socket
+        |> assign(:rule_files, list_rule_files(socket.assigns.rules_dir))
+        |> put_flash(:info, "Activated #{normalized_file}")
+
+      {:noreply,
+       if socket.assigns.selected_file == normalized_file do
+         load_selected_file(socket, normalized_file)
+       else
+         socket
+       end}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, reason)}
+    end
+  end
+
+  def handle_event("delete_file", %{"file" => file}, socket) do
+    with {:ok, normalized_file} <- normalize_file_name(file),
+         :ok <- delete_override_file(socket.assigns.rules_dir, normalized_file) do
+      record_rules_audit(socket, :delete_file, normalized_file, %{status: "success"})
+
+      socket =
+        socket
+        |> assign(:rule_files, list_rule_files(socket.assigns.rules_dir))
+        |> put_flash(:info, "Deleted #{normalized_file}")
+
+      {:noreply,
+       if socket.assigns.selected_file == normalized_file do
+         socket
+         |> assign(:selected_file, nil)
+         |> assign(:selected_file_source, nil)
+         |> assign(:selected_file_state, nil)
+         |> assign(:selected_file_mtime, nil)
+         |> assign(:rules, [])
+       else
+         socket
+       end}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, reason)}
+    end
+  end
+
   def handle_event("reload_file", _params, socket) do
     case socket.assigns.selected_file do
       nil -> {:noreply, socket}
@@ -125,10 +198,16 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     if is_nil(socket.assigns.selected_file) do
       {:noreply, put_flash(socket, :error, "Select a rule file first")}
     else
-      {:noreply,
-       socket
-       |> assign(:show_import_modal, true)
-       |> assign(:import_form, to_form(%{"yaml" => ""}, as: :import))}
+      case ensure_selected_editable(socket) do
+        :ok ->
+          {:noreply,
+           socket
+           |> assign(:show_import_modal, true)
+           |> assign(:import_form, to_form(%{"yaml" => ""}, as: :import))}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, reason)}
+      end
     end
   end
 
@@ -140,7 +219,8 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     file_name = socket.assigns.selected_file
     before_rules = socket.assigns.rules
 
-    with true <- is_binary(file_name),
+    with :ok <- ensure_selected_editable(socket),
+         true <- is_binary(file_name),
          {:ok, _} <- DeviceEnrichmentRules.parse_and_validate_yaml(yaml, file: file_name),
          {:ok, imported_rules} <- parse_file_rules(yaml, file_name),
          :ok <-
@@ -179,8 +259,8 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
         {:noreply, put_flash(socket, :error, "Select a rule file first")}
 
       file_name ->
-        case File.read(Path.join(socket.assigns.rules_dir, file_name)) do
-          {:ok, content} ->
+        case read_rule_file(socket.assigns.rules_dir, file_name) do
+          {:ok, content, _source, _state} ->
             {:noreply,
              socket
              |> assign(:show_export_modal, true)
@@ -220,11 +300,17 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     if is_nil(socket.assigns.selected_file) do
       {:noreply, put_flash(socket, :error, "Create or select a rule file first")}
     else
-      {:noreply,
-       socket
-       |> assign(:show_rule_editor, true)
-       |> assign(:editing_index, nil)
-       |> assign(:rule_form, to_form(default_rule_form(), as: :rule))}
+      case ensure_selected_editable(socket) do
+        :ok ->
+          {:noreply,
+           socket
+           |> assign(:show_rule_editor, true)
+           |> assign(:editing_index, nil)
+           |> assign(:rule_form, to_form(default_rule_form(), as: :rule))}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, reason)}
+      end
     end
   end
 
@@ -254,7 +340,8 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   def handle_event("save_rule", %{"rule" => params}, socket) do
     before_rules = socket.assigns.rules
 
-    with {:ok, rule} <- form_to_rule(params),
+    with :ok <- ensure_selected_editable(socket),
+         {:ok, rule} <- form_to_rule(params),
          {:ok, updated_rules} <-
            upsert_rule(socket.assigns.rules, socket.assigns.editing_index, rule),
          {:ok, validated_rules} <- validate_rules(updated_rules, socket.assigns.selected_file),
@@ -482,18 +569,57 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
               </div>
               <div class="space-y-2">
                 <%= for file <- @rule_files do %>
-                  <button
-                    class={[
-                      "btn btn-sm w-full justify-start",
-                      if(@selected_file == file, do: "btn-primary", else: "btn-ghost")
-                    ]}
-                    phx-click="select_file"
-                    phx-value-file={file}
-                  >
-                    {file}
-                  </button>
+                  <div class="flex items-center gap-2">
+                    <button
+                      class={[
+                        "btn btn-sm flex-1 justify-start",
+                        if(@selected_file == file.name, do: "btn-primary", else: "btn-ghost")
+                      ]}
+                      phx-click="select_file"
+                      phx-value-file={file.name}
+                    >
+                      <span>{file.name}</span>
+                      <span
+                        :if={file.source == :builtin}
+                        class="badge badge-ghost badge-xs ml-auto"
+                      >
+                        built-in
+                      </span>
+                      <span
+                        :if={file.source == :override and file.state == :inactive}
+                        class="badge badge-warning badge-xs ml-auto"
+                      >
+                        inactive
+                      </span>
+                    </button>
+                    <button
+                      :if={file.source == :override and file.state == :active}
+                      class="btn btn-xs btn-outline"
+                      phx-click="deactivate_file"
+                      phx-value-file={file.name}
+                    >
+                      Deactivate
+                    </button>
+                    <button
+                      :if={file.source == :override and file.state == :inactive}
+                      class="btn btn-xs btn-outline btn-success"
+                      phx-click="activate_file"
+                      phx-value-file={file.name}
+                    >
+                      Activate
+                    </button>
+                    <button
+                      :if={file.source == :override}
+                      class="btn btn-xs btn-outline btn-error"
+                      phx-click="delete_file"
+                      phx-value-file={file.name}
+                      phx-confirm={"Delete #{file.name}?"}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 <% end %>
-                <p :if={@rule_files == []} class="text-sm opacity-60">No override files yet.</p>
+                <p :if={@rule_files == []} class="text-sm opacity-60">No rule files found.</p>
               </div>
             </div>
           </div>
@@ -509,6 +635,18 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                   <% end %>
                 </h2>
                 <div class="flex items-center gap-2">
+                  <span
+                    :if={@selected_file_source == :builtin}
+                    class="badge badge-outline badge-info badge-sm"
+                  >
+                    Built-in rules
+                  </span>
+                  <span
+                    :if={@selected_file_source == :override and @selected_file_state == :inactive}
+                    class="badge badge-outline badge-warning badge-sm"
+                  >
+                    Inactive file
+                  </span>
                   <button
                     :if={@selected_file}
                     class="btn btn-sm btn-ghost"
@@ -520,7 +658,10 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                   <button
                     class="btn btn-sm btn-outline"
                     phx-click="new_rule"
-                    disabled={is_nil(@selected_file)}
+                    disabled={
+                      is_nil(@selected_file) or @selected_file_source != :override or
+                        @selected_file_state != :active
+                    }
                     id="new-rule"
                   >
                     New Rule
@@ -891,6 +1032,9 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   end
 
   defp audit_action(:create_file), do: :create
+  defp audit_action(:activate_file), do: :update
+  defp audit_action(:deactivate_file), do: :update
+  defp audit_action(:delete_file), do: :delete
   defp audit_action(:save_rule), do: :update
   defp audit_action(:delete_rule), do: :update
   defp audit_action(:duplicate_rule), do: :update
@@ -926,28 +1070,176 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   end
 
   defp list_rule_files(dir) do
-    dir
-    |> Path.join("*.yaml")
-    |> Path.wildcard()
-    |> Enum.map(&Path.basename/1)
-    |> Enum.sort()
+    override_files =
+      dir
+      |> Path.join("*.yaml")
+      |> Path.wildcard()
+      |> Enum.map(&Path.basename/1)
+      |> MapSet.new()
+
+    inactive_override_files =
+      dir
+      |> Path.join("*.yaml.disabled")
+      |> Path.wildcard()
+      |> Enum.map(&Path.basename/1)
+      |> Enum.map(&String.trim_trailing(&1, ".disabled"))
+      |> MapSet.new()
+
+    builtin_files =
+      builtin_rules_dir()
+      |> Path.join("*.yaml")
+      |> Path.wildcard()
+      |> Enum.map(&Path.basename/1)
+      |> MapSet.new()
+
+    all_names =
+      override_files
+      |> MapSet.union(inactive_override_files)
+      |> MapSet.union(builtin_files)
+      |> MapSet.to_list()
+      |> Enum.sort()
+
+    Enum.map(all_names, fn name ->
+      {source, state} =
+        cond do
+          MapSet.member?(override_files, name) -> {:override, :active}
+          MapSet.member?(inactive_override_files, name) -> {:override, :inactive}
+          true -> {:builtin, :active}
+        end
+
+      %{name: name, source: source, state: state}
+    end)
   end
 
   defp load_selected_file(socket, file) do
     with {:ok, normalized_file} <- normalize_file_name(file),
-         {:ok, content} <- File.read(Path.join(socket.assigns.rules_dir, normalized_file)),
+         {:ok, content, source, state} <-
+           read_rule_file(socket.assigns.rules_dir, normalized_file),
          {:ok, rules} <- parse_file_rules(content, normalized_file) do
       socket
       |> assign(:selected_file, normalized_file)
-      |> assign(:selected_file_mtime, file_mtime(socket.assigns.rules_dir, normalized_file))
+      |> assign(:selected_file_source, source)
+      |> assign(:selected_file_state, state)
+      |> assign(
+        :selected_file_mtime,
+        if(source == :override and state == :active,
+          do: file_mtime(socket.assigns.rules_dir, normalized_file),
+          else: nil
+        )
+      )
       |> assign(:rules, rules)
     else
       {:error, reason} ->
         socket
         |> put_flash(:error, reason)
         |> assign(:selected_file, nil)
+        |> assign(:selected_file_source, nil)
+        |> assign(:selected_file_state, nil)
         |> assign(:selected_file_mtime, nil)
         |> assign(:rules, [])
+    end
+  end
+
+  defp read_rule_file(rules_dir, file_name) do
+    override_path = Path.join(rules_dir, file_name)
+    inactive_override_path = override_path <> ".disabled"
+    builtin_path = Path.join(builtin_rules_dir(), file_name)
+
+    cond do
+      File.exists?(override_path) ->
+        case File.read(override_path) do
+          {:ok, content} -> {:ok, content, :override, :active}
+          {:error, reason} -> {:error, "Could not read #{file_name}: #{inspect(reason)}"}
+        end
+
+      File.exists?(inactive_override_path) ->
+        case File.read(inactive_override_path) do
+          {:ok, content} -> {:ok, content, :override, :inactive}
+          {:error, reason} -> {:error, "Could not read #{file_name}: #{inspect(reason)}"}
+        end
+
+      File.exists?(builtin_path) ->
+        case File.read(builtin_path) do
+          {:ok, content} -> {:ok, content, :builtin, :active}
+          {:error, reason} -> {:error, "Could not read #{file_name}: #{inspect(reason)}"}
+        end
+
+      true ->
+        {:error, "Rule file not found: #{file_name}"}
+    end
+  end
+
+  defp builtin_rules_dir do
+    case :code.priv_dir(:serviceradar_core) do
+      priv_dir when is_list(priv_dir) ->
+        Path.join([List.to_string(priv_dir), "device_enrichment", "rules"])
+
+      _ ->
+        ""
+    end
+  end
+
+  defp ensure_selected_editable(socket) do
+    cond do
+      is_nil(socket.assigns.selected_file) ->
+        {:error, "Select a rule file first"}
+
+      socket.assigns.selected_file_source != :override ->
+        {:error, "Built-in files are read-only. Create an override file to edit."}
+
+      socket.assigns.selected_file_state != :active ->
+        {:error, "File is inactive. Activate it before editing."}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp deactivate_override_file(rules_dir, file_name) do
+    active_path = Path.join(rules_dir, file_name)
+    inactive_path = active_path <> ".disabled"
+
+    cond do
+      not File.exists?(active_path) ->
+        {:error, "Only active override files can be deactivated"}
+
+      File.exists?(inactive_path) ->
+        {:error, "Inactive file already exists for #{file_name}"}
+
+      true ->
+        File.rename(active_path, inactive_path)
+    end
+  end
+
+  defp activate_override_file(rules_dir, file_name) do
+    active_path = Path.join(rules_dir, file_name)
+    inactive_path = active_path <> ".disabled"
+
+    cond do
+      File.exists?(active_path) ->
+        {:error, "#{file_name} is already active"}
+
+      not File.exists?(inactive_path) ->
+        {:error, "Inactive override file not found for #{file_name}"}
+
+      true ->
+        File.rename(inactive_path, active_path)
+    end
+  end
+
+  defp delete_override_file(rules_dir, file_name) do
+    active_path = Path.join(rules_dir, file_name)
+    inactive_path = active_path <> ".disabled"
+
+    cond do
+      File.exists?(active_path) ->
+        File.rm(active_path)
+
+      File.exists?(inactive_path) ->
+        File.rm(inactive_path)
+
+      true ->
+        {:error, "Override file not found for #{file_name}"}
     end
   end
 
@@ -1026,6 +1318,12 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     cond do
       is_nil(socket.assigns.selected_file) ->
         {:noreply, put_flash(socket, :error, "Select a file first")}
+
+      socket.assigns.selected_file_source != :override ->
+        {:noreply, put_flash(socket, :error, "Built-in files are read-only")}
+
+      socket.assigns.selected_file_state != :active ->
+        {:noreply, put_flash(socket, :error, "File is inactive. Activate it before editing.")}
 
       idx >= length(rules) or target < 0 or target >= length(rules) ->
         {:noreply, socket}

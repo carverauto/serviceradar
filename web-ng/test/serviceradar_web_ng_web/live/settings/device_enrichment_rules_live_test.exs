@@ -214,6 +214,47 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLiveTest do
     assert render(lv) =~ "Downloading import-export.yaml"
   end
 
+  test "can deactivate, activate, and delete an override rule file", %{
+    conn: conn,
+    tmp_dir: tmp_dir
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/device-enrichment")
+
+    lv
+    |> element("#open-new-file")
+    |> render_click()
+
+    lv
+    |> form("#new-rule-file-form", %{"new_file" => %{"file_name" => "test.yaml"}})
+    |> render_submit()
+
+    assert File.exists?(Path.join(tmp_dir, "test.yaml"))
+
+    lv
+    |> element("button[phx-click='deactivate_file'][phx-value-file='test.yaml']")
+    |> render_click()
+
+    assert render(lv) =~ "Deactivated test.yaml"
+    refute File.exists?(Path.join(tmp_dir, "test.yaml"))
+    assert File.exists?(Path.join(tmp_dir, "test.yaml.disabled"))
+
+    lv
+    |> element("button[phx-click='activate_file'][phx-value-file='test.yaml']")
+    |> render_click()
+
+    assert render(lv) =~ "Activated test.yaml"
+    assert File.exists?(Path.join(tmp_dir, "test.yaml"))
+    refute File.exists?(Path.join(tmp_dir, "test.yaml.disabled"))
+
+    lv
+    |> element("button[phx-click='delete_file'][phx-value-file='test.yaml']")
+    |> render_click()
+
+    assert render(lv) =~ "Deleted test.yaml"
+    refute File.exists?(Path.join(tmp_dir, "test.yaml"))
+    refute File.exists?(Path.join(tmp_dir, "test.yaml.disabled"))
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)

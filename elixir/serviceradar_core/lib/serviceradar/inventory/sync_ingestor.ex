@@ -384,6 +384,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       model = infer_model(update, classification)
       {device_type, device_type_id} = infer_device_type(update, classification)
       metadata = merge_classification_metadata(update.metadata || %{}, classification)
+      owner = infer_owner(update, metadata)
 
       record = %{
         uid: device_id,
@@ -396,6 +397,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         vendor_name: vendor_name,
         model: model,
         is_available: update.is_available || false,
+        owner: owner,
         metadata: metadata,
         tags: update.tags || %{},
         discovery_sources: [source],
@@ -412,46 +414,52 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   # DB connection's search_path determines the schema
   defp bulk_upsert_devices(records) do
-    update_query =
-      from(d in Device,
-        update: [
-          set: [
-            ip: fragment("COALESCE(EXCLUDED.ip, ?)", d.ip),
-            mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
-            hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
-            name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
-            type:
-              fragment(
-                "COALESCE(NULLIF(EXCLUDED.type, ''), ?)",
-                d.type
-              ),
-            type_id:
-              fragment(
-                "CASE WHEN EXCLUDED.type_id IS NOT NULL AND EXCLUDED.type_id > 0 THEN EXCLUDED.type_id ELSE ? END",
-                d.type_id
-              ),
-            vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),
-            model: fragment("COALESCE(EXCLUDED.model, ?)", d.model),
-            is_available: fragment("COALESCE(EXCLUDED.is_available, ?)", d.is_available),
-            metadata:
-              fragment(
-                "COALESCE(?, '{}'::jsonb) || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
-                d.metadata
-              ),
-            deleted_at: nil,
-            deleted_by: nil,
-            deleted_reason: nil,
-            discovery_sources:
-              fragment(
-                "(SELECT array_agg(DISTINCT src) FROM unnest(array_cat(COALESCE(?, ARRAY[]::text[]), EXCLUDED.discovery_sources)) AS src WHERE src IS NOT NULL AND src <> '')",
-                d.discovery_sources
-              ),
-            last_seen_time: fragment("EXCLUDED.last_seen_time"),
-            modified_time: fragment("EXCLUDED.modified_time")
-          ]
-        ]
+    update_query = device_upsert_update_query()
+    do_bulk_upsert_devices(records, update_query)
+  rescue
+    e ->
+      Logger.warning("Bulk device upsert failed: #{inspect(e)}")
+      {:error, e}
+  end
+
+  defp do_bulk_upsert_devices(records, update_query) do
+    Repo.insert_all(
+      Device,
+      records,
+      on_conflict: update_query,
+      conflict_target: [:uid]
+    )
+
+    :ok
+  rescue
+    e in Postgrex.Error ->
+      if ip_unique_conflict?(e) do
+        recover_ip_conflict_and_retry(records, update_query, e)
+      else
+        Logger.warning("Bulk device upsert failed: #{inspect(e)}")
+        {:error, e}
+      end
+  end
+
+  defp recover_ip_conflict_and_retry(records, update_query, original_error) do
+    recovered_records =
+      records
+      |> remap_records_to_existing_ip()
+      |> merge_records_by_uid()
+
+    if recovered_records == records do
+      Logger.warning("Bulk device upsert failed: #{inspect(original_error)}")
+      {:error, original_error}
+    else
+      Logger.warning(
+        "Bulk device upsert hit active-IP conflict; remapped #{length(records)} records to #{length(recovered_records)} and retrying"
       )
 
+      do_bulk_upsert_devices_once(recovered_records, update_query)
+    end
+  end
+
+  defp do_bulk_upsert_devices_once(records, update_query) do
     Repo.insert_all(
       Device,
       records,
@@ -462,8 +470,134 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     :ok
   rescue
     e ->
-      Logger.warning("Bulk device upsert failed: #{inspect(e)}")
+      Logger.warning("Bulk device upsert retry failed: #{inspect(e)}")
       {:error, e}
+  end
+
+  defp remap_records_to_existing_ip(records) do
+    ips =
+      records
+      |> Enum.map(&Map.get(&1, :ip))
+      |> Enum.filter(&valid_ip?/1)
+      |> Enum.uniq()
+
+    existing_by_ip =
+      if ips == [] do
+        %{}
+      else
+        query =
+          from(d in Device,
+            where: d.ip in ^ips and is_nil(d.deleted_at),
+            select: {d.ip, d.uid}
+          )
+
+        Repo.all(query) |> Map.new()
+      end
+
+    Enum.map(records, fn record ->
+      ip = Map.get(record, :ip)
+
+      case Map.get(existing_by_ip, ip) do
+        nil -> record
+        existing_uid -> Map.put(record, :uid, existing_uid)
+      end
+    end)
+  end
+
+  defp merge_records_by_uid(records) do
+    records
+    |> Enum.reduce(%{}, fn record, acc ->
+      uid = Map.fetch!(record, :uid)
+      Map.update(acc, uid, record, &merge_device_records(&1, record))
+    end)
+    |> Map.values()
+  end
+
+  defp merge_device_records(existing, incoming) do
+    %{
+      existing
+      | ip: prefer_non_empty(incoming.ip, existing.ip),
+        mac: prefer_non_empty(incoming.mac, existing.mac),
+        hostname: prefer_non_empty(incoming.hostname, existing.hostname),
+        name: prefer_non_empty(incoming.name, existing.name),
+        type: prefer_non_empty(incoming.type, existing.type),
+        type_id: prefer_positive_int(incoming.type_id, existing.type_id),
+        vendor_name: prefer_non_empty(incoming.vendor_name, existing.vendor_name),
+        model: prefer_non_empty(incoming.model, existing.model),
+        is_available: incoming.is_available,
+        owner: incoming.owner || existing.owner,
+        metadata: Map.merge(existing.metadata || %{}, incoming.metadata || %{}),
+        tags: Map.merge(existing.tags || %{}, incoming.tags || %{}),
+        discovery_sources:
+          (existing.discovery_sources || [])
+          |> Kernel.++(incoming.discovery_sources || [])
+          |> Enum.reject(&(&1 in [nil, ""]))
+          |> Enum.uniq(),
+        first_seen_time: existing.first_seen_time || incoming.first_seen_time,
+        last_seen_time: incoming.last_seen_time || existing.last_seen_time,
+        created_time: existing.created_time || incoming.created_time,
+        modified_time: incoming.modified_time || existing.modified_time
+    }
+  end
+
+  defp prefer_non_empty(new_value, old_value) when new_value in [nil, ""], do: old_value
+  defp prefer_non_empty(new_value, _old_value), do: new_value
+
+  defp prefer_positive_int(new_value, _old_value) when is_integer(new_value) and new_value > 0,
+    do: new_value
+
+  defp prefer_positive_int(_new_value, old_value), do: old_value
+
+  defp valid_ip?(value) when is_binary(value), do: String.trim(value) != ""
+  defp valid_ip?(_value), do: false
+
+  defp ip_unique_conflict?(%Postgrex.Error{postgres: postgres}) when is_map(postgres) do
+    postgres[:code] == :unique_violation and
+      postgres[:constraint] == "ocsf_devices_unique_active_ip_idx"
+  end
+
+  defp ip_unique_conflict?(_), do: false
+
+  defp device_upsert_update_query do
+    from(d in Device,
+      update: [
+        set: [
+          ip: fragment("COALESCE(EXCLUDED.ip, ?)", d.ip),
+          mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
+          hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
+          name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
+          type:
+            fragment(
+              "COALESCE(NULLIF(EXCLUDED.type, ''), ?)",
+              d.type
+            ),
+          type_id:
+            fragment(
+              "CASE WHEN EXCLUDED.type_id IS NOT NULL AND EXCLUDED.type_id > 0 THEN EXCLUDED.type_id ELSE ? END",
+              d.type_id
+            ),
+          vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),
+          model: fragment("COALESCE(EXCLUDED.model, ?)", d.model),
+          is_available: fragment("COALESCE(EXCLUDED.is_available, ?)", d.is_available),
+          owner: fragment("COALESCE(EXCLUDED.owner, ?)", d.owner),
+          metadata:
+            fragment(
+              "COALESCE(?, '{}'::jsonb) || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
+              d.metadata
+            ),
+          deleted_at: nil,
+          deleted_by: nil,
+          deleted_reason: nil,
+          discovery_sources:
+            fragment(
+              "(SELECT array_agg(DISTINCT src) FROM unnest(array_cat(COALESCE(?, ARRAY[]::text[]), EXCLUDED.discovery_sources)) AS src WHERE src IS NOT NULL AND src <> '')",
+              d.discovery_sources
+            ),
+          last_seen_time: fragment("EXCLUDED.last_seen_time"),
+          modified_time: fragment("EXCLUDED.modified_time")
+        ]
+      ]
+    )
   end
 
   # Build identifier records for bulk upsert
@@ -714,6 +848,30 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
       (sys_descr = sys_descr_from_metadata(metadata)) not in [nil, ""] ->
         parse_model_from_sys_descr(sys_descr)
+
+      true ->
+        nil
+    end
+  end
+
+  defp infer_owner(update, metadata) do
+    explicit_owner =
+      update.metadata
+      |> get_map(["owner", :owner])
+      |> case do
+        map when is_map(map) and map_size(map) > 0 -> map
+        _ -> nil
+      end
+
+    cond do
+      is_map(explicit_owner) ->
+        explicit_owner
+
+      (owner_name = get_string(metadata, ["sys_owner", "sys_contact", "sysContact"])) not in [
+        nil,
+        ""
+      ] ->
+        %{"name" => owner_name}
 
       true ->
         nil
