@@ -19,6 +19,13 @@
 {{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
 {{- $webNgSA := default "serviceradar-web-ng" .Values.spire.webNgServiceAccount -}}
 {{- $coreVals := default (dict) .Values.core -}}
+{{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
+{{- $deviceEnrichmentRulesDir := default "/var/lib/serviceradar/rules/device-enrichment" $deviceEnrichment.rulesDir -}}
+{{- $deviceEnrichmentFsOverrides := default (dict) $deviceEnrichment.filesystemOverrides -}}
+{{- $deviceEnrichmentFsEnabled := default false $deviceEnrichmentFsOverrides.enabled -}}
+{{- $deviceEnrichmentFsConfigMap := default "" $deviceEnrichmentFsOverrides.existingConfigMap -}}
+{{- $deviceEnrichmentFsSecret := default "" $deviceEnrichmentFsOverrides.existingSecret -}}
+{{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
 {{- $migrationVals := default (dict) $coreVals.migrations -}}
 {{- $migrationsEnabled := default true $migrationVals.enabled -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
@@ -246,6 +253,8 @@ spec:
           value: {{ $value | quote }}
         {{- end }}
         {{- end }}
+        - name: DEVICE_ENRICHMENT_RULES_DIR
+          value: {{ $deviceEnrichmentRulesDir | quote }}
         - name: CNPG_HOST
           value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
         - name: CNPG_PORT
@@ -315,6 +324,10 @@ spec:
         - name: geoip-mmdb
           mountPath: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
         {{- end }}
+        {{- if $deviceEnrichmentFsEnabled }}
+        - name: device-enrichment-rules
+          mountPath: {{ $deviceEnrichmentRulesDir | quote }}
+        {{- end }}
         {{- if eq $datasvcSecModeLower "spiffe" }}
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
@@ -357,6 +370,21 @@ spec:
       - name: geoip-mmdb
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
+      {{- end }}
+      {{- if $deviceEnrichmentFsEnabled }}
+      - name: device-enrichment-rules
+        {{- if $deviceEnrichmentFsConfigMap }}
+        configMap:
+          name: {{ $deviceEnrichmentFsConfigMap | quote }}
+        {{- else if $deviceEnrichmentFsSecret }}
+        secret:
+          secretName: {{ $deviceEnrichmentFsSecret | quote }}
+        {{- else if $deviceEnrichmentFsClaim }}
+        persistentVolumeClaim:
+          claimName: {{ $deviceEnrichmentFsClaim | quote }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
       {{- end }}
       {{- if eq $datasvcSecModeLower "spiffe" }}
       - name: spire-agent-socket

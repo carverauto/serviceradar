@@ -73,6 +73,42 @@ docker compose logs cert-generator
 docker compose logs cert-permissions-fixer
 ```
 
+## Device Enrichment Rule Overrides
+
+Core loads built-in enrichment rules from `priv/device_enrichment/rules/*.yaml` and optional filesystem overrides from `/var/lib/serviceradar/rules/device-enrichment/*.yaml`.
+
+Docker Compose mounts this path from your host by default:
+
+- Host: `./docker/compose/rules/device-enrichment`
+- Container: `/var/lib/serviceradar/rules/device-enrichment` (read-only)
+
+Use it to override built-in rule IDs or add new rules:
+
+```bash
+# Optional: point at a different host directory
+export DEVICE_ENRICHMENT_RULES_DIR_HOST=/path/to/device-enrichment-rules
+
+# Restart core after editing rule files
+docker compose up -d --force-recreate core-elx
+docker compose logs core-elx | rg "Device enrichment rules loaded"
+```
+
+UI management:
+
+- Open **Settings → Network → Device Enrichment**.
+- Create/edit/delete typed rules (no raw YAML required).
+- The UI writes files to the mounted rules directory.
+- Restart/reload `core-elx` after edits so runtime rule cache refreshes.
+
+Rollback to built-in behavior:
+
+```bash
+# Disable host overrides by pointing at an empty directory
+mkdir -p /tmp/serviceradar-empty-rules
+export DEVICE_ENRICHMENT_RULES_DIR_HOST=/tmp/serviceradar-empty-rules
+docker compose up -d --force-recreate core-elx
+```
+
 ## Troubleshooting
 
 - **Web UI not reachable**: Ensure Caddy is running (`docker compose ps`) and check its logs (`docker compose logs caddy`).

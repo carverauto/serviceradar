@@ -1911,6 +1911,26 @@ window.addEventListener("phx:clipboard", async (event) => {
   }
 })
 
+window.addEventListener("phx:download_yaml", (event) => {
+  const filename = event.detail?.filename
+  const content = event.detail?.content
+  if (!filename || typeof content !== "string") return
+
+  const blob = new Blob([content], {type: "application/x-yaml;charset=utf-8"})
+  const url = window.URL.createObjectURL(blob)
+
+  try {
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+  } finally {
+    window.URL.revokeObjectURL(url)
+  }
+})
+
 // connect if there are any LiveViews on the page
 liveSocket.connect()
 

@@ -164,3 +164,51 @@ chart for that deployment.
 Mapper discovery is embedded in `serviceradar-agent` and configured via Settings → Networks → Discovery. Discovery jobs, seeds, and credentials are stored in CNPG and delivered to agents through the GetConfig pipeline.
 
 If you need to bootstrap discovery configuration in an automated fashion, use the admin API or seed the CNPG data directly, then trigger an agent config refresh.
+
+## Device Enrichment Rule Overrides
+
+Core always ships with built-in enrichment rules. You can mount filesystem overrides that load from `/var/lib/serviceradar/rules/device-enrichment`.
+
+Enable override mounting in values:
+
+```yaml
+core:
+  deviceEnrichment:
+    rulesDir: /var/lib/serviceradar/rules/device-enrichment
+    filesystemOverrides:
+      enabled: true
+      existingConfigMap: serviceradar-device-enrichment-rules
+      # Optional alternatives:
+      # existingSecret: serviceradar-device-enrichment-rules
+      # existingClaim: serviceradar-device-enrichment-rules
+```
+
+ConfigMap example:
+
+```bash
+kubectl create configmap serviceradar-device-enrichment-rules \
+  -n serviceradar \
+  --from-file=ubiquiti-overrides.yaml=./ubiquiti-overrides.yaml
+```
+
+Apply/verify:
+
+```bash
+helm upgrade --install serviceradar ./helm/serviceradar -n serviceradar -f my-values.yaml
+kubectl logs deploy/serviceradar-core -n serviceradar | rg "Device enrichment rules loaded"
+```
+
+Rollback to built-ins:
+
+```yaml
+core:
+  deviceEnrichment:
+    filesystemOverrides:
+      enabled: false
+```
+
+UI management:
+
+- Open **Settings → Network → Device Enrichment**.
+- Use the typed rule editor to create/update/delete rules.
+- For writable UI-managed rules in Kubernetes, back the mount with a PVC (`existingClaim`) rather than ConfigMap/Secret.

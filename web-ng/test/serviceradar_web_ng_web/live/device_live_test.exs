@@ -135,6 +135,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Save SNMP Credentials"
   end
 
+  test "renders SNMP system metadata on device details", %{conn: conn} do
+    uid = "test-device-snmp-system-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 12,
+        hostname: "farm01",
+        ip: "192.168.1.1",
+        owner: %{"name" => "Network Operations"},
+        metadata: %{
+          "sys_name" => "farm01",
+          "sys_location" => "MDF Rack A",
+          "sys_descr" => "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324",
+          "sys_contact" => "Network Operations"
+        },
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
+
+    assert html =~ "SNMP Name"
+    assert html =~ "farm01"
+    assert html =~ "SNMP Owner"
+    assert html =~ "Network Operations"
+    assert html =~ "SNMP Location"
+    assert html =~ "MDF Rack A"
+    assert html =~ "SNMP Description"
+    assert html =~ "Ubiquiti UniFi UDM-Pro"
+  end
+
   test "renders sysmon cpu header gauge and process/memory/disk sections", %{conn: conn} do
     uid = "test-device-sysmon-metrics-#{System.unique_integer([:positive])}"
     now = DateTime.utc_now() |> DateTime.truncate(:second)

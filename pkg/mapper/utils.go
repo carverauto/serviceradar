@@ -367,17 +367,6 @@ func NormalizeMAC(mac string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(mac, ":", ""), "-", ""))
 }
 
-// Helper function to check if a slice contains a string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-
-	return false
-}
-
 // addAlternateIP stores an alternate IP in the given metadata map under both
 // the legacy alt_ip:<ip> key and the alias-friendly ip_alias:<ip> key. The
 // updated map is returned for convenience.

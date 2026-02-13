@@ -30,15 +30,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     {:ok, actor: actor}
   end
 
-  test "sync ingestion merges alias device into canonical device", %{actor: actor} do
+  test "sync ingestion merges alias device into canonical device for non-mapper source", %{
+    actor: actor
+  } do
     ip = "10.0.9.1"
     mac = "AA:BB:CC:DD:EE:01"
-    normalized_mac = IdentityReconciler.normalize_mac(mac)
+    agent_id = "alias-merge-agent-#{System.unique_integer([:positive])}"
 
     {:ok, canonical} = create_device(actor, "canonical")
     {:ok, alias_device} = create_device(actor, "alias")
 
-    assert {:ok, _} = register_identifier(actor, canonical.uid, :mac, normalized_mac)
+    assert {:ok, _} = register_identifier(actor, canonical.uid, :agent_id, agent_id)
 
     {:ok, alias_state} = create_alias_state(actor, alias_device.uid, ip)
     assert {:ok, _} = DeviceAliasState.confirm(alias_state, actor: actor)
@@ -47,7 +49,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
       "ip" => ip,
       "mac" => mac,
       "hostname" => "tonka01",
-      "source" => "mapper"
+      "source" => "agent",
+      "metadata" => %{"agent_id" => agent_id}
     }
 
     assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
@@ -57,6 +60,33 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
 
     assert {:ok, [audit | _]} = MergeAudit.get_merged_to(alias_device.uid, actor: actor)
     assert audit.to_device_id == canonical.uid
+  end
+
+  test "mapper source does not merge alias device by mac-only identifier", %{actor: actor} do
+    ip = "10.0.9.2"
+    mac = "AA:BB:CC:DD:EE:02"
+    normalized_mac = IdentityReconciler.normalize_mac(mac)
+
+    {:ok, canonical} = create_device(actor, "canonical-mapper")
+    {:ok, alias_device} = create_device(actor, "alias-mapper")
+
+    assert {:ok, _} = register_identifier(actor, canonical.uid, :mac, normalized_mac)
+
+    {:ok, alias_state} = create_alias_state(actor, alias_device.uid, ip)
+    assert {:ok, _} = DeviceAliasState.confirm(alias_state, actor: actor)
+
+    update = %{
+      "ip" => ip,
+      "mac" => mac,
+      "hostname" => "mapper-tonka",
+      "source" => "mapper"
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    assert {:ok, _} = Device.get_by_uid(alias_device.uid, false, actor: actor)
+    assert {:ok, _} = Device.get_by_uid(canonical.uid, false, actor: actor)
+    assert {:ok, []} = MergeAudit.get_merged_to(alias_device.uid, actor: actor)
   end
 
   defp create_device(actor, hostname) do

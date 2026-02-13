@@ -144,6 +144,18 @@ PGPASSWORD="${APP_PASSWORD}" \
 psql -h localhost -p 5455 -U serviceradar -d serviceradar
 ```
 
+## Device Enrichment Rule Overrides
+
+`core-elx` supports filesystem override rules at `/var/lib/serviceradar/rules/device-enrichment`.
+By default Compose binds `./docker/compose/rules/device-enrichment` into that path (read-only).
+
+```bash
+# Optional: use a custom host directory for overrides
+export DEVICE_ENRICHMENT_RULES_DIR_HOST=/path/to/rules
+docker compose up -d --force-recreate core-elx
+docker compose logs core-elx | grep "Device enrichment rules loaded"
+```
+
 ## What's Next?
 
 - **Configure devices**: See [Device Configuration Guide](docs/docs/device-configuration.md)

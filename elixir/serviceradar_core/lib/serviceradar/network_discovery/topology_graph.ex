@@ -50,10 +50,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       {:error, :missing_ids} ->
         Logger.debug("Skipping topology link missing device identifiers")
         :ok
-
-      {:error, :missing_interface} ->
-        Logger.debug("Skipping topology link missing interface identifiers")
-        :ok
     end
   end
 
@@ -98,41 +94,53 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp build_link_payload(link) do
     local_device_id = link_value(link, :local_device_id)
     neighbor_device_id = neighbor_device_id(link)
-
-    local_interface_id =
-      interface_id(
-        local_device_id,
-        link_value(link, :local_if_name),
-        link_value(link, :local_if_index)
-      )
-
-    neighbor_port =
-      non_blank(link_value(link, :neighbor_port_id)) ||
-        non_blank(link_value(link, :neighbor_port_descr))
-
-    neighbor_interface_id = interface_id(neighbor_device_id, neighbor_port, nil)
+    local_interface_id = local_interface_id(link, local_device_id)
+    neighbor_port = neighbor_port(link)
+    neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
 
     if is_nil(local_device_id) or is_nil(neighbor_device_id) do
       {:error, :missing_ids}
     else
-      if is_nil(local_interface_id) or is_nil(neighbor_interface_id) do
-        {:error, :missing_interface}
-      else
-        {:ok,
-         %{
-           local_device_id: local_device_id,
-           neighbor_device_id: neighbor_device_id,
-           local_interface_id: local_interface_id,
-           neighbor_interface_id: neighbor_interface_id,
-           protocol: link_value(link, :protocol) || "unknown",
-           local_if_name: link_value(link, :local_if_name),
-           local_if_index: link_value(link, :local_if_index),
-           neighbor_port_name: neighbor_port,
-           neighbor_name: link_value(link, :neighbor_system_name),
-           neighbor_ip: link_value(link, :neighbor_mgmt_addr)
-         }}
-      end
+      {:ok,
+       %{
+         local_device_id: local_device_id,
+         neighbor_device_id: neighbor_device_id,
+         local_interface_id: local_interface_id,
+         neighbor_interface_id: neighbor_interface_id,
+         protocol: link_value(link, :protocol) || "unknown",
+         local_if_name: link_value(link, :local_if_name),
+         local_if_index: link_value(link, :local_if_index),
+         neighbor_port_name: neighbor_port,
+         neighbor_name: link_value(link, :neighbor_system_name),
+         neighbor_ip: link_value(link, :neighbor_mgmt_addr)
+       }}
     end
+  end
+
+  defp local_interface_id(link, local_device_id) do
+    interface_id(
+      local_device_id,
+      link_value(link, :local_if_name),
+      link_value(link, :local_if_index)
+    ) || default_interface_id(local_device_id, "unknown-local")
+  end
+
+  defp neighbor_port(link) do
+    Enum.find_value(
+      [
+        :neighbor_port_id,
+        :neighbor_port_descr,
+        :neighbor_chassis_id,
+        :neighbor_system_name,
+        :neighbor_mgmt_addr
+      ],
+      fn key -> non_blank(link_value(link, key)) end
+    )
+  end
+
+  defp neighbor_interface_id(neighbor_device_id, neighbor_port) do
+    interface_id(neighbor_device_id, neighbor_port, nil) ||
+      default_interface_id(neighbor_device_id, "unknown-neighbor")
   end
 
   defp upsert_interface_payload(payload) do
@@ -208,6 +216,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         nil
     end
   end
+
+  defp default_interface_id(nil, _label), do: nil
+  defp default_interface_id(device_id, label), do: "#{device_id}/#{label}"
 
   defp non_blank(nil), do: nil
 

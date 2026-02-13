@@ -24,7 +24,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
     {:ok, actor: actor}
   end
 
-  test "scheduled reconciliation merges duplicates and reassigns interfaces", %{actor: actor} do
+  test "scheduled reconciliation does not merge MAC-only duplicates", %{actor: actor} do
     mac = "AA:BB:CC:DD:EE:FF"
     mac_with_space = mac <> " "
 
@@ -45,6 +45,42 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
              |> Ash.Changeset.for_update(:run_identity_reconciliation, %{})
              |> Ash.update(actor: actor)
 
+    assert {:ok, _} = Device.get_by_uid(device_a.uid, false, actor: actor)
+    assert {:ok, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
+
+    assert {:ok, interfaces_a} = list_interfaces(actor, device_a.uid)
+    refute Enum.any?(interfaces_a, &(&1.interface_uid == "ifindex:99"))
+
+    assert {:ok, interfaces_b} = list_interfaces(actor, device_b.uid)
+    assert Enum.any?(interfaces_b, &(&1.interface_uid == "ifindex:99"))
+
+    assert {:ok, []} = MergeAudit.get_merged_to(device_a.uid, actor: actor)
+    assert {:ok, []} = MergeAudit.get_merged_to(device_b.uid, actor: actor)
+  end
+
+  test "scheduled reconciliation merges duplicates with non-MAC strong identifier", %{
+    actor: actor
+  } do
+    shared_armis_id = "armis-reconcile-#{System.unique_integer([:positive])}"
+
+    {:ok, device_a} = create_device(actor, "reconcile-strong-a")
+    {:ok, device_b} = create_device(actor, "reconcile-strong-b")
+
+    assert {:ok, _} = register_identifier(actor, device_a.uid, :armis_device_id, shared_armis_id)
+    assert {:ok, _} = register_identifier(actor, device_b.uid, :armis_device_id, shared_armis_id)
+
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    assert {:ok, _} =
+             create_interface(actor, device_b.uid, timestamp, "ifindex:101", 101, "eth101")
+
+    schedule = ensure_identity_schedule(actor)
+
+    assert {:ok, _} =
+             schedule
+             |> Ash.Changeset.for_update(:run_identity_reconciliation, %{})
+             |> Ash.update(actor: actor)
+
     {remaining_id, merged_id} =
       case Device.get_by_uid(device_a.uid, false, actor: actor) do
         {:ok, _} -> {device_a.uid, device_b.uid}
@@ -54,7 +90,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
     assert {:error, _} = Device.get_by_uid(merged_id, false, actor: actor)
 
     assert {:ok, interfaces} = list_interfaces(actor, remaining_id)
-    assert Enum.any?(interfaces, &(&1.interface_uid == "ifindex:99"))
+    assert Enum.any?(interfaces, &(&1.interface_uid == "ifindex:101"))
 
     assert {:ok, []} = list_interfaces(actor, merged_id)
 

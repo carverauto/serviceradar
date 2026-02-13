@@ -400,17 +400,34 @@ func buildMapperDeviceMetadata(device *mapper.DiscoveredDevice) map[string]strin
 		"device_id": device.DeviceID,
 	}
 
+	// Distinguish device-level mapper MAC from per-interface MAC observations.
+	// Downstream identity logic only uses mapper MACs that are explicitly marked primary.
+	if device.MAC != "" {
+		metadata["identity_mac_kind"] = "primary"
+	}
+
 	if device.SysDescr != "" {
 		metadata["sys_descr"] = device.SysDescr
 	}
 	if device.SysObjectID != "" {
 		metadata["sys_object_id"] = device.SysObjectID
 	}
+	if device.SysName != "" {
+		metadata["sys_name"] = device.SysName
+	}
 	if device.SysContact != "" {
 		metadata["sys_contact"] = device.SysContact
+		// "sysOwner" is not a standard SNMPv2-MIB scalar; treat sysContact as owner hint.
+		metadata["sys_owner"] = device.SysContact
 	}
 	if device.SysLocation != "" {
 		metadata["sys_location"] = device.SysLocation
+	}
+	if device.IPForwarding != 0 {
+		metadata["ip_forwarding"] = fmt.Sprintf("%d", device.IPForwarding)
+	}
+	if device.BridgeBaseMAC != "" {
+		metadata["bridge_base_mac"] = device.BridgeBaseMAC
 	}
 	if device.Uptime != 0 {
 		metadata["uptime"] = fmt.Sprintf("%d", device.Uptime)

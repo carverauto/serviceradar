@@ -269,6 +269,13 @@ if config_env() == :prod do
   config :serviceradar_core,
     sync_ingestor_queue_max_chunks: sync_ingestor_queue_max_chunks || 10
 
+  config :serviceradar_core,
+    device_enrichment_rules_dir:
+      System.get_env(
+        "DEVICE_ENRICHMENT_RULES_DIR",
+        "/var/lib/serviceradar/rules/device-enrichment"
+      )
+
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
 
   plugin_storage_overrides =
