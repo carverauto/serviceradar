@@ -866,6 +866,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Vendor</th>
                   <th
                     class="text-xs font-semibold text-base-content/70 bg-base-200/60"
+                    title="Device enrichment provenance"
+                  >
+                    Enrichment
+                  </th>
+                  <th
+                    class="text-xs font-semibold text-base-content/70 bg-base-200/60"
                     title="GRPC Health Check Status"
                   >
                     Status
@@ -889,7 +895,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               <tbody>
                 <tr :if={@devices == []}>
                   <td
-                    colspan={10}
+                    colspan={11}
                     class="py-8 text-center text-sm text-base-content/60"
                   >
                     No devices found.
@@ -907,6 +913,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
+                  <% enrichment = device_enrichment_provenance(row) %>
                   <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted, do: "opacity-60", else: ""}"}>
                     <td class="text-center">
                       <input
@@ -949,6 +956,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     </td>
                     <td class="text-xs max-w-[8rem] truncate">
                       {Map.get(row, "vendor_name") || "—"}
+                    </td>
+                    <td class="text-xs max-w-[14rem]">
+                      <.enrichment_provenance_badge provenance={enrichment} />
                     </td>
                     <td class="text-xs">
                       <.availability_badge available={Map.get(row, "is_available")} />
@@ -1731,6 +1741,93 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp device_type_icon(12), do: "hero-arrows-right-left"
   defp device_type_icon(15), do: "hero-scale"
   defp device_type_icon(_), do: nil
+
+  attr :provenance, :map, required: true
+
+  def enrichment_provenance_badge(assigns) do
+    source = Map.get(assigns.provenance, :source)
+    rule_id = Map.get(assigns.provenance, :rule_id)
+    confidence = Map.get(assigns.provenance, :confidence)
+    reason = Map.get(assigns.provenance, :reason)
+
+    label =
+      cond do
+        is_binary(rule_id) and rule_id != "" and is_integer(confidence) ->
+          "#{rule_id} (#{confidence})"
+
+        is_binary(rule_id) and rule_id != "" ->
+          rule_id
+
+        is_binary(source) and source != "" ->
+          source
+
+        true ->
+          "—"
+      end
+
+    tooltip =
+      [
+        if(source, do: "source=#{source}", else: nil),
+        if(rule_id, do: "rule=#{rule_id}", else: nil),
+        if(is_integer(confidence), do: "confidence=#{confidence}", else: nil),
+        if(reason, do: "reason=#{reason}", else: nil)
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" | ")
+
+    assigns =
+      assigns
+      |> assign(:label, label)
+      |> assign(:tooltip, if(tooltip == "", do: nil, else: tooltip))
+
+    ~H"""
+    <span :if={@label == "—"} class="text-base-content/40">—</span>
+    <.ui_badge :if={@label != "—"} variant="ghost" size="xs" title={@tooltip}>
+      {@label}
+    </.ui_badge>
+    """
+  end
+
+  defp device_enrichment_provenance(row) when is_map(row) do
+    metadata = row_metadata(row)
+
+    %{
+      source: row_value(row, metadata, "classification_source"),
+      rule_id: row_value(row, metadata, "classification_rule_id"),
+      confidence: row_value_int(row, metadata, "classification_confidence"),
+      reason: row_value(row, metadata, "classification_reason")
+    }
+  end
+
+  defp device_enrichment_provenance(_),
+    do: %{source: nil, rule_id: nil, confidence: nil, reason: nil}
+
+  defp row_metadata(row) when is_map(row) do
+    case Map.get(row, "metadata") || Map.get(row, :metadata) do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  defp row_value(row, metadata, key) do
+    Map.get(row, key) || Map.get(metadata, key)
+  end
+
+  defp row_value_int(row, metadata, key) do
+    case row_value(row, metadata, key) do
+      value when is_integer(value) ->
+        value
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} -> parsed
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
 
   attr :risk_level, :string, default: nil
 

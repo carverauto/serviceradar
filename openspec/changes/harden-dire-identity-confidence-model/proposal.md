@@ -9,6 +9,8 @@ Issue #2817 shows a recurring identity regression where two real devices can alt
 - Require corroboration before promoting weak evidence (for example repeated sightings and at least one corroborating stable signal).
 - Prohibit automatic merges from MAC-only evidence sets; require at least one non-MAC strong identifier or explicit operator action.
 - Define deterministic tie-break and conflict handling to avoid identity flip-flops across scans.
+- Add role-aware discovery alias policy so router interface IPs remain aliases while AP/bridge client IP artifacts do not pollute device alias identity.
+- Promote AP/bridge-filtered client IP observations into endpoint discovery candidates rather than dropping them.
 - Add a full regression matrix for identity resolution, promotion, merge, and unmerge behavior.
 
 ## Impact

@@ -14,6 +14,12 @@
 - [x] 3.1 Stop direct promotion of interface MAC observations into canonical identifiers
 - [ ] 3.2 Persist interface/neighbor observations as evidence only
 - [x] 3.3 Ensure mapper-created devices are marked/handled as provisional until promotion criteria are met
+- [x] 3.4 Implement role inference (`router`, `ap_bridge`, `switch_l2`, `host`, `unknown`) with confidence scoring from mapper/SNMP signals
+- [x] 3.5 Apply role-aware alias policy:
+- [x] 3.5.a router keeps self-interface IP aliases
+- [x] 3.5.b ap/bridge/switch_l2 blocks client-like interface IP aliases
+- [x] 3.6 Emit filtered AP/bridge client IP observations as endpoint discovery candidates
+- [x] 3.7 Add operator-visible metadata fields (`device_role`, `device_role_confidence`, `device_role_source`)
 
 ## 4. Data and Migration
 - [ ] 4.1 Add migrations/resources for evidence state if required
@@ -29,8 +35,12 @@
 - [ ] 5.6 Integration tests for alias-state interactions under strict merge policy
 - [ ] 5.7 Regression tests for issue #2780/#2817 scenarios (farm01/tonka01 class)
 - [ ] 5.8 Property/fuzz-style tests for ingestion order permutations and idempotence
+- [x] 5.9 Router alias preservation tests (tonka-style multi-interface L3 aliases)
+- [x] 5.10 AP/bridge client-IP pollution prevention tests (client IPs not promoted as aliases)
+- [x] 5.11 AP/bridge filtered client-IP promotion tests (candidate device creation path)
 
 ## 6. Validation and Rollout
 - [ ] 6.1 Run focused Elixir test suites for inventory and mapper flows
 - [x] 6.2 Validate OpenSpec deltas with `openspec validate harden-dire-identity-confidence-model --strict`
 - [ ] 6.3 Demo/staging verification using CNPG queries and merge_audit drift checks
+- [ ] 6.4 Phased rollout: classify/log-only -> enforce role-aware alias policy -> enable candidate promotion

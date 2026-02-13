@@ -115,6 +115,12 @@ faker:
 
 core:
   logPromotionConsumerEnabled: true
+  deviceEnrichment:
+    rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
+    filesystemOverrides:
+      # Keep enabled in demo so override mounts are consistently wired on upgrades.
+      # Provide existingConfigMap/existingSecret/existingClaim when you want custom rules.
+      enabled: true
   extraEnv:
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"

@@ -47,12 +47,14 @@ func safeInt32(val int) int32 {
 // Common SNMP OIDs - defined as constants for clarity and maintainability
 const (
 	// System OIDs
-	oidSysDescr    = ".1.3.6.1.2.1.1.1.0"
-	oidSysObjectID = ".1.3.6.1.2.1.1.2.0"
-	oidSysUptime   = ".1.3.6.1.2.1.1.3.0"
-	oidSysContact  = ".1.3.6.1.2.1.1.4.0"
-	oidSysName     = ".1.3.6.1.2.1.1.5.0"
-	oidSysLocation = ".1.3.6.1.2.1.1.6.0"
+	oidSysDescr               = ".1.3.6.1.2.1.1.1.0"
+	oidSysObjectID            = ".1.3.6.1.2.1.1.2.0"
+	oidSysUptime              = ".1.3.6.1.2.1.1.3.0"
+	oidSysContact             = ".1.3.6.1.2.1.1.4.0"
+	oidSysName                = ".1.3.6.1.2.1.1.5.0"
+	oidSysLocation            = ".1.3.6.1.2.1.1.6.0"
+	oidIPForwarding           = ".1.3.6.1.2.1.4.1.0"
+	oidDot1dBaseBridgeAddress = ".1.3.6.1.2.1.17.1.1.0"
 
 	// Interface table OIDs
 	oidIfTable = ".1.3.6.1.2.1.2.2.1"
@@ -265,9 +267,16 @@ func (e *DiscoveryEngine) processSNMPVariable(device *DiscoveredDevice, v gosnmp
 	case oidSysContact:
 		e.setStringValue(&device.SysContact, v)
 	case oidSysName:
-		e.setStringValue(&device.Hostname, v)
+		e.setStringValue(&device.SysName, v)
+		if device.Hostname == "" {
+			device.Hostname = device.SysName
+		}
 	case oidSysLocation:
 		e.setStringValue(&device.SysLocation, v)
+	case oidIPForwarding:
+		e.setInt32Value(&device.IPForwarding, v)
+	case oidDot1dBaseBridgeAddress:
+		e.setBridgeMACValue(&device.BridgeBaseMAC, v)
 	}
 }
 
@@ -289,6 +298,38 @@ func (*DiscoveryEngine) setObjectIDValue(target *string, v gosnmp.SnmpPDU) {
 func (*DiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) {
 	if v.Type == gosnmp.TimeTicks {
 		*target = int64(v.Value.(uint32))
+	}
+}
+
+// setInt32Value sets a signed integer value from an SNMP PDU.
+func (*DiscoveryEngine) setInt32Value(target *int32, v gosnmp.SnmpPDU) {
+	switch val := v.Value.(type) {
+	case int:
+		*target = safeInt32(val)
+	case int32:
+		*target = val
+	case int64:
+		*target = safeInt32(int(val))
+	case uint:
+		*target = safeInt32(int(val))
+	case uint32:
+		*target = safeInt32(int(val))
+	case uint64:
+		*target = safeInt32(int(val))
+	default:
+		bigVal := gosnmp.ToBigInt(v.Value)
+		if bigVal != nil {
+			*target = safeInt32(int(bigVal.Int64()))
+		}
+	}
+}
+
+// setBridgeMACValue sets the bridge base MAC from an OctetString.
+func (*DiscoveryEngine) setBridgeMACValue(target *string, v gosnmp.SnmpPDU) {
+	if v.Type == gosnmp.OctetString {
+		if mac := formatMACAddress(v.Value.([]byte)); mac != "" {
+			*target = mac
+		}
 	}
 }
 
@@ -346,6 +387,8 @@ func (e *DiscoveryEngine) querySysInfo(
 		oidSysContact,
 		oidSysName,
 		oidSysLocation,
+		oidIPForwarding,
+		oidDot1dBaseBridgeAddress,
 	}
 
 	// Perform SNMP Get

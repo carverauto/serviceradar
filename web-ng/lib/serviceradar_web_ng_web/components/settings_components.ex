@@ -234,7 +234,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active:
           String.starts_with?(path, "/settings/networks") and
             not String.starts_with?(path, "/settings/networks/discovery") and
-            not String.starts_with?(path, "/settings/networks/integrations")
+            not String.starts_with?(path, "/settings/networks/integrations") and
+            not String.starts_with?(path, "/settings/networks/device-enrichment")
       },
       %{
         label: "NetFlow",
@@ -245,6 +246,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         label: "Discovery",
         navigate: ~p"/settings/networks/discovery",
         active: String.starts_with?(path, "/settings/networks/discovery")
+      },
+      %{
+        label: "Device Enrichment",
+        navigate: ~p"/settings/networks/device-enrichment",
+        active: String.starts_with?(path, "/settings/networks/device-enrichment")
       },
       %{
         label: "SNMP",

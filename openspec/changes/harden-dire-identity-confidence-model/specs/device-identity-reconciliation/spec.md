@@ -49,6 +49,20 @@ The system SHALL maintain an automated regression matrix that covers merge eligi
 - **WHEN** the full identity regression suite executes
 - **THEN** no destructive merge or identity flip-flop SHALL occur
 
+### Requirement: Role Signals Inform Alias Confidence
+The system SHALL incorporate inferred device role signals when deciding whether interface-derived IP evidence can be promoted to device alias state.
+
+#### Scenario: Router role allows interface IP alias promotion
+- **GIVEN** DIRE receives interface-derived IP evidence for a device inferred as `router`
+- **WHEN** alias promotion policy is evaluated
+- **THEN** router-eligible interface IP evidence MAY be promoted according to threshold policy
+
+#### Scenario: AP/bridge role blocks client-like alias promotion
+- **GIVEN** DIRE receives interface-derived IP evidence for a device inferred as `ap_bridge`
+- **WHEN** alias promotion policy is evaluated
+- **THEN** client-like interface IP evidence SHALL remain non-alias evidence
+- **AND** SHALL NOT trigger canonical alias conflict merges
+
 ## MODIFIED Requirements
 
 ### Requirement: Interface MAC Registration

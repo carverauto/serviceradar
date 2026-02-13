@@ -220,7 +220,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert length(devices_after_first) == 1
     first_uid = hd(devices_after_first).uid
     assert hd(devices_after_first).metadata["identity_state"] == "provisional"
-    assert hd(devices_after_first).metadata["identity_source"] == "mapper_ip_seed"
+    assert hd(devices_after_first).metadata["identity_source"] == "mapper_primary_mac_seed"
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(payload_b, %{})
 
@@ -231,6 +231,69 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert length(devices_after_second) == 1
     assert hd(devices_after_second).uid == first_uid
+  end
+
+  test "mapper keeps stable device identity across IP churn when primary MAC is present", %{
+    actor: actor
+  } do
+    old_ip = "203.0.113.#{:rand.uniform(120) + 10}"
+    new_ip = "198.51.100.#{:rand.uniform(120) + 10}"
+    mac = "F4:92:BF:75:C7:21"
+    normalized_mac = IdentityReconciler.normalize_mac(mac)
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    old_payload =
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{old_ip}",
+          "partition" => "default",
+          "device_ip" => old_ip,
+          "if_index" => 1,
+          "if_name" => "eth0",
+          "if_phys_address" => mac,
+          "timestamp" => ts
+        }
+      ])
+
+    new_payload =
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{new_ip}",
+          "partition" => "default",
+          "device_ip" => new_ip,
+          "if_index" => 1,
+          "if_name" => "eth0",
+          "if_phys_address" => mac,
+          "timestamp" => ts
+        }
+      ])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(old_payload, %{})
+
+    {:ok, [device_after_old]} =
+      Device
+      |> Ash.Query.for_read(:by_ip, %{ip: old_ip})
+      |> Ash.read(actor: actor)
+
+    assert device_after_old.metadata["identity_source"] == "mapper_primary_mac_seed"
+    assert device_after_old.mac == normalized_mac
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(new_payload, %{})
+
+    {:ok, aliases_for_new_ip} = DeviceAliasState.lookup_by_value(:ip, new_ip, actor: actor)
+
+    assert Enum.any?(
+             aliases_for_new_ip,
+             &(&1.device_id == device_after_old.uid and
+                 &1.state in [:detected, :updated, :confirmed])
+           )
+
+    {:ok, devices_with_seed_mac} =
+      Device
+      |> Ash.Query.filter(mac == ^normalized_mac)
+      |> Ash.read(actor: actor)
+
+    assert Enum.count(devices_with_seed_mac, &(&1.uid == device_after_old.uid)) == 1
   end
 
   test "mapper interface ingestion does not register interface MACs as device identifiers", %{
@@ -330,5 +393,94 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
              refreshed_aliases,
              &(&1.device_id == canonical_uid and &1.state == :confirmed)
            )
+  end
+
+  test "mapper alias updates ignore mismatched device_ip records for alias promotion", %{
+    actor: actor
+  } do
+    mgmt_ip = "192.0.2.10"
+    stray_ip = "192.0.2.11"
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    payload =
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{mgmt_ip}",
+          "partition" => "default",
+          "device_ip" => mgmt_ip,
+          "if_index" => 1,
+          "if_name" => "wlan0",
+          "if_phys_address" => "AA:BB:CC:DD:EE:01",
+          "timestamp" => ts
+        },
+        %{
+          "device_id" => "default:#{mgmt_ip}",
+          "partition" => "default",
+          "device_ip" => stray_ip,
+          "if_index" => 2,
+          "if_name" => "wlan1",
+          "if_phys_address" => "AA:BB:CC:DD:EE:02",
+          "timestamp" => ts
+        }
+      ])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    assert {:ok, mgmt_aliases} = DeviceAliasState.lookup_by_value(:ip, mgmt_ip, actor: actor)
+    assert Enum.any?(mgmt_aliases, &(&1.state in [:detected, :updated, :confirmed]))
+
+    assert {:ok, []} = DeviceAliasState.lookup_by_value(:ip, stray_ip, actor: actor)
+
+    {:ok, stray_devices} =
+      Device
+      |> Ash.Query.for_read(:by_ip, %{ip: stray_ip})
+      |> Ash.read(actor: actor)
+
+    assert length(stray_devices) == 1
+    assert hd(stray_devices).metadata["identity_source"] == "mapper_client_ip_candidate_seed"
+  end
+
+  test "mapper alias updates preserve router interface alias IPs on stable device_ip", %{
+    actor: actor
+  } do
+    mgmt_ip = "198.18.10.1"
+    lan_alias = "10.0.0.1"
+    vlan_alias = "10.0.1.1"
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    payload =
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{mgmt_ip}",
+          "partition" => "default",
+          "device_ip" => mgmt_ip,
+          "if_index" => 1,
+          "if_name" => "br0",
+          "if_phys_address" => "0C:EA:14:32:D2:7F",
+          "ip_addresses" => [lan_alias],
+          "timestamp" => ts
+        },
+        %{
+          "device_id" => "default:#{mgmt_ip}",
+          "partition" => "default",
+          "device_ip" => mgmt_ip,
+          "if_index" => 2,
+          "if_name" => "br100",
+          "if_phys_address" => "0C:EA:14:32:D2:7F",
+          "ip_addresses" => [vlan_alias],
+          "timestamp" => ts
+        }
+      ])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    assert {:ok, mgmt_aliases} = DeviceAliasState.lookup_by_value(:ip, mgmt_ip, actor: actor)
+    assert Enum.any?(mgmt_aliases, &(&1.state in [:detected, :updated, :confirmed]))
+
+    assert {:ok, lan_aliases} = DeviceAliasState.lookup_by_value(:ip, lan_alias, actor: actor)
+    assert Enum.any?(lan_aliases, &(&1.state in [:detected, :updated, :confirmed]))
+
+    assert {:ok, vlan_aliases} = DeviceAliasState.lookup_by_value(:ip, vlan_alias, actor: actor)
+    assert Enum.any?(vlan_aliases, &(&1.state in [:detected, :updated, :confirmed]))
   end
 end

@@ -9,6 +9,29 @@ The network discovery pipeline SHALL treat mapper interface and neighbor observa
 - **THEN** observations SHALL be persisted for topology/evidence use
 - **AND** canonical identity SHALL NOT be asserted solely from those observations
 
+### Requirement: Role-Aware Alias Promotion
+The network discovery pipeline SHALL apply role-aware alias promotion so self-owned router interface IPs are retained as aliases while AP/bridge client-like interface IPs are not promoted as aliases.
+
+#### Scenario: Router interface aliases are retained
+- **GIVEN** mapper interfaces for a router share a stable management `device_ip`
+- **AND** interface `ip_addresses` contain multiple configured L3 interface IPs
+- **WHEN** mapper alias processing executes
+- **THEN** those configured interface IPs SHALL be promoted as aliases for the router device
+
+#### Scenario: AP client IP artifacts are not promoted as aliases
+- **GIVEN** mapper interface updates for an AP/bridge include observed client IP-like values
+- **WHEN** mapper alias processing executes
+- **THEN** client IP-like values SHALL NOT be promoted as aliases of the AP/bridge device
+
+### Requirement: Filtered Client IPs Become Discovery Candidates
+When role-aware alias policy filters AP/bridge client IP-like interface observations, the system SHALL preserve them as endpoint discovery candidates for downstream device creation/deduplication workflows.
+
+#### Scenario: Filtered AP client IP is emitted as candidate endpoint
+- **GIVEN** an AP/bridge interface observation includes an IP value filtered from alias promotion
+- **WHEN** mapper ingestion completes
+- **THEN** the filtered IP observation SHALL be recorded as a discovery candidate
+- **AND** it SHALL be eligible for normal device creation/reconciliation in subsequent discovery flows
+
 ## MODIFIED Requirements
 
 ### Requirement: Mapper topology ingestion and graph projection

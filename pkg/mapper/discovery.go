@@ -1604,6 +1604,10 @@ func (e *DiscoveryEngine) trackJobProgress(
 
 // finalizeDevice performs final setup on the device before returning it
 func (*DiscoveryEngine) finalizeDevice(job *DiscoveryJob, device *DiscoveredDevice, target, jobID, source string) {
+	if device.SysName != "" && device.Hostname == "" {
+		device.Hostname = device.SysName
+	}
+
 	// Use IP as hostname if not provided
 	if device.Hostname == "" {
 		device.Hostname = target

@@ -14,7 +14,14 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AliasEvents
   alias ServiceRadar.Identity.DeviceAliasState
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
+
+  alias ServiceRadar.Inventory.{
+    Device,
+    DeviceEnrichmentRules,
+    DeviceIdentifier,
+    IdentityReconciler
+  }
+
   alias ServiceRadar.Repo
 
   import Ecto.Query
@@ -22,8 +29,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
   @vendor_tokens [
-    {"ubiquiti", "Ubiquiti"},
-    {"unifi", "Ubiquiti"},
     {"cisco", "Cisco"},
     {"juniper", "Juniper"},
     {"arista", "Arista"},
@@ -120,13 +125,30 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp resolve_updates(normalized_updates, _actor) do
     all_identifiers = extract_all_identifiers(normalized_updates)
     existing_mappings = bulk_lookup_identifiers(all_identifiers)
-    ip_to_device = bulk_lookup_by_ip(ip_only_updates(normalized_updates))
+    existing_ip_to_device = bulk_lookup_by_ip(ip_only_updates(normalized_updates))
 
-    resolved_updates =
-      Enum.map(normalized_updates, fn update ->
-        device_id = resolve_device_id_cached(update, existing_mappings, ip_to_device)
-        {update, device_id}
+    {resolved_updates, _batch_ip_to_device} =
+      Enum.reduce(normalized_updates, {[], existing_ip_to_device}, fn update,
+                                                                      {acc, ip_to_device} ->
+        ids = effective_identifiers(update)
+
+        device_id =
+          case ids.ip do
+            ip when is_binary(ip) and ip != "" -> Map.get(ip_to_device, ip)
+            _ -> nil
+          end ||
+            resolve_device_id_cached(update, existing_mappings, ip_to_device)
+
+        next_ip_to_device =
+          case ids.ip do
+            ip when is_binary(ip) and ip != "" -> Map.put(ip_to_device, ip, device_id)
+            _ -> ip_to_device
+          end
+
+        {[{update, device_id} | acc], next_ip_to_device}
       end)
+
+    resolved_updates = Enum.reverse(resolved_updates)
 
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
     device_records = build_device_upsert_records(resolved_updates, timestamp)
@@ -137,7 +159,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp ip_only_updates(normalized_updates) do
     Enum.filter(normalized_updates, fn update ->
-      ids = IdentityReconciler.extract_strong_identifiers(update)
+      ids = effective_identifiers(update)
       not IdentityReconciler.has_strong_identifier?(ids) and ids.ip != ""
     end)
   end
@@ -174,20 +196,25 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp extract_all_identifiers(updates) do
     updates
     |> Enum.flat_map(fn update ->
-      ids = IdentityReconciler.extract_strong_identifiers(update)
+      ids = effective_identifiers(update)
       partition = ids.partition
+      include_mac? = include_mac_identifier?(update)
 
       []
       |> maybe_add_id(:armis_device_id, ids.armis_id, partition)
       |> maybe_add_id(:integration_id, ids.integration_id, partition)
       |> maybe_add_id(:netbox_device_id, ids.netbox_id, partition)
-      |> maybe_add_id(:mac, ids.mac, partition)
+      |> maybe_add_id_if(include_mac?, :mac, ids.mac, partition)
     end)
     |> Enum.uniq()
   end
 
   defp maybe_add_id(acc, _type, nil, _partition), do: acc
   defp maybe_add_id(acc, type, value, partition), do: [{type, value, partition} | acc]
+  defp maybe_add_id_if(acc, false, _type, _value, _partition), do: acc
+
+  defp maybe_add_id_if(acc, true, type, value, partition),
+    do: maybe_add_id(acc, type, value, partition)
 
   # Bulk lookup device identifiers - single query for all identifiers
   # DB connection's search_path determines the schema
@@ -313,7 +340,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     if IdentityReconciler.service_device_id?(update.device_id) do
       update.device_id
     else
-      ids = IdentityReconciler.extract_strong_identifiers(update)
+      ids = effective_identifiers(update)
 
       cached_device_id(ids, existing_mappings) ||
         existing_device_id(update, ids, ip_to_device) ||
@@ -352,8 +379,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     resolved_updates
     |> Enum.reduce(%{}, fn {update, device_id}, acc ->
       source = if update.source in [nil, ""], do: "unknown", else: update.source
-      vendor_name = infer_vendor_name(update)
-      model = infer_model(update, vendor_name)
+      classification = DeviceEnrichmentRules.classify(update)
+      vendor_name = infer_vendor_name(update, classification)
+      model = infer_model(update, classification)
+      {device_type, device_type_id} = infer_device_type(update, classification)
+      metadata = merge_classification_metadata(update.metadata || %{}, classification)
 
       record = %{
         uid: device_id,
@@ -361,10 +391,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         mac: update.mac,
         hostname: update.hostname,
         name: update.hostname || update.ip,
+        type: device_type,
+        type_id: device_type_id,
         vendor_name: vendor_name,
         model: model,
         is_available: update.is_available || false,
-        metadata: update.metadata || %{},
+        metadata: metadata,
         tags: update.tags || %{},
         discovery_sources: [source],
         first_seen_time: timestamp,
@@ -388,10 +420,24 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
             hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
             name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
+            type:
+              fragment(
+                "COALESCE(NULLIF(EXCLUDED.type, ''), ?)",
+                d.type
+              ),
+            type_id:
+              fragment(
+                "CASE WHEN EXCLUDED.type_id IS NOT NULL AND EXCLUDED.type_id > 0 THEN EXCLUDED.type_id ELSE ? END",
+                d.type_id
+              ),
             vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),
             model: fragment("COALESCE(EXCLUDED.model, ?)", d.model),
             is_available: fragment("COALESCE(EXCLUDED.is_available, ?)", d.is_available),
-            metadata: fragment("COALESCE(EXCLUDED.metadata, ?)", d.metadata),
+            metadata:
+              fragment(
+                "COALESCE(?, '{}'::jsonb) || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
+                d.metadata
+              ),
             deleted_at: nil,
             deleted_by: nil,
             deleted_reason: nil,
@@ -424,15 +470,23 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp build_identifier_records(resolved_updates) do
     resolved_updates
     |> Enum.flat_map(fn {update, device_id} ->
-      ids = IdentityReconciler.extract_strong_identifiers(update)
+      ids = effective_identifiers(update)
       partition = ids.partition
+      include_agent? = include_agent_identifier?(update, ids)
+      include_mac? = include_mac_identifier?(update)
 
       []
-      |> maybe_add_identifier_record(device_id, :agent_id, ids.agent_id, partition)
+      |> maybe_add_identifier_record_if(
+        include_agent?,
+        device_id,
+        :agent_id,
+        ids.agent_id,
+        partition
+      )
       |> maybe_add_identifier_record(device_id, :armis_device_id, ids.armis_id, partition)
       |> maybe_add_identifier_record(device_id, :integration_id, ids.integration_id, partition)
       |> maybe_add_identifier_record(device_id, :netbox_device_id, ids.netbox_id, partition)
-      |> maybe_add_identifier_record(device_id, :mac, ids.mac, partition)
+      |> maybe_add_identifier_record_if(include_mac?, device_id, :mac, ids.mac, partition)
     end)
     |> Enum.uniq_by(fn r -> {r.identifier_type, r.identifier_value, r.partition} end)
   end
@@ -451,6 +505,61 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       }
       | acc
     ]
+  end
+
+  defp maybe_add_identifier_record_if(acc, false, _device_id, _type, _value, _partition), do: acc
+
+  defp maybe_add_identifier_record_if(acc, true, device_id, type, value, partition) do
+    maybe_add_identifier_record(acc, device_id, type, value, partition)
+  end
+
+  defp include_agent_identifier?(update, ids) do
+    cond do
+      ids.agent_id in [nil, ""] -> false
+      mapper_like_source?(update) -> false
+      true -> true
+    end
+  end
+
+  defp include_mac_identifier?(update) do
+    metadata = update.metadata || %{}
+
+    cond do
+      mapper_like_source?(update) -> mapper_primary_mac?(metadata)
+      true -> true
+    end
+  end
+
+  defp mapper_like_source?(update) do
+    source = String.downcase(update.source || "")
+    metadata = update.metadata || %{}
+    identity_source = String.downcase(to_string(metadata["identity_source"] || ""))
+
+    source in ["mapper", "sweep", "network_discovery"] or
+      identity_source in ["mapper_ip_seed", "mapper_primary_mac_seed"]
+  end
+
+  defp mapper_primary_mac?(metadata) when is_map(metadata) do
+    kind =
+      metadata
+      |> Map.get("identity_mac_kind", "")
+      |> to_string()
+      |> String.downcase()
+
+    kind in ["primary", "management", "chassis"]
+  end
+
+  defp mapper_primary_mac?(_metadata), do: false
+
+  defp effective_identifiers(update) do
+    ids = IdentityReconciler.extract_strong_identifiers(update)
+
+    if mapper_like_source?(update) do
+      # Mapper agent_id identifies the scanner, not the discovered endpoint.
+      %{ids | agent_id: nil}
+    else
+      ids
+    end
   end
 
   # Bulk upsert identifiers
@@ -563,8 +672,9 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 
-  defp infer_vendor_name(update) do
+  defp infer_vendor_name(update, classification) do
     metadata = update.metadata || %{}
+    ruled_vendor = Map.get(classification, :vendor_name)
 
     explicit =
       get_string(metadata, [
@@ -579,8 +689,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       explicit not in [nil, ""] ->
         explicit
 
-      vendor_from_source(update.source, metadata) != nil ->
-        vendor_from_source(update.source, metadata)
+      ruled_vendor not in [nil, ""] ->
+        ruled_vendor
 
       (sys_descr = sys_descr_from_metadata(metadata)) not in [nil, ""] ->
         vendor_from_sys_descr(sys_descr)
@@ -590,31 +700,23 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 
-  defp infer_model(update, vendor_name) do
+  defp infer_model(update, classification) do
     metadata = update.metadata || %{}
     explicit = get_string(metadata, ["model", "device_model", "model_name"])
+    ruled_model = Map.get(classification, :model)
 
     cond do
       explicit not in [nil, ""] ->
         explicit
 
-      vendor_name == "Ubiquiti" ->
-        parse_ubiquiti_model(sys_descr_from_metadata(metadata))
+      ruled_model not in [nil, ""] ->
+        ruled_model
+
+      (sys_descr = sys_descr_from_metadata(metadata)) not in [nil, ""] ->
+        parse_model_from_sys_descr(sys_descr)
 
       true ->
         nil
-    end
-  end
-
-  defp vendor_from_source(source, metadata) do
-    source = source || get_string(metadata, ["source", :source])
-    src = String.downcase(to_string(source || ""))
-
-    cond do
-      src == "" -> nil
-      String.contains?(src, "unifi") -> "Ubiquiti"
-      String.contains?(src, "ubiquiti") -> "Ubiquiti"
-      true -> nil
     end
   end
 
@@ -628,24 +730,121 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end)
   end
 
-  defp parse_ubiquiti_model(nil), do: nil
+  defp parse_model_from_sys_descr(sys_descr) when is_binary(sys_descr) do
+    cleaned = String.trim(sys_descr)
 
-  defp parse_ubiquiti_model(sys_descr) when is_binary(sys_descr) do
-    parts = String.split(sys_descr)
-
-    case Enum.find_index(parts, fn part ->
-           String.downcase(part) == "unifi"
-         end) do
-      nil ->
+    cond do
+      cleaned == "" ->
         nil
 
-      idx ->
-        Enum.at(parts, idx + 1)
+      String.contains?(cleaned, ",") ->
+        cleaned
+        |> String.split(",", parts: 2)
+        |> List.first()
+        |> normalize_model_token()
+
+      true ->
+        cleaned
+        |> String.split()
+        |> List.first()
+        |> normalize_model_token()
     end
+  end
+
+  defp normalize_model_token(nil), do: nil
+
+  defp normalize_model_token(model) when is_binary(model) do
+    token =
+      model
+      |> String.trim()
+      |> String.trim_trailing(".")
+
+    if token == "", do: nil, else: token
   end
 
   defp sys_descr_from_metadata(metadata) do
     get_string(metadata, ["sys_descr", "sysDescr", "sys_description", "sysDescr"])
+  end
+
+  defp infer_device_type(update, classification) do
+    metadata = update.metadata || %{}
+    explicit_type = infer_explicit_type(metadata)
+    ruled_type = Map.get(classification, :type)
+    ruled_type_id = Map.get(classification, :type_id)
+    role = infer_role(metadata)
+
+    cond do
+      ruled_type not in [nil, ""] and is_integer(ruled_type_id) ->
+        {ruled_type, ruled_type_id}
+
+      explicit_type != nil ->
+        explicit_type
+
+      role in ["router"] ->
+        {"Router", 12}
+
+      role in ["switch_l2"] ->
+        {"Switch", 10}
+
+      role in ["ap_bridge"] ->
+        {"Access Point", 99}
+
+      true ->
+        {nil, 0}
+    end
+  end
+
+  defp infer_explicit_type(metadata) do
+    explicit =
+      get_string(metadata, [
+        "type",
+        "device_type",
+        "deviceType",
+        "type_name"
+      ])
+
+    cond do
+      explicit in [nil, ""] ->
+        nil
+
+      true ->
+        normalized = String.downcase(explicit)
+
+        cond do
+          normalized in ["router", "gateway"] ->
+            {"Router", 12}
+
+          normalized in ["switch", "switch_l2"] ->
+            {"Switch", 10}
+
+          normalized in ["access_point", "access point", "ap", "wireless_ap"] ->
+            {"Access Point", 99}
+
+          true ->
+            {explicit, 99}
+        end
+    end
+  end
+
+  defp infer_role(metadata) do
+    metadata
+    |> get_string(["device_role", "_device_role"])
+    |> to_string()
+    |> String.downcase()
+  end
+
+  defp merge_classification_metadata(metadata, classification) do
+    case Map.get(classification, :rule_id) do
+      nil ->
+        metadata
+
+      rule_id ->
+        metadata
+        |> Map.put("classification_source", Map.get(classification, :source))
+        |> Map.put("classification_rule_id", rule_id)
+        |> Map.put("classification_confidence", Map.get(classification, :confidence))
+        |> Map.put("classification_reason", Map.get(classification, :reason))
+    end
   end
 
   defp enrich_alias_metadata(update) do
@@ -746,11 +945,30 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp alias_conflict_candidates(resolved_updates) do
     resolved_updates
     |> Enum.map(fn {update, device_id} ->
-      {device_id, IdentityReconciler.extract_strong_identifiers(update)}
+      ids = effective_identifiers(update)
+      {update, device_id, ids}
     end)
-    |> Enum.filter(fn {_device_id, ids} ->
-      IdentityReconciler.has_strong_identifier?(ids) and ids.ip != ""
+    |> Enum.filter(fn {update, _device_id, ids} ->
+      ids.ip != "" and alias_merge_allowed?(update, ids)
     end)
+    |> Enum.map(fn {_update, device_id, ids} -> {device_id, ids} end)
+  end
+
+  defp alias_merge_allowed?(update, ids) do
+    cond do
+      has_non_mac_identifier?(update, ids) -> true
+      mapper_like_source?(update) -> false
+      true -> false
+    end
+  end
+
+  defp has_non_mac_identifier?(update, ids) do
+    source_has_agent_identity? = not mapper_like_source?(update)
+
+    (source_has_agent_identity? and ids.agent_id not in [nil, ""]) or
+      ids.armis_id not in [nil, ""] or
+      ids.integration_id not in [nil, ""] or
+      ids.netbox_id not in [nil, ""]
   end
 
   defp handle_alias_conflict(device_id, ids, actor, merged_ips) do

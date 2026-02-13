@@ -120,6 +120,14 @@ if api_keys do
   end
 end
 
+config :serviceradar_web_ng,
+  device_enrichment_rules_dir:
+    System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
+
+config :serviceradar_core,
+  device_enrichment_rules_dir:
+    System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
+
 plugin_storage_defaults = Application.get_env(:serviceradar_web_ng, :plugin_storage, [])
 plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
 plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")

@@ -1211,12 +1211,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             :if={is_map(@device_row) and not @editing}
             class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
           >
+            <% provenance = device_enrichment_provenance(@device_row) %>
             <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
               <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
               <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
               <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
               <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
               <.kv_inline label="Model" value={Map.get(@device_row, "model")} />
+              <.kv_inline label="Enrichment Source" value={provenance.source} />
+              <.kv_inline label="Enrichment Rule" value={provenance.rule_id} mono />
+              <.kv_inline label="Enrichment Confidence" value={provenance.confidence} />
+              <.kv_inline label="Enrichment Reason" value={provenance.reason} />
               <.kv_inline
                 :if={agent_device?(@device_row)}
                 label="Agent"
@@ -1874,6 +1879,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp format_label(key), do: to_string(key)
+
+  defp device_enrichment_provenance(row) when is_map(row) do
+    metadata = row_metadata(row)
+
+    %{
+      source: row_value(row, metadata, "classification_source"),
+      rule_id: row_value(row, metadata, "classification_rule_id"),
+      confidence: row_value_int(row, metadata, "classification_confidence"),
+      reason: row_value(row, metadata, "classification_reason")
+    }
+  end
+
+  defp device_enrichment_provenance(_),
+    do: %{source: nil, rule_id: nil, confidence: nil, reason: nil}
+
+  defp row_metadata(row) when is_map(row) do
+    case Map.get(row, "metadata") || Map.get(row, :metadata) do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  defp row_value(row, metadata, key) do
+    Map.get(row, key) || Map.get(metadata, key)
+  end
+
+  defp row_value_int(row, metadata, key) do
+    case row_value(row, metadata, key) do
+      value when is_integer(value) ->
+        value
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} -> parsed
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
 
   defp format_prop_value(nil), do: "—"
   defp format_prop_value(""), do: "—"
