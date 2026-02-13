@@ -907,6 +907,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
+                  <% snmp_fallback = snmp_fallback_derived?(row) %>
                   <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted, do: "opacity-60", else: ""}"}>
                     <td class="text-center">
                       <input
@@ -949,13 +950,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       <.device_type_badge
                         type={Map.get(row, "type")}
                         type_id={Map.get(row, "type_id")}
+                        snmp_fallback={snmp_fallback}
                       />
                     </td>
                     <td class="text-xs max-w-[8rem] truncate">
                       {Map.get(row, "vendor_name") || "—"}
+                      <span
+                        :if={snmp_fallback and present_text?(Map.get(row, "vendor_name"))}
+                        class="badge badge-ghost badge-xs ml-1"
+                      >
+                        SNMP
+                      </span>
                     </td>
                     <td class="text-xs max-w-[12rem] truncate">
                       {display_model(Map.get(row, "model"))}
+                      <span
+                        :if={snmp_fallback and display_model(Map.get(row, "model")) != "—"}
+                        class="badge badge-ghost badge-xs ml-1"
+                      >
+                        Fallback
+                      </span>
                     </td>
                     <td class="text-xs">
                       <.availability_badge available={Map.get(row, "is_available")} />
@@ -1688,6 +1702,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   attr :type, :string, default: nil
   attr :type_id, :integer, default: nil
+  attr :snmp_fallback, :boolean, default: false
 
   def device_type_badge(assigns) do
     label = device_type_label(assigns.type, assigns.type_id)
@@ -1699,9 +1714,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       |> assign(:icon, icon)
 
     ~H"""
-    <div class="flex items-center gap-1" title={"Type ID: #{@type_id}"}>
+    <div class="flex items-center gap-1.5" title={"Type ID: #{@type_id}"}>
       <.icon :if={@icon} name={@icon} class="size-3.5 text-base-content/60" />
       <span class="text-base-content/80">{@label}</span>
+      <span :if={@snmp_fallback and @label != "—"} class="badge badge-ghost badge-xs">
+        SNMP Fallback
+      </span>
     </div>
     """
   end
@@ -1782,6 +1800,74 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp display_model(model), do: model |> to_string() |> display_model()
+
+  defp row_metadata(row) when is_map(row) do
+    case Map.get(row, "metadata") || Map.get(row, :metadata) do
+      metadata when is_map(metadata) -> metadata
+      _ -> %{}
+    end
+  end
+
+  defp metadata_value(row, key) when is_binary(key) do
+    row
+    |> row_metadata()
+    |> Map.get(key)
+  end
+
+  defp metadata_value(_row, _key), do: nil
+
+  defp snmp_fallback_derived?(row) when is_map(row) do
+    metadata = row_metadata(row)
+
+    classification_source =
+      metadata_value(row, "classification_source")
+      |> normalize_meta_text()
+
+    has_rule = present_text?(metadata_value(row, "classification_rule_id"))
+
+    has_display_values =
+      present_text?(Map.get(row, "type")) or present_text?(Map.get(row, "vendor_name")) or
+        display_model(Map.get(row, "model")) != "—"
+
+    has_snmp_evidence = snmp_evidence_present?(metadata)
+
+    cond do
+      classification_source in ["snmp_fallback", "snmp_fingerprint_fallback"] ->
+        true
+
+      has_rule ->
+        false
+
+      true ->
+        has_display_values and has_snmp_evidence
+    end
+  end
+
+  defp snmp_fallback_derived?(_row), do: false
+
+  defp snmp_evidence_present?(metadata) when is_map(metadata) do
+    is_map(Map.get(metadata, "snmp_fingerprint")) or
+      present_text?(Map.get(metadata, "sys_object_id")) or
+      present_text?(Map.get(metadata, "sys_descr")) or
+      present_text?(Map.get(metadata, "sys_name")) or
+      present_text?(Map.get(metadata, "snmp_description")) or
+      present_text?(Map.get(metadata, "snmp_name")) or
+      present_text?(Map.get(metadata, "ip_forwarding"))
+  end
+
+  defp snmp_evidence_present?(_metadata), do: false
+
+  defp normalize_meta_text(nil), do: ""
+
+  defp normalize_meta_text(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_text?(_value), do: false
 
   attr :risk_level, :string, default: nil
 

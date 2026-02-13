@@ -319,8 +319,49 @@ func TestConvertDeviceToProto(t *testing.T) {
 		SysObjectID: "1.3.6.1.4.1.9.1.1",
 		SysContact:  "admin",
 		SysLocation: "datacenter",
-		Uptime:      3600,
-		Metadata:    map[string]string{"key": "value"},
+		SNMPFingerprint: &SNMPFingerprint{
+			System: &SNMPSystemFingerprint{
+				SysName:      "device1",
+				SysDescr:     "Test Device",
+				SysObjectID:  "1.3.6.1.4.1.9.1.1",
+				SysContact:   "admin",
+				SysLocation:  "datacenter",
+				IPForwarding: 1,
+			},
+			Bridge: &SNMPBridgeFingerprint{
+				BridgeBaseMAC:          "00:11:22:33:44:55",
+				BridgePortCount:        24,
+				STPForwardingPortCount: 18,
+			},
+			VLAN: &SNMPVLANFingerprint{
+				VLANIDsSeen: []int32{1, 2, 3},
+				PVIDDistribution: []SNMPPVIDCount{
+					{PVID: 1, Count: 20},
+					{PVID: 2, Count: 4},
+				},
+				PortEvidence: []SNMPVLANPortEvidence{
+					{
+						VLANID:           1,
+						EgressPortsHex:   "01FE",
+						UntaggedPortsHex: "01FE",
+					},
+				},
+			},
+			InterfaceSummary: &SNMPInterfaceSummaryFingerprint{
+				InterfaceCount: 24,
+				IfTypeCounts: []SNMPInterfaceTypeCount{
+					{IfType: 6, Count: 22},
+					{IfType: 24, Count: 2},
+				},
+				BridgeLikeNameCount:   3,
+				WirelessLikeNameCount: 1,
+			},
+			ExtractionErrors: map[string]string{
+				"dot1q": "unsupported table",
+			},
+		},
+		Uptime:   3600,
+		Metadata: map[string]string{"key": "value"},
 	}
 
 	protoDevice := convertDeviceToProto(device)
@@ -334,6 +375,15 @@ func TestConvertDeviceToProto(t *testing.T) {
 	assert.Equal(t, device.SysLocation, protoDevice.SysLocation)
 	assert.Equal(t, device.Uptime, protoDevice.Uptime)
 	assert.Equal(t, device.Metadata, protoDevice.Metadata)
+	require.NotNil(t, protoDevice.SnmpFingerprint)
+	require.NotNil(t, protoDevice.SnmpFingerprint.System)
+	assert.Equal(t, device.SNMPFingerprint.System.SysName, protoDevice.SnmpFingerprint.System.SysName)
+	assert.Equal(t, device.SNMPFingerprint.System.IPForwarding, protoDevice.SnmpFingerprint.System.IpForwarding)
+	require.NotNil(t, protoDevice.SnmpFingerprint.Bridge)
+	assert.Equal(t, device.SNMPFingerprint.Bridge.BridgePortCount, protoDevice.SnmpFingerprint.Bridge.BridgePortCount)
+	assert.Len(t, protoDevice.SnmpFingerprint.Vlan.VlanIdsSeen, 3)
+	assert.Len(t, protoDevice.SnmpFingerprint.InterfaceSummary.IfTypeCounts, 2)
+	assert.Equal(t, "unsupported table", protoDevice.SnmpFingerprint.ExtractionErrors["dot1q"])
 }
 
 func TestConvertTopologyLinkToProto(t *testing.T) {

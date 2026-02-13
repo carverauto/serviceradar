@@ -1,0 +1,10 @@
+{
+  "source": "mapper",
+  "hostname": "USWPro24",
+  "metadata": {
+    "sys_object_id": ".1.3.6.1.4.1.4413",
+    "sys_descr": "USW-Pro-24, 7.2.123.16565, Linux 3.6.5",
+    "sys_name": "USWPro24",
+    "ip_forwarding": "2"
+  }
+}

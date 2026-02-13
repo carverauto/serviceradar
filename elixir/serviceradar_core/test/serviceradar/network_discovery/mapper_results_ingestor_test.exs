@@ -252,4 +252,51 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert length(result.available_metrics) == 1
     end
   end
+
+  describe "normalize_topology/1 confidence scoring" do
+    test "assigns high confidence to LLDP links" do
+      result =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "LLDP",
+          "local_device_ip" => "192.168.1.1",
+          "neighbor_port_id" => "Gi1/0/1",
+          "neighbor_mgmt_addr" => "192.168.1.2",
+          "neighbor_system_name" => "switch-01",
+          "metadata" => %{}
+        })
+
+      assert result.metadata["confidence_tier"] == "high"
+      assert result.metadata["confidence_score"] == 95
+      assert result.metadata["confidence_reason"] == "direct_lldp_neighbor"
+    end
+
+    test "assigns medium confidence to unifi-api bridge/uplink links" do
+      result =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "UniFi-API",
+          "local_device_ip" => "192.168.1.130",
+          "neighbor_port_id" => "eth0",
+          "neighbor_chassis_id" => "aa:bb:cc:dd:ee:ff",
+          "neighbor_mgmt_addr" => "192.168.1.131",
+          "metadata" => %{"source" => "unifi-api"}
+        })
+
+      assert result.metadata["confidence_tier"] == "medium"
+      assert result.metadata["confidence_score"] == 78
+      assert result.metadata["confidence_reason"] == "bridge_uplink_with_neighbor_ip"
+    end
+
+    test "assigns low confidence when evidence is insufficient" do
+      result =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "unknown",
+          "local_device_ip" => "192.168.1.130",
+          "metadata" => %{}
+        })
+
+      assert result.metadata["confidence_tier"] == "low"
+      assert result.metadata["confidence_score"] == 20
+      assert result.metadata["confidence_reason"] == "insufficient_neighbor_evidence"
+    end
+  end
 end

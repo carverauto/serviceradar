@@ -471,7 +471,7 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
         if normalized_prefix == "" do
           nil
         else
-          sys_descr = Map.get(ctx, "sys_descr", "")
+          sys_descr = Map.get(ctx, "sys_descr_raw", "")
           extract_model_from_prefix(sys_descr, normalized_prefix)
         end
     end
@@ -479,22 +479,31 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
 
   defp extract_model_from_prefix(sys_descr, prefix)
        when is_binary(sys_descr) and is_binary(prefix) do
-    if String.contains?(sys_descr, prefix) do
-      sys_descr
-      |> String.split(prefix, parts: 2)
-      |> Enum.at(1)
-      |> to_string()
-      |> String.split(~r/\s+Linux/i, parts: 2)
-      |> List.first()
-      |> String.split(",", parts: 2)
-      |> List.first()
-      |> String.trim()
-      |> case do
-        "" -> nil
-        value -> value
-      end
-    else
-      nil
+    downcased_descr = String.downcase(sys_descr)
+    downcased_prefix = String.downcase(prefix)
+
+    case :binary.match(downcased_descr, downcased_prefix) do
+      {start, _len} ->
+        sys_descr
+        |> String.slice((start + String.length(prefix))..-1//1)
+        |> to_string()
+        |> String.trim()
+        |> case do
+          "" -> nil
+          value -> value
+        end
+        |> String.split(~r/\s+Linux/i, parts: 2)
+        |> List.first()
+        |> String.split(",", parts: 2)
+        |> List.first()
+        |> String.trim()
+        |> case do
+          "" -> nil
+          value -> value
+        end
+
+      :nomatch ->
+        nil
     end
   end
 
@@ -502,14 +511,15 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
 
   defp build_context(update) do
     metadata = Map.get(update, :metadata) || %{}
-    sys_descr = get_string(metadata, ["sys_descr", "sysDescr", "sys_description"]) || ""
+    sys_descr_raw = get_string(metadata, ["sys_descr", "sysDescr", "sys_description"]) || ""
     sys_name = get_string(metadata, ["sys_name", "sysName"]) || ""
 
     sys_object_id =
       get_string(metadata, ["sys_object_id", "sysObjectID", "sys_objectid", "sysObjectId"]) || ""
 
     %{
-      "sys_descr" => String.downcase(sys_descr),
+      "sys_descr" => String.downcase(sys_descr_raw),
+      "sys_descr_raw" => sys_descr_raw,
       "sys_name" => String.downcase(sys_name),
       "sys_object_id" => sys_object_id,
       "hostname" => String.downcase(to_string(Map.get(update, :hostname) || "")),
@@ -539,12 +549,16 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
 
   defp get_string(map, keys) do
     case get_value(map, keys) do
+      nil ->
+        nil
+
       value when is_binary(value) ->
         trimmed = String.trim(value)
         if trimmed == "", do: nil, else: trimmed
 
       value when is_atom(value) ->
-        value |> Atom.to_string() |> String.trim()
+        trimmed = value |> Atom.to_string() |> String.trim()
+        if trimmed == "", do: nil, else: trimmed
 
       _ ->
         nil
