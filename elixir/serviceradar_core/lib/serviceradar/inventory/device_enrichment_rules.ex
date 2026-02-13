@@ -108,21 +108,22 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
     if rules == [] do
       {:error, ["rules must be a non-empty list"]}
     else
-      {normalized, errors} =
-        Enum.reduce(rules, {[], []}, fn rule, {ok_acc, err_acc} ->
-          case normalize_rule_result(rule, source, file) do
-            {:ok, normalized_rule} -> {[normalized_rule | ok_acc], err_acc}
-            {:error, message} -> {ok_acc, [message | err_acc]}
-          end
-        end)
-
-      if errors == [] do
-        {:ok, Enum.reverse(normalized)}
-      else
-        {:error, Enum.reverse(errors)}
-      end
+      {normalized, errors} = normalize_rules(rules, source, file)
+      validate_rule_document_result(normalized, errors)
     end
   end
+
+  defp normalize_rules(rules, source, file) do
+    Enum.reduce(rules, {[], []}, fn rule, {ok_acc, err_acc} ->
+      case normalize_rule_result(rule, source, file) do
+        {:ok, normalized_rule} -> {[normalized_rule | ok_acc], err_acc}
+        {:error, message} -> {ok_acc, [message | err_acc]}
+      end
+    end)
+  end
+
+  defp validate_rule_document_result(normalized, []), do: {:ok, Enum.reverse(normalized)}
+  defp validate_rule_document_result(_normalized, errors), do: {:error, Enum.reverse(errors)}
 
   defp rules do
     case :persistent_term.get(@persistent_term_key, :missing) do
@@ -289,17 +290,8 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
 
   defp validate_match_branch(_branch, label), do: {:error, "#{label} must be a map"}
 
-  defp invalid_match_value?(key, value) do
-    case key do
-      "ip_forwarding" ->
-        invalid_scalar_or_list?(value, &(is_integer(&1) or is_binary(&1) or is_atom(&1)))
-
-      "sys_object_id_prefixes" ->
-        invalid_scalar_or_list?(value, &(is_integer(&1) or is_binary(&1) or is_atom(&1)))
-
-      _ ->
-        invalid_scalar_or_list?(value, &(is_integer(&1) or is_binary(&1) or is_atom(&1)))
-    end
+  defp invalid_match_value?(_key, value) do
+    invalid_scalar_or_list?(value, &(is_integer(&1) or is_binary(&1) or is_atom(&1)))
   end
 
   defp validate_set(set) when is_map(set) do
@@ -339,13 +331,11 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
   defp matches_rule?(rule, ctx) do
     match = rule.match || %{}
 
-    cond do
-      map_size(match) == 0 ->
-        false
-
-      true ->
-        all_match?(ctx, get_map(match, ["all", :all])) and
-          any_match?(ctx, get_map(match, ["any", :any]))
+    if map_size(match) == 0 do
+      false
+    else
+      all_match?(ctx, get_map(match, ["all", :all])) and
+        any_match?(ctx, get_map(match, ["any", :any]))
     end
   end
 
@@ -463,24 +453,26 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
   defp extract_model(set, ctx) do
     explicit = get_string(set, ["model", :model])
 
-    cond do
-      explicit not in [nil, ""] ->
-        explicit
+    if explicit in [nil, ""] do
+      model_from_prefix(set, ctx)
+    else
+      explicit
+    end
+  end
 
-      true ->
-        case get_string(set, ["model_from_sys_descr_prefix", :model_from_sys_descr_prefix]) do
-          nil ->
-            nil
+  defp model_from_prefix(set, ctx) do
+    case get_string(set, ["model_from_sys_descr_prefix", :model_from_sys_descr_prefix]) do
+      nil ->
+        nil
 
-          prefix ->
-            normalized_prefix = String.trim(prefix)
+      prefix ->
+        normalized_prefix = String.trim(prefix)
 
-            if normalized_prefix == "" do
-              nil
-            else
-              sys_descr = Map.get(ctx, "sys_descr", "")
-              extract_model_from_prefix(sys_descr, normalized_prefix)
-            end
+        if normalized_prefix == "" do
+          nil
+        else
+          sys_descr = Map.get(ctx, "sys_descr", "")
+          extract_model_from_prefix(sys_descr, normalized_prefix)
         end
     end
   end

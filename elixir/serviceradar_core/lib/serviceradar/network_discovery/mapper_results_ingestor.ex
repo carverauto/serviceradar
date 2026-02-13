@@ -126,75 +126,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     grouped_updates =
       records
       |> Enum.group_by(& &1.device_id)
-      |> Enum.map(fn {device_id, grouped} ->
-        latest_ts =
-          grouped
-          |> Enum.map(& &1.timestamp)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.max(fn -> DateTime.utc_now() end)
-
-        partition =
-          grouped
-          |> Enum.map(& &1.partition)
-          |> Enum.reject(&is_nil/1)
-          |> List.first() || "default"
-
-        current_ip = primary_device_ip(grouped)
-        role = infer_device_role(grouped, current_ip)
-
-        stable_records =
-          grouped
-          |> Enum.filter(&(normalize_alias_ip(&1.device_ip) == current_ip))
-
-        stable_interface_ips =
-          stable_records
-          |> Enum.flat_map(&List.wrap(&1.ip_addresses))
-          |> Enum.map(&normalize_alias_ip/1)
-          |> Enum.filter(&valid_alias_ip?/1)
-          |> Enum.reject(&(&1 == current_ip))
-          |> Enum.uniq()
-
-        mismatched_device_ips =
-          grouped
-          |> Enum.map(&normalize_alias_ip(&1.device_ip))
-          |> Enum.filter(&valid_alias_ip?/1)
-          |> Enum.reject(&(&1 == current_ip))
-          |> Enum.uniq()
-
-        alias_ips =
-          case role.role do
-            "router" ->
-              [current_ip | stable_interface_ips]
-              |> Enum.filter(&valid_alias_ip?/1)
-              |> Enum.uniq()
-
-            _ ->
-              if valid_alias_ip?(current_ip), do: [current_ip], else: []
-          end
-
-        candidate_ips =
-          case role.role do
-            "router" ->
-              []
-
-            _ ->
-              (stable_interface_ips ++ mismatched_device_ips)
-              |> Enum.reject(&(&1 in alias_ips))
-              |> Enum.uniq()
-          end
-
-        metadata = build_alias_metadata(alias_ips, latest_ts, role, candidate_ips)
-
-        %{
-          device_id: device_id,
-          partition: partition,
-          ip: current_ip,
-          timestamp: latest_ts,
-          metadata: metadata,
-          role: role,
-          candidate_ips: candidate_ips
-        }
-      end)
+      |> Enum.map(fn {device_id, grouped} -> build_grouped_alias_update(device_id, grouped) end)
 
     Enum.each(grouped_updates, fn update ->
       persist_role_metadata(update.device_id, update.role, actor)
@@ -234,6 +166,79 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     e ->
       Logger.warning("Mapper alias state processing raised: #{inspect(e)}")
       :ok
+  end
+
+  defp build_grouped_alias_update(device_id, grouped) do
+    latest_ts = grouped_latest_timestamp(grouped)
+    partition = grouped_partition(grouped)
+    current_ip = primary_device_ip(grouped)
+    role = infer_device_role(grouped, current_ip)
+    stable_interface_ips = grouped_stable_interface_ips(grouped, current_ip)
+    mismatched_device_ips = grouped_mismatched_device_ips(grouped, current_ip)
+    alias_ips = alias_ips_for_role(role.role, current_ip, stable_interface_ips)
+    candidate_ips = candidate_ips_for_role(role.role, stable_interface_ips, mismatched_device_ips, alias_ips)
+    metadata = build_alias_metadata(alias_ips, latest_ts, role, candidate_ips)
+
+    %{
+      device_id: device_id,
+      partition: partition,
+      ip: current_ip,
+      timestamp: latest_ts,
+      metadata: metadata,
+      role: role,
+      candidate_ips: candidate_ips
+    }
+  end
+
+  defp grouped_latest_timestamp(grouped) do
+    grouped
+    |> Enum.map(& &1.timestamp)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max(fn -> DateTime.utc_now() end)
+  end
+
+  defp grouped_partition(grouped) do
+    grouped
+    |> Enum.map(& &1.partition)
+    |> Enum.reject(&is_nil/1)
+    |> List.first() || "default"
+  end
+
+  defp grouped_stable_interface_ips(grouped, current_ip) do
+    grouped
+    |> Enum.filter(&(normalize_alias_ip(&1.device_ip) == current_ip))
+    |> Enum.flat_map(&List.wrap(&1.ip_addresses))
+    |> Enum.map(&normalize_alias_ip/1)
+    |> Enum.filter(&valid_alias_ip?/1)
+    |> Enum.reject(&(&1 == current_ip))
+    |> Enum.uniq()
+  end
+
+  defp grouped_mismatched_device_ips(grouped, current_ip) do
+    grouped
+    |> Enum.map(&normalize_alias_ip(&1.device_ip))
+    |> Enum.filter(&valid_alias_ip?/1)
+    |> Enum.reject(&(&1 == current_ip))
+    |> Enum.uniq()
+  end
+
+  defp alias_ips_for_role("router", current_ip, stable_interface_ips) do
+    [current_ip | stable_interface_ips]
+    |> Enum.filter(&valid_alias_ip?/1)
+    |> Enum.uniq()
+  end
+
+  defp alias_ips_for_role(_role, current_ip, _stable_interface_ips) do
+    if valid_alias_ip?(current_ip), do: [current_ip], else: []
+  end
+
+  defp candidate_ips_for_role("router", _stable_interface_ips, _mismatched_device_ips, _alias_ips),
+    do: []
+
+  defp candidate_ips_for_role(_role, stable_interface_ips, mismatched_device_ips, alias_ips) do
+    (stable_interface_ips ++ mismatched_device_ips)
+    |> Enum.reject(&(&1 in alias_ips))
+    |> Enum.uniq()
   end
 
   defp build_alias_metadata([], _timestamp, _role, _candidate_ips), do: %{}
@@ -392,20 +397,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp ensure_candidate_device(ip, partition, source_device_id, actor) do
     existing = lookup_device_uids_by_ip([ip])
 
-    cond do
-      Map.has_key?(existing, ip) ->
-        :ok
+    if Map.has_key?(existing, ip) do
+      :ok
+    else
+      case find_device_uid_by_alias(ip, partition, actor) do
+        {:ok, alias_uid} when is_binary(alias_uid) and alias_uid != "" ->
+          Logger.debug("Mapper candidate IP #{ip} already mapped via alias #{alias_uid}")
+          :ok
 
-      true ->
-        case find_device_uid_by_alias(ip, partition, actor) do
-          {:ok, alias_uid} when is_binary(alias_uid) and alias_uid != "" ->
-            Logger.debug("Mapper candidate IP #{ip} already mapped via alias #{alias_uid}")
-            :ok
-
-          _ ->
-            _ = create_candidate_device_for_ip(ip, partition, source_device_id, actor)
-            :ok
-        end
+        _ ->
+          _ = create_candidate_device_for_ip(ip, partition, source_device_id, actor)
+          :ok
+      end
     end
   end
 
@@ -508,27 +511,29 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.reject(&Map.has_key?(ip_to_uid, &1))
     |> Enum.reduce(ip_to_uid, fn device_ip, acc ->
       partition = partition_for_device_ip(device_ip, records)
-
-      case find_device_uid_by_alias(device_ip, partition, actor) do
-        {:ok, alias_uid} when is_binary(alias_uid) and alias_uid != "" ->
-          Logger.info("Mapper resolved device #{alias_uid} for IP #{device_ip} via alias state")
-
-          Map.put(acc, device_ip, alias_uid)
-
-        _ ->
-          case create_device_for_ip(device_ip, records, acc, actor) do
-            {:ok, device_uid} ->
-              Map.put(acc, device_ip, device_uid)
-
-            {:error, reason} ->
-              Logger.warning(
-                "Failed to create device for mapper-discovered IP #{device_ip}: #{inspect(reason)}"
-              )
-
-              acc
-          end
-      end
+      put_alias_or_created_uid(acc, device_ip, partition, records, actor)
     end)
+  end
+
+  defp put_alias_or_created_uid(acc, device_ip, partition, records, actor) do
+    case find_device_uid_by_alias(device_ip, partition, actor) do
+      {:ok, alias_uid} when is_binary(alias_uid) and alias_uid != "" ->
+        Logger.info("Mapper resolved device #{alias_uid} for IP #{device_ip} via alias state")
+        Map.put(acc, device_ip, alias_uid)
+
+      _ ->
+        case create_device_for_ip(device_ip, records, acc, actor) do
+          {:ok, device_uid} ->
+            Map.put(acc, device_ip, device_uid)
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to create device for mapper-discovered IP #{device_ip}: #{inspect(reason)}"
+            )
+
+            acc
+        end
+    end
   end
 
   defp create_device_for_ip(device_ip, records, ip_to_uid, actor) do
@@ -702,19 +707,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp recover_existing_device_uid(device_uid, device_ip, errors, actor) do
     # Device may have been created concurrently; recover by re-reading by IP.
-    if Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)) do
-      cond do
-        device_exists?(device_uid, actor) ->
-          {:ok, device_uid}
+    case Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)) do
+      true -> recover_existing_device_uid_from_conflict(device_uid, device_ip, errors, actor)
+      false -> {:error, errors}
+    end
+  end
 
-        true ->
-          case lookup_device_uids_by_ip([device_ip]) do
-            %{^device_ip => uid} -> {:ok, uid}
-            _ -> {:error, errors}
-          end
-      end
+  defp recover_existing_device_uid_from_conflict(device_uid, device_ip, errors, actor) do
+    if device_exists?(device_uid, actor) do
+      {:ok, device_uid}
     else
-      {:error, errors}
+      case lookup_device_uids_by_ip([device_ip]) do
+        %{^device_ip => uid} -> {:ok, uid}
+        _ -> {:error, errors}
+      end
     end
   end
 

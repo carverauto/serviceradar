@@ -94,25 +94,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp build_link_payload(link) do
     local_device_id = link_value(link, :local_device_id)
     neighbor_device_id = neighbor_device_id(link)
-
-    local_interface_id =
-      interface_id(
-        local_device_id,
-        link_value(link, :local_if_name),
-        link_value(link, :local_if_index)
-      ) ||
-        default_interface_id(local_device_id, "unknown-local")
-
-    neighbor_port =
-      non_blank(link_value(link, :neighbor_port_id)) ||
-        non_blank(link_value(link, :neighbor_port_descr)) ||
-        non_blank(link_value(link, :neighbor_chassis_id)) ||
-        non_blank(link_value(link, :neighbor_system_name)) ||
-        non_blank(link_value(link, :neighbor_mgmt_addr))
-
-    neighbor_interface_id =
-      interface_id(neighbor_device_id, neighbor_port, nil) ||
-        default_interface_id(neighbor_device_id, "unknown-neighbor")
+    local_interface_id = local_interface_id(link, local_device_id)
+    neighbor_port = neighbor_port(link)
+    neighbor_interface_id = neighbor_interface_id(neighbor_device_id, neighbor_port)
 
     if is_nil(local_device_id) or is_nil(neighbor_device_id) do
       {:error, :missing_ids}
@@ -131,6 +115,32 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
          neighbor_ip: link_value(link, :neighbor_mgmt_addr)
        }}
     end
+  end
+
+  defp local_interface_id(link, local_device_id) do
+    interface_id(
+      local_device_id,
+      link_value(link, :local_if_name),
+      link_value(link, :local_if_index)
+    ) || default_interface_id(local_device_id, "unknown-local")
+  end
+
+  defp neighbor_port(link) do
+    Enum.find_value(
+      [
+        :neighbor_port_id,
+        :neighbor_port_descr,
+        :neighbor_chassis_id,
+        :neighbor_system_name,
+        :neighbor_mgmt_addr
+      ],
+      fn key -> non_blank(link_value(link, key)) end
+    )
+  end
+
+  defp neighbor_interface_id(neighbor_device_id, neighbor_port) do
+    interface_id(neighbor_device_id, neighbor_port, nil) ||
+      default_interface_id(neighbor_device_id, "unknown-neighbor")
   end
 
   defp upsert_interface_payload(payload) do

@@ -855,8 +855,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       phx-click="toggle_select_all"
                     />
                   </th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Hostname</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">IP</th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Device</th>
                   <th
                     class="text-xs font-semibold text-base-content/70 bg-base-200/60"
                     title="OCSF Device Type"
@@ -890,7 +889,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               <tbody>
                 <tr :if={@devices == []}>
                   <td
-                    colspan={11}
+                    colspan={10}
                     class="py-8 text-center text-sm text-base-content/60"
                   >
                     No devices found.
@@ -919,29 +918,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                         phx-value-uid={device_uid}
                       />
                     </td>
-                    <td class="text-sm max-w-[18rem] truncate">
+                    <td class="max-w-[18rem]">
                       <div class="flex items-center gap-2 min-w-0">
-                        <.icon
-                          :if={agent_device_row?(row)}
-                          name="hero-bolt"
-                          class="size-3 text-accent"
-                          title="Agent device"
-                        />
-                        <.link
-                          :if={is_binary(device_uid)}
-                          navigate={~p"/devices/#{device_uid}"}
-                          class="link link-hover truncate"
-                          title={"UID: #{device_uid}"}
-                        >
-                          {Map.get(row, "hostname") || device_uid}
-                        </.link>
-                        <span :if={not is_binary(device_uid)} class="truncate">
-                          {Map.get(row, "hostname") || "—"}
-                        </span>
-                        <span :if={deleted} class="badge badge-ghost badge-xs">Deleted</span>
+                        <div class="flex items-center gap-2 min-w-0">
+                          <.icon
+                            :if={agent_device_row?(row)}
+                            name="hero-bolt"
+                            class="size-3 text-accent shrink-0"
+                            title="Agent device"
+                          />
+                          <.link
+                            :if={is_binary(device_uid)}
+                            navigate={~p"/devices/#{device_uid}"}
+                            class="link link-hover truncate text-sm"
+                            title={"UID: #{device_uid}"}
+                          >
+                            {Map.get(row, "hostname") || device_uid}
+                          </.link>
+                          <span :if={not is_binary(device_uid)} class="truncate text-sm">
+                            {Map.get(row, "hostname") || "—"}
+                          </span>
+                        </div>
+                        <span :if={deleted} class="badge badge-ghost badge-xs shrink-0">Deleted</span>
+                      </div>
+                      <div class="font-mono text-[0.7rem] text-base-content/60 truncate mt-0.5">
+                        {Map.get(row, "ip") || "—"}
                       </div>
                     </td>
-                    <td class="font-mono text-xs">{Map.get(row, "ip") || "—"}</td>
                     <td class="text-xs">
                       <.device_type_badge
                         type={Map.get(row, "type")}
@@ -952,7 +955,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       {Map.get(row, "vendor_name") || "—"}
                     </td>
                     <td class="text-xs max-w-[12rem] truncate">
-                      {Map.get(row, "model") || "—"}
+                      {display_model(Map.get(row, "model"))}
                     </td>
                     <td class="text-xs">
                       <.availability_badge available={Map.get(row, "is_available")} />
@@ -1723,15 +1726,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp device_type_label(_type, 99), do: "Other"
   defp device_type_label(_type, _type_id), do: "—"
 
-  defp device_type_icon(type, _type_id) when is_binary(type) do
+  defp device_type_icon(type, type_id) when is_binary(type) do
     normalized = type |> String.downcase() |> String.trim()
 
     cond do
       normalized in ["access point", "access_point", "wireless ap", "wireless access point", "ap"] ->
         "hero-wifi"
 
+      normalized in ["server"] ->
+        "hero-server"
+
+      normalized in ["router"] ->
+        "hero-arrows-right-left"
+
+      normalized in ["switch"] ->
+        "hero-square-3-stack-3d"
+
+      normalized in ["firewall"] ->
+        "hero-shield-check"
+
+      normalized in ["desktop"] ->
+        "hero-computer-desktop"
+
+      normalized in ["laptop"] ->
+        "hero-computer-desktop"
+
       true ->
-        nil
+        device_type_icon(nil, type_id)
     end
   end
 
@@ -1747,6 +1768,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp device_type_icon(_type, 12), do: "hero-arrows-right-left"
   defp device_type_icon(_type, 15), do: "hero-scale"
   defp device_type_icon(_type, _type_id), do: nil
+
+  defp display_model(nil), do: "—"
+
+  defp display_model(model) when is_binary(model) do
+    trimmed = String.trim(model)
+
+    if trimmed == "" or String.downcase(trimmed) == "nil" do
+      "—"
+    else
+      trimmed
+    end
+  end
+
+  defp display_model(model), do: model |> to_string() |> display_model()
 
   attr :risk_level, :string, default: nil
 

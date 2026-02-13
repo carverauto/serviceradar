@@ -869,17 +869,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         end)
     }
 
-    if not merge_allowed_for_matches?(matches) do
-      blocked_reason = blocked_merge_reason(matches)
-
-      Logger.warning(
-        "Blocked merge: shared identifiers are not eligible for auto-merge. " <>
-          "Devices: #{inspect(device_ids)}, " <>
-          "identifiers: #{inspect(details.identifiers)}"
-      )
-
-      emit_blocked_merge_telemetry(blocked_reason, device_ids, details.identifiers)
-    else
+    if merge_allowed_for_matches?(matches) do
       device_ids
       |> Enum.reject(&(&1 == canonical_id))
       |> Enum.each(fn from_id ->
@@ -890,6 +880,16 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
             details: details
           )
       end)
+    else
+      blocked_reason = blocked_merge_reason(matches)
+
+      Logger.warning(
+        "Blocked merge: shared identifiers are not eligible for auto-merge. " <>
+          "Devices: #{inspect(device_ids)}, " <>
+          "identifiers: #{inspect(details.identifiers)}"
+      )
+
+      emit_blocked_merge_telemetry(blocked_reason, device_ids, details.identifiers)
     end
   end
 
@@ -934,24 +934,27 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
       _ ->
         canonical_id = select_canonical_device_id(device_id, matches, actor)
+        resolve_conflicts_for_canonical(device_id, canonical_id, device_ids, matches, actor)
+    end
+  end
 
-        if merge_allowed_for_matches?(matches) do
-          _ = merge_conflicting_devices(canonical_id, device_ids, matches, actor)
-          canonical_id
-        else
-          blocked_reason = blocked_merge_reason(matches)
+  defp resolve_conflicts_for_canonical(device_id, canonical_id, device_ids, matches, actor) do
+    if merge_allowed_for_matches?(matches) do
+      _ = merge_conflicting_devices(canonical_id, device_ids, matches, actor)
+      canonical_id
+    else
+      blocked_reason = blocked_merge_reason(matches)
 
-          Logger.warning(
-            "Blocked merge during identifier conflict resolution. " <>
-              "Devices: #{inspect(device_ids)}, reason: #{blocked_reason}"
-          )
+      Logger.warning(
+        "Blocked merge during identifier conflict resolution. " <>
+          "Devices: #{inspect(device_ids)}, reason: #{blocked_reason}"
+      )
 
-          emit_blocked_merge_telemetry(blocked_reason, device_ids, matches)
+      emit_blocked_merge_telemetry(blocked_reason, device_ids, matches)
 
-          # Preserve current device_id on blocked merge paths to avoid
-          # destructive rebinds from ambiguous MAC-only conflicts.
-          if present_id?(device_id), do: device_id, else: canonical_id
-        end
+      # Preserve current device_id on blocked merge paths to avoid
+      # destructive rebinds from ambiguous MAC-only conflicts.
+      if present_id?(device_id), do: device_id, else: canonical_id
     end
   end
 

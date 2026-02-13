@@ -514,6 +514,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp merge_device_records(existing, incoming) do
+    merged_metadata = Map.merge(existing.metadata || %{}, incoming.metadata || %{})
+    merged_tags = Map.merge(existing.tags || %{}, incoming.tags || %{})
+    merged_discovery_sources = merge_discovery_sources(existing.discovery_sources, incoming.discovery_sources)
+
     %{
       existing
       | ip: prefer_non_empty(incoming.ip, existing.ip),
@@ -525,23 +529,28 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         vendor_name: prefer_non_empty(incoming.vendor_name, existing.vendor_name),
         model: prefer_non_empty(incoming.model, existing.model),
         is_available: incoming.is_available,
-        owner: incoming.owner || existing.owner,
-        metadata: Map.merge(existing.metadata || %{}, incoming.metadata || %{}),
-        tags: Map.merge(existing.tags || %{}, incoming.tags || %{}),
-        discovery_sources:
-          (existing.discovery_sources || [])
-          |> Kernel.++(incoming.discovery_sources || [])
-          |> Enum.reject(&(&1 in [nil, ""]))
-          |> Enum.uniq(),
-        first_seen_time: existing.first_seen_time || incoming.first_seen_time,
-        last_seen_time: incoming.last_seen_time || existing.last_seen_time,
-        created_time: existing.created_time || incoming.created_time,
-        modified_time: incoming.modified_time || existing.modified_time
+        owner: prefer_non_nil(incoming.owner, existing.owner),
+        metadata: merged_metadata,
+        tags: merged_tags,
+        discovery_sources: merged_discovery_sources,
+        first_seen_time: prefer_non_nil(existing.first_seen_time, incoming.first_seen_time),
+        last_seen_time: prefer_non_nil(incoming.last_seen_time, existing.last_seen_time),
+        created_time: prefer_non_nil(existing.created_time, incoming.created_time),
+        modified_time: prefer_non_nil(incoming.modified_time, existing.modified_time)
     }
+  end
+
+  defp merge_discovery_sources(existing_sources, incoming_sources) do
+    (existing_sources || [])
+    |> Kernel.++(incoming_sources || [])
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.uniq()
   end
 
   defp prefer_non_empty(new_value, old_value) when new_value in [nil, ""], do: old_value
   defp prefer_non_empty(new_value, _old_value), do: new_value
+  defp prefer_non_nil(nil, old_value), do: old_value
+  defp prefer_non_nil(new_value, _old_value), do: new_value
 
   defp prefer_positive_int(new_value, _old_value) when is_integer(new_value) and new_value > 0,
     do: new_value
@@ -648,20 +657,13 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp include_agent_identifier?(update, ids) do
-    cond do
-      ids.agent_id in [nil, ""] -> false
-      mapper_like_source?(update) -> false
-      true -> true
-    end
+    ids.agent_id not in [nil, ""] and not mapper_like_source?(update)
   end
 
   defp include_mac_identifier?(update) do
     metadata = update.metadata || %{}
 
-    cond do
-      mapper_like_source?(update) -> mapper_primary_mac?(metadata)
-      true -> true
-    end
+    if mapper_like_source?(update), do: mapper_primary_mac?(metadata), else: true
   end
 
   defp mapper_like_source?(update) do
@@ -961,26 +963,28 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         "type_name"
       ])
 
+    if explicit in [nil, ""] do
+      nil
+    else
+      explicit_type_tuple(explicit)
+    end
+  end
+
+  defp explicit_type_tuple(explicit) do
+    normalized = String.downcase(explicit)
+
     cond do
-      explicit in [nil, ""] ->
-        nil
+      normalized in ["router", "gateway"] ->
+        {"Router", 12}
+
+      normalized in ["switch", "switch_l2"] ->
+        {"Switch", 10}
+
+      normalized in ["access_point", "access point", "ap", "wireless_ap"] ->
+        {"Access Point", 99}
 
       true ->
-        normalized = String.downcase(explicit)
-
-        cond do
-          normalized in ["router", "gateway"] ->
-            {"Router", 12}
-
-          normalized in ["switch", "switch_l2"] ->
-            {"Switch", 10}
-
-          normalized in ["access_point", "access point", "ap", "wireless_ap"] ->
-            {"Access Point", 99}
-
-          true ->
-            {explicit, 99}
-        end
+        {explicit, 99}
     end
   end
 

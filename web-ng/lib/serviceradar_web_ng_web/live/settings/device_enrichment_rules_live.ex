@@ -1246,10 +1246,10 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   defp parse_file_rules(content, file_name) do
     case YamlElixir.read_from_string(content) do
       {:ok, %{"rules" => rules}} when is_list(rules) ->
-        {:ok, rules}
+        {:ok, Enum.map(rules, &stringify_map_keys/1)}
 
       {:ok, %{rules: rules}} when is_list(rules) ->
-        {:ok, rules}
+        {:ok, Enum.map(rules, &stringify_map_keys/1)}
 
       {:ok, _} ->
         {:error, "#{file_name} is missing a top-level rules list"}
@@ -1258,6 +1258,23 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
         {:error, "Could not parse #{file_name}: #{inspect(reason)}"}
     end
   end
+
+  defp stringify_map_keys(map) when is_map(map) do
+    map
+    |> Enum.map(fn {key, value} ->
+      normalized_key =
+        case key do
+          k when is_atom(k) -> Atom.to_string(k)
+          k -> to_string(k)
+        end
+
+      {normalized_key, stringify_map_keys(value)}
+    end)
+    |> Map.new()
+  end
+
+  defp stringify_map_keys(list) when is_list(list), do: Enum.map(list, &stringify_map_keys/1)
+  defp stringify_map_keys(value), do: value
 
   defp normalize_file_name(file_name) when is_binary(file_name) do
     trimmed = String.trim(file_name)
@@ -1414,14 +1431,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     if rules == [] do
       "rules: []\n"
     else
-      header = "rules:\n"
-
-      body =
-        rules
-        |> Enum.map(&render_rule_yaml/1)
-        |> Enum.join("\n")
-
-      header <> body
+      "rules:\n" <> Enum.map_join(rules, "\n", &render_rule_yaml/1)
     end
   end
 
@@ -1476,8 +1486,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     else
       map
       |> Enum.sort_by(fn {k, _v} -> to_string(k) end)
-      |> Enum.map(fn {k, v} -> "#{prefix}#{k}: #{render_value_yaml(v, indent)}" end)
-      |> Enum.join("\n")
+      |> Enum.map_join("\n", fn {k, v} -> "#{prefix}#{k}: #{render_value_yaml(v, indent)}" end)
     end
   end
 
@@ -1519,16 +1528,16 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     values = csv_values(value)
 
     case key do
-      "ip_forwarding" ->
-        Enum.map(values, fn candidate ->
-          case Integer.parse(candidate) do
-            {int, ""} -> int
-            _ -> candidate
-          end
-        end)
-
+      "ip_forwarding" -> Enum.map(values, &parse_ip_forwarding_candidate/1)
       _ ->
         values
+    end
+  end
+
+  defp parse_ip_forwarding_candidate(candidate) do
+    case Integer.parse(candidate) do
+      {int, ""} -> int
+      _ -> candidate
     end
   end
 
@@ -1661,20 +1670,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     set =
       Enum.reduce(@set_keys, %{}, fn key, acc ->
         value = params |> Map.get("set_#{key}", "") |> String.trim()
-
-        cond do
-          value == "" ->
-            acc
-
-          key == "type_id" ->
-            case Integer.parse(value) do
-              {int, ""} -> Map.put(acc, key, int)
-              _ -> Map.put(acc, key, value)
-            end
-
-          true ->
-            Map.put(acc, key, value)
-        end
+        maybe_put_set_value(acc, key, value)
       end)
 
     if map_size(set) == 0 do
@@ -1683,6 +1679,20 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
       {:ok, set}
     end
   end
+
+  defp maybe_put_set_value(acc, _key, ""), do: acc
+
+  defp maybe_put_set_value(acc, "type_id", value) do
+    parsed =
+      case Integer.parse(value) do
+        {int, ""} -> int
+        _ -> value
+      end
+
+    Map.put(acc, "type_id", parsed)
+  end
+
+  defp maybe_put_set_value(acc, key, value), do: Map.put(acc, key, value)
 
   defp build_match_map(params) do
     all_map =
