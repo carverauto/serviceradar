@@ -56,7 +56,9 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
         |> assign(:show_export_modal, false)
         |> assign(:export_yaml, "")
         |> assign(:show_rule_editor, false)
+        |> assign(:show_discard_rule_modal, false)
         |> assign(:editing_index, nil)
+        |> assign(:rule_form_dirty, false)
         |> assign(
           :simulation_form,
           to_form(%{"payload" => default_simulation_payload()}, as: :simulation)
@@ -305,7 +307,9 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
           {:noreply,
            socket
            |> assign(:show_rule_editor, true)
+           |> assign(:show_discard_rule_modal, false)
            |> assign(:editing_index, nil)
+           |> assign(:rule_form_dirty, false)
            |> assign(:rule_form, to_form(default_rule_form(), as: :rule))}
 
         {:error, reason} ->
@@ -325,16 +329,44 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
         {:noreply,
          socket
          |> assign(:show_rule_editor, true)
+         |> assign(:show_discard_rule_modal, false)
          |> assign(:editing_index, idx)
+         |> assign(:rule_form_dirty, false)
          |> assign(:rule_form, to_form(rule_to_form(rule), as: :rule))}
     end
   end
 
-  def handle_event("cancel_rule", _params, socket) do
+  def handle_event("rule_form_changed", %{"rule" => params}, socket) do
     {:noreply,
      socket
-     |> assign(:show_rule_editor, false)
-     |> assign(:editing_index, nil)}
+     |> assign(:rule_form, to_form(params, as: :rule))
+     |> assign(:rule_form_dirty, true)}
+  end
+
+  def handle_event("cancel_rule", _params, socket) do
+    close_rule_editor(socket)
+  end
+
+  def handle_event("attempt_close_rule_editor", _params, socket) do
+    close_rule_editor(socket)
+  end
+
+  def handle_event("rule_editor_escape", _params, socket) do
+    if socket.assigns.show_discard_rule_modal do
+      {:noreply, assign(socket, :show_discard_rule_modal, false)}
+    else
+      close_rule_editor(socket)
+    end
+  end
+
+  def handle_event("keep_editing_rule", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_discard_rule_modal, false)}
+  end
+
+  def handle_event("discard_rule_changes", _params, socket) do
+    {:noreply, reset_rule_editor(socket)}
   end
 
   def handle_event("save_rule", %{"rule" => params}, socket) do
@@ -363,8 +395,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
        socket
        |> assign(:rules, validated_rules)
        |> load_selected_file(socket.assigns.selected_file)
-       |> assign(:show_rule_editor, false)
-       |> assign(:editing_index, nil)
+       |> reset_rule_editor()
        |> put_flash(:info, "Rule saved. Restart or reload core to apply changes.")}
     else
       {:error, reason} ->
@@ -545,9 +576,9 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
             <div class="card-body">
               <div class="flex items-center justify-between">
                 <h2 class="card-title text-base">Rule Files</h2>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center justify-end gap-1.5">
                   <button
-                    class="btn btn-sm btn-outline"
+                    class="btn btn-xs btn-outline text-[11px] leading-none whitespace-nowrap"
                     phx-click="open_import_yaml"
                     id="open-import-yaml"
                     disabled={is_nil(@selected_file)}
@@ -555,14 +586,18 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                     Import YAML
                   </button>
                   <button
-                    class="btn btn-sm btn-outline"
+                    class="btn btn-xs btn-outline text-[11px] leading-none whitespace-nowrap"
                     phx-click="open_export_yaml"
                     id="open-export-yaml"
                     disabled={is_nil(@selected_file)}
                   >
                     Export YAML
                   </button>
-                  <button class="btn btn-sm btn-primary" phx-click="open_new_file" id="open-new-file">
+                  <button
+                    class="btn btn-xs btn-primary text-[11px] leading-none whitespace-nowrap"
+                    phx-click="open_new_file"
+                    id="open-new-file"
+                  >
                     New File
                   </button>
                 </div>
@@ -626,7 +661,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
 
           <div class="card bg-base-100 border border-base-300 lg:col-span-2">
             <div class="card-body gap-4">
-              <div class="flex items-center justify-between">
+              <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="card-title text-base">
                   <%= if @selected_file do %>
                     Rules in {@selected_file}
@@ -634,7 +669,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                     Select a rule file
                   <% end %>
                 </h2>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center justify-end gap-1.5">
                   <span
                     :if={@selected_file_source == :builtin}
                     class="badge badge-outline badge-info badge-sm"
@@ -649,14 +684,14 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                   </span>
                   <button
                     :if={@selected_file}
-                    class="btn btn-sm btn-ghost"
+                    class="btn btn-xs btn-ghost text-[11px] leading-none whitespace-nowrap"
                     phx-click="reload_file"
                     id="reload-file"
                   >
                     Reload
                   </button>
                   <button
-                    class="btn btn-sm btn-outline"
+                    class="btn btn-xs btn-outline text-[11px] leading-none whitespace-nowrap"
                     phx-click="new_rule"
                     disabled={
                       is_nil(@selected_file) or @selected_file_source != :override or
@@ -673,8 +708,8 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                 <span>No rules yet in this file.</span>
               </div>
 
-              <div :if={@rules != []} class="overflow-x-auto">
-                <table class="table table-zebra">
+              <div :if={@rules != []}>
+                <table class="table table-sm table-zebra w-full">
                   <thead>
                     <tr>
                       <th>ID</th>
@@ -703,44 +738,46 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                             {if Map.get(rule, "enabled", true), do: "enabled", else: "disabled"}
                           </span>
                         </td>
-                        <td class="space-x-2">
-                          <button
-                            class="btn btn-xs"
-                            phx-click="edit_rule"
-                            phx-value-index={idx}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            class="btn btn-xs btn-outline"
-                            phx-click="duplicate_rule"
-                            phx-value-index={idx}
-                          >
-                            Duplicate
-                          </button>
-                          <button
-                            class="btn btn-xs btn-outline"
-                            phx-click="move_rule_up"
-                            phx-value-index={idx}
-                            disabled={idx == 0}
-                          >
-                            ↑
-                          </button>
-                          <button
-                            class="btn btn-xs btn-outline"
-                            phx-click="move_rule_down"
-                            phx-value-index={idx}
-                            disabled={idx == length(@rules) - 1}
-                          >
-                            ↓
-                          </button>
-                          <button
-                            class="btn btn-xs btn-error btn-outline"
-                            phx-click="delete_rule"
-                            phx-value-index={idx}
-                          >
-                            Delete
-                          </button>
+                        <td class="w-[15rem] align-top">
+                          <div class="grid grid-cols-3 gap-1.5">
+                            <button
+                              class="btn btn-xs w-full text-[11px] leading-none whitespace-nowrap"
+                              phx-click="edit_rule"
+                              phx-value-index={idx}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              class="btn btn-xs btn-outline w-full text-[11px] leading-none whitespace-nowrap"
+                              phx-click="duplicate_rule"
+                              phx-value-index={idx}
+                            >
+                              Duplicate
+                            </button>
+                            <button
+                              class="btn btn-xs btn-outline w-full text-[11px] leading-none whitespace-nowrap"
+                              phx-click="delete_rule"
+                              phx-value-index={idx}
+                            >
+                              Delete
+                            </button>
+                            <button
+                              class="btn btn-xs btn-outline w-full text-[11px] leading-none whitespace-nowrap"
+                              phx-click="move_rule_up"
+                              phx-value-index={idx}
+                              disabled={idx == 0}
+                            >
+                              ↑ Up
+                            </button>
+                            <button
+                              class="btn btn-xs btn-outline w-full text-[11px] leading-none whitespace-nowrap"
+                              phx-click="move_rule_down"
+                              phx-value-index={idx}
+                              disabled={idx == length(@rules) - 1}
+                            >
+                              ↓ Down
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     <% end %>
@@ -880,7 +917,12 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
           </div>
         </div>
 
-        <div :if={@show_rule_editor} class="modal modal-open">
+        <div
+          :if={@show_rule_editor}
+          class="modal modal-open"
+          phx-window-keydown="rule_editor_escape"
+          phx-key="escape"
+        >
           <div class="modal-box max-w-4xl">
             <h3 class="font-bold text-lg">
               {if is_nil(@editing_index), do: "New Rule", else: "Edit Rule"}
@@ -888,6 +930,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
 
             <.form
               for={@rule_form}
+              phx-change="rule_form_changed"
               phx-submit="save_rule"
               id="rule-editor-form"
               class="space-y-4 mt-3"
@@ -948,6 +991,29 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
               </div>
             </.form>
           </div>
+          <form method="dialog" class="modal-backdrop">
+            <button type="button" phx-click="attempt_close_rule_editor">close</button>
+          </form>
+        </div>
+
+        <div :if={@show_discard_rule_modal} class="modal modal-open">
+          <div class="modal-box max-w-md">
+            <h3 class="font-bold text-lg">Discard unsaved changes?</h3>
+            <p class="text-sm opacity-70 mt-2">
+              You have unsaved edits in this rule. Leaving now will lose those changes.
+            </p>
+            <div class="modal-action">
+              <button type="button" class="btn btn-outline" phx-click="keep_editing_rule">
+                Keep Editing
+              </button>
+              <button type="button" class="btn btn-error" phx-click="discard_rule_changes">
+                Discard Changes
+              </button>
+            </div>
+          </div>
+          <form method="dialog" class="modal-backdrop">
+            <button type="button" phx-click="keep_editing_rule">close</button>
+          </form>
         </div>
       </.settings_shell>
     </Layouts.app>
@@ -1528,7 +1594,9 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     values = csv_values(value)
 
     case key do
-      "ip_forwarding" -> Enum.map(values, &parse_ip_forwarding_candidate/1)
+      "ip_forwarding" ->
+        Enum.map(values, &parse_ip_forwarding_candidate/1)
+
       _ ->
         values
     end
@@ -1543,16 +1611,16 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
 
   defp default_rule_form do
     %{
-      id: "",
-      enabled: "true",
-      priority: "1000",
-      confidence: "90",
-      reason: "",
-      set_vendor_name: "",
-      set_model: "",
-      set_type: "",
-      set_type_id: "",
-      set_model_from_sys_descr_prefix: ""
+      "id" => "",
+      "enabled" => "true",
+      "priority" => "1000",
+      "confidence" => "90",
+      "reason" => "",
+      "set_vendor_name" => "",
+      "set_model" => "",
+      "set_type" => "",
+      "set_type_id" => "",
+      "set_model_from_sys_descr_prefix" => ""
     }
     |> add_default_match_fields()
   end
@@ -1573,25 +1641,25 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   defp add_default_match_fields(map) do
     Enum.reduce(@match_field_defs, map, fn {_key, all_field, any_field}, acc ->
       acc
-      |> Map.put(all_field, "")
-      |> Map.put(any_field, "")
+      |> Map.put(to_string(all_field), "")
+      |> Map.put(to_string(any_field), "")
     end)
   end
 
   defp rule_to_form(rule) do
     base =
       default_rule_form()
-      |> Map.put(:id, to_string(Map.get(rule, "id", "")))
-      |> Map.put(:enabled, if(Map.get(rule, "enabled", true), do: "true", else: "false"))
-      |> Map.put(:priority, to_string(Map.get(rule, "priority", 0)))
-      |> Map.put(:confidence, to_string(Map.get(rule, "confidence", 50)))
-      |> Map.put(:reason, to_string(Map.get(rule, "reason", "")))
-      |> Map.put(:set_vendor_name, to_string(get_in(rule, ["set", "vendor_name"]) || ""))
-      |> Map.put(:set_model, to_string(get_in(rule, ["set", "model"]) || ""))
-      |> Map.put(:set_type, to_string(get_in(rule, ["set", "type"]) || ""))
-      |> Map.put(:set_type_id, to_string(get_in(rule, ["set", "type_id"]) || ""))
+      |> Map.put("id", to_string(Map.get(rule, "id", "")))
+      |> Map.put("enabled", if(Map.get(rule, "enabled", true), do: "true", else: "false"))
+      |> Map.put("priority", to_string(Map.get(rule, "priority", 0)))
+      |> Map.put("confidence", to_string(Map.get(rule, "confidence", 50)))
+      |> Map.put("reason", to_string(Map.get(rule, "reason", "")))
+      |> Map.put("set_vendor_name", to_string(get_in(rule, ["set", "vendor_name"]) || ""))
+      |> Map.put("set_model", to_string(get_in(rule, ["set", "model"]) || ""))
+      |> Map.put("set_type", to_string(get_in(rule, ["set", "type"]) || ""))
+      |> Map.put("set_type_id", to_string(get_in(rule, ["set", "type_id"]) || ""))
       |> Map.put(
-        :set_model_from_sys_descr_prefix,
+        "set_model_from_sys_descr_prefix",
         to_string(get_in(rule, ["set", "model_from_sys_descr_prefix"]) || "")
       )
 
@@ -1600,8 +1668,8 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
       any_value = rule |> get_in(["match", "any", key]) |> value_to_csv()
 
       acc
-      |> Map.put(all_field, all_value)
-      |> Map.put(any_field, any_value)
+      |> Map.put(to_string(all_field), all_value)
+      |> Map.put(to_string(any_field), any_value)
     end)
   end
 
@@ -1627,6 +1695,22 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
     else
       candidate
     end
+  end
+
+  defp close_rule_editor(socket) do
+    if socket.assigns.rule_form_dirty do
+      {:noreply, assign(socket, :show_discard_rule_modal, true)}
+    else
+      {:noreply, reset_rule_editor(socket)}
+    end
+  end
+
+  defp reset_rule_editor(socket) do
+    socket
+    |> assign(:show_rule_editor, false)
+    |> assign(:show_discard_rule_modal, false)
+    |> assign(:editing_index, nil)
+    |> assign(:rule_form_dirty, false)
   end
 
   defp form_to_rule(params) do
