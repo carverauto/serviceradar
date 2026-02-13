@@ -11,7 +11,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.{Device, IdentityReconciler}
+  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
+  alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.TestSupport
 
   setup_all do
@@ -156,5 +157,112 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert device.management_device_id == nil
     assert device.ip == ip
+  end
+
+  test "mapper device UID is stable for same IP across reordered interface MAC payloads", %{
+    actor: actor
+  } do
+    ip = "192.0.2.#{:rand.uniform(200)}"
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    payload_a =
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{ip}",
+          "partition" => "default",
+          "device_ip" => ip,
+          "if_index" => 1,
+          "if_name" => "eth0",
+          "if_phys_address" => "F4:92:BF:75:C7:21",
+          "timestamp" => ts
+        },
+        %{
+          "device_id" => "default:#{ip}",
+          "partition" => "default",
+          "device_ip" => ip,
+          "if_index" => 2,
+          "if_name" => "eth1",
+          "if_phys_address" => "0C:EA:14:32:D2:77",
+          "timestamp" => ts
+        }
+      ])
+
+    payload_b =
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{ip}",
+          "partition" => "default",
+          "device_ip" => ip,
+          "if_index" => 2,
+          "if_name" => "eth1",
+          "if_phys_address" => "0C:EA:14:32:D2:77",
+          "timestamp" => ts
+        },
+        %{
+          "device_id" => "default:#{ip}",
+          "partition" => "default",
+          "device_ip" => ip,
+          "if_index" => 1,
+          "if_name" => "eth0",
+          "if_phys_address" => "F4:92:BF:75:C7:21",
+          "timestamp" => ts
+        }
+      ])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload_a, %{})
+
+    {:ok, devices_after_first} =
+      Device
+      |> Ash.Query.for_read(:by_ip, %{ip: ip})
+      |> Ash.read(actor: actor)
+
+    assert length(devices_after_first) == 1
+    first_uid = hd(devices_after_first).uid
+    assert hd(devices_after_first).metadata["identity_state"] == "provisional"
+    assert hd(devices_after_first).metadata["identity_source"] == "mapper_ip_seed"
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload_b, %{})
+
+    {:ok, devices_after_second} =
+      Device
+      |> Ash.Query.for_read(:by_ip, %{ip: ip})
+      |> Ash.read(actor: actor)
+
+    assert length(devices_after_second) == 1
+    assert hd(devices_after_second).uid == first_uid
+  end
+
+  test "mapper interface ingestion does not register interface MACs as device identifiers", %{
+    actor: actor
+  } do
+    ip = "198.51.100.#{:rand.uniform(200)}"
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    mac = "0C:EA:14:32:D2:77"
+    normalized_mac = IdentityReconciler.normalize_mac(mac)
+
+    payload =
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{ip}",
+          "partition" => "default",
+          "device_ip" => ip,
+          "if_index" => 1,
+          "if_name" => "eth0",
+          "if_phys_address" => mac,
+          "timestamp" => ts
+        }
+      ])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    query =
+      DeviceIdentifier
+      |> Ash.Query.for_read(:lookup, %{
+        identifier_type: :mac,
+        identifier_value: normalized_mac,
+        partition: "default"
+      })
+
+    assert {:ok, []} = Ash.read(query, actor: actor)
   end
 end

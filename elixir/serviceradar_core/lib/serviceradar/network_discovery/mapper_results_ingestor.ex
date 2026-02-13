@@ -35,7 +35,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         case insert_bulk(classified_records, Interface, actor, "interfaces") do
           :ok ->
             TopologyGraph.upsert_interfaces(classified_records)
-            register_interface_identifiers(classified_records, actor)
             record_job_runs(updates, status: :success, include_interface_counts: true)
             :ok
 
@@ -180,21 +179,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     # Get partition from the first record matching this IP
     partition = partition_for_device_ip(device_ip, records)
 
-    # Collect MACs from interface records for this IP to use as DIRE identifiers
-    macs =
-      records
-      |> Enum.filter(&(&1.device_ip == device_ip))
-      |> interface_macs()
-
-    # Build identifiers for DIRE — use first MAC if available, otherwise IP-only
-    first_mac = List.first(macs)
-
+    # Use IP-only identity for mapper-created placeholder devices.
+    # Interface ordering can vary between mapper runs, so using a "first MAC"
+    # here can generate unstable UIDs and cause cross-device merge churn.
     ids = %{
       agent_id: nil,
       armis_id: nil,
       integration_id: nil,
       netbox_id: nil,
-      mac: first_mac,
+      mac: nil,
       ip: device_ip,
       partition: partition
     }
@@ -210,7 +203,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       %{
         uid: device_uid,
         ip: device_ip,
-        discovery_sources: ["mapper"]
+        discovery_sources: ["mapper"],
+        metadata: %{
+          "identity_state" => "provisional",
+          "identity_source" => "mapper_ip_seed"
+        }
       }
       |> maybe_put(:management_device_id, management_device_id)
 
@@ -220,7 +217,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       {:ok, _device} ->
         Logger.info("Mapper created device #{device_uid} for IP #{device_ip}")
         invalidate_stale_aliases(device_ip, device_uid, partition, actor)
-        if management_device_id, do: TopologyGraph.upsert_managed_by(device_uid, management_device_id)
+
+        if management_device_id,
+          do: TopologyGraph.upsert_managed_by(device_uid, management_device_id)
+
         {:ok, device_uid}
 
       {:error, %Ash.Error.Invalid{errors: errors}} ->
@@ -334,49 +334,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     e ->
       Logger.warning("Device UID lookup failed: #{inspect(e)}")
       %{}
-  end
-
-  defp register_interface_identifiers([], _actor), do: :ok
-
-  defp register_interface_identifiers(records, actor) do
-    records
-    |> Enum.group_by(& &1.device_id)
-    |> Enum.each(fn {device_id, iface_records} ->
-      partition = iface_records |> Enum.find_value(& &1.partition) || "default"
-
-      iface_records
-      |> interface_macs()
-      |> Enum.each(&register_interface_mac(device_id, &1, partition, actor))
-    end)
-  end
-
-  defp interface_macs(iface_records) do
-    iface_records
-    |> Enum.map(&IdentityReconciler.normalize_mac(&1.if_phys_address))
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-  end
-
-  defp register_interface_mac(device_id, mac, partition, actor) do
-    ids = %{
-      agent_id: nil,
-      armis_id: nil,
-      integration_id: nil,
-      netbox_id: nil,
-      mac: mac,
-      ip: "",
-      partition: partition
-    }
-
-    case IdentityReconciler.register_identifiers(device_id, ids, actor: actor) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning(
-          "Failed to register interface MAC identifier for device #{device_id}: #{inspect(reason)}"
-        )
-    end
   end
 
   # Resolve device IDs for topology records (local_device_id and neighbor_device_id)

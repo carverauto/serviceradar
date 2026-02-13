@@ -40,6 +40,13 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
   # Identifier types in priority order (lower index = higher priority)
   @identifier_priority [:agent_id, :armis_device_id, :integration_id, :netbox_device_id, :mac]
+  @strong_non_mac_identifier_types [
+    :agent_id,
+    :armis_device_id,
+    :integration_id,
+    :netbox_device_id
+  ]
+  @provisional_promotion_required_repeat_count 2
 
   @type strong_identifiers :: %{
           agent_id: String.t() | nil,
@@ -459,6 +466,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     canonical_id = resolve_identifier_conflicts(device_id, ids, actor)
 
     maybe_merge_on_register(device_id, canonical_id, ids, actor)
+    maybe_promote_provisional_identity(canonical_id, ids, actor, partition)
 
     identifiers_to_register =
       []
@@ -490,26 +498,224 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     |> handle_identifier_errors()
   end
 
+  defp maybe_promote_provisional_identity(_device_id, ids, _actor, _partition)
+       when not is_map(ids),
+       do: :ok
+
+  defp maybe_promote_provisional_identity(device_id, ids, actor, partition) do
+    case Device.get_by_uid(device_id, false, actor: actor) do
+      {:ok, %Device{} = device} ->
+        metadata = Map.new(device.metadata || %{})
+
+        if Map.get(metadata, "identity_state") == "provisional" do
+          evaluate_and_maybe_promote_provisional_identity(device, metadata, ids, actor, partition)
+        else
+          :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp evaluate_and_maybe_promote_provisional_identity(device, metadata, ids, actor, partition) do
+    current_non_mac_types = current_non_mac_strong_types(ids)
+    existing_non_mac_types = existing_non_mac_identifier_types(device.uid, partition, actor)
+    distinct_types = (current_non_mac_types ++ existing_non_mac_types) |> Enum.uniq()
+    distinct_type_names = Enum.map(distinct_types, &Atom.to_string/1)
+    current_type_names = Enum.map(current_non_mac_types, &Atom.to_string/1)
+    total_sightings = non_mac_sighting_total(metadata, current_non_mac_types)
+    repeated? = total_sightings >= @provisional_promotion_required_repeat_count
+    corroborated? = length(distinct_types) >= 2
+
+    cond do
+      current_non_mac_types == [] ->
+        record_blocked_promotion(device, metadata, "no_non_mac_strong_identifier", actor, %{
+          current_non_mac_types: current_type_names,
+          distinct_types: distinct_type_names,
+          non_mac_sighting_total: total_sightings
+        })
+
+      repeated? or corroborated? ->
+        promote_device_identity_state(device, metadata, actor, %{
+          "identity_promotion_policy" => "corroborated_strong_identifier",
+          "identity_promotion_non_mac_sighting_count" => total_sightings,
+          "identity_promotion_types_seen" => distinct_type_names
+        })
+
+      true ->
+        record_blocked_promotion(device, metadata, "insufficient_corroboration", actor, %{
+          current_non_mac_types: current_type_names,
+          distinct_types: distinct_type_names,
+          non_mac_sighting_total: total_sightings,
+          required_repeat_count: @provisional_promotion_required_repeat_count
+        })
+    end
+  end
+
+  defp current_non_mac_strong_types(ids) do
+    @strong_non_mac_identifier_types
+    |> Enum.filter(fn type -> present_id?(get_identifier_value(ids, type)) end)
+  end
+
+  defp existing_non_mac_identifier_types(device_id, partition, actor) do
+    query =
+      DeviceIdentifier
+      |> Ash.Query.for_read(:by_device, %{device_id: device_id})
+      |> Ash.Query.filter(identifier_type in ^@strong_non_mac_identifier_types)
+      |> maybe_filter_identifier_partition(partition)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, identifiers} ->
+        identifiers
+        |> Enum.map(& &1.identifier_type)
+        |> Enum.uniq()
+
+      _ ->
+        []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp maybe_filter_identifier_partition(query, nil), do: query
+  defp maybe_filter_identifier_partition(query, ""), do: query
+
+  defp maybe_filter_identifier_partition(query, partition) do
+    Ash.Query.filter(query, partition == ^partition)
+  end
+
+  defp non_mac_sighting_total(metadata, current_non_mac_types) do
+    previous = parse_positive_int(metadata["identity_promotion_non_mac_sighting_count"])
+    increment = if current_non_mac_types == [], do: 0, else: 1
+    previous + increment
+  end
+
+  defp parse_positive_int(value) when is_integer(value) and value >= 0, do: value
+
+  defp parse_positive_int(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} when int >= 0 -> int
+      _ -> 0
+    end
+  end
+
+  defp parse_positive_int(_), do: 0
+
+  defp record_blocked_promotion(device, metadata, reason, actor, details) do
+    blocked_metadata =
+      metadata
+      |> Map.put("identity_promotion_blocked_reason", reason)
+      |> Map.put("identity_promotion_last_eval_at", now_iso8601())
+      |> Map.put(
+        "identity_promotion_non_mac_sighting_count",
+        details[:non_mac_sighting_total] || metadata["identity_promotion_non_mac_sighting_count"] ||
+          0
+      )
+      |> Map.put("identity_promotion_types_seen", details[:distinct_types] || [])
+
+    _ =
+      device
+      |> Ash.Changeset.for_update(:update, %{metadata: blocked_metadata})
+      |> Ash.update(actor: actor)
+
+    Logger.info("Blocked provisional identity promotion",
+      device_id: device.uid,
+      reason: reason,
+      current_non_mac_types: details[:current_non_mac_types] || [],
+      distinct_types: details[:distinct_types] || [],
+      non_mac_sighting_total: details[:non_mac_sighting_total] || 0,
+      required_repeat_count:
+        details[:required_repeat_count] || @provisional_promotion_required_repeat_count
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :provisional_promotion, :blocked],
+      %{count: 1},
+      %{reason: reason}
+    )
+
+    :ok
+  rescue
+    e ->
+      Logger.warning(
+        "Failed to record blocked provisional promotion for #{device.uid}: #{inspect(e)}"
+      )
+
+      :ok
+  end
+
+  defp promote_device_identity_state(%Device{} = device, metadata, actor, extra_metadata) do
+    promoted_metadata =
+      metadata
+      |> Map.put("identity_state", "canonical")
+      |> Map.put("identity_promoted_by", "dire")
+      |> Map.put("identity_promoted_at", now_iso8601())
+      |> Map.put("identity_promotion_blocked_reason", nil)
+      |> Map.merge(extra_metadata)
+
+    device
+    |> Ash.Changeset.for_update(:update, %{metadata: promoted_metadata})
+    |> Ash.update(actor: actor)
+
+    Logger.info("Promoted provisional identity",
+      device_id: device.uid,
+      promotion_policy: promoted_metadata["identity_promotion_policy"],
+      non_mac_sighting_total: promoted_metadata["identity_promotion_non_mac_sighting_count"],
+      promotion_types_seen: promoted_metadata["identity_promotion_types_seen"] || []
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :provisional_promotion, :promoted],
+      %{count: 1},
+      %{policy: promoted_metadata["identity_promotion_policy"] || "unknown"}
+    )
+
+    :ok
+  rescue
+    e ->
+      Logger.warning("Failed to promote provisional identity for #{device.uid}: #{inspect(e)}")
+      :ok
+  end
+
+  defp now_iso8601 do
+    DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+  end
+
   defp handle_identifier_errors([]), do: :ok
   defp handle_identifier_errors(errors), do: {:error, {:identifier_registration_failed, errors}}
 
   defp maybe_merge_on_register(device_id, canonical_id, ids, actor) do
     if should_merge_on_register?(device_id, canonical_id) do
-      _ =
-        merge_devices(device_id, canonical_id,
-          actor: actor,
-          reason: "identifier_conflict",
-          details: %{
-            source: "identifier_registration",
-            identifiers: %{
-              agent_id: ids_get(ids, :agent_id),
-              armis_id: ids_get(ids, :armis_id),
-              integration_id: ids_get(ids, :integration_id),
-              netbox_id: ids_get(ids, :netbox_id),
-              mac: ids_get(ids, :mac)
+      matches = lookup_identifier_matches(ids, actor)
+
+      if merge_allowed_for_matches?(matches) do
+        _ =
+          merge_devices(device_id, canonical_id,
+            actor: actor,
+            reason: "identifier_conflict",
+            details: %{
+              source: "identifier_registration",
+              identifiers: %{
+                agent_id: ids_get(ids, :agent_id),
+                armis_id: ids_get(ids, :armis_id),
+                integration_id: ids_get(ids, :integration_id),
+                netbox_id: ids_get(ids, :netbox_id),
+                mac: ids_get(ids, :mac)
+              }
             }
-          }
+          )
+      else
+        blocked_reason = blocked_merge_reason(matches)
+        device_ids = [device_id, canonical_id] |> Enum.uniq()
+
+        Logger.warning(
+          "Blocked register-time merge. " <>
+            "Devices: #{inspect(device_ids)}, reason: #{blocked_reason}"
         )
+
+        emit_blocked_merge_telemetry(blocked_reason, device_ids, matches)
+      end
 
       :ok
     else
@@ -663,13 +869,16 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         end)
     }
 
-    # Check if all shared identifiers are medium-confidence only
-    if medium_confidence_only?(matches) do
+    if not merge_allowed_for_matches?(matches) do
+      blocked_reason = blocked_merge_reason(matches)
+
       Logger.warning(
-        "Blocked merge: all shared identifiers are medium-confidence. " <>
+        "Blocked merge: shared identifiers are not eligible for auto-merge. " <>
           "Devices: #{inspect(device_ids)}, " <>
           "identifiers: #{inspect(details.identifiers)}"
       )
+
+      emit_blocked_merge_telemetry(blocked_reason, device_ids, details.identifiers)
     else
       device_ids
       |> Enum.reject(&(&1 == canonical_id))
@@ -682,6 +891,23 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
           )
       end)
     end
+  end
+
+  # Merge only when there is at least one non-MAC strong identifier involved,
+  # and the match set is not entirely medium-confidence MACs.
+  defp merge_allowed_for_matches?(matches) do
+    not mac_only_matches?(matches) and not medium_confidence_only?(matches)
+  end
+
+  # MAC-only matches are too noisy (especially interface MACs observed by mapper)
+  # and can collapse unrelated devices.
+  defp mac_only_matches?(matches) do
+    matches
+    |> Enum.any?() and
+      Enum.all?(matches, fn
+        {:mac, _} -> true
+        _ -> false
+      end)
   end
 
   # Returns true if the only shared identifiers that caused the conflict are
@@ -708,9 +934,45 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
       _ ->
         canonical_id = select_canonical_device_id(device_id, matches, actor)
-        _ = merge_conflicting_devices(canonical_id, device_ids, matches, actor)
-        canonical_id
+
+        if merge_allowed_for_matches?(matches) do
+          _ = merge_conflicting_devices(canonical_id, device_ids, matches, actor)
+          canonical_id
+        else
+          blocked_reason = blocked_merge_reason(matches)
+
+          Logger.warning(
+            "Blocked merge during identifier conflict resolution. " <>
+              "Devices: #{inspect(device_ids)}, reason: #{blocked_reason}"
+          )
+
+          emit_blocked_merge_telemetry(blocked_reason, device_ids, matches)
+
+          # Preserve current device_id on blocked merge paths to avoid
+          # destructive rebinds from ambiguous MAC-only conflicts.
+          if present_id?(device_id), do: device_id, else: canonical_id
+        end
     end
+  end
+
+  defp blocked_merge_reason(matches) do
+    cond do
+      mac_only_matches?(matches) -> "mac_only_conflict"
+      medium_confidence_only?(matches) -> "medium_confidence_only"
+      true -> "policy_blocked"
+    end
+  end
+
+  defp emit_blocked_merge_telemetry(blocked_reason, device_ids, identifiers) do
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :merge, :blocked],
+      %{count: 1},
+      %{
+        reason: blocked_reason,
+        device_count: length(device_ids),
+        identifier_count: length(identifiers)
+      }
+    )
   end
 
   defp build_identifier_index(actor) do
@@ -994,12 +1256,53 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         end
       end)
       |> case do
-        {:ok, :ok} -> :ok
-        {:ok, other} -> other
-        {:error, _} = error -> error
+        {:ok, :ok} ->
+          emit_merge_executed_telemetry(reason, from_device_id, to_device_id)
+          :ok
+
+        {:ok, other} ->
+          emit_merge_failed_telemetry(reason, from_device_id, to_device_id, other)
+          other
+
+        {:error, _} = error ->
+          emit_merge_failed_telemetry(reason, from_device_id, to_device_id, error)
+          error
       end
     end
   end
+
+  defp emit_merge_executed_telemetry(reason, from_device_id, to_device_id) do
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :merge, :executed],
+      %{count: 1},
+      %{
+        reason: reason,
+        manual_override: manual_override_merge_reason?(reason),
+        from_device_id: from_device_id,
+        to_device_id: to_device_id
+      }
+    )
+  end
+
+  defp emit_merge_failed_telemetry(reason, from_device_id, to_device_id, error) do
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :merge, :failed],
+      %{count: 1},
+      %{
+        reason: reason,
+        manual_override: manual_override_merge_reason?(reason),
+        from_device_id: from_device_id,
+        to_device_id: to_device_id,
+        error: inspect(error)
+      }
+    )
+  end
+
+  defp manual_override_merge_reason?(reason) when is_binary(reason) do
+    String.starts_with?(reason, "manual")
+  end
+
+  defp manual_override_merge_reason?(_), do: false
 
   @doc """
   Reverse an incorrect merge by recreating the from-device and reassigning
