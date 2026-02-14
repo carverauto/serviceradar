@@ -34,6 +34,9 @@ ingress:
     clusterIssuer: carverauto-issuer
 
 webNg:
+  extraEnv:
+    # God-View staged rollout: enabled in internal staging before broad enablement.
+    SERVICERADAR_GOD_VIEW_ENABLED: "true"
   devRoutes: "true"
   localMailer: "true"
   publicUrl: "https://staging.serviceradar.cloud"

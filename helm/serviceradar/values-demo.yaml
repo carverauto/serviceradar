@@ -84,6 +84,8 @@ webNg:
   extraEnv:
     # City MMDB is large; we only enable it in demo where we can allocate more memory.
     GEOLITE_CITY_ENABLED: "true"
+    # God-View staged rollout: enabled in demo first.
+    SERVICERADAR_GOD_VIEW_ENABLED: "true"
   resources:
     limits:
       cpu: "2"

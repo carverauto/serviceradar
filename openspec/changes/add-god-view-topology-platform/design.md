@@ -7,10 +7,24 @@ Issue #2834 proposes a high-scale, causality-aware topology experience that unif
   - Keep causal decision logic server-side and rendering logic client-side.
   - Maintain low-latency interactions through binary transport and GPU-first rendering.
   - Minimize JavaScript main-thread object churn/GC pressure at 100k+ nodes.
+  - Deliver the full telemetry atmosphere in phase 1 (topology, causality, flow/health/utilization overlays, and high-density interaction controls).
 - Non-Goals:
   - Replacing every existing dashboard in phase 1.
   - Full custom rendering engine from scratch if existing GPU-capable web stack components satisfy SLOs.
   - Introducing multitenancy routing or per-tenant topology partitions.
+  - Deferring telemetry atmosphere layers to a later phase.
+
+## Phase 1 Scope Boundaries
+- In scope (phase 1):
+  - Topology graph rendering at 100k+ scale with Arrow snapshot streaming.
+  - Causal blast-radius overlays and explainability surface in the primary God-View UX.
+  - Full telemetry atmosphere overlays (flow, health, utilization, and anomaly-highlight layers).
+  - Semantic zoom, structural reshape transitions, and interactive filter/selection controls.
+  - Wasm-backed local traversal/filter/interpolation for heavy interaction paths.
+- Out of scope (phase 1):
+  - Predictive "what-if" simulation and autonomous remediation workflows.
+  - Full replacement of every legacy page/report outside the God-View surface.
+  - Per-tenant partitioning semantics or multitenancy behavior changes.
 
 ## Decisions
 - Decision: Use versioned binary topology snapshots (Arrow IPC + metadata) as the canonical stream payload.
@@ -32,6 +46,56 @@ Issue #2834 proposes a high-scale, causality-aware topology experience that unif
   - Alternatives considered: making all reshapes purely client-driven.
   - Rationale: layout/collapse semantics for very large graphs require server-owned topology math.
 
+## Snapshot Contract (Schema Version 1)
+- Transport:
+  - Arrow IPC stream payload with two batches: `nodes` and `edges`.
+  - Side metadata envelope included per snapshot revision.
+- Nodes batch (required columns):
+  - `node_index:u32`, `node_id:utf8`, `node_type:utf8`, `x:f32`, `y:f32`, `status_code:u8`, `causal_class:u8`.
+- Nodes batch (optional columns):
+  - `z:f32`, `severity:u8`, `size:f32`, `color_rgba:fixed_size_binary[4]`.
+- Edges batch (required columns):
+  - `edge_index:u32`, `edge_id:utf8`, `source_index:u32`, `target_index:u32`, `edge_type:utf8`.
+- Edges batch (optional columns):
+  - `weight:f32`, `status_code:u8`, `color_rgba:fixed_size_binary[4]`.
+- Referential contract:
+  - `edges.source_index` and `edges.target_index` MUST reference existing `nodes.node_index` values.
+- Metadata envelope (required):
+  - `schema_version`, `snapshot_revision`, `generated_at`, `graph_id`, `node_count`, `edge_count`, `bitmap_version`, `bitmap_offsets`.
+- Metadata envelope (optional):
+  - `flags` map for renderer/runtime hints.
+- Versioning rules:
+  - Minor-compatible additions are allowed only via optional columns/flags.
+  - Required-field changes require a new `schema_version`.
+  - Clients MUST reject unsupported versions and keep last accepted revision active.
+
+## Causal Contract (Version 1)
+- Class set (required, exhaustive):
+  - `root_cause`, `affected`, `healthy`, `unknown`.
+- Wire encoding:
+  - `causal_class` column uses `u8` codes (`0=unknown`, `1=healthy`, `2=affected`, `3=root_cause`).
+- Bitmap contract:
+  - Per revision, emit mutually-exclusive bitmaps:
+    - `causal.root_cause`
+    - `causal.affected`
+    - `causal.healthy`
+    - `causal.unknown`
+  - All node indices MUST be covered by exactly one class bitmap.
+- Precedence rule:
+  - When multiple signals match a node, assign by precedence:
+    - `root_cause` > `affected` > `healthy` > `unknown`.
+- Explainability payload (required per node for root_cause/affected, baseline for others):
+  - `causal_class`
+  - `confidence` (`0.0..1.0`)
+  - `signal_categories`
+  - `explanations`
+  - `model_revision`
+  - `evaluated_at`
+- UI behavior:
+  - God-View details panel always displays class + confidence.
+  - Root-cause and affected nodes display signal categories and explanation strings.
+  - Unknown nodes display explicit uncertainty/insufficient-evidence messaging.
+
 ## Risks / Trade-offs
 - Rust NIF and Arrow integration adds complexity and operational debugging overhead.
   - Mitigation: schema versioning, decode validation tests, and fallback payload path.
@@ -50,5 +114,22 @@ Issue #2834 proposes a high-scale, causality-aware topology experience that unif
 
 ## Open Questions
 - What minimum hardware/browser profile defines supported 60fps behavior?
-- Which causal model outputs are mandatory in phase 1 versus deferred?
-- What is the minimum viable Wasm surface for phase 1 (traversal only vs traversal + local scans + interpolation)?
+- What instrumentation thresholds should gate broad rollout after internal/demo validation?
+
+## Performance Validation (2026-02-14)
+- Environment:
+  - Local Docker Compose CNPG on `localhost:5455` with mTLS certs.
+  - `web-ng` runtime connected to the same CNPG.
+- Commands executed:
+  - `make build-web-ng` (Bazel remote build) -> success for `//docker/images:web_ng_image_amd64`.
+  - `mix run` benchmark script invoking:
+    - `ServiceRadarWebNG.Topology.GodViewStream.latest_snapshot/0` (20 runs)
+    - `ServiceRadarWebNG.Topology.Native.encode_snapshot/8` (synthetic 100k)
+    - `ServiceRadarWebNG.Topology.Native.evaluate_causal_states/2` (synthetic 100k)
+- Results:
+  - DB-backed snapshot build (current dataset, 70 nodes): `p50=14.12ms`, `p95=35.26ms`.
+  - NIF Arrow encode (100,000 nodes, 99,999 edges): `33.96ms` (`~4.8MB` payload).
+  - NIF causal evaluation (100,000 nodes): `103.23ms`.
+- Conclusion:
+  - Current backend snapshot SLO budgets are met on local representative validation paths.
+  - Broad enablement remains gated on production-like browser/GPU frame-time validation under true 100k rendered scenes.

@@ -1,6 +1,39 @@
 ## ADDED Requirements
 ### Requirement: Versioned Binary Topology Snapshots
-The system SHALL stream topology snapshots for God-View using a versioned binary payload contract that includes node geometry/state, edge geometry/state, and metadata needed for deterministic client decoding.
+The system SHALL stream topology snapshots for God-View using a versioned Arrow IPC payload contract and a required metadata envelope for deterministic client decoding.
+
+The snapshot schema version `1` MUST use two record batches:
+- `nodes` columns:
+  - `node_index` (`u32`, required)
+  - `node_id` (`utf8`, required)
+  - `node_type` (`utf8`, required)
+  - `x` (`f32`, required)
+  - `y` (`f32`, required)
+  - `z` (`f32`, optional; default `0`)
+  - `status_code` (`u8`, required; enum-mapped)
+  - `causal_class` (`u8`, required; enum-mapped to `root_cause|affected|healthy|unknown`)
+  - `severity` (`u8`, optional)
+  - `size` (`f32`, optional)
+  - `color_rgba` (`fixed_size_binary[4]`, optional)
+- `edges` columns:
+  - `edge_index` (`u32`, required)
+  - `edge_id` (`utf8`, required)
+  - `source_index` (`u32`, required; references `nodes.node_index`)
+  - `target_index` (`u32`, required; references `nodes.node_index`)
+  - `edge_type` (`utf8`, required)
+  - `weight` (`f32`, optional)
+  - `status_code` (`u8`, optional)
+  - `color_rgba` (`fixed_size_binary[4]`, optional)
+
+The metadata envelope MUST be included with each snapshot revision and MUST include:
+- `schema_version` (integer, required)
+- `snapshot_revision` (monotonic integer, required)
+- `generated_at` (RFC3339 timestamp, required)
+- `graph_id` (string, required)
+- `node_count` and `edge_count` (integer, required)
+- `bitmap_version` (integer, required)
+- `bitmap_offsets` (object/map, required)
+- `flags` (object/map, optional; includes renderer/runtime hints)
 
 #### Scenario: Client accepts supported snapshot schema
 - **GIVEN** the server emits a topology snapshot with a supported schema version
@@ -14,6 +47,18 @@ The system SHALL stream topology snapshots for God-View using a versioned binary
 - **THEN** the client rejects that snapshot revision
 - **AND** the UI displays a recoverable compatibility error state
 
+#### Scenario: Client validates required metadata envelope fields
+- **GIVEN** the server emits a snapshot revision
+- **WHEN** the client validates envelope metadata
+- **THEN** missing required fields cause the revision to be rejected
+- **AND** the previous accepted revision remains active
+
+#### Scenario: Client validates required columns for schema version 1
+- **GIVEN** the server emits schema version `1`
+- **WHEN** the client validates record batch columns
+- **THEN** missing required node or edge columns cause the revision to be rejected
+- **AND** optional columns may be absent without failing decode
+
 ### Requirement: Rustler Arrow Snapshot Encoding
 The system MUST produce production God-View snapshot payloads via a Rustler NIF using Arrow IPC-compatible memory layouts; Elixir SHALL orchestrate query/fetch and stream lifecycle but SHALL NOT be the long-term payload encoder.
 
@@ -25,6 +70,23 @@ The system MUST produce production God-View snapshot payloads via a Rustler NIF 
 
 ### Requirement: Hybrid Causal Filter Bitmaps
 The system SHALL compute causal node-state classifications server-side and emit compact bitmap metadata per snapshot revision so the client can apply visual filtering without recomputing causality.
+
+Causal classes MUST be encoded as:
+- `0 = unknown`
+- `1 = healthy`
+- `2 = affected`
+- `3 = root_cause`
+
+Per snapshot revision, the backend MUST emit mutually-exclusive class bitmaps for:
+- `causal.root_cause`
+- `causal.affected`
+- `causal.healthy`
+- `causal.unknown`
+
+Each node MUST belong to exactly one causal class in a given revision.
+
+When multiple causal signals apply to a node, class assignment precedence MUST be:
+`root_cause` > `affected` > `healthy` > `unknown`.
 
 #### Scenario: Apply causal blast radius states
 - **GIVEN** a snapshot revision that includes causal classification bitmaps
@@ -39,6 +101,12 @@ The system SHALL compute causal node-state classifications server-side and emit 
 - **THEN** the client updates visibility and styling using existing bitmap data
 - **AND** no topology recomputation request is sent to the backend
 
+#### Scenario: Causal class exclusivity is preserved
+- **GIVEN** a snapshot revision is emitted
+- **WHEN** the client inspects class bitmaps for all nodes
+- **THEN** no node index is set in more than one causal class bitmap
+- **AND** the union of the four class bitmaps covers all emitted nodes
+
 ### Requirement: Structural Reshape Contract
 The system SHALL distinguish visual-only filter toggles from structural reshape actions, and SHALL require backend recomputation for reshape operations that change layout topology.
 
@@ -52,13 +120,33 @@ The system SHALL distinguish visual-only filter toggles from structural reshape 
 - **AND** the server emits a new snapshot revision
 
 ### Requirement: Causal Explainability Surface
-The system SHALL provide operator-visible evidence for causal classifications, including confidence and source signals used for each root-cause decision.
+The system SHALL provide operator-visible evidence for causal classifications, including confidence and source signals used for each classification decision.
+
+For each node, explainability payload MUST include:
+- `causal_class` (`root_cause|affected|healthy|unknown`)
+- `confidence` (`0.0..1.0`)
+- `signal_categories` (non-empty list for `root_cause` and `affected`, optional otherwise)
+- `explanations` (list of concise human-readable reason strings)
+- `model_revision` (string identifying the causal model/rule set revision)
+- `evaluated_at` (RFC3339 timestamp)
 
 #### Scenario: Inspect root-cause reasoning
 - **GIVEN** a node classified as root cause
 - **WHEN** the operator opens node details in God-View
 - **THEN** the UI shows causal confidence
 - **AND** the UI lists the contributing signal categories used for that classification
+
+#### Scenario: Affected-node explainability is available
+- **GIVEN** a node classified as affected
+- **WHEN** the operator opens node details in God-View
+- **THEN** the UI shows confidence and signal categories for the affected classification
+- **AND** the UI includes at least one explanation string
+
+#### Scenario: Unknown classification carries explicit uncertainty
+- **GIVEN** a node classified as unknown
+- **WHEN** the operator opens node details in God-View
+- **THEN** the UI shows `causal_class=unknown`
+- **AND** the explainability payload indicates insufficient or conflicting evidence
 
 ### Requirement: God-View Performance SLOs
 The system SHALL enforce measurable performance budgets for God-View interactions and snapshot delivery on supported environments.
