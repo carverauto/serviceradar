@@ -1,5 +1,5 @@
 defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
-  use ExUnit.Case, async: true
+  use ServiceRadarWebNG.DataCase, async: false
 
   alias ServiceRadarWebNG.Topology.GodViewStream
 
@@ -12,5 +12,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert binary_part(payload, byte_size(payload) - 6, 6) == "ARROW1"
     assert snapshot.schema_version > 0
     assert snapshot.revision > 0
+    assert is_map(snapshot.bitmap_metadata)
   end
 end

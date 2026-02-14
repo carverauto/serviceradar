@@ -15,6 +15,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshotTest do
         affected: <<0, 1, 1, 0>>,
         healthy: <<1, 1, 1, 1>>,
         unknown: <<0, 0, 0, 0>>
+      },
+      bitmap_metadata: %{
+        root_cause: %{bytes: 4, count: 2},
+        affected: %{bytes: 4, count: 2},
+        healthy: %{bytes: 4, count: 4},
+        unknown: %{bytes: 4, count: 0}
       }
     }
 
@@ -28,7 +34,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshotTest do
       generated_at: DateTime.utc_now(),
       nodes: [],
       edges: [],
-      causal_bitmaps: %{healthy: <<1>>}
+      causal_bitmaps: %{healthy: <<1>>},
+      bitmap_metadata: %{}
     }
 
     assert {:error, {:unsupported_schema, 999}} = GodViewSnapshot.validate(snapshot)
@@ -43,5 +50,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshotTest do
     assert {:error, {:missing_keys, missing}} = GodViewSnapshot.validate(snapshot)
     assert :generated_at in missing
     assert :causal_bitmaps in missing
+    assert :bitmap_metadata in missing
   end
 end

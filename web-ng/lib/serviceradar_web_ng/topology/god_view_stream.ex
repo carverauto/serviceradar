@@ -48,7 +48,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     nodes =
       Enum.map(snapshot.nodes, fn node ->
-        {Map.get(node, :x, 0), Map.get(node, :y, 0), Map.get(node, :state, 3)}
+        {
+          normalize_u16(Map.get(node, :x, 0)),
+          normalize_u16(Map.get(node, :y, 0)),
+          normalize_u8(Map.get(node, :state, 3))
+        }
       end)
 
     edges =
@@ -316,4 +320,18 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp page_results(%{results: results}) when is_list(results), do: results
   defp page_results(_), do: []
+
+  defp normalize_u16(value) when is_integer(value), do: clamp(value, 0, 65_535)
+
+  defp normalize_u16(value) when is_float(value),
+    do: value |> Float.round() |> trunc() |> normalize_u16()
+
+  defp normalize_u16(_), do: 0
+
+  defp normalize_u8(value) when is_integer(value), do: clamp(value, 0, 255)
+  defp normalize_u8(_), do: 0
+
+  defp clamp(value, min, _max) when value < min, do: min
+  defp clamp(value, _min, max) when value > max, do: max
+  defp clamp(value, _min, _max), do: value
 end
