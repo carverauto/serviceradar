@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use arrow_array::{Int8Array, RecordBatch, UInt16Array, UInt32Array, UInt64Array};
+use arrow_array::{Int8Array, RecordBatch, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array};
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
 use deep_causality::{
@@ -17,8 +17,8 @@ fn encode_snapshot<'a>(
     env: Env<'a>,
     schema_version: u32,
     revision: u64,
-    nodes: Vec<(u16, u16, u8)>,
-    edges: Vec<(u16, u16)>,
+    nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
+    edges: Vec<(u16, u16, u32, u64, u64, String)>,
     root_bitmap_bytes: u32,
     affected_bitmap_bytes: u32,
     healthy_bitmap_bytes: u32,
@@ -30,25 +30,49 @@ fn encode_snapshot<'a>(
     let mut node_x = Vec::<Option<u16>>::with_capacity(total_rows);
     let mut node_y = Vec::<Option<u16>>::with_capacity(total_rows);
     let mut node_state = Vec::<Option<u16>>::with_capacity(total_rows);
+    let mut node_label = Vec::<Option<String>>::with_capacity(total_rows);
+    let mut node_pps = Vec::<Option<u32>>::with_capacity(total_rows);
+    let mut node_oper_up = Vec::<Option<u8>>::with_capacity(total_rows);
+    let mut node_details = Vec::<Option<String>>::with_capacity(total_rows);
     let mut edge_source = Vec::<Option<u16>>::with_capacity(total_rows);
     let mut edge_target = Vec::<Option<u16>>::with_capacity(total_rows);
+    let mut edge_pps = Vec::<Option<u32>>::with_capacity(total_rows);
+    let mut edge_flow_bps = Vec::<Option<u64>>::with_capacity(total_rows);
+    let mut edge_capacity_bps = Vec::<Option<u64>>::with_capacity(total_rows);
+    let mut edge_label = Vec::<Option<String>>::with_capacity(total_rows);
 
-    for (x, y, state) in nodes {
+    for (x, y, state, label, pps, oper_up, details) in nodes {
         row_type.push(0);
         node_x.push(Some(x));
         node_y.push(Some(y));
         node_state.push(Some(u16::from(state)));
+        node_label.push(Some(label));
+        node_pps.push(Some(pps));
+        node_oper_up.push(Some(oper_up));
+        node_details.push(Some(details));
         edge_source.push(None);
         edge_target.push(None);
+        edge_pps.push(None);
+        edge_flow_bps.push(None);
+        edge_capacity_bps.push(None);
+        edge_label.push(None);
     }
 
-    for (source, target) in edges {
+    for (source, target, pps, flow_bps, capacity_bps, label) in edges {
         row_type.push(1);
         node_x.push(None);
         node_y.push(None);
         node_state.push(None);
+        node_label.push(None);
+        node_pps.push(None);
+        node_oper_up.push(None);
+        node_details.push(None);
         edge_source.push(Some(source));
         edge_target.push(Some(target));
+        edge_pps.push(Some(pps));
+        edge_flow_bps.push(Some(flow_bps));
+        edge_capacity_bps.push(Some(capacity_bps));
+        edge_label.push(Some(label));
     }
 
     let mut metadata = HashMap::new();
@@ -77,8 +101,16 @@ fn encode_snapshot<'a>(
             Field::new("node_x", DataType::UInt16, true),
             Field::new("node_y", DataType::UInt16, true),
             Field::new("node_state", DataType::UInt16, true),
+            Field::new("node_label", DataType::Utf8, true),
+            Field::new("node_pps", DataType::UInt32, true),
+            Field::new("node_oper_up", DataType::UInt8, true),
+            Field::new("node_details", DataType::Utf8, true),
             Field::new("edge_source", DataType::UInt16, true),
             Field::new("edge_target", DataType::UInt16, true),
+            Field::new("edge_pps", DataType::UInt32, true),
+            Field::new("edge_flow_bps", DataType::UInt64, true),
+            Field::new("edge_capacity_bps", DataType::UInt64, true),
+            Field::new("edge_label", DataType::Utf8, true),
             Field::new("snapshot_schema_version", DataType::UInt32, false),
             Field::new("snapshot_revision", DataType::UInt64, false),
         ],
@@ -95,8 +127,16 @@ fn encode_snapshot<'a>(
             Arc::new(UInt16Array::from(node_x)),
             Arc::new(UInt16Array::from(node_y)),
             Arc::new(UInt16Array::from(node_state)),
+            Arc::new(StringArray::from(node_label)),
+            Arc::new(UInt32Array::from(node_pps)),
+            Arc::new(UInt8Array::from(node_oper_up)),
+            Arc::new(StringArray::from(node_details)),
             Arc::new(UInt16Array::from(edge_source)),
             Arc::new(UInt16Array::from(edge_target)),
+            Arc::new(UInt32Array::from(edge_pps)),
+            Arc::new(UInt64Array::from(edge_flow_bps)),
+            Arc::new(UInt64Array::from(edge_capacity_bps)),
+            Arc::new(StringArray::from(edge_label)),
             Arc::new(UInt32Array::from(schema_version_col)),
             Arc::new(UInt64Array::from(revision_col)),
         ],

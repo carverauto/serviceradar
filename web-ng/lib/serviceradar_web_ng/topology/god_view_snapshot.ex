@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
   revision envelope consumed by the UI.
   """
 
-  @schema_version 1
+  @schema_version 2
   @required_keys ~w(schema_version revision generated_at nodes edges causal_bitmaps bitmap_metadata)a
 
   @type snapshot :: %{

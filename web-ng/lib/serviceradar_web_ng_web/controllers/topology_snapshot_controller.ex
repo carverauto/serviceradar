@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
   use Phoenix.Controller, formats: [:html, :json]
 
   import Plug.Conn
+  require Logger
 
   alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNGWeb.FeatureFlags
@@ -59,6 +60,8 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
           |> send_resp(200, payload)
 
         {:error, reason} ->
+          Logger.error("God-View snapshot build failed: #{inspect(reason)}")
+
           conn
           |> put_status(:internal_server_error)
           |> json(%{error: "snapshot_build_failed", reason: inspect(reason)})

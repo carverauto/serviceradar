@@ -25,13 +25,19 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
        |> assign(:last_render_ms, nil)
        |> assign(:last_bitmap_metadata, nil)
        |> assign(:last_zoom_tier, nil)
-       |> assign(:last_zoom_mode, "auto")
-       |> assign(:zoom_mode, "auto")
+       |> assign(:last_zoom_mode, "local")
+       |> assign(:zoom_mode, "local")
        |> assign(:causal_filters, %{
          root_cause: true,
          affected: true,
          healthy: true,
          unknown: true
+       })
+       |> assign(:visual_layers, %{
+         mantle: true,
+         crust: true,
+         atmosphere: true,
+         security: true
        })}
     else
       {:ok,
@@ -87,6 +93,23 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
     {:noreply,
      socket |> assign(:zoom_mode, mode) |> push_event("god_view:set_zoom_mode", %{mode: mode})}
+  end
+
+  def handle_event("toggle_visual_layer", %{"layer" => layer}, socket) do
+    key =
+      case layer do
+        "mantle" -> :mantle
+        "crust" -> :crust
+        "atmosphere" -> :atmosphere
+        _ -> :security
+      end
+
+    layers = Map.update!(socket.assigns.visual_layers, key, &(!&1))
+
+    {:noreply,
+     socket
+     |> assign(:visual_layers, layers)
+     |> push_event("god_view:set_layers", %{layers: stringify_filter_keys(layers)})}
   end
 
   @impl true
@@ -260,6 +283,46 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
               phx-value-state="unknown"
             >
               Unknown
+            </button>
+          </div>
+        </.ui_panel>
+
+        <.ui_panel>
+          <:header>
+            <div class="text-sm font-semibold">Visual Layers</div>
+          </:header>
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              class={filter_button_class(@visual_layers.mantle)}
+              phx-click="toggle_visual_layer"
+              phx-value-layer="mantle"
+            >
+              Mantle
+            </button>
+            <button
+              type="button"
+              class={filter_button_class(@visual_layers.crust)}
+              phx-click="toggle_visual_layer"
+              phx-value-layer="crust"
+            >
+              Crust
+            </button>
+            <button
+              type="button"
+              class={filter_button_class(@visual_layers.atmosphere)}
+              phx-click="toggle_visual_layer"
+              phx-value-layer="atmosphere"
+            >
+              Atmosphere
+            </button>
+            <button
+              type="button"
+              class={filter_button_class(@visual_layers.security)}
+              phx-click="toggle_visual_layer"
+              phx-value-layer="security"
+            >
+              Security
             </button>
           </div>
         </.ui_panel>

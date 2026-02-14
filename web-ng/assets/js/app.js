@@ -28,8 +28,9 @@ import {tableFromIPC} from "apache-arrow"
 import * as d3 from "d3"
 import {sankey as d3Sankey, sankeyLinkHorizontal as d3SankeyLinkHorizontal} from "d3-sankey"
 import mapboxgl from "mapbox-gl"
-import {COORDINATE_SYSTEM, Deck, OrthographicView} from "@deck.gl/core"
-import {LineLayer, ScatterplotLayer} from "@deck.gl/layers"
+import {COORDINATE_SYSTEM, Deck, Layer, OrthographicView, picking, project32} from "@deck.gl/core"
+import {ArcLayer, LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
+import {Geometry, Model} from "@luma.gl/engine"
 import {GodViewWasmEngine} from "./wasm/god_view_exec_runtime"
 
 import {
@@ -111,6 +112,104 @@ function nfFormatRateValue(units, n) {
   if (u === "Bps") return `${nfFormatBytes(n)}/s`
   if (u === "pps") return nfFormatCountPerSec(n)
   return nfFormatBytes(n)
+}
+
+const packetFlowVS = `\
+#define SHADER_NAME sr-packet-flow-layer-vs
+attribute vec2 a_from;
+attribute vec2 a_to;
+attribute float a_seed;
+attribute float a_speed;
+attribute float a_size;
+attribute vec4 a_color;
+
+uniform float u_time;
+
+varying vec4 vColor;
+
+void main(void) {
+  float t = fract((u_time * a_speed) + a_seed);
+  vec2 pos = mix(a_from, a_to, t);
+
+  float jit = (fract(sin((a_seed + t) * 43758.5453) * 43758.5453) - 0.5) * 0.9;
+  pos += vec2(jit, -jit) * 0.35;
+
+  vColor = a_color;
+  gl_Position = project_position_to_clipspace(vec3(pos, 0.0), vec3(0.0), vec3(0.0));
+  gl_PointSize = a_size;
+}
+`
+
+const packetFlowFS = `\
+#define SHADER_NAME sr-packet-flow-layer-fs
+precision highp float;
+varying vec4 vColor;
+
+void main(void) {
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float r2 = dot(p, p);
+  float alpha = exp(-r2 * 3.6);
+  gl_FragColor = vec4(vColor.rgb, vColor.a * alpha);
+}
+`
+
+class PacketFlowLayer extends Layer {
+  getShaders() {
+    return {vs: packetFlowVS, fs: packetFlowFS, modules: [project32, picking]}
+  }
+
+  initializeState() {
+    const attributeManager = this.getAttributeManager()
+    attributeManager.addInstanced({
+      a_from: {size: 2, accessor: "getFrom"},
+      a_to: {size: 2, accessor: "getTo"},
+      a_seed: {size: 1, accessor: "getSeed"},
+      a_speed: {size: 1, accessor: "getSpeed"},
+      a_size: {size: 1, accessor: "getSize"},
+      a_color: {size: 4, type: 5121, normalized: true, accessor: "getColor"},
+    })
+
+    this.setState({
+      model: this._getModel(),
+    })
+  }
+
+  _getModel() {
+    return new Model(this.context.device, {
+      ...this.getShaders(),
+      geometry: new Geometry({
+        topology: "point-list",
+        attributes: {
+          positions: {value: new Float32Array([0, 0, 0]), size: 3},
+        },
+      }),
+      isInstanced: true,
+    })
+  }
+
+  draw({uniforms}) {
+    const model = this.state.model
+    if (!model) return
+    model.setUniforms({
+      ...uniforms,
+      u_time: Number(this.props.time || 0),
+    })
+    model.draw()
+  }
+
+  finalizeState() {
+    this.state.model?.delete?.()
+  }
+}
+
+PacketFlowLayer.defaultProps = {
+  getFrom: (d) => d.from,
+  getTo: (d) => d.to,
+  getSeed: (d) => d.seed,
+  getSpeed: (d) => d.speed,
+  getSize: (d) => d.size,
+  getColor: (d) => d.color,
+  time: 0,
 }
 
 // Custom hooks
@@ -1856,6 +1955,7 @@ const Hooks = {
     mounted() {
       this.canvas = null
       this.summary = null
+      this.details = null
       this.deck = null
       this.channel = null
       this.rendererMode = "initializing"
@@ -1865,7 +1965,7 @@ const Hooks = {
       this.wasmReady = false
       this.selectedNodeIndex = null
       this.pendingAnimationFrame = null
-      this.zoomMode = "auto"
+      this.zoomMode = "local"
       this.zoomTier = "local"
       this.hasAutoFit = false
       this.userCameraLocked = false
@@ -1875,8 +1975,26 @@ const Hooks = {
       this.lastVisibleNodeCount = 0
       this.lastVisibleEdgeCount = 0
       this.pollTimer = null
+      this.animationTimer = null
+      this.animationPhase = 0
+      this.layers = {mantle: true, crust: true, atmosphere: true, security: true}
+      this.layoutMode = "auto"
+      this.layoutRevision = null
       this.snapshotUrl = this.el.dataset.url || null
       this.pollIntervalMs = Number.parseInt(this.el.dataset.intervalMs || "5000", 10) || 5000
+      this.visual = {
+        bg: [10, 10, 10, 255],
+        mantleEdge: [42, 42, 42, 170],
+        crustArc: [214, 97, 255, 180],
+        atmosphereParticle: [0, 224, 255, 185],
+        nodeRoot: [255, 64, 64, 255],
+        nodeAffected: [255, 162, 50, 255],
+        nodeHealthy: [0, 224, 255, 255],
+        nodeUnknown: [122, 141, 168, 255],
+        label: [226, 232, 240, 230],
+        edgeLabel: [148, 163, 184, 220],
+        pulse: [255, 64, 64, 220],
+      }
       this.viewState = {
         target: [320, 160, 0],
         zoom: 1.4,
@@ -1905,10 +2023,23 @@ const Hooks = {
       this.autoFitViewState = this.autoFitViewState.bind(this)
       this.ensureBitmapMetadata = this.ensureBitmapMetadata.bind(this)
       this.buildBitmapFallbackMetadata = this.buildBitmapFallbackMetadata.bind(this)
+      this.startAnimationLoop = this.startAnimationLoop.bind(this)
+      this.stopAnimationLoop = this.stopAnimationLoop.bind(this)
+      this.buildPacketFlowInstances = this.buildPacketFlowInstances.bind(this)
+      this.prepareGraphLayout = this.prepareGraphLayout.bind(this)
+      this.shouldUseGeoLayout = this.shouldUseGeoLayout.bind(this)
+      this.projectGeoLayout = this.projectGeoLayout.bind(this)
+      this.forceDirectedLayout = this.forceDirectedLayout.bind(this)
+      this.renderSelectionDetails = this.renderSelectionDetails.bind(this)
+      this.geoGridData = this.geoGridData.bind(this)
+      this.getNodeTooltip = this.getNodeTooltip.bind(this)
+      this.handleWheelZoom = this.handleWheelZoom.bind(this)
 
       this.ensureDOM()
       this.resizeCanvas()
       window.addEventListener("resize", this.resizeCanvas)
+      this.canvas.addEventListener("wheel", this.handleWheelZoom, {passive: false})
+      this.startAnimationLoop()
       GodViewWasmEngine.init()
         .then((engine) => {
           this.wasmEngine = engine
@@ -1950,6 +2081,17 @@ const Hooks = {
         this.deck.setProps({viewState: this.viewState})
         this.setZoomTier(normalized, true)
       })
+      this.handleEvent("god_view:set_layers", ({layers}) => {
+        if (layers && typeof layers === "object") {
+          this.layers = {
+            mantle: layers.mantle !== false,
+            crust: layers.crust !== false,
+            atmosphere: layers.atmosphere !== false,
+            security: layers.security !== false,
+          }
+          if (this.lastGraph) this.renderGraph(this.lastGraph)
+        }
+      })
 
       if (!window.godViewSocket) {
         window.godViewSocket = new Socket("/socket", {params: {_csrf_token: csrfToken}})
@@ -1979,6 +2121,8 @@ const Hooks = {
     },
     destroyed() {
       window.removeEventListener("resize", this.resizeCanvas)
+      if (this.canvas) this.canvas.removeEventListener("wheel", this.handleWheelZoom)
+      this.stopAnimationLoop()
       this.stopPolling()
       if (this.channel) {
         this.channel.leave()
@@ -1993,6 +2137,40 @@ const Hooks = {
         this.deck = null
       }
     },
+    startAnimationLoop() {
+      if (this.animationTimer) return
+      const tick = () => {
+        this.animationPhase = performance.now() / 1000
+        if (this.deck && this.lastGraph) {
+          this.renderGraph(this.lastGraph)
+        }
+        this.animationTimer = window.requestAnimationFrame(tick)
+      }
+      this.animationTimer = window.requestAnimationFrame(tick)
+    },
+    stopAnimationLoop() {
+      if (!this.animationTimer) return
+      window.cancelAnimationFrame(this.animationTimer)
+      this.animationTimer = null
+    },
+    handleWheelZoom(event) {
+      if (!this.deck) return
+      event.preventDefault()
+
+      const delta = Number(event.deltaY || 0)
+      const direction = delta > 0 ? -1 : 1
+      const zoomStep = 0.12
+      const nextZoom = (this.viewState.zoom || 0) + direction * zoomStep
+      const clamped = Math.max(this.viewState.minZoom, Math.min(this.viewState.maxZoom, nextZoom))
+
+      this.viewState = {...this.viewState, zoom: clamped}
+      this.userCameraLocked = true
+      this.isProgrammaticViewUpdate = true
+      this.deck.setProps({viewState: this.viewState})
+      if (this.zoomMode === "auto") {
+        this.setZoomTier(this.resolveZoomTier(clamped), true)
+      }
+    },
     handleSnapshot(msg) {
       const startedAt = performance.now()
       try {
@@ -2001,7 +2179,8 @@ const Hooks = {
         if (!bytes || bytes.byteLength === 0) throw new Error("missing payload")
 
         const decodeStart = performance.now()
-        const graph = this.decodeArrowGraph(bytes)
+        const rawGraph = this.decodeArrowGraph(bytes)
+        const graph = this.prepareGraphLayout(rawGraph, snapshot.revision)
         const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
         const bitmapMetadata = this.ensureBitmapMetadata(snapshot.bitmapMetadata, graph.nodes)
 
@@ -2100,7 +2279,8 @@ const Hooks = {
         }
 
         const decodeStart = performance.now()
-        const graph = this.decodeArrowGraph(new Uint8Array(buffer))
+        const rawGraph = this.decodeArrowGraph(new Uint8Array(buffer))
+        const graph = this.prepareGraphLayout(rawGraph, Date.now())
         const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
 
         const renderStart = performance.now()
@@ -2207,8 +2387,16 @@ const Hooks = {
       const nodeX = table.getChild("node_x")
       const nodeY = table.getChild("node_y")
       const nodeState = table.getChild("node_state")
+      const nodeLabel = table.getChild("node_label")
+      const nodePps = table.getChild("node_pps")
+      const nodeOperUp = table.getChild("node_oper_up")
+      const nodeDetails = table.getChild("node_details")
       const edgeSource = table.getChild("edge_source")
       const edgeTarget = table.getChild("edge_target")
+      const edgePps = table.getChild("edge_pps")
+      const edgeFlowBps = table.getChild("edge_flow_bps")
+      const edgeCapacityBps = table.getChild("edge_capacity_bps")
+      const edgeLabel = table.getChild("edge_label")
 
       const nodes = []
       const edges = []
@@ -2219,10 +2407,29 @@ const Hooks = {
       for (let i = 0; i < rowCount; i += 1) {
         const t = rowType?.get(i)
         if (t === 0) {
+          const fallbackLabel = `node-${nodes.length + 1}`
+          let parsedDetails = {}
+          const rawDetails = nodeDetails?.get(i)
+          if (typeof rawDetails === "string" && rawDetails.trim() !== "") {
+            try {
+              parsedDetails = JSON.parse(rawDetails)
+            } catch (_err) {
+              parsedDetails = {}
+            }
+          }
+          const detailLat = Number(parsedDetails?.geo_lat)
+          const detailLon = Number(parsedDetails?.geo_lon)
           nodes.push({
+            id: this.normalizeDisplayLabel(parsedDetails?.id, fallbackLabel),
             x: Number(nodeX?.get(i) || 0),
             y: Number(nodeY?.get(i) || 0),
             state: Number(nodeState?.get(i) || 3),
+            label: this.normalizeDisplayLabel(nodeLabel?.get(i), fallbackLabel),
+            pps: Number(nodePps?.get(i) || 0),
+            operUp: Number(nodeOperUp?.get(i) || 0),
+            geoLat: Number.isFinite(detailLat) ? detailLat : NaN,
+            geoLon: Number.isFinite(detailLon) ? detailLon : NaN,
+            details: parsedDetails,
           })
         } else if (t === 1) {
           const source = Number(edgeSource?.get(i) || 0)
@@ -2230,6 +2437,10 @@ const Hooks = {
           edges.push({
             source,
             target,
+            flowPps: Number(edgePps?.get(i) || 0),
+            flowBps: Number(edgeFlowBps?.get(i) || 0),
+            capacityBps: Number(edgeCapacityBps?.get(i) || 0),
+            label: this.normalizeDisplayLabel(edgeLabel?.get(i), ""),
           })
           edgeSourceIndex.push(source)
           edgeTargetIndex.push(target)
@@ -2249,15 +2460,21 @@ const Hooks = {
       this.el.innerHTML = ""
       this.el.classList.add("relative")
       this.canvas = document.createElement("canvas")
-      this.canvas.className = "h-full w-full rounded border border-base-300 bg-base-100"
+      this.canvas.className = "h-full w-full rounded border border-base-300 bg-neutral"
 
       this.summary = document.createElement("div")
       this.summary.className =
         "pointer-events-none absolute bottom-2 left-2 rounded bg-base-100/85 px-2 py-1 text-[11px] opacity-90"
       this.summary.textContent = "waiting for snapshot..."
 
+      this.details = document.createElement("div")
+      this.details.className =
+        "absolute right-2 top-2 max-w-sm rounded border border-primary/30 bg-base-100/90 px-3 py-2 text-xs shadow-xl hidden"
+      this.details.textContent = "Select a node for details"
+
       this.el.appendChild(this.canvas)
       this.el.appendChild(this.summary)
+      this.el.appendChild(this.details)
     },
     resizeCanvas() {
       if (!this.canvas) return
@@ -2284,13 +2501,23 @@ const Hooks = {
           width,
           height,
           views: new OrthographicView({id: "god-view-ortho"}),
-          controller: true,
+          controller: {
+            dragPan: true,
+            dragRotate: false,
+            scrollZoom: true,
+            doubleClickZoom: false,
+            touchZoom: true,
+            touchRotate: false,
+            keyboard: false,
+          },
           useDevicePixels: true,
           initialViewState: this.viewState,
           parameters: {
+            clearColor: this.visual.bg,
             blend: true,
             blendFunc: [770, 771],
           },
+          getTooltip: this.getNodeTooltip,
           onClick: this.handlePick,
           onViewStateChange: ({viewState}) => {
             this.viewState = viewState
@@ -2308,13 +2535,23 @@ const Hooks = {
           width,
           height,
           views: new OrthographicView({id: "god-view-ortho"}),
-          controller: true,
+          controller: {
+            dragPan: true,
+            dragRotate: false,
+            scrollZoom: true,
+            doubleClickZoom: false,
+            touchZoom: true,
+            touchRotate: false,
+            keyboard: false,
+          },
           useDevicePixels: true,
           initialViewState: this.viewState,
           parameters: {
+            clearColor: this.visual.bg,
             blend: true,
             blendFunc: [770, 771],
           },
+          getTooltip: this.getNodeTooltip,
           onClick: this.handlePick,
           onViewStateChange: ({viewState}) => {
             this.viewState = viewState
@@ -2356,11 +2593,17 @@ const Hooks = {
           sumX: 0,
           sumY: 0,
           count: 0,
+          sumPps: 0,
+          upCount: 0,
+          downCount: 0,
           stateHistogram: {0: 0, 1: 0, 2: 0, 3: 0},
         }
         existing.sumX += node.x
         existing.sumY += node.y
         existing.count += 1
+        existing.sumPps += Number(node.pps || 0)
+        if (Number(node.operUp) === 1) existing.upCount += 1
+        if (Number(node.operUp) === 2) existing.downCount += 1
         existing.stateHistogram[node.state] = (existing.stateHistogram[node.state] || 0) + 1
         clusters.set(key, existing)
         clusterByNode[index] = key
@@ -2372,6 +2615,9 @@ const Hooks = {
         y: cluster.sumY / cluster.count,
         state: Number(cluster.id.split(":")[1]),
         clusterCount: cluster.count,
+        pps: cluster.sumPps,
+        operUp: cluster.upCount > 0 ? 1 : (cluster.downCount > 0 ? 2 : 0),
+        label: `state ${cluster.id.split(":")[1]} (${cluster.count})`,
       }))
 
       const edges = this.clusterEdges(graph.edges, clusterByNode)
@@ -2391,11 +2637,17 @@ const Hooks = {
           sumX: 0,
           sumY: 0,
           count: 0,
+          sumPps: 0,
+          upCount: 0,
+          downCount: 0,
           stateHistogram: {0: 0, 1: 0, 2: 0, 3: 0},
         }
         existing.sumX += node.x
         existing.sumY += node.y
         existing.count += 1
+        existing.sumPps += Number(node.pps || 0)
+        if (Number(node.operUp) === 1) existing.upCount += 1
+        if (Number(node.operUp) === 2) existing.downCount += 1
         existing.stateHistogram[node.state] = (existing.stateHistogram[node.state] || 0) + 1
         clusters.set(key, existing)
         clusterByNode[index] = key
@@ -2411,6 +2663,9 @@ const Hooks = {
           y: cluster.sumY / cluster.count,
           state: dominantState,
           clusterCount: cluster.count,
+          pps: cluster.sumPps,
+          operUp: cluster.upCount > 0 ? 1 : (cluster.downCount > 0 ? 2 : 0),
+          label: `${cluster.id.replace("grid:", "cell ")} (${cluster.count})`,
         }
       })
 
@@ -2424,8 +2679,18 @@ const Hooks = {
         const b = clusterByNode[edge.target]
         if (!a || !b || a === b) return
         const key = a < b ? `${a}|${b}` : `${b}|${a}`
-        const current = acc.get(key) || {sourceCluster: a < b ? a : b, targetCluster: a < b ? b : a, weight: 0}
+        const current = acc.get(key) || {
+          sourceCluster: a < b ? a : b,
+          targetCluster: a < b ? b : a,
+          weight: 0,
+          flowPps: 0,
+          flowBps: 0,
+          capacityBps: 0,
+        }
         current.weight += 1
+        current.flowPps += Number(edge.flowPps || 0)
+        current.flowBps += Number(edge.flowBps || 0)
+        current.capacityBps += Number(edge.capacityBps || 0)
         acc.set(key, current)
       })
       return Array.from(acc.values())
@@ -2480,9 +2745,9 @@ const Hooks = {
           const out = new Array(nextNodes.length)
           for (let i = 0; i < nextNodes.length; i += 1) {
             out[i] = {
+              ...(nextNodes[i] || {}),
               x: xy[i * 2],
               y: xy[i * 2 + 1],
-              state: nextNodes[i].state,
             }
           }
           return out
@@ -2497,12 +2762,159 @@ const Hooks = {
         const a = previousNodes[i]
         const b = nextNodes[i]
         out[i] = {
+          ...(b || {}),
           x: a.x + (b.x - a.x) * clamped,
           y: a.y + (b.y - a.y) * clamped,
-          state: b.state,
         }
       }
       return out
+    },
+    prepareGraphLayout(graph, revision) {
+      if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return graph
+      if (graph._layoutRevision && graph._layoutRevision === revision) return graph
+
+      const mode = this.shouldUseGeoLayout(graph) ? "geo" : "force"
+      const laidOut = mode === "geo" ? this.projectGeoLayout(graph) : this.forceDirectedLayout(graph)
+      laidOut._layoutMode = mode
+      laidOut._layoutRevision = revision
+      this.layoutMode = mode
+      this.layoutRevision = revision
+      return laidOut
+    },
+    shouldUseGeoLayout(graph) {
+      const nodes = graph?.nodes || []
+      if (nodes.length < 6) return false
+      let geoCount = 0
+      for (const node of nodes) {
+        if (Number.isFinite(node?.geoLat) && Number.isFinite(node?.geoLon)) geoCount += 1
+      }
+      return geoCount / Math.max(1, nodes.length) >= 0.25
+    },
+    projectGeoLayout(graph) {
+      const width = 640
+      const height = 320
+      const pad = 20
+      const nodes = graph.nodes.map((node) => ({...node}))
+      let fallbackIdx = 0
+      for (const node of nodes) {
+        const lat = Number(node?.geoLat)
+        const lon = Number(node?.geoLon)
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          const clampedLat = Math.max(-85, Math.min(85, lat))
+          const x = ((lon + 180) / 360) * (width - pad * 2) + pad
+          const rad = clampedLat * (Math.PI / 180)
+          const mercY = (1 - Math.log(Math.tan(Math.PI / 4 + rad / 2)) / Math.PI) / 2
+          const y = mercY * (height - pad * 2) + pad
+          node.x = x
+          node.y = y
+        } else {
+          const angle = fallbackIdx * 0.72
+          const ring = 22 + (fallbackIdx % 14) * 7
+          node.x = width / 2 + Math.cos(angle) * ring
+          node.y = height / 2 + Math.sin(angle) * ring
+          fallbackIdx += 1
+        }
+      }
+      return {...graph, nodes}
+    },
+    forceDirectedLayout(graph) {
+      const width = 640
+      const height = 320
+      const pad = 20
+      const nodes = graph.nodes.map((node) => ({...node}))
+      if (nodes.length <= 2) return {...graph, nodes}
+
+      const links = graph.edges
+        .filter((edge) => Number.isInteger(edge?.source) && Number.isInteger(edge?.target))
+        .map((edge) => ({source: edge.source, target: edge.target, weight: Number(edge.weight || 1)}))
+
+      const simulation = d3.forceSimulation(nodes)
+        .alphaMin(0.02)
+        .force("charge", d3.forceManyBody().strength(nodes.length > 500 ? -20 : -45))
+        .force("link", d3.forceLink(links).id((_d, i) => i).distance((l) => {
+          const w = Number(l?.weight || 1)
+          return Math.max(22, Math.min(90, 52 - Math.log2(Math.max(1, w)) * 8))
+        }).strength(0.34))
+        .force("collide", d3.forceCollide().radius(7).strength(0.8))
+        .force("center", d3.forceCenter(width / 2, height / 2))
+        .stop()
+
+      const iterations = Math.min(220, Math.max(70, Math.round(30 + nodes.length * 0.32)))
+      for (let i = 0; i < iterations; i += 1) simulation.tick()
+
+      const xs = nodes.map((n) => Number(n.x || 0))
+      const ys = nodes.map((n) => Number(n.y || 0))
+      const minX = Math.min(...xs)
+      const maxX = Math.max(...xs)
+      const minY = Math.min(...ys)
+      const maxY = Math.max(...ys)
+      const dx = Math.max(1, maxX - minX)
+      const dy = Math.max(1, maxY - minY)
+      for (const n of nodes) {
+        n.x = pad + ((Number(n.x || 0) - minX) / dx) * (width - pad * 2)
+        n.y = pad + ((Number(n.y || 0) - minY) / dy) * (height - pad * 2)
+      }
+
+      return {...graph, nodes}
+    },
+    geoGridData() {
+      if (this.layoutMode !== "geo") return []
+      const width = 640
+      const height = 320
+      const pad = 20
+      const project = (lat, lon) => {
+        const clampedLat = Math.max(-85, Math.min(85, lat))
+        const x = ((lon + 180) / 360) * (width - pad * 2) + pad
+        const rad = clampedLat * (Math.PI / 180)
+        const mercY = (1 - Math.log(Math.tan(Math.PI / 4 + rad / 2)) / Math.PI) / 2
+        const y = mercY * (height - pad * 2) + pad
+        return [x, y, -2]
+      }
+
+      const lines = []
+      for (let lon = -150; lon <= 150; lon += 30) {
+        for (let lat = -80; lat < 80; lat += 10) {
+          lines.push({sourcePosition: project(lat, lon), targetPosition: project(lat + 10, lon)})
+        }
+      }
+      for (let lat = -60; lat <= 60; lat += 20) {
+        for (let lon = -180; lon < 180; lon += 15) {
+          lines.push({sourcePosition: project(lat, lon), targetPosition: project(lat, lon + 15)})
+        }
+      }
+      return lines
+    },
+    getNodeTooltip({object, layer}) {
+      if (!object || layer?.id !== "god-view-nodes") return null
+      const d = object?.details || {}
+      const geo = [d.geo_city, d.geo_country].filter(Boolean).join(", ")
+      return {
+        text:
+          `${object.label}\n${d.ip || "ip: unknown"}\n${d.type || "type: unknown"}` +
+          `${geo ? `\n${geo}` : ""}${d.asn ? `\nASN ${d.asn}` : ""}`,
+      }
+    },
+    renderSelectionDetails(node) {
+      if (!this.details) return
+      if (!node) {
+        this.details.classList.add("hidden")
+        this.details.textContent = "Select a node for details"
+        return
+      }
+
+      const d = node.details || {}
+      const lines = [
+        `${node.label}`,
+        `ID: ${d.id || node.id || "unknown"}`,
+        `IP: ${d.ip || "unknown"}`,
+        `Type: ${d.type || "unknown"}`,
+        `Vendor/Model: ${d.vendor || "—"} ${d.model || ""}`.trim(),
+        `Last Seen: ${d.last_seen || "unknown"}`,
+        `ASN: ${d.asn || "unknown"}`,
+        `Geo: ${[d.geo_city, d.geo_country].filter(Boolean).join(", ") || "unknown"}`,
+      ]
+      this.details.textContent = lines.join("\n")
+      this.details.classList.remove("hidden")
     },
     handlePick(info) {
       const tier = this.zoomMode === "auto" ? this.zoomTier : this.zoomMode
@@ -2555,39 +2967,167 @@ const Hooks = {
               ? visibleNodes[edge.target]
               : visibleById.get(edge.targetCluster)
           if (!src || !dst || !src.visible || !dst.visible) return null
+          const label =
+            effective.shape === "local"
+              ? String(edge.label || `${src.label || src.id || "node"} -> ${dst.label || dst.id || "node"}`)
+              : `${this.formatPps(edge.flowPps || 0)} / ${this.formatCapacity(edge.capacityBps || 0)}`
+          const connectionLabel = this.connectionKindFromLabel(label)
           return {
             sourcePosition: [src.x, src.y, 0],
             targetPosition: [dst.x, dst.y, 0],
             weight: edge.weight || 1,
+            flowPps: Number(edge.flowPps || 0),
+            flowBps: Number(edge.flowBps || 0),
+            capacityBps: Number(edge.capacityBps || 0),
+            midpoint: [(src.x + dst.x) / 2, (src.y + dst.y) / 2, 0],
+            label: label.length > 56 ? `${label.slice(0, 56)}...` : label,
+            connectionLabel,
           }
         })
         .filter(Boolean)
+      const edgeLabelData = this.selectEdgeLabels(edgeData, effective.shape)
 
       const nodeData = visibleNodes
         .filter((node) => node.visible)
         .map((node) => ({
+          id: node.id,
           position: [node.x, node.y, 0],
           index: node.index,
           state: node.state,
           selected: node.selected,
           clusterCount: node.clusterCount || 1,
+          pps: Number(node.pps || 0),
+          operUp: Number(node.operUp || 0),
+          details: node.details || {},
+          label:
+            this.normalizeDisplayLabel(node.label, node.id || `node-${node.index + 1}`),
+          metricText: this.formatPps(node.pps || 0),
+          statusIcon: this.nodeStatusIcon(node.operUp),
         }))
       this.lastVisibleNodeCount = nodeData.length
       this.lastVisibleEdgeCount = edgeData.length
+      const pulse = (Math.sin(this.animationPhase * 3.5) + 1) / 2
+      const pulseRadius = 14 + pulse * 20
+      const pulseAlpha = Math.floor(80 + pulse * 130)
+      const rootPulseNodes = nodeData.filter((d) => d.state === 0)
+      const packetFlowData = this.buildPacketFlowInstances(edgeData)
+      const securityEnabled = this.layers.security
+      const mantleLayers = this.layers.mantle
+        ? [
+            new LineLayer({
+              id: "god-view-edges-mantle",
+              data: edgeData,
+              coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+              getSourcePosition: (d) => d.sourcePosition,
+              getTargetPosition: (d) => d.targetPosition,
+              getColor: (d) => this.edgeTelemetryColor(d.flowBps, d.capacityBps, d.flowPps, false),
+              getWidth: (d) => this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps),
+              widthUnits: "pixels",
+              widthMinPixels: 1,
+              parameters: {
+                blend: true,
+                blendFunc: [770, 1, 1, 1],
+              },
+            }),
+          ]
+        : []
+      const crustLayers =
+        this.layers.crust
+          ? [
+              new ArcLayer({
+                id: "god-view-edges-crust",
+                data: edgeData,
+                coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+                getSourcePosition: (d) => [d.sourcePosition[0], d.sourcePosition[1], 8],
+                getTargetPosition: (d) => [d.targetPosition[0], d.targetPosition[1], 8],
+                getSourceColor: (d) => this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source,
+                getTargetColor: (d) => this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).target,
+                getWidth: (d) => Math.max(2, Math.min(this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * 0.85, 12)),
+                widthUnits: "pixels",
+                greatCircle: false,
+                getTilt: effective.shape === "local" ? 16 : 24,
+                parameters: {
+                  blend: true,
+                  blendFunc: [770, 1, 1, 1],
+                },
+              }),
+            ]
+          : []
+      const atmosphereLayers = this.layers.atmosphere
+        ? [
+            new PacketFlowLayer({
+              id: "god-view-atmosphere-particles",
+              data: packetFlowData,
+              coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+              pickable: false,
+              parameters: {
+                blend: true,
+                blendFunc: [770, 1, 1, 1],
+              },
+              time: this.animationPhase,
+              getFrom: (d) => d.from,
+              getTo: (d) => d.to,
+              getSeed: (d) => d.seed,
+              getSpeed: (d) => d.speed,
+              getSize: (d) => d.size,
+              getColor: (d) => d.color,
+            }),
+          ]
+        : []
+      const securityLayers = this.layers.security
+        ? [
+            new ScatterplotLayer({
+              id: "god-view-security-pulse",
+              data: rootPulseNodes,
+              coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+              getPosition: (d) => d.position,
+              getRadius: pulseRadius,
+              radiusUnits: "pixels",
+              radiusMinPixels: 8,
+              filled: false,
+              stroked: true,
+              lineWidthUnits: "pixels",
+              getLineWidth: 2,
+              getLineColor: [
+                this.visual.pulse[0],
+                this.visual.pulse[1],
+                this.visual.pulse[2],
+                pulseAlpha,
+              ],
+              pickable: false,
+            }),
+          ]
+        : []
+
+      const baseGeoLines = this.geoGridData()
+      const baseLayers = baseGeoLines.length > 0
+        ? [
+            new LineLayer({
+              id: "god-view-geo-grid",
+              data: baseGeoLines,
+              coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+              getSourcePosition: (d) => d.sourcePosition,
+              getTargetPosition: (d) => d.targetPosition,
+              getColor: [32, 62, 88, 65],
+              getWidth: 1,
+              widthUnits: "pixels",
+              pickable: false,
+            }),
+          ]
+        : []
+
+      const selectedVisibleNode =
+        effective.shape !== "local" || this.selectedNodeIndex === null
+          ? null
+          : nodeData.find((node) => node.index === this.selectedNodeIndex)
+      this.renderSelectionDetails(selectedVisibleNode)
 
       this.deck.setProps({
         layers: [
-          new LineLayer({
-            id: "god-view-edges",
-            data: edgeData,
-            coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-            getSourcePosition: (d) => d.sourcePosition,
-            getTargetPosition: (d) => d.targetPosition,
-            getColor: [148, 163, 184, 140],
-            getWidth: (d) => Math.min(2 + (d.weight || 1) * 0.4, 10),
-            widthUnits: "pixels",
-            widthMinPixels: 1,
-          }),
+          ...baseLayers,
+          ...mantleLayers,
+          ...crustLayers,
+          ...atmosphereLayers,
           new ScatterplotLayer({
             id: "god-view-nodes",
             data: nodeData,
@@ -2602,8 +3142,72 @@ const Hooks = {
             pickable: true,
             getLineWidth: (d) => (d.selected ? 3 : 1),
             getLineColor: [15, 23, 42, 255],
-            getFillColor: (d) => this.nodeColor(d.state),
+            getFillColor: (d) => (securityEnabled ? this.nodeColor(d.state) : this.nodeNeutralColor(d.operUp)),
           }),
+          ...securityLayers,
+          ...(this.layers.mantle && (effective.shape === "local" || effective.shape === "regional" || effective.shape === "global")
+            ? [
+                new TextLayer({
+                  id: "god-view-node-labels",
+                  data: nodeData,
+                  coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+                  getPosition: (d) => d.position,
+                  getText: (d) => d.label,
+                  getSize: effective.shape === "local" ? 12 : 10,
+                  sizeUnits: "pixels",
+                  sizeMinPixels: effective.shape === "local" ? 10 : 8,
+                  getColor: this.visual.label,
+                  getPixelOffset: [0, -16],
+                  billboard: true,
+                  pickable: false,
+                }),
+                new TextLayer({
+                  id: "god-view-node-metrics",
+                  data: nodeData,
+                  coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+                  getPosition: (d) => d.position,
+                  getText: (d) => d.metricText,
+                  getSize: effective.shape === "local" ? 10 : 9,
+                  sizeUnits: "pixels",
+                  sizeMinPixels: 8,
+                  getColor: [148, 163, 184, 220],
+                  getPixelOffset: [0, -3],
+                  billboard: true,
+                  pickable: false,
+                }),
+                new TextLayer({
+                  id: "god-view-node-status-icon",
+                  data: nodeData,
+                  coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+                  getPosition: (d) => d.position,
+                  getText: (d) => d.statusIcon,
+                  getSize: effective.shape === "local" ? 12 : 11,
+                  sizeUnits: "pixels",
+                  sizeMinPixels: 9,
+                  getColor: (d) => this.nodeStatusColor(d.operUp),
+                  getPixelOffset: [-18, -16],
+                  billboard: true,
+                  pickable: false,
+                }),
+              ]
+            : []),
+          ...(this.layers.mantle && (effective.shape === "local" || effective.shape === "regional")
+            ? [
+                new TextLayer({
+                  id: "god-view-edge-labels",
+                  data: edgeLabelData,
+                  coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+                  getPosition: (d) => d.midpoint,
+                  getText: (d) => d.connectionLabel,
+                  getSize: 10,
+                  sizeUnits: "pixels",
+                  sizeMinPixels: 8,
+                  getColor: this.visual.edgeLabel,
+                  billboard: true,
+                  pickable: false,
+                }),
+              ]
+            : []),
         ],
       })
     },
@@ -2776,10 +3380,153 @@ const Hooks = {
       return "unknown"
     },
     nodeColor(state) {
-      if (state === 0) return [239, 68, 68, 255]
-      if (state === 1) return [245, 158, 11, 255]
-      if (state === 2) return [34, 211, 238, 255]
-      return [148, 163, 184, 255]
+      if (state === 0) return this.visual.nodeRoot
+      if (state === 1) return this.visual.nodeAffected
+      if (state === 2) return this.visual.nodeHealthy
+      return this.visual.nodeUnknown
+    },
+    nodeNeutralColor(operUp) {
+      if (Number(operUp) === 1) return [56, 189, 248, 230]
+      if (Number(operUp) === 2) return [120, 113, 108, 220]
+      return [100, 116, 139, 220]
+    },
+    formatPps(value) {
+      const n = Number(value || 0)
+      if (!Number.isFinite(n) || n <= 0) return "0 pps"
+      if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} Mpps`
+      if (n >= 1_000) return `${(n / 1_000).toFixed(1)} Kpps`
+      return `${Math.round(n)} pps`
+    },
+    formatCapacity(value) {
+      const n = Number(value || 0)
+      if (!Number.isFinite(n) || n <= 0) return "UNK"
+      if (n >= 100_000_000_000) return `${Math.round(n / 1_000_000_000)}G`
+      if (n >= 10_000_000_000) return `${Math.round(n / 1_000_000_000)}G`
+      if (n >= 1_000_000_000) return `${Math.round(n / 1_000_000_000)}G`
+      if (n >= 100_000_000) return `${Math.round(n / 1_000_000)}M`
+      return `${Math.max(1, Math.round(n / 1_000_000))}M`
+    },
+    nodeStatusIcon(operUp) {
+      if (Number(operUp) === 1) return "●"
+      if (Number(operUp) === 2) return "○"
+      return "◌"
+    },
+    nodeStatusColor(operUp) {
+      if (Number(operUp) === 1) return [34, 197, 94, 230]
+      if (Number(operUp) === 2) return [239, 68, 68, 230]
+      return [148, 163, 184, 220]
+    },
+    edgeTelemetryColor(flowBps, capacityBps, flowPps, vivid = false) {
+      const bps = Number(flowBps || 0)
+      const cap = Number(capacityBps || 0)
+      const pps = Number(flowPps || 0)
+      const util = cap > 0 ? Math.min(1, bps / cap) : 0
+      const spark = pps > 0 ? Math.min(1, Math.log10(Math.max(10, pps)) / 6) : 0
+      const t = Math.min(1, Math.max(util, spark))
+
+      const low = vivid ? [48, 226, 255, 145] : [40, 170, 220, 120]
+      const high = vivid ? [255, 74, 212, 235] : [214, 97, 255, 210]
+
+      return [
+        Math.round(low[0] * (1 - t) + high[0] * t),
+        Math.round(low[1] * (1 - t) + high[1] * t),
+        Math.round(low[2] * (1 - t) + high[2] * t),
+        Math.round(low[3] * (1 - t) + high[3] * t),
+      ]
+    },
+    edgeTelemetryArcColors(flowBps, capacityBps, flowPps) {
+      const source = this.edgeTelemetryColor(flowBps, capacityBps, flowPps, true)
+      const target = this.edgeTelemetryColor(flowBps, capacityBps, flowPps, false)
+      return {source, target}
+    },
+    edgeWidthPixels(capacityBps, flowPps, flowBps) {
+      const cap = Number(capacityBps || 0)
+      const pps = Number(flowPps || 0)
+      const bps = Number(flowBps || 0)
+
+      let base = 1.25
+      if (cap >= 100_000_000_000) base = 9.5
+      else if (cap >= 40_000_000_000) base = 8
+      else if (cap >= 10_000_000_000) base = 6.3
+      else if (cap >= 1_000_000_000) base = 4.4
+      else if (cap >= 100_000_000) base = 2.5
+
+      const ppsBoost = Math.min(2.8, Math.log10(Math.max(1, pps)) * 0.85)
+      const utilization = cap > 0 ? Math.min(1, bps / cap) : 0
+      const bpsBoost = utilization > 0 ? Math.min(3.2, Math.sqrt(utilization) * 3.2) : 0
+      const flowBoost = Math.max(ppsBoost, bpsBoost)
+      return Math.min(12, Math.max(1, base + flowBoost))
+    },
+    normalizeDisplayLabel(value, fallback = "node") {
+      const label = String(value == null ? "" : value).trim()
+      if (label === "") return fallback
+      const lowered = label.toLowerCase()
+      if (lowered === "nil" || lowered === "null" || lowered === "undefined") return fallback
+      return label
+    },
+    connectionKindFromLabel(label) {
+      const text = String(label == null ? "" : label).trim()
+      if (text === "") return "LINK"
+      const token = text.split(/\s+/)[0] || ""
+      const clean = token.replace(/[^a-zA-Z0-9_-]/g, "").toUpperCase()
+      if (!clean || clean === "NODE") return "LINK"
+      return clean
+    },
+    selectEdgeLabels(edgeData, shape) {
+      if (!Array.isArray(edgeData) || edgeData.length === 0) return []
+      if (shape !== "local") return []
+
+      const maxLabels = 48
+      const stride = Math.max(1, Math.ceil(edgeData.length / maxLabels))
+      return edgeData.filter((edge, idx) => {
+        if ((edge.weight || 1) >= 4) return true
+        return idx % stride === 0
+      })
+    },
+    buildPacketFlowInstances(edgeData) {
+      if (!Array.isArray(edgeData) || edgeData.length === 0) return []
+      const maxParticles = 2400
+      const particles = []
+
+      for (let i = 0; i < edgeData.length; i += 1) {
+        if (particles.length >= maxParticles) break
+        const edge = edgeData[i]
+        const src = edge?.sourcePosition
+        const dst = edge?.targetPosition
+        if (!Array.isArray(src) || !Array.isArray(dst)) continue
+        const pps = Number(edge?.flowPps || 0)
+        const bps = Number(edge?.flowBps || 0)
+        const cap = Number(edge?.capacityBps || 0)
+        const utilization = cap > 0 ? Math.min(1, bps / cap) : 0
+        const intensity = pps > 0 ? Math.log10(Math.max(10, pps)) : (utilization > 0 ? utilization * 3 : 0)
+        if (!Number.isFinite(intensity) || intensity <= 0) continue
+        const particlesOnEdge = Math.max(1, Math.min(12, Math.floor(intensity * 1.8)))
+        const speed = 0.05 + Math.min(0.8, intensity * 0.08)
+
+        for (let j = 0; j < particlesOnEdge; j += 1) {
+          if (particles.length >= maxParticles) break
+          const seed = (((i * 17 + j * 37) % 997) + 1) / 997
+          const hue = Math.min(1, intensity / 4)
+          const cyan = [73, 231, 255, 170]
+          const magenta = [244, 114, 255, 195]
+          const color = [
+            Math.round(cyan[0] * (1 - hue) + magenta[0] * hue),
+            Math.round(cyan[1] * (1 - hue) + magenta[1] * hue),
+            Math.round(cyan[2] * (1 - hue) + magenta[2] * hue),
+            Math.round(cyan[3] * (1 - hue) + magenta[3] * hue),
+          ]
+          particles.push({
+            from: [src[0], src[1]],
+            to: [dst[0], dst[1]],
+            seed,
+            speed,
+            size: Math.min(4.6, 1.6 + intensity * 0.42),
+            color,
+          })
+        }
+      }
+
+      return particles
     },
   },
 
