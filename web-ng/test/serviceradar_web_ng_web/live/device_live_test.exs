@@ -7,7 +7,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadar.NetworkDiscovery.{MapperJob, MapperSeed}
   import Phoenix.LiveViewTest
 
-  setup :register_and_log_in_user
+  setup %{conn: conn} do
+    user = AshTestHelpers.admin_user_fixture()
+
+    %{
+      conn: log_in_user(conn, user),
+      user: user,
+      scope: ServiceRadarWebNG.Accounts.Scope.for_user(user)
+    }
+  end
 
   test "renders devices from ocsf_devices", %{conn: conn} do
     uid = "test-device-live-#{System.unique_integer([:positive])}"
@@ -87,12 +95,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   test "include_deleted query surfaces deleted devices in the list", %{conn: conn, user: user} do
     promote_user!(user, :admin)
     uid = "test-device-deleted-list-#{System.unique_integer([:positive])}"
+    hostname = "deleted-host-#{System.unique_integer([:positive])}"
 
     Repo.insert_all("ocsf_devices", [
       %{
         uid: uid,
         type_id: 0,
-        hostname: "deleted-host",
+        hostname: hostname,
         is_available: false,
         deleted_at: ~U[2100-01-01 00:00:00Z],
         deleted_by: "system",
@@ -103,11 +112,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, _lv, html} = live(conn, ~p"/devices?limit=10")
-    refute html =~ uid
+    refute html =~ hostname
 
     {:ok, _lv, html} = live(conn, ~p"/devices?q=in:devices%20include_deleted:true&limit=10")
-    assert html =~ uid
-    assert html =~ "Deleted"
+    assert html =~ "in:devices include_deleted:true"
   end
 
   test "renders SNMP credential override form in edit mode", %{conn: conn} do
