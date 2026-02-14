@@ -24,6 +24,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
        |> assign(:last_decode_ms, nil)
        |> assign(:last_render_ms, nil)
        |> assign(:last_bitmap_metadata, nil)
+       |> assign(:last_zoom_tier, nil)
+       |> assign(:last_zoom_mode, "auto")
+       |> assign(:zoom_mode, "auto")
        |> assign(:causal_filters, %{
          root_cause: true,
          affected: true,
@@ -53,7 +56,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
      |> assign(:last_network_ms, Map.get(params, "network_ms"))
      |> assign(:last_decode_ms, Map.get(params, "decode_ms"))
      |> assign(:last_render_ms, Map.get(params, "render_ms"))
-     |> assign(:last_bitmap_metadata, Map.get(params, "bitmap_metadata"))}
+     |> assign(:last_bitmap_metadata, Map.get(params, "bitmap_metadata"))
+     |> assign(:last_zoom_tier, Map.get(params, "zoom_tier"))
+     |> assign(:last_zoom_mode, Map.get(params, "zoom_mode", socket.assigns.last_zoom_mode))}
   end
 
   def handle_event("god_view_stream_error", _params, socket) do
@@ -75,6 +80,13 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
      socket
      |> assign(:causal_filters, filters)
      |> push_event("god_view:set_filters", %{filters: stringify_filter_keys(filters)})}
+  end
+
+  def handle_event("set_zoom_mode", %{"mode" => mode}, socket) do
+    mode = normalize_zoom_mode(mode)
+
+    {:noreply,
+     socket |> assign(:zoom_mode, mode) |> push_event("god_view:set_zoom_mode", %{mode: mode})}
   end
 
   @impl true
@@ -132,6 +144,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
               <div class="text-sm font-mono mt-1">{@last_renderer_mode || "—"}</div>
             </div>
             <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Zoom Tier</div>
+              <div class="text-sm font-mono mt-1">{@last_zoom_tier || "—"}</div>
+            </div>
+            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Zoom Mode</div>
+              <div class="text-sm font-mono mt-1">{@last_zoom_mode || "—"}</div>
+            </div>
+            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
               <div class="text-xs uppercase tracking-wide text-base-content/60">Decode (ms)</div>
               <div class="text-sm font-mono mt-1">{@last_decode_ms || "—"}</div>
             </div>
@@ -157,6 +177,46 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
             <li>Server-provided causal bitmaps for blast-radius rendering states</li>
             <li>Feature-gated rollout with explicit performance telemetry targets</li>
           </ul>
+        </.ui_panel>
+
+        <.ui_panel>
+          <:header>
+            <div class="text-sm font-semibold">Semantic Zoom</div>
+          </:header>
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              class={zoom_button_class(@zoom_mode == "auto")}
+              phx-click="set_zoom_mode"
+              phx-value-mode="auto"
+            >
+              Auto
+            </button>
+            <button
+              type="button"
+              class={zoom_button_class(@zoom_mode == "global")}
+              phx-click="set_zoom_mode"
+              phx-value-mode="global"
+            >
+              Global Collapse
+            </button>
+            <button
+              type="button"
+              class={zoom_button_class(@zoom_mode == "regional")}
+              phx-click="set_zoom_mode"
+              phx-value-mode="regional"
+            >
+              Regional Clusters
+            </button>
+            <button
+              type="button"
+              class={zoom_button_class(@zoom_mode == "local")}
+              phx-click="set_zoom_mode"
+              phx-value-mode="local"
+            >
+              Local Expanded
+            </button>
+          </div>
         </.ui_panel>
 
         <.ui_panel>
@@ -225,6 +285,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
   defp filter_button_class(true), do: "btn btn-sm btn-primary"
   defp filter_button_class(false), do: "btn btn-sm btn-ghost"
+  defp zoom_button_class(true), do: "btn btn-sm btn-secondary"
+  defp zoom_button_class(false), do: "btn btn-sm btn-ghost"
 
   defp format_bitmap_meta(nil), do: "—"
 
@@ -248,4 +310,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
       bytes: Map.get(entry, "bytes") || Map.get(entry, :bytes) || 0
     }
   end
+
+  defp normalize_zoom_mode("global"), do: "global"
+  defp normalize_zoom_mode("regional"), do: "regional"
+  defp normalize_zoom_mode("local"), do: "local"
+  defp normalize_zoom_mode(_), do: "auto"
 end

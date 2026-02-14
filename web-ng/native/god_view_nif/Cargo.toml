@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 arrow-array = "56.2.0"
 arrow-ipc = "56.2.0"
 arrow-schema = "56.2.0"
+deep_causality = "0.13.4"
 rustler = "0.36.1"
 
 [workspace]

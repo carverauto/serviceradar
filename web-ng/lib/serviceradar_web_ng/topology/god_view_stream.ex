@@ -8,17 +8,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   """
 
   require Ash.Query
-  require Logger
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.TopologyLink
-  alias ServiceRadarWebNG.Topology.CausalEngine
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNG.Topology.Native
 
   @max_link_rows 5_000
-  @max_fallback_nodes 250
+  @max_device_rows 250
 
   @spec latest_snapshot() ::
           {:ok, %{snapshot: GodViewSnapshot.snapshot(), payload: binary()}} | {:error, term()}
@@ -26,27 +24,17 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     revision = System.system_time(:millisecond)
     actor = SystemActor.system(:god_view_stream)
 
-    projection =
-      case build_projection(actor) do
-        {:ok, projection} ->
-          projection
-
-        {:error, reason} ->
-          Logger.warning("GodViewStream projection fallback engaged: #{inspect(reason)}")
-          fallback_projection()
-      end
-
-    snapshot = %{
-      schema_version: GodViewSnapshot.schema_version(),
-      revision: revision,
-      generated_at: DateTime.utc_now(),
-      nodes: projection.nodes,
-      edges: projection.edges,
-      causal_bitmaps: projection.causal_bitmaps,
-      bitmap_metadata: projection.bitmap_metadata
-    }
-
-    with :ok <- GodViewSnapshot.validate(snapshot) do
+    with {:ok, projection} <- build_projection(actor),
+         snapshot = %{
+           schema_version: GodViewSnapshot.schema_version(),
+           revision: revision,
+           generated_at: DateTime.utc_now(),
+           nodes: projection.nodes,
+           edges: projection.edges,
+           causal_bitmaps: projection.causal_bitmaps,
+           bitmap_metadata: projection.bitmap_metadata
+         },
+         :ok <- GodViewSnapshot.validate(snapshot) do
       {:ok, %{snapshot: snapshot, payload: encode_payload(snapshot)}}
     end
   end
@@ -150,7 +138,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp fetch_devices(actor, []), do: fetch_fallback_devices(actor)
+  defp fetch_devices(actor, []), do: fetch_recent_devices(actor)
 
   defp fetch_devices(actor, node_ids) when is_list(node_ids) do
     query =
@@ -166,12 +154,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp fetch_fallback_devices(actor) do
+  defp fetch_recent_devices(actor) do
     query =
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
       |> Ash.Query.sort(last_seen_time: :desc, uid: :asc)
-      |> Ash.Query.limit(@max_fallback_nodes)
+      |> Ash.Query.limit(@max_device_rows)
 
     case Ash.read(query, actor: actor) do
       {:ok, devices} when is_list(devices) -> {:ok, devices}
@@ -228,11 +216,31 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp health_signal(_), do: :unknown
 
   defp apply_causal_states(nodes, edges) do
-    state_by_id = CausalEngine.evaluate(nodes, edges)
+    node_index =
+      nodes
+      |> Enum.with_index()
+      |> Map.new(fn {node, idx} -> {node.id, idx} end)
 
-    Enum.map(nodes, fn node ->
+    signals =
+      Enum.map(nodes, fn node ->
+        case Map.get(node, :health_signal, :unknown) do
+          :healthy -> 0
+          :unhealthy -> 1
+          _ -> 2
+        end
+      end)
+
+    indexed_edges =
+      Enum.map(edges, fn edge ->
+        {Map.fetch!(node_index, edge.source), Map.fetch!(node_index, edge.target)}
+      end)
+
+    states = Native.evaluate_causal_states(signals, indexed_edges)
+
+    Enum.zip(nodes, states)
+    |> Enum.map(fn {node, state} ->
       node
-      |> Map.put(:state, Map.get(state_by_id, node.id, 3))
+      |> Map.put(:state, state)
       |> Map.delete(:health_signal)
     end)
   end
@@ -308,31 +316,4 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp page_results(%{results: results}) when is_list(results), do: results
   defp page_results(_), do: []
-
-  defp fallback_projection do
-    nodes = fallback_nodes()
-    {causal_bitmaps, bitmap_metadata} = build_bitmaps(nodes)
-
-    %{
-      nodes: nodes,
-      edges: fallback_edges(),
-      causal_bitmaps: causal_bitmaps,
-      bitmap_metadata: bitmap_metadata
-    }
-  end
-
-  defp fallback_nodes do
-    [
-      %{id: "core-1", label: "Core Router", kind: "router", x: 80, y: 180, state: 0},
-      %{id: "dist-1", label: "Distribution Switch", kind: "switch", x: 300, y: 180, state: 1},
-      %{id: "srv-1", label: "Application Server", kind: "server", x: 520, y: 180, state: 1}
-    ]
-  end
-
-  defp fallback_edges do
-    [
-      %{source: "core-1", target: "dist-1", kind: "physical"},
-      %{source: "dist-1", target: "srv-1", kind: "physical"}
-    ]
-  end
 end

@@ -13,7 +13,7 @@
 - [x] 3.1 Implement God-View entry point in web-ng behind feature flag.
 - [x] 3.2 Implement GPU-backed rendering pipeline that consumes binary snapshots without JSON fanout.
 - [x] 3.3 Implement hybrid filter application (ghosting/highlight) and causal legend/state controls.
-- [ ] 3.4 Implement semantic zoom transitions and topology reshape triggers for collapse/expand behavior.
+- [x] 3.4 Implement semantic zoom transitions and topology reshape triggers for collapse/expand behavior.
 - [x] 3.5 Add Wasm Arrow execution path for local traversal and compound filtering at 100k+ scale.
 - [x] 3.6 Add Wasm-based coordinate interpolation path for large animated transitions.
 

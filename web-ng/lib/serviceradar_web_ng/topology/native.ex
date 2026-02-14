@@ -34,4 +34,10 @@ defmodule ServiceRadarWebNG.Topology.Native do
         _unknown_bitmap_bytes
       ),
       do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Evaluate causal states using the Rust/DeepCausality engine.
+  """
+  def evaluate_causal_states(_health_signals, _edges),
+    do: :erlang.nif_error(:nif_not_loaded)
 end

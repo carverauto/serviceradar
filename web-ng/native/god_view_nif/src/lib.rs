@@ -1,9 +1,14 @@
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use arrow_array::{Int8Array, RecordBatch, UInt16Array, UInt32Array, UInt64Array};
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
+use deep_causality::{
+    BaseCausaloid, CausableGraph, Causaloid, CausaloidGraph, IdentificationValue, NumericalValue,
+    PropagatingEffect,
+};
 use rustler::{Binary, Env, NifResult, OwnedBinary};
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -108,6 +113,118 @@ fn encode_snapshot<'a>(
     let mut out = OwnedBinary::new(payload.len()).ok_or(rustler::Error::BadArg)?;
     out.as_mut_slice().copy_from_slice(&payload);
     Ok(Binary::from_owned(out, env))
+}
+
+fn deep_causality_eval(obs: NumericalValue) -> PropagatingEffect<bool> {
+    PropagatingEffect::pure(obs > 0.5)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn evaluate_causal_states(health_signals: Vec<u8>, edges: Vec<(u32, u32)>) -> NifResult<Vec<u8>> {
+    let node_count = health_signals.len();
+    if node_count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut graph = CausaloidGraph::<BaseCausaloid<NumericalValue, bool>>::new(0);
+    let mut node_indices = Vec::with_capacity(node_count);
+
+    for idx in 0..node_count {
+        let causaloid = Causaloid::new(
+            idx as IdentificationValue,
+            deep_causality_eval,
+            "serviceradar_god_view_causal_eval",
+        );
+
+        let graph_index = if idx == 0 {
+            graph
+                .add_root_causaloid(causaloid)
+                .map_err(|_| rustler::Error::BadArg)?
+        } else {
+            graph
+                .add_causaloid(causaloid)
+                .map_err(|_| rustler::Error::BadArg)?
+        };
+        node_indices.push(graph_index);
+    }
+
+    let mut adjacency = vec![Vec::<usize>::new(); node_count];
+
+    for (a, b) in edges {
+        let ai = a as usize;
+        let bi = b as usize;
+
+        if ai >= node_count || bi >= node_count || ai == bi {
+            continue;
+        }
+
+        let ga = node_indices[ai];
+        let gb = node_indices[bi];
+        graph.add_edge(ga, gb).map_err(|_| rustler::Error::BadArg)?;
+        graph.add_edge(gb, ga).map_err(|_| rustler::Error::BadArg)?;
+
+        adjacency[ai].push(bi);
+        adjacency[bi].push(ai);
+    }
+    graph.freeze();
+
+    let unhealthy: Vec<usize> = health_signals
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, signal)| if *signal == 1 { Some(idx) } else { None })
+        .collect();
+
+    let mut states = vec![3u8; node_count];
+
+    if unhealthy.is_empty() {
+        for (idx, signal) in health_signals.iter().enumerate() {
+            states[idx] = if *signal == 0 { 2 } else { 3 };
+        }
+        return Ok(states);
+    }
+
+    let root = unhealthy
+        .iter()
+        .copied()
+        .max_by_key(|idx| (adjacency[*idx].len(), usize::MAX - *idx))
+        .ok_or(rustler::Error::BadArg)?;
+
+    let mut dist = vec![usize::MAX; node_count];
+    let mut queue = VecDeque::new();
+    dist[root] = 0;
+    queue.push_back(root);
+
+    while let Some(current) = queue.pop_front() {
+        let next_dist = dist[current] + 1;
+        if next_dist > 3 {
+            continue;
+        }
+
+        for neighbor in &adjacency[current] {
+            if dist[*neighbor] == usize::MAX {
+                dist[*neighbor] = next_dist;
+                queue.push_back(*neighbor);
+            }
+        }
+    }
+
+    states[root] = 0;
+
+    for idx in 0..node_count {
+        if idx == root {
+            continue;
+        }
+
+        if dist[idx] != usize::MAX && dist[idx] <= 3 {
+            states[idx] = 1;
+        } else if health_signals[idx] == 0 {
+            states[idx] = 2;
+        } else {
+            states[idx] = 3;
+        }
+    }
+
+    Ok(states)
 }
 
 rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native");

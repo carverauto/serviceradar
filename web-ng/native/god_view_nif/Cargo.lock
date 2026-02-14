@@ -182,6 +182,73 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
+name = "deep_causality"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d39d5354213c55596fb4af83ad9d6ef81b6e81ae6bf3ab2fde1ddd192123992"
+dependencies = [
+ "deep_causality_ast",
+ "deep_causality_core",
+ "deep_causality_data_structures",
+ "deep_causality_haft",
+ "deep_causality_uncertain",
+ "ultragraph",
+]
+
+[[package]]
+name = "deep_causality_ast"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2d71ddaaf985d9d9775535234d0d47809767c5ac41db362d58d14cd40f5b665"
+
+[[package]]
+name = "deep_causality_core"
+version = "0.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b8a80f194c141f1a2758a0b4674109a8c9bc9b6da3f78e07a233359bc268c38"
+dependencies = [
+ "deep_causality_haft",
+]
+
+[[package]]
+name = "deep_causality_data_structures"
+version = "0.10.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d35c746f8f1aafcc0cb15fc13921df0ac9c2c756625e09a7149b01decc3a4567"
+
+[[package]]
+name = "deep_causality_haft"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb44942e225dea1b4b477b4759fe13f1c6b8ec5521ded6e91844c09d440d010a"
+
+[[package]]
+name = "deep_causality_num"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e3dee16e09c2cc5f8f980f753a4a65f09d38ac3f84efbfb23a9f88a14d7fd46"
+
+[[package]]
+name = "deep_causality_rand"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d07f5c08dbe0244a6139eae6802236c69d7f8cb15ca7c8b1441fd210e9f9c6ed"
+dependencies = [
+ "deep_causality_num",
+]
+
+[[package]]
+name = "deep_causality_uncertain"
+version = "0.3.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14e74ca7d19ccdda1a6e1c79c94164e1993682357b1080e037139f850dc29fca"
+dependencies = [
+ "deep_causality_ast",
+ "deep_causality_num",
+ "deep_causality_rand",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -227,6 +294,7 @@ dependencies = [
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
+ "deep_causality",
  "rustler",
 ]
 
@@ -506,6 +574,12 @@ checksum = "2c9d3793400a45f954c52e73d068316d76b6f4e36977e3fcebb13a2721e80237"
 dependencies = [
  "crunchy",
 ]
+
+[[package]]
+name = "ultragraph"
+version = "0.8.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eaac28702690a9d90da2820bd5c2a7582fbb846269894ba3ecb0c3ab1997ab3"
 
 [[package]]
 name = "unicode-ident"

@@ -1867,6 +1867,14 @@ const Hooks = {
       this.wasmReady = false
       this.selectedNodeIndex = null
       this.pendingAnimationFrame = null
+      this.zoomMode = "auto"
+      this.zoomTier = "local"
+      this.viewState = {
+        target: [320, 160, 0],
+        zoom: 1.4,
+        minZoom: -2,
+        maxZoom: 5,
+      }
 
       this.ensureDOM = this.ensureDOM.bind(this)
       this.renderGraph = this.renderGraph.bind(this)
@@ -1876,6 +1884,12 @@ const Hooks = {
       this.handlePick = this.handlePick.bind(this)
       this.animateTransition = this.animateTransition.bind(this)
       this.parseSnapshotMessage = this.parseSnapshotMessage.bind(this)
+      this.resolveZoomTier = this.resolveZoomTier.bind(this)
+      this.setZoomTier = this.setZoomTier.bind(this)
+      this.reshapeGraph = this.reshapeGraph.bind(this)
+      this.reclusterByState = this.reclusterByState.bind(this)
+      this.reclusterByGrid = this.reclusterByGrid.bind(this)
+      this.clusterEdges = this.clusterEdges.bind(this)
 
       this.ensureDOM()
       GodViewWasmEngine.init()
@@ -1897,6 +1911,25 @@ const Hooks = {
           }
           if (this.lastGraph) this.renderGraph(this.lastGraph)
         }
+      })
+      this.handleEvent("god_view:set_zoom_mode", ({mode}) => {
+        const normalized = mode === "global" || mode === "regional" || mode === "local" ? mode : "auto"
+        this.zoomMode = normalized
+
+        if (!this.deck) return
+
+        if (normalized === "auto") {
+          this.setZoomTier(this.resolveZoomTier(this.viewState.zoom || 0), true)
+          return
+        }
+
+        const zoomByTier = {global: -0.9, regional: 0.35, local: 1.65}
+        this.viewState = {
+          ...this.viewState,
+          zoom: zoomByTier[normalized] || this.viewState.zoom,
+        }
+        this.deck.setProps({viewState: this.viewState})
+        this.setZoomTier(normalized, true)
       })
 
       if (!window.godViewSocket) {
@@ -1965,6 +1998,8 @@ const Hooks = {
           bitmap_metadata: snapshot.bitmapMetadata,
           bytes: bytes.byteLength,
           renderer_mode: this.rendererMode,
+          zoom_tier: this.zoomTier,
+          zoom_mode: this.zoomMode,
           network_ms: networkMs,
           decode_ms: decodeMs,
           render_ms: renderMs,
@@ -2092,13 +2127,8 @@ const Hooks = {
           canvas: this.canvas,
           width: "100%",
           height: "100%",
-          controller: false,
-          initialViewState: {
-            target: [320, 130, 0],
-            zoom: 0,
-            minZoom: -2,
-            maxZoom: 4,
-          },
+          controller: true,
+          initialViewState: this.viewState,
           deviceProps: {
             type: mode,
             adapters,
@@ -2108,6 +2138,12 @@ const Hooks = {
             blendFunc: [770, 771],
           },
           onClick: this.handlePick,
+          onViewStateChange: ({viewState}) => {
+            this.viewState = viewState
+            if (this.zoomMode === "auto") {
+              this.setZoomTier(this.resolveZoomTier(viewState.zoom || 0), false)
+            }
+          },
         })
       } catch (_error) {
         this.rendererMode = "webgl-fallback"
@@ -2115,13 +2151,8 @@ const Hooks = {
           canvas: this.canvas,
           width: "100%",
           height: "100%",
-          controller: false,
-          initialViewState: {
-            target: [320, 130, 0],
-            zoom: 0,
-            minZoom: -2,
-            maxZoom: 4,
-          },
+          controller: true,
+          initialViewState: this.viewState,
           deviceProps: {
             type: "webgl",
             adapters: [webgl2Adapter],
@@ -2131,8 +2162,117 @@ const Hooks = {
             blendFunc: [770, 771],
           },
           onClick: this.handlePick,
+          onViewStateChange: ({viewState}) => {
+            this.viewState = viewState
+            if (this.zoomMode === "auto") {
+              this.setZoomTier(this.resolveZoomTier(viewState.zoom || 0), false)
+            }
+          },
         })
       }
+    },
+    resolveZoomTier(zoom) {
+      if (zoom < -0.3) return "global"
+      if (zoom < 1.1) return "regional"
+      return "local"
+    },
+    setZoomTier(nextTier, forceRender) {
+      if (!nextTier) return
+      if (!forceRender && this.zoomTier === nextTier) return
+      this.zoomTier = nextTier
+      if (nextTier !== "local") this.selectedNodeIndex = null
+      if (this.lastGraph) this.renderGraph(this.lastGraph)
+    },
+    reshapeGraph(graph) {
+      const tier = this.zoomMode === "auto" ? this.zoomTier : this.zoomMode
+      if (tier === "local") return {shape: "local", ...graph}
+      if (tier === "global") return this.reclusterByState(graph)
+      return this.reclusterByGrid(graph)
+    },
+    reclusterByState(graph) {
+      const clusters = new Map()
+      const clusterByNode = new Array(graph.nodes.length)
+
+      graph.nodes.forEach((node, index) => {
+        const key = `state:${node.state}`
+        const existing = clusters.get(key) || {
+          id: key,
+          sumX: 0,
+          sumY: 0,
+          count: 0,
+          stateHistogram: {0: 0, 1: 0, 2: 0, 3: 0},
+        }
+        existing.sumX += node.x
+        existing.sumY += node.y
+        existing.count += 1
+        existing.stateHistogram[node.state] = (existing.stateHistogram[node.state] || 0) + 1
+        clusters.set(key, existing)
+        clusterByNode[index] = key
+      })
+
+      const nodes = Array.from(clusters.values()).map((cluster) => ({
+        id: cluster.id,
+        x: cluster.sumX / cluster.count,
+        y: cluster.sumY / cluster.count,
+        state: Number(cluster.id.split(":")[1]),
+        clusterCount: cluster.count,
+      }))
+
+      const edges = this.clusterEdges(graph.edges, clusterByNode)
+      return {shape: "global", nodes, edges}
+    },
+    reclusterByGrid(graph) {
+      const cell = 180
+      const clusters = new Map()
+      const clusterByNode = new Array(graph.nodes.length)
+
+      graph.nodes.forEach((node, index) => {
+        const gx = Math.floor(node.x / cell)
+        const gy = Math.floor(node.y / cell)
+        const key = `grid:${gx}:${gy}`
+        const existing = clusters.get(key) || {
+          id: key,
+          sumX: 0,
+          sumY: 0,
+          count: 0,
+          stateHistogram: {0: 0, 1: 0, 2: 0, 3: 0},
+        }
+        existing.sumX += node.x
+        existing.sumY += node.y
+        existing.count += 1
+        existing.stateHistogram[node.state] = (existing.stateHistogram[node.state] || 0) + 1
+        clusters.set(key, existing)
+        clusterByNode[index] = key
+      })
+
+      const nodes = Array.from(clusters.values()).map((cluster) => {
+        const dominantState = [0, 1, 2, 3].sort(
+          (a, b) => (cluster.stateHistogram[b] || 0) - (cluster.stateHistogram[a] || 0),
+        )[0]
+        return {
+          id: cluster.id,
+          x: cluster.sumX / cluster.count,
+          y: cluster.sumY / cluster.count,
+          state: dominantState,
+          clusterCount: cluster.count,
+        }
+      })
+
+      const edges = this.clusterEdges(graph.edges, clusterByNode)
+      return {shape: "regional", nodes, edges}
+    },
+    clusterEdges(edges, clusterByNode) {
+      const acc = new Map()
+      edges.forEach((edge) => {
+        const a = clusterByNode[edge.source]
+        const b = clusterByNode[edge.target]
+        if (!a || !b || a === b) return
+        const key = a < b ? `${a}|${b}` : `${b}|${a}`
+        const current = acc.get(key) || {sourceCluster: a < b ? a : b, targetCluster: a < b ? b : a, weight: 0}
+        current.weight += 1
+        acc.set(key, current)
+      })
+      return Array.from(acc.values())
     },
     animateTransition(previousGraph, nextGraph) {
       if (this.pendingAnimationFrame) {
@@ -2209,6 +2349,9 @@ const Hooks = {
       return out
     },
     handlePick(info) {
+      const tier = this.zoomMode === "auto" ? this.zoomTier : this.zoomMode
+      if (tier !== "local") return
+
       const picked = info?.object?.index
       if (Number.isInteger(picked)) {
         this.selectedNodeIndex = this.selectedNodeIndex === picked ? null : picked
@@ -2223,33 +2366,42 @@ const Hooks = {
     },
     renderGraph(graph) {
       this.ensureDeck()
+      const effective = this.reshapeGraph(graph)
 
-      const states = Uint8Array.from(graph.nodes.map((node) => node.state))
+      const states = Uint8Array.from(effective.nodes.map((node) => node.state))
       const stateMask = this.visibilityMask(states)
-      const traversalMask = this.computeTraversalMask(graph)
-      const mask = new Uint8Array(graph.nodes.length)
+      const traversalMask = effective.shape === "local" ? this.computeTraversalMask(effective) : null
+      const mask = new Uint8Array(effective.nodes.length)
 
-      for (let i = 0; i < graph.nodes.length; i += 1) {
+      for (let i = 0; i < effective.nodes.length; i += 1) {
         const stateVisible = stateMask[i] === 1
         const traversalVisible = !traversalMask || traversalMask[i] === 1
         mask[i] = stateVisible && traversalVisible ? 1 : 0
       }
 
-      const visibleNodes = graph.nodes.map((node, index) => ({
+      const visibleNodes = effective.nodes.map((node, index) => ({
         ...node,
         index,
         selected: this.selectedNodeIndex === index,
         visible: mask[index] === 1,
       }))
+      const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
 
-      const edgeData = graph.edges
+      const edgeData = effective.edges
         .map((edge) => {
-          const src = visibleNodes[edge.source]
-          const dst = visibleNodes[edge.target]
+          const src =
+            effective.shape === "local"
+              ? visibleNodes[edge.source]
+              : visibleById.get(edge.sourceCluster)
+          const dst =
+            effective.shape === "local"
+              ? visibleNodes[edge.target]
+              : visibleById.get(edge.targetCluster)
           if (!src || !dst || !src.visible || !dst.visible) return null
           return {
             sourcePosition: [src.x, src.y, 0],
             targetPosition: [dst.x, dst.y, 0],
+            weight: edge.weight || 1,
           }
         })
         .filter(Boolean)
@@ -2261,6 +2413,7 @@ const Hooks = {
           index: node.index,
           state: node.state,
           selected: node.selected,
+          clusterCount: node.clusterCount || 1,
         }))
 
       this.deck.setProps({
@@ -2272,14 +2425,14 @@ const Hooks = {
             getSourcePosition: (d) => d.sourcePosition,
             getTargetPosition: (d) => d.targetPosition,
             getColor: [148, 163, 184, 140],
-            getWidth: 2,
+            getWidth: (d) => Math.min(2 + (d.weight || 1) * 0.4, 10),
           }),
           new ScatterplotLayer({
             id: "god-view-nodes",
             data: nodeData,
             coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
             getPosition: (d) => d.position,
-            getRadius: 10,
+            getRadius: (d) => Math.min(8 + ((d.clusterCount || 1) - 1) * 0.45, 26),
             radiusUnits: "pixels",
             stroked: true,
             filled: true,
