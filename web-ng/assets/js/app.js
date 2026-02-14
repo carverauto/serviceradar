@@ -32,6 +32,7 @@ import {COORDINATE_SYSTEM, Deck} from "@deck.gl/core"
 import {LineLayer, ScatterplotLayer} from "@deck.gl/layers"
 import {webgl2Adapter} from "@luma.gl/webgl"
 import {webgpuAdapter} from "@luma.gl/webgpu"
+import {GodViewWasmEngine} from "./wasm/god_view_exec_runtime"
 
 import {
   attachTimeTooltip as nfAttachTimeTooltip,
@@ -1862,12 +1863,30 @@ const Hooks = {
       this.rendererMode = "initializing"
       this.filters = {root_cause: true, affected: true, healthy: true, unknown: true}
       this.lastGraph = null
+      this.wasmEngine = null
+      this.wasmReady = false
+      this.selectedNodeIndex = null
+      this.pendingAnimationFrame = null
 
       this.ensureDOM = this.ensureDOM.bind(this)
       this.renderGraph = this.renderGraph.bind(this)
       this.ensureDeck = this.ensureDeck.bind(this)
+      this.visibilityMask = this.visibilityMask.bind(this)
+      this.computeTraversalMask = this.computeTraversalMask.bind(this)
+      this.handlePick = this.handlePick.bind(this)
+      this.animateTransition = this.animateTransition.bind(this)
+      this.parseSnapshotMessage = this.parseSnapshotMessage.bind(this)
 
       this.ensureDOM()
+      GodViewWasmEngine.init()
+        .then((engine) => {
+          this.wasmEngine = engine
+          this.wasmReady = true
+        })
+        .catch((_err) => {
+          this.wasmReady = false
+          this.wasmEngine = null
+        })
       this.handleEvent("god_view:set_filters", ({filters}) => {
         if (filters && typeof filters === "object") {
           this.filters = {
@@ -1906,6 +1925,10 @@ const Hooks = {
         this.channel.leave()
         this.channel = null
       }
+      if (this.pendingAnimationFrame) {
+        cancelAnimationFrame(this.pendingAnimationFrame)
+        this.pendingAnimationFrame = null
+      }
       if (this.deck) {
         this.deck.finalize()
         this.deck = null
@@ -1914,29 +1937,32 @@ const Hooks = {
     handleSnapshot(msg) {
       const startedAt = performance.now()
       try {
-        const base64Payload = msg?.payload
-        if (!base64Payload) throw new Error("missing payload")
+        const snapshot = this.parseSnapshotMessage(msg)
+        const bytes = snapshot?.payload
+        if (!bytes || bytes.byteLength === 0) throw new Error("missing payload")
 
         const decodeStart = performance.now()
-        const bytes = Uint8Array.from(atob(base64Payload), (c) => c.charCodeAt(0))
         const graph = this.decodeArrowGraph(bytes)
         const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
 
         const renderStart = performance.now()
+        const previousGraph = this.lastGraph
         this.lastGraph = graph
-        this.renderGraph(graph)
+        this.animateTransition(previousGraph, graph)
         this.summary.textContent =
-          `schema=${msg.schema_version} revision=${msg.revision} nodes=${graph.nodes.length} ` +
-          `edges=${graph.edges.length} payload=${bytes.byteLength}B`
+          `schema=${snapshot.schemaVersion} revision=${snapshot.revision} nodes=${graph.nodes.length} ` +
+          `edges=${graph.edges.length} payload=${bytes.byteLength}B selected=` +
+          `${this.selectedNodeIndex === null ? "none" : this.selectedNodeIndex}`
         const renderMs = Math.round((performance.now() - renderStart) * 100) / 100
         const networkMs = Math.round((performance.now() - startedAt) * 100) / 100
 
         this.pushEvent("god_view_stream_stats", {
-          schema_version: msg.schema_version,
-          revision: msg.revision,
+          schema_version: snapshot.schemaVersion,
+          revision: snapshot.revision,
           node_count: graph.nodes.length,
           edge_count: graph.edges.length,
-          generated_at: msg.generated_at,
+          generated_at: snapshot.generatedAt,
+          bitmap_metadata: snapshot.bitmapMetadata,
           bytes: bytes.byteLength,
           renderer_mode: this.rendererMode,
           network_ms: networkMs,
@@ -1946,6 +1972,48 @@ const Hooks = {
       } catch (error) {
         this.summary.textContent = "snapshot decode failed"
         this.pushEvent("god_view_stream_error", {reason: "decode_error", message: `${error}`})
+      }
+    },
+    parseSnapshotMessage(msg) {
+      if (msg instanceof ArrayBuffer) {
+        return this.parseBinarySnapshotFrame(msg)
+      }
+      throw new Error("snapshot payload is not a binary frame")
+    },
+    parseBinarySnapshotFrame(buffer) {
+      const bytes = new Uint8Array(buffer)
+      if (bytes.byteLength < 53) throw new Error("invalid binary snapshot frame")
+
+      const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3])
+      if (magic !== "GVB1") throw new Error("unexpected binary snapshot magic")
+
+      const view = new DataView(buffer)
+      const schemaVersion = view.getUint8(4)
+      const revision = Number(view.getBigUint64(5, false))
+      const generatedAtMs = Number(view.getBigInt64(13, false))
+      const rootBytes = view.getUint32(21, false)
+      const affectedBytes = view.getUint32(25, false)
+      const healthyBytes = view.getUint32(29, false)
+      const unknownBytes = view.getUint32(33, false)
+      const rootCount = view.getUint32(37, false)
+      const affectedCount = view.getUint32(41, false)
+      const healthyCount = view.getUint32(45, false)
+      const unknownCount = view.getUint32(49, false)
+      const generatedAt = Number.isFinite(generatedAtMs)
+        ? new Date(generatedAtMs).toISOString()
+        : null
+
+      return {
+        schemaVersion,
+        revision,
+        generatedAt,
+        bitmapMetadata: {
+          root_cause: {bytes: rootBytes, count: rootCount},
+          affected: {bytes: affectedBytes, count: affectedCount},
+          healthy: {bytes: healthyBytes, count: healthyCount},
+          unknown: {bytes: unknownBytes, count: unknownCount},
+        },
+        payload: bytes.slice(53),
       }
     },
     decodeArrowGraph(bytes) {
@@ -1959,6 +2027,8 @@ const Hooks = {
 
       const nodes = []
       const edges = []
+      const edgeSourceIndex = []
+      const edgeTargetIndex = []
       const rowCount = table.numRows || 0
 
       for (let i = 0; i < rowCount; i += 1) {
@@ -1970,14 +2040,23 @@ const Hooks = {
             state: Number(nodeState?.get(i) || 3),
           })
         } else if (t === 1) {
+          const source = Number(edgeSource?.get(i) || 0)
+          const target = Number(edgeTarget?.get(i) || 0)
           edges.push({
-            source: Number(edgeSource?.get(i) || 0),
-            target: Number(edgeTarget?.get(i) || 0),
+            source,
+            target,
           })
+          edgeSourceIndex.push(source)
+          edgeTargetIndex.push(target)
         }
       }
 
-      return {nodes, edges}
+      return {
+        nodes,
+        edges,
+        edgeSourceIndex: Uint32Array.from(edgeSourceIndex),
+        edgeTargetIndex: Uint32Array.from(edgeTargetIndex),
+      }
     },
     ensureDOM() {
       if (this.canvas && this.summary) return
@@ -2028,6 +2107,7 @@ const Hooks = {
             blend: true,
             blendFunc: [770, 771],
           },
+          onClick: this.handlePick,
         })
       } catch (_error) {
         this.rendererMode = "webgl-fallback"
@@ -2050,20 +2130,116 @@ const Hooks = {
             blend: true,
             blendFunc: [770, 771],
           },
+          onClick: this.handlePick,
         })
+      }
+    },
+    animateTransition(previousGraph, nextGraph) {
+      if (this.pendingAnimationFrame) {
+        cancelAnimationFrame(this.pendingAnimationFrame)
+        this.pendingAnimationFrame = null
+      }
+
+      const shouldAnimate =
+        previousGraph &&
+        previousGraph.nodes.length > 0 &&
+        previousGraph.nodes.length === nextGraph.nodes.length
+
+      if (!shouldAnimate) {
+        this.renderGraph(nextGraph)
+        return
+      }
+
+      const durationMs = 220
+      const prevXY = this.xyBuffer(previousGraph.nodes)
+      const nextXY = this.xyBuffer(nextGraph.nodes)
+      const startedAt = performance.now()
+
+      const step = (now) => {
+        const t = Math.min((now - startedAt) / durationMs, 1)
+        const frameNodes = this.interpolateNodes(previousGraph.nodes, nextGraph.nodes, prevXY, nextXY, t)
+        this.renderGraph({...nextGraph, nodes: frameNodes})
+
+        if (t < 1) {
+          this.pendingAnimationFrame = requestAnimationFrame(step)
+        } else {
+          this.pendingAnimationFrame = null
+        }
+      }
+
+      this.pendingAnimationFrame = requestAnimationFrame(step)
+    },
+    xyBuffer(nodes) {
+      const xy = new Float32Array(nodes.length * 2)
+      for (let i = 0; i < nodes.length; i += 1) {
+        xy[i * 2] = nodes[i].x
+        xy[i * 2 + 1] = nodes[i].y
+      }
+      return xy
+    },
+    interpolateNodes(previousNodes, nextNodes, prevXY, nextXY, t) {
+      if (this.wasmReady && this.wasmEngine) {
+        try {
+          const xy = this.wasmEngine.computeInterpolatedXY(prevXY, nextXY, t)
+          const out = new Array(nextNodes.length)
+          for (let i = 0; i < nextNodes.length; i += 1) {
+            out[i] = {
+              x: xy[i * 2],
+              y: xy[i * 2 + 1],
+              state: nextNodes[i].state,
+            }
+          }
+          return out
+        } catch (_err) {
+          this.wasmReady = false
+        }
+      }
+
+      const clamped = Math.max(0, Math.min(t, 1))
+      const out = new Array(nextNodes.length)
+      for (let i = 0; i < nextNodes.length; i += 1) {
+        const a = previousNodes[i]
+        const b = nextNodes[i]
+        out[i] = {
+          x: a.x + (b.x - a.x) * clamped,
+          y: a.y + (b.y - a.y) * clamped,
+          state: b.state,
+        }
+      }
+      return out
+    },
+    handlePick(info) {
+      const picked = info?.object?.index
+      if (Number.isInteger(picked)) {
+        this.selectedNodeIndex = this.selectedNodeIndex === picked ? null : picked
+        if (this.lastGraph) this.renderGraph(this.lastGraph)
+        return
+      }
+
+      if (info && info.picked === false && this.selectedNodeIndex !== null) {
+        this.selectedNodeIndex = null
+        if (this.lastGraph) this.renderGraph(this.lastGraph)
       }
     },
     renderGraph(graph) {
       this.ensureDeck()
 
-      const nodeVisible = (node) => {
-        const category = this.stateCategory(node.state)
-        return this.filters[category] !== false
+      const states = Uint8Array.from(graph.nodes.map((node) => node.state))
+      const stateMask = this.visibilityMask(states)
+      const traversalMask = this.computeTraversalMask(graph)
+      const mask = new Uint8Array(graph.nodes.length)
+
+      for (let i = 0; i < graph.nodes.length; i += 1) {
+        const stateVisible = stateMask[i] === 1
+        const traversalVisible = !traversalMask || traversalMask[i] === 1
+        mask[i] = stateVisible && traversalVisible ? 1 : 0
       }
 
-      const visibleNodes = graph.nodes.map((node) => ({
+      const visibleNodes = graph.nodes.map((node, index) => ({
         ...node,
-        visible: nodeVisible(node),
+        index,
+        selected: this.selectedNodeIndex === index,
+        visible: mask[index] === 1,
       }))
 
       const edgeData = graph.edges
@@ -2082,7 +2258,9 @@ const Hooks = {
         .filter((node) => node.visible)
         .map((node) => ({
           position: [node.x, node.y, 0],
+          index: node.index,
           state: node.state,
+          selected: node.selected,
         }))
 
       this.deck.setProps({
@@ -2106,12 +2284,76 @@ const Hooks = {
             stroked: true,
             filled: true,
             lineWidthUnits: "pixels",
-            getLineWidth: 1,
+            pickable: true,
+            getLineWidth: (d) => (d.selected ? 3 : 1),
             getLineColor: [15, 23, 42, 255],
             getFillColor: (d) => this.nodeColor(d.state),
           }),
         ],
       })
+    },
+    visibilityMask(states) {
+      if (this.wasmReady && this.wasmEngine) {
+        try {
+          return this.wasmEngine.computeStateMask(states, this.filters)
+        } catch (_err) {
+          this.wasmReady = false
+        }
+      }
+
+      const mask = new Uint8Array(states.length)
+      for (let i = 0; i < states.length; i += 1) {
+        const category = this.stateCategory(states[i])
+        mask[i] = this.filters[category] !== false ? 1 : 0
+      }
+      return mask
+    },
+    computeTraversalMask(graph) {
+      if (!graph || this.selectedNodeIndex === null) return null
+      if (this.selectedNodeIndex >= graph.nodes.length) return null
+
+      if (this.wasmReady && this.wasmEngine) {
+        try {
+          return this.wasmEngine.computeThreeHopMask(
+            graph.nodes.length,
+            graph.edgeSourceIndex,
+            graph.edgeTargetIndex,
+            this.selectedNodeIndex,
+          )
+        } catch (_err) {
+          this.wasmReady = false
+        }
+      }
+
+      const mask = new Uint8Array(graph.nodes.length)
+      const frontier = [this.selectedNodeIndex]
+      mask[this.selectedNodeIndex] = 1
+
+      for (let hop = 0; hop < 3; hop += 1) {
+        if (frontier.length === 0) break
+        const next = []
+
+        for (const node of frontier) {
+          for (let i = 0; i < graph.edges.length; i += 1) {
+            const edge = graph.edges[i]
+            const a = edge.source
+            const b = edge.target
+
+            if (a === node && b < graph.nodes.length && mask[b] === 0) {
+              mask[b] = 1
+              next.push(b)
+            } else if (b === node && a < graph.nodes.length && mask[a] === 0) {
+              mask[a] = 1
+              next.push(a)
+            }
+          }
+        }
+
+        frontier.length = 0
+        frontier.push(...next)
+      }
+
+      return mask
     },
     stateCategory(state) {
       if (state === 0) return "root_cause"

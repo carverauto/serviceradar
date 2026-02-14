@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
        |> assign(:last_network_ms, nil)
        |> assign(:last_decode_ms, nil)
        |> assign(:last_render_ms, nil)
+       |> assign(:last_bitmap_metadata, nil)
        |> assign(:causal_filters, %{
          root_cause: true,
          affected: true,
@@ -51,7 +52,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
      |> assign(:last_renderer_mode, Map.get(params, "renderer_mode"))
      |> assign(:last_network_ms, Map.get(params, "network_ms"))
      |> assign(:last_decode_ms, Map.get(params, "decode_ms"))
-     |> assign(:last_render_ms, Map.get(params, "render_ms"))}
+     |> assign(:last_render_ms, Map.get(params, "render_ms"))
+     |> assign(:last_bitmap_metadata, Map.get(params, "bitmap_metadata"))}
   end
 
   def handle_event("god_view_stream_error", _params, socket) do
@@ -137,6 +139,12 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
               <div class="text-xs uppercase tracking-wide text-base-content/60">Render (ms)</div>
               <div class="text-sm font-mono mt-1">{@last_render_ms || "—"}</div>
             </div>
+            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">
+                Bitmap Meta (r/a/h/u)
+              </div>
+              <div class="text-sm font-mono mt-1">{format_bitmap_meta(@last_bitmap_metadata)}</div>
+            </div>
           </div>
         </.ui_panel>
 
@@ -217,4 +225,27 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
   defp filter_button_class(true), do: "btn btn-sm btn-primary"
   defp filter_button_class(false), do: "btn btn-sm btn-ghost"
+
+  defp format_bitmap_meta(nil), do: "—"
+
+  defp format_bitmap_meta(metadata) when is_map(metadata) do
+    root = bitmap_meta_entry(metadata, "root_cause", :root_cause)
+    affected = bitmap_meta_entry(metadata, "affected", :affected)
+    healthy = bitmap_meta_entry(metadata, "healthy", :healthy)
+    unknown = bitmap_meta_entry(metadata, "unknown", :unknown)
+
+    "#{root.count}/#{affected.count}/#{healthy.count}/#{unknown.count} " <>
+      "nodes | #{root.bytes}/#{affected.bytes}/#{healthy.bytes}/#{unknown.bytes} bytes"
+  end
+
+  defp format_bitmap_meta(_), do: "—"
+
+  defp bitmap_meta_entry(metadata, string_key, atom_key) do
+    entry = Map.get(metadata, string_key) || Map.get(metadata, atom_key) || %{}
+
+    %{
+      count: Map.get(entry, "count") || Map.get(entry, :count) || 0,
+      bytes: Map.get(entry, "bytes") || Map.get(entry, :bytes) || 0
+    }
+  end
 end

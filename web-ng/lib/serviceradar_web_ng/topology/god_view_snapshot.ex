@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
   """
 
   @schema_version 1
-  @required_keys ~w(schema_version revision generated_at nodes edges causal_bitmaps)a
+  @required_keys ~w(schema_version revision generated_at nodes edges causal_bitmaps bitmap_metadata)a
 
   @type snapshot :: %{
           required(:schema_version) => pos_integer(),
@@ -21,6 +21,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
             optional(:affected) => binary(),
             optional(:healthy) => binary(),
             optional(:unknown) => binary()
+          },
+          required(:bitmap_metadata) => %{
+            optional(:root_cause) => %{
+              optional(:bytes) => non_neg_integer(),
+              optional(:count) => non_neg_integer()
+            },
+            optional(:affected) => %{
+              optional(:bytes) => non_neg_integer(),
+              optional(:count) => non_neg_integer()
+            },
+            optional(:healthy) => %{
+              optional(:bytes) => non_neg_integer(),
+              optional(:count) => non_neg_integer()
+            },
+            optional(:unknown) => %{
+              optional(:bytes) => non_neg_integer(),
+              optional(:count) => non_neg_integer()
+            }
           }
         }
 
@@ -35,7 +53,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
          :ok <- validate_generated_at(snapshot),
          :ok <- validate_nodes(snapshot),
          :ok <- validate_edges(snapshot),
-         :ok <- validate_bitmaps(snapshot) do
+         :ok <- validate_bitmaps(snapshot),
+         :ok <- validate_bitmap_metadata(snapshot) do
       :ok
     end
   end
@@ -92,9 +111,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
 
   defp validate_bitmaps(_), do: {:error, :invalid_causal_bitmaps}
 
+  defp validate_bitmap_metadata(%{bitmap_metadata: metadata}) when is_map(metadata) do
+    if Enum.all?(metadata, &valid_bitmap_metadata_entry?/1),
+      do: :ok,
+      else: {:error, :invalid_bitmap_metadata}
+  end
+
+  defp validate_bitmap_metadata(_), do: {:error, :invalid_bitmap_metadata}
+
   defp valid_bitmap_entry?({key, value})
        when key in [:root_cause, :affected, :healthy, :unknown] and is_binary(value),
        do: true
 
   defp valid_bitmap_entry?(_), do: false
+
+  defp valid_bitmap_metadata_entry?({key, %{bytes: bytes, count: count}})
+       when key in [:root_cause, :affected, :healthy, :unknown] and is_integer(bytes) and
+              bytes >= 0 and is_integer(count) and count >= 0,
+       do: true
+
+  defp valid_bitmap_metadata_entry?(_), do: false
 end
