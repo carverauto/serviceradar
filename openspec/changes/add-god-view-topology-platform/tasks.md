@@ -18,9 +18,9 @@
 - [x] 3.6 Add Wasm-based coordinate interpolation path for large animated transitions.
 
 ## 4. Reliability and Observability
-- [ ] 4.1 Add telemetry for snapshot build latency, payload size, frame timing, and dropped update counts.
-- [ ] 4.2 Add backpressure/degradation behavior when targets exceed real-time budgets.
-- [ ] 4.3 Add golden and integration tests for snapshot decoding, causal mask correctness, and UI fallback behavior.
+- [x] 4.1 Add telemetry for snapshot build latency, payload size, frame timing, and dropped update counts.
+- [x] 4.2 Add backpressure/degradation behavior when targets exceed real-time budgets.
+- [x] 4.3 Add golden and integration tests for snapshot decoding, causal mask correctness, and UI fallback behavior.
 
 ## 5. Rollout
 - [ ] 5.1 Roll out via feature flag to internal/demo environments first.

@@ -1,10 +1,6 @@
 defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @moduledoc """
-  Builds phase-1 God-View snapshot payloads.
-
-  The binary payload currently encodes a compact fixed header used by the
-  frontend hook. It can be replaced by Arrow IPC while keeping the same
-  feature-flagged endpoint shape.
+  Builds God-View snapshot payloads backed by the Rust Arrow encoder.
   """
 
   require Ash.Query
@@ -17,12 +13,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   @max_link_rows 5_000
   @max_device_rows 250
+  @default_real_time_budget_ms 2_000
+  @drop_counter_key {__MODULE__, :dropped_updates}
 
   @spec latest_snapshot() ::
           {:ok, %{snapshot: GodViewSnapshot.snapshot(), payload: binary()}} | {:error, term()}
   def latest_snapshot do
+    started_at = System.monotonic_time()
     revision = System.system_time(:millisecond)
     actor = SystemActor.system(:god_view_stream)
+    budget_ms = real_time_budget_ms()
 
     with {:ok, projection} <- build_projection(actor),
          snapshot = %{
@@ -34,8 +34,23 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
            causal_bitmaps: projection.causal_bitmaps,
            bitmap_metadata: projection.bitmap_metadata
          },
-         :ok <- GodViewSnapshot.validate(snapshot) do
-      {:ok, %{snapshot: snapshot, payload: encode_payload(snapshot)}}
+         :ok <- GodViewSnapshot.validate(snapshot),
+         payload <- encode_payload(snapshot) do
+      build_ms = duration_ms(started_at)
+
+      if build_ms > budget_ms do
+        dropped = increment_dropped_updates()
+
+        emit_snapshot_drop_telemetry(snapshot, build_ms, budget_ms, dropped)
+        {:error, {:real_time_budget_exceeded, %{build_ms: build_ms, budget_ms: budget_ms}}}
+      else
+        emit_snapshot_built_telemetry(snapshot, payload, build_ms, budget_ms)
+        {:ok, %{snapshot: snapshot, payload: payload}}
+      end
+    else
+      {:error, reason} ->
+        emit_snapshot_error_telemetry(reason)
+        {:error, reason}
     end
   end
 
@@ -334,4 +349,73 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp clamp(value, min, _max) when value < min, do: min
   defp clamp(value, _min, max) when value > max, do: max
   defp clamp(value, _min, _max), do: value
+
+  defp real_time_budget_ms do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :god_view_snapshot_budget_ms,
+      @default_real_time_budget_ms
+    )
+  end
+
+  defp duration_ms(started_at) do
+    System.monotonic_time()
+    |> Kernel.-(started_at)
+    |> System.convert_time_unit(:native, :millisecond)
+  end
+
+  defp emit_snapshot_built_telemetry(snapshot, payload, build_ms, budget_ms) do
+    :telemetry.execute(
+      [:serviceradar, :god_view, :snapshot, :built],
+      %{
+        build_ms: build_ms,
+        payload_bytes: byte_size(payload),
+        node_count: length(snapshot.nodes),
+        edge_count: length(snapshot.edges)
+      },
+      %{
+        schema_version: snapshot.schema_version,
+        revision: snapshot.revision,
+        budget_ms: budget_ms
+      }
+    )
+  end
+
+  defp emit_snapshot_drop_telemetry(snapshot, build_ms, budget_ms, dropped_count) do
+    :telemetry.execute(
+      [:serviceradar, :god_view, :snapshot, :dropped],
+      %{build_ms: build_ms, dropped_count: dropped_count},
+      %{
+        schema_version: snapshot.schema_version,
+        revision: snapshot.revision,
+        budget_ms: budget_ms
+      }
+    )
+  end
+
+  defp emit_snapshot_error_telemetry(reason) do
+    :telemetry.execute(
+      [:serviceradar, :god_view, :snapshot, :error],
+      %{count: 1},
+      %{reason: inspect(reason)}
+    )
+  end
+
+  defp increment_dropped_updates do
+    counter = dropped_counter()
+    :counters.add(counter, 1, 1)
+    :counters.get(counter, 1)
+  end
+
+  defp dropped_counter do
+    case :persistent_term.get(@drop_counter_key, nil) do
+      nil ->
+        counter = :counters.new(1, [])
+        :persistent_term.put(@drop_counter_key, counter)
+        counter
+
+      counter ->
+        counter
+    end
+  end
 end
