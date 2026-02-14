@@ -28,10 +28,8 @@ import {tableFromIPC} from "apache-arrow"
 import * as d3 from "d3"
 import {sankey as d3Sankey, sankeyLinkHorizontal as d3SankeyLinkHorizontal} from "d3-sankey"
 import mapboxgl from "mapbox-gl"
-import {COORDINATE_SYSTEM, Deck} from "@deck.gl/core"
+import {COORDINATE_SYSTEM, Deck, OrthographicView} from "@deck.gl/core"
 import {LineLayer, ScatterplotLayer} from "@deck.gl/layers"
-import {webgl2Adapter} from "@luma.gl/webgl"
-import {webgpuAdapter} from "@luma.gl/webgpu"
 import {GodViewWasmEngine} from "./wasm/god_view_exec_runtime"
 
 import {
@@ -1869,6 +1867,16 @@ const Hooks = {
       this.pendingAnimationFrame = null
       this.zoomMode = "auto"
       this.zoomTier = "local"
+      this.hasAutoFit = false
+      this.userCameraLocked = false
+      this.isProgrammaticViewUpdate = false
+      this.lastSnapshotAt = 0
+      this.channelJoined = false
+      this.lastVisibleNodeCount = 0
+      this.lastVisibleEdgeCount = 0
+      this.pollTimer = null
+      this.snapshotUrl = this.el.dataset.url || null
+      this.pollIntervalMs = Number.parseInt(this.el.dataset.intervalMs || "5000", 10) || 5000
       this.viewState = {
         target: [320, 160, 0],
         zoom: 1.4,
@@ -1877,8 +1885,12 @@ const Hooks = {
       }
 
       this.ensureDOM = this.ensureDOM.bind(this)
+      this.resizeCanvas = this.resizeCanvas.bind(this)
       this.renderGraph = this.renderGraph.bind(this)
       this.ensureDeck = this.ensureDeck.bind(this)
+      this.pollSnapshot = this.pollSnapshot.bind(this)
+      this.startPolling = this.startPolling.bind(this)
+      this.stopPolling = this.stopPolling.bind(this)
       this.visibilityMask = this.visibilityMask.bind(this)
       this.computeTraversalMask = this.computeTraversalMask.bind(this)
       this.handlePick = this.handlePick.bind(this)
@@ -1890,8 +1902,13 @@ const Hooks = {
       this.reclusterByState = this.reclusterByState.bind(this)
       this.reclusterByGrid = this.reclusterByGrid.bind(this)
       this.clusterEdges = this.clusterEdges.bind(this)
+      this.autoFitViewState = this.autoFitViewState.bind(this)
+      this.ensureBitmapMetadata = this.ensureBitmapMetadata.bind(this)
+      this.buildBitmapFallbackMetadata = this.buildBitmapFallbackMetadata.bind(this)
 
       this.ensureDOM()
+      this.resizeCanvas()
+      window.addEventListener("resize", this.resizeCanvas)
       GodViewWasmEngine.init()
         .then((engine) => {
           this.wasmEngine = engine
@@ -1928,6 +1945,8 @@ const Hooks = {
           ...this.viewState,
           zoom: zoomByTier[normalized] || this.viewState.zoom,
         }
+        this.userCameraLocked = true
+        this.isProgrammaticViewUpdate = true
         this.deck.setProps({viewState: this.viewState})
         this.setZoomTier(normalized, true)
       })
@@ -1942,18 +1961,25 @@ const Hooks = {
       this.channel.on("snapshot_error", (msg) => {
         this.summary.textContent = "snapshot stream error"
         this.pushEvent("god_view_stream_error", {reason: msg?.reason || "snapshot_error"})
+        this.pollSnapshot()
       })
       this.channel
         .join()
         .receive("ok", () => {
+          this.channelJoined = true
           this.summary.textContent = "topology channel connected"
+          this.startPolling()
         })
         .receive("error", (reason) => {
+          this.channelJoined = false
           this.summary.textContent = "topology channel failed"
           this.pushEvent("god_view_stream_error", {reason: reason?.reason || "join_failed"})
+          this.startPolling(true)
         })
     },
     destroyed() {
+      window.removeEventListener("resize", this.resizeCanvas)
+      this.stopPolling()
       if (this.channel) {
         this.channel.leave()
         this.channel = null
@@ -1977,15 +2003,18 @@ const Hooks = {
         const decodeStart = performance.now()
         const graph = this.decodeArrowGraph(bytes)
         const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
+        const bitmapMetadata = this.ensureBitmapMetadata(snapshot.bitmapMetadata, graph.nodes)
 
         const renderStart = performance.now()
         const previousGraph = this.lastGraph
         this.lastGraph = graph
         this.animateTransition(previousGraph, graph)
+        this.lastSnapshotAt = Date.now()
         this.summary.textContent =
           `schema=${snapshot.schemaVersion} revision=${snapshot.revision} nodes=${graph.nodes.length} ` +
           `edges=${graph.edges.length} payload=${bytes.byteLength}B selected=` +
-          `${this.selectedNodeIndex === null ? "none" : this.selectedNodeIndex}`
+          `${this.selectedNodeIndex === null ? "none" : this.selectedNodeIndex} visible=` +
+          `${this.lastVisibleNodeCount}/${graph.nodes.length}`
         const renderMs = Math.round((performance.now() - renderStart) * 100) / 100
         const networkMs = Math.round((performance.now() - startedAt) * 100) / 100
 
@@ -1995,7 +2024,7 @@ const Hooks = {
           node_count: graph.nodes.length,
           edge_count: graph.edges.length,
           generated_at: snapshot.generatedAt,
-          bitmap_metadata: snapshot.bitmapMetadata,
+          bitmap_metadata: bitmapMetadata,
           bytes: bytes.byteLength,
           renderer_mode: this.rendererMode,
           zoom_tier: this.zoomTier,
@@ -2013,7 +2042,128 @@ const Hooks = {
       if (msg instanceof ArrayBuffer) {
         return this.parseBinarySnapshotFrame(msg)
       }
+      if (msg?.binary instanceof ArrayBuffer) {
+        return this.parseBinarySnapshotFrame(msg.binary)
+      }
+      if (ArrayBuffer.isView(msg)) {
+        return this.parseBinarySnapshotFrame(
+          msg.buffer.slice(msg.byteOffset, msg.byteOffset + msg.byteLength),
+        )
+      }
+      if (Array.isArray(msg) && msg[0] === "binary" && typeof msg[1] === "string") {
+        return this.parseBinarySnapshotFrame(this.base64ToArrayBuffer(msg[1]))
+      }
       throw new Error("snapshot payload is not a binary frame")
+    },
+    base64ToArrayBuffer(b64) {
+      const binary = atob(b64)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+      return bytes.buffer
+    },
+    startPolling(force = false) {
+      if (!this.snapshotUrl) return
+      if (this.pollTimer && !force) return
+      if (force && this.pollTimer) {
+        window.clearInterval(this.pollTimer)
+        this.pollTimer = null
+      }
+      this.pollSnapshot()
+      this.pollTimer = window.setInterval(this.pollSnapshot, this.pollIntervalMs)
+    },
+    stopPolling() {
+      if (!this.pollTimer) return
+      window.clearInterval(this.pollTimer)
+      this.pollTimer = null
+    },
+    async pollSnapshot() {
+      if (!this.snapshotUrl) return
+      if (this.channelJoined && this.lastSnapshotAt > 0) {
+        const staleAfterMs = Math.max(this.pollIntervalMs * 2, 10_000)
+        if (Date.now() - this.lastSnapshotAt < staleAfterMs) return
+      }
+      const startedAt = performance.now()
+      try {
+        const response = await fetch(this.snapshotUrl, {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: {Accept: "application/octet-stream"},
+        })
+        if (!response.ok) {
+          throw new Error(`snapshot_http_${response.status}`)
+        }
+
+        const buffer = await response.arrayBuffer()
+        if (!buffer || buffer.byteLength === 0) {
+          throw new Error("snapshot_empty")
+        }
+
+        const decodeStart = performance.now()
+        const graph = this.decodeArrowGraph(new Uint8Array(buffer))
+        const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
+
+        const renderStart = performance.now()
+        const previousGraph = this.lastGraph
+        this.lastGraph = graph
+        this.animateTransition(previousGraph, graph)
+        this.lastSnapshotAt = Date.now()
+        const renderMs = Math.round((performance.now() - renderStart) * 100) / 100
+        const networkMs = Math.round((performance.now() - startedAt) * 100) / 100
+
+        const revisionHeader = response.headers.get("x-sr-god-view-revision")
+        const schemaHeader = response.headers.get("x-sr-god-view-schema")
+
+        const bitmapMetadata = {
+          root_cause: {
+            bytes: Number(response.headers.get("x-sr-god-view-bitmap-root-bytes") || 0),
+            count: Number(response.headers.get("x-sr-god-view-bitmap-root-count") || 0),
+          },
+          affected: {
+            bytes: Number(response.headers.get("x-sr-god-view-bitmap-affected-bytes") || 0),
+            count: Number(response.headers.get("x-sr-god-view-bitmap-affected-count") || 0),
+          },
+          healthy: {
+            bytes: Number(response.headers.get("x-sr-god-view-bitmap-healthy-bytes") || 0),
+            count: Number(response.headers.get("x-sr-god-view-bitmap-healthy-count") || 0),
+          },
+          unknown: {
+            bytes: Number(response.headers.get("x-sr-god-view-bitmap-unknown-bytes") || 0),
+            count: Number(response.headers.get("x-sr-god-view-bitmap-unknown-count") || 0),
+          },
+        }
+        const effectiveBitmapMetadata = this.ensureBitmapMetadata(bitmapMetadata, graph.nodes)
+
+        this.summary.textContent =
+          `snapshot revision=${revisionHeader || "—"} nodes=${graph.nodes.length} ` +
+          `edges=${graph.edges.length} payload=${buffer.byteLength}B selected=` +
+          `${this.selectedNodeIndex === null ? "none" : this.selectedNodeIndex} visible=` +
+          `${this.lastVisibleNodeCount}/${graph.nodes.length}`
+
+        this.pushEvent("god_view_stream_stats", {
+          schema_version: schemaHeader ? Number(schemaHeader) : null,
+          revision: revisionHeader ? Number(revisionHeader) : null,
+          node_count: graph.nodes.length,
+          edge_count: graph.edges.length,
+          generated_at: response.headers.get("x-sr-god-view-generated-at"),
+          bitmap_metadata: effectiveBitmapMetadata,
+          bytes: buffer.byteLength,
+          renderer_mode: this.rendererMode,
+          zoom_tier: this.zoomTier,
+          zoom_mode: this.zoomMode,
+          network_ms: networkMs,
+          decode_ms: decodeMs,
+          render_ms: renderMs,
+        })
+      } catch (error) {
+        this.summary.textContent = "snapshot polling error"
+        if (!this.channelJoined || this.lastSnapshotAt === 0) {
+          this.pushEvent("god_view_stream_error", {
+            reason: "poll_error",
+            message: `${error}`,
+          })
+        }
+      }
     },
     parseBinarySnapshotFrame(buffer) {
       const bytes = new Uint8Array(buffer)
@@ -2097,42 +2247,46 @@ const Hooks = {
       if (this.canvas && this.summary) return
 
       this.el.innerHTML = ""
+      this.el.classList.add("relative")
       this.canvas = document.createElement("canvas")
-      this.canvas.width = 640
-      this.canvas.height = 260
-      this.canvas.className = "w-full rounded border border-base-300 bg-base-100"
+      this.canvas.className = "h-full w-full rounded border border-base-300 bg-base-100"
 
       this.summary = document.createElement("div")
-      this.summary.className = "mt-2 text-[11px] opacity-80"
+      this.summary.className =
+        "pointer-events-none absolute bottom-2 left-2 rounded bg-base-100/85 px-2 py-1 text-[11px] opacity-90"
       this.summary.textContent = "waiting for snapshot..."
 
       this.el.appendChild(this.canvas)
       this.el.appendChild(this.summary)
     },
+    resizeCanvas() {
+      if (!this.canvas) return
+      const width = Math.max(320, Math.floor(this.el.clientWidth || 0))
+      const height = Math.max(260, Math.floor(this.el.clientHeight || 0))
+      this.canvas.style.width = `${width}px`
+      this.canvas.style.height = `${height}px`
+      if (this.deck) {
+        this.deck.setProps({width, height})
+        this.deck.redraw(true)
+      }
+    },
     ensureDeck() {
       if (this.deck) return
       this.ensureDOM()
-
-      const adapters = []
-      if (navigator.gpu) {
-        adapters.push(webgpuAdapter)
-      }
-      adapters.push(webgl2Adapter)
-
+      const width = Math.max(320, Math.floor(this.el.clientWidth || 0))
+      const height = Math.max(260, Math.floor(this.el.clientHeight || 0))
       const mode = navigator.gpu ? "webgpu" : "webgl"
       this.rendererMode = mode
 
       try {
         this.deck = new Deck({
           canvas: this.canvas,
-          width: "100%",
-          height: "100%",
+          width,
+          height,
+          views: new OrthographicView({id: "god-view-ortho"}),
           controller: true,
+          useDevicePixels: true,
           initialViewState: this.viewState,
-          deviceProps: {
-            type: mode,
-            adapters,
-          },
           parameters: {
             blend: true,
             blendFunc: [770, 771],
@@ -2140,6 +2294,8 @@ const Hooks = {
           onClick: this.handlePick,
           onViewStateChange: ({viewState}) => {
             this.viewState = viewState
+            if (!this.isProgrammaticViewUpdate) this.userCameraLocked = true
+            this.isProgrammaticViewUpdate = false
             if (this.zoomMode === "auto") {
               this.setZoomTier(this.resolveZoomTier(viewState.zoom || 0), false)
             }
@@ -2149,14 +2305,12 @@ const Hooks = {
         this.rendererMode = "webgl-fallback"
         this.deck = new Deck({
           canvas: this.canvas,
-          width: "100%",
-          height: "100%",
+          width,
+          height,
+          views: new OrthographicView({id: "god-view-ortho"}),
           controller: true,
+          useDevicePixels: true,
           initialViewState: this.viewState,
-          deviceProps: {
-            type: "webgl",
-            adapters: [webgl2Adapter],
-          },
           parameters: {
             blend: true,
             blendFunc: [770, 771],
@@ -2164,6 +2318,8 @@ const Hooks = {
           onClick: this.handlePick,
           onViewStateChange: ({viewState}) => {
             this.viewState = viewState
+            if (!this.isProgrammaticViewUpdate) this.userCameraLocked = true
+            this.isProgrammaticViewUpdate = false
             if (this.zoomMode === "auto") {
               this.setZoomTier(this.resolveZoomTier(viewState.zoom || 0), false)
             }
@@ -2366,6 +2522,7 @@ const Hooks = {
     },
     renderGraph(graph) {
       this.ensureDeck()
+      this.autoFitViewState(graph)
       const effective = this.reshapeGraph(graph)
 
       const states = Uint8Array.from(effective.nodes.map((node) => node.state))
@@ -2415,6 +2572,8 @@ const Hooks = {
           selected: node.selected,
           clusterCount: node.clusterCount || 1,
         }))
+      this.lastVisibleNodeCount = nodeData.length
+      this.lastVisibleEdgeCount = edgeData.length
 
       this.deck.setProps({
         layers: [
@@ -2426,6 +2585,8 @@ const Hooks = {
             getTargetPosition: (d) => d.targetPosition,
             getColor: [148, 163, 184, 140],
             getWidth: (d) => Math.min(2 + (d.weight || 1) * 0.4, 10),
+            widthUnits: "pixels",
+            widthMinPixels: 1,
           }),
           new ScatterplotLayer({
             id: "god-view-nodes",
@@ -2434,6 +2595,7 @@ const Hooks = {
             getPosition: (d) => d.position,
             getRadius: (d) => Math.min(8 + ((d.clusterCount || 1) - 1) * 0.45, 26),
             radiusUnits: "pixels",
+            radiusMinPixels: 4,
             stroked: true,
             filled: true,
             lineWidthUnits: "pixels",
@@ -2444,6 +2606,105 @@ const Hooks = {
           }),
         ],
       })
+    },
+    ensureBitmapMetadata(metadata, nodes) {
+      const fallback = this.buildBitmapFallbackMetadata(nodes)
+      const value = metadata && typeof metadata === "object" ? metadata : {}
+
+      const pick = (key) => {
+        const item = value[key] || value[String(key)] || {}
+        const bytes = Number(item.bytes || 0)
+        const count = Number(item.count || 0)
+        return {
+          bytes: Number.isFinite(bytes) ? bytes : 0,
+          count: Number.isFinite(count) ? count : 0,
+        }
+      }
+
+      const normalized = {
+        root_cause: pick("root_cause"),
+        affected: pick("affected"),
+        healthy: pick("healthy"),
+        unknown: pick("unknown"),
+      }
+
+      const sumCounts =
+        normalized.root_cause.count +
+        normalized.affected.count +
+        normalized.healthy.count +
+        normalized.unknown.count
+      const sumBytes =
+        normalized.root_cause.bytes +
+        normalized.affected.bytes +
+        normalized.healthy.bytes +
+        normalized.unknown.bytes
+
+      if (sumCounts === 0 && sumBytes === 0 && Array.isArray(nodes) && nodes.length > 0) {
+        return fallback
+      }
+
+      return normalized
+    },
+    buildBitmapFallbackMetadata(nodes) {
+      const safeNodes = Array.isArray(nodes) ? nodes : []
+      const byteWidth = Math.ceil(safeNodes.length / 8)
+      const counts = {root_cause: 0, affected: 0, healthy: 0, unknown: 0}
+
+      for (let i = 0; i < safeNodes.length; i += 1) {
+        const category = this.stateCategory(Number(safeNodes[i]?.state))
+        counts[category] = (counts[category] || 0) + 1
+      }
+
+      return {
+        root_cause: {bytes: byteWidth, count: counts.root_cause || 0},
+        affected: {bytes: byteWidth, count: counts.affected || 0},
+        healthy: {bytes: byteWidth, count: counts.healthy || 0},
+        unknown: {bytes: byteWidth, count: counts.unknown || 0},
+      }
+    },
+    autoFitViewState(graph) {
+      if (!this.deck || !graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return
+      if (this.hasAutoFit || this.userCameraLocked) return
+
+      let minX = Number.POSITIVE_INFINITY
+      let maxX = Number.NEGATIVE_INFINITY
+      let minY = Number.POSITIVE_INFINITY
+      let maxY = Number.NEGATIVE_INFINITY
+
+      for (let i = 0; i < graph.nodes.length; i += 1) {
+        const node = graph.nodes[i]
+        const x = Number(node?.x)
+        const y = Number(node?.y)
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+        minX = Math.min(minX, x)
+        maxX = Math.max(maxX, x)
+        minY = Math.min(minY, y)
+        maxY = Math.max(maxY, y)
+      }
+
+      if (!Number.isFinite(minX) || !Number.isFinite(minY)) return
+
+      const width = Math.max(1, this.el.clientWidth || 1)
+      const height = Math.max(1, this.el.clientHeight || 1)
+      const spanX = Math.max(1, maxX - minX)
+      const spanY = Math.max(1, maxY - minY)
+      const padding = 0.88
+      const zoomX = Math.log2((width * padding) / spanX)
+      const zoomY = Math.log2((height * padding) / spanY)
+      const zoom = Math.max(this.viewState.minZoom, Math.min(this.viewState.maxZoom, Math.min(zoomX, zoomY)))
+
+      this.viewState = {
+        ...this.viewState,
+        target: [(minX + maxX) / 2, (minY + maxY) / 2, 0],
+        zoom,
+      }
+
+      this.hasAutoFit = true
+      this.isProgrammaticViewUpdate = true
+      this.deck.setProps({viewState: this.viewState})
+      if (this.zoomMode === "auto") {
+        this.setZoomTier(this.resolveZoomTier(zoom), true)
+      }
     },
     visibilityMask(states) {
       if (this.wasmReady && this.wasmEngine) {

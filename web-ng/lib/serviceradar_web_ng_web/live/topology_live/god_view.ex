@@ -97,9 +97,25 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
         <.header>
           God-View Topology
           <:subtitle>
-            Feature-flagged phase-1 scaffold for topology snapshots and causal blast radius rendering.
+            deck.gl WebGPU topology surface with live Arrow snapshots and causal overlays.
           </:subtitle>
         </.header>
+
+        <.ui_panel>
+          <:header>
+            <div class="text-sm font-semibold">Topology Surface</div>
+          </:header>
+          <div
+            id="god-view-binary-stream"
+            phx-hook="GodViewBinaryStream"
+            phx-update="ignore"
+            data-url={@snapshot_url}
+            data-interval-ms="5000"
+            class="h-[70vh] min-h-[480px] w-full rounded-lg border border-base-200 bg-base-200/20"
+          >
+            loading topology surface...
+          </div>
+        </.ui_panel>
 
         <.ui_panel>
           <:header>
@@ -166,17 +182,6 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
               <div class="text-sm font-mono mt-1">{format_bitmap_meta(@last_bitmap_metadata)}</div>
             </div>
           </div>
-        </.ui_panel>
-
-        <.ui_panel>
-          <:header>
-            <div class="text-sm font-semibold">Phase 1 Scope</div>
-          </:header>
-          <ul class="list-disc pl-5 text-sm text-base-content/80 space-y-1">
-            <li>Binary topology snapshot ingestion and schema compatibility checks</li>
-            <li>Server-provided causal bitmaps for blast-radius rendering states</li>
-            <li>Feature-gated rollout with explicit performance telemetry targets</li>
-          </ul>
         </.ui_panel>
 
         <.ui_panel>
@@ -256,22 +261,6 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
             >
               Unknown
             </button>
-          </div>
-        </.ui_panel>
-
-        <.ui_panel>
-          <:header>
-            <div class="text-sm font-semibold">Binary Stream Preview</div>
-          </:header>
-          <div
-            id="god-view-binary-stream"
-            phx-hook="GodViewBinaryStream"
-            phx-update="ignore"
-            data-url={@snapshot_url}
-            data-interval-ms="5000"
-            class="rounded-lg border border-base-200 bg-base-200/20 p-3 text-xs font-mono"
-          >
-            waiting for snapshot...
           </div>
         </.ui_panel>
       </div>

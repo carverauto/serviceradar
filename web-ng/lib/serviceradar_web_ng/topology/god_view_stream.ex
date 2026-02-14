@@ -265,51 +265,21 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp build_bitmaps(nodes) do
-    root = bitmap_for_state(nodes, 0)
-    affected = bitmap_for_state(nodes, 1)
-    healthy = bitmap_for_state(nodes, 2)
-    unknown = bitmap_for_state(nodes, 3)
+    states = Enum.map(nodes, &Map.get(&1, :state, 3))
 
-    counts =
-      nodes
-      |> Enum.map(&Map.get(&1, :state, 3))
-      |> Enum.frequencies()
+    {root, affected, healthy, unknown, {root_count, affected_count, healthy_count, unknown_count}} =
+      Native.build_roaring_bitmaps(states)
 
     bitmaps = %{root_cause: root, affected: affected, healthy: healthy, unknown: unknown}
 
     metadata = %{
-      root_cause: %{bytes: byte_size(root), count: Map.get(counts, 0, 0)},
-      affected: %{bytes: byte_size(affected), count: Map.get(counts, 1, 0)},
-      healthy: %{bytes: byte_size(healthy), count: Map.get(counts, 2, 0)},
-      unknown: %{bytes: byte_size(unknown), count: Map.get(counts, 3, 0)}
+      root_cause: %{bytes: byte_size(root), count: root_count},
+      affected: %{bytes: byte_size(affected), count: affected_count},
+      healthy: %{bytes: byte_size(healthy), count: healthy_count},
+      unknown: %{bytes: byte_size(unknown), count: unknown_count}
     }
 
     {bitmaps, metadata}
-  end
-
-  defp bitmap_for_state(nodes, state) do
-    byte_count = div(length(nodes) + 7, 8)
-    bytes = :binary.copy(<<0>>, byte_count)
-
-    nodes
-    |> Enum.with_index()
-    |> Enum.reduce(bytes, fn {node, idx}, acc ->
-      if Map.get(node, :state) == state do
-        set_bit(acc, idx)
-      else
-        acc
-      end
-    end)
-  end
-
-  defp set_bit(bytes, idx) do
-    byte_idx = div(idx, 8)
-    bit_idx = 7 - rem(idx, 8)
-    current = :binary.at(bytes, byte_idx)
-    updated = Bitwise.bor(current, Bitwise.bsl(1, bit_idx))
-
-    :binary.part(bytes, 0, byte_idx) <>
-      <<updated>> <> :binary.part(bytes, byte_idx + 1, byte_size(bytes) - byte_idx - 1)
   end
 
   defp canonical_pair(a, b) when a <= b, do: {a, b}

@@ -9,6 +9,7 @@ use deep_causality::{
     BaseCausaloid, CausableGraph, Causaloid, CausaloidGraph, IdentificationValue, NumericalValue,
     PropagatingEffect,
 };
+use roaring::RoaringBitmap;
 use rustler::{Binary, Env, NifResult, OwnedBinary};
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -225,6 +226,73 @@ fn evaluate_causal_states(health_signals: Vec<u8>, edges: Vec<(u32, u32)>) -> Ni
     }
 
     Ok(states)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn build_roaring_bitmaps<'a>(
+    env: Env<'a>,
+    states: Vec<u8>,
+) -> NifResult<(
+    Binary<'a>,
+    Binary<'a>,
+    Binary<'a>,
+    Binary<'a>,
+    (u32, u32, u32, u32),
+)> {
+    let mut root = RoaringBitmap::new();
+    let mut affected = RoaringBitmap::new();
+    let mut healthy = RoaringBitmap::new();
+    let mut unknown = RoaringBitmap::new();
+
+    for (idx, state) in states.iter().enumerate() {
+        let i = idx as u32;
+        match *state {
+            0 => {
+                root.insert(i);
+            }
+            1 => {
+                affected.insert(i);
+            }
+            2 => {
+                healthy.insert(i);
+            }
+            _ => {
+                unknown.insert(i);
+            }
+        }
+    }
+
+    let root_count = root.len() as u32;
+    let affected_count = affected.len() as u32;
+    let healthy_count = healthy.len() as u32;
+    let unknown_count = unknown.len() as u32;
+
+    let root_bytes = serialize_bitmap(&root)?;
+    let affected_bytes = serialize_bitmap(&affected)?;
+    let healthy_bytes = serialize_bitmap(&healthy)?;
+    let unknown_bytes = serialize_bitmap(&unknown)?;
+
+    Ok((
+        vec_into_binary(env, root_bytes)?,
+        vec_into_binary(env, affected_bytes)?,
+        vec_into_binary(env, healthy_bytes)?,
+        vec_into_binary(env, unknown_bytes)?,
+        (root_count, affected_count, healthy_count, unknown_count),
+    ))
+}
+
+fn serialize_bitmap(bitmap: &RoaringBitmap) -> NifResult<Vec<u8>> {
+    let mut out = Vec::new();
+    bitmap
+        .serialize_into(&mut out)
+        .map_err(|_| rustler::Error::BadArg)?;
+    Ok(out)
+}
+
+fn vec_into_binary<'a>(env: Env<'a>, bytes: Vec<u8>) -> NifResult<Binary<'a>> {
+    let mut out = OwnedBinary::new(bytes.len()).ok_or(rustler::Error::BadArg)?;
+    out.as_mut_slice().copy_from_slice(&bytes);
+    Ok(Binary::from_owned(out, env))
 }
 
 rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native");

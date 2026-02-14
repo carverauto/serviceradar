@@ -40,4 +40,10 @@ defmodule ServiceRadarWebNG.Topology.Native do
   """
   def evaluate_causal_states(_health_signals, _edges),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Build serialized Roaring bitmaps for each causal state bucket.
+  """
+  def build_roaring_bitmaps(_states),
+    do: :erlang.nif_error(:nif_not_loaded)
 end

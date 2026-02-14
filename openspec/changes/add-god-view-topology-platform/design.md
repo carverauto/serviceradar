@@ -120,6 +120,7 @@ Issue #2834 proposes a high-scale, causality-aware topology experience that unif
 - Environment:
   - Local Docker Compose CNPG on `localhost:5455` with mTLS certs.
   - `web-ng` runtime connected to the same CNPG.
+  - Kubernetes `demo` namespace rollout with `SERVICERADAR_GOD_VIEW_ENABLED=true`.
 - Commands executed:
   - `make build-web-ng` (Bazel remote build) -> success for `//docker/images:web_ng_image_amd64`.
   - `mix run` benchmark script invoking:
@@ -130,6 +131,10 @@ Issue #2834 proposes a high-scale, causality-aware topology experience that unif
   - DB-backed snapshot build (current dataset, 70 nodes): `p50=14.12ms`, `p95=35.26ms`.
   - NIF Arrow encode (100,000 nodes, 99,999 edges): `33.96ms` (`~4.8MB` payload).
   - NIF causal evaluation (100,000 nodes): `103.23ms`.
+  - `demo` authenticated endpoint checks:
+    - `/topology` returns `200` for authenticated session.
+    - `/topology/snapshot/latest` returns `200` with Arrow payload (`ARROW1` magic) and God-View headers (`x-sr-god-view-*`).
+    - Endpoint latency over 20 samples via authenticated session: `p50=197ms`, `p95=213ms`, `max=242ms`.
 - Conclusion:
   - Current backend snapshot SLO budgets are met on local representative validation paths.
   - Broad enablement remains gated on production-like browser/GPU frame-time validation under true 100k rendered scenes.

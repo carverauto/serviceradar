@@ -8,14 +8,14 @@ export class GodViewWasmEngine {
   }
 
   static async init() {
-    const response = await fetch(wasmUrl)
+    const response = await fetchWasmAsset()
     let result
 
     if (WebAssembly.instantiateStreaming) {
       try {
         result = await WebAssembly.instantiateStreaming(response, {})
       } catch (_err) {
-        const bytes = await (await fetch(wasmUrl)).arrayBuffer()
+        const bytes = await (await fetchWasmAsset()).arrayBuffer()
         result = await WebAssembly.instantiate(bytes, {})
       }
     } else {
@@ -105,4 +105,39 @@ export class GodViewWasmEngine {
     const view = new Uint8Array(this.memory.buffer, ptr, bytes.length)
     view.set(bytes)
   }
+}
+
+function wasmCandidates() {
+  const raw = String(wasmUrl || "").trim()
+  const clean = raw.startsWith("http://") || raw.startsWith("https://") ? raw : raw
+  const withoutQuery = clean.split("?")[0]
+  const file = withoutQuery.split("/").filter(Boolean).pop() || ""
+
+  const candidates = []
+  if (clean) candidates.push(clean)
+  if (clean && !clean.startsWith("/assets/js/")) {
+    candidates.push(`/assets/js/${clean.replace(/^\/+/, "")}`)
+  }
+  if (file) {
+    candidates.push(`/assets/js/${file}`)
+    candidates.push(`/${file}`)
+  }
+
+  return Array.from(new Set(candidates))
+}
+
+async function fetchWasmAsset() {
+  const errors = []
+
+  for (const candidate of wasmCandidates()) {
+    try {
+      const response = await fetch(candidate, {cache: "no-store"})
+      if (response.ok) return response
+      errors.push(`${candidate}:${response.status}`)
+    } catch (error) {
+      errors.push(`${candidate}:${error}`)
+    }
+  }
+
+  throw new Error(`god_view_exec.wasm unavailable (${errors.join(", ")})`)
 }
