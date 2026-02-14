@@ -8,10 +8,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   """
 
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
+  alias ServiceRadarWebNG.Topology.Native
 
-  @magic "SRGV"
-
-  @spec latest_snapshot() :: {:ok, %{snapshot: GodViewSnapshot.snapshot(), payload: binary()}} | {:error, term()}
+  @spec latest_snapshot() ::
+          {:ok, %{snapshot: GodViewSnapshot.snapshot(), payload: binary()}} | {:error, term()}
   def latest_snapshot do
     revision = System.system_time(:millisecond)
 
@@ -34,18 +34,35 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     affected = Map.get(snapshot.causal_bitmaps, :affected, <<>>)
     healthy = Map.get(snapshot.causal_bitmaps, :healthy, <<>>)
     unknown = Map.get(snapshot.causal_bitmaps, :unknown, <<>>)
+    node_index = snapshot.nodes |> Enum.with_index() |> Map.new(fn {n, idx} -> {n.id, idx} end)
 
-    <<@magic::binary-size(4), snapshot.schema_version::unsigned-32, snapshot.revision::unsigned-64,
-      length(snapshot.nodes)::unsigned-32, length(snapshot.edges)::unsigned-32,
-      byte_size(root)::unsigned-32, byte_size(affected)::unsigned-32, byte_size(healthy)::unsigned-32,
-      byte_size(unknown)::unsigned-32>>
+    nodes =
+      Enum.map(snapshot.nodes, fn node ->
+        {Map.get(node, :x, 0), Map.get(node, :y, 0), Map.get(node, :state, 3)}
+      end)
+
+    edges =
+      Enum.map(snapshot.edges, fn edge ->
+        {Map.fetch!(node_index, edge.source), Map.fetch!(node_index, edge.target)}
+      end)
+
+    Native.encode_snapshot(
+      snapshot.schema_version,
+      snapshot.revision,
+      nodes,
+      edges,
+      byte_size(root),
+      byte_size(affected),
+      byte_size(healthy),
+      byte_size(unknown)
+    )
   end
 
   defp sample_nodes do
     [
-      %{id: "core-1", label: "Core Router", kind: "router"},
-      %{id: "dist-1", label: "Distribution Switch", kind: "switch"},
-      %{id: "srv-1", label: "Application Server", kind: "server"}
+      %{id: "core-1", label: "Core Router", kind: "router", x: 80, y: 180, state: 0},
+      %{id: "dist-1", label: "Distribution Switch", kind: "switch", x: 300, y: 180, state: 1},
+      %{id: "srv-1", label: "Application Server", kind: "server", x: 520, y: 180, state: 1}
     ]
   end
 

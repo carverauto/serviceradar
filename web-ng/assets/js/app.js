@@ -23,10 +23,15 @@ import "phoenix_html"
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
+import {tableFromIPC} from "apache-arrow"
 
 import * as d3 from "d3"
 import {sankey as d3Sankey, sankeyLinkHorizontal as d3SankeyLinkHorizontal} from "d3-sankey"
 import mapboxgl from "mapbox-gl"
+import {COORDINATE_SYSTEM, Deck} from "@deck.gl/core"
+import {LineLayer, ScatterplotLayer} from "@deck.gl/layers"
+import {webgl2Adapter} from "@luma.gl/webgl"
+import {webgpuAdapter} from "@luma.gl/webgpu"
 
 import {
   attachTimeTooltip as nfAttachTimeTooltip,
@@ -1846,6 +1851,280 @@ const Hooks = {
     destroyed() {
       if (this.cleanup) this.cleanup()
     }
+  },
+
+  GodViewBinaryStream: {
+    mounted() {
+      this.canvas = null
+      this.summary = null
+      this.deck = null
+      this.channel = null
+      this.rendererMode = "initializing"
+      this.filters = {root_cause: true, affected: true, healthy: true, unknown: true}
+      this.lastGraph = null
+
+      this.ensureDOM = this.ensureDOM.bind(this)
+      this.renderGraph = this.renderGraph.bind(this)
+      this.ensureDeck = this.ensureDeck.bind(this)
+
+      this.ensureDOM()
+      this.handleEvent("god_view:set_filters", ({filters}) => {
+        if (filters && typeof filters === "object") {
+          this.filters = {
+            root_cause: filters.root_cause !== false,
+            affected: filters.affected !== false,
+            healthy: filters.healthy !== false,
+            unknown: filters.unknown !== false,
+          }
+          if (this.lastGraph) this.renderGraph(this.lastGraph)
+        }
+      })
+
+      if (!window.godViewSocket) {
+        window.godViewSocket = new Socket("/socket", {params: {_csrf_token: csrfToken}})
+        window.godViewSocket.connect()
+      }
+
+      this.channel = window.godViewSocket.channel("topology:god_view", {})
+      this.channel.on("snapshot", (msg) => this.handleSnapshot(msg))
+      this.channel.on("snapshot_error", (msg) => {
+        this.summary.textContent = "snapshot stream error"
+        this.pushEvent("god_view_stream_error", {reason: msg?.reason || "snapshot_error"})
+      })
+      this.channel
+        .join()
+        .receive("ok", () => {
+          this.summary.textContent = "topology channel connected"
+        })
+        .receive("error", (reason) => {
+          this.summary.textContent = "topology channel failed"
+          this.pushEvent("god_view_stream_error", {reason: reason?.reason || "join_failed"})
+        })
+    },
+    destroyed() {
+      if (this.channel) {
+        this.channel.leave()
+        this.channel = null
+      }
+      if (this.deck) {
+        this.deck.finalize()
+        this.deck = null
+      }
+    },
+    handleSnapshot(msg) {
+      const startedAt = performance.now()
+      try {
+        const base64Payload = msg?.payload
+        if (!base64Payload) throw new Error("missing payload")
+
+        const decodeStart = performance.now()
+        const bytes = Uint8Array.from(atob(base64Payload), (c) => c.charCodeAt(0))
+        const graph = this.decodeArrowGraph(bytes)
+        const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
+
+        const renderStart = performance.now()
+        this.lastGraph = graph
+        this.renderGraph(graph)
+        this.summary.textContent =
+          `schema=${msg.schema_version} revision=${msg.revision} nodes=${graph.nodes.length} ` +
+          `edges=${graph.edges.length} payload=${bytes.byteLength}B`
+        const renderMs = Math.round((performance.now() - renderStart) * 100) / 100
+        const networkMs = Math.round((performance.now() - startedAt) * 100) / 100
+
+        this.pushEvent("god_view_stream_stats", {
+          schema_version: msg.schema_version,
+          revision: msg.revision,
+          node_count: graph.nodes.length,
+          edge_count: graph.edges.length,
+          generated_at: msg.generated_at,
+          bytes: bytes.byteLength,
+          renderer_mode: this.rendererMode,
+          network_ms: networkMs,
+          decode_ms: decodeMs,
+          render_ms: renderMs,
+        })
+      } catch (error) {
+        this.summary.textContent = "snapshot decode failed"
+        this.pushEvent("god_view_stream_error", {reason: "decode_error", message: `${error}`})
+      }
+    },
+    decodeArrowGraph(bytes) {
+      const table = tableFromIPC(bytes)
+      const rowType = table.getChild("row_type")
+      const nodeX = table.getChild("node_x")
+      const nodeY = table.getChild("node_y")
+      const nodeState = table.getChild("node_state")
+      const edgeSource = table.getChild("edge_source")
+      const edgeTarget = table.getChild("edge_target")
+
+      const nodes = []
+      const edges = []
+      const rowCount = table.numRows || 0
+
+      for (let i = 0; i < rowCount; i += 1) {
+        const t = rowType?.get(i)
+        if (t === 0) {
+          nodes.push({
+            x: Number(nodeX?.get(i) || 0),
+            y: Number(nodeY?.get(i) || 0),
+            state: Number(nodeState?.get(i) || 3),
+          })
+        } else if (t === 1) {
+          edges.push({
+            source: Number(edgeSource?.get(i) || 0),
+            target: Number(edgeTarget?.get(i) || 0),
+          })
+        }
+      }
+
+      return {nodes, edges}
+    },
+    ensureDOM() {
+      if (this.canvas && this.summary) return
+
+      this.el.innerHTML = ""
+      this.canvas = document.createElement("canvas")
+      this.canvas.width = 640
+      this.canvas.height = 260
+      this.canvas.className = "w-full rounded border border-base-300 bg-base-100"
+
+      this.summary = document.createElement("div")
+      this.summary.className = "mt-2 text-[11px] opacity-80"
+      this.summary.textContent = "waiting for snapshot..."
+
+      this.el.appendChild(this.canvas)
+      this.el.appendChild(this.summary)
+    },
+    ensureDeck() {
+      if (this.deck) return
+      this.ensureDOM()
+
+      const adapters = []
+      if (navigator.gpu) {
+        adapters.push(webgpuAdapter)
+      }
+      adapters.push(webgl2Adapter)
+
+      const mode = navigator.gpu ? "webgpu" : "webgl"
+      this.rendererMode = mode
+
+      try {
+        this.deck = new Deck({
+          canvas: this.canvas,
+          width: "100%",
+          height: "100%",
+          controller: false,
+          initialViewState: {
+            target: [320, 130, 0],
+            zoom: 0,
+            minZoom: -2,
+            maxZoom: 4,
+          },
+          deviceProps: {
+            type: mode,
+            adapters,
+          },
+          parameters: {
+            blend: true,
+            blendFunc: [770, 771],
+          },
+        })
+      } catch (_error) {
+        this.rendererMode = "webgl-fallback"
+        this.deck = new Deck({
+          canvas: this.canvas,
+          width: "100%",
+          height: "100%",
+          controller: false,
+          initialViewState: {
+            target: [320, 130, 0],
+            zoom: 0,
+            minZoom: -2,
+            maxZoom: 4,
+          },
+          deviceProps: {
+            type: "webgl",
+            adapters: [webgl2Adapter],
+          },
+          parameters: {
+            blend: true,
+            blendFunc: [770, 771],
+          },
+        })
+      }
+    },
+    renderGraph(graph) {
+      this.ensureDeck()
+
+      const nodeVisible = (node) => {
+        const category = this.stateCategory(node.state)
+        return this.filters[category] !== false
+      }
+
+      const visibleNodes = graph.nodes.map((node) => ({
+        ...node,
+        visible: nodeVisible(node),
+      }))
+
+      const edgeData = graph.edges
+        .map((edge) => {
+          const src = visibleNodes[edge.source]
+          const dst = visibleNodes[edge.target]
+          if (!src || !dst || !src.visible || !dst.visible) return null
+          return {
+            sourcePosition: [src.x, src.y, 0],
+            targetPosition: [dst.x, dst.y, 0],
+          }
+        })
+        .filter(Boolean)
+
+      const nodeData = visibleNodes
+        .filter((node) => node.visible)
+        .map((node) => ({
+          position: [node.x, node.y, 0],
+          state: node.state,
+        }))
+
+      this.deck.setProps({
+        layers: [
+          new LineLayer({
+            id: "god-view-edges",
+            data: edgeData,
+            coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+            getSourcePosition: (d) => d.sourcePosition,
+            getTargetPosition: (d) => d.targetPosition,
+            getColor: [148, 163, 184, 140],
+            getWidth: 2,
+          }),
+          new ScatterplotLayer({
+            id: "god-view-nodes",
+            data: nodeData,
+            coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+            getPosition: (d) => d.position,
+            getRadius: 10,
+            radiusUnits: "pixels",
+            stroked: true,
+            filled: true,
+            lineWidthUnits: "pixels",
+            getLineWidth: 1,
+            getLineColor: [15, 23, 42, 255],
+            getFillColor: (d) => this.nodeColor(d.state),
+          }),
+        ],
+      })
+    },
+    stateCategory(state) {
+      if (state === 0) return "root_cause"
+      if (state === 1) return "affected"
+      if (state === 2) return "healthy"
+      return "unknown"
+    },
+    nodeColor(state) {
+      if (state === 0) return [239, 68, 68, 255]
+      if (state === 1) return [245, 158, 11, 255]
+      if (state === 2) return [34, 211, 238, 255]
+      return [148, 163, 184, 255]
+    },
   },
 
   LocalTime: {

@@ -5,15 +5,17 @@
 
 ## 2. Backend Data and Causal Pipeline
 - [ ] 2.1 Implement topology projection query path that produces stable node and edge identities for streaming.
-- [ ] 2.2 Implement snapshot builder/encoder in Rust NIF and expose it through Elixir orchestration.
+- [x] 2.2 Implement snapshot builder/encoder in Rust NIF and expose it through Elixir orchestration.
 - [ ] 2.3 Integrate causal engine evaluation into snapshot generation with deterministic fallback rules.
 - [ ] 2.4 Emit compact bitmap metadata per snapshot revision for filter state.
 
 ## 3. Frontend Rendering and Interaction
 - [x] 3.1 Implement God-View entry point in web-ng behind feature flag.
-- [ ] 3.2 Implement GPU-backed rendering pipeline that consumes binary snapshots without JSON fanout.
-- [ ] 3.3 Implement hybrid filter application (ghosting/highlight) and causal legend/state controls.
+- [x] 3.2 Implement GPU-backed rendering pipeline that consumes binary snapshots without JSON fanout.
+- [x] 3.3 Implement hybrid filter application (ghosting/highlight) and causal legend/state controls.
 - [ ] 3.4 Implement semantic zoom transitions and topology reshape triggers for collapse/expand behavior.
+- [ ] 3.5 Add Wasm Arrow execution path for local traversal and compound filtering at 100k+ scale.
+- [ ] 3.6 Add Wasm-based coordinate interpolation path for large animated transitions.
 
 ## 4. Reliability and Observability
 - [ ] 4.1 Add telemetry for snapshot build latency, payload size, frame timing, and dropped update counts.
