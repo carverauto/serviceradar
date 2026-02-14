@@ -104,6 +104,7 @@ config :serviceradar_web_ng, :session,
   absolute_timeout_seconds: 30 * 24 * 60 * 60
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
+config :serviceradar_web_ng, :god_view_enabled, false
 
 config :serviceradar_web_ng, :plugin_storage,
   backend: :filesystem,

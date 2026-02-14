@@ -350,6 +350,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/logs/:log_id", LogLive.Show, :show)
       live("/services", ServiceLive.Index, :index)
       live("/services/check", ServiceLive.Show, :show)
+      live("/topology", TopologyLive.GodView, :index)
+      get("/topology/snapshot/latest", TopologySnapshotController, :show)
       live("/settings/profile", UserLive.Settings, :edit)
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)
