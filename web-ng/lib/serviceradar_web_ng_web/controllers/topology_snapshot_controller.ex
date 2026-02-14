@@ -1,5 +1,7 @@
 defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
-  use ServiceRadarWebNGWeb, :controller
+  use Phoenix.Controller, formats: [:html, :json]
+
+  import Plug.Conn
 
   alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNGWeb.FeatureFlags
