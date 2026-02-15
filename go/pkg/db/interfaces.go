@@ -28,5 +28,4 @@ import (
 // Service represents the CNPG-backed database operations used by consumers.
 type Service interface {
 	Close() error
-	StoreNetflowMetrics(ctx context.Context, metrics []*models.NetflowMetric) error
 }

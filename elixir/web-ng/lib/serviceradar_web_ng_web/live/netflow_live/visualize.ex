@@ -171,6 +171,73 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "flows")}
   end
 
+  def handle_event("bgp_add_as_filter", %{"as_number" => as_number}, socket) do
+    case Integer.parse(as_number) do
+      {as_int, ""} when as_int > 0 and as_int <= 4_294_967_295 ->
+        params = %{"field" => "as_path", "value" => to_string(as_int)}
+        {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "flows")}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("bgp_add_community_filter", params, socket) do
+    community_value =
+      case Map.get(params, "community") do
+        # From quick button click (already an integer string)
+        val when is_binary(val) -> val
+        # From form submission
+        _ -> ""
+      end
+
+    # Try parsing the community value
+    parsed_community =
+      cond do
+        # Direct integer value
+        String.match?(community_value, ~r/^\d+$/) ->
+          community_value
+
+        # AS:value format (e.g., "65000:100")
+        String.contains?(community_value, ":") ->
+          case String.split(community_value, ":") do
+            [as_str, value_str] ->
+              with {as_num, ""} <- Integer.parse(as_str),
+                   {value_num, ""} <- Integer.parse(value_str),
+                   true <- as_num >= 0 and as_num <= 65535,
+                   true <- value_num >= 0 and value_num <= 65535 do
+                # Encode as 32-bit integer: (AS << 16) | value
+                encoded = Bitwise.bor(Bitwise.bsl(as_num, 16), value_num)
+                to_string(encoded)
+              else
+                _ -> nil
+              end
+
+            _ ->
+              nil
+          end
+
+        true ->
+          nil
+      end
+
+    if parsed_community do
+      params = %{"field" => "bgp_communities", "value" => parsed_community}
+      {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "flows")}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("bgp_clear_filters", _params, socket) do
+    socket =
+      socket
+      |> SRQLPage.handle_event("srql_builder_remove_filter", %{"field" => "as_path"}, entity: "flows")
+      |> SRQLPage.handle_event("srql_builder_remove_filter", %{"field" => "bgp_communities"}, entity: "flows")
+
+    {:noreply, socket}
+  end
+
   def handle_event("nf_reset", _params, socket) do
     next = NFState.default()
     chart_query = chart_query_from_state("in:flows", next)
@@ -713,6 +780,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                         and <span class="font-mono">stacked100</span>.
                       </div>
                     </form>
+                  </div>
+
+                  <!-- BGP Filters Section -->
+                  <div class="col-span-full mt-4 pt-4 border-t border-base-200">
+                    <details class="collapse collapse-arrow bg-base-200/30 rounded-lg">
+                      <summary class="collapse-title text-xs font-semibold text-base-content/70 min-h-0 py-2 px-3">
+                        BGP Routing Filters
+                      </summary>
+                      <div class="collapse-content px-3 pb-3">
+                        <.bgp_filter_inputs query={Map.get(@srql, :query) || ""} />
+                      </div>
+                    </details>
                   </div>
                 </div>
 
@@ -1706,6 +1785,344 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp sankey_mid_group_by("protocol_group"), do: "protocol_group"
   defp sankey_mid_group_by(_), do: "dst_endpoint_port"
 
+
+  attr(:community, :integer, required: true)
+
+  defp bgp_community_badge_small(assigns) do
+    community_value = assigns.community
+
+    display_text =
+      case community_value do
+        0xFFFFFF01 -> "NO_EXPORT"
+        0xFFFFFF02 -> "NO_ADVERTISE"
+        0xFFFFFF03 -> "NO_EXPORT_SUBCONFED"
+        0xFFFFFF04 -> "NOPEER"
+        _ ->
+          as_number = Bitwise.bsr(community_value, 16)
+          value = Bitwise.band(community_value, 0xFFFF)
+          "#{as_number}:#{value}"
+      end
+
+    assigns = assign(assigns, :display_text, display_text)
+
+    ~H"""
+    <span class="badge badge-xs badge-info font-mono">{@display_text}</span>
+    """
+  end
+
+  # Helper to format bytes
+  defp format_bytes(bytes) when bytes >= 1_000_000_000 do
+    "#{Float.round(bytes / 1_000_000_000, 2)} GB"
+  end
+
+  defp format_bytes(bytes) when bytes >= 1_000_000 do
+    "#{Float.round(bytes / 1_000_000, 2)} MB"
+  end
+
+  defp format_bytes(bytes) when bytes >= 1_000 do
+    "#{Float.round(bytes / 1_000, 2)} KB"
+  end
+
+  defp format_bytes(bytes), do: "#{bytes} B"
+
+  attr(:query, :string, required: true)
+
+  defp bgp_filter_inputs(assigns) do
+    # Parse current query to extract BGP filters
+    as_filter = extract_filter_value(assigns.query, "as_path")
+    community_filter = extract_filter_value(assigns.query, "bgp_communities")
+
+    assigns =
+      assigns
+      |> assign(:as_filter, as_filter)
+      |> assign(:community_filter, community_filter)
+      |> assign(:has_filters, as_filter != "" || community_filter != "")
+
+    ~H"""
+    <div class="space-y-3">
+      <div class="text-[11px] text-base-content/60 mb-2">
+        Filter flows by BGP routing information. Filters are automatically added to your SRQL query.
+      </div>
+
+      <!-- Active BGP Filters Display -->
+      <div :if={@has_filters} class="flex items-center gap-2 flex-wrap p-2 bg-primary/5 rounded-md border border-primary/20">
+        <span class="text-xs text-base-content/60">Active BGP filters:</span>
+        <div :if={@as_filter != ""} class="badge badge-primary badge-sm gap-1">
+          <span>AS Path: {@as_filter}</span>
+          <button
+            type="button"
+            phx-click="srql_builder_remove_filter"
+            phx-value-field="as_path"
+            class="text-primary-content hover:text-error"
+            title="Remove AS filter"
+          >
+            ✕
+          </button>
+        </div>
+        <div :if={@community_filter != ""} class="badge badge-info badge-sm gap-1">
+          <span>Community: {decode_community_display(@community_filter)}</span>
+          <button
+            type="button"
+            phx-click="srql_builder_remove_filter"
+            phx-value-field="bgp_communities"
+            class="text-info-content hover:text-error"
+            title="Remove community filter"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- AS Number Filter Input -->
+      <div>
+        <label class="text-xs font-semibold text-base-content/70 mb-1 block">
+          AS Number
+        </label>
+        <form phx-submit="bgp_add_as_filter" class="flex gap-2">
+          <input
+            type="number"
+            name="as_number"
+            placeholder="e.g., 64512"
+            min="1"
+            max="4294967295"
+            class="input input-bordered input-sm flex-1 font-mono text-xs"
+          />
+          <button type="submit" class="btn btn-primary btn-sm">
+            Add AS Filter
+          </button>
+        </form>
+        <div class="mt-1 text-[10px] text-base-content/50">
+          Filter flows where AS path contains this autonomous system number
+        </div>
+      </div>
+
+      <!-- BGP Community Filter Input -->
+      <div>
+        <label class="text-xs font-semibold text-base-content/70 mb-1 block">
+          BGP Community
+        </label>
+        <form phx-submit="bgp_add_community_filter" class="space-y-2">
+          <div class="flex gap-2">
+            <input
+              type="text"
+              name="community"
+              placeholder="e.g., 65000:100 or 4259840100"
+              class="input input-bordered input-sm flex-1 font-mono text-xs"
+            />
+            <button type="submit" class="btn btn-info btn-sm">
+              Add Community Filter
+            </button>
+          </div>
+          <div class="text-[10px] text-base-content/50">
+            Enter as AS:value (e.g., 65000:100) or raw 32-bit integer (e.g., 4259840100)
+          </div>
+        </form>
+      </div>
+
+      <!-- Quick filters for well-known communities -->
+      <div>
+        <label class="text-xs font-semibold text-base-content/70 mb-1 block">
+          Well-Known Communities
+        </label>
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            phx-click="bgp_add_community_filter"
+            phx-value-community="4294967041"
+            class="btn btn-xs btn-outline btn-warning"
+          >
+            NO_EXPORT
+          </button>
+          <button
+            type="button"
+            phx-click="bgp_add_community_filter"
+            phx-value-community="4294967042"
+            class="btn btn-xs btn-outline btn-error"
+          >
+            NO_ADVERTISE
+          </button>
+          <button
+            type="button"
+            phx-click="bgp_add_community_filter"
+            phx-value-community="4294967043"
+            class="btn btn-xs btn-outline btn-warning"
+          >
+            NO_EXPORT_SUBCONFED
+          </button>
+        </div>
+        <div class="mt-1 text-[10px] text-base-content/50">
+          Quick add filters for RFC 1997 well-known communities
+        </div>
+      </div>
+
+      <!-- Clear all BGP filters -->
+      <div :if={@has_filters} class="pt-2">
+        <button
+          type="button"
+          phx-click="bgp_clear_filters"
+          class="btn btn-sm btn-ghost btn-outline text-error w-full"
+        >
+          Clear All BGP Filters
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  # Helper function to extract filter value from SRQL query
+  defp extract_filter_value(query, field) when is_binary(query) do
+    # Match patterns like: field:[value] or field:value
+    regex = ~r/#{field}:\[?([^\]\s]+)\]?/
+    case Regex.run(regex, query) do
+      [_, value] -> value
+      _ -> ""
+    end
+  end
+
+  defp extract_filter_value(_, _), do: ""
+
+  # Helper function to decode community for display
+  defp decode_community_display(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {community_int, ""} ->
+        case community_int do
+          0xFFFFFF01 -> "NO_EXPORT (#{value})"
+          0xFFFFFF02 -> "NO_ADVERTISE (#{value})"
+          0xFFFFFF03 -> "NO_EXPORT_SUBCONFED (#{value})"
+          _ ->
+            as_number = Bitwise.bsr(community_int, 16)
+            val = Bitwise.band(community_int, 0xFFFF)
+            "#{as_number}:#{val}"
+        end
+      _ -> value
+    end
+  end
+
+  defp decode_community_display(value), do: value
+
+  attr(:flow, :map, required: true)
+
+  defp bgp_section(assigns) do
+    # Extract BGP data from flow
+    as_path = flow_get(assigns.flow, ["as_path"]) || []
+    bgp_communities = flow_get(assigns.flow, ["bgp_communities"]) || []
+
+    assigns =
+      assigns
+      |> assign(:as_path, as_path)
+      |> assign(:bgp_communities, bgp_communities)
+      |> assign(:has_bgp_data, length(as_path) > 0 || length(bgp_communities) > 0)
+      |> assign(:as_path_collapsed, length(as_path) > 10)
+
+    ~H"""
+    <div class="text-xs uppercase tracking-wider text-base-content/50 mb-2">BGP Routing</div>
+
+    <%= if @has_bgp_data do %>
+      <!-- AS Path Display -->
+      <div :if={length(@as_path) > 0} class="mb-3">
+        <div class="text-xs font-semibold text-base-content/70 mb-1">AS Path</div>
+        <div class="flex items-center gap-1 flex-wrap font-mono text-sm">
+          <.as_path_display as_path={@as_path} />
+        </div>
+      </div>
+
+      <!-- BGP Communities Display -->
+      <div :if={length(@bgp_communities) > 0}>
+        <div class="text-xs font-semibold text-base-content/70 mb-1">BGP Communities</div>
+        <div class="flex items-center gap-1 flex-wrap">
+          <%= for community <- @bgp_communities do %>
+            <.bgp_community_badge community={community} />
+          <% end %>
+        </div>
+      </div>
+    <% else %>
+      <div class="text-sm text-base-content/60">
+        No BGP routing information available for this flow
+      </div>
+    <% end %>
+    """
+  end
+
+  attr(:as_path, :list, required: true)
+
+  defp as_path_display(assigns) do
+    path_length = length(assigns.as_path)
+
+    # If path is long, show first 5, ellipsis, and last 5
+    {display_path, show_expand} =
+      if path_length > 10 do
+        first_five = Enum.take(assigns.as_path, 5)
+        last_five = Enum.take(assigns.as_path, -5)
+        {first_five ++ [:ellipsis] ++ last_five, true}
+      else
+        {assigns.as_path, false}
+      end
+
+    assigns =
+      assigns
+      |> assign(:display_path, display_path)
+      |> assign(:show_expand, show_expand)
+      |> assign(:path_length, path_length)
+
+    ~H"""
+    <%= for {item, index} <- Enum.with_index(@display_path) do %>
+      <%= if item == :ellipsis do %>
+        <span class="text-base-content/40 text-xs">
+          ... ({@path_length - 10} more ASNs) ...
+        </span>
+      <% else %>
+        <%= if index > 0 and Enum.at(@display_path, index - 1) != :ellipsis do %>
+          <span class="text-base-content/40">→</span>
+        <% end %>
+        <span class="px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+          AS{item}
+        </span>
+      <% end %>
+    <% end %>
+    """
+  end
+
+  attr(:community, :integer, required: true)
+
+  defp bgp_community_badge(assigns) do
+    # Decode BGP community from 32-bit integer to AS:value format
+    # Format: (high 16 bits = AS number) : (low 16 bits = value)
+    community_value = assigns.community
+
+    {display_text, badge_class} =
+      case community_value do
+        # Well-known communities (RFC 1997)
+        0xFFFFFF01 ->
+          {"NO_EXPORT", "badge-warning"}
+
+        0xFFFFFF02 ->
+          {"NO_ADVERTISE", "badge-error"}
+
+        0xFFFFFF03 ->
+          {"NO_EXPORT_SUBCONFED", "badge-warning"}
+
+        0xFFFFFF04 ->
+          {"NOPEER", "badge-error"}
+
+        # Regular community - decode to AS:value
+        _ ->
+          as_number = Bitwise.bsr(community_value, 16)
+          value = Bitwise.band(community_value, 0xFFFF)
+          {"#{as_number}:#{value}", "badge-info"}
+      end
+
+    assigns =
+      assigns
+      |> assign(:display_text, display_text)
+      |> assign(:badge_class, badge_class)
+
+    ~H"""
+    <span class={"badge badge-sm #{@badge_class} font-mono"} title={"Raw value: #{@community}"}>
+      {@display_text}
+    </span>
+    """
+  end
+
   attr(:flow, :map, required: true)
   attr(:rdns_map, :map, default: %{})
   attr(:context, :map, default: %{})
@@ -2000,6 +2417,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     flow_type: <span class="font-mono">{ft}</span>
                   </div>
                 </div>
+              </div>
+
+              <!-- BGP Information Section -->
+              <div class="p-3 rounded-lg border border-base-200 bg-base-200/30 md:col-span-2">
+                <.bgp_section flow={@flow} />
               </div>
 
               <div class="p-3 rounded-lg border border-base-200 bg-base-200/30 md:col-span-2">

@@ -15,6 +15,10 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.cargo/bin:/root/.bun/bin:${PATH}"
 
+# Install bun for asset compilation
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:${PATH}"
+
 WORKDIR /app
 
 # Copy shared Elixir libraries (dependencies for web-ng)
@@ -63,6 +67,25 @@ RUN mix deps.get --only prod
 RUN mix deps.compile
 RUN mix compile
 RUN mix assets.deploy
+
+FROM hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV MIX_ENV=prod
+
+WORKDIR /app/web-ng
+
+RUN mix local.hex --force && mix local.rebar --force
+
+# Copy compiled Elixir code and Rust workspace
+COPY --from=build /app/elixir /app/elixir
+COPY --from=build /app/web-ng /app/web-ng
+COPY --from=build /app/rust /app/rust
+COPY --from=build /app/proto /app/proto
 
 EXPOSE 4000
 

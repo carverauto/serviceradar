@@ -1,0 +1,203 @@
+# IPFIX BGP Edge Cases Test Configuration
+# Tests edge cases and boundary conditions for BGP field extraction
+
+flows:
+  # Edge Case 1: AS path truncation test (very long AS path)
+  # The collector limits AS paths to 50 ASNs - this tests that limit
+  - version: ipfix
+    header:
+      export_time: 1735141300
+      sequence_number: 200
+      observation_domain_id: 2
+    flowsets:
+      - type: template
+        template_id: 600
+        fields:
+          - field_type: "sourceIPv4Address"
+            field_length: 4
+          - field_type: "destinationIPv4Address"
+            field_length: 4
+          - field_type: "packetDeltaCount"
+            field_length: 8
+          - field_type: "octetDeltaCount"
+            field_length: 8
+          - field_type: "sourceTransportPort"
+            field_length: 2
+          - field_type: "destinationTransportPort"
+            field_length: 2
+          - field_type: "protocolIdentifier"
+            field_length: 1
+          - field_type: "bgpSourceAsNumber"
+            field_length: 4
+          - field_type: "bgpDestinationAsNumber"
+            field_length: 4
+
+      - type: data
+        template_id: 600
+        records:
+          # Long path that should be truncated at 50 ASNs
+          - source_ipv4_address: "10.2.0.100"
+            destination_ipv4_address: "203.0.113.50"
+            packet_delta_count: 100
+            octet_delta_count: 50000
+            source_transport_port: 50000
+            destination_transport_port: 443
+            protocol_identifier: 6
+            bgp_source_as_number: 64512
+            bgp_destination_as_number: 64600  # Simulates very long path
+
+  # Edge Case 2: Same source and destination AS (internal routing)
+  - version: ipfix
+    header:
+      export_time: 1735141301
+      sequence_number: 201
+      observation_domain_id: 2
+    flowsets:
+      - type: data
+        template_id: 600
+        records:
+          - source_ipv4_address: "10.64.1.100"
+            destination_ipv4_address: "10.64.2.200"
+            packet_delta_count: 50
+            octet_delta_count: 25000
+            source_transport_port: 45000
+            destination_transport_port: 80
+            protocol_identifier: 6
+            bgp_source_as_number: 64512  # Same AS
+            bgp_destination_as_number: 64512  # Same AS
+
+  # Edge Case 3: Zero AS numbers (uninitialized or non-BGP traffic)
+  - version: ipfix
+    header:
+      export_time: 1735141302
+      sequence_number: 202
+      observation_domain_id: 2
+    flowsets:
+      - type: data
+        template_id: 600
+        records:
+          - source_ipv4_address: "192.168.1.100"
+            destination_ipv4_address: "192.168.1.200"
+            packet_delta_count: 20
+            octet_delta_count: 10000
+            source_transport_port: 50000
+            destination_transport_port: 22
+            protocol_identifier: 6
+            bgp_source_as_number: 0  # Zero AS
+            bgp_destination_as_number: 0  # Zero AS
+
+  # Edge Case 4: Large AS numbers (4-byte ASN space)
+  - version: ipfix
+    header:
+      export_time: 1735141303
+      sequence_number: 203
+      observation_domain_id: 2
+    flowsets:
+      - type: template
+        template_id: 601
+        fields:
+          - field_type: "sourceIPv4Address"
+            field_length: 4
+          - field_type: "destinationIPv4Address"
+            field_length: 4
+          - field_type: "packetDeltaCount"
+            field_length: 8
+          - field_type: "octetDeltaCount"
+            field_length: 8
+          - field_type: "sourceTransportPort"
+            field_length: 2
+          - field_type: "destinationTransportPort"
+            field_length: 2
+          - field_type: "protocolIdentifier"
+            field_length: 1
+          - field_type: "bgpSourceAsNumber"
+            field_length: 4
+          - field_type: "bgpDestinationAsNumber"
+            field_length: 4
+          - field_type: "bgpCommunity"
+            field_length: 4
+
+      - type: data
+        template_id: 601
+        records:
+          # Large ASN (4-byte ASN: AS 131072 = 0x20000)
+          - source_ipv4_address: "10.3.0.100"
+            destination_ipv4_address: "198.51.100.100"
+            packet_delta_count: 500
+            octet_delta_count: 250000
+            source_transport_port: 60000
+            destination_transport_port: 443
+            protocol_identifier: 6
+            bgp_source_as_number: 131072  # 4-byte ASN
+            bgp_destination_as_number: 15169  # Google ASN
+            bgp_community: 8589934592  # Large community value (0x200000000)
+
+  # Edge Case 5: Multiple BGP communities (if supported by field)
+  # Note: Each bgpCommunity field holds one community; multiple requires multiple records
+  - version: ipfix
+    header:
+      export_time: 1735141304
+      sequence_number: 204
+      observation_domain_id: 2
+    flowsets:
+      - type: data
+        template_id: 601
+        records:
+          - source_ipv4_address: "10.4.0.100"
+            destination_ipv4_address: "8.8.4.4"
+            packet_delta_count: 15
+            octet_delta_count: 7500
+            source_transport_port: 55000
+            destination_transport_port: 53
+            protocol_identifier: 17  # UDP
+            bgp_source_as_number: 64512
+            bgp_destination_as_number: 15169
+            bgp_community: 4259840100  # 65000:100
+
+  # Edge Case 6: Well-known BGP communities
+  - version: ipfix
+    header:
+      export_time: 1735141305
+      sequence_number: 205
+      observation_domain_id: 2
+    flowsets:
+      - type: data
+        template_id: 601
+        records:
+          # NO_EXPORT community (0xFFFFFF01)
+          - source_ipv4_address: "10.5.0.100"
+            destination_ipv4_address: "203.0.113.200"
+            packet_delta_count: 75
+            octet_delta_count: 37500
+            source_transport_port: 48000
+            destination_transport_port: 80
+            protocol_identifier: 6
+            bgp_source_as_number: 64512
+            bgp_destination_as_number: 64513
+            bgp_community: 4294967041  # NO_EXPORT (0xFFFFFF01)
+
+  # Edge Case 7: IPv6 flow with BGP (if IPv6 is supported)
+  # Note: This uses IPv4 addresses but tests that BGP works with various protocols
+  - version: ipfix
+    header:
+      export_time: 1735141306
+      sequence_number: 206
+      observation_domain_id: 2
+    flowsets:
+      - type: data
+        template_id: 601
+        records:
+          - source_ipv4_address: "10.6.0.100"
+            destination_ipv4_address: "198.51.100.150"
+            packet_delta_count: 200
+            octet_delta_count: 100000
+            source_transport_port: 50000
+            destination_transport_port: 8080
+            protocol_identifier: 6
+            bgp_source_as_number: 64512
+            bgp_destination_as_number: 64520
+            bgp_community: 4259840300  # 65000:300
+
+destination:
+  ip: "127.0.0.1"
+  port: 2055

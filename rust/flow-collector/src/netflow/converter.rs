@@ -394,6 +394,22 @@ impl Converter {
                                         msg.bgp_next_hop = field_value_to_ip_bytes(field_value);
                                     }
                                 }
+
+                                // BGP Communities
+                                IPFixField::IANA(IANAIPFixField::BgpCommunity) => {
+                                    let communities = parse_bgp_communities(field_value);
+                                    msg.bgp_communities.extend(communities);
+                                }
+                                IPFixField::IANA(IANAIPFixField::BgpSourceCommunityList) => {
+                                    let communities = parse_bgp_communities(field_value);
+                                    msg.bgp_communities.extend(communities);
+                                }
+                                IPFixField::IANA(IANAIPFixField::BgpDestinationCommunityList) => {
+                                    let communities = parse_bgp_communities(field_value);
+                                    msg.bgp_communities.extend(communities);
+                                }
+
+                                // Network masks / prefix lengths
                                 IPFixField::IANA(IANAIPFixField::SourceIpv4prefixLength) => {
                                     msg.src_net = field_value_to_u32(field_value)
                                 }
@@ -485,6 +501,9 @@ impl Converter {
                                 }
                             }
                         }
+
+                        // Construct AS path from available BGP AS fields
+                        msg.as_path = construct_as_path(msg.src_as, msg.dst_as, msg.next_hop_as);
 
                         messages.push(msg);
                     }
@@ -616,6 +635,82 @@ fn field_value_to_protocol_name(value: &FieldValue) -> String {
     }
 }
 
+/// Construct AS path from available BGP AS fields.
+/// Creates a partial path using source AS, adjacent AS, and destination AS.
+/// Returns empty vec if no AS information is available.
+/// Limits to 50 ASNs maximum per spec requirement.
+fn construct_as_path(src_as: u32, dst_as: u32, next_hop_as: u32) -> Vec<u32> {
+    let mut path = Vec::new();
+
+    // Add source AS if non-zero
+    if src_as > 0 {
+        path.push(src_as);
+    }
+
+    // Add next-hop AS if non-zero and different from source/dest
+    if next_hop_as > 0 && next_hop_as != src_as && next_hop_as != dst_as {
+        path.push(next_hop_as);
+    }
+
+    // Add destination AS if non-zero and different from source
+    if dst_as > 0 && dst_as != src_as {
+        path.push(dst_as);
+    }
+
+    // Truncate to 50 ASNs if somehow exceeded (shouldn't happen with this logic)
+    if path.len() > 50 {
+        path.truncate(50);
+    }
+
+    path
+}
+
+/// Parse BGP communities from IPFIX field value.
+/// Handles both individual community values (u32) and community lists (strings).
+/// Returns vec of 32-bit community values in standard format.
+fn parse_bgp_communities(value: &FieldValue) -> Vec<u32> {
+    match value {
+        // Single community as unsigned number
+        FieldValue::DataNumber(dn) => {
+            let community = data_number_to_u32(dn);
+            if community > 0 {
+                vec![community]
+            } else {
+                vec![]
+            }
+        }
+        // Community list as string (format: "65000:100,65000:200")
+        FieldValue::String(s) => {
+            s.value.split(',')
+                .filter_map(|community_str| {
+                    let parts: Vec<&str> = community_str.trim().split(':').collect();
+                    if parts.len() == 2 {
+                        // Parse AS:value format into 32-bit community
+                        let as_num: u32 = parts[0].parse().ok()?;
+                        let value: u32 = parts[1].parse().ok()?;
+                        // High 16 bits = AS, low 16 bits = value
+                        Some((as_num << 16) | (value & 0xFFFF))
+                    } else {
+                        // Try parsing as raw 32-bit number
+                        community_str.trim().parse().ok()
+                    }
+                })
+                .collect()
+        }
+        // Vec of bytes - could be encoded communities
+        FieldValue::Vec(bytes) => {
+            // Each community is 4 bytes (32-bit value)
+            bytes
+                .chunks_exact(4)
+                .map(|chunk| {
+                    u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
+                })
+                .collect()
+        }
+        _ => vec![],
+    }
+}
+
 impl From<Converter> for Vec<flowpb::FlowMessage> {
     fn from(converter: Converter) -> Self {
         match converter.packet {
@@ -632,7 +727,14 @@ impl From<Converter> for Vec<flowpb::FlowMessage> {
 mod tests {
     use super::*;
     use netflow_parser::protocol::ProtocolTypes;
-    use netflow_parser::variable_versions::field_value::DurationValue;
+    use netflow_parser::variable_versions::field_value::{DurationValue, StringValue};
+
+    fn make_string_value(s: &str) -> StringValue {
+        StringValue {
+            value: s.to_string(),
+            raw: s.as_bytes().to_vec(),
+        }
+    }
 
     #[test]
     fn test_mac_to_u64() {
@@ -721,5 +823,106 @@ mod tests {
     fn test_protocol_type_name() {
         assert_eq!(protocol_type_name(ProtocolTypes::Tcp), "TCP");
         assert_eq!(protocol_type_name(ProtocolTypes::Udp), "UDP");
+    }
+
+    // --- construct_as_path tests ---
+
+    #[test]
+    fn test_construct_as_path_full_path() {
+        let path = construct_as_path(64512, 64514, 64513);
+        assert_eq!(path, vec![64512, 64513, 64514]);
+    }
+
+    #[test]
+    fn test_construct_as_path_direct_path() {
+        // No intermediate AS
+        let path = construct_as_path(64512, 64513, 0);
+        assert_eq!(path, vec![64512, 64513]);
+    }
+
+    #[test]
+    fn test_construct_as_path_same_src_dst() {
+        // Source and dest are the same (local AS)
+        let path = construct_as_path(64512, 64512, 0);
+        assert_eq!(path, vec![64512]);
+    }
+
+    #[test]
+    fn test_construct_as_path_next_hop_same_as_src() {
+        // Next hop AS is same as source, should be excluded
+        let path = construct_as_path(64512, 64514, 64512);
+        assert_eq!(path, vec![64512, 64514]);
+    }
+
+    #[test]
+    fn test_construct_as_path_next_hop_same_as_dst() {
+        // Next hop AS is same as destination, should be excluded
+        let path = construct_as_path(64512, 64514, 64514);
+        assert_eq!(path, vec![64512, 64514]);
+    }
+
+    #[test]
+    fn test_construct_as_path_empty_when_all_zero() {
+        let path = construct_as_path(0, 0, 0);
+        assert_eq!(path, Vec::<u32>::new());
+    }
+
+    #[test]
+    fn test_construct_as_path_only_source() {
+        let path = construct_as_path(64512, 0, 0);
+        assert_eq!(path, vec![64512]);
+    }
+
+    // --- parse_bgp_communities tests ---
+
+    #[test]
+    fn test_parse_bgp_communities_single_u32() {
+        let value = FieldValue::DataNumber(DataNumber::U32(0x00010001)); // 1:1
+        let communities = parse_bgp_communities(&value);
+        assert_eq!(communities, vec![0x00010001]);
+    }
+
+    #[test]
+    fn test_parse_bgp_communities_string_as_value_format() {
+        let value = FieldValue::String(make_string_value("65000:100"));
+        let communities = parse_bgp_communities(&value);
+        // 65000 << 16 | 100 = 0xFDE80064
+        assert_eq!(communities, vec![0xFDE80064]);
+    }
+
+    #[test]
+    fn test_parse_bgp_communities_string_multiple() {
+        let value = FieldValue::String(make_string_value("65000:100,65000:200"));
+        let communities = parse_bgp_communities(&value);
+        assert_eq!(communities, vec![0xFDE80064, 0xFDE800C8]);
+    }
+
+    #[test]
+    fn test_parse_bgp_communities_string_raw_numbers() {
+        let value = FieldValue::String(make_string_value("4259840100,4259840200"));
+        let communities = parse_bgp_communities(&value);
+        assert_eq!(communities, vec![4259840100, 4259840200]);
+    }
+
+    #[test]
+    fn test_parse_bgp_communities_vec_bytes() {
+        // 2 communities as bytes (4 bytes each)
+        let value = FieldValue::Vec(vec![0xFD, 0xE8, 0x00, 0x64, 0xFD, 0xE8, 0x00, 0xC8]);
+        let communities = parse_bgp_communities(&value);
+        assert_eq!(communities, vec![0xFDE80064, 0xFDE800C8]);
+    }
+
+    #[test]
+    fn test_parse_bgp_communities_empty_string() {
+        let value = FieldValue::String(make_string_value(""));
+        let communities = parse_bgp_communities(&value);
+        assert_eq!(communities, Vec::<u32>::new());
+    }
+
+    #[test]
+    fn test_parse_bgp_communities_zero_value() {
+        let value = FieldValue::DataNumber(DataNumber::U32(0));
+        let communities = parse_bgp_communities(&value);
+        assert_eq!(communities, Vec::<u32>::new());
     }
 }

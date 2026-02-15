@@ -160,8 +160,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "src_country_iso2",
         "dst_country_iso2",
         "src_cidr",
-        "dst_cidr"
+        "dst_cidr",
+        "as_path",
+        "bgp_communities"
       ],
+      # Fields backed by array columns - builder will always use list syntax for these
+      array_fields: ["as_path", "bgp_communities"],
       downsample: true,
       default_bucket: "5m",
       default_agg: "sum",

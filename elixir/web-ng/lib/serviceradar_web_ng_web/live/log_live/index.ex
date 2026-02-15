@@ -3214,13 +3214,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.tab_button id="metrics" label="Metrics" icon="hero-chart-bar" active={@active} />
         <.tab_button id="events" label="Events" icon="hero-bell-alert" active={@active} />
         <.tab_button id="alerts" label="Alerts" icon="hero-exclamation-triangle" active={@active} />
-        <.tab_button id="netflows" label="Flows" icon="hero-arrow-path" active={@active} />
+        <.tab_button id="netflows" label="NetFlow" icon="hero-arrow-path" active={@active} />
         <.link
           navigate={~p"/observability/bmp"}
           class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
         >
           <.icon name="hero-arrows-right-left" class="size-4" /> BMP
         </.link>
+        <.external_tab_button
+          path="/bgp-routing"
+          label="BGP Routing"
+          icon="hero-globe-alt"
+          active={@active}
+        />
       </div>
     </div>
     """
@@ -3243,6 +3249,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         @active? && "btn-primary",
         not @active? && "btn-ghost"
       ]}
+    >
+      <.icon name={@icon} class="size-4" />
+      {@label}
+    </.link>
+    """
+  end
+
+  attr(:path, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:icon, :string, required: true)
+  attr(:active, :string, required: true)
+
+  defp external_tab_button(assigns) do
+    ~H"""
+    <.link
+      navigate={@path}
+      class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2 transition-colors"
     >
       <.icon name={@icon} class="size-4" />
       {@label}
@@ -4894,6 +4917,40 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     </div>
                   <% end %>
                 </div>
+
+                <% as_path = netflow_bgp_as_path(@flow) %>
+                <% bgp_communities = netflow_bgp_communities(@flow) %>
+                <%= if as_path || bgp_communities do %>
+                  <div class="pt-3 border-t border-base-200 mt-3">
+                    <div class="font-semibold">BGP Routing</div>
+
+                    <%= if as_path do %>
+                      <div class="mt-2">
+                        <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                          AS Path ({length(as_path)} hops)
+                        </div>
+                        <div class="mt-1 font-mono text-xs text-base-content/80 break-all">
+                          {format_bgp_as_path(as_path)}
+                        </div>
+                      </div>
+                    <% end %>
+
+                    <%= if bgp_communities do %>
+                      <div class="mt-2">
+                        <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                          BGP Communities
+                        </div>
+                        <div class="mt-1 flex flex-wrap gap-1">
+                          <%= for community <- bgp_communities do %>
+                            <span class="badge badge-sm badge-outline font-mono">
+                              {format_bgp_community(community)}
+                            </span>
+                          <% end %>
+                        </div>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
               </div>
             </div>
           </.ui_panel>
@@ -5125,6 +5182,53 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp netflow_country_iso2(_flow, _side), do: nil
 
   defp normalize_iso2(nil), do: nil
+
+  # BGP data extraction
+  defp netflow_bgp_as_path(flow) when is_map(flow) do
+    case netflow_value(flow, ["as_path"]) do
+      path when is_list(path) and path != [] -> path
+      _ -> nil
+    end
+  end
+
+  defp netflow_bgp_communities(flow) when is_map(flow) do
+    case netflow_value(flow, ["bgp_communities"]) do
+      communities when is_list(communities) and communities != [] -> communities
+      _ -> nil
+    end
+  end
+
+  # Format AS path as "AS1 → AS2 → AS3"
+  defp format_bgp_as_path(nil), do: nil
+  defp format_bgp_as_path([]), do: nil
+  defp format_bgp_as_path(path) when is_list(path) do
+    path
+    |> Enum.map(&to_string/1)
+    |> Enum.join(" → ")
+  end
+
+  # Format BGP community (decode 32-bit integer to AS:value format)
+  defp format_bgp_community(community) when is_integer(community) do
+    # Well-known communities (RFC 1997)
+    case community do
+      0xFFFFFF01 -> "NO_EXPORT"
+      0xFFFFFF02 -> "NO_ADVERTISE"
+      0xFFFFFF03 -> "NO_EXPORT_SUBCONFED"
+      val when val > 0xFFFF0000 -> "RESERVED (#{val})"
+      val ->
+        # Standard format: upper 16 bits = AS, lower 16 bits = value
+        as_num = Bitwise.bsr(val, 16)
+        value = Bitwise.band(val, 0xFFFF)
+        "#{as_num}:#{value}"
+    end
+  end
+  defp format_bgp_community(community) when is_binary(community) do
+    case Integer.parse(community) do
+      {int_val, ""} -> format_bgp_community(int_val)
+      _ -> community
+    end
+  end
+  defp format_bgp_community(_), do: "—"
 
   defp normalize_iso2(value) when is_binary(value) do
     value = value |> String.trim() |> String.upcase()
