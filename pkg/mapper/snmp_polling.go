@@ -1531,11 +1531,28 @@ func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 
 // checkUniFiAPI checks if UniFi API is configured and queries it for topology links
 func (e *DiscoveryEngine) checkUniFiAPI(ctx context.Context, job *DiscoveryJob, snmpTargetIP string) {
-	if len(e.config.UniFiAPIs) > 0 && (job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology) {
-		links, err := e.queryUniFiAPI(ctx, job, snmpTargetIP)
-		if err == nil && len(links) > 0 {
-			e.publishTopologyLinks(job, links, snmpTargetIP, "UniFi-API")
-		}
+	if len(e.config.UniFiAPIs) == 0 || (job.Params.Type != DiscoveryTypeFull && job.Params.Type != DiscoveryTypeTopology) {
+		return
+	}
+
+	job.mu.Lock()
+	if job.uniFiTopologyPolled {
+		job.mu.Unlock()
+		return
+	}
+	job.uniFiTopologyPolled = true
+	job.mu.Unlock()
+
+	links, err := e.queryUniFiAPI(ctx, job, snmpTargetIP)
+	if err != nil {
+		job.mu.Lock()
+		job.uniFiTopologyPolled = false
+		job.mu.Unlock()
+		return
+	}
+
+	if len(links) > 0 {
+		e.publishTopologyLinks(job, links, snmpTargetIP, "UniFi-API")
 	}
 }
 

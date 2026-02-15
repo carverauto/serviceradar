@@ -162,11 +162,12 @@ varying vec4 vColor;
 
 void main(void) {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
-  float r2 = dot(p, p);
-  if (r2 > 1.0) {
+  float r = length(p);
+  if (r > 1.0) {
     discard;
   }
-  float alpha = exp(-r2 * 3.0) * vColor.a;
+  float glow = 1.0 - pow(r, 1.2);
+  float alpha = glow * vColor.a;
   gl_FragColor = vec4(vColor.rgb, alpha);
 }
 `
@@ -3797,8 +3798,8 @@ const Hooks = {
           const speedModifier = 0.7 + (((j * 43) % 101) / 100) * 0.6
           const particleSpeed = baseSpeed * speedModifier
           const hue = Math.min(1, intensity / 4)
-          const cyan = [73, 231, 255, 245]
-          const magenta = [244, 114, 255, 255]
+          const cyan = [73, 231, 255, 95]
+          const magenta = [244, 114, 255, 120]
           const color = [
             Math.round(cyan[0] * (1 - hue) + magenta[0] * hue),
             Math.round(cyan[1] * (1 - hue) + magenta[1] * hue),
@@ -3811,7 +3812,7 @@ const Hooks = {
             seed,
             speed: particleSpeed,
             jitter: 8 + Math.min(26, intensity * 6.5),
-            size: Math.min(8.5, 4.2 + intensity * 0.52),
+            size: Math.min(24.0, 10.0 + intensity * 2.5),
             color,
           })
         }
