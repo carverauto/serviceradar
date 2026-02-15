@@ -64,16 +64,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     with {:ok, updates} <- decode_payload(message),
          records <- build_topology_records(updates),
-         resolved_records <- resolve_topology_device_ids(records) do
+         resolved_records <- resolve_topology_device_ids(records),
+         enriched_records <- add_inferred_gateway_links(resolved_records) do
       record_job_runs(updates, status: :success)
 
-      if resolved_records == [] do
+      if enriched_records == [] do
         Logger.debug("No topology links to ingest after device ID resolution")
         :ok
       else
-        case insert_bulk(resolved_records, TopologyLink, actor, "topology") do
+        case insert_bulk(enriched_records, TopologyLink, actor, "topology") do
           :ok ->
-            TopologyGraph.upsert_links(resolved_records)
+            TopologyGraph.upsert_links(enriched_records)
             :ok
 
           {:error, reason} ->
@@ -791,41 +792,572 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp resolve_topology_device_ids([]), do: []
 
   defp resolve_topology_device_ids(records) do
-    # Extract unique device IPs from records (both local and neighbor)
-    device_ips =
+    device_index = build_topology_device_index(records)
+    resolve_topology_records(records, device_index)
+  end
+
+  defp maybe_put_neighbor_id(record, nil), do: record
+  defp maybe_put_neighbor_id(record, uid), do: Map.put(record, :neighbor_device_id, uid)
+
+  defp add_inferred_gateway_links([]), do: []
+
+  defp add_inferred_gateway_links(records) do
+    inferred = infer_gateway_topology_links(records)
+
+    if inferred == [] do
       records
-      |> Enum.flat_map(fn record ->
-        [record.local_device_ip, record.neighbor_mgmt_addr]
-      end)
+    else
+      records ++ inferred
+    end
+  rescue
+    e ->
+      Logger.warning("Gateway topology inference failed: #{inspect(e)}")
+      records
+  end
+
+  defp infer_gateway_topology_links(records) do
+    local_ids =
+      records
+      |> Enum.map(&normalize_string(&1.local_device_id))
       |> Enum.reject(&is_nil/1)
-      |> Enum.reject(&(&1 == ""))
+      |> MapSet.new()
+
+    neighbor_only_ids =
+      records
+      |> Enum.map(&normalize_string(&1.neighbor_device_id))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(&MapSet.member?(local_ids, &1))
       |> Enum.uniq()
 
-    # Look up device UIDs by IP address
-    ip_to_uid = lookup_device_uids_by_ip(device_ips)
+    if neighbor_only_ids == [] do
+      []
+    else
+      existing_edges = existing_topology_edge_set(records)
+      inferred_context = inference_context(records)
+      lldp_anchor_uids = lldp_anchor_uids(records)
+      neighbors = lookup_active_devices_by_uid(neighbor_only_ids)
+      router_index = router_subnet_index()
 
-    # Update records with resolved device_ids
-    # For topology, we keep records even if we can't resolve neighbor (it may be external)
+      neighbors
+      |> Enum.reduce([], fn neighbor, acc ->
+        maybe_inferred_gateway_link(
+          neighbor,
+          router_index,
+          existing_edges,
+          inferred_context,
+          lldp_anchor_uids,
+          acc
+        )
+      end)
+      |> Enum.reverse()
+    end
+  end
+
+  defp lldp_anchor_uids(records) do
+    records
+    |> Enum.reduce(MapSet.new(), fn record, acc ->
+      protocol = normalize_string(record.protocol)
+
+      if protocol in ["lldp", "cdp"] do
+        local_uid = normalize_string(record.local_device_id)
+        if is_binary(local_uid), do: MapSet.put(acc, local_uid), else: acc
+      else
+        acc
+      end
+    end)
+  end
+
+  defp existing_topology_edge_set(records) do
+    records
+    |> Enum.reduce(MapSet.new(), fn record, acc ->
+      local_uid = normalize_string(record.local_device_id)
+      neighbor_uid = normalize_string(record.neighbor_device_id)
+
+      if local_uid && neighbor_uid do
+        MapSet.put(acc, normalized_edge_key(local_uid, neighbor_uid))
+      else
+        acc
+      end
+    end)
+  end
+
+  defp inference_context(records) do
+    newest_timestamp =
+      records
+      |> Enum.map(& &1.timestamp)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.max(fn -> DateTime.utc_now() end)
+
+    %{
+      timestamp: newest_timestamp,
+      agent_id: first_present(records, & &1.agent_id),
+      gateway_id: first_present(records, & &1.gateway_id),
+      partition: first_present(records, & &1.partition) || "default",
+      created_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    }
+  end
+
+  defp first_present(records, accessor) when is_function(accessor, 1) do
+    records
+    |> Enum.map(accessor)
+    |> Enum.find(&present?/1)
+  end
+
+  defp lookup_active_devices_by_uid([]), do: []
+
+  defp lookup_active_devices_by_uid(uids) do
+    query =
+      from(d in Device,
+        where: d.uid in ^uids and is_nil(d.deleted_at),
+        select: %{uid: d.uid, ip: d.ip, name: d.name, hostname: d.hostname, type: d.type}
+      )
+
+    Repo.all(query)
+  end
+
+  defp router_subnet_index do
+    routers =
+      from(d in Device,
+        where: is_nil(d.deleted_at),
+        where: fragment("LOWER(COALESCE(?, ''))", d.type) == "router" or d.type_id == 12,
+        select: %{uid: d.uid, ip: d.ip, name: d.name, hostname: d.hostname}
+      )
+      |> Repo.all()
+
+    router_uids = Enum.map(routers, & &1.uid)
+    router_by_uid = Map.new(routers, fn router -> {normalize_string(router.uid), router} end)
+
+    interface_rows =
+      if router_uids == [] do
+        []
+      else
+        from(i in Interface,
+          where: i.device_id in ^router_uids,
+          where: i.timestamp > ago(3, "day"),
+          select: %{device_id: i.device_id, ip_addresses: i.ip_addresses}
+        )
+        |> Repo.all()
+      end
+
+    Enum.reduce(interface_rows, %{}, fn row, acc ->
+      router = Map.get(router_by_uid, normalize_string(row.device_id))
+
+      if router do
+        row.ip_addresses
+        |> List.wrap()
+        |> Enum.reduce(acc, fn raw_ip, memo ->
+          case normalize_interface_ip(raw_ip) do
+            nil ->
+              memo
+
+            ip ->
+              case ipv4_subnet_key(ip) do
+                nil ->
+                  memo
+
+                subnet ->
+                  candidate = %{
+                    uid: router.uid,
+                    router_ip: router.ip,
+                    iface_ip: ip,
+                    name: router.name,
+                    hostname: router.hostname
+                  }
+
+                  Map.update(memo, subnet, candidate, &preferred_router_for_subnet(&1, candidate))
+              end
+          end
+        end)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp maybe_inferred_gateway_link(
+         neighbor,
+         router_index,
+         existing_edges,
+         context,
+         lldp_anchor_uids,
+         acc
+       ) do
+    neighbor_uid = normalize_string(neighbor.uid)
+    neighbor_ip = normalize_interface_ip(neighbor.ip)
+    neighbor_type = normalize_string(neighbor.type)
+
+    cond do
+      neighbor_uid == nil or neighbor_ip == nil ->
+        acc
+
+      neighbor_type != "switch" ->
+        acc
+
+      true ->
+        case ipv4_subnet_key(neighbor_ip) do
+          nil ->
+            acc
+
+          subnet ->
+            case Map.get(router_index, subnet) do
+              nil ->
+                acc
+
+              router ->
+                router_uid = normalize_string(router.uid)
+
+                if router_uid == nil or router_uid == neighbor_uid do
+                  acc
+                else
+                  edge_key = normalized_edge_key(neighbor_uid, router_uid)
+
+                  if MapSet.member?(existing_edges, edge_key) do
+                    acc
+                  else
+                    [
+                      build_inferred_gateway_record(
+                        context,
+                        neighbor,
+                        neighbor_ip,
+                        router,
+                        lldp_anchor_uids
+                      )
+                      | acc
+                    ]
+                  end
+                end
+            end
+        end
+    end
+  end
+
+  defp preferred_router_for_subnet(existing, candidate) do
+    existing_ip = normalize_interface_ip(existing.iface_ip)
+    candidate_ip = normalize_interface_ip(candidate.iface_ip)
+
+    existing_pref = ip_preference_score(existing_ip)
+    candidate_pref = ip_preference_score(candidate_ip)
+
+    if candidate_pref > existing_pref, do: candidate, else: existing
+  end
+
+  defp ip_preference_score(nil), do: 0
+
+  defp ip_preference_score(ip) do
+    if String.ends_with?(ip, ".1"), do: 2, else: 1
+  end
+
+  defp build_inferred_gateway_record(context, neighbor, neighbor_ip, router, lldp_anchor_uids) do
+    router_name =
+      first_non_blank([
+        router.name,
+        router.hostname,
+        router.iface_ip,
+        router.router_ip,
+        "gateway"
+      ])
+
+    gateway_ip =
+      normalize_interface_ip(router.iface_ip) || normalize_interface_ip(router.router_ip)
+
+    neighbor_uid_norm = normalize_string(neighbor.uid)
+
+    lldp_anchored? =
+      is_binary(neighbor_uid_norm) and MapSet.member?(lldp_anchor_uids, neighbor_uid_norm)
+
+    gateway_like? = is_binary(gateway_ip) and String.ends_with?(gateway_ip, ".1")
+
+    {tier, score, reason} =
+      if lldp_anchored? and gateway_like? do
+        {"high", 88, "corroborated_l3_gateway_uplink"}
+      else
+        {"medium", 64, "shared_subnet_gateway_inference"}
+      end
+
+    %{
+      timestamp: context.timestamp,
+      agent_id: context.agent_id,
+      gateway_id: context.gateway_id,
+      partition: context.partition,
+      protocol: "l3-uplink",
+      local_device_ip: neighbor_ip,
+      local_device_id: neighbor.uid,
+      local_if_index: nil,
+      local_if_name: nil,
+      neighbor_device_id: router.uid,
+      neighbor_chassis_id: nil,
+      neighbor_port_id: "gateway-uplink",
+      neighbor_port_descr: "l3-uplink",
+      neighbor_system_name: router_name,
+      neighbor_mgmt_addr: gateway_ip,
+      metadata: %{
+        "source" => "gateway-correlation",
+        "inference" => "router_interface_subnet_match",
+        "confidence_tier" => tier,
+        "confidence_score" => score,
+        "confidence_reason" => reason
+      },
+      created_at: context.created_at
+    }
+  end
+
+  defp normalized_edge_key(a, b) when is_binary(a) and is_binary(b) do
+    if a <= b, do: {a, b}, else: {b, a}
+  end
+
+  defp normalize_interface_ip(nil), do: nil
+  defp normalize_interface_ip(""), do: nil
+
+  defp normalize_interface_ip(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" ->
+        nil
+
+      trimmed ->
+        trimmed
+        |> String.split("/", parts: 2)
+        |> List.first()
+        |> case do
+          "" -> nil
+          ip -> ip
+        end
+    end
+  end
+
+  defp normalize_interface_ip(value) do
+    value
+    |> to_string()
+    |> normalize_interface_ip()
+  end
+
+  defp ipv4_subnet_key(ip) when is_binary(ip) do
+    case :inet.parse_address(String.to_charlist(ip)) do
+      {:ok, {a, b, c, _d}} -> "#{a}.#{b}.#{c}"
+      _ -> nil
+    end
+  end
+
+  defp ipv4_subnet_key(_ip), do: nil
+
+  defp first_non_blank(values) when is_list(values) do
+    values
+    |> Enum.find(fn value ->
+      value
+      |> normalize_string()
+      |> is_binary()
+    end)
+    |> case do
+      nil -> nil
+      value -> String.trim(to_string(value))
+    end
+  end
+
+  @doc false
+  def resolve_topology_records(records, device_index)
+      when is_list(records) and is_map(device_index) do
+    # For topology, we keep records even if we can't resolve neighbor (it may be external).
+    # Local endpoint must resolve to a canonical active device.
     records
     |> Enum.map(fn record ->
-      local_uid = Map.get(ip_to_uid, record.local_device_ip)
-      neighbor_uid = Map.get(ip_to_uid, record.neighbor_mgmt_addr)
+      local_uid =
+        resolve_topology_uid(
+          record.local_device_id,
+          record.local_device_ip,
+          nil,
+          nil,
+          device_index
+        )
+
+      neighbor_uid =
+        resolve_topology_uid(
+          record.neighbor_device_id,
+          record.neighbor_mgmt_addr,
+          record.neighbor_system_name,
+          record.neighbor_chassis_id,
+          device_index
+        )
 
       if local_uid do
         record
         |> Map.put(:local_device_id, local_uid)
         |> maybe_put_neighbor_id(neighbor_uid)
       else
-        # No local device found - log and skip
-        Logger.debug("No device found for topology local IP: #{record.local_device_ip}")
+        Logger.debug(
+          "No canonical device found for topology local endpoint id=#{inspect(record.local_device_id)} ip=#{inspect(record.local_device_ip)}"
+        )
+
         nil
       end
     end)
     |> Enum.reject(&is_nil/1)
   end
 
-  defp maybe_put_neighbor_id(record, nil), do: record
-  defp maybe_put_neighbor_id(record, uid), do: Map.put(record, :neighbor_device_id, uid)
+  defp resolve_topology_uid(candidate_uid, candidate_ip, candidate_name, candidate_chassis, index) do
+    uid = normalize_string(candidate_uid)
+    ip = normalize_string(candidate_ip)
+    chassis = normalize_mac(candidate_chassis)
+
+    name_candidates =
+      candidate_name
+      |> topology_name_candidates()
+
+    cond do
+      is_binary(uid) and Map.has_key?(index.uid_to_uid, uid) ->
+        Map.get(index.uid_to_uid, uid)
+
+      is_binary(ip) and Map.has_key?(index.ip_to_uid, ip) ->
+        Map.get(index.ip_to_uid, ip)
+
+      is_binary(chassis) and Map.has_key?(index.mac_to_uid, chassis) ->
+        Map.get(index.mac_to_uid, chassis)
+
+      true ->
+        Enum.find_value(name_candidates, fn name -> Map.get(index.name_to_uid, name) end)
+    end
+  end
+
+  defp build_topology_device_index(records) do
+    ips =
+      records
+      |> Enum.flat_map(
+        &[normalize_string(&1.local_device_ip), normalize_string(&1.neighbor_mgmt_addr)]
+      )
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    uids =
+      records
+      |> Enum.flat_map(
+        &[normalize_string(&1.local_device_id), normalize_string(&1.neighbor_device_id)]
+      )
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    names =
+      records
+      |> Enum.flat_map(fn record ->
+        record.neighbor_system_name
+        |> topology_name_candidates()
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    macs =
+      records
+      |> Enum.map(&normalize_mac(&1.neighbor_chassis_id))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if ips == [] and uids == [] and names == [] and macs == [] do
+      empty_topology_device_index()
+    else
+      query =
+        from(d in Device,
+          where: is_nil(d.deleted_at),
+          where:
+            d.ip in ^ips or d.uid in ^uids or fragment("LOWER(COALESCE(?, ''))", d.name) in ^names or
+              fragment("LOWER(COALESCE(?, ''))", d.hostname) in ^names or
+              fragment(
+                "REPLACE(REPLACE(REPLACE(UPPER(COALESCE(?, '')), ':', ''), '-', ''), '.', '')",
+                d.mac
+              ) in ^macs,
+          select: %{
+            uid: d.uid,
+            ip: d.ip,
+            name: d.name,
+            hostname: d.hostname,
+            mac: d.mac
+          }
+        )
+
+      Repo.all(query)
+      |> build_topology_device_index_maps()
+    end
+  rescue
+    e ->
+      Logger.warning("Topology device index lookup failed: #{inspect(e)}")
+      empty_topology_device_index()
+  end
+
+  defp build_topology_device_index_maps(rows) do
+    Enum.reduce(rows, empty_topology_device_index(), fn row, acc ->
+      uid = normalize_string(row.uid)
+      ip = normalize_string(row.ip)
+      mac = normalize_mac(row.mac)
+
+      name_candidates =
+        row.name
+        |> topology_name_candidates()
+        |> Kernel.++(topology_name_candidates(row.hostname))
+        |> Enum.uniq()
+
+      acc
+      |> put_topology_index_entry(:uid_to_uid, uid)
+      |> put_topology_index_entry(:ip_to_uid, ip, uid)
+      |> put_topology_index_entry(:mac_to_uid, mac, uid)
+      |> put_topology_name_entries(name_candidates, uid)
+    end)
+  end
+
+  defp empty_topology_device_index do
+    %{uid_to_uid: %{}, ip_to_uid: %{}, name_to_uid: %{}, mac_to_uid: %{}}
+  end
+
+  defp put_topology_name_entries(index, names, uid) do
+    Enum.reduce(names, index, fn name, acc ->
+      put_topology_index_entry(acc, :name_to_uid, name, uid)
+    end)
+  end
+
+  defp put_topology_index_entry(index, _bucket, nil), do: index
+
+  defp put_topology_index_entry(index, bucket, value) do
+    put_topology_index_entry(index, bucket, value, value)
+  end
+
+  defp put_topology_index_entry(index, _bucket, nil, _uid), do: index
+
+  defp put_topology_index_entry(index, bucket, value, uid) do
+    update_in(index, [bucket], fn entries -> Map.put_new(entries, value, uid) end)
+  end
+
+  defp topology_name_candidates(name) do
+    case normalize_string(name) do
+      nil ->
+        []
+
+      normalized ->
+        short =
+          case String.split(normalized, ".", parts: 2) do
+            [single] -> single
+            [first, _rest] -> first
+          end
+
+        [normalized, short]
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq()
+    end
+  end
+
+  defp normalize_string(nil), do: nil
+  defp normalize_string(""), do: nil
+
+  defp normalize_string(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      trimmed -> String.downcase(trimmed)
+    end
+  end
+
+  defp normalize_string(value) do
+    value
+    |> to_string()
+    |> normalize_string()
+  end
 
   defp build_topology_records(updates) do
     Enum.reduce(updates, [], fn update, acc ->

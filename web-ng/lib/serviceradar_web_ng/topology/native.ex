@@ -52,4 +52,10 @@ defmodule ServiceRadarWebNG.Topology.Native do
   """
   def layout_nodes_hypergraph(_node_count, _edges),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Enrich edge telemetry fields (flow_pps/flow_bps/capacity_bps/label) in Rust.
+  """
+  def enrich_edges_telemetry(_edges, _interfaces, _pps_metrics, _bps_metrics),
+    do: :erlang.nif_error(:nif_not_loaded)
 end

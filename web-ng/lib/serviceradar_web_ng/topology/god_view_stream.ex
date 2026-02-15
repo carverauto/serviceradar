@@ -156,6 +156,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
               kind: "topology",
               protocol: Map.get(link, :protocol),
               confidence_tier: confidence_tier(link),
+              local_device_ip: normalize_id(Map.get(link, :local_device_ip)),
+              neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
               local_if_index: Map.get(link, :local_if_index),
               local_if_name: Map.get(link, :local_if_name),
               metadata: Map.get(link, :metadata) || %{}
@@ -171,18 +173,97 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     edge_node_ids = pairs |> Map.keys() |> Enum.flat_map(&Tuple.to_list/1) |> Enum.uniq()
 
     with {:ok, devices} <- fetch_devices(actor, edge_node_ids),
+         {:ok, resolved_devices} <- resolve_devices_for_topology(edge_node_ids),
+         {:ok, related_devices} <-
+           fetch_related_topology_devices(actor, devices ++ resolved_devices),
          {:ok, interfaces} <- fetch_interfaces(actor, edge_node_ids) do
+      devices =
+        devices
+        |> merge_devices(resolved_devices)
+        |> merge_devices(related_devices)
+
+      canonical_edges = canonicalize_edges(pair_edges, devices)
+
+      canonical_node_ids =
+        canonical_edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
+
       device_by_id = Map.new(devices, &{&1.uid, &1})
-      interface_index = index_interfaces(interfaces)
+      router_devices = Enum.filter(devices, &router_device?/1)
+      router_ids = Enum.map(router_devices, & &1.uid)
+      {:ok, router_interfaces} = fetch_interfaces(actor, router_ids)
+      all_interfaces = interfaces ++ router_interfaces
+      interface_index = index_interfaces(all_interfaces)
       pps_by_if = load_interface_pps(interface_index)
       bps_by_if = load_interface_bps(interface_index)
-      node_ids = node_ids(edge_node_ids, devices)
+      inferred_edges = infer_router_edges(canonical_edges, devices, interface_index)
+      inferred_l2_edges = infer_orphan_l2_edges(canonical_edges, devices, interface_index)
+      node_ids = node_ids(canonical_node_ids ++ router_ids, devices)
       nodes = build_nodes(node_ids, device_by_id, interface_index, pps_by_if)
-      edges = enrich_edges(pair_edges, interface_index, pps_by_if, bps_by_if)
-      nodes = apply_native_layout(nodes, edges)
-      {:ok, nodes, edges}
+
+      edges =
+        canonical_edges
+        |> Kernel.++(inferred_edges)
+        |> Kernel.++(inferred_l2_edges)
+        |> dedupe_edges()
+
+      with {:ok, edges} <- enrich_edges_via_native(edges, all_interfaces, pps_by_if, bps_by_if) do
+        nodes = apply_native_layout(nodes, edges)
+        {:ok, nodes, edges}
+      end
     end
   end
+
+  defp fetch_related_topology_devices(actor, seed_devices) when is_list(seed_devices) do
+    controller_names =
+      seed_devices
+      |> Enum.map(&device_controller_name/1)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    site_ids =
+      seed_devices
+      |> Enum.map(&device_site_id/1)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    subnets =
+      seed_devices
+      |> Enum.map(&device_subnet24/1)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    if MapSet.size(controller_names) == 0 and MapSet.size(site_ids) == 0 and
+         MapSet.size(subnets) == 0 do
+      {:ok, []}
+    else
+      query =
+        Device
+        |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
+        |> Ash.Query.sort(last_seen_time: :desc, uid: :asc)
+        |> Ash.Query.limit(@max_device_rows)
+
+      case Ash.read(query, actor: actor) do
+        {:ok, devices} when is_list(devices) ->
+          {:ok,
+           Enum.filter(
+             devices,
+             &topology_related_device?(&1, controller_names, site_ids, subnets)
+           )}
+
+        {:ok, page} ->
+          {:ok,
+           Enum.filter(
+             page_results(page),
+             &topology_related_device?(&1, controller_names, site_ids, subnets)
+           )}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp fetch_related_topology_devices(_actor, _seed_devices), do: {:ok, []}
 
   defp fetch_devices(actor, []), do: fetch_recent_devices(actor)
 
@@ -214,6 +295,493 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
+  defp resolve_devices_for_topology([]), do: {:ok, []}
+
+  defp resolve_devices_for_topology(raw_ids) when is_list(raw_ids) do
+    ids =
+      raw_ids
+      |> Enum.map(&normalize_id/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if ids == [] do
+      {:ok, []}
+    else
+      query =
+        from(d in "ocsf_devices",
+          where:
+            is_nil(d.deleted_at) and
+              (d.uid in ^ids or d.ip in ^ids or d.name in ^ids or d.hostname in ^ids),
+          select: %{
+            uid: d.uid,
+            name: d.name,
+            hostname: d.hostname,
+            ip: d.ip,
+            type: d.type,
+            type_id: d.type_id,
+            vendor_name: d.vendor_name,
+            model: d.model,
+            metadata: d.metadata,
+            last_seen_time: d.last_seen_time,
+            is_available: d.is_available
+          }
+        )
+
+      {:ok, Repo.all(query)}
+    end
+  rescue
+    _ -> {:ok, []}
+  end
+
+  defp merge_devices(devices, extra_devices) do
+    (devices ++ extra_devices)
+    |> Enum.reduce(%{}, fn device, acc ->
+      uid = normalize_id(Map.get(device, :uid))
+
+      if is_binary(uid) do
+        Map.put_new(acc, uid, device)
+      else
+        acc
+      end
+    end)
+    |> Map.values()
+  end
+
+  defp canonicalize_edges(edges, devices) when is_list(edges) do
+    resolver = build_device_identifier_resolver(devices)
+
+    edges
+    |> Enum.map(fn edge ->
+      source =
+        resolve_device_id(
+          Map.get(edge, :source),
+          [Map.get(edge, :local_device_ip)],
+          resolver
+        )
+
+      target =
+        resolve_device_id(
+          Map.get(edge, :target),
+          [Map.get(edge, :neighbor_mgmt_addr)],
+          resolver
+        )
+
+      edge
+      |> Map.put(:source, source)
+      |> Map.put(:target, target)
+    end)
+    |> Enum.reject(fn edge ->
+      is_nil(Map.get(edge, :source)) or is_nil(Map.get(edge, :target)) or
+        Map.get(edge, :source) == Map.get(edge, :target)
+    end)
+  end
+
+  defp canonicalize_edges(_, _), do: []
+
+  defp build_device_identifier_resolver(devices) when is_list(devices) do
+    Enum.reduce(devices, %{}, fn device, acc ->
+      uid = normalize_id(Map.get(device, :uid))
+
+      if is_binary(uid) do
+        acc
+        |> Map.put(uid, uid)
+        |> put_identifier(uid, Map.get(device, :ip))
+        |> put_identifier(uid, Map.get(device, :name))
+        |> put_identifier(uid, Map.get(device, :hostname))
+      else
+        acc
+      end
+    end)
+  end
+
+  defp put_identifier(acc, uid, value) do
+    case normalize_id(value) do
+      nil -> acc
+      key -> Map.put_new(acc, String.downcase(key), uid)
+    end
+  end
+
+  defp resolve_device_id(raw_value, fallbacks, resolver) do
+    candidates = [raw_value | List.wrap(fallbacks)]
+
+    Enum.find_value(candidates, fn value ->
+      normalized = normalize_id(value)
+
+      cond do
+        is_nil(normalized) ->
+          nil
+
+        Map.has_key?(resolver, normalized) ->
+          Map.get(resolver, normalized)
+
+        Map.has_key?(resolver, String.downcase(normalized)) ->
+          Map.get(resolver, String.downcase(normalized))
+
+        true ->
+          nil
+      end
+    end)
+  end
+
+  defp dedupe_edges(edges) when is_list(edges) do
+    edges
+    |> Enum.reduce(%{}, fn edge, acc ->
+      source = Map.get(edge, :source)
+      target = Map.get(edge, :target)
+
+      if is_binary(source) and is_binary(target) and source != target do
+        {a, b} = canonical_pair(source, target)
+        Map.put_new(acc, {a, b}, edge |> Map.put(:source, a) |> Map.put(:target, b))
+      else
+        acc
+      end
+    end)
+    |> Map.values()
+  end
+
+  defp dedupe_edges(_), do: []
+
+  defp router_device?(device) when is_map(device) do
+    type = Map.get(device, :type) |> to_string() |> String.downcase()
+    Map.get(device, :type_id) == 12 or type == "router"
+  end
+
+  defp router_device?(_), do: false
+
+  defp infer_router_edges(edges, devices, interface_index)
+       when is_list(edges) and is_list(devices) and is_map(interface_index) do
+    node_ids = edges |> Enum.flat_map(&[&1.source, &1.target]) |> MapSet.new()
+    degree = edge_degree(edges)
+    routers = Enum.filter(devices, &router_device?/1)
+
+    Enum.reduce(routers, [], fn router, acc ->
+      router_uid = normalize_id(Map.get(router, :uid))
+
+      cond do
+        not is_binary(router_uid) ->
+          acc
+
+        MapSet.member?(node_ids, router_uid) ->
+          acc
+
+        true ->
+          router_subnets =
+            router_private_subnets(router, Map.get(interface_index.by_device, router_uid, []))
+
+          case choose_router_neighbor(router_subnets, devices, node_ids, degree) do
+            nil ->
+              acc
+
+            neighbor_uid ->
+              [
+                %{
+                  source: router_uid,
+                  target: neighbor_uid,
+                  kind: "inferred",
+                  protocol: "inferred",
+                  confidence_tier: "low",
+                  local_if_index: nil,
+                  local_if_name: "inferred-router-uplink",
+                  local_device_ip: Map.get(router, :ip),
+                  neighbor_mgmt_addr: nil,
+                  metadata: %{"inferred_reason" => "router_subnet_gateway"}
+                }
+                | acc
+              ]
+          end
+      end
+    end)
+  end
+
+  defp infer_router_edges(_, _, _), do: []
+
+  defp infer_orphan_l2_edges(edges, devices, interface_index)
+       when is_list(edges) and is_list(devices) and is_map(interface_index) do
+    connected_ids =
+      edges
+      |> Enum.flat_map(&[normalize_id(&1.source), normalize_id(&1.target)])
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    degree = edge_degree(edges)
+
+    interface_counts =
+      interface_index.by_device
+      |> Enum.map(fn {device_id, rows} -> {normalize_id(device_id), length(rows)} end)
+      |> Enum.reject(fn {device_id, _count} -> is_nil(device_id) end)
+      |> Map.new()
+
+    devices_by_uid =
+      devices
+      |> Enum.map(fn d -> {normalize_id(Map.get(d, :uid)), d} end)
+      |> Enum.reject(fn {uid, _d} -> is_nil(uid) end)
+      |> Map.new()
+
+    orphans =
+      devices
+      |> Enum.filter(fn d ->
+        uid = normalize_id(Map.get(d, :uid))
+
+        is_binary(uid) and not MapSet.member?(connected_ids, uid) and
+          non_router_topology_device?(d)
+      end)
+      |> Enum.sort_by(fn d ->
+        if switch_device?(d), do: 0, else: 1
+      end)
+
+    {inferred, _connected} =
+      Enum.reduce(orphans, {[], connected_ids}, fn device, {acc, connected_now} ->
+        uid = normalize_id(Map.get(device, :uid))
+
+        case choose_orphan_parent(device, devices, connected_now, degree, interface_counts) do
+          nil ->
+            {acc, connected_now}
+
+          parent_uid ->
+            edge = %{
+              source: uid,
+              target: parent_uid,
+              kind: "inferred",
+              protocol: "inferred-l2",
+              confidence_tier: "low",
+              local_if_index: nil,
+              local_if_name: "inferred-l2-uplink",
+              local_device_ip: Map.get(device, :ip),
+              neighbor_mgmt_addr: nil,
+              metadata: %{
+                "source" => "topology-completion",
+                "inferred_reason" => orphan_reason(device, parent_uid, devices_by_uid)
+              }
+            }
+
+            {[edge | acc], MapSet.put(connected_now, uid)}
+        end
+      end)
+
+    inferred
+  end
+
+  defp infer_orphan_l2_edges(_, _, _), do: []
+
+  defp edge_degree(edges) do
+    Enum.reduce(edges, %{}, fn edge, acc ->
+      source = Map.get(edge, :source)
+      target = Map.get(edge, :target)
+
+      acc
+      |> Map.update(source, 1, &(&1 + 1))
+      |> Map.update(target, 1, &(&1 + 1))
+    end)
+  end
+
+  defp choose_router_neighbor(router_subnets, devices, node_ids, degree) do
+    devices
+    |> Enum.filter(fn device ->
+      uid = normalize_id(Map.get(device, :uid))
+      type_id = Map.get(device, :type_id)
+      ip = normalize_id(Map.get(device, :ip))
+
+      is_binary(uid) and MapSet.member?(node_ids, uid) and uid not in [nil] and
+        type_id in [9, 10, 11, 12] and is_binary(ip) and
+        Enum.any?(router_subnets, &same_subnet24?(ip, &1))
+    end)
+    |> Enum.max_by(
+      fn device ->
+        uid = normalize_id(Map.get(device, :uid))
+        Map.get(degree, uid, 0)
+      end,
+      fn -> nil end
+    )
+    |> case do
+      nil -> nil
+      device -> normalize_id(Map.get(device, :uid))
+    end
+  end
+
+  defp choose_orphan_parent(device, devices, connected_ids, degree, interface_counts) do
+    uid = normalize_id(Map.get(device, :uid))
+    subnet = device_subnet24(device)
+
+    base_candidates =
+      devices
+      |> Enum.filter(fn candidate ->
+        candidate_uid = normalize_id(Map.get(candidate, :uid))
+
+        is_binary(candidate_uid) and candidate_uid != uid and
+          MapSet.member?(connected_ids, candidate_uid) and
+          same_subnet24?(normalize_id(Map.get(candidate, :ip)), subnet)
+      end)
+
+    candidates =
+      cond do
+        ap_device?(device) ->
+          base_candidates
+          |> Enum.filter(&switch_device?/1)
+          |> Enum.reject(&aggregation_switch?/1)
+
+        switch_device?(device) ->
+          agg = Enum.filter(base_candidates, &aggregation_switch?/1)
+          if agg == [], do: Enum.filter(base_candidates, &switch_device?/1), else: agg
+
+        true ->
+          base_candidates
+      end
+
+    candidates
+    |> Enum.max_by(
+      fn candidate ->
+        candidate_uid = normalize_id(Map.get(candidate, :uid))
+        interface_count = Map.get(interface_counts, candidate_uid, 0)
+        degree_count = Map.get(degree, candidate_uid, 0)
+        interface_count * 10 + degree_count
+      end,
+      fn -> nil end
+    )
+    |> case do
+      nil -> nil
+      chosen -> normalize_id(Map.get(chosen, :uid))
+    end
+  end
+
+  defp orphan_reason(device, parent_uid, devices_by_uid) do
+    if ap_device?(device) do
+      "orphan_access_point_attached_to_access_switch"
+    else
+      parent = Map.get(devices_by_uid, parent_uid)
+
+      if aggregation_switch?(parent) do
+        "orphan_switch_attached_to_aggregation"
+      else
+        "orphan_device_attached_to_connected_neighbor"
+      end
+    end
+  end
+
+  defp router_private_subnets(router, interface_rows) do
+    ips =
+      [Map.get(router, :ip)]
+      |> Kernel.++(
+        interface_rows
+        |> Enum.flat_map(fn iface ->
+          Map.get(iface, :ip_addresses) || []
+        end)
+      )
+
+    ips
+    |> Enum.map(&normalize_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.filter(&private_ipv4?/1)
+    |> Enum.uniq()
+  end
+
+  defp non_router_topology_device?(device) do
+    not router_device?(device) and topology_candidate_device?(device)
+  end
+
+  defp topology_candidate_device?(device) do
+    switch_device?(device) or ap_device?(device) or router_device?(device)
+  end
+
+  defp topology_related_device?(device, controller_names, site_ids, subnets) do
+    topology_candidate_device?(device) and
+      not is_nil(normalize_id(Map.get(device, :uid))) and
+      (MapSet.member?(controller_names, device_controller_name(device)) or
+         MapSet.member?(site_ids, device_site_id(device)) or
+         MapSet.member?(subnets, device_subnet24(device)))
+  end
+
+  defp device_controller_name(device) do
+    metadata = Map.get(device, :metadata) || %{}
+
+    metadata["controller_name"]
+    |> normalize_id()
+  end
+
+  defp device_site_id(device) do
+    metadata = Map.get(device, :metadata) || %{}
+
+    metadata["site_id"]
+    |> normalize_id()
+  end
+
+  defp device_subnet24(device) do
+    device
+    |> Map.get(:ip)
+    |> normalize_id()
+    |> subnet24()
+  end
+
+  defp subnet24(ip) when is_binary(ip) do
+    case String.split(ip, ".") do
+      [a, b, c, _d] -> "#{a}.#{b}.#{c}"
+      _ -> nil
+    end
+  end
+
+  defp subnet24(_), do: nil
+
+  defp switch_device?(device) do
+    type = Map.get(device, :type) |> to_string() |> String.downcase()
+    role = node_meta_value(device, ["device_role"]) |> to_string() |> String.downcase()
+    type_id = Map.get(device, :type_id)
+
+    type_id in [10, 11] or String.contains?(type, "switch") or String.contains?(role, "switch")
+  end
+
+  defp ap_device?(device) do
+    type = Map.get(device, :type) |> to_string() |> String.downcase()
+    model = Map.get(device, :model) |> to_string() |> String.downcase()
+    role = node_meta_value(device, ["device_role"]) |> to_string() |> String.downcase()
+
+    String.contains?(type, "access point") or String.contains?(role, "ap") or
+      String.starts_with?(model, "u6") or String.contains?(model, "uap")
+  end
+
+  defp aggregation_switch?(device) when is_map(device) do
+    text =
+      [Map.get(device, :name), Map.get(device, :hostname), Map.get(device, :model)]
+      |> Enum.map(&(&1 |> to_string() |> String.downcase()))
+      |> Enum.join(" ")
+
+    String.contains?(text, "aggregation")
+  end
+
+  defp aggregation_switch?(_), do: false
+
+  defp private_ipv4?(ip) when is_binary(ip) do
+    parts =
+      ip
+      |> String.split(".")
+      |> Enum.map(&Integer.parse/1)
+
+    case parts do
+      [{10, ""}, _, _, _] ->
+        true
+
+      [{172, ""}, {b, ""}, _, _] when b >= 16 and b <= 31 ->
+        true
+
+      [{192, ""}, {168, ""}, _, _] ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp private_ipv4?(_), do: false
+
+  defp same_subnet24?(ip_a, ip_b) when is_binary(ip_a) and is_binary(ip_b) do
+    with [a1, a2, a3, _] <- String.split(ip_a, "."),
+         [b1, b2, b3, _] <- String.split(ip_b, ".") do
+      a1 == b1 and a2 == b2 and a3 == b3
+    else
+      _ -> false
+    end
+  end
+
+  defp same_subnet24?(_, _), do: false
+
   defp fetch_interfaces(_actor, []), do: {:ok, []}
 
   defp fetch_interfaces(actor, node_ids) when is_list(node_ids) do
@@ -231,8 +799,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp node_ids([], devices), do: devices |> Enum.map(& &1.uid) |> Enum.sort()
-  defp node_ids(edge_node_ids, _devices), do: Enum.sort(edge_node_ids)
+  defp node_ids([], devices), do: devices |> Enum.map(& &1.uid) |> Enum.uniq() |> Enum.sort()
+  defp node_ids(edge_node_ids, _devices), do: edge_node_ids |> Enum.uniq() |> Enum.sort()
 
   defp build_nodes(node_ids, device_by_id, interface_index, pps_by_if) do
     total = max(length(node_ids), 1)
@@ -310,15 +878,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp node_kind(nil), do: "external"
-  defp node_kind(device), do: Map.get(device, :type) || "device"
+  defp node_kind(device), do: node_type(device) || "device"
 
   defp node_details_json(device, id) do
     details = %{
       id: id,
       name: Map.get(device || %{}, :name),
       hostname: Map.get(device || %{}, :hostname),
-      ip: Map.get(device || %{}, :ip),
-      type: Map.get(device || %{}, :type),
+      ip: node_ip(device, id),
+      type: node_type(device),
       vendor: Map.get(device || %{}, :vendor_name),
       model: Map.get(device || %{}, :model),
       last_seen:
@@ -340,6 +908,68 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       _ -> "{}"
     end
   end
+
+  defp node_ip(nil, id), do: ip_like_id(id)
+
+  defp node_ip(device, id) do
+    direct =
+      Map.get(device, :ip) ||
+        Map.get(device, :mgmt_ip) ||
+        Map.get(device, :management_ip) ||
+        Map.get(device, :local_device_ip)
+
+    metadata = Map.get(device, :metadata) || %{}
+
+    meta =
+      metadata["ip"] ||
+        metadata["mgmt_ip"] ||
+        metadata["management_ip"] ||
+        metadata["primary_ip"] ||
+        metadata["ipv4"] ||
+        metadata["host_ip"]
+
+    normalize_id(direct) || normalize_id(meta) || ip_like_id(id)
+  end
+
+  defp ip_like_id(id) when is_binary(id) do
+    cond do
+      String.match?(id, ~r/^\d{1,3}(\.\d{1,3}){3}$/) -> id
+      true -> nil
+    end
+  end
+
+  defp ip_like_id(_), do: nil
+
+  defp node_type(nil), do: nil
+
+  defp node_type(device) do
+    metadata = Map.get(device, :metadata) || %{}
+
+    Map.get(device, :type) ||
+      metadata["type"] ||
+      metadata["device_type"] ||
+      metadata["category"] ||
+      type_name_from_id(Map.get(device, :type_id))
+  end
+
+  defp type_name_from_id(0), do: "unknown"
+  defp type_name_from_id(1), do: "server"
+  defp type_name_from_id(2), do: "desktop"
+  defp type_name_from_id(3), do: "laptop"
+  defp type_name_from_id(4), do: "tablet"
+  defp type_name_from_id(5), do: "mobile"
+  defp type_name_from_id(6), do: "virtual"
+  defp type_name_from_id(7), do: "iot"
+  defp type_name_from_id(8), do: "browser"
+  defp type_name_from_id(9), do: "firewall"
+  defp type_name_from_id(10), do: "switch"
+  defp type_name_from_id(11), do: "hub"
+  defp type_name_from_id(12), do: "router"
+  defp type_name_from_id(13), do: "ids"
+  defp type_name_from_id(14), do: "ips"
+  defp type_name_from_id(15), do: "load_balancer"
+  defp type_name_from_id(99), do: "other"
+  defp type_name_from_id(_), do: nil
 
   defp node_geo_lat(device) do
     node_meta_float(device, ["latitude", "geo_lat", "geoip_lat", "lat"])
@@ -451,78 +1081,80 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp node_telemetry(_, _), do: {0, nil}
 
-  defp enrich_edges(edges, interface_index, pps_by_if, bps_by_if) when is_list(edges) do
-    Enum.map(edges, fn edge ->
-      iface =
-        find_interface(
-          interface_index,
-          normalize_id(Map.get(edge, :source)),
-          Map.get(edge, :local_if_name),
-          Map.get(edge, :local_if_index)
-        )
+  defp enrich_edges_via_native(edges, interfaces, pps_by_if, bps_by_if)
+       when is_list(edges) and is_list(interfaces) and is_map(pps_by_if) and is_map(bps_by_if) do
+    edge_rows =
+      Enum.map(edges, fn edge ->
+        {
+          normalize_id(Map.get(edge, :source)) || "",
+          normalize_id(Map.get(edge, :target)) || "",
+          to_string(Map.get(edge, :protocol) || ""),
+          normalize_i64(Map.get(edge, :local_if_index)),
+          normalize_id(Map.get(edge, :local_if_name)) || "",
+          encode_json(Map.get(edge, :metadata) || %{})
+        }
+      end)
 
-      flow_pps =
-        interface_packets_per_second(iface, pps_by_if) ||
-          metadata_number(Map.get(edge, :metadata), [
-            "flow_pps",
-            "pps",
-            "packets_per_sec",
-            "packets_per_second",
-            "tx_pps",
-            "rx_pps"
-          ]) || 0
+    interface_rows =
+      interfaces
+      |> Enum.map(fn iface ->
+        {
+          normalize_id(Map.get(iface, :device_id)) || "",
+          normalize_id(Map.get(iface, :if_name)) || "",
+          normalize_i64(Map.get(iface, :if_index)),
+          normalize_u64(interface_capacity_bps(iface) || 0),
+          encode_json(Map.get(iface, :metadata) || %{})
+        }
+      end)
+      |> Enum.reject(fn {device_id, _if_name, _if_index, _speed_bps, _metadata} ->
+        device_id == ""
+      end)
 
-      capacity_bps =
-        interface_capacity_bps(iface) ||
-          metadata_number(Map.get(edge, :metadata), [
-            "capacity_bps",
-            "if_speed_bps",
-            "if_speed",
-            "speed_bps"
-          ]) || 0
+    pps_rows =
+      Enum.flat_map(pps_by_if, fn
+        {{device_id, if_index}, value} when is_binary(device_id) and is_integer(if_index) ->
+          [{device_id, if_index, normalize_u32(value)}]
 
-      flow_bps =
-        interface_bits_per_second(iface, bps_by_if) ||
-          metadata_number(Map.get(edge, :metadata), [
-            "flow_bps",
-            "bps",
-            "bits_per_sec",
-            "bits_per_second",
-            "tx_bps",
-            "rx_bps"
-          ]) || 0
+        _ ->
+          []
+      end)
 
-      Map.merge(edge, %{
-        flow_pps: flow_pps,
-        flow_bps: flow_bps,
-        capacity_bps: capacity_bps,
-        label: edge_label(edge, flow_pps, capacity_bps)
-      })
-    end)
-  end
+    bps_rows =
+      Enum.flat_map(bps_by_if, fn
+        {{device_id, if_index}, value} when is_binary(device_id) and is_integer(if_index) ->
+          [{device_id, if_index, normalize_u64(value)}]
 
-  defp find_interface(interface_index, device_id, if_name, if_index)
-       when is_binary(device_id) and is_map(interface_index) do
-    key = interface_lookup_key(device_id, normalize_id(if_name), if_index)
+        _ ->
+          []
+      end)
 
-    case key && Map.get(interface_index.by_device_if, key) do
-      nil ->
-        cond do
-          is_binary(if_name) and if_name != "" ->
-            fallback_name = String.split(if_name, ":") |> List.first()
-            fallback_key = interface_lookup_key(device_id, normalize_id(fallback_name), nil)
-            if fallback_key, do: Map.get(interface_index.by_device_if, fallback_key), else: nil
+    case Native.enrich_edges_telemetry(edge_rows, interface_rows, pps_rows, bps_rows) do
+      enriched_rows when is_list(enriched_rows) and length(enriched_rows) == length(edges) ->
+        result =
+          Enum.zip(edges, enriched_rows)
+          |> Enum.map(fn
+            {edge, {_source, _target, flow_pps, flow_bps, capacity_bps, label}} ->
+              Map.merge(edge, %{
+                flow_pps: flow_pps,
+                flow_bps: flow_bps,
+                capacity_bps: capacity_bps,
+                label: label
+              })
 
-          true ->
-            nil
-        end
+            {edge, _} ->
+              edge
+          end)
 
-      iface ->
-        iface
+        {:ok, result}
+
+      _ ->
+        {:error, :native_edge_enrichment_failed}
     end
+  rescue
+    error -> {:error, {:native_edge_enrichment_error, error}}
   end
 
-  defp find_interface(_, _, _, _), do: nil
+  defp enrich_edges_via_native(_, _, _, _), do: {:error, :invalid_edge_enrichment_args}
 
   defp interface_packets_per_second(nil, _pps_by_if), do: nil
 
@@ -555,37 +1187,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp interface_pps_value(_, _), do: nil
-
-  defp interface_bits_per_second(nil, _bps_by_if), do: nil
-
-  defp interface_bits_per_second(iface, bps_by_if) do
-    metadata = Map.get(iface, :metadata) || %{}
-    metric_value = interface_bps_value(bps_by_if, iface)
-
-    pick_number([
-      metric_value,
-      metadata["bps"],
-      metadata["bits_per_sec"],
-      metadata["bits_per_second"],
-      metadata["tx_bps"],
-      metadata["rx_bps"],
-      metadata["if_in_bps"],
-      metadata["if_out_bps"],
-      sum_numbers([metadata["tx_bps"], metadata["rx_bps"]]),
-      sum_numbers([metadata["if_in_bps"], metadata["if_out_bps"]])
-    ])
-  end
-
-  defp interface_bps_value(bps_by_if, iface) when is_map(bps_by_if) do
-    device_id = normalize_id(Map.get(iface, :device_id))
-    if_index = Map.get(iface, :if_index)
-
-    if is_binary(device_id) and is_integer(if_index) do
-      Map.get(bps_by_if, {device_id, if_index})
-    end
-  end
-
-  defp interface_bps_value(_, _), do: nil
 
   defp load_interface_pps(interface_index) when is_map(interface_index) do
     keys =
@@ -726,6 +1327,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp value_to_non_negative_int(value) when is_integer(value) and value >= 0, do: value
   defp value_to_non_negative_int(value) when is_float(value) and value >= 0, do: trunc(value)
+  defp value_to_non_negative_int(%Decimal{} = value), do: decimal_to_non_negative_int(value)
 
   defp value_to_non_negative_int(value) when is_binary(value) do
     case Integer.parse(value) do
@@ -751,14 +1353,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     ])
   end
 
-  defp metadata_number(metadata, keys) when is_map(metadata) and is_list(keys) do
-    keys
-    |> Enum.map(&Map.get(metadata, &1))
-    |> pick_number()
-  end
-
-  defp metadata_number(_, _), do: nil
-
   defp pick_number(values) when is_list(values) do
     values
     |> Enum.find_value(fn
@@ -774,6 +1368,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           _ -> nil
         end
 
+      %Decimal{} = value ->
+        decimal_to_non_negative_int(value)
+
       _ ->
         nil
     end)
@@ -785,6 +1382,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       |> Enum.map(fn
         value when is_integer(value) and value >= 0 -> value
         value when is_float(value) and value >= 0 -> trunc(Float.round(value))
+        %Decimal{} = value -> decimal_to_non_negative_int(value)
         _ -> nil
       end)
       |> Enum.reject(&is_nil/1)
@@ -834,6 +1432,20 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp format_capacity(_), do: "UNK"
+
+  defp decimal_to_non_negative_int(%Decimal{} = value) do
+    case Decimal.compare(value, Decimal.new(0)) do
+      :lt ->
+        nil
+
+      _ ->
+        value
+        |> Decimal.to_float()
+        |> trunc()
+    end
+  rescue
+    _ -> nil
+  end
 
   defp apply_causal_states(nodes, edges) do
     node_index =
@@ -951,6 +1563,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp normalize_u32(_), do: 0
   defp normalize_u64(value) when is_integer(value), do: max(value, 0)
   defp normalize_u64(_), do: 0
+  defp normalize_i64(value) when is_integer(value), do: value
+  defp normalize_i64(_), do: -1
+
+  defp encode_json(value) do
+    case Jason.encode(value) do
+      {:ok, json} -> json
+      _ -> "{}"
+    end
+  end
 
   defp normalize_label(value) when is_binary(value) do
     trimmed = String.trim(value)

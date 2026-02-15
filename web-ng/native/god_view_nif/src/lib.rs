@@ -15,6 +15,7 @@ use deep_causality_tensor::CausalTensor;
 use deep_causality_topology::{Hypergraph, HypergraphTopology};
 use roaring::RoaringBitmap;
 use rustler::{Binary, Env, NifResult, OwnedBinary};
+use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, Default)]
 struct HypergraphProjection {
@@ -154,6 +155,262 @@ fn fallback_ring_layout(node_count: usize) -> Vec<(u16, u16)> {
             (x.round().clamp(0.0, 65535.0) as u16, y.round().clamp(0.0, 65535.0) as u16)
         })
         .collect()
+}
+
+#[derive(Debug, Clone, Default)]
+struct InterfaceTelemetryRecord {
+    metadata: Option<JsonValue>,
+    speed_bps: u64,
+}
+
+fn parse_json_map(raw: &str) -> Option<JsonValue> {
+    if raw.is_empty() || raw == "{}" {
+        return None;
+    }
+    serde_json::from_str::<JsonValue>(raw).ok()
+}
+
+fn json_number_u64(value: &JsonValue) -> Option<u64> {
+    match value {
+        JsonValue::Number(n) => n.as_u64().or_else(|| n.as_f64().map(|f| f.max(0.0) as u64)),
+        JsonValue::String(s) => s.parse::<u64>().ok(),
+        _ => None,
+    }
+}
+
+fn metadata_number(metadata: Option<&JsonValue>, keys: &[&str]) -> Option<u64> {
+    let JsonValue::Object(map) = metadata? else {
+        return None;
+    };
+
+    keys.iter()
+        .find_map(|key| map.get(*key).and_then(json_number_u64))
+}
+
+fn find_interface_for_edge(
+    by_index: &HashMap<(String, i64), InterfaceTelemetryRecord>,
+    by_name: &HashMap<(String, String), InterfaceTelemetryRecord>,
+    device_id: &str,
+    if_name: &str,
+    if_index: i64,
+) -> Option<InterfaceTelemetryRecord> {
+    if if_index >= 0 {
+        if let Some(found) = by_index.get(&(device_id.to_string(), if_index)) {
+            return Some(found.clone());
+        }
+    }
+
+    let trimmed = if_name.trim().to_lowercase();
+    if !trimmed.is_empty() {
+        if let Some(found) = by_name.get(&(device_id.to_string(), trimmed.clone())) {
+            return Some(found.clone());
+        }
+        let fallback_name = trimmed.split(':').next().unwrap_or_default().trim().to_string();
+        if !fallback_name.is_empty() {
+            if let Some(found) = by_name.get(&(device_id.to_string(), fallback_name)) {
+                return Some(found.clone());
+            }
+        }
+    }
+
+    None
+}
+
+fn format_rate(value: u64) -> String {
+    if value >= 1_000_000 {
+        format!("{:.1}Mpps", value as f64 / 1_000_000.0)
+    } else if value >= 1_000 {
+        format!("{:.1}Kpps", value as f64 / 1_000.0)
+    } else {
+        format!("{value}pps")
+    }
+}
+
+fn format_capacity(value: u64) -> String {
+    if value >= 1_000_000_000 {
+        format!("{}G", value / 1_000_000_000)
+    } else if value >= 100_000_000 {
+        format!("{}M", value / 1_000_000)
+    } else if value > 0 {
+        format!("{}M", value / 1_000_000)
+    } else {
+        "UNK".to_string()
+    }
+}
+
+fn edge_label(protocol: &str, flow_pps: u32, capacity_bps: u64) -> String {
+    let p = protocol.trim().to_uppercase();
+    let normalized = if p.is_empty() { "LINK" } else { p.as_str() };
+    format!(
+        "{normalized} {} / {}",
+        format_rate(flow_pps as u64),
+        format_capacity(capacity_bps)
+    )
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn enrich_edges_telemetry(
+    edges: Vec<(String, String, String, i64, String, String)>,
+    interfaces: Vec<(String, String, i64, u64, String)>,
+    pps_metrics: Vec<(String, i64, u32)>,
+    bps_metrics: Vec<(String, i64, u64)>,
+) -> NifResult<Vec<(String, String, u32, u64, u64, String)>> {
+    let mut by_index = HashMap::<(String, i64), InterfaceTelemetryRecord>::new();
+    let mut by_name = HashMap::<(String, String), InterfaceTelemetryRecord>::new();
+
+    for (device_id, if_name, if_index, speed_bps, metadata_json) in interfaces {
+        let record = InterfaceTelemetryRecord {
+            metadata: parse_json_map(&metadata_json),
+            speed_bps,
+        };
+
+        if if_index >= 0 {
+            by_index
+                .entry((device_id.clone(), if_index))
+                .or_insert_with(|| record.clone());
+        }
+
+        let lowered_name = if_name.trim().to_lowercase();
+        if !lowered_name.is_empty() {
+            by_name
+                .entry((device_id.clone(), lowered_name))
+                .or_insert_with(|| record.clone());
+        }
+    }
+
+    let pps_by_if = pps_metrics
+        .into_iter()
+        .map(|(device_id, if_index, value)| ((device_id, if_index), value))
+        .collect::<HashMap<_, _>>();
+
+    let bps_by_if = bps_metrics
+        .into_iter()
+        .map(|(device_id, if_index, value)| ((device_id, if_index), value))
+        .collect::<HashMap<_, _>>();
+
+    let enriched = edges
+        .into_iter()
+        .map(|(source, target, protocol, local_if_index, local_if_name, edge_metadata_json)| {
+            let edge_metadata = parse_json_map(&edge_metadata_json);
+            let iface = find_interface_for_edge(
+                &by_index,
+                &by_name,
+                &source,
+                &local_if_name,
+                local_if_index,
+            );
+
+            let (iface_pps, iface_bps, iface_capacity, iface_meta) = if let Some(record) = iface {
+                let pps = if local_if_index >= 0 {
+                    pps_by_if
+                        .get(&(source.clone(), local_if_index))
+                        .copied()
+                        .map(|v| v as u64)
+                } else {
+                    None
+                };
+
+                let bps = if local_if_index >= 0 {
+                    bps_by_if.get(&(source.clone(), local_if_index)).copied()
+                } else {
+                    None
+                };
+
+                (
+                    pps,
+                    bps,
+                    Some(record.speed_bps),
+                    record.metadata.as_ref().cloned(),
+                )
+            } else {
+                (None, None, None, None)
+            };
+
+            let iface_meta_ref = iface_meta.as_ref();
+
+            let flow_pps = iface_pps
+                .or_else(|| {
+                    metadata_number(
+                        iface_meta_ref,
+                        &[
+                            "pps",
+                            "packets_per_sec",
+                            "packets_per_second",
+                            "tx_pps",
+                            "rx_pps",
+                            "if_in_pps",
+                            "if_out_pps",
+                        ],
+                    )
+                })
+                .or_else(|| {
+                    metadata_number(
+                        edge_metadata.as_ref(),
+                        &[
+                            "flow_pps",
+                            "pps",
+                            "packets_per_sec",
+                            "packets_per_second",
+                            "tx_pps",
+                            "rx_pps",
+                        ],
+                    )
+                })
+                .unwrap_or(0)
+                .min(u32::MAX as u64) as u32;
+
+            let flow_bps = iface_bps
+                .or_else(|| {
+                    metadata_number(
+                        iface_meta_ref,
+                        &[
+                            "bps",
+                            "bits_per_sec",
+                            "bits_per_second",
+                            "tx_bps",
+                            "rx_bps",
+                            "if_in_bps",
+                            "if_out_bps",
+                        ],
+                    )
+                })
+                .or_else(|| {
+                    metadata_number(
+                        edge_metadata.as_ref(),
+                        &[
+                            "flow_bps",
+                            "bps",
+                            "bits_per_sec",
+                            "bits_per_second",
+                            "tx_bps",
+                            "rx_bps",
+                        ],
+                    )
+                })
+                .unwrap_or(0);
+
+            let capacity_bps = iface_capacity
+                .filter(|v| *v > 0)
+                .or_else(|| {
+                    metadata_number(
+                        iface_meta_ref,
+                        &["if_speed_bps", "if_speed", "speed_bps", "capacity_bps"],
+                    )
+                })
+                .or_else(|| {
+                    metadata_number(
+                        edge_metadata.as_ref(),
+                        &["capacity_bps", "if_speed_bps", "if_speed", "speed_bps"],
+                    )
+                })
+                .unwrap_or(0);
+
+            let label = edge_label(&protocol, flow_pps, capacity_bps);
+            (source, target, flow_pps, flow_bps, capacity_bps, label)
+        })
+        .collect();
+
+    Ok(enriched)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]

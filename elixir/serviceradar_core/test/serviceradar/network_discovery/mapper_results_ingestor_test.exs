@@ -299,4 +299,100 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert result.metadata["confidence_reason"] == "insufficient_neighbor_evidence"
     end
   end
+
+  describe "resolve_topology_records/2" do
+    test "resolves local and neighbor by IP first and keeps unresolved neighbor" do
+      records = [
+        %{
+          local_device_id: "default:192.168.1.1",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "192.168.1.87",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: nil
+        },
+        %{
+          local_device_id: "default:192.168.1.1",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: nil,
+          neighbor_system_name: "external-host",
+          neighbor_chassis_id: nil
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:farm01" => "sr:farm01"},
+        ip_to_uid: %{
+          "192.168.1.1" => "sr:farm01",
+          "192.168.1.87" => "sr:uswagg"
+        },
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved, unresolved_neighbor] =
+        MapperResultsIngestor.resolve_topology_records(records, index)
+
+      assert resolved.local_device_id == "sr:farm01"
+      assert resolved.neighbor_device_id == "sr:uswagg"
+      assert unresolved_neighbor.local_device_id == "sr:farm01"
+      assert unresolved_neighbor.neighbor_device_id == nil
+    end
+
+    test "resolves neighbor from system name and chassis id when mgmt ip is missing" do
+      records = [
+        %{
+          local_device_id: "sr:farm01",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: nil,
+          neighbor_system_name: "USWAggregation.local",
+          neighbor_chassis_id: nil
+        },
+        %{
+          local_device_id: "sr:farm01",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: nil,
+          neighbor_system_name: nil,
+          neighbor_chassis_id: "AA:BB:CC:DD:EE:FF"
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:farm01" => "sr:farm01", "sr:uswagg" => "sr:uswagg"},
+        ip_to_uid: %{"192.168.1.1" => "sr:farm01"},
+        name_to_uid: %{"uswaggregation" => "sr:uswagg"},
+        mac_to_uid: %{"AABBCCDDEEFF" => "sr:uswagg"}
+      }
+
+      [by_name, by_mac] = MapperResultsIngestor.resolve_topology_records(records, index)
+
+      assert by_name.neighbor_device_id == "sr:uswagg"
+      assert by_mac.neighbor_device_id == "sr:uswagg"
+    end
+
+    test "drops records when local endpoint cannot be resolved canonically" do
+      records = [
+        %{
+          local_device_id: "default:10.10.10.10",
+          local_device_ip: "10.10.10.10",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "192.168.1.87",
+          neighbor_system_name: "USWAggregation",
+          neighbor_chassis_id: nil
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{},
+        ip_to_uid: %{"192.168.1.87" => "sr:uswagg"},
+        name_to_uid: %{"uswaggregation" => "sr:uswagg"},
+        mac_to_uid: %{}
+      }
+
+      assert MapperResultsIngestor.resolve_topology_records(records, index) == []
+    end
+  end
 end

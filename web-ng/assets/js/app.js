@@ -1969,6 +1969,7 @@ const Hooks = {
       this.zoomTier = "local"
       this.hasAutoFit = false
       this.userCameraLocked = false
+      this.dragState = null
       this.isProgrammaticViewUpdate = false
       this.lastSnapshotAt = 0
       this.channelJoined = false
@@ -2026,6 +2027,7 @@ const Hooks = {
       this.startAnimationLoop = this.startAnimationLoop.bind(this)
       this.stopAnimationLoop = this.stopAnimationLoop.bind(this)
       this.buildPacketFlowInstances = this.buildPacketFlowInstances.bind(this)
+      this.packetParticlePosition = this.packetParticlePosition.bind(this)
       this.prepareGraphLayout = this.prepareGraphLayout.bind(this)
       this.shouldUseGeoLayout = this.shouldUseGeoLayout.bind(this)
       this.projectGeoLayout = this.projectGeoLayout.bind(this)
@@ -2034,11 +2036,18 @@ const Hooks = {
       this.geoGridData = this.geoGridData.bind(this)
       this.getNodeTooltip = this.getNodeTooltip.bind(this)
       this.handleWheelZoom = this.handleWheelZoom.bind(this)
+      this.handlePanStart = this.handlePanStart.bind(this)
+      this.handlePanMove = this.handlePanMove.bind(this)
+      this.handlePanEnd = this.handlePanEnd.bind(this)
 
       this.ensureDOM()
       this.resizeCanvas()
       window.addEventListener("resize", this.resizeCanvas)
       this.canvas.addEventListener("wheel", this.handleWheelZoom, {passive: false})
+      this.canvas.addEventListener("pointerdown", this.handlePanStart)
+      window.addEventListener("pointermove", this.handlePanMove)
+      window.addEventListener("pointerup", this.handlePanEnd)
+      window.addEventListener("pointercancel", this.handlePanEnd)
       this.startAnimationLoop()
       GodViewWasmEngine.init()
         .then((engine) => {
@@ -2122,6 +2131,10 @@ const Hooks = {
     destroyed() {
       window.removeEventListener("resize", this.resizeCanvas)
       if (this.canvas) this.canvas.removeEventListener("wheel", this.handleWheelZoom)
+      if (this.canvas) this.canvas.removeEventListener("pointerdown", this.handlePanStart)
+      window.removeEventListener("pointermove", this.handlePanMove)
+      window.removeEventListener("pointerup", this.handlePanEnd)
+      window.removeEventListener("pointercancel", this.handlePanEnd)
       this.stopAnimationLoop()
       this.stopPolling()
       if (this.channel) {
@@ -2152,6 +2165,63 @@ const Hooks = {
       if (!this.animationTimer) return
       window.cancelAnimationFrame(this.animationTimer)
       this.animationTimer = null
+    },
+    handlePanStart(event) {
+      if (!this.deck) return
+      if (event.button !== 0) return
+
+      event.preventDefault()
+      this.dragState = {
+        pointerId: event.pointerId,
+        lastX: Number(event.clientX || 0),
+        lastY: Number(event.clientY || 0),
+      }
+      this.canvas.style.cursor = "grabbing"
+      if (typeof this.canvas.setPointerCapture === "function") {
+        try {
+          this.canvas.setPointerCapture(event.pointerId)
+        } catch (_err) {
+          // Ignore capture failures and continue with window listeners.
+        }
+      }
+    },
+    handlePanMove(event) {
+      if (!this.deck || !this.dragState) return
+      if (event.pointerId !== this.dragState.pointerId) return
+
+      event.preventDefault()
+      const clientX = Number(event.clientX || 0)
+      const clientY = Number(event.clientY || 0)
+      const dx = clientX - this.dragState.lastX
+      const dy = clientY - this.dragState.lastY
+      this.dragState.lastX = clientX
+      this.dragState.lastY = clientY
+
+      const zoom = Number(this.viewState.zoom || 0)
+      const scale = Math.max(0.0001, 2 ** zoom)
+      const [targetX = 0, targetY = 0, targetZ = 0] = this.viewState.target || [0, 0, 0]
+
+      this.viewState = {
+        ...this.viewState,
+        target: [targetX - dx / scale, targetY - dy / scale, targetZ],
+      }
+      this.userCameraLocked = true
+      this.isProgrammaticViewUpdate = true
+      this.deck.setProps({viewState: this.viewState})
+    },
+    handlePanEnd(event) {
+      if (!this.dragState) return
+      if (event && event.pointerId !== this.dragState.pointerId) return
+
+      if (this.canvas && typeof this.canvas.releasePointerCapture === "function") {
+        try {
+          this.canvas.releasePointerCapture(this.dragState.pointerId)
+        } catch (_err) {
+          // Ignore capture release failures.
+        }
+      }
+      this.dragState = null
+      if (this.canvas) this.canvas.style.cursor = "grab"
     },
     handleWheelZoom(event) {
       if (!this.deck) return
@@ -2461,6 +2531,7 @@ const Hooks = {
       this.el.classList.add("relative")
       this.canvas = document.createElement("canvas")
       this.canvas.className = "h-full w-full rounded border border-base-300 bg-neutral"
+      this.canvas.style.cursor = "grab"
 
       this.summary = document.createElement("div")
       this.summary.className =
@@ -2617,7 +2688,7 @@ const Hooks = {
         clusterCount: cluster.count,
         pps: cluster.sumPps,
         operUp: cluster.upCount > 0 ? 1 : (cluster.downCount > 0 ? 2 : 0),
-        label: `state ${cluster.id.split(":")[1]} (${cluster.count})`,
+        label: `${this.stateDisplayName(Number(cluster.id.split(":")[1]))} Cluster`,
       }))
 
       const edges = this.clusterEdges(graph.edges, clusterByNode)
@@ -2657,6 +2728,9 @@ const Hooks = {
         const dominantState = [0, 1, 2, 3].sort(
           (a, b) => (cluster.stateHistogram[b] || 0) - (cluster.stateHistogram[a] || 0),
         )[0]
+        const keyParts = String(cluster.id).split(":")
+        const gridX = keyParts.length >= 3 ? keyParts[1] : "0"
+        const gridY = keyParts.length >= 3 ? keyParts[2] : "0"
         return {
           id: cluster.id,
           x: cluster.sumX / cluster.count,
@@ -2665,7 +2739,7 @@ const Hooks = {
           clusterCount: cluster.count,
           pps: cluster.sumPps,
           operUp: cluster.upCount > 0 ? 1 : (cluster.downCount > 0 ? 2 : 0),
-          label: `${cluster.id.replace("grid:", "cell ")} (${cluster.count})`,
+          label: `Regional Cluster ${gridX},${gridY}`,
         }
       })
 
@@ -3001,7 +3075,7 @@ const Hooks = {
           details: node.details || {},
           label:
             this.normalizeDisplayLabel(node.label, node.id || `node-${node.index + 1}`),
-          metricText: this.formatPps(node.pps || 0),
+          metricText: this.nodeMetricText(node, effective.shape),
           statusIcon: this.nodeStatusIcon(node.operUp),
         }))
       this.lastVisibleNodeCount = nodeData.length
@@ -3055,22 +3129,23 @@ const Hooks = {
           : []
       const atmosphereLayers = this.layers.atmosphere
         ? [
-            new PacketFlowLayer({
+            new ScatterplotLayer({
               id: "god-view-atmosphere-particles",
               data: packetFlowData,
               coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
               pickable: false,
+              getPosition: (d) => this.packetParticlePosition(d, this.animationPhase),
+              getRadius: (d) => Number(d.size || 2.4),
+              radiusUnits: "pixels",
+              radiusMinPixels: 1,
+              radiusMaxPixels: 8,
+              stroked: false,
+              filled: true,
+              getFillColor: (d) => d.color,
               parameters: {
                 blend: true,
                 blendFunc: [770, 1, 1, 1],
               },
-              time: this.animationPhase,
-              getFrom: (d) => d.from,
-              getTo: (d) => d.to,
-              getSeed: (d) => d.seed,
-              getSpeed: (d) => d.speed,
-              getSize: (d) => d.size,
-              getColor: (d) => d.color,
             }),
           ]
         : []
@@ -3379,6 +3454,19 @@ const Hooks = {
       if (state === 2) return "healthy"
       return "unknown"
     },
+    stateDisplayName(state) {
+      if (state === 0) return "Root Cause"
+      if (state === 1) return "Affected"
+      if (state === 2) return "Healthy"
+      return "Unknown"
+    },
+    nodeMetricText(node, shape) {
+      const clusterCount = Number(node?.clusterCount || 1)
+      if (shape === "global" || shape === "regional") {
+        return `${clusterCount} node${clusterCount === 1 ? "" : "s"}`
+      }
+      return this.formatPps(node?.pps || 0)
+    },
     nodeColor(state) {
       if (state === 0) return this.visual.nodeRoot
       if (state === 1) return this.visual.nodeAffected
@@ -3485,7 +3573,7 @@ const Hooks = {
     },
     buildPacketFlowInstances(edgeData) {
       if (!Array.isArray(edgeData) || edgeData.length === 0) return []
-      const maxParticles = 2400
+      const maxParticles = 3600
       const particles = []
 
       for (let i = 0; i < edgeData.length; i += 1) {
@@ -3498,10 +3586,12 @@ const Hooks = {
         const bps = Number(edge?.flowBps || 0)
         const cap = Number(edge?.capacityBps || 0)
         const utilization = cap > 0 ? Math.min(1, bps / cap) : 0
-        const intensity = pps > 0 ? Math.log10(Math.max(10, pps)) : (utilization > 0 ? utilization * 3 : 0)
-        if (!Number.isFinite(intensity) || intensity <= 0) continue
-        const particlesOnEdge = Math.max(1, Math.min(12, Math.floor(intensity * 1.8)))
-        const speed = 0.05 + Math.min(0.8, intensity * 0.08)
+        const ppsSignal = pps > 0 ? Math.log10(Math.max(10, pps)) : 0
+        const bpsSignal = utilization > 0 ? utilization * 3.2 : 0
+        const baseline = 0.85 + Math.min(0.8, Math.log10(Math.max(1, edge.weight || 1)) * 0.55)
+        const intensity = Math.max(baseline, ppsSignal, bpsSignal)
+        const particlesOnEdge = Math.max(2, Math.min(18, Math.floor(intensity * 2.1)))
+        const speed = 0.08 + Math.min(1.05, intensity * 0.09)
 
         for (let j = 0; j < particlesOnEdge; j += 1) {
           if (particles.length >= maxParticles) break
@@ -3520,13 +3610,41 @@ const Hooks = {
             to: [dst[0], dst[1]],
             seed,
             speed,
-            size: Math.min(4.6, 1.6 + intensity * 0.42),
+            jitter: 0.08 + Math.min(0.44, intensity * 0.06),
+            size: Math.min(5.2, 1.6 + intensity * 0.48),
             color,
           })
         }
       }
 
       return particles
+    },
+    packetParticlePosition(particle, timeSeconds) {
+      const from = particle?.from
+      const to = particle?.to
+      if (!Array.isArray(from) || !Array.isArray(to)) return [0, 0, 0]
+
+      const fx = Number(from[0] || 0)
+      const fy = Number(from[1] || 0)
+      const tx = Number(to[0] || 0)
+      const ty = Number(to[1] || 0)
+      const dx = tx - fx
+      const dy = ty - fy
+      const len = Math.hypot(dx, dy) || 1
+      const nx = -dy / len
+      const ny = dx / len
+
+      const seed = Number(particle?.seed || 0)
+      const speed = Number(particle?.speed || 0.2)
+      const jitter = Number(particle?.jitter || 0.12)
+      const t = ((Number(timeSeconds || 0) * speed) + seed) % 1
+      const wobble = Math.sin((Number(timeSeconds || 0) * 7.0) + seed * 31.0) * jitter
+
+      return [
+        fx + dx * t + nx * wobble,
+        fy + dy * t + ny * wobble,
+        0,
+      ]
     },
   },
 

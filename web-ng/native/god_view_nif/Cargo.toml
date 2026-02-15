@@ -17,5 +17,6 @@ deep_causality_tensor = "0.4.1"
 deep_causality_topology = "0.5.0"
 roaring = "0.10"
 rustler = "0.36.1"
+serde_json = "1.0"
 
 [workspace]
