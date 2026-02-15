@@ -13,9 +13,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   def upsert_links([]), do: :ok
 
   def upsert_links(links) when is_list(links) do
-    {local_device_ids, projected_count, skipped_low_count} =
-      Enum.reduce(links, {MapSet.new(), 0, 0}, &reduce_topology_link/2)
+    links = authoritative_links(links)
 
+    {local_device_ids, neighbor_index, projected_count, skipped_low_count} =
+      Enum.reduce(links, {MapSet.new(), %{}, 0, 0}, &reduce_topology_link/2)
+
+    prune_unseen_projected_links(neighbor_index)
     prune_stale_projected_links(MapSet.to_list(local_device_ids))
 
     if skipped_low_count > 0 do
@@ -27,22 +30,90 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     :ok
   end
 
-  defp reduce_topology_link(link, {local_ids, projected, skipped_low}) do
+  # Prefer direct topology evidence (LLDP/CDP). If none exists for a local node,
+  # project only one inferred parent edge for that local to avoid multi-parent drift.
+  defp authoritative_links(links) do
+    links
+    |> Enum.group_by(&non_blank(link_value(&1, :local_device_id)))
+    |> Enum.flat_map(fn
+      {nil, _group} ->
+        []
+
+      {_local, group} ->
+        direct =
+          Enum.filter(group, fn link ->
+            protocol = normalize_protocol(link_value(link, :protocol))
+            protocol in ["lldp", "cdp"]
+          end)
+
+        if direct != [] do
+          direct
+        else
+          inferred =
+            Enum.filter(group, fn link ->
+              protocol = normalize_protocol(link_value(link, :protocol))
+              protocol in ["snmp-parent", "snmp-site", "l3-uplink", "inferred"]
+            end)
+
+          case best_inferred_link(inferred) do
+            nil -> []
+            best -> [best]
+          end
+        end
+    end)
+  end
+
+  defp best_inferred_link([]), do: nil
+
+  defp best_inferred_link(links) do
+    Enum.max_by(links, fn link ->
+      protocol_rank =
+        case normalize_protocol(link_value(link, :protocol)) do
+          "snmp-parent" -> 40
+          "snmp-site" -> 30
+          "l3-uplink" -> 20
+          "inferred" -> 10
+          _ -> 0
+        end
+
+      confidence =
+        confidence_score(link, link_value(link, :metadata) || %{})
+        |> normalize_positive_int(0)
+
+      observed_rank =
+        case link_value(link, :timestamp) do
+          %DateTime{} = dt -> DateTime.to_unix(dt)
+          _ -> 0
+        end
+
+      {protocol_rank, confidence, observed_rank}
+    end)
+  end
+
+  defp reduce_topology_link(link, {local_ids, neighbor_index, projected, skipped_low}) do
     case build_link_payload(link) do
       {:ok, payload} ->
         local_ids = MapSet.put(local_ids, payload.local_device_id)
 
         if projectable_confidence_tier?(payload.confidence_tier) do
           upsert_link_payload(payload)
-          {local_ids, projected + 1, skipped_low}
+          neighbor_index = add_neighbor_edge(neighbor_index, payload.local_device_id, payload.neighbor_device_id)
+          {local_ids, neighbor_index, projected + 1, skipped_low}
         else
-          {local_ids, projected, skipped_low + 1}
+          {local_ids, neighbor_index, projected, skipped_low + 1}
         end
 
       {:error, :missing_ids} ->
         Logger.debug("Skipping topology link missing device identifiers")
-        {local_ids, projected, skipped_low}
+        {local_ids, neighbor_index, projected, skipped_low}
     end
+  end
+
+  defp add_neighbor_edge(index, local_device_id, neighbor_device_id) do
+    update_in(index, [local_device_id], fn
+      nil -> MapSet.new([neighbor_device_id])
+      existing -> MapSet.put(existing, neighbor_device_id)
+    end)
   end
 
   @spec upsert_interfaces([map()]) :: :ok
@@ -280,6 +351,35 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
+  defp prune_unseen_projected_links(neighbor_index) when map_size(neighbor_index) == 0, do: :ok
+
+  defp prune_unseen_projected_links(neighbor_index) do
+    Enum.each(neighbor_index, fn {local_device_id, neighbor_ids} ->
+      escaped_local = Graph.escape(local_device_id)
+
+      allowed_neighbors =
+        neighbor_ids
+        |> MapSet.to_list()
+        |> Enum.map_join(", ", &"'#{Graph.escape(&1)}'")
+
+      cypher = """
+      MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)
+      WHERE a.device_id = '#{escaped_local}'
+        AND r.ingestor = 'mapper_topology_v1'
+        AND (b.device_id IS NULL OR NOT b.device_id IN [#{allowed_neighbors}])
+      DELETE r
+      """
+
+      case Graph.execute(cypher) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Topology unseen edge pruning failed: #{inspect(reason)}")
+      end
+    end)
+  end
+
   defp prune_stale_projected_links([]), do: :ok
 
   defp prune_stale_projected_links(local_device_ids) do
@@ -329,6 +429,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp parse_confidence_score(_value), do: nil
+
+  defp normalize_protocol(nil), do: "unknown"
+
+  defp normalize_protocol(protocol) do
+    protocol
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
 
   defp normalize_confidence_tier(nil), do: "low"
 

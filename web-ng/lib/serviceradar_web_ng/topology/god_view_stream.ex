@@ -265,10 +265,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     edge_node_ids = pairs |> Map.keys() |> Enum.flat_map(&Tuple.to_list/1) |> Enum.uniq()
 
     with {:ok, devices} <- fetch_devices(actor, edge_node_ids),
+         {:ok, recent_devices} <- fetch_recent_devices(actor),
          {:ok, resolved_devices} <- resolve_devices_for_topology(edge_node_ids),
          {:ok, interfaces} <- fetch_interfaces(actor, edge_node_ids) do
       devices =
         devices
+        |> merge_devices(recent_devices)
         |> merge_devices(resolved_devices)
 
       canonical_edges =
@@ -549,8 +551,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp node_ids([], devices), do: devices |> Enum.map(& &1.uid) |> Enum.uniq() |> Enum.sort()
-  defp node_ids(edge_node_ids, _devices), do: edge_node_ids |> Enum.uniq() |> Enum.sort()
+  defp node_ids(edge_node_ids, devices) do
+    edge_node_ids
+    |> Kernel.++(Enum.map(devices, & &1.uid))
+    |> Enum.map(&normalize_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
 
   defp build_nodes(node_ids, device_by_id, interface_index, pps_by_if) do
     total = max(length(node_ids), 1)

@@ -77,6 +77,12 @@ spire:
     instances: 3
     storageSize: 10Gi
 
+trapd:
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
+
 flowgger:
   externalService:
     enabled: true

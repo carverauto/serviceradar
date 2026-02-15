@@ -64,17 +64,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     with {:ok, updates} <- decode_payload(message),
          records <- build_topology_records(updates),
-         resolved_records <- resolve_topology_device_ids(records),
-         enriched_records <- add_inferred_topology_links(resolved_records) do
+         resolved_records <- resolve_topology_device_ids(records) do
       record_job_runs(updates, status: :success)
 
-      if enriched_records == [] do
+      if resolved_records == [] do
         Logger.debug("No topology links to ingest after device ID resolution")
         :ok
       else
-        case insert_bulk(enriched_records, TopologyLink, actor, "topology") do
+        case insert_bulk(resolved_records, TopologyLink, actor, "topology") do
           :ok ->
-            TopologyGraph.upsert_links(enriched_records)
+            TopologyGraph.upsert_links(resolved_records)
             :ok
 
           {:error, reason} ->
@@ -1260,8 +1259,72 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           pool
       end
 
-    rank_by_degree(preferred, degree)
+    if access_point_type?(candidate_type, candidate.type_id) do
+      rank_ap_parent(candidate, preferred, degree)
+    else
+      rank_by_degree(preferred, degree)
+    end
   end
+
+  defp rank_ap_parent(_candidate, [], _degree), do: nil
+
+  defp rank_ap_parent(candidate, parents, degree) do
+    Enum.min_by(
+      parents,
+      fn parent ->
+        uid = normalize_string(parent.uid)
+        degree_score = Map.get(degree, uid, 0)
+        parent_score = ap_parent_score(candidate, parent)
+        # Lower is better. Prefer semantically better parents first, then higher-degree
+        # ties for deterministic stability, then UID for strict determinism.
+        {parent_score, -degree_score, uid || ""}
+      end,
+      fn -> nil end
+    )
+  end
+
+  defp ap_parent_score(candidate, parent) do
+    candidate_ip = normalize_interface_ip(candidate.ip)
+    parent_ip = normalize_interface_ip(parent.ip)
+
+    same_location? =
+      metadata_value(candidate.metadata, "sys_location") ==
+        metadata_value(parent.metadata, "sys_location") ||
+        metadata_value(candidate.metadata, "snmp_location") ==
+          metadata_value(parent.metadata, "snmp_location")
+
+    score = 0
+    score = if same_subnet24?(candidate_ip, parent_ip), do: score - 40, else: score + 40
+    score = if same_location?, do: score - 120, else: score + 120
+    score = if aggregation_switch?(parent), do: score + 1000, else: score
+    score = if core_switch_like?(parent), do: score + 260, else: score
+    score = if edge_switch_like?(parent), do: score - 70, else: score
+    score
+  end
+
+  defp core_switch_like?(device) when is_map(device) do
+    text =
+      [device.name, device.hostname, device.type]
+      |> Enum.map(&normalize_string/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" ")
+
+    String.contains?(text, "pro") or String.contains?(text, "aggregation")
+  end
+
+  defp core_switch_like?(_), do: false
+
+  defp edge_switch_like?(device) when is_map(device) do
+    text =
+      [device.name, device.hostname, device.type]
+      |> Enum.map(&normalize_string/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" ")
+
+    String.contains?(text, "lite") or String.contains?(text, "16") or String.contains?(text, "8 poe")
+  end
+
+  defp edge_switch_like?(_), do: false
 
   defp rank_by_degree([], _degree), do: nil
 

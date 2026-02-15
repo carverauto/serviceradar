@@ -140,7 +140,7 @@ void main(void) {
   vec2 dir = normalize(max(vec2(0.0001), a_to - a_from));
   vec2 normal = vec2(-dir.y, dir.x);
 
-  float jitterSeed = hash(a_seed * 91.733 + t * 53.219);
+  float jitterSeed = hash(a_seed * 91.733);
   float spread = (jitterSeed - 0.5) * a_jitter;
   float wobble = sin(u_time * 7.5 + a_seed * 29.0) * (a_jitter * 0.28);
 
@@ -161,8 +161,13 @@ precision highp float;
 varying vec4 vColor;
 
 void main(void) {
-  // Keep fragment shader minimal for broad backend compatibility.
-  gl_FragColor = vColor;
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float r2 = dot(p, p);
+  if (r2 > 1.0) {
+    discard;
+  }
+  float alpha = exp(-r2 * 3.0) * vColor.a;
+  gl_FragColor = vec4(vColor.rgb, alpha);
 }
 `
 
@@ -2201,7 +2206,11 @@ const Hooks = {
       const tick = () => {
         this.animationPhase = performance.now() / 1000
         if (this.deck && this.lastGraph) {
-          this.renderGraph(this.lastGraph)
+          try {
+            this.renderGraph(this.lastGraph)
+          } catch (error) {
+            if (this.summary) this.summary.textContent = `animation render error: ${String(error)}`
+          }
         }
         this.animationTimer = window.requestAnimationFrame(tick)
       }
@@ -3300,8 +3309,8 @@ const Hooks = {
                 getSourceColor: (d) => this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source,
                 getTargetColor: (d) => this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).target,
                 getWidth: (d) => {
-                  const base = Math.max(2, Math.min(this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * 0.85, 12))
-                  return this.edgeIsFocused(d) ? Math.min(14, base + 1.1) : base
+                  const base = Math.max(1.1, Math.min(this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * 0.85, 4.8))
+                  return this.edgeIsFocused(d) ? Math.min(5.8, base + 0.9) : base
                 },
                 widthUnits: "pixels",
                 greatCircle: false,
@@ -3383,7 +3392,6 @@ const Hooks = {
           ...baseLayers,
           ...mantleLayers,
           ...crustLayers,
-          ...atmosphereLayers,
           new ScatterplotLayer({
             id: "god-view-nodes",
             data: nodeData,
@@ -3401,6 +3409,7 @@ const Hooks = {
             getFillColor: (d) => (securityEnabled ? this.nodeColor(d.state) : this.nodeNeutralColor(d.operUp)),
           }),
           ...securityLayers,
+          ...atmosphereLayers,
           ...(this.layers.mantle && (effective.shape === "local" || effective.shape === "regional" || effective.shape === "global")
             ? [
                 new TextLayer({
@@ -3693,8 +3702,8 @@ const Hooks = {
       const spark = pps > 0 ? Math.min(1, Math.log10(Math.max(10, pps)) / 6) : 0
       const t = Math.min(1, Math.max(util, spark))
 
-      const low = vivid ? [48, 226, 255, 145] : [40, 170, 220, 120]
-      const high = vivid ? [255, 74, 212, 235] : [214, 97, 255, 210]
+      const low = vivid ? [48, 226, 255, 65] : [40, 170, 220, 45]
+      const high = vivid ? [255, 74, 212, 90] : [214, 97, 255, 70]
 
       return [
         Math.round(low[0] * (1 - t) + high[0] * t),
@@ -3713,18 +3722,18 @@ const Hooks = {
       const pps = Number(flowPps || 0)
       const bps = Number(flowBps || 0)
 
-      let base = 1.25
-      if (cap >= 100_000_000_000) base = 9.5
-      else if (cap >= 40_000_000_000) base = 8
-      else if (cap >= 10_000_000_000) base = 6.3
-      else if (cap >= 1_000_000_000) base = 4.4
-      else if (cap >= 100_000_000) base = 2.5
+      let base = 0.75
+      if (cap >= 100_000_000_000) base = 3.5
+      else if (cap >= 40_000_000_000) base = 2.8
+      else if (cap >= 10_000_000_000) base = 2
+      else if (cap >= 1_000_000_000) base = 1.5
+      else if (cap >= 100_000_000) base = 1
 
       const ppsBoost = Math.min(2.8, Math.log10(Math.max(1, pps)) * 0.85)
       const utilization = cap > 0 ? Math.min(1, bps / cap) : 0
       const bpsBoost = utilization > 0 ? Math.min(3.2, Math.sqrt(utilization) * 3.2) : 0
-      const flowBoost = Math.max(ppsBoost, bpsBoost)
-      return Math.min(12, Math.max(1, base + flowBoost))
+      const flowBoost = Math.max(ppsBoost, bpsBoost) * 0.6
+      return Math.min(4.5, Math.max(0.75, base + flowBoost))
     },
     normalizeDisplayLabel(value, fallback = "node") {
       const label = String(value == null ? "" : value).trim()
@@ -3779,15 +3788,17 @@ const Hooks = {
         const bpsSignal = utilization > 0 ? utilization * 3.2 : 0
         const baseline = 1.05 + Math.min(1.1, Math.log10(Math.max(1, edge.weight || 1)) * 0.72)
         const intensity = Math.max(baseline, ppsSignal, bpsSignal)
-        const particlesOnEdge = Math.max(6, Math.min(64, Math.floor(intensity * 5.5)))
-        const speed = 0.11 + Math.min(1.35, intensity * 0.11)
+        const particlesOnEdge = Math.max(24, Math.min(140, Math.floor(intensity * 10.5)))
+        const baseSpeed = 0.11 + Math.min(1.35, intensity * 0.11)
 
         for (let j = 0; j < particlesOnEdge; j += 1) {
           if (particles.length >= maxParticles) break
           const seed = (((i * 17 + j * 37) % 997) + 1) / 997
+          const speedModifier = 0.7 + (((j * 43) % 101) / 100) * 0.6
+          const particleSpeed = baseSpeed * speedModifier
           const hue = Math.min(1, intensity / 4)
-          const cyan = [73, 231, 255, 210]
-          const magenta = [244, 114, 255, 235]
+          const cyan = [73, 231, 255, 245]
+          const magenta = [244, 114, 255, 255]
           const color = [
             Math.round(cyan[0] * (1 - hue) + magenta[0] * hue),
             Math.round(cyan[1] * (1 - hue) + magenta[1] * hue),
@@ -3798,9 +3809,9 @@ const Hooks = {
             from: [src[0], src[1]],
             to: [dst[0], dst[1]],
             seed,
-            speed,
-            jitter: 6 + Math.min(22, intensity * 5.5),
-            size: Math.min(6.2, 2.1 + intensity * 0.44),
+            speed: particleSpeed,
+            jitter: 8 + Math.min(26, intensity * 6.5),
+            size: Math.min(8.5, 4.2 + intensity * 0.52),
             color,
           })
         }
