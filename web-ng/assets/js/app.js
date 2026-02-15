@@ -161,10 +161,8 @@ precision highp float;
 varying vec4 vColor;
 
 void main(void) {
-  vec2 p = gl_PointCoord * 2.0 - 1.0;
-  float r2 = dot(p, p);
-  float alpha = exp(-r2 * 3.6);
-  gl_FragColor = vec4(vColor.rgb, vColor.a * alpha);
+  // Keep fragment shader minimal for broad backend compatibility.
+  gl_FragColor = vColor;
 }
 `
 
@@ -1998,6 +1996,8 @@ const Hooks = {
       this.layers = {mantle: true, crust: true, atmosphere: true, security: true}
       this.layoutMode = "auto"
       this.layoutRevision = null
+      this.lastRevision = null
+      this.lastTopologyStamp = null
       this.snapshotUrl = this.el.dataset.url || null
       this.pollIntervalMs = Number.parseInt(this.el.dataset.intervalMs || "5000", 10) || 5000
       this.visual = {
@@ -2267,14 +2267,22 @@ const Hooks = {
 
         const decodeStart = performance.now()
         const rawGraph = this.decodeArrowGraph(bytes)
-        const graph = this.prepareGraphLayout(rawGraph, snapshot.revision)
+        const revision = Number.isFinite(Number(snapshot.revision)) ? Number(snapshot.revision) : this.lastRevision
+        const topologyStamp = this.graphTopologyStamp(rawGraph)
+        const graph = this.prepareGraphLayout(rawGraph, revision)
         const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
         const bitmapMetadata = this.ensureBitmapMetadata(snapshot.bitmapMetadata, graph.nodes)
 
         const renderStart = performance.now()
         const previousGraph = this.lastGraph
         this.lastGraph = graph
-        this.animateTransition(previousGraph, graph)
+        if (this.sameTopology(previousGraph, graph, topologyStamp, revision)) {
+          this.renderGraph(graph)
+        } else {
+          this.animateTransition(previousGraph, graph)
+        }
+        this.lastRevision = revision
+        this.lastTopologyStamp = topologyStamp
         this.lastSnapshotAt = Date.now()
         this.summary.textContent =
           `schema=${snapshot.schemaVersion} revision=${snapshot.revision} nodes=${graph.nodes.length} ` +
@@ -2365,20 +2373,30 @@ const Hooks = {
           throw new Error("snapshot_empty")
         }
 
+        const revisionHeader = response.headers.get("x-sr-god-view-revision")
+        const parsedRevision = revisionHeader ? Number(revisionHeader) : null
+        const revision = Number.isFinite(parsedRevision) ? parsedRevision : this.lastRevision
+
         const decodeStart = performance.now()
         const rawGraph = this.decodeArrowGraph(new Uint8Array(buffer))
-        const graph = this.prepareGraphLayout(rawGraph, Date.now())
+        const topologyStamp = this.graphTopologyStamp(rawGraph)
+        const graph = this.prepareGraphLayout(rawGraph, revision)
         const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
 
         const renderStart = performance.now()
         const previousGraph = this.lastGraph
         this.lastGraph = graph
-        this.animateTransition(previousGraph, graph)
+        if (this.sameTopology(previousGraph, graph, topologyStamp, revision)) {
+          this.renderGraph(graph)
+        } else {
+          this.animateTransition(previousGraph, graph)
+        }
+        this.lastRevision = revision
+        this.lastTopologyStamp = topologyStamp
         this.lastSnapshotAt = Date.now()
         const renderMs = Math.round((performance.now() - renderStart) * 100) / 100
         const networkMs = Math.round((performance.now() - startedAt) * 100) / 100
 
-        const revisionHeader = response.headers.get("x-sr-god-view-revision")
         const schemaHeader = response.headers.get("x-sr-god-view-schema")
 
         const bitmapMetadata = {
@@ -2889,6 +2907,12 @@ const Hooks = {
     },
     prepareGraphLayout(graph, revision) {
       if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return graph
+      if (this.lastGraph && Number.isFinite(revision) && this.layoutRevision === revision) {
+        const reused = this.reusePreviousPositions(graph, this.lastGraph)
+        reused._layoutMode = this.layoutMode || "auto"
+        reused._layoutRevision = revision
+        return reused
+      }
       if (graph._layoutRevision && graph._layoutRevision === revision) return graph
 
       const mode = this.shouldUseGeoLayout(graph) ? "geo" : "force"
@@ -2898,6 +2922,41 @@ const Hooks = {
       this.layoutMode = mode
       this.layoutRevision = revision
       return laidOut
+    },
+    graphTopologyStamp(graph) {
+      if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return "0:0"
+      let nodeHash = 0
+      for (let i = 0; i < graph.nodes.length; i += 1) {
+        const id = String(graph.nodes[i]?.id || "")
+        for (let j = 0; j < id.length; j += 1) nodeHash = ((nodeHash << 5) - nodeHash + id.charCodeAt(j)) | 0
+      }
+      let edgeHash = 0
+      for (let i = 0; i < graph.edges.length; i += 1) {
+        const s = Number(graph.edges[i]?.source || 0)
+        const t = Number(graph.edges[i]?.target || 0)
+        edgeHash = (((edgeHash << 5) - edgeHash + s * 31 + t * 131) | 0)
+      }
+      return `${graph.nodes.length}:${graph.edges.length}:${nodeHash}:${edgeHash}`
+    },
+    sameTopology(previousGraph, nextGraph, stamp, revision) {
+      if (!previousGraph || !nextGraph) return false
+      if (!Number.isFinite(revision) || !Number.isFinite(this.lastRevision)) return false
+      return (
+        revision === this.lastRevision &&
+        stamp === this.lastTopologyStamp &&
+        previousGraph.nodes.length === nextGraph.nodes.length &&
+        previousGraph.edges.length === nextGraph.edges.length
+      )
+    },
+    reusePreviousPositions(nextGraph, previousGraph) {
+      if (!nextGraph || !previousGraph) return nextGraph
+      const byId = new Map((previousGraph.nodes || []).map((n) => [n.id, n]))
+      const nodes = (nextGraph.nodes || []).map((n) => {
+        const prev = byId.get(n.id)
+        if (!prev) return n
+        return {...n, x: Number(prev.x || n.x || 0), y: Number(prev.y || n.y || 0)}
+      })
+      return {...nextGraph, nodes}
     },
     shouldUseGeoLayout(graph) {
       const nodes = graph?.nodes || []
@@ -3145,6 +3204,7 @@ const Hooks = {
               parameters: {
                 blend: true,
                 blendFunc: [770, 1, 1, 1],
+                depthTest: false,
               },
             }),
           ]
@@ -3617,7 +3677,7 @@ const Hooks = {
     },
     buildPacketFlowInstances(edgeData) {
       if (!Array.isArray(edgeData) || edgeData.length === 0) return []
-      const maxParticles = 16000
+      const maxParticles = 22000
       const particles = []
 
       for (let i = 0; i < edgeData.length; i += 1) {
@@ -3641,8 +3701,8 @@ const Hooks = {
           if (particles.length >= maxParticles) break
           const seed = (((i * 17 + j * 37) % 997) + 1) / 997
           const hue = Math.min(1, intensity / 4)
-          const cyan = [73, 231, 255, 170]
-          const magenta = [244, 114, 255, 195]
+          const cyan = [73, 231, 255, 210]
+          const magenta = [244, 114, 255, 235]
           const color = [
             Math.round(cyan[0] * (1 - hue) + magenta[0] * hue),
             Math.round(cyan[1] * (1 - hue) + magenta[1] * hue),
@@ -3655,7 +3715,7 @@ const Hooks = {
             seed,
             speed,
             jitter: 6 + Math.min(22, intensity * 5.5),
-            size: Math.min(4.8, 1.2 + intensity * 0.32),
+            size: Math.min(6.2, 2.1 + intensity * 0.44),
             color,
           })
         }

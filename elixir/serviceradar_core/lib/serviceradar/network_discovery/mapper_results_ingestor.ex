@@ -1173,12 +1173,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
        ) do
     candidate_uid = normalize_string(candidate.uid)
     candidate_ip = normalize_interface_ip(candidate.ip)
+    candidate_type = normalize_string(candidate.type)
 
     cond do
       candidate_uid == nil or candidate_ip == nil ->
         acc
 
       MapSet.member?(connected_ids, candidate_uid) ->
+        acc
+
+      router_type?(candidate_type, candidate.type_id) ->
+        # Site/controller proximity should not synthesize physical router edges.
+        # Router-router and router-switch relationships must come from explicit topology
+        # data (LLDP/CDP/tunnel telemetry), not this heuristic.
         acc
 
       true ->

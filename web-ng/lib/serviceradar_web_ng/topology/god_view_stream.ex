@@ -179,7 +179,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         devices
         |> merge_devices(resolved_devices)
 
-      canonical_edges = canonicalize_edges(pair_edges, devices)
+      canonical_edges =
+        pair_edges
+        |> canonicalize_edges(devices)
+        |> prune_ap_gateway_inference_edges(devices)
 
       canonical_node_ids =
         canonical_edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
@@ -198,6 +201,68 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         {:ok, nodes, edges}
       end
     end
+  end
+
+  defp prune_ap_gateway_inference_edges(edges, devices)
+       when is_list(edges) and is_list(devices) do
+    device_by_uid =
+      devices
+      |> Enum.reduce(%{}, fn device, acc ->
+        uid = normalize_id(Map.get(device, :uid))
+        if is_binary(uid), do: Map.put(acc, uid, device), else: acc
+      end)
+
+    has_direct_lldp_neighbor =
+      edges
+      |> Enum.reduce(MapSet.new(), fn edge, acc ->
+        protocol = edge_protocol(edge)
+
+        if protocol in ["lldp", "cdp"] do
+          source = normalize_id(Map.get(edge, :source))
+          target = normalize_id(Map.get(edge, :target))
+
+          acc
+          |> maybe_put_set(source)
+          |> maybe_put_set(target)
+        else
+          acc
+        end
+      end)
+
+    Enum.reject(edges, fn edge ->
+      protocol = edge_protocol(edge)
+      source = normalize_id(Map.get(edge, :source))
+      target = normalize_id(Map.get(edge, :target))
+      source_device = Map.get(device_by_uid, source)
+      target_device = Map.get(device_by_uid, target)
+
+      protocol == "l3-uplink" and gateway_corr_edge?(edge) and
+        ((ap_device?(source_device) and router_device?(target_device) and
+            MapSet.member?(has_direct_lldp_neighbor, source)) or
+           (ap_device?(target_device) and router_device?(source_device) and
+              MapSet.member?(has_direct_lldp_neighbor, target)))
+    end)
+  end
+
+  defp prune_ap_gateway_inference_edges(edges, _devices), do: edges
+
+  defp edge_protocol(edge) do
+    edge
+    |> Map.get(:protocol)
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp gateway_corr_edge?(edge) do
+    metadata = Map.get(edge, :metadata) || %{}
+    source = metadata["source"] || metadata[:source]
+    inference = metadata["inference"] || metadata[:inference]
+    source == "gateway-correlation" and inference == "router_interface_subnet_match"
+  end
+
+  defp maybe_put_set(set, value) do
+    if is_binary(value), do: MapSet.put(set, value), else: set
   end
 
   defp fetch_devices(actor, []), do: fetch_recent_devices(actor)
@@ -564,6 +629,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp type_name_from_id(15), do: "load_balancer"
   defp type_name_from_id(99), do: "other"
   defp type_name_from_id(_), do: nil
+
+  defp router_device?(device) when is_map(device) do
+    type = Map.get(device, :type) |> to_string() |> String.downcase()
+    Map.get(device, :type_id) == 12 or type == "router"
+  end
+
+  defp router_device?(_), do: false
+
+  defp ap_device?(device) when is_map(device) do
+    type = Map.get(device, :type) |> to_string() |> String.downcase()
+    model = Map.get(device, :model) |> to_string() |> String.downcase()
+    role = node_meta_value(device, ["device_role"]) |> to_string() |> String.downcase()
+
+    String.contains?(type, "access point") or String.contains?(role, "ap") or
+      String.starts_with?(model, "u6") or String.contains?(model, "uap")
+  end
+
+  defp ap_device?(_), do: false
 
   defp node_geo_lat(device) do
     node_meta_float(device, ["latitude", "geo_lat", "geoip_lat", "lat"])
