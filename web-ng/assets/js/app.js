@@ -121,20 +121,35 @@ attribute vec2 a_to;
 attribute float a_seed;
 attribute float a_speed;
 attribute float a_size;
+attribute float a_jitter;
 attribute vec4 a_color;
 
 uniform float u_time;
 
 varying vec4 vColor;
 
+float hash(float n) {
+  return fract(sin(n) * 43758.5453123);
+}
+
 void main(void) {
   float t = fract((u_time * a_speed) + a_seed);
-  vec2 pos = mix(a_from, a_to, t);
+  float eased = pow(t, 1.18);
+  vec2 base = mix(a_from, a_to, eased);
 
-  float jit = (fract(sin((a_seed + t) * 43758.5453) * 43758.5453) - 0.5) * 0.9;
-  pos += vec2(jit, -jit) * 0.35;
+  vec2 dir = normalize(max(vec2(0.0001), a_to - a_from));
+  vec2 normal = vec2(-dir.y, dir.x);
+
+  float jitterSeed = hash(a_seed * 91.733 + t * 53.219);
+  float spread = (jitterSeed - 0.5) * a_jitter;
+  float wobble = sin(u_time * 7.5 + a_seed * 29.0) * (a_jitter * 0.28);
+
+  vec2 pos = base + normal * (spread + wobble);
 
   vColor = a_color;
+  float tailFade = 1.0 - smoothstep(0.82, 1.0, t);
+  float headBoost = 0.74 + (1.0 - t) * 0.26;
+  vColor.a = clamp(vColor.a * tailFade * headBoost, 0.0, 1.0);
   gl_Position = project_position_to_clipspace(vec3(pos, 0.0), vec3(0.0), vec3(0.0));
   gl_PointSize = a_size;
 }
@@ -166,6 +181,7 @@ class PacketFlowLayer extends Layer {
       a_seed: {size: 1, accessor: "getSeed"},
       a_speed: {size: 1, accessor: "getSpeed"},
       a_size: {size: 1, accessor: "getSize"},
+      a_jitter: {size: 1, accessor: "getJitter"},
       a_color: {size: 4, type: 5121, normalized: true, accessor: "getColor"},
     })
 
@@ -208,6 +224,7 @@ PacketFlowLayer.defaultProps = {
   getSeed: (d) => d.seed,
   getSpeed: (d) => d.speed,
   getSize: (d) => d.size,
+  getJitter: (d) => d.jitter,
   getColor: (d) => d.color,
   time: 0,
 }
@@ -3600,7 +3617,7 @@ const Hooks = {
     },
     buildPacketFlowInstances(edgeData) {
       if (!Array.isArray(edgeData) || edgeData.length === 0) return []
-      const maxParticles = 3600
+      const maxParticles = 16000
       const particles = []
 
       for (let i = 0; i < edgeData.length; i += 1) {
@@ -3615,10 +3632,10 @@ const Hooks = {
         const utilization = cap > 0 ? Math.min(1, bps / cap) : 0
         const ppsSignal = pps > 0 ? Math.log10(Math.max(10, pps)) : 0
         const bpsSignal = utilization > 0 ? utilization * 3.2 : 0
-        const baseline = 0.85 + Math.min(0.8, Math.log10(Math.max(1, edge.weight || 1)) * 0.55)
+        const baseline = 1.05 + Math.min(1.1, Math.log10(Math.max(1, edge.weight || 1)) * 0.72)
         const intensity = Math.max(baseline, ppsSignal, bpsSignal)
-        const particlesOnEdge = Math.max(2, Math.min(18, Math.floor(intensity * 2.1)))
-        const speed = 0.08 + Math.min(1.05, intensity * 0.09)
+        const particlesOnEdge = Math.max(6, Math.min(64, Math.floor(intensity * 5.5)))
+        const speed = 0.11 + Math.min(1.35, intensity * 0.11)
 
         for (let j = 0; j < particlesOnEdge; j += 1) {
           if (particles.length >= maxParticles) break
@@ -3637,8 +3654,8 @@ const Hooks = {
             to: [dst[0], dst[1]],
             seed,
             speed,
-            jitter: 0.08 + Math.min(0.44, intensity * 0.06),
-            size: Math.min(5.2, 1.6 + intensity * 0.48),
+            jitter: 6 + Math.min(22, intensity * 5.5),
+            size: Math.min(4.8, 1.2 + intensity * 0.32),
             color,
           })
         }
