@@ -89,6 +89,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
   defp compile_job(job, credentials) do
     seeds = job.seeds || []
+    unifi_controllers = job.unifi_controllers || []
+    unifi_api_names = unifi_controllers |> Enum.map(& &1.name) |> Enum.reject(&is_nil_or_blank/1)
+    unifi_api_urls = unifi_controllers |> Enum.map(& &1.base_url) |> Enum.reject(&is_nil_or_blank/1)
 
     options = job.options || %{}
 
@@ -96,6 +99,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       options
       |> Map.put_new("mapper_job_id", to_string(job.id))
       |> Map.put_new("mapper_job_name", job.name)
+      |> maybe_put_csv_option("unifi_api_names", unifi_api_names)
+      |> maybe_put_csv_option("unifi_api_urls", unifi_api_urls)
 
     %{
       "name" => job.name,
@@ -110,6 +115,22 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       "options" => options
     }
   end
+
+  defp maybe_put_csv_option(options, _key, []), do: options
+
+  defp maybe_put_csv_option(options, key, values) when is_list(values) do
+    csv = values |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == "")) |> Enum.join(",")
+
+    if csv == "" do
+      options
+    else
+      Map.put_new(options, key, csv)
+    end
+  end
+
+  defp is_nil_or_blank(nil), do: true
+  defp is_nil_or_blank(value) when is_binary(value), do: String.trim(value) == ""
+  defp is_nil_or_blank(_), do: false
 
   defp resolve_credentials(device_uid, actor) do
     case CredentialResolver.resolve_for_device(device_uid, actor) do

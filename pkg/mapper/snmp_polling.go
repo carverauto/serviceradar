@@ -59,6 +59,8 @@ const (
 	oidDot1dBaseBridgeAddress  = ".1.3.6.1.2.1.17.1.1.0"
 	oidDot1dBaseNumPorts       = ".1.3.6.1.2.1.17.1.2.0"
 	oidDot1dStpPortState       = ".1.3.6.1.2.1.17.2.15.1.3"
+	oidDot1dBasePortIfIndex    = ".1.3.6.1.2.1.17.1.4.1.2"
+	oidDot1dTpFdbPort          = ".1.3.6.1.2.1.17.4.3.1.2"
 	oidDot1qVlanCurrentEgress  = ".1.3.6.1.2.1.17.7.1.4.2.1.4"
 	oidDot1qVlanStaticEgress   = ".1.3.6.1.2.1.17.7.1.4.3.1.2"
 	oidDot1qVlanStaticUntagged = ".1.3.6.1.2.1.17.7.1.4.3.1.4"
@@ -79,6 +81,8 @@ const (
 	oidIPAddrTable    = ".1.3.6.1.2.1.4.20.1"
 	oidIPAdEntAddr    = ".1.3.6.1.2.1.4.20.1.1"
 	oidIPAdEntIfIndex = ".1.3.6.1.2.1.4.20.1.2"
+	oidIPNetToMedia   = ".1.3.6.1.2.1.4.22.1"
+	oidIPToMediaPhys  = ".1.3.6.1.2.1.4.22.1.2"
 
 	// Extended interface table (ifXTable)
 	oidIfXTable    = ".1.3.6.1.2.1.31.1.1.1"
@@ -218,6 +222,17 @@ func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 
 	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(cdpErr).
 		Msg("CDP not supported or no neighbors")
+
+	// Fallback for devices that do not expose LLDP/CDP over SNMP:
+	// correlate ARP and bridge forwarding table evidence.
+	l2Links, l2Err := e.querySNMPL2Neighbors(client, targetIP, job)
+	if l2Err == nil && len(l2Links) > 0 {
+		e.publishTopologyLinks(job, l2Links, targetIP, "SNMP-L2")
+		return
+	}
+
+	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(l2Err).
+		Msg("SNMP L2 enrichment returned no neighbors")
 }
 
 // setupSNMPClient creates and configures an SNMP client
@@ -2065,6 +2080,253 @@ func formatLLDPID(bytes []byte) string {
 
 	// If it's a printable string, return as is
 	return string(bytes)
+}
+
+type arpNeighbor struct {
+	ifIndex int32
+	ip      string
+	mac     string
+}
+
+func (e *DiscoveryEngine) querySNMPL2Neighbors(
+	client *gosnmp.GoSNMP, targetIP string, job *DiscoveryJob) ([]*TopologyLink, error) {
+	localDeviceID := e.lookupLocalDeviceID(job, targetIP)
+	if localDeviceID == "" {
+		return nil, ErrNoSNMPDataReturned
+	}
+
+	localSubnets := e.localIPv4Subnets(job, targetIP)
+	bridgeIfByMAC := e.bridgeIfIndexByMAC(client)
+
+	neighbors := make([]arpNeighbor, 0, 32)
+	err := client.BulkWalk(oidIPToMediaPhys, func(pdu gosnmp.SnmpPDU) error {
+		ifIndex, ip, ok := parseIPToMediaSuffix(pdu.Name)
+		if !ok || ip == "" || ip == targetIP || !isIPv4(ip) {
+			return nil
+		}
+
+		if !inSubnetSet(localSubnets, ip) {
+			return nil
+		}
+
+		raw, ok := pdu.Value.([]byte)
+		if !ok || len(raw) == 0 {
+			return nil
+		}
+
+		mac := formatMACAddress(raw)
+		if mac == "" || mac == "00:00:00:00:00:00" {
+			return nil
+		}
+
+		norm := NormalizeMAC(mac)
+		if bridgeIf, exists := bridgeIfByMAC[norm]; exists && bridgeIf > 0 {
+			ifIndex = bridgeIf
+		}
+
+		neighbors = append(neighbors, arpNeighbor{ifIndex: ifIndex, ip: ip, mac: mac})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed SNMP L2 walk (%s): %w", oidIPToMediaPhys, err)
+	}
+
+	links := make([]*TopologyLink, 0, len(neighbors))
+	seen := make(map[string]struct{}, len(neighbors))
+	for _, n := range neighbors {
+		if n.ip == "" {
+			continue
+		}
+
+		key := fmt.Sprintf("%s|%d|%s", n.ip, n.ifIndex, NormalizeMAC(n.mac))
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		links = append(links, &TopologyLink{
+			Protocol:          "SNMP-L2",
+			LocalDeviceIP:     targetIP,
+			LocalDeviceID:     localDeviceID,
+			LocalIfIndex:      n.ifIndex,
+			NeighborChassisID: n.mac,
+			NeighborMgmtAddr:  n.ip,
+			Metadata: map[string]string{
+				"protocol":        "SNMP-L2",
+				"discovery_id":    job.ID,
+				"source":          "snmp-arp-fdb",
+				"evidence":        "ipNetToMedia+dot1dTpFdb",
+				"confidence_tier": "medium",
+			},
+		})
+	}
+
+	if len(links) == 0 {
+		return nil, ErrNoLLDPNeighborsFound
+	}
+
+	return links, nil
+}
+
+func (e *DiscoveryEngine) lookupLocalDeviceID(job *DiscoveryJob, targetIP string) string {
+	if job == nil || job.Results == nil {
+		return ""
+	}
+
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	for _, device := range job.Results.Devices {
+		if device.IP == targetIP {
+			return device.DeviceID
+		}
+	}
+
+	return ""
+}
+
+func (e *DiscoveryEngine) localIPv4Subnets(job *DiscoveryJob, targetIP string) map[string]struct{} {
+	subnets := make(map[string]struct{})
+	addIfIPv4Subnet(subnets, targetIP)
+
+	if job == nil || job.Results == nil {
+		return subnets
+	}
+
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	for _, iface := range job.Results.Interfaces {
+		if iface.DeviceIP != targetIP {
+			continue
+		}
+		for _, ip := range iface.IPAddresses {
+			addIfIPv4Subnet(subnets, ip)
+		}
+	}
+
+	return subnets
+}
+
+func addIfIPv4Subnet(subnets map[string]struct{}, ip string) {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil || parsed.To4() == nil {
+		return
+	}
+
+	v4 := parsed.To4()
+	key := fmt.Sprintf("%d.%d.%d", v4[0], v4[1], v4[2])
+	subnets[key] = struct{}{}
+}
+
+func inSubnetSet(subnets map[string]struct{}, ip string) bool {
+	if len(subnets) == 0 {
+		return true
+	}
+
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil || parsed.To4() == nil {
+		return false
+	}
+
+	v4 := parsed.To4()
+	key := fmt.Sprintf("%d.%d.%d", v4[0], v4[1], v4[2])
+	_, exists := subnets[key]
+	return exists
+}
+
+func isIPv4(ip string) bool {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	return parsed != nil && parsed.To4() != nil
+}
+
+func parseIPToMediaSuffix(oidName string) (int32, string, bool) {
+	parts := strings.Split(strings.TrimPrefix(oidName, "."), ".")
+	baseParts := strings.Split(strings.TrimPrefix(oidIPToMediaPhys, "."), ".")
+	if len(parts) < len(baseParts)+5 {
+		return 0, "", false
+	}
+
+	idxOffset := len(baseParts)
+	ifIndexVal, err := strconv.Atoi(parts[idxOffset])
+	if err != nil || ifIndexVal <= 0 {
+		return 0, "", false
+	}
+
+	octets := make([]string, 4)
+	for i := 0; i < 4; i++ {
+		octet, convErr := strconv.Atoi(parts[idxOffset+1+i])
+		if convErr != nil || octet < 0 || octet > 255 {
+			return 0, "", false
+		}
+		octets[i] = strconv.Itoa(octet)
+	}
+
+	return int32(ifIndexVal), strings.Join(octets, "."), true
+}
+
+func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) map[string]int32 {
+	bridgePortToIfIndex := make(map[int32]int32)
+	_ = client.BulkWalk(oidDot1dBasePortIfIndex, func(pdu gosnmp.SnmpPDU) error {
+		baseParts := strings.Split(strings.TrimPrefix(oidDot1dBasePortIfIndex, "."), ".")
+		parts := strings.Split(strings.TrimPrefix(pdu.Name, "."), ".")
+		if len(parts) < len(baseParts)+1 {
+			return nil
+		}
+
+		bridgePort, convErr := strconv.Atoi(parts[len(baseParts)])
+		if convErr != nil {
+			return nil
+		}
+
+		val, ok := e.getInt32FromPDU(pdu, "dot1dBasePortIfIndex")
+		if ok && val > 0 {
+			bridgePortToIfIndex[int32(bridgePort)] = val
+		}
+		return nil
+	})
+
+	result := make(map[string]int32)
+	_ = client.BulkWalk(oidDot1dTpFdbPort, func(pdu gosnmp.SnmpPDU) error {
+		bridgePort, ok := e.getInt32FromPDU(pdu, "dot1dTpFdbPort")
+		if !ok || bridgePort <= 0 {
+			return nil
+		}
+
+		ifIndex, exists := bridgePortToIfIndex[bridgePort]
+		if !exists || ifIndex <= 0 {
+			return nil
+		}
+
+		mac, ok := macFromFDBOID(pdu.Name)
+		if !ok || mac == "" {
+			return nil
+		}
+
+		result[NormalizeMAC(mac)] = ifIndex
+		return nil
+	})
+
+	return result
+}
+
+func macFromFDBOID(oidName string) (string, bool) {
+	parts := strings.Split(strings.TrimPrefix(oidName, "."), ".")
+	baseParts := strings.Split(strings.TrimPrefix(oidDot1dTpFdbPort, "."), ".")
+	if len(parts) < len(baseParts)+6 {
+		return "", false
+	}
+
+	macBytes := make([]byte, 6)
+	for i := 0; i < 6; i++ {
+		val, err := strconv.Atoi(parts[len(baseParts)+i])
+		if err != nil || val < 0 || val > 255 {
+			return "", false
+		}
+		macBytes[i] = byte(val)
+	}
+
+	return formatMACAddress(macBytes), true
 }
 
 const (

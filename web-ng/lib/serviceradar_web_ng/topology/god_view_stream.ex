@@ -18,7 +18,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   alias ServiceRadarWebNG.Topology.Native
 
   @max_link_rows 5_000
-  @max_device_rows 250
   @max_interface_rows 2_000
   @default_real_time_budget_ms 2_000
   @drop_counter_key {__MODULE__, :dropped_updates}
@@ -265,12 +264,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     edge_node_ids = pairs |> Map.keys() |> Enum.flat_map(&Tuple.to_list/1) |> Enum.uniq()
 
     with {:ok, devices} <- fetch_devices(actor, edge_node_ids),
-         {:ok, recent_devices} <- fetch_recent_devices(actor),
+         {:ok, seeded_devices} <- fetch_seed_devices(),
          {:ok, resolved_devices} <- resolve_devices_for_topology(edge_node_ids),
          {:ok, interfaces} <- fetch_interfaces(actor, edge_node_ids) do
       devices =
         devices
-        |> merge_devices(recent_devices)
+        |> merge_devices(seeded_devices)
         |> merge_devices(resolved_devices)
 
       canonical_edges =
@@ -358,7 +357,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     if is_binary(value), do: MapSet.put(set, value), else: set
   end
 
-  defp fetch_devices(actor, []), do: fetch_recent_devices(actor)
+  defp fetch_devices(_actor, []), do: {:ok, []}
 
   defp fetch_devices(actor, node_ids) when is_list(node_ids) do
     query =
@@ -374,18 +373,35 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp fetch_recent_devices(actor) do
+  defp fetch_seed_devices do
     query =
-      Device
-      |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
-      |> Ash.Query.sort(last_seen_time: :desc, uid: :asc)
-      |> Ash.Query.limit(@max_device_rows)
+      from(mj in "mapper_jobs",
+        join: mjs in "mapper_job_seeds",
+        on: mjs.mapper_job_id == mj.id,
+        join: d in "ocsf_devices",
+        on:
+          is_nil(d.deleted_at) and
+            (d.ip == mjs.seed or d.uid == mjs.seed or d.name == mjs.seed or d.hostname == mjs.seed),
+        where: mj.enabled == true,
+        order_by: [desc: d.last_seen_time],
+        select: %{
+          uid: d.uid,
+          name: d.name,
+          hostname: d.hostname,
+          ip: d.ip,
+          type: d.type,
+          type_id: d.type_id,
+          vendor_name: d.vendor_name,
+          model: d.model,
+          metadata: d.metadata,
+          last_seen_time: d.last_seen_time,
+          is_available: d.is_available
+        }
+      )
 
-    case Ash.read(query, actor: actor) do
-      {:ok, devices} when is_list(devices) -> {:ok, devices}
-      {:ok, page} -> {:ok, page_results(page)}
-      {:error, reason} -> {:error, reason}
-    end
+    {:ok, Repo.all(query)}
+  rescue
+    _ -> {:ok, []}
   end
 
   defp resolve_devices_for_topology([]), do: {:ok, []}
@@ -552,8 +568,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp node_ids(edge_node_ids, devices) do
+    seed_or_edge_ids = Enum.map(devices, & &1.uid)
+
     edge_node_ids
-    |> Kernel.++(Enum.map(devices, & &1.uid))
+    |> Kernel.++(seed_or_edge_ids)
     |> Enum.map(&normalize_id/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()

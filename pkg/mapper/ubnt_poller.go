@@ -178,8 +178,9 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 	var allLinks []*TopologyLink
 
 	seenLinks := make(map[string]struct{})
+	selectedAPIs := e.unifiAPIsForJob(job)
 
-	for _, apiConfig := range e.config.UniFiAPIs {
+	for _, apiConfig := range selectedAPIs {
 		if apiConfig.BaseURL == "" || apiConfig.APIKey == "" {
 			e.logger.Warn().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
 				Msg("Skipping incomplete UniFi API config")
@@ -491,14 +492,18 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 	}
 
 	var links []*TopologyLink
+	if targetIP != "" {
+		e.logger.Debug().
+			Str("job_id", job.ID).
+			Str("target_ip", targetIP).
+			Str("api_name", apiConfig.Name).
+			Str("site_name", site.Name).
+			Msg("Building UniFi topology from full site inventory")
+	}
 
 	// Process each device
 	for i := range devices {
 		device := &devices[i]
-		// Skip if IP doesn't match target (when specified) or not a switching device
-		if targetIP != "" && device.IPAddress != targetIP {
-			continue
-		}
 
 		// generate DeviceID using IP+MAC
 		// deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC)
@@ -543,8 +548,9 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 
 	seenMACs := make(map[string]string) // MAC -> primary IP
 	errorsEncountered := 0
+	selectedAPIs := e.unifiAPIsForJob(job)
 
-	for _, apiConfig := range e.config.UniFiAPIs {
+	for _, apiConfig := range selectedAPIs {
 		if apiConfig.BaseURL == "" || apiConfig.APIKey == "" {
 			e.logger.Warn().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
 				Msg("Skipping incomplete UniFi API config")
@@ -601,7 +607,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 	}
 
 	if len(allDevices) == 0 {
-		if errorsEncountered == len(e.config.UniFiAPIs) {
+		if len(selectedAPIs) > 0 && errorsEncountered == len(selectedAPIs) {
 			return nil, nil, fmt.Errorf("%w: all %d API attempts failed", ErrNoUniFiDevicesFound, errorsEncountered)
 		}
 
@@ -610,6 +616,69 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 	}
 
 	return allDevices, allInterfaces, nil
+}
+
+func (e *DiscoveryEngine) unifiAPIsForJob(job *DiscoveryJob) []UniFiAPIConfig {
+	all := e.config.UniFiAPIs
+	if len(all) == 0 || job == nil || job.Params == nil {
+		return all
+	}
+
+	opts := job.Params.Options
+	if len(opts) == 0 {
+		return all
+	}
+
+	allowedNames := parseCSVSet(opts["unifi_api_names"], true)
+	allowedURLs := parseCSVSet(opts["unifi_api_urls"], false)
+
+	// Backward compatibility: older configs won't have scoped selectors.
+	if len(allowedNames) == 0 && len(allowedURLs) == 0 {
+		return all
+	}
+
+	filtered := make([]UniFiAPIConfig, 0, len(all))
+	for _, api := range all {
+		nameKey := strings.ToLower(strings.TrimSpace(api.Name))
+		urlKey := normalizeURLKey(api.BaseURL)
+
+		if allowedNames[nameKey] || allowedURLs[urlKey] {
+			filtered = append(filtered, api)
+		}
+	}
+
+	if len(filtered) == 0 {
+		e.logger.Warn().
+			Str("job_id", job.ID).
+			Str("job_name", opts["mapper_job_name"]).
+			Str("selectors", opts["unifi_api_names"]+"|"+opts["unifi_api_urls"]).
+			Msg("No UniFi API matched job selectors")
+	}
+
+	return filtered
+}
+
+func parseCSVSet(raw string, lower bool) map[string]bool {
+	result := make(map[string]bool)
+
+	for _, part := range strings.Split(raw, ",") {
+		v := strings.TrimSpace(part)
+		if v == "" {
+			continue
+		}
+
+		if lower {
+			v = strings.ToLower(v)
+		}
+
+		result[v] = true
+	}
+
+	return result
+}
+
+func normalizeURLKey(raw string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(raw)), "/")
 }
 
 func (e *DiscoveryEngine) fetchUniFiDevices(
