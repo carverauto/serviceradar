@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   alias ServiceRadar.Software.Storage
   alias ServiceRadar.Software.StorageToken
   alias ServiceRadar.Software.TftpPubSub
+  alias ServiceRadar.AgentRegistry
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
@@ -48,6 +49,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
        |> assign(:session_mode, "receive")
        |> assign(:upload_form, default_upload_form())
        |> assign(:session_form, default_session_form())
+       |> assign(:tftp_agents, [])
+       |> assign(:file_search, "")
+       |> assign(:file_date_filter, nil)
        |> assign(:storage_form, nil)
        |> assign(:editing_storage, false)
        |> assign(:editing_s3_creds, false)
@@ -121,6 +125,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     |> assign(:session_form, default_session_form())
     |> load_sessions()
     |> load_images()
+    |> load_tftp_agents()
   end
 
   defp apply_action(socket, :show_session, %{"id" => id}) do
@@ -407,6 +412,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     end
   end
 
+  def handle_event("filter_files", params, socket) do
+    {:noreply,
+     socket
+     |> assign(:file_search, params["search"] || "")
+     |> assign(:file_date_filter, normalize_filter(params["date_range"]))
+     |> load_files()}
+  end
+
   # -- PubSub --
 
   @impl true
@@ -517,6 +530,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
                 session_form={@session_form}
                 session_mode={@session_mode}
                 images={@images}
+                tftp_agents={@tftp_agents}
                 can_manage={@can_manage}
                 live_action={@live_action}
                 session_filter_status={@session_filter_status}
@@ -531,7 +545,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
                 can_manage={@can_manage}
               />
             <% :files -> %>
-              <.files_panel files={@files} can_manage={@can_manage} />
+              <.files_panel
+                files={@files}
+                can_manage={@can_manage}
+                file_search={@file_search}
+                file_date_filter={@file_date_filter}
+              />
           <% end %>
         </div>
       </.settings_shell>
@@ -871,6 +890,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
           form={@session_form}
           mode={@session_mode}
           images={@images}
+          tftp_agents={@tftp_agents}
         />
         <div class="divider my-2"></div>
       <% end %>
@@ -1069,14 +1089,17 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="label"><span class="label-text text-xs">Agent ID</span></label>
-            <input
-              type="text"
-              name="session[agent_id]"
-              value={@form["agent_id"]}
-              placeholder="Agent that will run TFTP server"
-              class="input input-bordered input-sm w-full"
-              required
-            />
+            <select name="session[agent_id]" class="select select-bordered select-sm w-full" required>
+              <option value="">Select an agent...</option>
+              <%= for agent <- @tftp_agents do %>
+                <option value={agent.agent_id} selected={@form["agent_id"] == agent.agent_id}>
+                  {agent.agent_id}<%= if agent.partition_id do %> ({agent.partition_id})<% end %>
+                </option>
+              <% end %>
+            </select>
+            <p :if={@tftp_agents == []} class="text-xs text-warning mt-1">
+              No agents with TFTP capability found. Ensure agents are connected with TFTP support enabled.
+            </p>
           </div>
           <div>
             <label class="label"><span class="label-text text-xs">Filename</span></label>
@@ -1420,6 +1443,23 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
             {length(@files)} file(s) in storage
           </p>
         </div>
+        <div class="flex gap-2 items-center">
+          <input
+            type="text"
+            name="search"
+            value={@file_search}
+            placeholder="Filter by path..."
+            class="input input-bordered input-sm w-48"
+            phx-change="filter_files"
+            phx-debounce="300"
+          />
+          <select name="date_range" class="select select-sm select-bordered" phx-change="filter_files">
+            <option value="">Any Date</option>
+            <option value="7" selected={@file_date_filter == "7"}>Last 7 days</option>
+            <option value="30" selected={@file_date_filter == "30"}>Last 30 days</option>
+            <option value="90" selected={@file_date_filter == "90"}>Last 90 days</option>
+          </select>
+        </div>
       </:header>
 
       <%= if @files == [] do %>
@@ -1437,6 +1477,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
                 <th>Path</th>
                 <th>Size</th>
                 <th>Modified</th>
+                <th></th>
                 <th :if={@can_manage}></th>
               </tr>
             </thead>
@@ -1446,6 +1487,16 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
                   <td class="text-xs font-mono">{file.path}</td>
                   <td class="text-xs">{format_bytes(file[:size])}</td>
                   <td class="text-xs text-base-content/70">{format_datetime(file[:modified])}</td>
+                  <td>
+                    <.link
+                      :if={file_download_url(file)}
+                      href={file_download_url(file)}
+                      class="btn btn-ghost btn-xs"
+                      target="_blank"
+                    >
+                      Download
+                    </.link>
+                  </td>
                   <td :if={@can_manage}>
                     <button
                       class="btn btn-ghost btn-xs text-error"
@@ -1686,6 +1737,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
         _ -> []
       end
 
+    files = filter_files(files, socket.assigns[:file_search], socket.assigns[:file_date_filter])
     assign(socket, :files, files)
   end
 
@@ -1781,6 +1833,61 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     session
     |> Ash.Changeset.for_update(:queue, %{})
     |> Ash.update()
+  end
+
+  defp load_tftp_agents(socket) do
+    agents =
+      try do
+        AgentRegistry.find_agents_with_capability(:tftp)
+        |> Enum.map(fn agent ->
+          %{
+            agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),
+            partition_id: Map.get(agent, :partition_id),
+            status: Map.get(agent, :status, :unknown)
+          }
+        end)
+        |> Enum.sort_by(& &1.agent_id)
+      rescue
+        _ -> []
+      end
+
+    assign(socket, :tftp_agents, agents)
+  end
+
+  defp filter_files(files, search, date_filter) do
+    files
+    |> filter_by_search(search)
+    |> filter_by_date(date_filter)
+  end
+
+  defp filter_by_search(files, nil), do: files
+  defp filter_by_search(files, ""), do: files
+
+  defp filter_by_search(files, search) do
+    term = String.downcase(search)
+
+    Enum.filter(files, fn file ->
+      file.path |> to_string() |> String.downcase() |> String.contains?(term)
+    end)
+  end
+
+  defp filter_by_date(files, nil), do: files
+
+  defp filter_by_date(files, days_str) do
+    case Integer.parse(days_str) do
+      {days, _} ->
+        cutoff = DateTime.utc_now() |> DateTime.add(-days * 86_400, :second)
+
+        Enum.filter(files, fn file ->
+          case file[:modified] do
+            %DateTime{} = dt -> DateTime.compare(dt, cutoff) != :lt
+            _ -> true
+          end
+        end)
+
+      _ ->
+        files
+    end
   end
 
   # -- Helpers --
@@ -1905,6 +2012,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   end
 
   defp download_url(_), do: nil
+
+  defp file_download_url(%{path: path}) when is_binary(path) and path != "" do
+    StorageToken.download_url(path, path)
+  end
+
+  defp file_download_url(_), do: nil
 
   defp upload_error_message(:too_large), do: "File is too large (max 100 MB)"
   defp upload_error_message(:too_many_files), do: "Only one file allowed"
