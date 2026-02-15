@@ -65,7 +65,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     with {:ok, updates} <- decode_payload(message),
          records <- build_topology_records(updates),
          resolved_records <- resolve_topology_device_ids(records),
-         enriched_records <- add_inferred_gateway_links(resolved_records) do
+         enriched_records <- add_inferred_topology_links(resolved_records) do
       record_job_runs(updates, status: :success)
 
       if enriched_records == [] do
@@ -799,19 +799,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp maybe_put_neighbor_id(record, nil), do: record
   defp maybe_put_neighbor_id(record, uid), do: Map.put(record, :neighbor_device_id, uid)
 
-  defp add_inferred_gateway_links([]), do: []
+  defp add_inferred_topology_links([]), do: []
 
-  defp add_inferred_gateway_links(records) do
-    inferred = infer_gateway_topology_links(records)
+  defp add_inferred_topology_links(records) do
+    inferred =
+      infer_gateway_topology_links(records) ++
+        infer_management_topology_links(records) ++
+        infer_site_topology_links(records)
 
-    if inferred == [] do
-      records
-    else
-      records ++ inferred
-    end
+    records ++ inferred
   rescue
     e ->
-      Logger.warning("Gateway topology inference failed: #{inspect(e)}")
+      Logger.warning("Topology inference failed: #{inspect(e)}")
       records
   end
 
@@ -867,6 +866,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end)
   end
 
+  defp topology_anchor_uids(records) do
+    records
+    |> Enum.flat_map(fn record ->
+      [
+        normalize_string(record.local_device_id),
+        normalize_string(record.neighbor_device_id)
+      ]
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
   defp existing_topology_edge_set(records) do
     records
     |> Enum.reduce(MapSet.new(), fn record, acc ->
@@ -909,7 +920,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     query =
       from(d in Device,
         where: d.uid in ^uids and is_nil(d.deleted_at),
-        select: %{uid: d.uid, ip: d.ip, name: d.name, hostname: d.hostname, type: d.type}
+        select: %{
+          uid: d.uid,
+          ip: d.ip,
+          name: d.name,
+          hostname: d.hostname,
+          type: d.type,
+          type_id: d.type_id
+        }
       )
 
     Repo.all(query)
@@ -990,7 +1008,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       neighbor_uid == nil or neighbor_ip == nil ->
         acc
 
-      neighbor_type != "switch" ->
+      not switch_type?(neighbor_type, neighbor.type_id) ->
         acc
 
       true ->
@@ -1031,6 +1049,419 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
+  defp infer_management_topology_links(records) do
+    anchor_uids = topology_anchor_uids(records)
+
+    if anchor_uids == [] do
+      []
+    else
+      existing_edges = existing_topology_edge_set(records)
+      context = inference_context(records)
+      devices = lookup_management_topology_devices(anchor_uids)
+      by_uid = Map.new(devices, fn device -> {normalize_string(device.uid), device} end)
+
+      devices
+      |> Enum.reduce([], fn child, acc ->
+        maybe_inferred_management_link(child, by_uid, existing_edges, context, acc)
+      end)
+      |> Enum.reverse()
+    end
+  end
+
+  defp infer_site_topology_links(records) do
+    anchor_uids = topology_anchor_uids(records)
+
+    if anchor_uids == [] do
+      []
+    else
+      existing_edges = existing_topology_edge_set(records)
+      context = inference_context(records)
+      anchors = lookup_topology_devices_by_uid(anchor_uids)
+      candidates = lookup_site_topology_candidates(anchors, anchor_uids)
+      connected_ids = MapSet.new(anchor_uids)
+      degree = edge_degree(records)
+
+      candidates
+      |> Enum.reduce([], fn candidate, acc ->
+        maybe_inferred_site_link(
+          candidate,
+          anchors,
+          connected_ids,
+          existing_edges,
+          degree,
+          context,
+          acc
+        )
+      end)
+      |> Enum.reverse()
+    end
+  end
+
+  defp lookup_topology_devices_by_uid([]), do: []
+
+  defp lookup_topology_devices_by_uid(uids) do
+    query =
+      from(d in Device,
+        where: d.uid in ^uids and is_nil(d.deleted_at),
+        select: %{
+          uid: d.uid,
+          management_device_id: d.management_device_id,
+          ip: d.ip,
+          name: d.name,
+          hostname: d.hostname,
+          type: d.type,
+          type_id: d.type_id,
+          metadata: d.metadata
+        }
+      )
+
+    Repo.all(query)
+  end
+
+  defp lookup_site_topology_candidates([], _anchor_uids), do: []
+
+  defp lookup_site_topology_candidates(anchors, anchor_uids) do
+    controller_names =
+      anchors
+      |> Enum.map(&metadata_value(&1.metadata, "controller_name"))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    site_ids =
+      anchors
+      |> Enum.map(&metadata_value(&1.metadata, "site_id"))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if controller_names == [] and site_ids == [] do
+      []
+    else
+      query =
+        from(d in Device,
+          where: is_nil(d.deleted_at),
+          where: d.uid not in ^anchor_uids,
+          where:
+            fragment("COALESCE(LOWER((?->>'controller_name')), '')", d.metadata) in ^controller_names or
+              fragment("COALESCE((?->>'site_id'), '')", d.metadata) in ^site_ids,
+          select: %{
+            uid: d.uid,
+            management_device_id: d.management_device_id,
+            ip: d.ip,
+            name: d.name,
+            hostname: d.hostname,
+            type: d.type,
+            type_id: d.type_id,
+            metadata: d.metadata
+          }
+        )
+
+      Repo.all(query)
+      |> Enum.filter(fn d ->
+        snmp_topology_candidate_type?(normalize_string(d.type), d.type_id)
+      end)
+    end
+  end
+
+  defp maybe_inferred_site_link(
+         candidate,
+         anchors,
+         connected_ids,
+         existing_edges,
+         degree,
+         context,
+         acc
+       ) do
+    candidate_uid = normalize_string(candidate.uid)
+    candidate_ip = normalize_interface_ip(candidate.ip)
+
+    cond do
+      candidate_uid == nil or candidate_ip == nil ->
+        acc
+
+      MapSet.member?(connected_ids, candidate_uid) ->
+        acc
+
+      true ->
+        case choose_site_parent(candidate, anchors, degree) do
+          nil ->
+            acc
+
+          parent ->
+            parent_uid = normalize_string(parent.uid)
+
+            cond do
+              parent_uid == nil or parent_uid == candidate_uid ->
+                acc
+
+              MapSet.member?(existing_edges, normalized_edge_key(candidate_uid, parent_uid)) ->
+                acc
+
+              true ->
+                [build_inferred_site_record(context, candidate, parent) | acc]
+            end
+        end
+    end
+  end
+
+  defp choose_site_parent(candidate, anchors, degree) do
+    candidate_site = metadata_value(candidate.metadata, "site_id")
+    candidate_controller = metadata_value(candidate.metadata, "controller_name")
+    candidate_ip = normalize_interface_ip(candidate.ip)
+    candidate_type = normalize_string(candidate.type)
+
+    base =
+      anchors
+      |> Enum.filter(fn parent ->
+        parent_uid = normalize_string(parent.uid)
+        parent_ip = normalize_interface_ip(parent.ip)
+        parent_site = metadata_value(parent.metadata, "site_id")
+        parent_controller = metadata_value(parent.metadata, "controller_name")
+
+        parent_uid != nil and parent_ip != nil and
+          ((candidate_site != nil and parent_site == candidate_site) or
+             (candidate_controller != nil and parent_controller == candidate_controller))
+      end)
+
+    subnet_pref =
+      Enum.filter(base, fn parent ->
+        same_subnet24?(candidate_ip, normalize_interface_ip(parent.ip))
+      end)
+
+    pool = if subnet_pref == [], do: base, else: subnet_pref
+
+    preferred =
+      cond do
+        access_point_type?(candidate_type, candidate.type_id) ->
+          pool
+          |> Enum.filter(fn p ->
+            switch_type?(normalize_string(p.type), p.type_id)
+          end)
+          |> reject_aggregation_switches()
+
+        switch_type?(candidate_type, candidate.type_id) ->
+          agg =
+            pool
+            |> Enum.filter(fn p ->
+              switch_type?(normalize_string(p.type), p.type_id) and aggregation_switch?(p)
+            end)
+
+          if agg == [],
+            do: pool |> Enum.filter(&switch_or_router?/1),
+            else: agg
+
+        true ->
+          pool
+      end
+
+    rank_by_degree(preferred, degree)
+  end
+
+  defp rank_by_degree([], _degree), do: nil
+
+  defp rank_by_degree(devices, degree) do
+    Enum.max_by(
+      devices,
+      fn d ->
+        uid = normalize_string(d.uid)
+        Map.get(degree, uid, 0)
+      end,
+      fn -> nil end
+    )
+  end
+
+  defp switch_or_router?(d) do
+    type = normalize_string(d.type)
+    switch_type?(type, d.type_id) or router_type?(type, d.type_id)
+  end
+
+  defp reject_aggregation_switches([]), do: []
+
+  defp reject_aggregation_switches(devices) do
+    filtered = Enum.reject(devices, &aggregation_switch?/1)
+    if filtered == [], do: devices, else: filtered
+  end
+
+  defp build_inferred_site_record(context, candidate, parent) do
+    candidate_type = normalize_string(candidate.type)
+
+    {tier, score, reason} =
+      cond do
+        access_point_type?(candidate_type, candidate.type_id) ->
+          {"medium", 74, "snmp_site_ap_to_switch_inference"}
+
+        switch_type?(candidate_type, candidate.type_id) ->
+          {"medium", 72, "snmp_site_switch_uplink_inference"}
+
+        true ->
+          {"low", 60, "snmp_site_topology_inference"}
+      end
+
+    parent_name =
+      first_non_blank([
+        parent.name,
+        parent.hostname,
+        parent.ip,
+        parent.uid,
+        "site-parent"
+      ])
+
+    %{
+      timestamp: context.timestamp,
+      agent_id: context.agent_id,
+      gateway_id: context.gateway_id,
+      partition: context.partition,
+      protocol: "snmp-site",
+      local_device_ip: normalize_interface_ip(candidate.ip),
+      local_device_id: candidate.uid,
+      local_if_index: nil,
+      local_if_name: "snmp-site-inferred-uplink",
+      neighbor_device_id: parent.uid,
+      neighbor_chassis_id: nil,
+      neighbor_port_id: "snmp-site",
+      neighbor_port_descr: "snmp-site-inferred-uplink",
+      neighbor_system_name: parent_name,
+      neighbor_mgmt_addr: normalize_interface_ip(parent.ip),
+      metadata: %{
+        "source" => "snmp-site-inference",
+        "inference" => "controller_site_proximity",
+        "confidence_tier" => tier,
+        "confidence_score" => score,
+        "confidence_reason" => reason
+      },
+      created_at: context.created_at
+    }
+  end
+
+  defp maybe_inferred_management_link(child, by_uid, existing_edges, context, acc) do
+    child_uid = normalize_string(child.uid)
+    child_ip = normalize_interface_ip(child.ip)
+    child_parent_uid = normalize_string(child.management_device_id)
+
+    cond do
+      child_uid == nil or child_ip == nil or child_parent_uid == nil ->
+        acc
+
+      child_uid == child_parent_uid ->
+        acc
+
+      not snmp_topology_candidate_type?(normalize_string(child.type), child.type_id) ->
+        acc
+
+      true ->
+        case Map.get(by_uid, child_parent_uid) do
+          nil ->
+            acc
+
+          parent ->
+            parent_uid = normalize_string(parent.uid)
+            parent_ip = normalize_interface_ip(parent.ip)
+
+            cond do
+              parent_uid == nil or parent_ip == nil ->
+                acc
+
+              not snmp_topology_candidate_type?(normalize_string(parent.type), parent.type_id) ->
+                acc
+
+              true ->
+                edge_key = normalized_edge_key(child_uid, parent_uid)
+
+                if MapSet.member?(existing_edges, edge_key) do
+                  acc
+                else
+                  [build_inferred_management_record(context, child, parent) | acc]
+                end
+            end
+        end
+    end
+  end
+
+  defp lookup_management_topology_devices([]), do: []
+
+  defp lookup_management_topology_devices(anchor_uids) do
+    anchor_set = MapSet.new(anchor_uids)
+
+    query =
+      from(d in Device,
+        where: is_nil(d.deleted_at),
+        where: d.uid in ^anchor_uids or d.management_device_id in ^anchor_uids,
+        select: %{
+          uid: d.uid,
+          management_device_id: d.management_device_id,
+          ip: d.ip,
+          name: d.name,
+          hostname: d.hostname,
+          type: d.type,
+          type_id: d.type_id
+        }
+      )
+
+    Repo.all(query)
+    |> Enum.filter(fn device ->
+      uid = normalize_string(device.uid)
+      mgmt_uid = normalize_string(device.management_device_id)
+      MapSet.member?(anchor_set, uid) or MapSet.member?(anchor_set, mgmt_uid)
+    end)
+  end
+
+  defp build_inferred_management_record(context, child, parent) do
+    child_type = normalize_string(child.type)
+    parent_type = normalize_string(parent.type)
+
+    {tier, score, reason} =
+      cond do
+        access_point_type?(child_type, child.type_id) and
+            switch_type?(parent_type, parent.type_id) ->
+          {"high", 90, "snmp_management_parent_ap_uplink"}
+
+        switch_type?(child_type, child.type_id) and
+            router_type?(parent_type, parent.type_id) ->
+          {"high", 88, "snmp_management_parent_switch_uplink"}
+
+        switch_type?(child_type, child.type_id) and
+            switch_type?(parent_type, parent.type_id) ->
+          {"high", 84, "snmp_management_parent_switch_trunk"}
+
+        true ->
+          {"medium", 70, "snmp_management_parent_link"}
+      end
+
+    parent_name =
+      first_non_blank([
+        parent.name,
+        parent.hostname,
+        parent.ip,
+        parent.uid,
+        "parent"
+      ])
+
+    %{
+      timestamp: context.timestamp,
+      agent_id: context.agent_id,
+      gateway_id: context.gateway_id,
+      partition: context.partition,
+      protocol: "snmp-parent",
+      local_device_ip: normalize_interface_ip(child.ip),
+      local_device_id: child.uid,
+      local_if_index: nil,
+      local_if_name: "snmp-management-parent",
+      neighbor_device_id: parent.uid,
+      neighbor_chassis_id: nil,
+      neighbor_port_id: "snmp-parent",
+      neighbor_port_descr: "snmp-management-parent",
+      neighbor_system_name: parent_name,
+      neighbor_mgmt_addr: normalize_interface_ip(parent.ip),
+      metadata: %{
+        "source" => "snmp-management-parent",
+        "inference" => "device_management_parent",
+        "confidence_tier" => tier,
+        "confidence_score" => score,
+        "confidence_reason" => reason
+      },
+      created_at: context.created_at
+    }
+  end
+
   defp preferred_router_for_subnet(existing, candidate) do
     existing_ip = normalize_interface_ip(existing.iface_ip)
     candidate_ip = normalize_interface_ip(candidate.iface_ip)
@@ -1046,6 +1477,72 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp ip_preference_score(ip) do
     if String.ends_with?(ip, ".1"), do: 2, else: 1
   end
+
+  defp snmp_topology_candidate_type?(type, type_id) do
+    switch_type?(type, type_id) or router_type?(type, type_id) or
+      access_point_type?(type, type_id)
+  end
+
+  defp switch_type?(type, type_id), do: type_id == 10 or type == "switch"
+  defp router_type?(type, type_id), do: type_id == 12 or type == "router"
+
+  defp access_point_type?(type, type_id) do
+    type = normalize_string(type)
+
+    cond do
+      type in ["ap", "access_point", "access-point", "wireless_ap", "wireless"] -> true
+      type_id == 7 -> true
+      is_binary(type) and String.contains?(type, "access point") -> true
+      is_binary(type) and String.contains?(type, "wireless") -> true
+      is_binary(type) and String.ends_with?(type, " ap") -> true
+      true -> false
+    end
+  end
+
+  defp aggregation_switch?(device) when is_map(device) do
+    text =
+      [device.name, device.hostname, device.type]
+      |> Enum.map(&normalize_string/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" ")
+
+    String.contains?(text, "aggregation")
+  end
+
+  defp aggregation_switch?(_), do: false
+
+  defp metadata_value(metadata, key) when is_map(metadata) and is_binary(key) do
+    metadata
+    |> Map.get(key)
+    |> normalize_string()
+  end
+
+  defp metadata_value(_, _), do: nil
+
+  defp edge_degree(records) when is_list(records) do
+    Enum.reduce(records, %{}, fn record, acc ->
+      local_uid = normalize_string(record.local_device_id)
+      neighbor_uid = normalize_string(record.neighbor_device_id)
+
+      acc
+      |> maybe_increment_degree(local_uid)
+      |> maybe_increment_degree(neighbor_uid)
+    end)
+  end
+
+  defp maybe_increment_degree(acc, nil), do: acc
+  defp maybe_increment_degree(acc, uid), do: Map.update(acc, uid, 1, &(&1 + 1))
+
+  defp same_subnet24?(ip_a, ip_b) when is_binary(ip_a) and is_binary(ip_b) do
+    with [a1, a2, a3, _] <- String.split(ip_a, "."),
+         [b1, b2, b3, _] <- String.split(ip_b, ".") do
+      a1 == b1 and a2 == b2 and a3 == b3
+    else
+      _ -> false
+    end
+  end
+
+  defp same_subnet24?(_, _), do: false
 
   defp build_inferred_gateway_record(context, neighbor, neighbor_ip, router, lldp_anchor_uids) do
     router_name =

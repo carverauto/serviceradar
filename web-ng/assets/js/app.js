@@ -2668,6 +2668,7 @@ const Hooks = {
           upCount: 0,
           downCount: 0,
           stateHistogram: {0: 0, 1: 0, 2: 0, 3: 0},
+          sampleNode: null,
         }
         existing.sumX += node.x
         existing.sumY += node.y
@@ -2676,6 +2677,7 @@ const Hooks = {
         if (Number(node.operUp) === 1) existing.upCount += 1
         if (Number(node.operUp) === 2) existing.downCount += 1
         existing.stateHistogram[node.state] = (existing.stateHistogram[node.state] || 0) + 1
+        if (!existing.sampleNode && node.details) existing.sampleNode = node
         clusters.set(key, existing)
         clusterByNode[index] = key
       })
@@ -2689,6 +2691,7 @@ const Hooks = {
         pps: cluster.sumPps,
         operUp: cluster.upCount > 0 ? 1 : (cluster.downCount > 0 ? 2 : 0),
         label: `${this.stateDisplayName(Number(cluster.id.split(":")[1]))} Cluster`,
+        details: this.clusterDetails(cluster, "global"),
       }))
 
       const edges = this.clusterEdges(graph.edges, clusterByNode)
@@ -2712,6 +2715,7 @@ const Hooks = {
           upCount: 0,
           downCount: 0,
           stateHistogram: {0: 0, 1: 0, 2: 0, 3: 0},
+          sampleNode: null,
         }
         existing.sumX += node.x
         existing.sumY += node.y
@@ -2720,6 +2724,7 @@ const Hooks = {
         if (Number(node.operUp) === 1) existing.upCount += 1
         if (Number(node.operUp) === 2) existing.downCount += 1
         existing.stateHistogram[node.state] = (existing.stateHistogram[node.state] || 0) + 1
+        if (!existing.sampleNode && node.details) existing.sampleNode = node
         clusters.set(key, existing)
         clusterByNode[index] = key
       })
@@ -2740,11 +2745,33 @@ const Hooks = {
           pps: cluster.sumPps,
           operUp: cluster.upCount > 0 ? 1 : (cluster.downCount > 0 ? 2 : 0),
           label: `Regional Cluster ${gridX},${gridY}`,
+          details: this.clusterDetails(cluster, "regional"),
         }
       })
 
       const edges = this.clusterEdges(graph.edges, clusterByNode)
       return {shape: "regional", nodes, edges}
+    },
+    clusterDetails(cluster, scope) {
+      const sample = cluster.sampleNode?.details || {}
+      const sampleLabel = cluster.sampleNode?.label || null
+      const sampleIp = sample.ip || null
+      const sampleType = sample.type || null
+      const bucketType = scope === "global" ? "State Cluster" : "Regional Cluster"
+      return {
+        id: cluster.id,
+        ip: sampleIp || "cluster",
+        type: sampleType || bucketType,
+        model: sample.model || null,
+        vendor: sample.vendor || null,
+        asn: sample.asn || null,
+        geo_city: sample.geo_city || null,
+        geo_country: sample.geo_country || null,
+        last_seen: sample.last_seen || null,
+        cluster_scope: scope,
+        cluster_count: cluster.count,
+        sample_label: sampleLabel,
+      }
     },
     clusterEdges(edges, clusterByNode) {
       const acc = new Map()
