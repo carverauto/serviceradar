@@ -235,6 +235,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb44942e225dea1b4b477b4759fe13f1c6b8ec5521ded6e91844c09d440d010a"
 
 [[package]]
+name = "deep_causality_metric"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7220f6710dcb45d8d6071568b8030bc09a4a125d485f4cfe7509cf5b47873b7e"
+
+[[package]]
+name = "deep_causality_multivector"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3a6fec0e7ae963a7cf7808933d12c9fa819c1ec42a2718df2c657e385b837c6"
+dependencies = [
+ "deep_causality_core",
+ "deep_causality_haft",
+ "deep_causality_metric",
+ "deep_causality_num",
+ "deep_causality_tensor",
+]
+
+[[package]]
 name = "deep_causality_num"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -247,6 +266,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d07f5c08dbe0244a6139eae6802236c69d7f8cb15ca7c8b1441fd210e9f9c6ed"
 dependencies = [
  "deep_causality_num",
+]
+
+[[package]]
+name = "deep_causality_sparse"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5ef663faeccf9cf00fcaaafcd1c4a7ea8a6b87c9d68ea11fd6bc12adfefd51b"
+dependencies = [
+ "deep_causality_haft",
+ "deep_causality_num",
+]
+
+[[package]]
+name = "deep_causality_tensor"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f1ced80aecd64b66ebddadd470c7d5e4c8211f15debffc8d8d1c8018cd37ef5"
+dependencies = [
+ "deep_causality_ast",
+ "deep_causality_haft",
+ "deep_causality_num",
+]
+
+[[package]]
+name = "deep_causality_topology"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0a134f0ac21e52dd6005064bc6a93814aeaadfeafae10b1f019e684d7e8d7b5"
+dependencies = [
+ "deep_causality_haft",
+ "deep_causality_metric",
+ "deep_causality_multivector",
+ "deep_causality_num",
+ "deep_causality_rand",
+ "deep_causality_sparse",
+ "deep_causality_tensor",
 ]
 
 [[package]]
@@ -307,6 +362,9 @@ dependencies = [
  "arrow-ipc",
  "arrow-schema",
  "deep_causality",
+ "deep_causality_sparse",
+ "deep_causality_tensor",
+ "deep_causality_topology",
  "roaring",
  "rustler",
 ]

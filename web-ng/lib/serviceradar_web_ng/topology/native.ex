@@ -46,4 +46,10 @@ defmodule ServiceRadarWebNG.Topology.Native do
   """
   def build_roaring_bitmaps(_states),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Compute node layout coordinates from the Rust hypergraph projection.
+  """
+  def layout_nodes_hypergraph(_node_count, _edges),
+    do: :erlang.nif_error(:nif_not_loaded)
 end

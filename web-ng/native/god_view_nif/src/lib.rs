@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -9,8 +10,276 @@ use deep_causality::{
     BaseCausaloid, CausableGraph, Causaloid, CausaloidGraph, IdentificationValue, NumericalValue,
     PropagatingEffect,
 };
+use deep_causality_sparse::CsrMatrix;
+use deep_causality_tensor::CausalTensor;
+use deep_causality_topology::{Hypergraph, HypergraphTopology};
 use roaring::RoaringBitmap;
 use rustler::{Binary, Env, NifResult, OwnedBinary};
+
+#[derive(Debug, Clone, Default)]
+struct HypergraphProjection {
+    num_nodes: usize,
+    num_hyperedges: usize,
+    incidence_triplets: Vec<(usize, usize, i8)>,
+    dropped_edges: usize,
+}
+
+fn build_hypergraph_projection(
+    num_nodes: usize,
+    edges: &[(u16, u16, u32, u64, u64, String)],
+) -> HypergraphProjection {
+    let mut projection = HypergraphProjection {
+        num_nodes,
+        ..Default::default()
+    };
+
+    if num_nodes == 0 || edges.is_empty() {
+        return projection;
+    }
+
+    projection.incidence_triplets.reserve(edges.len() * 2);
+
+    for (source, target, _, _, _, _) in edges {
+        let src = usize::from(*source);
+        let dst = usize::from(*target);
+
+        if src >= num_nodes || dst >= num_nodes {
+            projection.dropped_edges += 1;
+            continue;
+        }
+
+        let hidx = projection.num_hyperedges;
+        projection.num_hyperedges += 1;
+        projection.incidence_triplets.push((src, hidx, 1));
+        if src != dst {
+            projection.incidence_triplets.push((dst, hidx, 1));
+        }
+    }
+
+    projection
+}
+
+fn build_hypergraph_from_projection(projection: &HypergraphProjection) -> Option<Hypergraph<f32>> {
+    if projection.num_nodes == 0 || projection.num_hyperedges == 0 {
+        return None;
+    }
+
+    let incidence = CsrMatrix::from_triplets(
+        projection.num_nodes,
+        projection.num_hyperedges,
+        &projection.incidence_triplets,
+    )
+    .ok()?;
+
+    let node_data = CausalTensor::new(vec![0.0_f32; projection.num_nodes], vec![projection.num_nodes]).ok()?;
+    Hypergraph::new(incidence, node_data, 0).ok()
+}
+
+fn build_indexed_hypergraph_projection(
+    num_nodes: usize,
+    edges: &[(u32, u32)],
+) -> HypergraphProjection {
+    let mut projection = HypergraphProjection {
+        num_nodes,
+        ..Default::default()
+    };
+
+    if num_nodes == 0 || edges.is_empty() {
+        return projection;
+    }
+
+    projection.incidence_triplets.reserve(edges.len() * 2);
+
+    for (source, target) in edges {
+        let src = *source as usize;
+        let dst = *target as usize;
+
+        if src >= num_nodes || dst >= num_nodes {
+            projection.dropped_edges += 1;
+            continue;
+        }
+
+        let hidx = projection.num_hyperedges;
+        projection.num_hyperedges += 1;
+        projection.incidence_triplets.push((src, hidx, 1));
+        if src != dst {
+            projection.incidence_triplets.push((dst, hidx, 1));
+        }
+    }
+
+    projection
+}
+
+fn build_adjacency_from_hypergraph(hypergraph: &Hypergraph<f32>) -> Vec<Vec<usize>> {
+    let node_count = hypergraph.num_nodes();
+    let mut adjacency = vec![HashSet::<usize>::new(); node_count];
+
+    for hidx in 0..hypergraph.num_hyperedges() {
+        if let Ok(nodes) = hypergraph.nodes_in_hyperedge(hidx) {
+            for &a in &nodes {
+                for &b in &nodes {
+                    if a != b {
+                        adjacency[a].insert(b);
+                    }
+                }
+            }
+        }
+    }
+
+    adjacency
+        .into_iter()
+        .map(|neighbors| {
+            let mut values: Vec<usize> = neighbors.into_iter().collect();
+            values.sort_unstable();
+            values
+        })
+        .collect()
+}
+
+fn fallback_ring_layout(node_count: usize) -> Vec<(u16, u16)> {
+    if node_count == 0 {
+        return Vec::new();
+    }
+
+    let center_x = 320.0_f64;
+    let center_y = 160.0_f64;
+    let radius = 120.0 + (node_count as f64 * 0.8);
+    let step = std::f64::consts::TAU / node_count as f64;
+
+    (0..node_count)
+        .map(|idx| {
+            let angle = step * idx as f64;
+            let x = center_x + radius * angle.cos();
+            let y = center_y + radius * angle.sin();
+            (x.round().clamp(0.0, 65535.0) as u16, y.round().clamp(0.0, 65535.0) as u16)
+        })
+        .collect()
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn layout_nodes_hypergraph(node_count: u32, edges: Vec<(u32, u32)>) -> NifResult<Vec<(u16, u16)>> {
+    let count = node_count as usize;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let projection = build_indexed_hypergraph_projection(count, &edges);
+    let Some(hypergraph) = build_hypergraph_from_projection(&projection) else {
+        return Ok(fallback_ring_layout(count));
+    };
+
+    let adjacency = build_adjacency_from_hypergraph(&hypergraph);
+    if adjacency.iter().all(|neighbors| neighbors.is_empty()) {
+        return Ok(fallback_ring_layout(count));
+    }
+
+    let mut visited = vec![false; count];
+    let mut components = Vec::<Vec<usize>>::new();
+
+    for start in 0..count {
+        if visited[start] {
+            continue;
+        }
+
+        let mut queue = VecDeque::new();
+        let mut component = Vec::new();
+        queue.push_back(start);
+        visited[start] = true;
+
+        while let Some(node) = queue.pop_front() {
+            component.push(node);
+            for &next in &adjacency[node] {
+                if !visited[next] {
+                    visited[next] = true;
+                    queue.push_back(next);
+                }
+            }
+        }
+
+        components.push(component);
+    }
+
+    components.sort_by(|a, b| b.len().cmp(&a.len()));
+
+    let mut positions = vec![(0u16, 0u16); count];
+    let comp_total = components.len().max(1);
+    let comp_step = std::f64::consts::TAU / comp_total as f64;
+    let comp_radius = 90.0_f64;
+
+    for (comp_idx, component) in components.iter().enumerate() {
+        let mut in_component = vec![false; count];
+        for &node in component {
+            in_component[node] = true;
+        }
+
+        let comp_center = if comp_total == 1 {
+            (320.0_f64, 160.0_f64)
+        } else {
+            let a = comp_step * comp_idx as f64;
+            (320.0 + comp_radius * a.cos(), 160.0 + comp_radius * a.sin())
+        };
+
+        if component.len() == 1 {
+            let node = component[0];
+            positions[node] = (comp_center.0.round() as u16, comp_center.1.round() as u16);
+            continue;
+        }
+
+        let root = component
+            .iter()
+            .copied()
+            .max_by_key(|n| adjacency[*n].len())
+            .unwrap_or(component[0]);
+
+        let mut level = HashMap::<usize, usize>::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(root);
+        level.insert(root, 0);
+
+        while let Some(node) = queue.pop_front() {
+            let curr = *level.get(&node).unwrap_or(&0);
+            for &next in &adjacency[node] {
+                if in_component[next] && !level.contains_key(&next) {
+                    level.insert(next, curr + 1);
+                    queue.push_back(next);
+                }
+            }
+        }
+
+        let mut by_level = HashMap::<usize, Vec<usize>>::new();
+        for &node in component {
+            let l = *level.get(&node).unwrap_or(&0);
+            by_level.entry(l).or_default().push(node);
+        }
+
+        let mut levels: Vec<usize> = by_level.keys().copied().collect();
+        levels.sort_unstable();
+
+        for l in levels {
+            let mut nodes = by_level.remove(&l).unwrap_or_default();
+            nodes.sort_unstable();
+
+            if l == 0 && nodes.len() == 1 {
+                let node = nodes[0];
+                positions[node] = (comp_center.0.round() as u16, comp_center.1.round() as u16);
+                continue;
+            }
+
+            let ring_r = 28.0 + l as f64 * 36.0;
+            let step = std::f64::consts::TAU / nodes.len().max(1) as f64;
+            let phase = (comp_idx as f64) * 0.6 + (l as f64) * 0.25;
+
+            for (idx, node) in nodes.into_iter().enumerate() {
+                let a = phase + step * idx as f64;
+                let x = (comp_center.0 + ring_r * a.cos()).round().clamp(0.0, 65535.0) as u16;
+                let y = (comp_center.1 + ring_r * a.sin()).round().clamp(0.0, 65535.0) as u16;
+                positions[node] = (x, y);
+            }
+        }
+    }
+
+    Ok(positions)
+}
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn encode_snapshot<'a>(
@@ -25,6 +294,8 @@ fn encode_snapshot<'a>(
     unknown_bitmap_bytes: u32,
 ) -> NifResult<Binary<'a>> {
     let total_rows = nodes.len() + edges.len();
+    let hypergraph_projection = build_hypergraph_projection(nodes.len(), &edges);
+    let hypergraph = build_hypergraph_from_projection(&hypergraph_projection);
 
     let mut row_type = Vec::<i8>::with_capacity(total_rows);
     let mut node_x = Vec::<Option<u16>>::with_capacity(total_rows);
@@ -93,6 +364,22 @@ fn encode_snapshot<'a>(
     metadata.insert(
         "unknown_bitmap_bytes".to_string(),
         unknown_bitmap_bytes.to_string(),
+    );
+    metadata.insert(
+        "topology_hypergraph_nodes".to_string(),
+        hypergraph_projection.num_nodes.to_string(),
+    );
+    metadata.insert(
+        "topology_hypergraph_edges".to_string(),
+        hypergraph_projection.num_hyperedges.to_string(),
+    );
+    metadata.insert(
+        "topology_hypergraph_dropped_edges".to_string(),
+        hypergraph_projection.dropped_edges.to_string(),
+    );
+    metadata.insert(
+        "topology_hypergraph_valid".to_string(),
+        if hypergraph.is_some() { "1" } else { "0" }.to_string(),
     );
 
     let schema = Arc::new(Schema::new_with_metadata(
@@ -336,3 +623,31 @@ fn vec_into_binary<'a>(env: Env<'a>, bytes: Vec<u8>) -> NifResult<Binary<'a>> {
 }
 
 rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn edge(source: u16, target: u16) -> (u16, u16, u32, u64, u64, String) {
+        (source, target, 0, 0, 0, String::new())
+    }
+
+    #[test]
+    fn projection_builds_incidence_for_valid_edges() {
+        let projection = build_hypergraph_projection(4, &[edge(0, 1), edge(2, 3)]);
+
+        assert_eq!(projection.num_nodes, 4);
+        assert_eq!(projection.num_hyperedges, 2);
+        assert_eq!(projection.dropped_edges, 0);
+        assert_eq!(projection.incidence_triplets.len(), 4);
+    }
+
+    #[test]
+    fn projection_drops_out_of_range_edges() {
+        let projection = build_hypergraph_projection(3, &[edge(0, 1), edge(0, 9)]);
+
+        assert_eq!(projection.num_hyperedges, 1);
+        assert_eq!(projection.dropped_edges, 1);
+        assert_eq!(projection.incidence_triplets, vec![(0, 0, 1), (1, 0, 1)]);
+    }
+}

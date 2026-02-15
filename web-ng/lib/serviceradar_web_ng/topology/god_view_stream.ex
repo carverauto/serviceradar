@@ -179,6 +179,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       node_ids = node_ids(edge_node_ids, devices)
       nodes = build_nodes(node_ids, device_by_id, interface_index, pps_by_if)
       edges = enrich_edges(pair_edges, interface_index, pps_by_if, bps_by_if)
+      nodes = apply_native_layout(nodes, edges)
       {:ok, nodes, edges}
     end
   end
@@ -268,6 +269,37 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     y = Float.round(160 + radius * :math.sin(angle), 2)
     {x, y}
   end
+
+  defp apply_native_layout(nodes, edges) when is_list(nodes) and is_list(edges) do
+    node_index =
+      nodes
+      |> Enum.with_index()
+      |> Map.new(fn {node, idx} -> {node.id, idx} end)
+
+    indexed_edges =
+      Enum.map(edges, fn edge ->
+        {Map.fetch!(node_index, edge.source), Map.fetch!(node_index, edge.target)}
+      end)
+
+    case Native.layout_nodes_hypergraph(length(nodes), indexed_edges) do
+      coordinates when is_list(coordinates) and length(coordinates) == length(nodes) ->
+        Enum.zip(nodes, coordinates)
+        |> Enum.map(fn
+          {node, {x, y}} when is_integer(x) and is_integer(y) ->
+            %{node | x: x, y: y}
+
+          {node, _} ->
+            node
+        end)
+
+      _ ->
+        nodes
+    end
+  rescue
+    _ -> nodes
+  end
+
+  defp apply_native_layout(nodes, _edges), do: nodes
 
   defp node_label(nil, id), do: id
 
