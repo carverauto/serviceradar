@@ -31,3 +31,9 @@
     - Synthetic 100k causal evaluation (`Native.evaluate_causal_states/2`): `103.23ms` for `100,000` states.
   - Successful image build artifact: `make build-web-ng` => `//docker/images:web_ng_image_amd64`.
 - [x] 5.3 Publish operator-facing docs for controls, limitations, and troubleshooting.
+
+## 6. Runtime Graph Execution Layer
+- [x] 6.1 Add a supervised runtime graph cache process in `web-ng` and source topology from AGE into that cache.
+- [x] 6.2 Move runtime cache storage into a Rust NIF resource (`runtime_graph_new/0`, `runtime_graph_replace_links/2`, `runtime_graph_get_links/1`).
+- [x] 6.3 Move AGE-to-runtime graph hydration into Rust (resource-owned ingest path) to minimize Elixir map churn.
+- [x] 6.4 Build snapshot payloads directly from the Rust runtime graph resource (single-source read path for layout, centrality, and causal evaluation).

@@ -86,7 +86,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp upsert_interface(_interface), do: :ok
 
   defp build_interface_payload(interface) do
-    device_id = link_value(interface, :device_id)
+    device_id = non_blank(link_value(interface, :device_id))
     if_name = link_value(interface, :if_name)
     if_index = link_value(interface, :if_index)
     interface_id = interface_id(device_id, if_name, if_index)
@@ -109,7 +109,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp build_link_payload(link) do
-    local_device_id = link_value(link, :local_device_id)
+    local_device_id = non_blank(link_value(link, :local_device_id))
     neighbor_device_id = neighbor_device_id(link)
     local_interface_id = local_interface_id(link, local_device_id)
     neighbor_port = neighbor_port(link)
@@ -371,10 +371,19 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp non_blank(value) when is_binary(value) do
     trimmed = String.trim(value)
-    if trimmed == "", do: nil, else: trimmed
+
+    cond do
+      trimmed == "" -> nil
+      String.downcase(trimmed) in ["nil", "null", "undefined"] -> nil
+      true -> trimmed
+    end
   end
 
-  defp non_blank(value), do: value
+  defp non_blank(value) when is_atom(value) do
+    if value in [nil, :null, :undefined], do: nil, else: Atom.to_string(value)
+  end
+
+  defp non_blank(value), do: value |> to_string() |> non_blank()
 
   defp set_prop(_node, _field, nil), do: ""
   defp set_prop(_node, _field, ""), do: ""

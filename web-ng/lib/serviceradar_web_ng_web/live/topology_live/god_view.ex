@@ -38,7 +38,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
          crust: true,
          atmosphere: true,
          security: true
-       })}
+       })
+       |> assign(:controls_collapsed, true)}
     else
       {:ok,
        socket
@@ -112,6 +113,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
      |> push_event("god_view:set_layers", %{layers: stringify_filter_keys(layers)})}
   end
 
+  def handle_event("toggle_controls_panel", _params, socket) do
+    {:noreply, update(socket, :controls_collapsed, &(!&1))}
+  end
+
+  def handle_event("set_controls_panel", %{"collapsed" => collapsed}, socket) do
+    {:noreply, assign(socket, :controls_collapsed, truthy?(collapsed))}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -128,15 +137,195 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
           <:header>
             <div class="text-sm font-semibold">Topology Surface</div>
           </:header>
-          <div
-            id="god-view-binary-stream"
-            phx-hook="GodViewBinaryStream"
-            phx-update="ignore"
-            data-url={@snapshot_url}
-            data-interval-ms="5000"
-            class="h-[70vh] min-h-[480px] w-full rounded-lg border border-base-200 bg-base-200/20"
-          >
-            loading topology surface...
+          <div class="relative">
+            <div
+              id="god-view-binary-stream"
+              phx-hook="GodViewBinaryStream"
+              phx-update="ignore"
+              data-url={@snapshot_url}
+              data-interval-ms="5000"
+              class="h-[70vh] min-h-[480px] w-full rounded-lg border border-base-200 bg-base-200/20"
+            >
+              loading topology surface...
+            </div>
+
+            <div
+              id="god-view-controls"
+              phx-hook="GodViewControlsState"
+              data-collapsed={to_string(@controls_collapsed)}
+              class="absolute right-3 top-3 z-20 pointer-events-auto"
+            >
+              <div class="w-[220px] rounded-lg border border-base-300/70 bg-base-100/85 p-2 shadow-lg backdrop-blur-md">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-[10px] uppercase tracking-wide text-base-content/60">
+                    Controls
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-ghost h-6 min-h-6 px-2"
+                    phx-click="toggle_controls_panel"
+                    title={if @controls_collapsed, do: "Expand controls", else: "Collapse controls"}
+                  >
+                    {if @controls_collapsed, do: "Expand", else: "Collapse"}
+                  </button>
+                </div>
+
+                <div :if={@controls_collapsed} class="mt-2 grid grid-cols-2 gap-1">
+                  <button
+                    type="button"
+                    class={overlay_filter_button_class(@visual_layers.atmosphere)}
+                    phx-click="toggle_visual_layer"
+                    phx-value-layer="atmosphere"
+                    title="Traffic stream"
+                  >
+                    Traffic
+                  </button>
+                  <button
+                    type="button"
+                    class={overlay_zoom_button_class(@zoom_mode == "auto")}
+                    phx-click="set_zoom_mode"
+                    phx-value-mode="auto"
+                    title="Auto Focus"
+                  >
+                    Auto
+                  </button>
+                </div>
+
+                <div :if={!@controls_collapsed} class="space-y-2 mt-2">
+                  <div>
+                    <div class="text-[10px] uppercase tracking-wide text-base-content/60 mb-1">
+                      View
+                    </div>
+                    <div class="join w-full">
+                      <button
+                        type="button"
+                        class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "auto")}"}
+                        phx-click="set_zoom_mode"
+                        phx-value-mode="auto"
+                        title="Auto Focus"
+                      >
+                        Auto
+                      </button>
+                      <button
+                        type="button"
+                        class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "global")}"}
+                        phx-click="set_zoom_mode"
+                        phx-value-mode="global"
+                        title="World Aggregate"
+                      >
+                        World
+                      </button>
+                      <button
+                        type="button"
+                        class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "regional")}"}
+                        phx-click="set_zoom_mode"
+                        phx-value-mode="regional"
+                        title="Region Cells"
+                      >
+                        Region
+                      </button>
+                      <button
+                        type="button"
+                        class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "local")}"}
+                        phx-click="set_zoom_mode"
+                        phx-value-mode="local"
+                        title="Device Detail"
+                      >
+                        Detail
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-[10px] uppercase tracking-wide text-base-content/60 mb-1">
+                      Health
+                    </div>
+                    <div class="grid grid-cols-2 gap-1">
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@causal_filters.root_cause)}
+                        phx-click="toggle_causal_filter"
+                        phx-value-state="root_cause"
+                        title="Root Cause Nodes"
+                      >
+                        Root
+                      </button>
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@causal_filters.affected)}
+                        phx-click="toggle_causal_filter"
+                        phx-value-state="affected"
+                        title="Affected Nodes"
+                      >
+                        Impact
+                      </button>
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@causal_filters.healthy)}
+                        phx-click="toggle_causal_filter"
+                        phx-value-state="healthy"
+                        title="Healthy Nodes"
+                      >
+                        Healthy
+                      </button>
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@causal_filters.unknown)}
+                        phx-click="toggle_causal_filter"
+                        phx-value-state="unknown"
+                        title="Unknown State Nodes"
+                      >
+                        Unknown
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-[10px] uppercase tracking-wide text-base-content/60 mb-1">
+                      Layers
+                    </div>
+                    <div class="grid grid-cols-2 gap-1">
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@visual_layers.mantle)}
+                        phx-click="toggle_visual_layer"
+                        phx-value-layer="mantle"
+                        title="Link Lines"
+                      >
+                        Links
+                      </button>
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@visual_layers.crust)}
+                        phx-click="toggle_visual_layer"
+                        phx-value-layer="crust"
+                        title="Arc Glow"
+                      >
+                        Arcs
+                      </button>
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@visual_layers.atmosphere)}
+                        phx-click="toggle_visual_layer"
+                        phx-value-layer="atmosphere"
+                        title="Traffic stream"
+                      >
+                        Traffic
+                      </button>
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@visual_layers.security)}
+                        phx-click="toggle_visual_layer"
+                        phx-value-layer="security"
+                        title="Security Pulse"
+                      >
+                        Pulse
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </.ui_panel>
 
@@ -206,126 +395,6 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
             </div>
           </div>
         </.ui_panel>
-
-        <.ui_panel>
-          <:header>
-            <div class="text-sm font-semibold">Semantic Zoom</div>
-          </:header>
-          <div class="flex flex-wrap gap-2">
-            <button
-              type="button"
-              class={zoom_button_class(@zoom_mode == "auto")}
-              phx-click="set_zoom_mode"
-              phx-value-mode="auto"
-            >
-              Auto
-            </button>
-            <button
-              type="button"
-              class={zoom_button_class(@zoom_mode == "global")}
-              phx-click="set_zoom_mode"
-              phx-value-mode="global"
-            >
-              Global Collapse
-            </button>
-            <button
-              type="button"
-              class={zoom_button_class(@zoom_mode == "regional")}
-              phx-click="set_zoom_mode"
-              phx-value-mode="regional"
-            >
-              Regional Clusters
-            </button>
-            <button
-              type="button"
-              class={zoom_button_class(@zoom_mode == "local")}
-              phx-click="set_zoom_mode"
-              phx-value-mode="local"
-            >
-              Local Expanded
-            </button>
-          </div>
-        </.ui_panel>
-
-        <.ui_panel>
-          <:header>
-            <div class="text-sm font-semibold">Causal Filters</div>
-          </:header>
-          <div class="flex flex-wrap gap-2">
-            <button
-              type="button"
-              class={filter_button_class(@causal_filters.root_cause)}
-              phx-click="toggle_causal_filter"
-              phx-value-state="root_cause"
-            >
-              Root Cause
-            </button>
-            <button
-              type="button"
-              class={filter_button_class(@causal_filters.affected)}
-              phx-click="toggle_causal_filter"
-              phx-value-state="affected"
-            >
-              Affected
-            </button>
-            <button
-              type="button"
-              class={filter_button_class(@causal_filters.healthy)}
-              phx-click="toggle_causal_filter"
-              phx-value-state="healthy"
-            >
-              Healthy
-            </button>
-            <button
-              type="button"
-              class={filter_button_class(@causal_filters.unknown)}
-              phx-click="toggle_causal_filter"
-              phx-value-state="unknown"
-            >
-              Unknown
-            </button>
-          </div>
-        </.ui_panel>
-
-        <.ui_panel>
-          <:header>
-            <div class="text-sm font-semibold">Visual Layers</div>
-          </:header>
-          <div class="flex flex-wrap gap-2">
-            <button
-              type="button"
-              class={filter_button_class(@visual_layers.mantle)}
-              phx-click="toggle_visual_layer"
-              phx-value-layer="mantle"
-            >
-              Mantle
-            </button>
-            <button
-              type="button"
-              class={filter_button_class(@visual_layers.crust)}
-              phx-click="toggle_visual_layer"
-              phx-value-layer="crust"
-            >
-              Crust
-            </button>
-            <button
-              type="button"
-              class={filter_button_class(@visual_layers.atmosphere)}
-              phx-click="toggle_visual_layer"
-              phx-value-layer="atmosphere"
-            >
-              Atmosphere
-            </button>
-            <button
-              type="button"
-              class={filter_button_class(@visual_layers.security)}
-              phx-click="toggle_visual_layer"
-              phx-value-layer="security"
-            >
-              Security
-            </button>
-          </div>
-        </.ui_panel>
       </div>
     </Layouts.app>
     """
@@ -335,10 +404,10 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
     Map.new(filters, fn {k, v} -> {Atom.to_string(k), v} end)
   end
 
-  defp filter_button_class(true), do: "btn btn-sm btn-primary"
-  defp filter_button_class(false), do: "btn btn-sm btn-ghost"
-  defp zoom_button_class(true), do: "btn btn-sm btn-secondary"
-  defp zoom_button_class(false), do: "btn btn-sm btn-ghost"
+  defp overlay_filter_button_class(true), do: "btn btn-xs btn-primary h-7 min-h-7"
+  defp overlay_filter_button_class(false), do: "btn btn-xs btn-ghost h-7 min-h-7"
+  defp overlay_zoom_button_class(true), do: "btn btn-xs btn-secondary h-7 min-h-7"
+  defp overlay_zoom_button_class(false), do: "btn btn-xs btn-ghost h-7 min-h-7"
 
   defp format_bitmap_meta(nil), do: "—"
 
@@ -367,4 +436,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   defp normalize_zoom_mode("regional"), do: "regional"
   defp normalize_zoom_mode("local"), do: "local"
   defp normalize_zoom_mode(_), do: "auto"
+
+  defp truthy?(value) when is_boolean(value), do: value
+  defp truthy?(value) when value in ["true", "1", 1, :true], do: true
+  defp truthy?(_), do: false
 end

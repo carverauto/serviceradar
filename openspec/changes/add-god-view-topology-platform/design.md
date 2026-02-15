@@ -42,9 +42,40 @@ Issue #2834 proposes a high-scale, causality-aware topology experience that unif
 - Decision: Add a Wasm client compute layer for Arrow buffer operations (filtering/traversal/interpolation), keeping per-node operations out of JavaScript where possible.
   - Alternatives considered: JS-only client compute over Arrow typed arrays.
   - Rationale: reduces GC pressure and frame-time jitter at 100k+ scale while preserving interactivity during heavy updates.
+- Decision: Run DeepCausality/UltraGraph analytics on a cloned graph that is frozen for read-only algorithms, while the live reference graph remains mutable.
+  - Alternatives considered: freezing the single live graph behind a mutex.
+  - Rationale: clone-and-freeze avoids blocking ingestion/mutation paths during analysis windows and prevents dropped update operations.
 - Decision: Define explicit "structural reshape" operations that trigger backend recomputation.
   - Alternatives considered: making all reshapes purely client-driven.
   - Rationale: layout/collapse semantics for very large graphs require server-owned topology math.
+
+## UltraGraph Analytics Profile (Phase 1)
+- Runtime model:
+  - Maintain a continuously mutating reference `UltraGraph` for topology ingestion.
+  - On analytics tick, clone the reference graph, `freeze()` the clone, run analytical algorithms, publish derived metrics, and drop the clone.
+  - Never freeze the live reference graph in the hot path.
+- Supported algorithm set (initial):
+  - `betweenness_centrality()` for mission-critical bottleneck ranking and blast-radius amplification weighting.
+  - `strongly_connected_components()` for loop domains / fault-island identification.
+  - `has_cycle()` and `find_cycle()` for control-plane loop diagnostics.
+  - `shortest_path()` / `shortest_path_len()` / `shortest_weighted_path()` for dependency traversal and path impact narratives.
+  - `is_reachable()` for directional dependency assertions.
+  - `topological_sort()` for DAG-only dependency ordering checks.
+- Operational interpretation:
+  - A node with extreme `betweenness_centrality` MUST be surfaced as a critical transit bottleneck.
+  - If that node transitions to down/degraded, the causal overlay MUST elevate incident severity and expected blast radius accordingly.
+
+## Runtime Graph Layer (Phase 1.1)
+- AGE remains canonical storage and mutation source.
+- `web-ng` runs a supervised runtime graph cache process that periodically hydrates topology from AGE.
+- Runtime cache storage is backed by a Rust NIF resource to reduce BEAM heap churn from repeated large link projections.
+- Current implementation:
+  - Elixir performs AGE query only and forwards raw graph rows.
+  - Rust resource ingests/normalizes AGE rows (`runtime_graph_ingest_rows/2`), owns cached link rows, and serves read access to snapshot builders.
+- Completed in Phase 1.1:
+  - Hydration and snapshot-build read path run through Rust resource-owned graph structures for topology indexing/normalization.
+  - Layout + causal graph topology resolve via resource-backed indexed edge lookup (`runtime_graph_indexed_edges`).
+  - Snapshot payload encoding resolves edge topology from the runtime graph resource (`runtime_graph_encode_snapshot`) via shared Rust Arrow encode internals.
 
 ## Snapshot Contract (Schema Version 1)
 - Transport:
@@ -98,11 +129,11 @@ Issue #2834 proposes a high-scale, causality-aware topology experience that unif
 
 ## Risks / Trade-offs
 - Rust NIF and Arrow integration adds complexity and operational debugging overhead.
-  - Mitigation: schema versioning, decode validation tests, and fallback payload path.
+  - Mitigation: schema versioning, decode validation tests, and strict resource-path contract checks.
 - Large graph updates may exceed frame/update budgets on lower-end clients.
   - Mitigation: adaptive level-of-detail and bounded update cadence.
 - Wasm integration increases frontend build/runtime complexity.
-  - Mitigation: phase rollout (JS compatibility path first), strict perf gates, and fallback strategy.
+  - Mitigation: phase rollout with strict perf gates and explicit failure telemetry.
 - Causal attribution confidence may vary by telemetry completeness.
   - Mitigation: expose confidence and evidence fields in operator UX.
 

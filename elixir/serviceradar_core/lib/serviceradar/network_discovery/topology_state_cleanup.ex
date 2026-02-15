@@ -14,19 +14,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanup do
   @type cleanup_stats :: %{
           local_device_id_updates: non_neg_integer(),
           neighbor_device_id_updates: non_neg_integer(),
+          invalid_local_device_ids_cleared: non_neg_integer(),
+          invalid_neighbor_device_ids_cleared: non_neg_integer(),
           total_updates: non_neg_integer()
         }
 
   @spec canonicalize_deleted_device_links() :: {:ok, cleanup_stats()} | {:error, term()}
   def canonicalize_deleted_device_links do
     with {:ok, local_count} <- remap_deleted_uid_column(:local_device_id),
-         {:ok, neighbor_count} <- remap_deleted_uid_column(:neighbor_device_id) do
-      total = local_count + neighbor_count
+         {:ok, neighbor_count} <- remap_deleted_uid_column(:neighbor_device_id),
+         {:ok, invalid_local_count} <- clear_invalid_id_literals(:local_device_id),
+         {:ok, invalid_neighbor_count} <- clear_invalid_id_literals(:neighbor_device_id) do
+      total = local_count + neighbor_count + invalid_local_count + invalid_neighbor_count
 
       {:ok,
        %{
          local_device_id_updates: local_count,
          neighbor_device_id_updates: neighbor_count,
+         invalid_local_device_ids_cleared: invalid_local_count,
+         invalid_neighbor_device_ids_cleared: invalid_neighbor_count,
          total_updates: total
        }}
     end
@@ -84,6 +90,26 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanup do
     """
 
     execute_update(sql, :neighbor_device_id)
+  end
+
+  defp clear_invalid_id_literals(:local_device_id) do
+    sql = """
+    UPDATE platform.mapper_topology_links
+    SET local_device_id = NULL
+    WHERE LOWER(BTRIM(COALESCE(local_device_id, ''))) IN ('nil', 'null', 'undefined')
+    """
+
+    execute_update(sql, :local_device_id_invalid_literals)
+  end
+
+  defp clear_invalid_id_literals(:neighbor_device_id) do
+    sql = """
+    UPDATE platform.mapper_topology_links
+    SET neighbor_device_id = NULL
+    WHERE LOWER(BTRIM(COALESCE(neighbor_device_id, ''))) IN ('nil', 'null', 'undefined')
+    """
+
+    execute_update(sql, :neighbor_device_id_invalid_literals)
   end
 
   defp execute_update(sql, label) do

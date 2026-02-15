@@ -2346,9 +2346,27 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp get_string(update, keys) do
     case get_value(update, keys) do
-      value when is_binary(value) -> value
-      value when is_atom(value) and not is_nil(value) -> Atom.to_string(value)
-      _ -> nil
+      value when is_binary(value) ->
+        normalize_optional_string(value)
+
+      value when is_atom(value) and value in [nil, :null, :undefined, :unknown, :none] ->
+        nil
+
+      value when is_atom(value) and not is_nil(value) ->
+        normalize_optional_string(Atom.to_string(value))
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    if trimmed == "" or String.downcase(trimmed) in ["nil", "null", "undefined"] do
+      nil
+    else
+      trimmed
     end
   end
 

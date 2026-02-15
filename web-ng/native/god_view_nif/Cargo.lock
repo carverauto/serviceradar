@@ -368,6 +368,7 @@ dependencies = [
  "roaring",
  "rustler",
  "serde_json",
+ "ultragraph",
 ]
 
 [[package]]

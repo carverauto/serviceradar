@@ -58,4 +58,48 @@ defmodule ServiceRadarWebNG.Topology.Native do
   """
   def enrich_edges_telemetry(_edges, _interfaces, _pps_metrics, _bps_metrics),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Allocate a long-lived Rust runtime graph resource used by God-View.
+  """
+  def runtime_graph_new, do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Replace runtime graph links in-place in the Rust resource.
+  """
+  def runtime_graph_replace_links(_graph_ref, _links),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Read runtime graph links from the Rust resource.
+  """
+  def runtime_graph_get_links(_graph_ref), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Ingest raw AGE topology rows into the Rust runtime graph resource.
+  """
+  def runtime_graph_ingest_rows(_graph_ref, _rows), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Resolve canonical indexed edges directly from the Rust runtime graph resource.
+  """
+  def runtime_graph_indexed_edges(_graph_ref, _node_ids, _allowed_edges),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Encode snapshot payload directly from the Rust runtime graph resource edge set.
+  """
+  def runtime_graph_encode_snapshot(
+        _graph_ref,
+        _schema_version,
+        _revision,
+        _node_ids,
+        _nodes,
+        _edge_telemetry,
+        _root_bitmap_bytes,
+        _affected_bitmap_bytes,
+        _healthy_bitmap_bytes,
+        _unknown_bitmap_bytes
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
 end

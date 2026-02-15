@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.Repo
+  alias ServiceRadarWebNG.Graph, as: AgeGraph
+  alias ServiceRadarWebNG.Topology.RuntimeGraph
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNG.Topology.Native
 
@@ -42,7 +44,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
            bitmap_metadata: projection.bitmap_metadata
          },
          :ok <- GodViewSnapshot.validate(snapshot),
-         payload <- encode_payload(snapshot) do
+         {:ok, payload} <- encode_payload(snapshot) do
       build_ms = duration_ms(started_at)
 
       if build_ms > budget_ms do
@@ -94,23 +96,26 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         }
       end)
 
-    Native.encode_snapshot(
-      snapshot.schema_version,
-      snapshot.revision,
-      nodes,
-      edges,
-      byte_size(root),
-      byte_size(affected),
-      byte_size(healthy),
-      byte_size(unknown)
-    )
+    {:ok,
+     Native.encode_snapshot(
+       snapshot.schema_version,
+       snapshot.revision,
+       nodes,
+       edges,
+       byte_size(root),
+       byte_size(affected),
+       byte_size(healthy),
+       byte_size(unknown)
+     )}
   end
 
   defp build_projection(actor) do
     with {:ok, links} <- fetch_topology_links(actor),
          {:ok, pairs} <- unique_pairs(links),
-         {:ok, nodes, edges} <- build_nodes_and_edges(actor, pairs) do
-      nodes = apply_causal_states(nodes, edges)
+         {:ok, nodes, edges} <- build_nodes_and_edges(actor, pairs),
+         {:ok, indexed_edges} <- index_edges(nodes, edges) do
+      nodes = apply_native_layout_with_indexed_edges(nodes, indexed_edges)
+      nodes = apply_causal_states(nodes, indexed_edges)
       {causal_bitmaps, bitmap_metadata} = build_bitmaps(nodes)
 
       {:ok,
@@ -124,6 +129,22 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp fetch_topology_links(actor) do
+    with {:ok, links} <- RuntimeGraph.get_links(),
+         true <- is_list(links) and links != [] do
+      {:ok, links}
+    else
+      _ ->
+        case fetch_topology_links_from_graph() do
+          {:ok, links} when is_list(links) and links != [] ->
+            {:ok, links}
+
+          _ ->
+            fetch_topology_links_from_table(actor)
+        end
+    end
+  end
+
+  defp fetch_topology_links_from_table(actor) do
     query =
       TopologyLink
       |> Ash.Query.for_read(:read, %{}, actor: actor)
@@ -135,6 +156,77 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       {:ok, page} -> {:ok, page_results(page)}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp fetch_topology_links_from_graph do
+    cutoff =
+      DateTime.utc_now()
+      |> DateTime.add(-topology_stale_minutes() * 60, :second)
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
+
+    escaped_cutoff = AgeGraph.escape(cutoff)
+
+    cypher = """
+    MATCH (a:Device)-[:HAS_INTERFACE]->(ai:Interface)-[r:CONNECTS_TO]->(bi:Interface)<-[:HAS_INTERFACE]-(b:Device)
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND coalesce(r.confidence_tier, 'low') IN ['high', 'medium']
+      AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{escaped_cutoff}')
+    RETURN {
+      local_device_id: ai.device_id,
+      local_device_ip: a.ip,
+      local_if_name: ai.name,
+      local_if_index: ai.ifindex,
+      neighbor_device_id: bi.device_id,
+      neighbor_mgmt_addr: b.ip,
+      neighbor_system_name: b.name,
+      protocol: coalesce(r.protocol, r.source, 'unknown'),
+      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+      metadata: {
+        source: coalesce(r.source, ''),
+        inference: coalesce(r.confidence_reason, ''),
+        confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+        confidence_score: coalesce(r.confidence_score, 0)
+      }
+    }
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
+    LIMIT #{@max_link_rows}
+    """
+
+    case AgeGraph.query(cypher) do
+      {:ok, rows} when is_list(rows) ->
+        {:ok, Enum.map(rows, &normalize_graph_link/1)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    error -> {:error, error}
+  end
+
+  defp normalize_graph_link(%{} = row) do
+    %{
+      local_device_id: map_fetch(row, :local_device_id),
+      local_device_ip: map_fetch(row, :local_device_ip),
+      local_if_name: map_fetch(row, :local_if_name),
+      local_if_index: map_fetch(row, :local_if_index),
+      neighbor_device_id: map_fetch(row, :neighbor_device_id),
+      neighbor_mgmt_addr: map_fetch(row, :neighbor_mgmt_addr),
+      neighbor_system_name: map_fetch(row, :neighbor_system_name),
+      protocol: map_fetch(row, :protocol),
+      confidence_tier: map_fetch(row, :confidence_tier),
+      metadata: map_fetch(row, :metadata) || %{}
+    }
+  end
+
+  defp normalize_graph_link(_), do: %{}
+
+  defp map_fetch(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp topology_stale_minutes do
+    Application.get_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 180)
   end
 
   defp unique_pairs(links) when is_list(links) do
@@ -197,7 +289,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       edges = canonical_edges |> dedupe_edges()
 
       with {:ok, edges} <- enrich_edges_via_native(edges, interfaces, pps_by_if, bps_by_if) do
-        nodes = apply_native_layout(nodes, edges)
         {:ok, nodes, edges}
       end
     end
@@ -497,36 +588,45 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     {x, y}
   end
 
-  defp apply_native_layout(nodes, edges) when is_list(nodes) and is_list(edges) do
+  defp apply_native_layout_with_indexed_edges(nodes, indexed_edges)
+       when is_list(nodes) and is_list(indexed_edges) do
+    if indexed_edges == [] do
+      nodes
+    else
+      case Native.layout_nodes_hypergraph(length(nodes), indexed_edges) do
+        coordinates when is_list(coordinates) and length(coordinates) == length(nodes) ->
+          Enum.zip(nodes, coordinates)
+          |> Enum.map(fn
+            {node, {x, y}} when is_integer(x) and is_integer(y) ->
+              %{node | x: x, y: y}
+
+            {node, _} ->
+              node
+          end)
+
+        _ ->
+          nodes
+      end
+    end
+  end
+
+  defp apply_native_layout_with_indexed_edges(nodes, _), do: nodes
+
+  defp index_edges(nodes, edges) when is_list(nodes) and is_list(edges) do
     node_index =
       nodes
       |> Enum.with_index()
       |> Map.new(fn {node, idx} -> {node.id, idx} end)
 
-    indexed_edges =
-      Enum.map(edges, fn edge ->
-        {Map.fetch!(node_index, edge.source), Map.fetch!(node_index, edge.target)}
-      end)
-
-    case Native.layout_nodes_hypergraph(length(nodes), indexed_edges) do
-      coordinates when is_list(coordinates) and length(coordinates) == length(nodes) ->
-        Enum.zip(nodes, coordinates)
-        |> Enum.map(fn
-          {node, {x, y}} when is_integer(x) and is_integer(y) ->
-            %{node | x: x, y: y}
-
-          {node, _} ->
-            node
-        end)
-
-      _ ->
-        nodes
-    end
+    {:ok,
+     Enum.map(edges, fn edge ->
+       {Map.fetch!(node_index, edge.source), Map.fetch!(node_index, edge.target)}
+     end)}
   rescue
-    _ -> nodes
+    error -> {:error, error}
   end
 
-  defp apply_native_layout(nodes, _edges), do: nodes
+  defp index_edges(_nodes, _edges), do: {:error, :invalid_nodes}
 
   defp node_label(nil, id), do: id
 
@@ -1124,12 +1224,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     _ -> nil
   end
 
-  defp apply_causal_states(nodes, edges) do
-    node_index =
-      nodes
-      |> Enum.with_index()
-      |> Map.new(fn {node, idx} -> {node.id, idx} end)
-
+  defp apply_causal_states(nodes, indexed_edges) when is_list(nodes) and is_list(indexed_edges) do
     signals =
       Enum.map(nodes, fn node ->
         case Map.get(node, :health_signal, :unknown) do
@@ -1137,11 +1232,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           :unhealthy -> 1
           _ -> 2
         end
-      end)
-
-    indexed_edges =
-      Enum.map(edges, fn edge ->
-        {Map.fetch!(node_index, edge.source), Map.fetch!(node_index, edge.target)}
       end)
 
     states = Native.evaluate_causal_states(signals, indexed_edges)
@@ -1153,6 +1243,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       |> Map.delete(:health_signal)
     end)
   end
+
+  defp apply_causal_states(nodes, _), do: nodes
 
   defp build_bitmaps(nodes) do
     states = Enum.map(nodes, &Map.get(&1, :state, 3))

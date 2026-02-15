@@ -1966,6 +1966,33 @@ const Hooks = {
     }
   },
 
+  GodViewControlsState: {
+    storageKey: "sr:god_view:controls_collapsed",
+    mounted() {
+      this.syncFromStorage()
+    },
+    updated() {
+      this.persistCurrentState()
+    },
+    syncFromStorage() {
+      const stored = window.localStorage?.getItem(this.storageKey)
+      if (stored !== "true" && stored !== "false") {
+        this.persistCurrentState()
+        return
+      }
+
+      const domCollapsed = this.el.dataset.collapsed === "true"
+      const desired = stored === "true"
+      if (desired !== domCollapsed) {
+        this.pushEvent("set_controls_panel", {collapsed: desired})
+      }
+    },
+    persistCurrentState() {
+      const collapsed = this.el.dataset.collapsed === "true"
+      window.localStorage?.setItem(this.storageKey, collapsed ? "true" : "false")
+    },
+  },
+
   GodViewBinaryStream: {
     mounted() {
       this.canvas = null
@@ -1979,6 +2006,8 @@ const Hooks = {
       this.wasmEngine = null
       this.wasmReady = false
       this.selectedNodeIndex = null
+      this.hoveredEdgeKey = null
+      this.selectedEdgeKey = null
       this.pendingAnimationFrame = null
       this.zoomMode = "local"
       this.zoomTier = "local"
@@ -2044,7 +2073,6 @@ const Hooks = {
       this.startAnimationLoop = this.startAnimationLoop.bind(this)
       this.stopAnimationLoop = this.stopAnimationLoop.bind(this)
       this.buildPacketFlowInstances = this.buildPacketFlowInstances.bind(this)
-      this.packetParticlePosition = this.packetParticlePosition.bind(this)
       this.prepareGraphLayout = this.prepareGraphLayout.bind(this)
       this.shouldUseGeoLayout = this.shouldUseGeoLayout.bind(this)
       this.projectGeoLayout = this.projectGeoLayout.bind(this)
@@ -2052,6 +2080,7 @@ const Hooks = {
       this.renderSelectionDetails = this.renderSelectionDetails.bind(this)
       this.geoGridData = this.geoGridData.bind(this)
       this.getNodeTooltip = this.getNodeTooltip.bind(this)
+      this.handleHover = this.handleHover.bind(this)
       this.handleWheelZoom = this.handleWheelZoom.bind(this)
       this.handlePanStart = this.handlePanStart.bind(this)
       this.handlePanMove = this.handlePanMove.bind(this)
@@ -2575,7 +2604,7 @@ const Hooks = {
 
       this.details = document.createElement("div")
       this.details.className =
-        "absolute right-2 top-2 max-w-sm rounded border border-primary/30 bg-base-100/90 px-3 py-2 text-xs shadow-xl hidden"
+        "absolute left-2 top-2 z-30 max-w-sm whitespace-pre-line rounded border border-primary/30 bg-base-100/95 px-3 py-2 text-xs shadow-xl hidden"
       this.details.textContent = "Select a node for details"
 
       this.el.appendChild(this.canvas)
@@ -2624,6 +2653,7 @@ const Hooks = {
             blendFunc: [770, 771],
           },
           getTooltip: this.getNodeTooltip,
+          onHover: this.handleHover,
           onClick: this.handlePick,
           onViewStateChange: ({viewState}) => {
             this.viewState = viewState
@@ -2658,6 +2688,7 @@ const Hooks = {
             blendFunc: [770, 771],
           },
           getTooltip: this.getNodeTooltip,
+          onHover: this.handleHover,
           onClick: this.handlePick,
           onViewStateChange: ({viewState}) => {
             this.viewState = viewState
@@ -3062,7 +3093,12 @@ const Hooks = {
       return lines
     },
     getNodeTooltip({object, layer}) {
-      if (!object || layer?.id !== "god-view-nodes") return null
+      if (!object) return null
+      if (layer?.id === "god-view-edges-mantle" || layer?.id === "god-view-edges-crust") {
+        const connection = object.connectionLabel || "LINK"
+        return {text: `${connection}\n${this.formatPps(object.flowPps || 0)}\n${this.formatCapacity(object.capacityBps || 0)}`}
+      }
+      if (layer?.id !== "god-view-nodes") return null
       const d = object?.details || {}
       const geo = [d.geo_city, d.geo_country].filter(Boolean).join(", ")
       return {
@@ -3070,6 +3106,24 @@ const Hooks = {
           `${object.label}\n${d.ip || "ip: unknown"}\n${d.type || "type: unknown"}` +
           `${geo ? `\n${geo}` : ""}${d.asn ? `\nASN ${d.asn}` : ""}`,
       }
+    },
+    edgeLayerId(layerId) {
+      return layerId === "god-view-edges-mantle" || layerId === "god-view-edges-crust"
+    },
+    handleHover(info) {
+      const layerId = info?.layer?.id || ""
+      const nextKey =
+        this.edgeLayerId(layerId) && typeof info?.object?.interactionKey === "string"
+          ? info.object.interactionKey
+          : null
+      if (this.hoveredEdgeKey === nextKey) return
+      this.hoveredEdgeKey = nextKey
+      if (this.lastGraph) this.renderGraph(this.lastGraph)
+    },
+    edgeIsFocused(edge) {
+      if (!edge) return false
+      const key = edge.interactionKey
+      return key != null && (key === this.hoveredEdgeKey || key === this.selectedEdgeKey)
     },
     renderSelectionDetails(node) {
       if (!this.details) return
@@ -3094,19 +3148,36 @@ const Hooks = {
       this.details.classList.remove("hidden")
     },
     handlePick(info) {
-      const tier = this.zoomMode === "auto" ? this.zoomTier : this.zoomMode
-      if (tier !== "local") return
-
-      const picked = info?.object?.index
-      if (Number.isInteger(picked)) {
-        this.selectedNodeIndex = this.selectedNodeIndex === picked ? null : picked
+      const layerId = info?.layer?.id || ""
+      if (this.edgeLayerId(layerId)) {
+        const key = typeof info?.object?.interactionKey === "string" ? info.object.interactionKey : null
+        if (!key) return
+        this.selectedEdgeKey = this.selectedEdgeKey === key ? null : key
         if (this.lastGraph) this.renderGraph(this.lastGraph)
         return
       }
 
-      if (info && info.picked === false && this.selectedNodeIndex !== null) {
-        this.selectedNodeIndex = null
-        if (this.lastGraph) this.renderGraph(this.lastGraph)
+      const tier = this.zoomMode === "auto" ? this.zoomTier : this.zoomMode
+      if (tier === "local") {
+        const picked = info?.object?.index
+        if (Number.isInteger(picked)) {
+          this.selectedNodeIndex = this.selectedNodeIndex === picked ? null : picked
+          if (this.lastGraph) this.renderGraph(this.lastGraph)
+          return
+        }
+      }
+
+      if (info && info.picked === false) {
+        let changed = false
+        if (this.selectedNodeIndex !== null) {
+          this.selectedNodeIndex = null
+          changed = true
+        }
+        if (this.selectedEdgeKey !== null) {
+          this.selectedEdgeKey = null
+          changed = true
+        }
+        if (changed && this.lastGraph) this.renderGraph(this.lastGraph)
       }
     },
     renderGraph(graph) {
@@ -3134,7 +3205,7 @@ const Hooks = {
       const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
 
       const edgeData = effective.edges
-        .map((edge) => {
+        .map((edge, edgeIndex) => {
           const src =
             effective.shape === "local"
               ? visibleNodes[edge.source]
@@ -3149,6 +3220,9 @@ const Hooks = {
               ? String(edge.label || `${src.label || src.id || "node"} -> ${dst.label || dst.id || "node"}`)
               : `${this.formatPps(edge.flowPps || 0)} / ${this.formatCapacity(edge.capacityBps || 0)}`
           const connectionLabel = this.connectionKindFromLabel(label)
+          const sourceId = effective.shape === "local" ? src.id : src.id || edge.sourceCluster || "src"
+          const targetId = effective.shape === "local" ? dst.id : dst.id || edge.targetCluster || "dst"
+          const rawEdgeId = edge.id || edge.edge_id || edge.label || edge.type || `${sourceId}:${targetId}:${edgeIndex}`
           return {
             sourcePosition: [src.x, src.y, 0],
             targetPosition: [dst.x, dst.y, 0],
@@ -3159,9 +3233,13 @@ const Hooks = {
             midpoint: [(src.x + dst.x) / 2, (src.y + dst.y) / 2, 0],
             label: label.length > 56 ? `${label.slice(0, 56)}...` : label,
             connectionLabel,
+            interactionKey: `${effective.shape}:${rawEdgeId}`,
           }
         })
         .filter(Boolean)
+      const edgeKeys = new Set(edgeData.map((edge) => edge.interactionKey))
+      if (this.hoveredEdgeKey && !edgeKeys.has(this.hoveredEdgeKey)) this.hoveredEdgeKey = null
+      if (this.selectedEdgeKey && !edgeKeys.has(this.selectedEdgeKey)) this.selectedEdgeKey = null
       const edgeLabelData = this.selectEdgeLabels(edgeData, effective.shape)
 
       const nodeData = visibleNodes
@@ -3198,9 +3276,10 @@ const Hooks = {
               getSourcePosition: (d) => d.sourcePosition,
               getTargetPosition: (d) => d.targetPosition,
               getColor: (d) => this.edgeTelemetryColor(d.flowBps, d.capacityBps, d.flowPps, false),
-              getWidth: (d) => this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps),
+              getWidth: (d) => this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) + (this.edgeIsFocused(d) ? 1.25 : 0),
               widthUnits: "pixels",
               widthMinPixels: 1,
+              pickable: true,
               parameters: {
                 blend: true,
                 blendFunc: [770, 1, 1, 1],
@@ -3220,10 +3299,14 @@ const Hooks = {
                 getTargetPosition: (d) => [d.targetPosition[0], d.targetPosition[1], 8],
                 getSourceColor: (d) => this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source,
                 getTargetColor: (d) => this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).target,
-                getWidth: (d) => Math.max(2, Math.min(this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * 0.85, 12)),
+                getWidth: (d) => {
+                  const base = Math.max(2, Math.min(this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * 0.85, 12))
+                  return this.edgeIsFocused(d) ? Math.min(14, base + 1.1) : base
+                },
                 widthUnits: "pixels",
                 greatCircle: false,
                 getTilt: effective.shape === "local" ? 16 : 24,
+                pickable: true,
                 parameters: {
                   blend: true,
                   blendFunc: [770, 1, 1, 1],
@@ -3233,22 +3316,16 @@ const Hooks = {
           : []
       const atmosphereLayers = this.layers.atmosphere
         ? [
-            new ScatterplotLayer({
+            new PacketFlowLayer({
               id: "god-view-atmosphere-particles",
               data: packetFlowData,
               coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
               pickable: false,
-              getPosition: (d) => this.packetParticlePosition(d, this.animationPhase),
-              getRadius: (d) => Number(d.size || 2.4),
-              radiusUnits: "pixels",
-              radiusMinPixels: 1,
-              radiusMaxPixels: 8,
-              stroked: false,
-              filled: true,
-              getFillColor: (d) => d.color,
+              time: this.animationPhase,
               parameters: {
                 blend: true,
                 blendFunc: [770, 1, 1, 1],
+                depthTest: false,
               },
             }),
           ]
@@ -3666,14 +3743,22 @@ const Hooks = {
     },
     selectEdgeLabels(edgeData, shape) {
       if (!Array.isArray(edgeData) || edgeData.length === 0) return []
-      if (shape !== "local") return []
+      if (shape !== "local" && shape !== "regional") return []
 
-      const maxLabels = 48
-      const stride = Math.max(1, Math.ceil(edgeData.length / maxLabels))
-      return edgeData.filter((edge, idx) => {
-        if ((edge.weight || 1) >= 4) return true
-        return idx % stride === 0
-      })
+      const selected = this.selectedEdgeKey
+      const hovered = this.hoveredEdgeKey
+      if (!selected && !hovered) return []
+
+      const picked = []
+      const seen = new Set()
+      for (let i = 0; i < edgeData.length; i += 1) {
+        const edge = edgeData[i]
+        if (edge.interactionKey !== selected && edge.interactionKey !== hovered) continue
+        if (seen.has(edge.interactionKey)) continue
+        seen.add(edge.interactionKey)
+        picked.push(edge)
+      }
+      return picked
     },
     buildPacketFlowInstances(edgeData) {
       if (!Array.isArray(edgeData) || edgeData.length === 0) return []
@@ -3722,33 +3807,6 @@ const Hooks = {
       }
 
       return particles
-    },
-    packetParticlePosition(particle, timeSeconds) {
-      const from = particle?.from
-      const to = particle?.to
-      if (!Array.isArray(from) || !Array.isArray(to)) return [0, 0, 0]
-
-      const fx = Number(from[0] || 0)
-      const fy = Number(from[1] || 0)
-      const tx = Number(to[0] || 0)
-      const ty = Number(to[1] || 0)
-      const dx = tx - fx
-      const dy = ty - fy
-      const len = Math.hypot(dx, dy) || 1
-      const nx = -dy / len
-      const ny = dx / len
-
-      const seed = Number(particle?.seed || 0)
-      const speed = Number(particle?.speed || 0.2)
-      const jitter = Number(particle?.jitter || 0.12)
-      const t = ((Number(timeSeconds || 0) * speed) + seed) % 1
-      const wobble = Math.sin((Number(timeSeconds || 0) * 7.0) + seed * 31.0) * jitter
-
-      return [
-        fx + dx * t + nx * wobble,
-        fy + dy * t + ny * wobble,
-        0,
-      ]
     },
   },
 

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 use arrow_array::{Int8Array, RecordBatch, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array};
 use arrow_ipc::writer::FileWriter;
@@ -14,8 +15,48 @@ use deep_causality_sparse::CsrMatrix;
 use deep_causality_tensor::CausalTensor;
 use deep_causality_topology::{Hypergraph, HypergraphTopology};
 use roaring::RoaringBitmap;
-use rustler::{Binary, Env, NifResult, OwnedBinary};
+use rustler::{Binary, Env, NifMap, NifResult, OwnedBinary, ResourceArc, Term};
+use serde_json::json;
 use serde_json::Value as JsonValue;
+use ultragraph::{CentralityGraphAlgorithms, GraphMut, UltraGraph};
+
+const MAX_BETWEENNESS_NODES: usize = 4_096;
+
+#[derive(Clone, Debug, NifMap)]
+struct RuntimeGraphRow {
+    local_device_id: String,
+    local_device_ip: String,
+    local_if_name: String,
+    local_if_index: i64,
+    neighbor_device_id: String,
+    neighbor_mgmt_addr: String,
+    neighbor_system_name: String,
+    protocol: String,
+    confidence_tier: String,
+    metadata_json: String,
+}
+
+struct RuntimeGraphResource {
+    links: RwLock<Vec<RuntimeGraphRow>>,
+}
+
+mod runtime_graph_atoms {
+    rustler::atoms! {
+        local_device_id,
+        local_device_ip,
+        local_if_name,
+        local_if_index,
+        neighbor_device_id,
+        neighbor_mgmt_addr,
+        neighbor_system_name,
+        protocol,
+        confidence_tier,
+        metadata,
+        source,
+        inference,
+        confidence_score
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 struct HypergraphProjection {
@@ -155,6 +196,53 @@ fn fallback_ring_layout(node_count: usize) -> Vec<(u16, u16)> {
             (x.round().clamp(0.0, 65535.0) as u16, y.round().clamp(0.0, 65535.0) as u16)
         })
         .collect()
+}
+
+fn betweenness_scores(node_count: usize, edges: &[(u32, u32)]) -> Option<Vec<f64>> {
+    if node_count == 0 || node_count > MAX_BETWEENNESS_NODES {
+        return None;
+    }
+
+    // Keep a mutable reference graph for continuous updates; clone for frozen analytics.
+    let mut live_graph = UltraGraph::with_capacity(node_count, None);
+    for idx in 0..node_count {
+        let result = if idx == 0 {
+            live_graph.add_root_node(idx)
+        } else {
+            live_graph.add_node(idx)
+        };
+        if result.is_err() {
+            return None;
+        }
+    }
+
+    for (source, target) in edges {
+        let src = *source as usize;
+        let dst = *target as usize;
+        if src >= node_count || dst >= node_count || src == dst {
+            continue;
+        }
+
+        if live_graph.add_edge(src, dst, ()).is_err() {
+            return None;
+        }
+        if live_graph.add_edge(dst, src, ()).is_err() {
+            return None;
+        }
+    }
+
+    let mut analysis_graph = live_graph.clone();
+    analysis_graph.freeze();
+
+    let centrality = analysis_graph.betweenness_centrality(false, true).ok()?;
+    let mut scores = vec![0.0_f64; node_count];
+    for (idx, score) in centrality {
+        if idx < scores.len() && score.is_finite() && score >= 0.0 {
+            scores[idx] = score;
+        }
+    }
+
+    Some(scores)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -538,8 +626,7 @@ fn layout_nodes_hypergraph(node_count: u32, edges: Vec<(u32, u32)>) -> NifResult
     Ok(positions)
 }
 
-#[rustler::nif(schedule = "DirtyCpu")]
-fn encode_snapshot<'a>(
+fn encode_snapshot_impl<'a>(
     env: Env<'a>,
     schema_version: u32,
     revision: u64,
@@ -553,6 +640,18 @@ fn encode_snapshot<'a>(
     let total_rows = nodes.len() + edges.len();
     let hypergraph_projection = build_hypergraph_projection(nodes.len(), &edges);
     let hypergraph = build_hypergraph_from_projection(&hypergraph_projection);
+    let centrality_edges: Vec<(u32, u32)> = edges
+        .iter()
+        .map(|(source, target, _, _, _, _)| (u32::from(*source), u32::from(*target)))
+        .collect();
+    let centrality = betweenness_scores(nodes.len(), &centrality_edges);
+    let bottleneck = centrality.as_ref().and_then(|scores| {
+        scores
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(idx, score)| (idx, *score))
+    });
 
     let mut row_type = Vec::<i8>::with_capacity(total_rows);
     let mut node_x = Vec::<Option<u16>>::with_capacity(total_rows);
@@ -638,6 +737,26 @@ fn encode_snapshot<'a>(
         "topology_hypergraph_valid".to_string(),
         if hypergraph.is_some() { "1" } else { "0" }.to_string(),
     );
+    metadata.insert(
+        "topology_betweenness_computed".to_string(),
+        if centrality.is_some() { "1" } else { "0" }.to_string(),
+    );
+    metadata.insert(
+        "topology_betweenness_node_limit".to_string(),
+        MAX_BETWEENNESS_NODES.to_string(),
+    );
+    metadata.insert(
+        "topology_betweenness_bottleneck_index".to_string(),
+        bottleneck
+            .map(|(idx, _)| idx.to_string())
+            .unwrap_or_else(|| "-1".to_string()),
+    );
+    metadata.insert(
+        "topology_betweenness_bottleneck_score".to_string(),
+        bottleneck
+            .map(|(_, score)| format!("{score:.6}"))
+            .unwrap_or_else(|| "0.0".to_string()),
+    );
 
     let schema = Arc::new(Schema::new_with_metadata(
         vec![
@@ -700,6 +819,31 @@ fn encode_snapshot<'a>(
     Ok(Binary::from_owned(out, env))
 }
 
+#[rustler::nif(schedule = "DirtyCpu")]
+fn encode_snapshot<'a>(
+    env: Env<'a>,
+    schema_version: u32,
+    revision: u64,
+    nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
+    edges: Vec<(u16, u16, u32, u64, u64, String)>,
+    root_bitmap_bytes: u32,
+    affected_bitmap_bytes: u32,
+    healthy_bitmap_bytes: u32,
+    unknown_bitmap_bytes: u32,
+) -> NifResult<Binary<'a>> {
+    encode_snapshot_impl(
+        env,
+        schema_version,
+        revision,
+        nodes,
+        edges,
+        root_bitmap_bytes,
+        affected_bitmap_bytes,
+        healthy_bitmap_bytes,
+        unknown_bitmap_bytes,
+    )
+}
+
 fn deep_causality_eval(obs: NumericalValue) -> PropagatingEffect<bool> {
     PropagatingEffect::pure(obs > 0.5)
 }
@@ -734,8 +878,9 @@ fn evaluate_causal_states(health_signals: Vec<u8>, edges: Vec<(u32, u32)>) -> Ni
     }
 
     let mut adjacency = vec![Vec::<usize>::new(); node_count];
+    let centrality_scores = betweenness_scores(node_count, &edges);
 
-    for (a, b) in edges {
+    for &(a, b) in &edges {
         let ai = a as usize;
         let bi = b as usize;
 
@@ -771,7 +916,15 @@ fn evaluate_causal_states(health_signals: Vec<u8>, edges: Vec<(u32, u32)>) -> Ni
     let root = unhealthy
         .iter()
         .copied()
-        .max_by_key(|idx| (adjacency[*idx].len(), usize::MAX - *idx))
+        .max_by_key(|idx| {
+            let centrality = centrality_scores
+                .as_ref()
+                .and_then(|scores| scores.get(*idx))
+                .copied()
+                .unwrap_or(0.0);
+            let scaled = (centrality * 1_000_000.0).round() as i64;
+            (scaled, adjacency[*idx].len() as i64, -(*idx as i64))
+        })
         .ok_or(rustler::Error::BadArg)?;
 
     let mut dist = vec![usize::MAX; node_count];
@@ -879,7 +1032,433 @@ fn vec_into_binary<'a>(env: Env<'a>, bytes: Vec<u8>) -> NifResult<Binary<'a>> {
     Ok(Binary::from_owned(out, env))
 }
 
-rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native");
+#[rustler::nif]
+fn runtime_graph_new() -> ResourceArc<RuntimeGraphResource> {
+    ResourceArc::new(RuntimeGraphResource {
+        links: RwLock::new(Vec::new()),
+    })
+}
+
+fn map_get_any<'a>(map: Term<'a>, atom_key: rustler::Atom, string_key: &str) -> Option<Term<'a>> {
+    map.map_get(atom_key)
+        .ok()
+        .or_else(|| map.map_get(string_key).ok())
+}
+
+fn term_as_string(term: Term<'_>) -> Option<String> {
+    if let Ok(v) = term.decode::<String>() {
+        return Some(v);
+    }
+    if let Ok(v) = term.decode::<i64>() {
+        return Some(v.to_string());
+    }
+    if let Ok(v) = term.decode::<u64>() {
+        return Some(v.to_string());
+    }
+    if let Ok(v) = term.decode::<f64>() {
+        return Some(v.to_string());
+    }
+    None
+}
+
+fn term_as_i64(term: Term<'_>) -> Option<i64> {
+    if let Ok(v) = term.decode::<i64>() {
+        return Some(v);
+    }
+    if let Ok(v) = term.decode::<u64>() {
+        return i64::try_from(v).ok();
+    }
+    if let Ok(v) = term.decode::<f64>() {
+        return Some(v as i64);
+    }
+    if let Ok(v) = term.decode::<String>() {
+        return v.trim().parse::<i64>().ok();
+    }
+    None
+}
+
+fn term_as_f64(term: Term<'_>) -> Option<f64> {
+    if let Ok(v) = term.decode::<f64>() {
+        return Some(v);
+    }
+    if let Ok(v) = term.decode::<i64>() {
+        return Some(v as f64);
+    }
+    if let Ok(v) = term.decode::<u64>() {
+        return Some(v as f64);
+    }
+    if let Ok(v) = term.decode::<String>() {
+        return v.trim().parse::<f64>().ok();
+    }
+    None
+}
+
+fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphRow> {
+    if !row.is_map() {
+        return None;
+    }
+
+    let local_device_id = map_get_any(
+        row,
+        runtime_graph_atoms::local_device_id(),
+        "local_device_id",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_default();
+    let local_device_ip = map_get_any(
+        row,
+        runtime_graph_atoms::local_device_ip(),
+        "local_device_ip",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_default();
+    let local_if_name = map_get_any(row, runtime_graph_atoms::local_if_name(), "local_if_name")
+        .and_then(term_as_string)
+        .unwrap_or_default();
+    let local_if_index = map_get_any(
+        row,
+        runtime_graph_atoms::local_if_index(),
+        "local_if_index",
+    )
+    .and_then(term_as_i64)
+    .unwrap_or(-1);
+    let neighbor_device_id = map_get_any(
+        row,
+        runtime_graph_atoms::neighbor_device_id(),
+        "neighbor_device_id",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_default();
+    let neighbor_mgmt_addr = map_get_any(
+        row,
+        runtime_graph_atoms::neighbor_mgmt_addr(),
+        "neighbor_mgmt_addr",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_default();
+    let neighbor_system_name = map_get_any(
+        row,
+        runtime_graph_atoms::neighbor_system_name(),
+        "neighbor_system_name",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_default();
+    let protocol = map_get_any(row, runtime_graph_atoms::protocol(), "protocol")
+        .and_then(term_as_string)
+        .unwrap_or_default();
+    let confidence_tier = map_get_any(
+        row,
+        runtime_graph_atoms::confidence_tier(),
+        "confidence_tier",
+    )
+    .and_then(term_as_string)
+    .unwrap_or_else(|| "unknown".to_string());
+
+    let metadata_term = map_get_any(row, runtime_graph_atoms::metadata(), "metadata");
+    let metadata_source = metadata_term
+        .and_then(|meta| map_get_any(meta, runtime_graph_atoms::source(), "source"))
+        .and_then(term_as_string)
+        .unwrap_or_default();
+    let metadata_inference = metadata_term
+        .and_then(|meta| map_get_any(meta, runtime_graph_atoms::inference(), "inference"))
+        .and_then(term_as_string)
+        .unwrap_or_default();
+    let metadata_confidence_tier = metadata_term
+        .and_then(|meta| {
+            map_get_any(
+                meta,
+                runtime_graph_atoms::confidence_tier(),
+                "confidence_tier",
+            )
+        })
+        .and_then(term_as_string)
+        .unwrap_or_else(|| confidence_tier.clone());
+    let metadata_confidence_score = metadata_term
+        .and_then(|meta| {
+            map_get_any(
+                meta,
+                runtime_graph_atoms::confidence_score(),
+                "confidence_score",
+            )
+        })
+        .and_then(term_as_f64)
+        .unwrap_or(0.0);
+
+    let metadata_json = json!({
+        "source": metadata_source,
+        "inference": metadata_inference,
+        "confidence_tier": metadata_confidence_tier,
+        "confidence_score": metadata_confidence_score
+    })
+    .to_string();
+
+    Some(RuntimeGraphRow {
+        local_device_id,
+        local_device_ip,
+        local_if_name,
+        local_if_index,
+        neighbor_device_id,
+        neighbor_mgmt_addr,
+        neighbor_system_name,
+        protocol,
+        confidence_tier,
+        metadata_json,
+    })
+}
+
+fn normalized_id(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lowered = trimmed.to_ascii_lowercase();
+    if ["nil", "null", "undefined", "unknown", "n/a", "na", "-"].contains(&lowered.as_str()) {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+fn build_node_index(node_ids: &[String]) -> HashMap<String, usize> {
+    let mut index = HashMap::with_capacity(node_ids.len() * 2);
+    for (idx, id) in node_ids.iter().enumerate() {
+        if let Some(norm) = normalized_id(id) {
+            index.insert(norm.clone(), idx);
+            index.insert(norm.to_ascii_lowercase(), idx);
+        }
+    }
+    index
+}
+
+fn resolve_endpoint(row: &RuntimeGraphRow, node_index: &HashMap<String, usize>, is_source: bool) -> Option<usize> {
+    let candidates: Vec<&str> = if is_source {
+        vec![&row.local_device_id, &row.local_device_ip]
+    } else {
+        vec![
+            &row.neighbor_device_id,
+            &row.neighbor_mgmt_addr,
+            &row.neighbor_system_name,
+        ]
+    };
+
+    for candidate in candidates {
+        if let Some(norm) = normalized_id(candidate) {
+            if let Some(idx) = node_index.get(&norm) {
+                return Some(*idx);
+            }
+            let lowered = norm.to_ascii_lowercase();
+            if let Some(idx) = node_index.get(&lowered) {
+                return Some(*idx);
+            }
+        }
+    }
+    None
+}
+
+fn indexed_edges_from_runtime_rows(
+    rows: &[RuntimeGraphRow],
+    node_ids: &[String],
+) -> Vec<(u32, u32, String)> {
+    let node_index = build_node_index(node_ids);
+    let mut seen = HashSet::<(u32, u32)>::new();
+    let mut indexed = Vec::<(u32, u32, String)>::new();
+
+    for row in rows {
+        let Some(src) = resolve_endpoint(row, &node_index, true) else {
+            continue;
+        };
+        let Some(dst) = resolve_endpoint(row, &node_index, false) else {
+            continue;
+        };
+        if src == dst {
+            continue;
+        }
+
+        let src_u32 = src as u32;
+        let dst_u32 = dst as u32;
+        let (a, b) = if src_u32 <= dst_u32 {
+            (src_u32, dst_u32)
+        } else {
+            (dst_u32, src_u32)
+        };
+
+        if seen.insert((a, b)) {
+            indexed.push((a, b, row.protocol.clone()));
+        }
+    }
+
+    indexed
+}
+
+fn canonical_pair_u32(a: u32, b: u32) -> (u32, u32) {
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+fn indexed_edge_telemetry(
+    edge_telemetry: &[(String, String, u32, u64, u64, String)],
+    node_ids: &[String],
+) -> HashMap<(u32, u32), (u32, u64, u64, String)> {
+    let node_index = build_node_index(node_ids);
+    let mut map = HashMap::new();
+
+    for (source_id, target_id, flow_pps, flow_bps, capacity_bps, label) in edge_telemetry {
+        let src = normalized_id(source_id)
+            .and_then(|id| node_index.get(&id).copied().or_else(|| node_index.get(&id.to_ascii_lowercase()).copied()));
+        let dst = normalized_id(target_id)
+            .and_then(|id| node_index.get(&id).copied().or_else(|| node_index.get(&id.to_ascii_lowercase()).copied()));
+
+        let (Some(src_idx), Some(dst_idx)) = (src, dst) else {
+            continue;
+        };
+        if src_idx == dst_idx {
+            continue;
+        }
+
+        let key = canonical_pair_u32(src_idx as u32, dst_idx as u32);
+        map.insert(
+            key,
+            (*flow_pps, *flow_bps, *capacity_bps, label.clone()),
+        );
+    }
+
+    map
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn runtime_graph_replace_links(
+    graph: ResourceArc<RuntimeGraphResource>,
+    links: Vec<RuntimeGraphRow>,
+) -> NifResult<bool> {
+    let mut guard = graph.links.write().map_err(|_| rustler::Error::BadArg)?;
+    *guard = links;
+    Ok(true)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn runtime_graph_get_links(graph: ResourceArc<RuntimeGraphResource>) -> NifResult<Vec<RuntimeGraphRow>> {
+    let guard = graph.links.read().map_err(|_| rustler::Error::BadArg)?;
+    Ok(guard.clone())
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn runtime_graph_ingest_rows(graph: ResourceArc<RuntimeGraphResource>, rows: Vec<Term>) -> NifResult<usize> {
+    let mut parsed_rows = Vec::with_capacity(rows.len());
+    for row in rows {
+        if let Some(normalized) = runtime_graph_row_from_term(row) {
+            parsed_rows.push(normalized);
+        }
+    }
+
+    let ingested = parsed_rows.len();
+    let mut guard = graph.links.write().map_err(|_| rustler::Error::BadArg)?;
+    *guard = parsed_rows;
+    Ok(ingested)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn runtime_graph_indexed_edges(
+    graph: ResourceArc<RuntimeGraphResource>,
+    node_ids: Vec<String>,
+    allowed_edges: Vec<(String, String)>,
+) -> NifResult<Vec<(u32, u32)>> {
+    let guard = graph.links.read().map_err(|_| rustler::Error::BadArg)?;
+    let indexed = indexed_edges_from_runtime_rows(&guard, &node_ids);
+    let node_index = build_node_index(&node_ids);
+    let mut allowed = HashSet::<(u32, u32)>::new();
+
+    for (source_id, target_id) in &allowed_edges {
+        let src = normalized_id(source_id)
+            .and_then(|id| node_index.get(&id).copied().or_else(|| node_index.get(&id.to_ascii_lowercase()).copied()));
+        let dst = normalized_id(target_id)
+            .and_then(|id| node_index.get(&id).copied().or_else(|| node_index.get(&id.to_ascii_lowercase()).copied()));
+        let (Some(a), Some(b)) = (src, dst) else {
+            continue;
+        };
+        if a == b {
+            continue;
+        }
+        allowed.insert(canonical_pair_u32(a as u32, b as u32));
+    }
+
+    let filtered = indexed
+        .into_iter()
+        .filter_map(|(a, b, _)| {
+            let key = canonical_pair_u32(a, b);
+            if allowed.contains(&key) {
+                Some((key.0, key.1))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(filtered)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn runtime_graph_encode_snapshot<'a>(
+    env: Env<'a>,
+    graph: ResourceArc<RuntimeGraphResource>,
+    schema_version: u16,
+    revision: u64,
+    node_ids: Vec<String>,
+    nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
+    edge_telemetry: Vec<(String, String, u32, u64, u64, String)>,
+    root_bitmap_bytes: usize,
+    affected_bitmap_bytes: usize,
+    healthy_bitmap_bytes: usize,
+    unknown_bitmap_bytes: usize,
+) -> NifResult<Binary<'a>> {
+    let guard = graph.links.read().map_err(|_| rustler::Error::BadArg)?;
+    let indexed = indexed_edges_from_runtime_rows(&guard, &node_ids);
+    let telemetry = indexed_edge_telemetry(&edge_telemetry, &node_ids);
+    let edges: Vec<(u16, u16, u32, u64, u64, String)> = indexed
+        .into_iter()
+        .filter_map(|(a, b, protocol)| {
+            let Some((flow_pps, flow_bps, capacity_bps, label)) =
+                telemetry.get(&canonical_pair_u32(a, b)).cloned()
+            else {
+                return None;
+            };
+
+            let src = u16::try_from(a).ok()?;
+            let dst = u16::try_from(b).ok()?;
+
+            let final_label = if label.trim().is_empty() {
+                if protocol.trim().is_empty() {
+                    "TOPOLOGY".to_string()
+                } else {
+                    protocol.trim().to_ascii_uppercase()
+                }
+            } else {
+                label
+            };
+            Some((src, dst, flow_pps, flow_bps, capacity_bps, final_label))
+        })
+        .collect();
+
+    encode_snapshot_impl(
+        env,
+        u32::from(schema_version),
+        revision,
+        nodes,
+        edges,
+        root_bitmap_bytes as u32,
+        affected_bitmap_bytes as u32,
+        healthy_bitmap_bytes as u32,
+        unknown_bitmap_bytes as u32,
+    )
+}
+
+#[allow(non_local_definitions)]
+fn on_load(env: Env, _info: Term) -> bool {
+    let _ = rustler::resource!(RuntimeGraphResource, env);
+    true
+}
+rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native", load = on_load);
 
 #[cfg(test)]
 mod tests {
