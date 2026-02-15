@@ -529,3 +529,35 @@ func TestGenerateDiscoveryID(t *testing.T) {
 	assert.NotEmpty(t, id2)
 	assert.NotEqual(t, id1, id2)
 }
+
+func TestCollectRecursiveSNMPTargets(t *testing.T) {
+	mockPublisher := new(MockPublisher)
+	mockLogger := logger.NewTestLogger()
+	config := &Config{
+		Workers:       2,
+		MaxActiveJobs: 5,
+		Timeout:       30 * time.Second,
+	}
+
+	engine, err := NewDiscoveryEngine(config, mockPublisher, mockLogger)
+	require.NoError(t, err)
+
+	discoveryEngine := engine.(*DiscoveryEngine)
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			TopologyLinks: []*TopologyLink{
+				{NeighborMgmtAddr: "192.168.1.87"},
+				{NeighborMgmtAddr: "192.168.10.154"},
+				{NeighborMgmtAddr: "not-an-ip"},
+				{NeighborMgmtAddr: "192.168.1.87"},
+			},
+		},
+	}
+
+	known := map[string]bool{"192.168.1.87": true}
+	targets := discoveryEngine.collectRecursiveSNMPTargets(job, known)
+
+	assert.Len(t, targets, 1)
+	assert.True(t, targets["192.168.10.154"])
+	assert.False(t, targets["192.168.1.87"])
+}

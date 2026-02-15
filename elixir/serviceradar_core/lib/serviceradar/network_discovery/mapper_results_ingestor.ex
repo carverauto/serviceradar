@@ -64,7 +64,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
     with {:ok, updates} <- decode_payload(message),
          records <- build_topology_records(updates),
-         resolved_records <- resolve_topology_device_ids(records) do
+         resolved_records <- resolve_topology_device_ids(records),
+         :ok <- promote_topology_sightings(resolved_records, actor) do
       record_job_runs(updates, status: :success)
 
       if resolved_records == [] do
@@ -85,6 +86,174 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         Logger.warning("Mapper topology ingestion failed: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  defp promote_topology_sightings([], _actor), do: :ok
+
+  defp promote_topology_sightings(records, actor) do
+    records
+    |> Enum.filter(&topology_sighting_candidate?/1)
+    |> Enum.each(&promote_topology_sighting(&1, actor))
+
+    :ok
+  rescue
+    e ->
+      Logger.warning("Topology sighting promotion failed: #{inspect(e)}")
+      :ok
+  end
+
+  defp topology_sighting_candidate?(record) when is_map(record) do
+    not present?(record.neighbor_device_id) and
+      valid_alias_ip?(normalize_alias_ip(record.neighbor_mgmt_addr)) and
+      present?(record.local_device_id)
+  end
+
+  defp topology_sighting_candidate?(_), do: false
+
+  defp promote_topology_sighting(record, actor) do
+    candidate_ip = normalize_alias_ip(record.neighbor_mgmt_addr)
+    partition = normalize_partition(record.partition)
+    metadata = topology_candidate_metadata(record)
+
+    case resolve_or_create_topology_candidate_uid(
+           candidate_ip,
+           partition,
+           record.local_device_id,
+           metadata,
+           actor
+         ) do
+      {:ok, uid} ->
+        touch_topology_candidate(uid, candidate_ip, metadata, actor)
+
+      {:error, reason} ->
+        Logger.debug(
+          "Topology sighting candidate promotion skipped for #{candidate_ip}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp resolve_or_create_topology_candidate_uid(
+         candidate_ip,
+         partition,
+         source_device_id,
+         metadata,
+         actor
+       ) do
+    case lookup_device_uids_by_ip([candidate_ip]) do
+      %{^candidate_ip => uid} ->
+        {:ok, uid}
+
+      _ ->
+        case find_device_uid_by_alias(candidate_ip, partition, actor) do
+          {:ok, uid} when is_binary(uid) and uid != "" ->
+            {:ok, uid}
+
+          _ ->
+            create_topology_candidate_device_for_ip(
+              candidate_ip,
+              partition,
+              source_device_id,
+              metadata,
+              actor
+            )
+        end
+    end
+  end
+
+  defp create_topology_candidate_device_for_ip(
+         candidate_ip,
+         partition,
+         source_device_id,
+         metadata,
+         actor
+       ) do
+    ids = %{
+      agent_id: nil,
+      armis_id: nil,
+      integration_id: nil,
+      netbox_id: nil,
+      mac: nil,
+      ip: candidate_ip,
+      partition: partition
+    }
+
+    uid = IdentityReconciler.generate_deterministic_device_id(ids)
+
+    attrs = %{
+      uid: uid,
+      ip: candidate_ip,
+      discovery_sources: ["mapper", "sighting"],
+      metadata:
+        metadata
+        |> Map.put("identity_state", "provisional")
+        |> Map.put("identity_source", "mapper_topology_sighting")
+        |> Map.put("candidate_from_device_id", source_device_id)
+    }
+
+    case Device
+         |> Ash.Changeset.for_create(:create, attrs)
+         |> Ash.create(actor: actor) do
+      {:ok, _device} ->
+        {:ok, uid}
+
+      {:error, %Ash.Error.Invalid{errors: errors}} ->
+        recover_existing_device_uid(uid, candidate_ip, errors, actor)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp touch_topology_candidate(uid, candidate_ip, metadata, actor) do
+    with {:ok, %Device{} = device} <- Device.get_by_uid(uid, true, actor: actor) do
+      merged_metadata = Map.merge(Map.new(device.metadata || %{}), metadata)
+      merged_sources = merge_topology_discovery_sources(device.discovery_sources)
+      attrs = %{metadata: merged_metadata, discovery_sources: merged_sources}
+      attrs = if present?(device.ip), do: attrs, else: Map.put(attrs, :ip, candidate_ip)
+
+      device
+      |> Ash.Changeset.for_update(:update, attrs)
+      |> Ash.update(actor: actor)
+    end
+
+    :ok
+  rescue
+    e ->
+      Logger.debug("Failed to refresh topology candidate #{uid}: #{inspect(e)}")
+      :ok
+  end
+
+  defp merge_topology_discovery_sources(existing_sources) do
+    (List.wrap(existing_sources) ++ ["mapper", "sighting"])
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  @doc false
+  def topology_candidate_metadata(record) when is_map(record) do
+    ts =
+      case record.timestamp do
+        %DateTime{} = dt -> dt
+        _ -> DateTime.utc_now()
+      end
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
+
+    confidence_tier = metadata_value(record.metadata, "confidence_tier") || "low"
+    confidence_score = metadata_value(record.metadata, "confidence_score")
+    confidence_reason = metadata_value(record.metadata, "confidence_reason")
+
+    %{
+      "topology_last_seen_at" => ts,
+      "topology_last_seen_neighbor_ip" => normalize_alias_ip(record.neighbor_mgmt_addr),
+      "topology_last_seen_from_device_id" => normalize_string(record.local_device_id),
+      "topology_last_seen_protocol" => normalize_topology_protocol(record.protocol),
+      "topology_last_seen_confidence_tier" => confidence_tier,
+      "topology_last_seen_confidence_score" => to_string(confidence_score || ""),
+      "topology_last_seen_confidence_reason" => to_string(confidence_reason || "")
+    }
   end
 
   def record_runs_from_payload(message) do
@@ -1321,7 +1490,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       |> Enum.reject(&is_nil/1)
       |> Enum.join(" ")
 
-    String.contains?(text, "lite") or String.contains?(text, "16") or String.contains?(text, "8 poe")
+    String.contains?(text, "lite") or String.contains?(text, "16") or
+      String.contains?(text, "8 poe")
   end
 
   defp edge_switch_like?(_), do: false
@@ -1746,9 +1916,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           device_index
         )
 
-      if local_uid do
+      resolved_local_uid =
+        local_uid ||
+          fallback_topology_uid(record.local_device_id, record.local_device_ip, record.partition)
+
+      if resolved_local_uid do
         record
-        |> Map.put(:local_device_id, local_uid)
+        |> Map.put(:local_device_id, resolved_local_uid)
         |> maybe_put_neighbor_id(neighbor_uid)
       else
         Logger.debug(
@@ -1780,8 +1954,35 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       is_binary(chassis) and Map.has_key?(index.mac_to_uid, chassis) ->
         Map.get(index.mac_to_uid, chassis)
 
+      is_binary(uid) ->
+        uid
+
       true ->
         Enum.find_value(name_candidates, fn name -> Map.get(index.name_to_uid, name) end)
+    end
+  end
+
+  defp fallback_topology_uid(candidate_uid, candidate_ip, partition) do
+    uid = normalize_string(candidate_uid)
+    ip = normalize_string(candidate_ip)
+
+    cond do
+      is_binary(uid) ->
+        uid
+
+      is_binary(ip) ->
+        IdentityReconciler.generate_deterministic_device_id(%{
+          agent_id: nil,
+          armis_id: nil,
+          integration_id: nil,
+          netbox_id: nil,
+          mac: nil,
+          ip: ip,
+          partition: normalize_partition(partition)
+        })
+
+      true ->
+        nil
     end
   end
 
@@ -1994,13 +2195,39 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   def normalize_topology(update) when is_map(update) do
     timestamp = parse_timestamp(get_value(update, ["timestamp", :timestamp]))
     metadata = get_map(update, ["metadata", :metadata])
+    neighbor_identity = get_map(update, ["neighbor_identity", :neighbor_identity])
     {tier, score, reason} = score_topology_confidence(update, metadata)
+
+    neighbor_mgmt_addr =
+      get_string(update, ["neighbor_mgmt_addr", :neighbor_mgmt_addr]) ||
+        get_string(neighbor_identity, ["management_ip", :management_ip, "neighbor_mgmt_addr"])
+
+    neighbor_device_id =
+      get_string(update, ["neighbor_device_id", :neighbor_device_id]) ||
+        get_string(neighbor_identity, ["device_id", :device_id])
+
+    neighbor_chassis_id =
+      get_string(update, ["neighbor_chassis_id", :neighbor_chassis_id]) ||
+        get_string(neighbor_identity, ["chassis_id", :chassis_id])
+
+    neighbor_port_id =
+      get_string(update, ["neighbor_port_id", :neighbor_port_id]) ||
+        get_string(neighbor_identity, ["port_id", :port_id])
+
+    neighbor_port_descr =
+      get_string(update, ["neighbor_port_descr", :neighbor_port_descr]) ||
+        get_string(neighbor_identity, ["port_descr", :port_descr])
+
+    neighbor_system_name =
+      get_string(update, ["neighbor_system_name", :neighbor_system_name]) ||
+        get_string(neighbor_identity, ["system_name", :system_name])
 
     metadata =
       metadata
       |> Map.put("confidence_tier", tier)
       |> Map.put("confidence_score", score)
       |> Map.put("confidence_reason", reason)
+      |> maybe_put_neighbor_identity(neighbor_identity)
 
     %{
       timestamp: timestamp,
@@ -2012,12 +2239,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       local_device_id: get_string(update, ["local_device_id", :local_device_id]),
       local_if_index: get_integer(update, ["local_if_index", :local_if_index]),
       local_if_name: get_string(update, ["local_if_name", :local_if_name]),
-      neighbor_device_id: get_string(update, ["neighbor_device_id", :neighbor_device_id]),
-      neighbor_chassis_id: get_string(update, ["neighbor_chassis_id", :neighbor_chassis_id]),
-      neighbor_port_id: get_string(update, ["neighbor_port_id", :neighbor_port_id]),
-      neighbor_port_descr: get_string(update, ["neighbor_port_descr", :neighbor_port_descr]),
-      neighbor_system_name: get_string(update, ["neighbor_system_name", :neighbor_system_name]),
-      neighbor_mgmt_addr: get_string(update, ["neighbor_mgmt_addr", :neighbor_mgmt_addr]),
+      neighbor_device_id: neighbor_device_id,
+      neighbor_chassis_id: neighbor_chassis_id,
+      neighbor_port_id: neighbor_port_id,
+      neighbor_port_descr: neighbor_port_descr,
+      neighbor_system_name: neighbor_system_name,
+      neighbor_mgmt_addr: neighbor_mgmt_addr,
       metadata: metadata,
       created_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
     }
@@ -2072,6 +2299,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> String.trim()
     |> String.downcase()
   end
+
+  defp maybe_put_neighbor_identity(metadata, map) when is_map(map) and map_size(map) > 0 do
+    Map.put(metadata, "neighbor_identity", map)
+  end
+
+  defp maybe_put_neighbor_identity(metadata, _value), do: metadata
 
   defp has_neighbor_identifier?(update) do
     present?(get_string(update, ["neighbor_device_id", :neighbor_device_id])) ||

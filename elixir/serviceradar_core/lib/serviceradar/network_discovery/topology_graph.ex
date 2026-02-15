@@ -55,7 +55,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
               protocol in ["snmp-parent", "snmp-site", "l3-uplink", "inferred"]
             end)
 
-          case best_inferred_link(inferred) do
+          fallback_candidates = if inferred == [], do: group, else: inferred
+
+          case best_inferred_link(fallback_candidates) do
             nil -> []
             best -> [best]
           end
@@ -97,7 +99,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
         if projectable_confidence_tier?(payload.confidence_tier) do
           upsert_link_payload(payload)
-          neighbor_index = add_neighbor_edge(neighbor_index, payload.local_device_id, payload.neighbor_device_id)
+
+          neighbor_index =
+            add_neighbor_edge(neighbor_index, payload.local_device_id, payload.neighbor_device_id)
+
           {local_ids, neighbor_index, projected + 1, skipped_low}
         else
           {local_ids, neighbor_index, projected, skipped_low + 1}

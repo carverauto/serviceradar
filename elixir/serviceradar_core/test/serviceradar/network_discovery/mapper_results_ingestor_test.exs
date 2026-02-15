@@ -298,6 +298,32 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert result.metadata["confidence_score"] == 20
       assert result.metadata["confidence_reason"] == "insufficient_neighbor_evidence"
     end
+
+    test "hydrates topology neighbor fields from neighbor_identity payload" do
+      result =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "LLDP",
+          "local_device_ip" => "192.168.1.195",
+          "local_device_id" => "sr:uswpro24-a",
+          "neighbor_identity" => %{
+            "management_ip" => "192.168.1.87",
+            "device_id" => "sr:usw-aggregation",
+            "chassis_id" => "aa:bb:cc:dd:ee:ff",
+            "port_id" => "Gi1/0/48",
+            "port_descr" => "uplink",
+            "system_name" => "USWAggregation"
+          },
+          "metadata" => %{}
+        })
+
+      assert result.neighbor_mgmt_addr == "192.168.1.87"
+      assert result.neighbor_device_id == "sr:usw-aggregation"
+      assert result.neighbor_chassis_id == "aa:bb:cc:dd:ee:ff"
+      assert result.neighbor_port_id == "Gi1/0/48"
+      assert result.neighbor_port_descr == "uplink"
+      assert result.neighbor_system_name == "USWAggregation"
+      assert result.metadata["neighbor_identity"]["management_ip"] == "192.168.1.87"
+    end
   end
 
   describe "resolve_topology_records/2" do
@@ -373,7 +399,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert by_mac.neighbor_device_id == "sr:uswagg"
     end
 
-    test "drops records when local endpoint cannot be resolved canonically" do
+    test "preserves records when local endpoint cannot be canonically resolved" do
       records = [
         %{
           local_device_id: "default:10.10.10.10",
@@ -392,7 +418,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
         mac_to_uid: %{}
       }
 
-      assert MapperResultsIngestor.resolve_topology_records(records, index) == []
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+      assert resolved.local_device_id == "default:10.10.10.10"
+      assert resolved.neighbor_device_id == "sr:uswagg"
+    end
+  end
+
+  describe "topology_candidate_metadata/1" do
+    test "builds freshness and confidence metadata for topology-only endpoint sightings" do
+      ts = ~U[2026-02-15 12:30:00Z]
+
+      metadata =
+        MapperResultsIngestor.topology_candidate_metadata(%{
+          timestamp: ts,
+          neighbor_mgmt_addr: "192.168.10.96",
+          local_device_id: "sr:aruba-10-154",
+          protocol: "LLDP",
+          metadata: %{
+            "confidence_tier" => "medium",
+            "confidence_score" => 66,
+            "confidence_reason" => "port_neighbor_inference"
+          }
+        })
+
+      assert metadata["topology_last_seen_at"] == "2026-02-15T12:30:00Z"
+      assert metadata["topology_last_seen_neighbor_ip"] == "192.168.10.96"
+      assert metadata["topology_last_seen_from_device_id"] == "sr:aruba-10-154"
+      assert metadata["topology_last_seen_protocol"] == "lldp"
+      assert metadata["topology_last_seen_confidence_tier"] == "medium"
+      assert metadata["topology_last_seen_confidence_score"] == "66"
+      assert metadata["topology_last_seen_confidence_reason"] == "port_neighbor_inference"
     end
   end
 end

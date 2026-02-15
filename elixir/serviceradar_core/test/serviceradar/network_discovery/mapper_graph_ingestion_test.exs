@@ -4,6 +4,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   @moduletag :integration
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -247,6 +248,31 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert fresh_result["count"] == 1
   end
 
+  test "synthetic topology replay projects expected farm01 and tonka01 connectivity" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    fixture = synthetic_topology_fixture(now)
+    payload = Jason.encode!(fixture.links)
+
+    assert :ok = MapperResultsIngestor.ingest_topology(payload, %{})
+
+    [count_result] =
+      cypher_rows(
+        "MATCH (:Interface)-[r:CONNECTS_TO]->(:Interface) RETURN {count: count(r)} AS result"
+      )
+
+    assert count_result["count"] >= length(fixture.expected_edges)
+
+    Enum.each(fixture.expected_edges, fn {from_id, to_id} ->
+      [result] =
+        cypher_rows(
+          "MATCH (a:Interface {id:'#{from_id}'})-[r:CONNECTS_TO]->(b:Interface {id:'#{to_id}'}) RETURN {count: count(r)} AS result"
+        )
+
+      assert result["count"] == 1,
+             "missing expected edge #{from_id} -> #{to_id}, got #{inspect(result)}"
+    end)
+  end
+
   defp age_available? do
     with {:ok, %Postgrex.Result{rows: [[_]]}} <-
            SQL.query(Repo, "SELECT 1 FROM pg_namespace WHERE nspname = 'ag_catalog'", []),
@@ -333,5 +359,165 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   defp graph_name do
     Application.get_env(:serviceradar_core, :age_graph_name, "platform_graph")
+  end
+
+  defp synthetic_topology_fixture(now) do
+    links = [
+      synthetic_link(
+        "sr:farm01",
+        "sr:uswagg",
+        "lan-core",
+        "port-1",
+        "198.18.1.1",
+        "198.18.1.87",
+        "USWAggregation",
+        now
+      ),
+      synthetic_link(
+        "sr:uswagg",
+        "sr:usw16poe",
+        "port-10",
+        "port-1",
+        "198.18.1.87",
+        "198.18.1.138",
+        "USW16PoE",
+        now
+      ),
+      synthetic_link(
+        "sr:uswagg",
+        "sr:uswpro24-a",
+        "port-31",
+        "port-1",
+        "198.18.1.87",
+        "198.18.1.131",
+        "USWPro24-A",
+        now
+      ),
+      synthetic_link(
+        "sr:uswagg",
+        "sr:uswpro24-b",
+        "port-35",
+        "port-1",
+        "198.18.1.87",
+        "198.18.1.195",
+        "USWPro24-B",
+        now
+      ),
+      synthetic_link(
+        "sr:usw16poe",
+        "sr:u6lr",
+        "port-5",
+        "eth0",
+        "198.18.1.138",
+        "198.18.1.130",
+        "U6LR",
+        now
+      ),
+      synthetic_link(
+        "sr:usw16poe",
+        "sr:u6mesh-16",
+        "port-6",
+        "eth0",
+        "198.18.1.138",
+        "198.18.1.16",
+        "U6Mesh-16",
+        now
+      ),
+      synthetic_link(
+        "sr:usw16poe",
+        "sr:uswlite8",
+        "port-7",
+        "port-1",
+        "198.18.1.138",
+        "198.18.1.238",
+        "USWLite8PoE",
+        now
+      ),
+      synthetic_link(
+        "sr:usw16poe",
+        "sr:u6mesh-96",
+        "port-8",
+        "eth0",
+        "198.18.1.138",
+        "198.18.1.96",
+        "U6Mesh-96",
+        now
+      ),
+      synthetic_link(
+        "sr:uswlite8",
+        "sr:u6mesh-200",
+        "port-2",
+        "eth0",
+        "198.18.1.238",
+        "198.18.1.200",
+        "U6Mesh-200",
+        now
+      ),
+      synthetic_link(
+        "sr:uswpro24-b",
+        "sr:nanohd",
+        "port-22",
+        "eth0",
+        "198.18.1.195",
+        "198.18.1.233",
+        "NanoHD",
+        now
+      ),
+      synthetic_link(
+        "sr:tonka01",
+        "sr:aruba-10-154",
+        "lan10",
+        "uplink",
+        "198.18.10.1",
+        "198.18.10.154",
+        "ArubaSwitch",
+        now
+      ),
+      synthetic_link(
+        "sr:aruba-10-154",
+        "sr:endpoint-10-96",
+        "port-5",
+        "eth0",
+        "198.18.10.154",
+        "198.18.10.96",
+        "Endpoint-10-96",
+        now
+      )
+    ]
+
+    expected_edges =
+      Enum.map(links, fn link ->
+        {"#{link["local_device_id"]}/#{link["local_if_name"]}",
+         "#{link["neighbor_device_id"]}/#{link["neighbor_port_id"]}"}
+      end)
+
+    %{links: links, expected_edges: expected_edges}
+  end
+
+  defp synthetic_link(
+         local_id,
+         neighbor_id,
+         local_if,
+         neighbor_port,
+         local_ip,
+         neighbor_ip,
+         neighbor_name,
+         now
+       ) do
+    %{
+      "protocol" => "LLDP",
+      "agent_id" => "agent-dusk",
+      "gateway_id" => "agent-dusk",
+      "partition" => "default",
+      "local_device_id" => local_id,
+      "local_device_ip" => local_ip,
+      "local_if_name" => local_if,
+      "neighbor_device_id" => neighbor_id,
+      "neighbor_port_id" => neighbor_port,
+      "neighbor_system_name" => neighbor_name,
+      "neighbor_mgmt_addr" => neighbor_ip,
+      "metadata" => %{"source" => "synthetic-fixture"},
+      "timestamp" => now
+    }
   end
 end

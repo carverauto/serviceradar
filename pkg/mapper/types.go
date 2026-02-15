@@ -272,7 +272,18 @@ type TopologyLink struct {
 	NeighborPortDescr  string
 	NeighborSystemName string
 	NeighborMgmtAddr   string
+	NeighborIdentity   *TopologyNeighborIdentity
 	Metadata           map[string]string
+}
+
+// TopologyNeighborIdentity stores canonical neighbor identity evidence.
+type TopologyNeighborIdentity struct {
+	ManagementIP string
+	DeviceID     string
+	ChassisID    string
+	PortID       string
+	PortDescr    string
+	SystemName   string
 }
 
 // SNMPCredentialConfig represents SNMP credentials for specific target IP ranges.

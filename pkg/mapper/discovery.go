@@ -632,6 +632,7 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 			if link.Metadata == nil {
 				link.Metadata = make(map[string]string)
 			}
+			NormalizeTopologyLinkNeighborIdentity(link)
 			link.Metadata["discovery_id"] = job.ID
 			link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
 			applyJobOptionsMetadata(job, link.Metadata)
@@ -1369,6 +1370,20 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 		e.logger.Warn().Str("job_id", job.ID).Msg("SNMP Polling phase failed or was canceled")
 	}
 
+	recursiveTargets := e.collectRecursiveSNMPTargets(job, allPotentialSNMPTargets)
+	if len(recursiveTargets) > 0 {
+		for target := range recursiveTargets {
+			allPotentialSNMPTargets[target] = true
+		}
+
+		e.logger.Info().Str("job_id", job.ID).Int("recursive_targets_count", len(recursiveTargets)).
+			Msg("Phase 2b - Recursive SNMP Polling from discovered neighbor management IPs")
+
+		if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds) {
+			e.logger.Warn().Str("job_id", job.ID).Msg("Recursive SNMP polling failed or was canceled")
+		}
+	}
+
 	e.logger.Debug().Str("job_id", job.ID).Msg("Finalizing job status")
 
 	e.finalizeJobStatus(job)
@@ -1437,6 +1452,36 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 		Msg("Phase 1 - UniFi Discovery completed")
 
 	return allPotentialSNMPTargets
+}
+
+func (e *DiscoveryEngine) collectRecursiveSNMPTargets(
+	job *DiscoveryJob, knownTargets map[string]bool) map[string]bool {
+	if job == nil {
+		return map[string]bool{}
+	}
+
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	targets := make(map[string]bool)
+	for _, link := range job.Results.TopologyLinks {
+		if link == nil {
+			continue
+		}
+
+		neighborIP := strings.TrimSpace(link.NeighborMgmtAddr)
+		if neighborIP == "" || !isIPv4(neighborIP) {
+			continue
+		}
+
+		if knownTargets[neighborIP] {
+			continue
+		}
+
+		targets[neighborIP] = true
+	}
+
+	return targets
 }
 
 // processDevicesForSNMPTargets processes devices for SNMP targets with MAC-based deduplication

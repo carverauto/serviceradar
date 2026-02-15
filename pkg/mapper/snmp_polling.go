@@ -1832,6 +1832,11 @@ func (*DiscoveryEngine) processLLDPManagementAddress(pdu gosnmp.SnmpPDU, linkMap
 		return nil
 	}
 
+	key := lldpManagementAddressLinkKey(pdu.Name)
+	if key == "" {
+		key = lldpManagementAddressLinkKey(strings.TrimPrefix(pdu.Name, "."))
+	}
+
 	// Try to extract IP address from management address
 	bytes := pdu.Value.([]byte)
 	if len(bytes) >= defaultByteLengthCheck {
@@ -1839,18 +1844,39 @@ func (*DiscoveryEngine) processLLDPManagementAddress(pdu gosnmp.SnmpPDU, linkMap
 		if bytes[0] == 1 && len(bytes) >= 5 {
 			ip := net.IPv4(bytes[1], bytes[2], bytes[3], bytes[4])
 
-			// Try to match with existing links
-			// This is approximate since LLDP MIB structure doesn't make a perfect match easy
+			if link, ok := linkMap[key]; ok && link.NeighborMgmtAddr == "" {
+				link.NeighborMgmtAddr = ip.String()
+				return nil
+			}
+
+			// Fallback for incomplete OIDs: assign to first unresolved link.
 			for _, link := range linkMap {
 				if link.NeighborMgmtAddr == "" {
 					link.NeighborMgmtAddr = ip.String()
-					break
+					return nil
 				}
 			}
 		}
 	}
 
 	return nil
+}
+
+func lldpManagementAddressLinkKey(oid string) string {
+	base := strings.TrimPrefix(oidLLDPRemManAddr, ".")
+	trimmed := strings.TrimPrefix(oid, ".")
+	prefix := base + "."
+	if !strings.HasPrefix(trimmed, prefix) {
+		return ""
+	}
+
+	suffix := strings.TrimPrefix(trimmed, prefix)
+	parts := strings.Split(suffix, ".")
+	if len(parts) < 3 {
+		return ""
+	}
+
+	return fmt.Sprintf("%s.%s.%s", parts[0], parts[1], parts[2])
 }
 
 // isValidLLDPLink checks if a link has at least one neighbor identifier
