@@ -14,8 +14,8 @@
 - [x] 2.7 Implement transfer progress reporting via `CommandProgress` messages (both modes)
 - [x] 2.8 Implement SHA-256 checksum computation during receive transfers
 - [x] 2.9 Implement file staging to temporary directory with cleanup
-- [ ] 2.10 Implement file upload via `UploadFile` gRPC streaming RPC (receive: agent→gateway→core)
-- [ ] 2.11 Implement image download via `DownloadFile` gRPC streaming RPC (serve: core→gateway→agent staging)
+- [x] 2.10 Implement file upload via `UploadFile` gRPC streaming RPC (receive: agent→gateway→core)
+- [x] 2.11 Implement image download via `DownloadFile` gRPC streaming RPC (serve: core→gateway→agent staging)
 - [x] 2.12 Add `tftp.start_receive` command handler to `control_stream.go`
 - [x] 2.13 Add `tftp.start_serve` command handler to `control_stream.go`
 - [x] 2.14 Add `tftp.stop_session` command handler to `control_stream.go`
@@ -27,7 +27,7 @@
 - [x] 2.20 Add staged image TTL and cleanup
 - [x] 2.21 Write unit tests for TFTP service (receive mode)
 - [x] 2.22 Write unit tests for TFTP service (serve mode)
-- [ ] 2.23 Write integration tests for TFTP command handlers
+- [x] 2.23 Write integration tests for TFTP command handlers
 
 ## 3. Agent Gateway — Command Routing & File Transfer
 - [x] 3.1 Verify TFTP command types route through existing `ControlStreamSession` (likely no code changes needed)
@@ -105,7 +105,7 @@
 ## 9. Web-NG — TFTP Sessions UI
 - [x] 9.1 Build receive-session creation form (agent selector, filename, storage destination, timeout, notes)
 - [x] 9.2 Build serve-session creation form (agent selector, image from library, filename override, timeout)
-- [ ] 9.3 Agent selector: filter to agents with `tftp` capability
+- [x] 9.3 Agent selector: filter to agents with `tftp` capability
 - [x] 9.4 Subscribe to PubSub for live session status updates
 - [x] 9.5 Build active session monitoring panel with real-time status
 - [x] 9.6 Build progress bar component for active transfers (bytes, rate, ETA)
@@ -123,9 +123,9 @@
 ## 11. Web-NG — File Browser UI
 - [x] 11.1 Build file browser component listing stored files (local + S3)
 - [x] 11.2 Display file metadata (name, size, date, checksum, source session)
-- [ ] 11.3 Add file download action (local: direct, S3: presigned URL)
+- [x] 11.3 Add file download action (local: direct, S3: presigned URL)
 - [x] 11.4 Add file delete action with confirmation
-- [ ] 11.5 Add filtering by file type (backup vs image), date range, agent
+- [x] 11.5 Add filtering by file type (backup vs image), date range, agent
 
 ## 12. Security & Hardening
 - [ ] 12.1 Audit TFTP service for security: filename validation, path traversal prevention
