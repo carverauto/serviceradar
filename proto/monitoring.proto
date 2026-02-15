@@ -41,6 +41,13 @@ service AgentGatewayService {
   rpc StreamStatus(stream GatewayStatusChunk) returns (GatewayStatusResponse) {}
   // ControlStream establishes a bidirectional control channel for commands and push-config.
   rpc ControlStream(stream ControlStreamRequest) returns (stream ControlStreamResponse) {}
+
+  // UploadFile streams a file from agent to gateway (e.g., TFTP receive mode backups).
+  // The gateway forwards the data to core-elx for persistent storage.
+  rpc UploadFile(stream FileChunk) returns (FileUploadResponse) {}
+  // DownloadFile streams a file from gateway to agent (e.g., firmware image staging for TFTP serve mode).
+  // The gateway fetches the file from core-elx storage and streams it to the agent.
+  rpc DownloadFile(FileDownloadRequest) returns (stream FileChunk) {}
 }
 
 message DeviceStatusRequest {
@@ -348,6 +355,37 @@ message ControlStreamResponse {
     CommandRequest command = 1;
     AgentConfigResponse config = 2;
   }
+}
+
+// ============================================================================
+// File Transfer Messages (TFTP / Software Library)
+// ============================================================================
+
+// FileChunk carries a chunk of file data during upload or download.
+message FileChunk {
+  string session_id = 1;       // Links to TftpSession resource
+  bytes data = 2;              // File data chunk (recommended 64KB)
+  int64 offset = 3;            // Byte offset of this chunk in the file
+  int64 total_size = 4;        // Total file size in bytes (set in first chunk, 0 if unknown)
+  string content_hash = 5;     // SHA-256 hash of entire file (set in last chunk only)
+  bool is_last = 6;            // True for the final chunk
+  string filename = 7;         // Original filename (set in first chunk)
+}
+
+// FileUploadResponse is returned after a complete file upload.
+message FileUploadResponse {
+  bool success = 1;            // Whether the upload was accepted and stored
+  string message = 2;          // Human-readable status or error message
+  int64 bytes_received = 3;    // Total bytes received
+  string content_hash = 4;     // SHA-256 hash computed by receiver for verification
+}
+
+// FileDownloadRequest initiates a file download from gateway to agent.
+message FileDownloadRequest {
+  string session_id = 1;       // TftpSession ID (used to look up which file to serve)
+  string agent_id = 2;         // Agent requesting the download
+  string image_id = 3;         // SoftwareImage ID to download (for serve-mode staging)
+  string expected_hash = 4;    // Expected SHA-256 hash for verification after download
 }
 
 // PluginConfig defines plugin assignments for the agent.

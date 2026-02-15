@@ -393,6 +393,16 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/snmp/new", Settings.SNMPProfilesLive.Index, :new_profile)
       live("/settings/snmp/:id/edit", Settings.SNMPProfilesLive.Index, :edit_profile)
 
+      # Software library & TFTP sessions
+      live("/settings/software", Settings.SoftwareLive.Index, :library)
+      live("/settings/software/upload", Settings.SoftwareLive.Index, :upload)
+      live("/settings/software/images/:id", Settings.SoftwareLive.Index, :show_image)
+      live("/settings/software/sessions", Settings.SoftwareLive.Index, :sessions)
+      live("/settings/software/sessions/new", Settings.SoftwareLive.Index, :new_session)
+      live("/settings/software/sessions/:id", Settings.SoftwareLive.Index, :show_session)
+      live("/settings/software/storage", Settings.SoftwareLive.Index, :storage)
+      live("/settings/software/files", Settings.SoftwareLive.Index, :files)
+
       # Agent deployment
       live("/settings/agents/deploy", Settings.AgentsLive.Deploy, :index)
       live("/settings/agents/plugins", Admin.PluginPackageLive.Index, :index)

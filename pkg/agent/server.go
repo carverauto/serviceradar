@@ -70,6 +70,11 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 		log.Warn().Err(err).Msg("Failed to initialize SNMP service, continuing without it")
 	}
 
+	// Initialize embedded TFTP service
+	if err := s.initTFTPService(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize TFTP service, continuing without it")
+	}
+
 	return s, nil
 }
 
@@ -268,6 +273,20 @@ func (s *Server) GetSNMPStatus(ctx context.Context) (*proto.StatusResponse, erro
 	return svc.GetStatus(ctx)
 }
 
+// initTFTPService creates and initializes the embedded TFTP service.
+func (s *Server) initTFTPService(ctx context.Context) error {
+	tftpSvc := NewTFTPService(s.logger.WithComponent("tftp"), "")
+
+	if err := tftpSvc.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start TFTP service: %w", err)
+	}
+
+	s.tftpService = tftpSvc
+	s.logger.Info().Msg("TFTP service initialized and started")
+
+	return nil
+}
+
 func (s *Server) initPluginManager(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -327,6 +346,13 @@ func (s *Server) Stop(_ context.Context) error {
 	if s.mapperService != nil {
 		if err := s.mapperService.Stop(context.Background()); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop mapper service")
+		}
+	}
+
+	// Stop TFTP service if running
+	if s.tftpService != nil {
+		if err := s.tftpService.Stop(context.Background()); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop TFTP service")
 		}
 	}
 

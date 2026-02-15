@@ -309,6 +309,50 @@ if config_env() == :prod do
            Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
   end
 
+  # Software library storage configuration
+  # S3 credentials can be provided via ENV (preferred) or stored in DB with AshCloak.
+  # Resolution order: ENV vars → DB-stored → disabled.
+  software_storage_defaults =
+    Application.get_env(:serviceradar_core, :software_storage, [])
+
+  software_storage_overrides =
+    []
+    |> then(fn acc ->
+      case System.get_env("SOFTWARE_STORAGE_MODE") do
+        "local" -> Keyword.put(acc, :mode, :local)
+        "s3" -> Keyword.put(acc, :mode, :s3)
+        "both" -> Keyword.put(acc, :mode, :both)
+        _ -> acc
+      end
+    end)
+    |> then(fn acc ->
+      case System.get_env("SOFTWARE_STORAGE_LOCAL_PATH") do
+        nil -> acc
+        "" -> acc
+        value -> Keyword.put(acc, :local_path, value)
+      end
+    end)
+    |> then(fn acc ->
+      case System.get_env("SOFTWARE_STORAGE_PUBLIC_URL") do
+        nil -> acc
+        "" -> acc
+        value -> Keyword.put(acc, :public_url, value)
+      end
+    end)
+    |> then(fn acc ->
+      case System.get_env("SOFTWARE_STORAGE_SIGNING_SECRET") do
+        nil -> acc
+        "" -> acc
+        value -> Keyword.put(acc, :signing_secret, value)
+      end
+    end)
+
+  if software_storage_overrides != [] do
+    config :serviceradar_core,
+           :software_storage,
+           Keyword.merge(software_storage_defaults, software_storage_overrides)
+  end
+
   # Oban configuration
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,

@@ -48,6 +48,7 @@ type Server struct {
 	sysmonService      *SysmonService
 	snmpService        *SNMPAgentService
 	mapperService      *MapperService
+	tftpService        *TFTPService
 	pluginManager      *PluginManager
 }
 

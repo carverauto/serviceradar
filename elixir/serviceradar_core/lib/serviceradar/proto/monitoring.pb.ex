@@ -548,6 +548,51 @@ defmodule Monitoring.ControlStreamResponse do
   field :config, 2, type: Monitoring.AgentConfigResponse, oneof: 0
 end
 
+defmodule Monitoring.FileChunk do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.FileChunk",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :session_id, 1, type: :string, json_name: "sessionId"
+  field :data, 2, type: :bytes
+  field :offset, 3, type: :int64
+  field :total_size, 4, type: :int64, json_name: "totalSize"
+  field :content_hash, 5, type: :string, json_name: "contentHash"
+  field :is_last, 6, type: :bool, json_name: "isLast"
+  field :filename, 7, type: :string
+end
+
+defmodule Monitoring.FileUploadResponse do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.FileUploadResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :success, 1, type: :bool
+  field :message, 2, type: :string
+  field :bytes_received, 3, type: :int64, json_name: "bytesReceived"
+  field :content_hash, 4, type: :string, json_name: "contentHash"
+end
+
+defmodule Monitoring.FileDownloadRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.FileDownloadRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :session_id, 1, type: :string, json_name: "sessionId"
+  field :agent_id, 2, type: :string, json_name: "agentId"
+  field :image_id, 3, type: :string, json_name: "imageId"
+  field :expected_hash, 4, type: :string, json_name: "expectedHash"
+end
+
 defmodule Monitoring.PluginConfig do
   @moduledoc false
 
@@ -791,6 +836,10 @@ defmodule Monitoring.AgentGatewayService.Service do
     stream(Monitoring.ControlStreamRequest),
     stream(Monitoring.ControlStreamResponse)
   )
+
+  rpc(:UploadFile, stream(Monitoring.FileChunk), Monitoring.FileUploadResponse)
+
+  rpc(:DownloadFile, Monitoring.FileDownloadRequest, stream(Monitoring.FileChunk))
 end
 
 defmodule Monitoring.AgentGatewayService.Stub do

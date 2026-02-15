@@ -305,6 +305,48 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: [:operator, :admin]
         }
       ]
+    },
+    %{
+      section: "software",
+      label: "Software",
+      permissions: [
+        %{
+          key: "settings.software.view",
+          label: "View software library",
+          description: "View software images, TFTP sessions, and storage settings",
+          default_roles: [:viewer, :helpdesk, :operator, :admin]
+        },
+        %{
+          key: "settings.software.manage",
+          label: "Manage software library",
+          description: "Manage software images, storage config, and TFTP sessions",
+          default_roles: [:operator, :admin]
+        },
+        %{
+          key: "software.image.upload",
+          label: "Upload software images",
+          description: "Upload firmware images and software packages",
+          default_roles: [:operator, :admin]
+        },
+        %{
+          key: "software.image.delete",
+          label: "Delete software images",
+          description: "Delete software images from the library",
+          default_roles: [:admin]
+        },
+        %{
+          key: "tftp.session.create",
+          label: "Create TFTP sessions",
+          description: "Create TFTP transfer sessions for firmware upgrades and backups",
+          default_roles: [:operator, :admin]
+        },
+        %{
+          key: "tftp.session.cancel",
+          label: "Cancel TFTP sessions",
+          description: "Cancel active TFTP transfer sessions",
+          default_roles: [:operator, :admin]
+        }
+      ]
     }
   ]
 

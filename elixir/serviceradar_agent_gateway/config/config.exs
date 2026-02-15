@@ -19,7 +19,8 @@ config :serviceradar_core,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.Plugins
+    ServiceRadar.Plugins,
+    ServiceRadar.Software
   ]
 
 # Logger configuration

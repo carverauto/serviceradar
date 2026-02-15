@@ -8,6 +8,9 @@ defmodule ServiceRadarWebNG.Authorization.Permissions do
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.RBAC, as: RBACCore
+  alias ServiceRadar.Software.SoftwareImage
+  alias ServiceRadar.Software.StorageConfig
+  alias ServiceRadar.Software.TftpSession
 
   @impl true
   def can(%User{} = user) do
@@ -29,6 +32,18 @@ defmodule ServiceRadarWebNG.Authorization.Permissions do
       "settings.rbac.manage" ->
         permissions
         |> all(RoleProfile)
+
+      "settings.software.manage" ->
+        permissions
+        |> all(SoftwareImage)
+        |> all(StorageConfig)
+        |> all(TftpSession)
+
+      "settings.software.view" ->
+        permissions
+        |> read(SoftwareImage)
+        |> read(StorageConfig)
+        |> read(TftpSession)
 
       _ ->
         permissions

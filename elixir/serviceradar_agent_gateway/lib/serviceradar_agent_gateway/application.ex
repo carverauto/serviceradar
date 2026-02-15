@@ -132,6 +132,7 @@ defmodule ServiceRadarAgentGateway.Application do
       [
         ServiceRadarAgentGateway.AgentRegistryProxy,
         ServiceRadarAgentGateway.StatusBuffer,
+        ServiceRadarAgentGateway.FileTransferLimiter,
 
         # gRPC server that receives status pushes from Go agents
         {GRPC.Server.Supervisor,

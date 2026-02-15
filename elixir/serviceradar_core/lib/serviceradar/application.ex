@@ -114,6 +114,9 @@ defmodule ServiceRadar.Application do
         # Agent command status handler (persists command lifecycle updates)
         command_status_handler_child(),
 
+        # TFTP session status handler (bridges command events to session state)
+        tftp_status_handler_child(),
+
         # Health check runner supervisor (high-frequency gRPC checks)
         health_check_runner_supervisor_child(),
 
@@ -351,6 +354,14 @@ defmodule ServiceRadar.Application do
   defp command_status_handler_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.AgentCommands.StatusHandler
+    else
+      nil
+    end
+  end
+
+  defp tftp_status_handler_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.Software.TftpStatusHandler
     else
       nil
     end

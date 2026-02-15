@@ -118,6 +118,12 @@ defmodule ServiceRadarCore.MixProject do
       {:castore, "~> 1.0"},
       {:geolix_adapter_mmdb2, "~> 0.6.0"},
 
+      # S3 storage for software library
+      {:ex_aws, "~> 2.5"},
+      {:ex_aws_s3, "~> 2.5"},
+      {:hackney, "~> 1.18"},
+      {:sweet_xml, "~> 0.7"},
+
       # Policy SAT solver for Ash policies
       {:simple_sat, "~> 0.1"},
 
