@@ -2979,5 +2979,6 @@ func getAgentCapabilities() []string {
 		"mapper",
 		"sync",
 		"sysmon",
+		"tftp",
 	}
 }

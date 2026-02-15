@@ -19,8 +19,11 @@ package agentgateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -502,4 +505,189 @@ func (g *GatewayClient) ControlStream(ctx context.Context) (grpc.BidiStreamingCl
 	}
 
 	return stream, nil
+}
+
+const fileChunkSize = 64 * 1024 // 64KB chunk size for file transfers
+
+// UploadFile streams a local file to the gateway for storage.
+// Used after a TFTP receive to upload the captured file to core storage.
+func (g *GatewayClient) UploadFile(ctx context.Context, sessionID, filename, filePath string) (*proto.FileUploadResponse, error) {
+	g.mu.RLock()
+	client := g.client
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("open file for upload: %w", err)
+	}
+	defer file.Close()
+
+	fi, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat file for upload: %w", err)
+	}
+
+	totalSize := fi.Size()
+
+	stream, err := client.UploadFile(ctx)
+	if err != nil {
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to open upload stream: %w", err)
+	}
+
+	hasher := sha256.New()
+	buf := make([]byte, fileChunkSize)
+	var offset int64
+
+	firstChunk := true
+
+	for {
+		n, readErr := file.Read(buf)
+		if n > 0 {
+			data := buf[:n]
+			_, _ = hasher.Write(data)
+
+			isLast := readErr == io.EOF || (offset+int64(n)) >= totalSize
+			contentHash := ""
+
+			if isLast {
+				contentHash = hex.EncodeToString(hasher.Sum(nil))
+			}
+
+			chunk := &proto.FileChunk{
+				SessionId:   sessionID,
+				Data:        data,
+				Offset:      offset,
+				IsLast:      isLast,
+				ContentHash: contentHash,
+			}
+
+			if firstChunk {
+				chunk.Filename = filename
+				chunk.TotalSize = totalSize
+				firstChunk = false
+			}
+
+			if sendErr := stream.Send(chunk); sendErr != nil {
+				return nil, fmt.Errorf("failed to send file chunk: %w", sendErr)
+			}
+
+			offset += int64(n)
+
+			if isLast {
+				break
+			}
+		}
+
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+
+			return nil, fmt.Errorf("read file for upload: %w", readErr)
+		}
+	}
+
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		return nil, fmt.Errorf("failed to receive upload response: %w", err)
+	}
+
+	g.logger.Info().
+		Str("session_id", sessionID).
+		Str("filename", filename).
+		Int64("bytes", offset).
+		Bool("success", resp.Success).
+		Msg("File upload completed")
+
+	return resp, nil
+}
+
+// DownloadFile downloads a file from the gateway to a local destination path.
+// Used before a TFTP serve to stage a software image from core storage.
+func (g *GatewayClient) DownloadFile(ctx context.Context, req *proto.FileDownloadRequest, destPath string) error {
+	g.mu.RLock()
+	client := g.client
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return ErrGatewayNotConnected
+	}
+
+	stream, err := client.DownloadFile(ctx, req)
+	if err != nil {
+		g.markDisconnected()
+		return fmt.Errorf("failed to open download stream: %w", err)
+	}
+
+	file, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o640)
+	if err != nil {
+		return fmt.Errorf("create destination file: %w", err)
+	}
+	defer file.Close()
+
+	hasher := sha256.New()
+	var totalBytes int64
+	var serverHash string
+
+	for {
+		chunk, recvErr := stream.Recv()
+		if recvErr != nil {
+			if recvErr == io.EOF {
+				break
+			}
+
+			return fmt.Errorf("receive download chunk: %w", recvErr)
+		}
+
+		if len(chunk.Data) > 0 {
+			if _, writeErr := file.Write(chunk.Data); writeErr != nil {
+				return fmt.Errorf("write download chunk: %w", writeErr)
+			}
+
+			_, _ = hasher.Write(chunk.Data)
+			totalBytes += int64(len(chunk.Data))
+		}
+
+		if chunk.IsLast {
+			serverHash = chunk.ContentHash
+
+			break
+		}
+	}
+
+	// Verify hash if server provided one
+	if serverHash != "" {
+		computed := hex.EncodeToString(hasher.Sum(nil))
+		if computed != serverHash {
+			// Remove the corrupt file
+			_ = os.Remove(destPath)
+
+			return fmt.Errorf("download hash mismatch: expected %s, got %s", serverHash, computed)
+		}
+	}
+
+	// Also verify against expected hash from request if provided
+	if req.ExpectedHash != "" {
+		computed := hex.EncodeToString(hasher.Sum(nil))
+		if computed != req.ExpectedHash {
+			_ = os.Remove(destPath)
+
+			return fmt.Errorf("download hash mismatch with expected: expected %s, got %s", req.ExpectedHash, computed)
+		}
+	}
+
+	g.logger.Info().
+		Str("session_id", req.SessionId).
+		Str("dest_path", destPath).
+		Int64("bytes", totalBytes).
+		Msg("File download completed")
+
+	return nil
 }

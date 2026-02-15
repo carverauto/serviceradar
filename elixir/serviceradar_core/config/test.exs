@@ -230,8 +230,14 @@ config :serviceradar_core,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.Plugins
+    ServiceRadar.Plugins,
+    ServiceRadar.Software
   ]
+
+# Software storage defaults for tests
+config :serviceradar_core, :software_storage,
+  mode: :local,
+  local_path: System.tmp_dir!() |> Path.join("serviceradar_test_software")
 
 # Reduce log noise in tests
 config :logger, level: :warning

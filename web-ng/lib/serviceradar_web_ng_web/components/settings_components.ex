@@ -47,6 +47,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       cluster_tab(path, current_scope),
       network_tab(path, current_scope),
       agents_tab(path, current_scope),
+      software_tab(path, current_scope),
       events_tab(path, current_scope),
       edge_ops_tab(path, current_scope),
       jobs_tab(path, current_scope),
@@ -102,6 +103,21 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       RBAC.can?(current_scope, "settings.edge.manage") or
       RBAC.can?(current_scope, "plugins.view") or
       RBAC.can?(current_scope, "settings.plugins.manage")
+  end
+
+  defp software_tab(path, current_scope) do
+    %{
+      label: "Software",
+      navigate: ~p"/settings/software",
+      active:
+        String.starts_with?(path, "/settings/software"),
+      show: can_software_tab?(current_scope)
+    }
+  end
+
+  defp can_software_tab?(current_scope) do
+    RBAC.can?(current_scope, "settings.software.manage") or
+      RBAC.can?(current_scope, "settings.software.view")
   end
 
   defp events_tab(path, current_scope) do
@@ -331,6 +347,61 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       <.ui_tabs tabs={@tabs} class="flex-wrap" />
     </div>
     """
+  end
+
+  # Software section sub-navigation
+  attr(:current_path, :string, required: true)
+  attr(:class, :any, default: nil)
+  attr(:current_scope, :map, default: nil)
+
+  def software_nav(assigns) do
+    assigns = assign(assigns, :tabs, software_tabs(assigns.current_path, assigns[:current_scope]))
+
+    ~H"""
+    <div class={["flex flex-wrap items-center gap-2 mb-4", @class]}>
+      <.ui_tabs tabs={@tabs} class="flex-wrap" size="sm" />
+    </div>
+    """
+  end
+
+  def software_tabs(current_path, current_scope \\ nil) do
+    path = current_path || ""
+
+    can_manage = RBAC.can?(current_scope, "settings.software.manage")
+    can_view = RBAC.can?(current_scope, "settings.software.view") or can_manage
+
+    [
+      %{
+        label: "Library",
+        navigate: ~p"/settings/software",
+        active:
+          path == "/settings/software" or
+            (String.starts_with?(path, "/settings/software") and
+               not String.starts_with?(path, "/settings/software/sessions") and
+               not String.starts_with?(path, "/settings/software/storage") and
+               not String.starts_with?(path, "/settings/software/files")),
+        show: can_view
+      },
+      %{
+        label: "Sessions",
+        navigate: ~p"/settings/software/sessions",
+        active: String.starts_with?(path, "/settings/software/sessions"),
+        show: can_view
+      },
+      %{
+        label: "Storage",
+        navigate: ~p"/settings/software/storage",
+        active: String.starts_with?(path, "/settings/software/storage"),
+        show: can_manage
+      },
+      %{
+        label: "Files",
+        navigate: ~p"/settings/software/files",
+        active: String.starts_with?(path, "/settings/software/files"),
+        show: can_view
+      }
+    ]
+    |> Enum.filter(&Map.get(&1, :show, true))
   end
 
   def edge_tabs(current_path) do

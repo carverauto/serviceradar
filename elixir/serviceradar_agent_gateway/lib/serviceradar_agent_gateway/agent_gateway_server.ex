@@ -37,8 +37,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   require Logger
 
   alias ServiceRadar.Edge.AgentGatewaySync
+  alias ServiceRadar.Software.TftpFileTransfer
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
-  alias ServiceRadarAgentGateway.{AgentRegistryProxy, Config, ControlStreamSession, StatusProcessor}
+
+  alias ServiceRadarAgentGateway.{
+    AgentRegistryProxy,
+    Config,
+    ControlStreamSession,
+    FileTransferLimiter,
+    StatusProcessor
+  }
 
   # Default heartbeat interval for agents
   @default_heartbeat_interval_sec 30
@@ -49,6 +57,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_results_message_bytes 15 * 1024 * 1024
   @max_sysmon_message_bytes 15 * 1024 * 1024
   @agent_gateway_component_types [:agent]
+
+  # File transfer constants
+  @file_chunk_size 65_536
+  @max_upload_size 100 * 1024 * 1024
 
   # Gateway identifier (node name or configured ID)
   defp gateway_id do
@@ -542,6 +554,302 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
 
     :ok
+  end
+
+  @doc """
+  Handle a file upload from an agent (client-streaming RPC).
+
+  Receives a stream of FileChunk messages, writes them to a temp file,
+  then stores the file via core RPC and updates the TftpSession.
+  """
+  @spec upload_file(Enumerable.t(), GRPC.Server.Stream.t()) :: Monitoring.FileUploadResponse.t()
+  def upload_file(request_stream, stream) do
+    case FileTransferLimiter.acquire(:upload) do
+      :ok -> :ok
+
+      {:error, :too_many_transfers} ->
+        raise GRPC.RPCError,
+          status: :resource_exhausted,
+          message: "too many concurrent uploads"
+    end
+
+    try do
+      do_upload_file(request_stream, stream)
+    after
+      FileTransferLimiter.release(:upload)
+    end
+  end
+
+  defp do_upload_file(request_stream, stream) do
+    identity = extract_identity_from_stream(stream)
+
+    {session_id, filename, temp_path, total_bytes, computed_hash} =
+      Enum.reduce(request_stream, {nil, nil, nil, 0, nil}, fn chunk, acc ->
+        {sid, fname, path, bytes_so_far, hash_state} = acc
+
+        # Extract session_id and filename from first chunk
+        sid = sid || non_empty(chunk.session_id)
+        fname = fname || non_empty(chunk.filename)
+
+        if is_nil(sid) do
+          raise GRPC.RPCError, status: :invalid_argument, message: "session_id is required"
+        end
+
+        # Initialize temp file and hash state on first chunk
+        {path, hash_state} =
+          if is_nil(path) do
+            tmp_dir = System.tmp_dir!()
+            tmp_path = Path.join(tmp_dir, "sr_upload_#{sid}")
+            File.write!(tmp_path, "")
+            {tmp_path, :crypto.hash_init(:sha256)}
+          else
+            {path, hash_state}
+          end
+
+        data = chunk.data || <<>>
+        new_total = bytes_so_far + byte_size(data)
+
+        if new_total > @max_upload_size do
+          cleanup_temp(path)
+
+          raise GRPC.RPCError,
+            status: :resource_exhausted,
+            message: "file exceeds maximum upload size"
+        end
+
+        # Append data to temp file
+        File.write!(path, data, [:append])
+        hash_state = :crypto.hash_update(hash_state, data)
+
+        if chunk.is_last do
+          computed = :crypto.hash_final(hash_state) |> Base.encode16(case: :lower)
+
+          # Verify hash if provided by client
+          if non_empty(chunk.content_hash) && chunk.content_hash != computed do
+            cleanup_temp(path)
+
+            raise GRPC.RPCError,
+              status: :data_loss,
+              message: "content hash mismatch"
+          end
+
+          {sid, fname, path, new_total, computed}
+        else
+          {sid, fname, path, new_total, hash_state}
+        end
+      end)
+
+    if is_nil(computed_hash) do
+      if temp_path, do: cleanup_temp(temp_path)
+      raise GRPC.RPCError, status: :invalid_argument, message: "stream ended without final chunk"
+    end
+
+    # Validate identity
+    enforce_component_identity_for_upload!(identity)
+
+    Logger.info(
+      "File upload complete: session=#{session_id} filename=#{filename} " <>
+        "bytes=#{total_bytes} hash=#{computed_hash}"
+    )
+
+    # Store via core RPC
+    case core_call(
+           TftpFileTransfer,
+           :store_received_file,
+           [session_id, filename || "unknown", temp_path, computed_hash, total_bytes],
+           60_000
+         ) do
+      {:ok, {:ok, _object_key}} ->
+        cleanup_temp(temp_path)
+
+        %Monitoring.FileUploadResponse{
+          success: true,
+          message: "file stored successfully",
+          bytes_received: total_bytes,
+          content_hash: computed_hash
+        }
+
+      {:ok, {:error, reason}} ->
+        cleanup_temp(temp_path)
+
+        Logger.warning("File storage failed: session=#{session_id} reason=#{inspect(reason)}")
+
+        %Monitoring.FileUploadResponse{
+          success: false,
+          message: "storage failed: #{inspect(reason)}",
+          bytes_received: total_bytes,
+          content_hash: computed_hash
+        }
+
+      {:error, :core_unavailable} ->
+        cleanup_temp(temp_path)
+
+        raise GRPC.RPCError, status: :unavailable, message: "core unavailable for file storage"
+    end
+  end
+
+  @doc """
+  Handle a file download request from an agent (server-streaming RPC).
+
+  Fetches the requested image from core storage and streams it back
+  as FileChunk messages.
+  """
+  @spec download_file(Monitoring.FileDownloadRequest.t(), GRPC.Server.Stream.t()) :: :ok
+  def download_file(request, stream) do
+    case FileTransferLimiter.acquire(:download) do
+      :ok -> :ok
+
+      {:error, :too_many_transfers} ->
+        raise GRPC.RPCError,
+          status: :resource_exhausted,
+          message: "too many concurrent downloads"
+    end
+
+    try do
+      do_download_file(request, stream)
+    after
+      FileTransferLimiter.release(:download)
+    end
+  end
+
+  defp do_download_file(request, stream) do
+    identity = extract_identity_from_stream(stream)
+    enforce_component_identity_for_upload!(identity)
+
+    image_id = non_empty(request.image_id)
+    session_id = non_empty(request.session_id)
+
+    if is_nil(image_id) do
+      raise GRPC.RPCError, status: :invalid_argument, message: "image_id is required"
+    end
+
+    Logger.info(
+      "File download requested: session=#{session_id} image=#{image_id} agent=#{request.agent_id}"
+    )
+
+    # Fetch image from core storage to temp file
+    {temp_path, metadata} =
+      case core_call(TftpFileTransfer, :get_image_for_download, [image_id], 60_000) do
+        {:ok, {:ok, result}} ->
+          {result.temp_path, result}
+
+        {:ok, {:error, reason}} ->
+          Logger.warning("Image download failed: image=#{image_id} reason=#{inspect(reason)}")
+          raise GRPC.RPCError, status: :not_found, message: "image not available: #{inspect(reason)}"
+
+        {:error, :core_unavailable} ->
+          raise GRPC.RPCError, status: :unavailable, message: "core unavailable for image download"
+      end
+
+    # Stream the file back in chunks
+    try do
+      stream_file_chunks(stream, temp_path, session_id, metadata)
+    after
+      cleanup_temp(temp_path)
+    end
+
+    :ok
+  end
+
+  defp stream_file_chunks(stream, file_path, session_id, metadata) do
+    total_size = metadata.file_size
+    content_hash = metadata.content_hash || ""
+    filename = metadata.filename || ""
+
+    case File.open(file_path, [:read, :binary]) do
+      {:ok, file} ->
+        try do
+          stream_file_loop(stream, file, session_id, filename, total_size, content_hash, 0)
+        after
+          File.close(file)
+        end
+
+      {:error, reason} ->
+        raise GRPC.RPCError,
+          status: :internal,
+          message: "failed to open temp file: #{inspect(reason)}"
+    end
+  end
+
+  defp stream_file_loop(stream, file, session_id, filename, total_size, content_hash, offset) do
+    case IO.binread(file, @file_chunk_size) do
+      :eof ->
+        # Edge case: empty file or already sent all data, send empty final chunk
+        if offset == 0 do
+          chunk = %Monitoring.FileChunk{
+            session_id: session_id,
+            data: <<>>,
+            offset: 0,
+            total_size: 0,
+            content_hash: content_hash,
+            is_last: true,
+            filename: filename
+          }
+
+          GRPC.Server.send_reply(stream, chunk)
+        end
+
+      data when is_binary(data) ->
+        data_size = byte_size(data)
+        new_offset = offset + data_size
+
+        # Check if this is the last chunk
+        is_last = new_offset >= total_size or data_size < @file_chunk_size
+
+        chunk = %Monitoring.FileChunk{
+          session_id: session_id,
+          data: data,
+          offset: offset,
+          total_size: if(offset == 0, do: total_size, else: 0),
+          content_hash: if(is_last, do: content_hash, else: ""),
+          is_last: is_last,
+          filename: if(offset == 0, do: filename, else: "")
+        }
+
+        GRPC.Server.send_reply(stream, chunk)
+
+        unless is_last do
+          stream_file_loop(stream, file, session_id, filename, total_size, content_hash, new_offset)
+        end
+
+      {:error, reason} ->
+        raise GRPC.RPCError,
+          status: :internal,
+          message: "file read error: #{inspect(reason)}"
+    end
+  end
+
+  defp enforce_component_identity_for_upload!(identity) do
+    cert_component_id =
+      case identity do
+        %{component_id: value} when is_binary(value) -> String.trim(value)
+        _ -> ""
+      end
+
+    if cert_component_id == "" do
+      raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
+    end
+
+    component_type = Map.get(identity, :component_type)
+
+    if not is_nil(component_type) and component_type not in @agent_gateway_component_types do
+      raise GRPC.RPCError, status: :permission_denied, message: "component_type not authorized"
+    end
+  end
+
+  defp non_empty(nil), do: nil
+  defp non_empty(""), do: nil
+  defp non_empty(value) when is_binary(value), do: value
+  defp non_empty(_), do: nil
+
+  defp cleanup_temp(nil), do: :ok
+
+  defp cleanup_temp(path) do
+    case File.rm(path) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} -> Logger.warning("Failed to clean temp file #{path}: #{inspect(reason)}")
+    end
   end
 
   # Process a single service status and forward to the core

@@ -23,7 +23,8 @@ config :serviceradar_core,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.NetworkDiscovery,
-    ServiceRadar.Plugins
+    ServiceRadar.Plugins,
+    ServiceRadar.Software
   ]
 
 # Mailer configuration
@@ -92,13 +93,15 @@ config :serviceradar_core, Oban,
     integrations: 5,
     nats_accounts: 3,
     maintenance: 5,
-    monitoring: 5
+    monitoring: 5,
+    software: 3
   ],
   plugins: [
     Oban.Plugins.Pruner,
     {Oban.Plugins.Cron,
      crontab: [
-       {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+       {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
+       {"0 3 * * *", ServiceRadar.Software.RetentionCleanupWorker, queue: :software}
      ]}
   ],
   peer: Oban.Peers.Database

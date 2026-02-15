@@ -448,9 +448,87 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp failure_message(reason), do: inspect(reason)
 
+  # -- TFTP convenience wrappers --
+
+  @tftp_default_ttl 330
+
+  @doc "Dispatch a TFTP receive session start command to an agent."
+  def start_tftp_receive(session, opts \\ []) do
+    payload = %{
+      session_id: session.id,
+      mode: "receive",
+      expected_filename: session.expected_filename,
+      timeout_seconds: session.timeout_seconds,
+      bind_address: session.bind_address,
+      port: session.port,
+      max_file_size: session.max_file_size
+    }
+
+    opts =
+      opts
+      |> Keyword.put_new(:required_capability, "tftp")
+      |> Keyword.put_new(:ttl_seconds, (session.timeout_seconds || 300) + 30)
+      |> add_context(%{tftp_session_id: session.id, mode: "receive"})
+
+    dispatch(session.agent_id, "tftp.start_receive", payload, opts)
+  end
+
+  @doc "Dispatch a TFTP serve session start command to an agent."
+  def start_tftp_serve(session, opts \\ []) do
+    payload = %{
+      session_id: session.id,
+      mode: "serve",
+      expected_filename: session.expected_filename,
+      timeout_seconds: session.timeout_seconds,
+      bind_address: session.bind_address,
+      port: session.port,
+      max_file_size: session.max_file_size,
+      image_id: session.image_id
+    }
+
+    opts =
+      opts
+      |> Keyword.put_new(:required_capability, "tftp")
+      |> Keyword.put_new(:ttl_seconds, (session.timeout_seconds || 300) + 30)
+      |> add_context(%{tftp_session_id: session.id, mode: "serve"})
+
+    dispatch(session.agent_id, "tftp.start_serve", payload, opts)
+  end
+
+  @doc "Dispatch a TFTP stop command to cancel an active session on the agent."
+  def stop_tftp_session(session, opts \\ []) do
+    payload = %{session_id: session.id}
+
+    opts =
+      opts
+      |> Keyword.put_new(:required_capability, "tftp")
+      |> Keyword.put_new(:ttl_seconds, @tftp_default_ttl)
+      |> add_context(%{tftp_session_id: session.id})
+
+    dispatch(session.agent_id, "tftp.stop_session", payload, opts)
+  end
+
+  @doc "Dispatch a stage image command for a serve-mode TFTP session."
+  def stage_tftp_image(session, opts \\ []) do
+    payload = %{
+      session_id: session.id,
+      image_id: session.image_id,
+      expected_filename: session.expected_filename
+    }
+
+    opts =
+      opts
+      |> Keyword.put_new(:required_capability, "tftp")
+      |> Keyword.put_new(:ttl_seconds, @tftp_default_ttl)
+      |> add_context(%{tftp_session_id: session.id, image_id: session.image_id})
+
+    dispatch(session.agent_id, "tftp.stage_image", payload, opts)
+  end
+
   defp capability_for_config_type(:mapper), do: "mapper"
   defp capability_for_config_type(:sweep), do: "sweep"
   defp capability_for_config_type(:sysmon), do: "sysmon"
   defp capability_for_config_type(:snmp), do: "snmp"
+  defp capability_for_config_type(:tftp), do: "tftp"
   defp capability_for_config_type(_), do: nil
 end
