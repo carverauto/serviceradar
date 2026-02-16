@@ -350,7 +350,7 @@ func GenerateDeviceID(mac string) string {
 		return ""
 	}
 
-	return mac // Use raw MAC as DeviceID, no normalization for now
+	return "mac-" + NormalizeMAC(mac)
 }
 
 // GenerateDeviceIDFromIP creates a device identifier from an IP address when MAC is not available.

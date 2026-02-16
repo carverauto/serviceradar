@@ -1,7 +1,36 @@
 defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadarWebNG.Topology.GodViewStream
+
+  @topology_link_metadata %{
+    "relation_type" => "CONNECTS_TO",
+    "evidence_class" => "direct",
+    "confidence_tier" => "high",
+    "source" => "mapper"
+  }
+
+  setup do
+    previous_coalesce = Application.get_env(:serviceradar_web_ng, :god_view_snapshot_coalesce_ms)
+    Application.put_env(:serviceradar_web_ng, :god_view_snapshot_coalesce_ms, 0)
+
+    on_exit(fn ->
+      if is_nil(previous_coalesce) do
+        Application.delete_env(:serviceradar_web_ng, :god_view_snapshot_coalesce_ms)
+      else
+        Application.put_env(
+          :serviceradar_web_ng,
+          :god_view_snapshot_coalesce_ms,
+          previous_coalesce
+        )
+      end
+    end)
+
+    :ok
+  end
 
   test "latest_snapshot/0 returns binary payload with expected header" do
     assert {:ok, %{snapshot: snapshot, payload: payload}} = GodViewStream.latest_snapshot()
@@ -88,5 +117,95 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
     assert root_meta.count + affected_meta.count + healthy_meta.count + unknown_meta.count ==
              node_count
+  end
+
+  test "latest_snapshot/0 keeps coordinates stable across causal-only updates" do
+    actor = SystemActor.system(:god_view_stream_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    left_uid = "coord-left-#{suffix}"
+    right_uid = "coord-right-#{suffix}"
+    now = DateTime.utc_now()
+
+    left =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: left_uid,
+          hostname: "left-#{suffix}.local",
+          type_id: 10,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    _right =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: right_uid,
+          hostname: "right-#{suffix}.local",
+          type_id: 12,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    TopologyLink
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: now,
+        protocol: "lldp",
+        local_device_id: left_uid,
+        local_if_name: "eth0",
+        local_if_index: 1,
+        neighbor_device_id: right_uid,
+        neighbor_mgmt_addr: "10.255.0.2",
+        metadata: @topology_link_metadata
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    assert {:ok, %{snapshot: first}} = GodViewStream.latest_snapshot()
+
+    first_coords = coords_for(first, [left_uid, right_uid])
+    first_states = states_for(first, [left_uid, right_uid])
+
+    assert map_size(first_coords) == 2
+    assert map_size(first_states) == 2
+
+    left
+    |> Ash.Changeset.for_update(:set_availability, %{is_available: false}, actor: actor)
+    |> Ash.update!()
+
+    assert {:ok, %{snapshot: second}} = GodViewStream.latest_snapshot()
+
+    second_coords = coords_for(second, [left_uid, right_uid])
+    second_states = states_for(second, [left_uid, right_uid])
+
+    assert second_coords == first_coords
+    assert second.revision != first.revision
+    assert second_states != first_states
+  end
+
+  defp coords_for(snapshot, node_ids) do
+    snapshot.nodes
+    |> Enum.filter(&(&1.id in node_ids))
+    |> Map.new(fn node -> {node.id, {node.x, node.y}} end)
+  end
+
+  defp states_for(snapshot, node_ids) do
+    snapshot.nodes
+    |> Enum.filter(&(&1.id in node_ids))
+    |> Map.new(fn node -> {node.id, node.state} end)
   end
 end

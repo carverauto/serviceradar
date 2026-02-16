@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @moduledoc """
   Builds God-View snapshot payloads backed by the Rust Arrow encoder.
   """
+
   # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
   # credo:disable-for-this-file Credo.Check.Refactor.Nesting
 
@@ -22,7 +23,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @max_link_rows 5_000
   @max_interface_rows 2_000
   @default_real_time_budget_ms 2_000
+  @default_snapshot_coalesce_ms 0
   @drop_counter_key {__MODULE__, :dropped_updates}
+  @layout_cache_key {__MODULE__, :layout_cache}
+  @snapshot_cache_key {__MODULE__, :snapshot_cache}
   @packet_metric_names ["ifInUcastPkts", "ifOutUcastPkts", "ifHCInUcastPkts", "ifHCOutUcastPkts"]
   @octet_metric_names ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
   @strict_ifindex_protocols MapSet.new(["lldp", "cdp"])
@@ -30,12 +34,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @spec latest_snapshot() ::
           {:ok, %{snapshot: GodViewSnapshot.snapshot(), payload: binary()}} | {:error, term()}
   def latest_snapshot do
+    coalesce_ms = snapshot_coalesce_ms()
+
+    case coalesced_snapshot(coalesce_ms) do
+      {:ok, result} ->
+        {:ok, result}
+
+      :miss ->
+        build_latest_snapshot()
+    end
+  end
+
+  defp build_latest_snapshot do
     started_at = System.monotonic_time()
-    revision = System.system_time(:millisecond)
     actor = SystemActor.system(:god_view_stream)
     budget_ms = real_time_budget_ms()
 
     with {:ok, projection} <- build_projection(actor),
+         revision <- snapshot_revision(projection.topology_revision, projection.causal_revision),
          snapshot = %{
            schema_version: GodViewSnapshot.schema_version(),
            revision: revision,
@@ -47,6 +63,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
          },
          :ok <- GodViewSnapshot.validate(snapshot),
          {:ok, payload} <- encode_payload(snapshot) do
+      result = %{snapshot: snapshot, payload: payload}
       build_ms = duration_ms(started_at)
 
       if build_ms > budget_ms do
@@ -54,10 +71,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
         emit_snapshot_drop_telemetry(snapshot, build_ms, budget_ms, dropped)
         emit_snapshot_built_telemetry(snapshot, payload, build_ms, budget_ms)
-        {:ok, %{snapshot: snapshot, payload: payload}}
+        {:error, {:real_time_budget_exceeded, %{build_ms: build_ms, budget_ms: budget_ms}}}
       else
         emit_snapshot_built_telemetry(snapshot, payload, build_ms, budget_ms)
-        {:ok, %{snapshot: snapshot, payload: payload}}
+        put_snapshot_cache(result)
+        {:ok, result}
       end
     else
       {:error, reason} ->
@@ -116,14 +134,18 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
          {:ok, pairs} <- unique_pairs(links),
          {:ok, nodes, edges} <- build_nodes_and_edges(actor, pairs),
          {:ok, indexed_edges} <- index_edges(nodes, edges) do
-      nodes = apply_native_layout_with_indexed_edges(nodes, indexed_edges)
+      topology_revision = topology_revision(nodes, indexed_edges)
+      nodes = apply_native_layout_with_indexed_edges(nodes, indexed_edges, topology_revision)
       nodes = apply_causal_states(nodes, indexed_edges)
+      causal_revision = causal_revision(nodes)
       {causal_bitmaps, bitmap_metadata} = build_bitmaps(nodes)
 
       {:ok,
        %{
          nodes: nodes,
          edges: edges,
+         topology_revision: topology_revision,
+         causal_revision: causal_revision,
          causal_bitmaps: causal_bitmaps,
          bitmap_metadata: bitmap_metadata
        }}
@@ -1009,29 +1031,56 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     {x, y}
   end
 
-  defp apply_native_layout_with_indexed_edges(nodes, indexed_edges)
+  defp apply_native_layout_with_indexed_edges(nodes, indexed_edges, topology_revision)
        when is_list(nodes) and is_list(indexed_edges) do
     if indexed_edges == [] do
       nodes
     else
-      case Native.layout_nodes_hypergraph(length(nodes), indexed_edges) do
-        coordinates when is_list(coordinates) and length(coordinates) == length(nodes) ->
-          Enum.zip(nodes, coordinates)
-          |> Enum.map(fn
-            {node, {x, y}} when is_integer(x) and is_integer(y) ->
-              %{node | x: x, y: y}
+      case layout_coordinates_cache(topology_revision) do
+        {:ok, coords_by_id} ->
+          apply_cached_coordinates(nodes, coords_by_id)
 
-            {node, _} ->
-              node
-          end)
+        :miss ->
+          case Native.layout_nodes_hypergraph(length(nodes), indexed_edges) do
+            coordinates when is_list(coordinates) and length(coordinates) == length(nodes) ->
+              nodes_with_coords = apply_layout_coordinates(nodes, coordinates)
+              put_layout_coordinates_cache(topology_revision, nodes_with_coords)
+              nodes_with_coords
 
-        _ ->
-          nodes
+            _ ->
+              nodes
+          end
       end
     end
   end
 
-  defp apply_native_layout_with_indexed_edges(nodes, _), do: nodes
+  defp apply_native_layout_with_indexed_edges(nodes, _, _), do: nodes
+
+  defp apply_layout_coordinates(nodes, coordinates)
+       when is_list(nodes) and is_list(coordinates) do
+    Enum.zip(nodes, coordinates)
+    |> Enum.map(fn
+      {node, {x, y}} when is_integer(x) and is_integer(y) ->
+        %{node | x: x, y: y}
+
+      {node, _} ->
+        node
+    end)
+  end
+
+  defp apply_layout_coordinates(nodes, _), do: nodes
+
+  defp apply_cached_coordinates(nodes, coords_by_id)
+       when is_list(nodes) and is_map(coords_by_id) do
+    Enum.map(nodes, fn node ->
+      case Map.get(coords_by_id, node.id) do
+        {x, y} when is_integer(x) and is_integer(y) -> %{node | x: x, y: y}
+        _ -> node
+      end
+    end)
+  end
+
+  defp apply_cached_coordinates(nodes, _), do: nodes
 
   defp index_edges(nodes, edges) when is_list(nodes) and is_list(edges) do
     node_index =
@@ -1859,6 +1908,109 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp clamp(value, min, _max) when value < min, do: min
   defp clamp(value, _min, max) when value > max, do: max
   defp clamp(value, _min, _max), do: value
+
+  defp topology_revision(nodes, indexed_edges)
+       when is_list(nodes) and is_list(indexed_edges) do
+    node_ids = nodes |> Enum.map(& &1.id) |> Enum.sort()
+
+    indexed_edges =
+      indexed_edges
+      |> Enum.map(fn
+        {a, b} when is_integer(a) and is_integer(b) and a <= b -> {a, b}
+        {a, b} when is_integer(a) and is_integer(b) -> {b, a}
+        other -> other
+      end)
+      |> Enum.sort()
+
+    stable_positive_hash({node_ids, indexed_edges})
+  end
+
+  defp topology_revision(_nodes, _indexed_edges), do: 1
+
+  defp causal_revision(nodes) when is_list(nodes) do
+    nodes
+    |> Enum.map(fn node -> {Map.get(node, :id), Map.get(node, :state, 3)} end)
+    |> Enum.sort()
+    |> stable_positive_hash()
+  end
+
+  defp causal_revision(_), do: 1
+
+  defp snapshot_revision(topology_revision, causal_revision) do
+    stable_positive_hash({topology_revision, causal_revision})
+  end
+
+  defp stable_positive_hash(term) do
+    case :erlang.phash2(term, 4_294_967_295) do
+      0 -> 1
+      value -> value
+    end
+  end
+
+  defp layout_coordinates_cache(topology_revision) when is_integer(topology_revision) do
+    case :persistent_term.get(@layout_cache_key, nil) do
+      %{topology_revision: ^topology_revision, coords_by_id: coords_by_id}
+      when is_map(coords_by_id) ->
+        {:ok, coords_by_id}
+
+      _ ->
+        :miss
+    end
+  end
+
+  defp layout_coordinates_cache(_), do: :miss
+
+  defp put_layout_coordinates_cache(topology_revision, nodes)
+       when is_integer(topology_revision) and is_list(nodes) do
+    coords_by_id =
+      Map.new(nodes, fn node ->
+        {node.id, {normalize_u16(Map.get(node, :x, 0)), normalize_u16(Map.get(node, :y, 0))}}
+      end)
+
+    :persistent_term.put(@layout_cache_key, %{
+      topology_revision: topology_revision,
+      coords_by_id: coords_by_id
+    })
+  end
+
+  defp put_layout_coordinates_cache(_, _), do: :ok
+
+  defp snapshot_coalesce_ms do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :god_view_snapshot_coalesce_ms,
+      @default_snapshot_coalesce_ms
+    )
+  end
+
+  defp coalesced_snapshot(coalesce_ms)
+       when is_integer(coalesce_ms) and coalesce_ms > 0 do
+    case :persistent_term.get(@snapshot_cache_key, nil) do
+      %{result: result, built_at_ms: built_at_ms}
+      when is_map(result) and is_integer(built_at_ms) ->
+        now_ms = System.monotonic_time(:millisecond)
+
+        if now_ms - built_at_ms <= coalesce_ms do
+          {:ok, result}
+        else
+          :miss
+        end
+
+      _ ->
+        :miss
+    end
+  end
+
+  defp coalesced_snapshot(_), do: :miss
+
+  defp put_snapshot_cache(result) when is_map(result) do
+    :persistent_term.put(@snapshot_cache_key, %{
+      result: result,
+      built_at_ms: System.monotonic_time(:millisecond)
+    })
+  end
+
+  defp put_snapshot_cache(_), do: :ok
 
   defp real_time_budget_ms do
     Application.get_env(

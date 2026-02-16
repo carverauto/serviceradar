@@ -675,6 +675,19 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 	default:
 		link.Metadata["evidence_class"] = "inferred"
 	}
+
+	if strings.TrimSpace(link.Metadata["confidence_tier"]) != "" {
+		return
+	}
+
+	switch link.Metadata["evidence_class"] {
+	case "direct":
+		link.Metadata["confidence_tier"] = "high"
+	case "endpoint-attachment":
+		link.Metadata["confidence_tier"] = "medium"
+	default:
+		link.Metadata["confidence_tier"] = "low"
+	}
 }
 
 func applyJobOptionsMetadata(job *DiscoveryJob, metadata map[string]string) {
@@ -1016,6 +1029,9 @@ func (*DiscoveryEngine) findMatchingGroup(deviceGroups map[string]*deviceGroup, 
 	for groupID, group := range deviceGroups {
 		// Match by shared IP
 		for ip := range deviceEntry.IPs {
+			if ip == "" {
+				continue
+			}
 			if _, exists := group.IPs[ip]; exists {
 				return groupID
 			}
@@ -1023,14 +1039,12 @@ func (*DiscoveryEngine) findMatchingGroup(deviceGroups map[string]*deviceGroup, 
 
 		// Match by shared MAC
 		for mac := range deviceEntry.MACs {
+			if mac == "" {
+				continue
+			}
 			if _, exists := group.MACs[mac]; exists {
 				return groupID
 			}
-		}
-
-		// Match by system name (if non-empty)
-		if deviceEntry.SysName != "" && group.SysName == deviceEntry.SysName {
-			return groupID
 		}
 	}
 
@@ -1047,10 +1061,16 @@ func (*DiscoveryEngine) createNewDeviceGroup(deviceID string, deviceEntry *Devic
 	}
 
 	for mac := range deviceEntry.MACs {
+		if mac == "" {
+			continue
+		}
 		group.MACs[mac] = struct{}{}
 	}
 
 	for ip := range deviceEntry.IPs {
+		if ip == "" {
+			continue
+		}
 		group.IPs[ip] = struct{}{}
 	}
 
@@ -1062,10 +1082,16 @@ func (*DiscoveryEngine) mergeIntoExistingGroup(group *deviceGroup, deviceID stri
 	group.DeviceIDs[deviceID] = struct{}{}
 
 	for mac := range deviceEntry.MACs {
+		if mac == "" {
+			continue
+		}
 		group.MACs[mac] = struct{}{}
 	}
 
 	for ip := range deviceEntry.IPs {
+		if ip == "" {
+			continue
+		}
 		group.IPs[ip] = struct{}{}
 	}
 
@@ -1184,17 +1210,31 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 
 	// Add to device map
 	if deviceEntry, exists := job.deviceMap[newDevice.DeviceID]; exists {
-		deviceEntry.MACs[newDevice.MAC] = struct{}{}
-		deviceEntry.IPs[newDevice.IP] = struct{}{}
+		if newDevice.MAC != "" {
+			deviceEntry.MACs[newDevice.MAC] = struct{}{}
+		}
+		if newDevice.IP != "" {
+			deviceEntry.IPs[newDevice.IP] = struct{}{}
+		}
 
 		if newDevice.Hostname != "" {
 			deviceEntry.SysName = newDevice.Hostname
 		}
 	} else {
+		macs := make(map[string]struct{})
+		if newDevice.MAC != "" {
+			macs[newDevice.MAC] = struct{}{}
+		}
+
+		ips := make(map[string]struct{})
+		if newDevice.IP != "" {
+			ips[newDevice.IP] = struct{}{}
+		}
+
 		job.deviceMap[newDevice.DeviceID] = &DeviceInterfaceMap{
 			DeviceID:   newDevice.DeviceID,
-			MACs:       map[string]struct{}{newDevice.MAC: {}},
-			IPs:        map[string]struct{}{newDevice.IP: {}},
+			MACs:       macs,
+			IPs:        ips,
 			SysName:    newDevice.Hostname,
 			Interfaces: []*DiscoveredInterface{},
 		}
@@ -1224,7 +1264,11 @@ func (*DiscoveryEngine) isDeviceMatch(existingDevice, newDevice *DiscoveredDevic
 		return true
 	}
 
-	// Temporarily disable MAC-based matching until we build the interface-to-device map
+	// Fallback by normalized MAC identity.
+	if newDevice.MAC != "" && existingDevice.MAC != "" {
+		return NormalizeMAC(newDevice.MAC) == NormalizeMAC(existingDevice.MAC)
+	}
+
 	return false
 }
 
