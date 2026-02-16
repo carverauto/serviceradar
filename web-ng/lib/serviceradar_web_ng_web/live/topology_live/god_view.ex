@@ -42,7 +42,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
        |> assign(:topology_layers, %{
          backbone: true,
          inferred: false,
-         endpoints: false
+         endpoints: true
        })
        |> assign(:controls_collapsed, true)}
     else
@@ -95,7 +95,15 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   end
 
   def handle_event("set_zoom_mode", %{"mode" => mode}, socket) do
-    mode = normalize_zoom_mode(mode)
+    requested_mode = normalize_zoom_mode(mode)
+    current_mode = socket.assigns.zoom_mode || "local"
+
+    mode =
+      if requested_mode == "auto" and current_mode == "auto" do
+        "local"
+      else
+        requested_mode
+      end
 
     {:noreply,
      socket |> assign(:zoom_mode, mode) |> push_event("god_view:set_zoom_mode", %{mode: mode})}
@@ -494,6 +502,6 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   defp normalize_zoom_mode(_), do: "auto"
 
   defp truthy?(value) when is_boolean(value), do: value
-  defp truthy?(value) when value in ["true", "1", 1, :true], do: true
+  defp truthy?(value) when value in ["true", "1", 1, true], do: true
   defp truthy?(_), do: false
 end

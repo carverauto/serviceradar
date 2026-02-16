@@ -2126,9 +2126,10 @@ func formatLLDPID(bytes []byte) string {
 }
 
 type arpNeighbor struct {
-	ifIndex int32
-	ip      string
-	mac     string
+	ifIndex       int32
+	ip            string
+	mac           string
+	fdbPortMapped bool
 }
 
 func (e *DiscoveryEngine) querySNMPL2Neighbors(
@@ -2165,17 +2166,37 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 		norm := NormalizeMAC(mac)
 		if bridgeIf, exists := bridgeIfByMAC[norm]; exists && bridgeIf > 0 {
 			ifIndex = bridgeIf
+			neighbors = append(neighbors, arpNeighbor{
+				ifIndex:       ifIndex,
+				ip:            ip,
+				mac:           mac,
+				fdbPortMapped: true,
+			})
+			return nil
 		}
 
-		neighbors = append(neighbors, arpNeighbor{ifIndex: ifIndex, ip: ip, mac: mac})
+		// ARP-only observations are not sufficient topology evidence:
+		// require bridge FDB correlation to avoid router fan-out links.
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed SNMP L2 walk (%s): %w", oidIPToMediaPhys, err)
 	}
 
+	links := buildSNMPL2LinksFromNeighbors(localDeviceID, targetIP, job.ID, neighbors)
+
+	if len(links) == 0 {
+		return nil, ErrNoLLDPNeighborsFound
+	}
+
+	return links, nil
+}
+
+func buildSNMPL2LinksFromNeighbors(
+	localDeviceID, targetIP, discoveryID string, neighbors []arpNeighbor) []*TopologyLink {
 	links := make([]*TopologyLink, 0, len(neighbors))
 	seen := make(map[string]struct{}, len(neighbors))
+
 	for _, n := range neighbors {
 		if n.ip == "" {
 			continue
@@ -2187,6 +2208,10 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 		}
 		seen[key] = struct{}{}
 
+		if !n.fdbPortMapped || n.ifIndex <= 0 {
+			continue
+		}
+
 		links = append(links, &TopologyLink{
 			Protocol:          "SNMP-L2",
 			LocalDeviceIP:     targetIP,
@@ -2196,20 +2221,17 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 			NeighborMgmtAddr:  n.ip,
 			Metadata: map[string]string{
 				"protocol":        "SNMP-L2",
-				"discovery_id":    job.ID,
+				"discovery_id":    discoveryID,
 				"source":          "snmp-arp-fdb",
 				"evidence":        "ipNetToMedia+dot1dTpFdb",
+				"fdb_port_mapped": "true",
 				"evidence_class":  "inferred",
 				"confidence_tier": "medium",
 			},
 		})
 	}
 
-	if len(links) == 0 {
-		return nil, ErrNoLLDPNeighborsFound
-	}
-
-	return links, nil
+	return links
 }
 
 func (e *DiscoveryEngine) lookupLocalDeviceID(job *DiscoveryJob, targetIP string) string {

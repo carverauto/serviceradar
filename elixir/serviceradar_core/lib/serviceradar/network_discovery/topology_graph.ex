@@ -33,25 +33,56 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     :ok
   end
 
-  defp reduce_topology_link(link, {local_ids, neighbor_index, projected, evidence, skipped}) do
+  @doc """
+  Pure classifier for mapper topology projection decisions.
+
+  Returns:
+  - `{:ok, %{mode: :backbone, relation: "CONNECTS_TO", payload: payload}}`
+  - `{:ok, %{mode: :auxiliary, relation: "ATTACHED_TO" | "INFERRED_TO" | "OBSERVED_TO", payload: payload}}`
+  - `{:ok, %{mode: :skip, relation: nil, payload: payload}}`
+  - `{:error, :missing_ids}` when required identifiers are absent
+  """
+  @spec classify_projection(map()) ::
+          {:ok,
+           %{mode: :backbone | :auxiliary | :skip, relation: String.t() | nil, payload: map()}}
+          | {:error, :missing_ids}
+  def classify_projection(link) when is_map(link) do
     case build_link_payload(link) do
       {:ok, payload} ->
-        if backbone_projectable_link?(payload) do
-          local_ids = MapSet.put(local_ids, payload.local_device_id)
-          upsert_backbone_link_payload(payload)
+        case projection_mode(payload) do
+          :backbone ->
+            {:ok, %{mode: :backbone, relation: "CONNECTS_TO", payload: payload}}
 
-          neighbor_index =
-            add_neighbor_edge(neighbor_index, payload.local_device_id, payload.neighbor_device_id)
+          :auxiliary ->
+            {:ok,
+             %{mode: :auxiliary, relation: evidence_relation_type(payload), payload: payload}}
 
-          {local_ids, neighbor_index, projected + 1, evidence, skipped}
-        else
-          if auxiliary_evidence_link?(payload) do
-            upsert_auxiliary_link_payload(payload)
-            {local_ids, neighbor_index, projected, evidence + 1, skipped}
-          else
-            {local_ids, neighbor_index, projected, evidence, skipped + 1}
-          end
+          :skip ->
+            {:ok, %{mode: :skip, relation: nil, payload: payload}}
         end
+
+      {:error, :missing_ids} = error ->
+        error
+    end
+  end
+
+  defp reduce_topology_link(link, {local_ids, neighbor_index, projected, evidence, skipped}) do
+    case classify_projection(link) do
+      {:ok, %{mode: :backbone, payload: payload}} ->
+        local_ids = MapSet.put(local_ids, payload.local_device_id)
+        upsert_backbone_link_payload(payload)
+
+        neighbor_index =
+          add_neighbor_edge(neighbor_index, payload.local_device_id, payload.neighbor_device_id)
+
+        {local_ids, neighbor_index, projected + 1, evidence, skipped}
+
+      {:ok, %{mode: :auxiliary, payload: payload}} ->
+        upsert_auxiliary_link_payload(payload)
+        {local_ids, neighbor_index, projected, evidence + 1, skipped}
+
+      {:ok, %{mode: :skip}} ->
+        {local_ids, neighbor_index, projected, evidence, skipped + 1}
 
       {:error, :missing_ids} ->
         Logger.debug("Skipping topology link missing device identifiers")
@@ -287,6 +318,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp auxiliary_evidence_link?(_payload), do: false
+
+  defp projection_mode(payload) when is_map(payload) do
+    cond do
+      backbone_projectable_link?(payload) -> :backbone
+      auxiliary_evidence_link?(payload) -> :auxiliary
+      true -> :skip
+    end
+  end
 
   defp inferred_evidence_projectable?(payload) when is_map(payload) do
     evidence_class = normalize_evidence_class(payload.evidence_class)

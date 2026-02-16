@@ -394,9 +394,13 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     device_by_uid =
       Map.new(devices, fn device -> {normalize_id(Map.get(device, :uid)), device} end)
 
+    router_direct_infra_degree =
+      direct_router_infra_degree(edges, device_by_uid)
+
     endpoint_candidates =
       edges
       |> Enum.filter(&endpoint_attachment_edge?(&1, device_by_uid))
+      |> Enum.filter(&endpoint_attachment_allowed?(&1, device_by_uid, router_direct_infra_degree))
       |> Enum.group_by(&endpoint_uid_for_edge(&1, device_by_uid))
 
     keep_best =
@@ -408,15 +412,67 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       end)
 
     Enum.filter(edges, fn edge ->
-      if endpoint_attachment_edge?(edge, device_by_uid) do
+      if endpoint_attachment_edge?(edge, device_by_uid) and
+           endpoint_attachment_allowed?(edge, device_by_uid, router_direct_infra_degree) do
         MapSet.member?(keep_best, edge_identity(edge))
       else
-        true
+        not endpoint_attachment_edge?(edge, device_by_uid)
       end
     end)
   end
 
   defp normalize_endpoint_attachments(edges, _devices), do: edges
+
+  defp direct_router_infra_degree(edges, device_by_uid) do
+    Enum.reduce(edges, %{}, fn edge, acc ->
+      if direct_protocol?(edge) and infra_infra_edge?(edge, device_by_uid) do
+        source_uid = normalize_id(Map.get(edge, :source))
+        target_uid = normalize_id(Map.get(edge, :target))
+        source = Map.get(device_by_uid, source_uid)
+        target = Map.get(device_by_uid, target_uid)
+
+        acc
+        |> maybe_increment_router_degree(source_uid, source)
+        |> maybe_increment_router_degree(target_uid, target)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp maybe_increment_router_degree(acc, uid, device) do
+    if is_binary(uid) and router_device?(device) do
+      Map.update(acc, uid, 1, &(&1 + 1))
+    else
+      acc
+    end
+  end
+
+  defp endpoint_attachment_allowed?(edge, device_by_uid, router_direct_infra_degree) do
+    infra_uid = infra_uid_for_edge(edge, device_by_uid)
+    infra = Map.get(device_by_uid, infra_uid)
+
+    if router_device?(infra) do
+      reason = edge_confidence_reason(edge)
+      tier = confidence_tier(edge)
+      ifindex_valid = valid_ifindex?(Map.get(edge, :local_if_index))
+      router_backbone_degree = Map.get(router_direct_infra_degree, infra_uid, 0)
+
+      cond do
+        reason == "single_identifier_inference" and
+            (router_backbone_degree > 0 or not ifindex_valid) ->
+          false
+
+        tier == "low" and not ifindex_valid and router_backbone_degree > 0 ->
+          false
+
+        true ->
+          true
+      end
+    else
+      true
+    end
+  end
 
   defp prune_inferred_infra_edges_with_direct_adjacency(edges, devices)
        when is_list(edges) and is_list(devices) do
@@ -1708,6 +1764,13 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp confidence_tier(link) do
     (Map.get(link, :metadata) || %{})
     |> Map.get("confidence_tier", Map.get(link, :confidence_tier, "unknown"))
+  end
+
+  defp edge_confidence_reason(link) do
+    metadata = Map.get(link, :metadata) || %{}
+
+    metadata["confidence_reason"] || metadata[:confidence_reason] ||
+      Map.get(link, :confidence_reason)
   end
 
   defp evidence_class(link) do

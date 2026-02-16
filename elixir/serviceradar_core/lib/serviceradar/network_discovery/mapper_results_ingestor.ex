@@ -1767,7 +1767,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     {tier, score, reason} = score_topology_confidence(update, metadata)
     protocol = normalize_topology_protocol(get_string(update, ["protocol", :protocol]))
     source = normalize_topology_source(Map.get(metadata, "source"))
-    evidence_class = classify_topology_evidence_class(protocol, source, metadata)
+    evidence_class = classify_topology_evidence_class(protocol, source, reason, metadata)
 
     neighbor_mgmt_addr =
       get_string(update, ["neighbor_mgmt_addr", :neighbor_mgmt_addr]) ||
@@ -1872,7 +1872,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> String.downcase()
   end
 
-  defp classify_topology_evidence_class(protocol, source, metadata) do
+  defp classify_topology_evidence_class(protocol, source, reason, metadata) do
     explicit =
       metadata
       |> metadata_value("evidence_class")
@@ -1890,6 +1890,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
       protocol == "unifi-api" ->
         "direct"
+
+      (protocol == "snmp-l2" or source == "snmp-arp-fdb") and
+          reason == "single_identifier_inference" ->
+        "endpoint-attachment"
 
       protocol == "snmp-l2" or source == "snmp-arp-fdb" ->
         "inferred"

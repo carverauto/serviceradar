@@ -246,6 +246,54 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert result["count"] == 0
   end
 
+  test "mapper SNMP ARP/FDB single-identifier payload becomes attachment and never backbone edge" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    normalized =
+      MapperResultsIngestor.normalize_topology(%{
+        "timestamp" => now,
+        "protocol" => "SNMP-L2",
+        "local_device_id" => "dev-router",
+        "local_device_ip" => "192.168.1.1",
+        "local_if_name" => "eth0",
+        "local_if_index" => nil,
+        "neighbor_mgmt_addr" => "192.168.1.77",
+        "neighbor_port_id" => nil,
+        "metadata" => %{
+          "source" => "snmp-arp-fdb",
+          "evidence" => "ipNetToMedia+dot1dTpFdb"
+        }
+      })
+
+    assert normalized.metadata["confidence_reason"] == "single_identifier_inference"
+    assert normalized.metadata["evidence_class"] == "endpoint-attachment"
+
+    TopologyGraph.upsert_links([Map.put(normalized, :created_at, now)])
+
+    [connects] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'192.168.1.77\/unknown-neighbor'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    [inferred] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'192.168.1.77\/unknown-neighbor'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    [attached] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-router\/eth0'})-[r:ATTACHED_TO]->(b:Interface {id:'192.168.1.77\/unknown-neighbor'})
+      RETURN {count: count(r), source: head(collect(r.source))} AS result/
+      )
+
+    assert connects["count"] == 0
+    assert inferred["count"] == 0
+    assert attached["count"] == 1
+    assert attached["source"] == "SNMP-L2"
+  end
+
   test "upsert_links keeps multiple resolved SNMP-L2 neighbors for one local device" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
