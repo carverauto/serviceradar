@@ -197,6 +197,105 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert second_states != first_states
   end
 
+  test "latest_snapshot/0 keeps coordinates stable for high-fanout overlay-only updates" do
+    actor = SystemActor.system(:god_view_stream_fanout_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    core_uid = "core-#{suffix}"
+    endpoint_count = 10
+    now = DateTime.utc_now()
+
+    core =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: core_uid,
+          hostname: "core-#{suffix}.local",
+          type_id: 12,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    endpoint_uids =
+      Enum.map(1..endpoint_count, fn idx ->
+        uid = "ep-#{suffix}-#{idx}"
+
+        _endpoint =
+          Device
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              uid: uid,
+              hostname: "#{uid}.local",
+              type_id: 1,
+              is_available: true,
+              first_seen_time: now,
+              last_seen_time: now
+            },
+            actor: actor
+          )
+          |> Ash.create!()
+
+        TopologyLink
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            timestamp: now,
+            protocol: "lldp",
+            local_device_id: core_uid,
+            local_if_name: "eth#{idx}",
+            local_if_index: idx,
+            neighbor_device_id: uid,
+            neighbor_mgmt_addr: "10.250.#{div(idx, 255)}.#{rem(idx, 255)}",
+            metadata: @topology_link_metadata
+          },
+          actor: actor
+        )
+        |> Ash.create!()
+
+        uid
+      end)
+
+    assert {:ok, %{snapshot: first}} = GodViewStream.latest_snapshot()
+
+    tracked_ids = [core_uid | endpoint_uids]
+    first_coords = coords_for(first, tracked_ids)
+    first_states = states_for(first, tracked_ids)
+
+    assert map_size(first_coords) == endpoint_count + 1
+    assert map_size(first_states) == endpoint_count + 1
+
+    # Overlay-only change: availability flip for one endpoint, no topology edits.
+    endpoint_to_flip = List.first(endpoint_uids)
+
+    endpoint =
+      Device
+      |> Ash.Query.for_read(:by_uid, %{uid: endpoint_to_flip, include_deleted: false},
+        actor: actor
+      )
+      |> Ash.read_one!()
+
+    endpoint
+    |> Ash.Changeset.for_update(:set_availability, %{is_available: false}, actor: actor)
+    |> Ash.update!()
+
+    # Keep compiler happy about the seeded core record.
+    assert core.uid == core_uid
+
+    assert {:ok, %{snapshot: second}} = GodViewStream.latest_snapshot()
+
+    second_coords = coords_for(second, tracked_ids)
+    second_states = states_for(second, tracked_ids)
+
+    assert second_coords == first_coords
+    assert second_states != first_states
+    assert second.revision != first.revision
+  end
+
   defp coords_for(snapshot, node_ids) do
     snapshot.nodes
     |> Enum.filter(&(&1.id in node_ids))

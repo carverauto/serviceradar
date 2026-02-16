@@ -4,7 +4,9 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use arrow_array::{Int8Array, RecordBatch, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array};
+use arrow_array::{
+    Int8Array, RecordBatch, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+};
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
 use deep_causality::{
@@ -13,11 +15,10 @@ use deep_causality::{
 };
 use deep_causality_sparse::CsrMatrix;
 use deep_causality_tensor::CausalTensor;
-use deep_causality_topology::{Hypergraph, HypergraphTopology};
+use deep_causality_topology::Hypergraph;
 use roaring::RoaringBitmap;
 use rustler::{Binary, Env, NifMap, NifResult, OwnedBinary, ResourceArc, Term};
 use serde_json::json;
-use serde_json::Value as JsonValue;
 use ultragraph::{CentralityGraphAlgorithms, GraphMut, UltraGraph};
 
 const MAX_BETWEENNESS_NODES: usize = 4_096;
@@ -113,69 +114,12 @@ fn build_hypergraph_from_projection(projection: &HypergraphProjection) -> Option
     )
     .ok()?;
 
-    let node_data = CausalTensor::new(vec![0.0_f32; projection.num_nodes], vec![projection.num_nodes]).ok()?;
+    let node_data = CausalTensor::new(
+        vec![0.0_f32; projection.num_nodes],
+        vec![projection.num_nodes],
+    )
+    .ok()?;
     Hypergraph::new(incidence, node_data, 0).ok()
-}
-
-fn build_indexed_hypergraph_projection(
-    num_nodes: usize,
-    edges: &[(u32, u32)],
-) -> HypergraphProjection {
-    let mut projection = HypergraphProjection {
-        num_nodes,
-        ..Default::default()
-    };
-
-    if num_nodes == 0 || edges.is_empty() {
-        return projection;
-    }
-
-    projection.incidence_triplets.reserve(edges.len() * 2);
-
-    for (source, target) in edges {
-        let src = *source as usize;
-        let dst = *target as usize;
-
-        if src >= num_nodes || dst >= num_nodes {
-            projection.dropped_edges += 1;
-            continue;
-        }
-
-        let hidx = projection.num_hyperedges;
-        projection.num_hyperedges += 1;
-        projection.incidence_triplets.push((src, hidx, 1));
-        if src != dst {
-            projection.incidence_triplets.push((dst, hidx, 1));
-        }
-    }
-
-    projection
-}
-
-fn build_adjacency_from_hypergraph(hypergraph: &Hypergraph<f32>) -> Vec<Vec<usize>> {
-    let node_count = hypergraph.num_nodes();
-    let mut adjacency = vec![HashSet::<usize>::new(); node_count];
-
-    for hidx in 0..hypergraph.num_hyperedges() {
-        if let Ok(nodes) = hypergraph.nodes_in_hyperedge(hidx) {
-            for &a in &nodes {
-                for &b in &nodes {
-                    if a != b {
-                        adjacency[a].insert(b);
-                    }
-                }
-            }
-        }
-    }
-
-    adjacency
-        .into_iter()
-        .map(|neighbors| {
-            let mut values: Vec<usize> = neighbors.into_iter().collect();
-            values.sort_unstable();
-            values
-        })
-        .collect()
 }
 
 fn fallback_ring_layout(node_count: usize) -> Vec<(u16, u16)> {
@@ -193,7 +137,10 @@ fn fallback_ring_layout(node_count: usize) -> Vec<(u16, u16)> {
             let angle = step * idx as f64;
             let x = center_x + radius * angle.cos();
             let y = center_y + radius * angle.sin();
-            (x.round().clamp(0.0, 65535.0) as u16, y.round().clamp(0.0, 65535.0) as u16)
+            (
+                x.round().clamp(0.0, 65535.0) as u16,
+                y.round().clamp(0.0, 65535.0) as u16,
+            )
         })
         .collect()
 }
@@ -247,32 +194,7 @@ fn betweenness_scores(node_count: usize, edges: &[(u32, u32)]) -> Option<Vec<f64
 
 #[derive(Debug, Clone, Default)]
 struct InterfaceTelemetryRecord {
-    metadata: Option<JsonValue>,
     speed_bps: u64,
-}
-
-fn parse_json_map(raw: &str) -> Option<JsonValue> {
-    if raw.is_empty() || raw == "{}" {
-        return None;
-    }
-    serde_json::from_str::<JsonValue>(raw).ok()
-}
-
-fn json_number_u64(value: &JsonValue) -> Option<u64> {
-    match value {
-        JsonValue::Number(n) => n.as_u64().or_else(|| n.as_f64().map(|f| f.max(0.0) as u64)),
-        JsonValue::String(s) => s.parse::<u64>().ok(),
-        _ => None,
-    }
-}
-
-fn metadata_number(metadata: Option<&JsonValue>, keys: &[&str]) -> Option<u64> {
-    let JsonValue::Object(map) = metadata? else {
-        return None;
-    };
-
-    keys.iter()
-        .find_map(|key| map.get(*key).and_then(json_number_u64))
 }
 
 fn find_interface_for_edge(
@@ -293,7 +215,12 @@ fn find_interface_for_edge(
         if let Some(found) = by_name.get(&(device_id.to_string(), trimmed.clone())) {
             return Some(found.clone());
         }
-        let fallback_name = trimmed.split(':').next().unwrap_or_default().trim().to_string();
+        let fallback_name = trimmed
+            .split(':')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
         if !fallback_name.is_empty() {
             if let Some(found) = by_name.get(&(device_id.to_string(), fallback_name)) {
                 return Some(found.clone());
@@ -338,19 +265,25 @@ fn edge_label(protocol: &str, flow_pps: u32, capacity_bps: u64) -> String {
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn enrich_edges_telemetry(
-    edges: Vec<(String, String, String, i64, String, String)>,
-    interfaces: Vec<(String, String, i64, u64, String)>,
+    edges: Vec<(String, String, String, i64, String, (u32, u64, u64))>,
+    interfaces: Vec<(String, String, i64, u64)>,
+    pps_metrics: Vec<(String, i64, u32)>,
+    bps_metrics: Vec<(String, i64, u64)>,
+) -> NifResult<Vec<(String, String, u32, u64, u64, String)>> {
+    enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics)
+}
+
+fn enrich_edges_telemetry_impl(
+    edges: Vec<(String, String, String, i64, String, (u32, u64, u64))>,
+    interfaces: Vec<(String, String, i64, u64)>,
     pps_metrics: Vec<(String, i64, u32)>,
     bps_metrics: Vec<(String, i64, u64)>,
 ) -> NifResult<Vec<(String, String, u32, u64, u64, String)>> {
     let mut by_index = HashMap::<(String, i64), InterfaceTelemetryRecord>::new();
     let mut by_name = HashMap::<(String, String), InterfaceTelemetryRecord>::new();
 
-    for (device_id, if_name, if_index, speed_bps, metadata_json) in interfaces {
-        let record = InterfaceTelemetryRecord {
-            metadata: parse_json_map(&metadata_json),
-            speed_bps,
-        };
+    for (device_id, if_name, if_index, speed_bps) in interfaces {
+        let record = InterfaceTelemetryRecord { speed_bps };
 
         if if_index >= 0 {
             by_index
@@ -378,144 +311,115 @@ fn enrich_edges_telemetry(
 
     let enriched = edges
         .into_iter()
-        .map(|(source, target, protocol, local_if_index, local_if_name, edge_metadata_json)| {
-            let edge_metadata = parse_json_map(&edge_metadata_json);
-            let iface = find_interface_for_edge(
-                &by_index,
-                &by_name,
-                &source,
-                &local_if_name,
-                local_if_index,
-            );
+        .map(
+            |(source, target, protocol, local_if_index, local_if_name, typed_telemetry)| {
+                let (typed_flow_pps, typed_flow_bps, typed_capacity_bps) = typed_telemetry;
+                let iface = find_interface_for_edge(
+                    &by_index,
+                    &by_name,
+                    &source,
+                    &local_if_name,
+                    local_if_index,
+                );
 
-            let (iface_pps, iface_bps, iface_capacity, iface_meta) = if let Some(record) = iface {
-                let pps = if local_if_index >= 0 {
-                    pps_by_if
-                        .get(&(source.clone(), local_if_index))
-                        .copied()
-                        .map(|v| v as u64)
+                let (iface_pps, iface_bps, iface_capacity) = if let Some(record) = iface {
+                    let pps = if local_if_index >= 0 {
+                        pps_by_if
+                            .get(&(source.clone(), local_if_index))
+                            .copied()
+                            .map(|v| v as u64)
+                    } else {
+                        None
+                    };
+
+                    let bps = if local_if_index >= 0 {
+                        bps_by_if.get(&(source.clone(), local_if_index)).copied()
+                    } else {
+                        None
+                    };
+
+                    (pps, bps, Some(record.speed_bps))
                 } else {
-                    None
+                    (None, None, None)
                 };
 
-                let bps = if local_if_index >= 0 {
-                    bps_by_if.get(&(source.clone(), local_if_index)).copied()
+                let flow_pps = if typed_flow_pps > 0 {
+                    typed_flow_pps
                 } else {
-                    None
+                    iface_pps.unwrap_or(0).min(u32::MAX as u64) as u32
                 };
 
-                (
-                    pps,
-                    bps,
-                    Some(record.speed_bps),
-                    record.metadata.as_ref().cloned(),
-                )
-            } else {
-                (None, None, None, None)
-            };
+                let flow_bps = if typed_flow_bps > 0 {
+                    typed_flow_bps
+                } else {
+                    iface_bps.unwrap_or(0)
+                };
 
-            let iface_meta_ref = iface_meta.as_ref();
+                let capacity_bps = if typed_capacity_bps > 0 {
+                    typed_capacity_bps
+                } else {
+                    iface_capacity.filter(|v| *v > 0).unwrap_or(0)
+                };
 
-            let flow_pps = iface_pps
-                .or_else(|| {
-                    metadata_number(
-                        iface_meta_ref,
-                        &[
-                            "pps",
-                            "packets_per_sec",
-                            "packets_per_second",
-                            "tx_pps",
-                            "rx_pps",
-                            "if_in_pps",
-                            "if_out_pps",
-                        ],
-                    )
-                })
-                .or_else(|| {
-                    metadata_number(
-                        edge_metadata.as_ref(),
-                        &[
-                            "flow_pps",
-                            "pps",
-                            "packets_per_sec",
-                            "packets_per_second",
-                            "tx_pps",
-                            "rx_pps",
-                        ],
-                    )
-                })
-                .unwrap_or(0)
-                .min(u32::MAX as u64) as u32;
-
-            let flow_bps = iface_bps
-                .or_else(|| {
-                    metadata_number(
-                        iface_meta_ref,
-                        &[
-                            "bps",
-                            "bits_per_sec",
-                            "bits_per_second",
-                            "tx_bps",
-                            "rx_bps",
-                            "if_in_bps",
-                            "if_out_bps",
-                        ],
-                    )
-                })
-                .or_else(|| {
-                    metadata_number(
-                        edge_metadata.as_ref(),
-                        &[
-                            "flow_bps",
-                            "bps",
-                            "bits_per_sec",
-                            "bits_per_second",
-                            "tx_bps",
-                            "rx_bps",
-                        ],
-                    )
-                })
-                .unwrap_or(0);
-
-            let capacity_bps = iface_capacity
-                .filter(|v| *v > 0)
-                .or_else(|| {
-                    metadata_number(
-                        iface_meta_ref,
-                        &["if_speed_bps", "if_speed", "speed_bps", "capacity_bps"],
-                    )
-                })
-                .or_else(|| {
-                    metadata_number(
-                        edge_metadata.as_ref(),
-                        &["capacity_bps", "if_speed_bps", "if_speed", "speed_bps"],
-                    )
-                })
-                .unwrap_or(0);
-
-            let label = edge_label(&protocol, flow_pps, capacity_bps);
-            (source, target, flow_pps, flow_bps, capacity_bps, label)
-        })
+                let label = edge_label(&protocol, flow_pps, capacity_bps);
+                (source, target, flow_pps, flow_bps, capacity_bps, label)
+            },
+        )
         .collect();
 
     Ok(enriched)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-fn layout_nodes_hypergraph(node_count: u32, edges: Vec<(u32, u32)>) -> NifResult<Vec<(u16, u16)>> {
-    let count = node_count as usize;
-    if count == 0 {
-        return Ok(Vec::new());
+fn layout_nodes_hypergraph(
+    node_count: u32,
+    edges: Vec<(u32, u32)>,
+    node_weights: Vec<u32>,
+) -> NifResult<Vec<(u16, u16)>> {
+    Ok(layout_nodes_layered(
+        node_count as usize,
+        &edges,
+        &node_weights,
+    ))
+}
+
+fn build_adjacency_from_indexed_edges(node_count: usize, edges: &[(u32, u32)]) -> Vec<Vec<usize>> {
+    let mut adjacency = vec![HashSet::<usize>::new(); node_count];
+
+    for (source, target) in edges {
+        let src = *source as usize;
+        let dst = *target as usize;
+        if src >= node_count || dst >= node_count || src == dst {
+            continue;
+        }
+
+        adjacency[src].insert(dst);
+        adjacency[dst].insert(src);
     }
 
-    let projection = build_indexed_hypergraph_projection(count, &edges);
-    let Some(hypergraph) = build_hypergraph_from_projection(&projection) else {
-        return Ok(fallback_ring_layout(count));
-    };
+    adjacency
+        .into_iter()
+        .map(|neighbors| {
+            let mut values: Vec<usize> = neighbors.into_iter().collect();
+            values.sort_unstable();
+            values
+        })
+        .collect()
+}
 
-    let adjacency = build_adjacency_from_hypergraph(&hypergraph);
+fn layout_nodes_layered(
+    node_count: usize,
+    edges: &[(u32, u32)],
+    node_weights: &[u32],
+) -> Vec<(u16, u16)> {
+    let count = node_count as usize;
+    if count == 0 {
+        return Vec::new();
+    }
+
+    let adjacency = build_adjacency_from_indexed_edges(count, edges);
     if adjacency.iter().all(|neighbors| neighbors.is_empty()) {
-        return Ok(fallback_ring_layout(count));
+        return fallback_ring_layout(count);
     }
 
     let mut visited = vec![false; count];
@@ -544,12 +448,18 @@ fn layout_nodes_hypergraph(node_count: u32, edges: Vec<(u32, u32)>) -> NifResult
         components.push(component);
     }
 
-    components.sort_by(|a, b| b.len().cmp(&a.len()));
+    components.sort_by(|a, b| {
+        b.len()
+            .cmp(&a.len())
+            .then_with(|| a.iter().min().cmp(&b.iter().min()))
+    });
 
     let mut positions = vec![(0u16, 0u16); count];
-    let comp_total = components.len().max(1);
-    let comp_step = std::f64::consts::TAU / comp_total as f64;
-    let comp_radius = 90.0_f64;
+    let comp_total = components.len().max(1) as f64;
+    let canvas_left = 40.0_f64;
+    let canvas_right = 600.0_f64;
+    let canvas_top = 48.0_f64;
+    let layer_gap = 92.0_f64;
 
     for (comp_idx, component) in components.iter().enumerate() {
         let mut in_component = vec![false; count];
@@ -557,23 +467,23 @@ fn layout_nodes_hypergraph(node_count: u32, edges: Vec<(u32, u32)>) -> NifResult
             in_component[node] = true;
         }
 
-        let comp_center = if comp_total == 1 {
-            (320.0_f64, 160.0_f64)
-        } else {
-            let a = comp_step * comp_idx as f64;
-            (320.0 + comp_radius * a.cos(), 160.0 + comp_radius * a.sin())
-        };
+        let slot = (comp_idx as f64 + 0.5) / comp_total;
+        let comp_center_x = canvas_left + (canvas_right - canvas_left) * slot;
+        let comp_span = ((canvas_right - canvas_left) / comp_total * 0.92).max(120.0);
+        let comp_min_x = (comp_center_x - comp_span / 2.0).max(canvas_left);
+        let comp_max_x = (comp_center_x + comp_span / 2.0).min(canvas_right);
 
         if component.len() == 1 {
             let node = component[0];
-            positions[node] = (comp_center.0.round() as u16, comp_center.1.round() as u16);
+            positions[node] = (comp_center_x.round() as u16, canvas_top.round() as u16);
             continue;
         }
 
+        let weight_at = |idx: usize| -> u32 { *node_weights.get(idx).unwrap_or(&0) };
         let root = component
             .iter()
             .copied()
-            .max_by_key(|n| adjacency[*n].len())
+            .max_by_key(|n| (weight_at(*n), adjacency[*n].len(), usize::MAX - *n))
             .unwrap_or(component[0]);
 
         let mut level = HashMap::<usize, usize>::new();
@@ -606,24 +516,62 @@ fn layout_nodes_hypergraph(node_count: u32, edges: Vec<(u32, u32)>) -> NifResult
 
             if l == 0 && nodes.len() == 1 {
                 let node = nodes[0];
-                positions[node] = (comp_center.0.round() as u16, comp_center.1.round() as u16);
+                positions[node] = (comp_center_x.round() as u16, canvas_top.round() as u16);
                 continue;
             }
 
-            let ring_r = 28.0 + l as f64 * 36.0;
-            let step = std::f64::consts::TAU / nodes.len().max(1) as f64;
-            let phase = (comp_idx as f64) * 0.6 + (l as f64) * 0.25;
+            let y = canvas_top + l as f64 * layer_gap;
+            let min_sep = 24.0_f64;
 
-            for (idx, node) in nodes.into_iter().enumerate() {
-                let a = phase + step * idx as f64;
-                let x = (comp_center.0 + ring_r * a.cos()).round().clamp(0.0, 65535.0) as u16;
-                let y = (comp_center.1 + ring_r * a.sin()).round().clamp(0.0, 65535.0) as u16;
+            let mut desired = nodes
+                .iter()
+                .map(|node| {
+                    let mut parent_x = Vec::new();
+                    for parent in &adjacency[*node] {
+                        if in_component[*parent]
+                            && level.get(parent).copied().unwrap_or(usize::MAX) + 1 == l
+                        {
+                            parent_x.push(positions[*parent].0 as f64);
+                        }
+                    }
+                    parent_x.sort_by(|a, b| a.total_cmp(b));
+                    let target = if parent_x.is_empty() {
+                        comp_center_x
+                    } else {
+                        parent_x.iter().sum::<f64>() / parent_x.len() as f64
+                    };
+                    (*node, target)
+                })
+                .collect::<Vec<_>>();
+
+            desired.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+
+            let mut placed = Vec::<(usize, f64)>::new();
+            let mut cursor = comp_min_x;
+            for (node, target) in desired {
+                let x = target.max(cursor).min(comp_max_x);
+                placed.push((node, x));
+                cursor = x + min_sep;
+            }
+
+            if let Some((_, last_x)) = placed.last().copied() {
+                if last_x > comp_max_x {
+                    let shift = last_x - comp_max_x;
+                    for (_, x) in &mut placed {
+                        *x = (*x - shift).max(comp_min_x);
+                    }
+                }
+            }
+
+            for (node, x) in placed {
+                let x = x.round().clamp(0.0, 65535.0) as u16;
+                let y = y.round().clamp(0.0, 65535.0) as u16;
                 positions[node] = (x, y);
             }
         }
     }
 
-    Ok(positions)
+    positions
 }
 
 fn encode_snapshot_impl<'a>(
@@ -640,18 +588,6 @@ fn encode_snapshot_impl<'a>(
     let total_rows = nodes.len() + edges.len();
     let hypergraph_projection = build_hypergraph_projection(nodes.len(), &edges);
     let hypergraph = build_hypergraph_from_projection(&hypergraph_projection);
-    let centrality_edges: Vec<(u32, u32)> = edges
-        .iter()
-        .map(|(source, target, _, _, _, _)| (u32::from(*source), u32::from(*target)))
-        .collect();
-    let centrality = betweenness_scores(nodes.len(), &centrality_edges);
-    let bottleneck = centrality.as_ref().and_then(|scores| {
-        scores
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.total_cmp(b.1))
-            .map(|(idx, score)| (idx, *score))
-    });
 
     let mut row_type = Vec::<i8>::with_capacity(total_rows);
     let mut node_x = Vec::<Option<u16>>::with_capacity(total_rows);
@@ -736,26 +672,6 @@ fn encode_snapshot_impl<'a>(
     metadata.insert(
         "topology_hypergraph_valid".to_string(),
         if hypergraph.is_some() { "1" } else { "0" }.to_string(),
-    );
-    metadata.insert(
-        "topology_betweenness_computed".to_string(),
-        if centrality.is_some() { "1" } else { "0" }.to_string(),
-    );
-    metadata.insert(
-        "topology_betweenness_node_limit".to_string(),
-        MAX_BETWEENNESS_NODES.to_string(),
-    );
-    metadata.insert(
-        "topology_betweenness_bottleneck_index".to_string(),
-        bottleneck
-            .map(|(idx, _)| idx.to_string())
-            .unwrap_or_else(|| "-1".to_string()),
-    );
-    metadata.insert(
-        "topology_betweenness_bottleneck_score".to_string(),
-        bottleneck
-            .map(|(_, score)| format!("{score:.6}"))
-            .unwrap_or_else(|| "0.0".to_string()),
     );
 
     let schema = Arc::new(Schema::new_with_metadata(
@@ -1115,13 +1031,9 @@ fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphRow> {
     let local_if_name = map_get_any(row, runtime_graph_atoms::local_if_name(), "local_if_name")
         .and_then(term_as_string)
         .unwrap_or_default();
-    let local_if_index = map_get_any(
-        row,
-        runtime_graph_atoms::local_if_index(),
-        "local_if_index",
-    )
-    .and_then(term_as_i64)
-    .unwrap_or(-1);
+    let local_if_index = map_get_any(row, runtime_graph_atoms::local_if_index(), "local_if_index")
+        .and_then(term_as_i64)
+        .unwrap_or(-1);
     let neighbor_device_id = map_get_any(
         row,
         runtime_graph_atoms::neighbor_device_id(),
@@ -1229,7 +1141,11 @@ fn build_node_index(node_ids: &[String]) -> HashMap<String, usize> {
     index
 }
 
-fn resolve_endpoint(row: &RuntimeGraphRow, node_index: &HashMap<String, usize>, is_source: bool) -> Option<usize> {
+fn resolve_endpoint(
+    row: &RuntimeGraphRow,
+    node_index: &HashMap<String, usize>,
+    is_source: bool,
+) -> Option<usize> {
     let candidates: Vec<&str> = if is_source {
         vec![&row.local_device_id, &row.local_device_ip]
     } else {
@@ -1305,10 +1221,18 @@ fn indexed_edge_telemetry(
     let mut map = HashMap::new();
 
     for (source_id, target_id, flow_pps, flow_bps, capacity_bps, label) in edge_telemetry {
-        let src = normalized_id(source_id)
-            .and_then(|id| node_index.get(&id).copied().or_else(|| node_index.get(&id.to_ascii_lowercase()).copied()));
-        let dst = normalized_id(target_id)
-            .and_then(|id| node_index.get(&id).copied().or_else(|| node_index.get(&id.to_ascii_lowercase()).copied()));
+        let src = normalized_id(source_id).and_then(|id| {
+            node_index
+                .get(&id)
+                .copied()
+                .or_else(|| node_index.get(&id.to_ascii_lowercase()).copied())
+        });
+        let dst = normalized_id(target_id).and_then(|id| {
+            node_index
+                .get(&id)
+                .copied()
+                .or_else(|| node_index.get(&id.to_ascii_lowercase()).copied())
+        });
 
         let (Some(src_idx), Some(dst_idx)) = (src, dst) else {
             continue;
@@ -1318,10 +1242,7 @@ fn indexed_edge_telemetry(
         }
 
         let key = canonical_pair_u32(src_idx as u32, dst_idx as u32);
-        map.insert(
-            key,
-            (*flow_pps, *flow_bps, *capacity_bps, label.clone()),
-        );
+        map.insert(key, (*flow_pps, *flow_bps, *capacity_bps, label.clone()));
     }
 
     map
@@ -1338,13 +1259,18 @@ fn runtime_graph_replace_links(
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-fn runtime_graph_get_links(graph: ResourceArc<RuntimeGraphResource>) -> NifResult<Vec<RuntimeGraphRow>> {
+fn runtime_graph_get_links(
+    graph: ResourceArc<RuntimeGraphResource>,
+) -> NifResult<Vec<RuntimeGraphRow>> {
     let guard = graph.links.read().map_err(|_| rustler::Error::BadArg)?;
     Ok(guard.clone())
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-fn runtime_graph_ingest_rows(graph: ResourceArc<RuntimeGraphResource>, rows: Vec<Term>) -> NifResult<usize> {
+fn runtime_graph_ingest_rows(
+    graph: ResourceArc<RuntimeGraphResource>,
+    rows: Vec<Term>,
+) -> NifResult<usize> {
     let mut parsed_rows = Vec::with_capacity(rows.len());
     for row in rows {
         if let Some(normalized) = runtime_graph_row_from_term(row) {
@@ -1370,10 +1296,18 @@ fn runtime_graph_indexed_edges(
     let mut allowed = HashSet::<(u32, u32)>::new();
 
     for (source_id, target_id) in &allowed_edges {
-        let src = normalized_id(source_id)
-            .and_then(|id| node_index.get(&id).copied().or_else(|| node_index.get(&id.to_ascii_lowercase()).copied()));
-        let dst = normalized_id(target_id)
-            .and_then(|id| node_index.get(&id).copied().or_else(|| node_index.get(&id.to_ascii_lowercase()).copied()));
+        let src = normalized_id(source_id).and_then(|id| {
+            node_index
+                .get(&id)
+                .copied()
+                .or_else(|| node_index.get(&id.to_ascii_lowercase()).copied())
+        });
+        let dst = normalized_id(target_id).and_then(|id| {
+            node_index
+                .get(&id)
+                .copied()
+                .or_else(|| node_index.get(&id.to_ascii_lowercase()).copied())
+        });
         let (Some(a), Some(b)) = (src, dst) else {
             continue;
         };
@@ -1463,6 +1397,7 @@ rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native", load = on_load);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
 
     fn edge(source: u16, target: u16) -> (u16, u16, u32, u64, u64, String) {
         (source, target, 0, 0, 0, String::new())
@@ -1485,5 +1420,99 @@ mod tests {
         assert_eq!(projection.num_hyperedges, 1);
         assert_eq!(projection.dropped_edges, 1);
         assert_eq!(projection.incidence_triplets, vec![(0, 0, 1), (1, 0, 1)]);
+    }
+
+    #[test]
+    fn enrich_edges_telemetry_prefers_typed_values() {
+        let edges = vec![(
+            "dev-a".to_string(),
+            "dev-b".to_string(),
+            "lldp".to_string(),
+            10,
+            "eth0".to_string(),
+            (111u32, 2_000u64, 3_000u64),
+        )];
+        let interfaces = vec![("dev-a".to_string(), "eth0".to_string(), 10, 50_000u64)];
+        let pps_metrics = vec![("dev-a".to_string(), 10, 999u32)];
+        let bps_metrics = vec![("dev-a".to_string(), 10, 888u64)];
+
+        let result =
+            enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics).unwrap();
+        assert_eq!(result.len(), 1);
+        let (_source, _target, flow_pps, flow_bps, capacity_bps, _label) = &result[0];
+
+        assert_eq!(*flow_pps, 111);
+        assert_eq!(*flow_bps, 2_000);
+        assert_eq!(*capacity_bps, 3_000);
+    }
+
+    #[test]
+    fn enrich_edges_telemetry_uses_metric_and_speed_fallback_when_typed_missing() {
+        let edges = vec![(
+            "dev-a".to_string(),
+            "dev-b".to_string(),
+            "lldp".to_string(),
+            10,
+            "eth0".to_string(),
+            (0u32, 0u64, 0u64),
+        )];
+        let interfaces = vec![("dev-a".to_string(), "eth0".to_string(), 10, 123_000u64)];
+        let pps_metrics = vec![("dev-a".to_string(), 10, 77u32)];
+        let bps_metrics = vec![("dev-a".to_string(), 10, 456u64)];
+
+        let result =
+            enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics).unwrap();
+        assert_eq!(result.len(), 1);
+        let (_source, _target, flow_pps, flow_bps, capacity_bps, _label) = &result[0];
+
+        assert_eq!(*flow_pps, 77);
+        assert_eq!(*flow_bps, 456);
+        assert_eq!(*capacity_bps, 123_000);
+    }
+
+    #[test]
+    fn layout_nodes_layered_is_deterministic_for_identical_inputs() {
+        let edges = vec![(0, 1), (0, 2), (0, 3), (3, 4), (3, 5)];
+        let weights = vec![900, 300, 300, 800, 300, 300];
+
+        let first = layout_nodes_layered(6, &edges, &weights);
+        let second = layout_nodes_layered(6, &edges, &weights);
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn layout_nodes_layered_uses_weights_for_anchor_selection() {
+        let edges = vec![(0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6)];
+        // node 0 has highest degree, but node 3 is given higher weight and should anchor.
+        let weights = vec![100, 10, 10, 1_000, 10, 10, 10];
+
+        let positions = layout_nodes_layered(7, &edges, &weights);
+
+        // Weighted anchor should be in top layer.
+        assert!(positions[3].1 < positions[0].1);
+        // High-fanout neighbors should be pushed into lower layers, not same layer ring.
+        assert!(positions[0].1 < positions[1].1);
+        assert!(positions[0].1 < positions[2].1);
+    }
+
+    #[test]
+    fn layout_nodes_layered_meets_high_node_count_baseline() {
+        let node_count = 1_201usize;
+        let mut edges = Vec::with_capacity(node_count - 1);
+        for idx in 1..node_count {
+            edges.push((0u32, idx as u32));
+        }
+
+        let mut weights = vec![50u32; node_count];
+        weights[0] = 1_000;
+
+        let started = Instant::now();
+        let positions = layout_nodes_layered(node_count, &edges, &weights);
+        let elapsed = started.elapsed();
+
+        assert_eq!(positions.len(), node_count);
+        // Baseline guard: layered layout on a large fanout graph should complete quickly.
+        assert!(elapsed.as_millis() < 3_000, "layout took {}ms", elapsed.as_millis());
     }
 }

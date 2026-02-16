@@ -1041,7 +1041,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           apply_cached_coordinates(nodes, coords_by_id)
 
         :miss ->
-          case Native.layout_nodes_hypergraph(length(nodes), indexed_edges) do
+          node_weights = Enum.map(nodes, &node_layout_weight/1)
+
+          case Native.layout_nodes_hypergraph(length(nodes), indexed_edges, node_weights) do
             coordinates when is_list(coordinates) and length(coordinates) == length(nodes) ->
               nodes_with_coords = apply_layout_coordinates(nodes, coordinates)
               put_layout_coordinates_cache(topology_revision, nodes_with_coords)
@@ -1081,6 +1083,26 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp apply_cached_coordinates(nodes, _), do: nodes
+
+  defp node_layout_weight(node) when is_map(node) do
+    kind =
+      node
+      |> Map.get(:kind, "endpoint")
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    cond do
+      kind in ["router", "firewall", "load_balancer"] -> 1000
+      kind in ["switch", "hub"] -> 900
+      kind in ["access point", "ap"] -> 850
+      kind in ["ids", "ips"] -> 800
+      kind in ["server", "virtual"] -> 600
+      true -> 300
+    end
+  end
+
+  defp node_layout_weight(_), do: 300
 
   defp index_edges(nodes, edges) when is_list(nodes) and is_list(edges) do
     node_index =
@@ -1354,7 +1376,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           to_string(Map.get(edge, :protocol) || ""),
           normalize_i64(Map.get(edge, :local_if_index)),
           normalize_id(Map.get(edge, :local_if_name)) || "",
-          encode_json(Map.get(edge, :metadata) || %{})
+          {
+            normalize_u32(Map.get(edge, :flow_pps) || 0),
+            normalize_u64(Map.get(edge, :flow_bps) || 0),
+            normalize_u64(Map.get(edge, :capacity_bps) || 0)
+          }
         }
       end)
 
@@ -1365,11 +1391,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           normalize_id(Map.get(iface, :device_id)) || "",
           normalize_id(Map.get(iface, :if_name)) || "",
           normalize_i64(Map.get(iface, :if_index)),
-          normalize_u64(interface_capacity_bps(iface) || 0),
-          encode_json(Map.get(iface, :metadata) || %{})
+          normalize_u64(interface_capacity_bps(iface) || 0)
         }
       end)
-      |> Enum.reject(fn {device_id, _if_name, _if_index, _speed_bps, _metadata} ->
+      |> Enum.reject(fn {device_id, _if_name, _if_index, _speed_bps} ->
         device_id == ""
       end)
 
@@ -1883,13 +1908,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp normalize_u64(_), do: 0
   defp normalize_i64(value) when is_integer(value), do: value
   defp normalize_i64(_), do: -1
-
-  defp encode_json(value) do
-    case Jason.encode(value) do
-      {:ok, json} -> json
-      _ -> "{}"
-    end
-  end
 
   defp normalize_label(value) when is_binary(value) do
     trimmed = String.trim(value)

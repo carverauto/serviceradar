@@ -48,13 +48,15 @@ defmodule ServiceRadarWebNG.Topology.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Compute node layout coordinates from the Rust hypergraph projection.
+  Compute node layout coordinates from the Rust topology projection.
+  Accepts node weights to anchor layered layout deterministically.
   """
-  def layout_nodes_hypergraph(_node_count, _edges),
+  def layout_nodes_hypergraph(_node_count, _edges, _node_weights),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Enrich edge telemetry fields (flow_pps/flow_bps/capacity_bps/label) in Rust.
+  Expects typed telemetry tuples; metadata JSON fallback is not supported.
   """
   def enrich_edges_telemetry(_edges, _interfaces, _pps_metrics, _bps_metrics),
     do: :erlang.nif_error(:nif_not_loaded)
