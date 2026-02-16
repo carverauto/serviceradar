@@ -2028,7 +2028,7 @@ const Hooks = {
       this.pollTimer = null
       this.animationTimer = null
       this.animationPhase = 0
-      this.layers = {mantle: true, crust: true, atmosphere: true, security: true}
+      this.layers = {mantle: true, crust: true, atmosphere: true, security: false}
       this.layoutMode = "auto"
       this.layoutRevision = null
       this.lastRevision = null
@@ -2308,7 +2308,7 @@ const Hooks = {
         const rawGraph = this.decodeArrowGraph(bytes)
         const revision = Number.isFinite(Number(snapshot.revision)) ? Number(snapshot.revision) : this.lastRevision
         const topologyStamp = this.graphTopologyStamp(rawGraph)
-        const graph = this.prepareGraphLayout(rawGraph, revision)
+        const graph = this.prepareGraphLayout(rawGraph, revision, topologyStamp)
         const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
         const bitmapMetadata = this.ensureBitmapMetadata(snapshot.bitmapMetadata, graph.nodes)
 
@@ -2419,7 +2419,7 @@ const Hooks = {
         const decodeStart = performance.now()
         const rawGraph = this.decodeArrowGraph(new Uint8Array(buffer))
         const topologyStamp = this.graphTopologyStamp(rawGraph)
-        const graph = this.prepareGraphLayout(rawGraph, revision)
+        const graph = this.prepareGraphLayout(rawGraph, revision, topologyStamp)
         const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
 
         const renderStart = performance.now()
@@ -2946,8 +2946,20 @@ const Hooks = {
       }
       return out
     },
-    prepareGraphLayout(graph, revision) {
+    prepareGraphLayout(graph, revision, topologyStamp) {
       if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return graph
+      const stamp =
+        typeof topologyStamp === "string" && topologyStamp.length > 0
+          ? topologyStamp
+          : this.graphTopologyStamp(graph)
+
+      if (this.lastGraph && stamp === this.lastTopologyStamp) {
+        const reused = this.reusePreviousPositions(graph, this.lastGraph)
+        reused._layoutMode = this.layoutMode || "auto"
+        reused._layoutRevision = revision
+        return reused
+      }
+
       if (this.lastGraph && Number.isFinite(revision) && this.layoutRevision === revision) {
         const reused = this.reusePreviousPositions(graph, this.lastGraph)
         reused._layoutMode = this.layoutMode || "auto"

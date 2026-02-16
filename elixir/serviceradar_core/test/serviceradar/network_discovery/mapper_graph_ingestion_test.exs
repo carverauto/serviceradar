@@ -34,13 +34,23 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       "dev-1",
       "dev-2",
       "dev-3",
+      "dev-router",
+      "dev-switch-a",
+      "dev-switch-b",
+      "dev-ap",
+      "dev-dist",
       "dev-1/eth0",
       "dev-1/eth2",
       "dev-1/unknown-local",
       "dev-2/Gi1/0/1",
       "dev-2/aa:bb:cc:dd:ee:ff",
       "dev-2/eth1",
-      "dev-3/eth5"
+      "dev-3/eth5",
+      "dev-router/eth0",
+      "dev-switch-a/uplink",
+      "dev-switch-b/uplink",
+      "dev-ap/wifi0",
+      "dev-dist/xe-0/0/1"
     ])
 
     :ok
@@ -153,6 +163,144 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert result["count"] == 0
   end
 
+  test "upsert_links drops LLDP edges without a local interface index" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-2",
+        local_if_name: "eth0",
+        local_if_index: nil,
+        neighbor_port_id: "eth1",
+        protocol: "lldp",
+        metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
+        timestamp: now,
+        created_at: now
+      }
+    ])
+
+    [result] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    assert result["count"] == 0
+  end
+
+  test "upsert_links keeps SNMP-L2 inferred edges without a local interface index" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-2",
+        local_if_name: "eth0",
+        local_if_index: nil,
+        neighbor_port_id: "eth1",
+        protocol: "snmp-l2",
+        metadata: %{"confidence_tier" => "medium", "confidence_score" => 72},
+        timestamp: now,
+        created_at: now
+      }
+    ])
+
+    [result] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+      RETURN {count: count(r), source: head(collect(r.source))} AS result/
+      )
+
+    assert result["count"] == 1
+    assert result["source"] == "snmp-l2"
+  end
+
+  test "upsert_links keeps multiple resolved SNMP-L2 neighbors for one local device" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-2",
+        local_if_name: "eth0",
+        local_if_index: nil,
+        neighbor_port_id: "eth1",
+        protocol: "snmp-l2",
+        metadata: %{"confidence_tier" => "medium", "confidence_score" => 72},
+        timestamp: now,
+        created_at: now
+      },
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-3",
+        local_if_name: "eth0",
+        local_if_index: nil,
+        neighbor_port_id: "eth9",
+        protocol: "snmp-l2",
+        metadata: %{"confidence_tier" => "medium", "confidence_score" => 70},
+        timestamp: now,
+        created_at: now
+      }
+    ])
+
+    [result] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface) WHERE b.device_id IN ['dev-2','dev-3']
+      RETURN {count: count(r)} AS result/
+      )
+
+    assert result["count"] == 2
+  end
+
+  test "upsert_links preserves UniFi direct neighbors when SNMP-L2 fallback is also present" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-2",
+        local_if_name: "eth0",
+        local_if_index: 21,
+        neighbor_port_id: "Gi1/0/1",
+        protocol: "unifi-api",
+        metadata: %{"confidence_tier" => "medium", "confidence_score" => 78},
+        timestamp: now,
+        created_at: now
+      },
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-3",
+        local_if_name: "eth0",
+        local_if_index: 21,
+        neighbor_port_id: "Gi1/0/2",
+        protocol: "unifi-api",
+        metadata: %{"confidence_tier" => "medium", "confidence_score" => 78},
+        timestamp: now,
+        created_at: now
+      },
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-router",
+        local_if_name: "eth0",
+        local_if_index: 21,
+        neighbor_port_id: "eth0",
+        protocol: "snmp-l2",
+        metadata: %{"confidence_tier" => "medium", "confidence_score" => 70},
+        timestamp: now,
+        created_at: now
+      }
+    ])
+
+    [result] =
+      cypher_rows(~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface)
+      WHERE b.device_id IN ['dev-2', 'dev-3']
+      RETURN {count: count(r), neighbors: collect(distinct b.device_id)} AS result/)
+
+    assert result["count"] == 2
+    assert Enum.sort(result["neighbors"]) == ["dev-2", "dev-3"]
+  end
+
   test "upsert_links is idempotent and updates confidence metadata in place" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
     later = DateTime.add(now, 30, :second)
@@ -162,6 +310,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         local_device_id: "dev-1",
         neighbor_device_id: "dev-2",
         local_if_name: "eth0",
+        local_if_index: 10,
         neighbor_port_id: "eth1",
         protocol: "lldp",
         metadata: %{"confidence_tier" => "medium", "confidence_score" => 66},
@@ -175,6 +324,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         local_device_id: "dev-1",
         neighbor_device_id: "dev-2",
         local_if_name: "eth0",
+        local_if_index: 10,
         neighbor_port_id: "eth1",
         protocol: "lldp",
         metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
@@ -211,6 +361,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         local_device_id: "dev-1",
         neighbor_device_id: "dev-2",
         local_if_name: "eth0",
+        local_if_index: 10,
         neighbor_port_id: "eth1",
         protocol: "lldp",
         metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
@@ -224,6 +375,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         local_device_id: "dev-1",
         neighbor_device_id: "dev-3",
         local_if_name: "eth2",
+        local_if_index: 12,
         neighbor_port_id: "eth5",
         protocol: "lldp",
         metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
@@ -271,6 +423,84 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       assert result["count"] == 1,
              "missing expected edge #{from_id} -> #{to_id}, got #{inspect(result)}"
     end)
+  end
+
+  test "router keeps one inferred uplink and prefers LLDP-corroborated switch neighbor" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    insert_device_type("dev-router", "Router")
+    insert_device_type("dev-switch-a", "Switch")
+    insert_device_type("dev-switch-b", "Switch")
+    insert_device_type("dev-ap", "Access Point")
+    insert_device_type("dev-dist", "Switch")
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-router",
+        neighbor_device_id: "dev-switch-a",
+        local_if_name: "eth0",
+        local_if_index: 28,
+        neighbor_port_id: "uplink",
+        protocol: "snmp-l2",
+        metadata: %{"confidence_tier" => "low", "confidence_score" => 40},
+        timestamp: now,
+        created_at: now
+      },
+      %{
+        local_device_id: "dev-router",
+        neighbor_device_id: "dev-switch-b",
+        local_if_name: "eth0",
+        local_if_index: 28,
+        neighbor_port_id: "uplink",
+        protocol: "snmp-l2",
+        metadata: %{"confidence_tier" => "low", "confidence_score" => 40},
+        timestamp: now,
+        created_at: now
+      },
+      %{
+        local_device_id: "dev-router",
+        neighbor_device_id: "dev-ap",
+        local_if_name: "eth0",
+        local_if_index: 28,
+        neighbor_port_id: "wifi0",
+        protocol: "snmp-l2",
+        metadata: %{"confidence_tier" => "low", "confidence_score" => 40},
+        timestamp: now,
+        created_at: now
+      },
+      %{
+        local_device_id: "dev-dist",
+        neighbor_device_id: "dev-switch-a",
+        local_if_name: "xe-0/0/1",
+        local_if_index: 10,
+        neighbor_port_id: "uplink",
+        protocol: "lldp",
+        metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
+        timestamp: now,
+        created_at: now
+      }
+    ])
+
+    [result] =
+      cypher_rows(~s/MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)
+      WHERE a.device_id = 'dev-router'
+        AND b.device_id IN ['dev-switch-a', 'dev-switch-b', 'dev-ap']
+      RETURN {count: count(r), neighbors: collect(distinct b.device_id)} AS result/)
+
+    assert result["count"] == 1
+    assert Enum.sort(result["neighbors"]) == ["dev-switch-a"]
+  end
+
+  defp insert_device_type(uid, type) do
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO ocsf_devices (uid, type, name, hostname, created_time, modified_time)
+      VALUES ($1, $2, $1, $1, NOW(), NOW())
+      ON CONFLICT (uid) DO UPDATE SET type = EXCLUDED.type, modified_time = NOW()
+      """,
+      [uid, type]
+    )
   end
 
   defp age_available? do
@@ -512,6 +742,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       "local_device_id" => local_id,
       "local_device_ip" => local_ip,
       "local_if_name" => local_if,
+      "local_if_index" => synthetic_ifindex(local_if),
       "neighbor_device_id" => neighbor_id,
       "neighbor_port_id" => neighbor_port,
       "neighbor_system_name" => neighbor_name,
@@ -520,4 +751,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       "timestamp" => now
     }
   end
+
+  defp synthetic_ifindex(name) when is_binary(name) do
+    case Regex.run(~r/(\d+)/, name, capture: :all_but_first) do
+      [digits] ->
+        case Integer.parse(digits) do
+          {value, ""} when value > 0 -> value
+          _ -> 1
+        end
+
+      _ ->
+        :erlang.phash2(name, 4_094) + 1
+    end
+  end
+
+  defp synthetic_ifindex(_), do: 1
 end

@@ -5,9 +5,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   require Logger
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.Graph
+  alias ServiceRadar.Repo
   @default_stale_minutes 180
   @eligible_confidence_tiers MapSet.new(["high", "medium"])
+  @fallback_protocols MapSet.new(["snmp-l2", "snmp-parent", "snmp-site", "l3-uplink", "inferred"])
+  @always_project_protocols MapSet.new(["wireguard-derived"])
+  @direct_protocols MapSet.new(["lldp", "cdp", "unifi-api"])
+  @strict_ifindex_protocols MapSet.new(["lldp", "cdp"])
 
   @spec upsert_links([map()]) :: :ok
   def upsert_links([]), do: :ok
@@ -15,15 +21,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   def upsert_links(links) when is_list(links) do
     links = authoritative_links(links)
 
-    {local_device_ids, neighbor_index, projected_count, skipped_low_count} =
+    {local_device_ids, neighbor_index, projected_count, skipped_count} =
       Enum.reduce(links, {MapSet.new(), %{}, 0, 0}, &reduce_topology_link/2)
 
     prune_unseen_projected_links(neighbor_index)
     prune_stale_projected_links(MapSet.to_list(local_device_ids))
 
-    if skipped_low_count > 0 do
+    if skipped_count > 0 do
       Logger.debug(
-        "Skipped #{skipped_low_count} low-confidence topology link(s); projected #{projected_count} link(s)"
+        "Skipped #{skipped_count} non-projectable topology link(s); projected #{projected_count} link(s)"
       )
     end
 
@@ -33,6 +39,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   # Prefer direct topology evidence (LLDP/CDP). If none exists for a local node,
   # project only one inferred parent edge for that local to avoid multi-parent drift.
   defp authoritative_links(links) do
+    context = projection_context(links)
+
     links
     |> Enum.group_by(&non_blank(link_value(&1, :local_device_id)))
     |> Enum.flat_map(fn
@@ -40,28 +48,168 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         []
 
       {_local, group} ->
+        local_device_id = non_blank(link_value(List.first(group), :local_device_id))
+        local_type = device_type(context, local_device_id)
+
         direct =
           Enum.filter(group, fn link ->
-            protocol = normalize_protocol(link_value(link, :protocol))
-            protocol in ["lldp", "cdp"]
+            direct_protocol?(link_value(link, :protocol))
           end)
 
-        if direct != [] do
-          direct
+        deterministic =
+          Enum.filter(group, fn link ->
+            normalize_protocol(link_value(link, :protocol)) in @always_project_protocols
+          end)
+
+        inferred_candidates =
+          group
+          |> Enum.reject(&(&1 in direct))
+          |> Enum.reject(&(&1 in deterministic))
+
+        resolved_inferred =
+          inferred_candidates
+          |> Enum.filter(&resolved_neighbor_link?/1)
+          |> Enum.filter(&inferred_protocol?/1)
+
+        if router_device_type?(local_type) do
+          best_router_uplink =
+            resolved_inferred
+            |> case do
+              [] -> inferred_candidates
+              candidates -> candidates
+            end
+            |> best_router_uplink_link(context)
+
+          keep = direct ++ deterministic
+          if best_router_uplink == nil, do: keep, else: [best_router_uplink | keep]
         else
-          inferred =
-            Enum.filter(group, fn link ->
-              protocol = normalize_protocol(link_value(link, :protocol))
-              protocol in ["snmp-parent", "snmp-site", "l3-uplink", "inferred"]
-            end)
+          inferred_best = best_inferred_link(inferred_candidates)
 
-          fallback_candidates = if inferred == [], do: group, else: inferred
+          if direct != [] do
+            keep = direct ++ deterministic ++ resolved_inferred
+            if inferred_best == nil, do: keep, else: [inferred_best | keep]
+          else
+            keep = deterministic ++ resolved_inferred
 
-          case best_inferred_link(fallback_candidates) do
-            nil -> []
-            best -> [best]
+            fallback_candidates =
+              if inferred_candidates == [], do: group, else: inferred_candidates
+
+            case best_inferred_link(fallback_candidates) do
+              nil -> keep
+              best -> [best | keep]
+            end
           end
         end
+    end)
+  end
+
+  defp projection_context(links) do
+    %{
+      device_types: load_device_types(links),
+      inbound_direct_counts: inbound_direct_counts(links)
+    }
+  end
+
+  defp load_device_types(links) do
+    device_ids =
+      links
+      |> Enum.flat_map(fn link ->
+        [
+          non_blank(link_value(link, :local_device_id)),
+          non_blank(link_value(link, :neighbor_device_id))
+        ]
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if device_ids == [] do
+      %{}
+    else
+      case SQL.query(Repo, "SELECT uid, type FROM ocsf_devices WHERE uid = ANY($1)", [device_ids]) do
+        {:ok, %{rows: rows}} ->
+          Map.new(rows, fn [uid, type] -> {uid, normalize_device_type(type)} end)
+
+        {:error, reason} ->
+          Logger.debug("Failed to load topology device types: #{inspect(reason)}")
+          %{}
+      end
+    end
+  end
+
+  defp inbound_direct_counts(links) do
+    Enum.reduce(links, %{}, fn link, acc ->
+      protocol = normalize_protocol(link_value(link, :protocol))
+      neighbor = non_blank(link_value(link, :neighbor_device_id))
+
+      if direct_protocol?(protocol) and not is_nil(neighbor) do
+        Map.update(acc, neighbor, 1, &(&1 + 1))
+      else
+        acc
+      end
+    end)
+  end
+
+  defp device_type(context, device_id) do
+    context
+    |> Map.get(:device_types, %{})
+    |> Map.get(device_id, "unknown")
+  end
+
+  defp normalize_device_type(nil), do: "unknown"
+
+  defp normalize_device_type(type) do
+    type
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp router_device_type?(type), do: normalize_device_type(type) == "router"
+  defp switch_device_type?(type), do: normalize_device_type(type) == "switch"
+
+  defp best_router_uplink_link([], _context), do: nil
+
+  defp best_router_uplink_link(links, context) do
+    Enum.max_by(links, fn link ->
+      neighbor_device_id = non_blank(link_value(link, :neighbor_device_id))
+      neighbor_type = device_type(context, neighbor_device_id)
+
+      neighbor_role_rank =
+        cond do
+          switch_device_type?(neighbor_type) -> 100
+          router_device_type?(neighbor_type) -> 50
+          true -> 10
+        end
+
+      direct_neighbor_score =
+        context
+        |> Map.get(:inbound_direct_counts, %{})
+        |> Map.get(neighbor_device_id, 0)
+
+      protocol_rank =
+        case normalize_protocol(link_value(link, :protocol)) do
+          "lldp" -> 90
+          "cdp" -> 90
+          "unifi-api" -> 80
+          "snmp-l2" -> 70
+          "snmp-parent" -> 40
+          "snmp-site" -> 30
+          "l3-uplink" -> 20
+          "inferred" -> 10
+          _ -> 0
+        end
+
+      confidence =
+        confidence_score(link, link_value(link, :metadata) || %{})
+        |> normalize_positive_int(0)
+
+      observed_rank =
+        case link_value(link, :timestamp) do
+          %DateTime{} = dt -> DateTime.to_unix(dt)
+          _ -> 0
+        end
+
+      {neighbor_role_rank, direct_neighbor_score, protocol_rank, confidence, observed_rank}
     end)
   end
 
@@ -71,6 +219,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     Enum.max_by(links, fn link ->
       protocol_rank =
         case normalize_protocol(link_value(link, :protocol)) do
+          "wireguard-derived" -> 100
+          "lldp" -> 90
+          "cdp" -> 90
+          "unifi-api" -> 80
+          "snmp-l2" -> 70
           "snmp-parent" -> 40
           "snmp-site" -> 30
           "l3-uplink" -> 20
@@ -92,25 +245,37 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end)
   end
 
-  defp reduce_topology_link(link, {local_ids, neighbor_index, projected, skipped_low}) do
+  defp inferred_protocol?(link) do
+    normalize_protocol(link_value(link, :protocol)) in @fallback_protocols
+  end
+
+  defp direct_protocol?(protocol) do
+    normalize_protocol(protocol) in @direct_protocols
+  end
+
+  defp resolved_neighbor_link?(link) do
+    non_blank(link_value(link, :neighbor_device_id)) != nil
+  end
+
+  defp reduce_topology_link(link, {local_ids, neighbor_index, projected, skipped}) do
     case build_link_payload(link) do
       {:ok, payload} ->
         local_ids = MapSet.put(local_ids, payload.local_device_id)
 
-        if projectable_confidence_tier?(payload.confidence_tier) do
+        if projectable_link?(payload) do
           upsert_link_payload(payload)
 
           neighbor_index =
             add_neighbor_edge(neighbor_index, payload.local_device_id, payload.neighbor_device_id)
 
-          {local_ids, neighbor_index, projected + 1, skipped_low}
+          {local_ids, neighbor_index, projected + 1, skipped}
         else
-          {local_ids, neighbor_index, projected, skipped_low + 1}
+          {local_ids, neighbor_index, projected, skipped + 1}
         end
 
       {:error, :missing_ids} ->
         Logger.debug("Skipping topology link missing device identifiers")
-        {local_ids, neighbor_index, projected, skipped_low}
+        {local_ids, neighbor_index, projected, skipped}
     end
   end
 
@@ -293,6 +458,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     SET r.confidence_reason = '#{Graph.escape(payload.confidence_reason)}'
     SET r.observed_at = '#{Graph.escape(payload.observed_at)}'
     SET r.last_observed_at = '#{Graph.escape(payload.observed_at)}'
+    MERGE (bi)-[rr:CONNECTS_TO]->(ai)
+    SET rr.first_observed_at = coalesce(rr.first_observed_at, '#{Graph.escape(payload.observed_at)}')
+    SET rr.ingestor = 'mapper_topology_v1'
+    SET rr.source = '#{Graph.escape(payload.protocol)}'
+    SET rr.protocol = '#{Graph.escape(payload.protocol)}'
+    SET rr.confidence_tier = '#{Graph.escape(payload.confidence_tier)}'
+    SET rr.confidence_score = #{payload.confidence_score}
+    SET rr.confidence_reason = '#{Graph.escape(payload.confidence_reason)}'
+    SET rr.observed_at = '#{Graph.escape(payload.observed_at)}'
+    SET rr.last_observed_at = '#{Graph.escape(payload.observed_at)}'
     """
 
     case Graph.execute(cypher) do
@@ -307,6 +482,26 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       link_value(link, :neighbor_chassis_id) ||
       link_value(link, :neighbor_system_name)
   end
+
+  defp projectable_link?(payload) when is_map(payload) do
+    protocol = normalize_protocol(payload.protocol)
+
+    (MapSet.member?(@always_project_protocols, protocol) or
+       MapSet.member?(@fallback_protocols, protocol) or
+       projectable_confidence_tier?(payload.confidence_tier)) and
+      interface_contract_valid?(protocol, payload)
+  end
+
+  defp interface_contract_valid?(protocol, payload) do
+    if MapSet.member?(@strict_ifindex_protocols, protocol) do
+      valid_ifindex?(payload.local_if_index)
+    else
+      true
+    end
+  end
+
+  defp valid_ifindex?(value) when is_integer(value), do: value > 0
+  defp valid_ifindex?(_value), do: false
 
   defp projectable_confidence_tier?(tier) do
     MapSet.member?(@eligible_confidence_tiers, normalize_confidence_tier(tier))
