@@ -43,5 +43,5 @@ defmodule ServiceRadar.Software.Changes.DispatchTftpStart do
   end
 
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  def atomic(_changeset, _opts, _context), do: :not_atomic
 end

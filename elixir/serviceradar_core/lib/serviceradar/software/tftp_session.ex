@@ -216,6 +216,7 @@ defmodule ServiceRadar.Software.TftpSession do
     # State transitions
     update :queue do
       accept []
+      require_atomic? false
       description "Queue the session for dispatch to the agent"
       change ServiceRadar.Software.Changes.DispatchTftpStart
     end
@@ -247,6 +248,7 @@ defmodule ServiceRadar.Software.TftpSession do
 
     update :start_staging do
       accept []
+      require_atomic? false
       description "Downloading image to agent staging area (serve mode)"
       change ServiceRadar.Software.Changes.DispatchTftpStage
     end
@@ -280,6 +282,7 @@ defmodule ServiceRadar.Software.TftpSession do
 
     update :cancel do
       accept []
+      require_atomic? false
       description "Session canceled by user"
       change ServiceRadar.Software.Changes.DispatchTftpStop
     end
