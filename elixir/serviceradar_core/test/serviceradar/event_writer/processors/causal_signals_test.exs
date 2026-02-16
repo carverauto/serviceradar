@@ -1,6 +1,7 @@
 defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.CausalSignals
 
   describe "table_name/0" do
@@ -83,5 +84,118 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       assert row1.id == row2.id
     end
+  end
+
+  describe "replay determinism via Broadway causal routing" do
+    test "BMP burst replay yields identical normalized causal overlay inputs" do
+      burst = bmp_burst_messages()
+
+      first_projection =
+        burst
+        |> route_broadway_messages()
+        |> parse_causal_rows()
+        |> causal_overlay_projection()
+
+      # Replay same logical events in different order to emulate JetStream redelivery.
+      replay_projection =
+        burst
+        |> Enum.reverse()
+        |> route_broadway_messages()
+        |> parse_causal_rows()
+        |> causal_overlay_projection()
+
+      assert first_projection == replay_projection
+      assert length(first_projection) == 4
+    end
+  end
+
+  defp bmp_burst_messages do
+    now = "2026-02-16T13:00:00Z"
+
+    [
+      %{
+        "event_id" => "bmp-a",
+        "timestamp" => now,
+        "severity" => "high",
+        "device_id" => "router-a",
+        "peer_ip" => "192.0.2.1",
+        "message" => "peer down"
+      },
+      %{
+        "event_id" => "bmp-b",
+        "timestamp" => now,
+        "severity" => "critical",
+        "device_id" => "router-b",
+        "peer_ip" => "192.0.2.2",
+        "message" => "withdraw storm"
+      },
+      %{
+        "event_id" => "bmp-c",
+        "timestamp" => now,
+        "severity" => "medium",
+        "device_id" => "router-a",
+        "peer_ip" => "192.0.2.1",
+        "message" => "path change"
+      },
+      %{
+        "event_id" => "bmp-d",
+        "timestamp" => now,
+        "severity" => "low",
+        "device_id" => "router-c",
+        "peer_ip" => "192.0.2.3",
+        "message" => "route flap"
+      },
+      # Duplicate logical event id in same burst to assert deterministic projection contract.
+      %{
+        "event_id" => "bmp-a",
+        "timestamp" => now,
+        "severity" => "high",
+        "device_id" => "router-a",
+        "peer_ip" => "192.0.2.1",
+        "message" => "peer down"
+      }
+    ]
+    |> Enum.map(fn payload ->
+      %{
+        data: Jason.encode!(payload),
+        metadata: %{subject: "bmp.events.peer", received_at: DateTime.utc_now()},
+        ack_data: %{}
+      }
+    end)
+  end
+
+  defp route_broadway_messages(events) do
+    Enum.map(events, fn event ->
+      message = Pipeline.transform(event, [])
+      routed = Pipeline.handle_message(:default, message, %{})
+      assert routed.batcher == :causal_signals
+      routed
+    end)
+  end
+
+  defp parse_causal_rows(messages) do
+    messages
+    |> Enum.map(fn message ->
+      CausalSignals.parse_message(%{data: message.data, metadata: message.metadata})
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  # Deterministic projection used by topology causal overlays:
+  # identity + signal attributes sorted independent of ingest/replay order.
+  defp causal_overlay_projection(rows) do
+    rows
+    |> Enum.map(fn row ->
+      {
+        row.metadata["event_identity"],
+        row.metadata["signal_type"],
+        row.severity_id,
+        row.device["uid"],
+        row.src_endpoint["ip"]
+      }
+    end)
+    |> MapSet.new()
+    |> MapSet.to_list()
+    |> Enum.sort()
   end
 end

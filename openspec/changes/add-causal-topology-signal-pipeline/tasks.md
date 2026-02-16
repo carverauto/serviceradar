@@ -21,7 +21,7 @@
 - [x] 3.3 Add backpressure/coalescing controls for high-rate BMP bursts to preserve snapshot latency budgets (mapped `prop2` IDs required).
 
 ## 4. Verification
-- [ ] 4.1 Add replay tests that feed BMP event bursts through JetStream/Broadway and verify deterministic causal overlay state (mapped `prop2` IDs required).
+- [x] 4.1 Add replay tests that feed BMP event bursts through JetStream/Broadway and verify deterministic causal overlay state (mapped `prop2` IDs required).
 - [x] 4.2 Add regression tests that assert no identity merges are created from topology adjacency-only evidence (mapped `prop2` IDs required).
 - [x] 4.3 Validate end-to-end behavior in God-View: stable coordinates with changing causal classes (mapped `prop2` IDs required).
 - [x] 4.4 Run `openspec validate add-causal-topology-signal-pipeline --strict`.
