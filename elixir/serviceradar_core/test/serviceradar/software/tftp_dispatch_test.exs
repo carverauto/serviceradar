@@ -66,7 +66,7 @@ defmodule ServiceRadar.Software.TftpDispatchTest do
       })
 
       session = create_session!(:receive, agent_id, actor)
-      {:ok, queued} = Ash.update(session, action: :queue, actor: actor)
+      queued = transition!(session, :queue, %{}, actor)
       assert queued.status == :queued
 
       assert_receive {:send_command, command, _context}, 2_000
@@ -90,7 +90,7 @@ defmodule ServiceRadar.Software.TftpDispatchTest do
       })
 
       session = create_session!(:serve, agent_id, actor, %{expected_filename: "firmware.bin"})
-      {:ok, queued} = Ash.update(session, action: :queue, actor: actor)
+      queued = transition!(session, :queue, %{}, actor)
       assert queued.status == :queued
 
       assert_receive {:send_command, command, _context}, 2_000
@@ -111,12 +111,12 @@ defmodule ServiceRadar.Software.TftpDispatchTest do
       })
 
       session = create_session!(:receive, agent_id, actor)
-      {:ok, queued} = Ash.update(session, action: :queue, actor: actor)
+      queued = transition!(session, :queue, %{}, actor)
 
       # Consume the start_receive dispatch
       assert_receive {:send_command, _, _}, 2_000
 
-      {:ok, canceled} = Ash.update(queued, action: :cancel, actor: actor)
+      canceled = transition!(queued, :cancel, %{}, actor)
       assert canceled.status == :canceled
 
       assert_receive {:send_command, command, _context}, 2_000
@@ -145,12 +145,12 @@ defmodule ServiceRadar.Software.TftpDispatchTest do
           image_id: image.id
         })
 
-      {:ok, queued} = Ash.update(session, action: :queue, actor: actor)
+      queued = transition!(session, :queue, %{}, actor)
 
       # Consume the start_serve dispatch
       assert_receive {:send_command, _, _}, 2_000
 
-      {:ok, staging} = Ash.update(queued, action: :start_staging, actor: actor)
+      staging = transition!(queued, :start_staging, %{}, actor)
       assert staging.status == :staging
 
       assert_receive {:send_command, command, _context}, 2_000
@@ -318,14 +318,19 @@ defmodule ServiceRadar.Software.TftpDispatchTest do
     |> Ash.create!()
   end
 
+  defp transition!(session, action, params, actor) do
+    session
+    |> Ash.Changeset.for_update(action, params, actor: actor)
+    |> Ash.update!()
+  end
+
   defp advance_to_receiving!(agent_id, actor) do
     session = create_session!(:receive, agent_id, actor)
-    {:ok, session} = Ash.update(session, action: :queue, actor: actor)
+    session = transition!(session, :queue, %{}, actor)
     assert_receive {:send_command, _, _}, 2_000
 
-    {:ok, session} = Ash.update(session, action: :start_waiting, actor: actor)
-    {:ok, session} = Ash.update(session, action: :start_receiving, actor: actor)
-    session
+    session = transition!(session, :start_waiting, %{}, actor)
+    transition!(session, :start_receiving, %{}, actor)
   end
 
   defp advance_to_serving!(agent_id, actor) do
@@ -337,17 +342,16 @@ defmodule ServiceRadar.Software.TftpDispatchTest do
         image_id: image.id
       })
 
-    {:ok, session} = Ash.update(session, action: :queue, actor: actor)
+    session = transition!(session, :queue, %{}, actor)
     # Consume start_serve dispatch
     assert_receive {:send_command, _, _}, 2_000
 
-    {:ok, session} = Ash.update(session, action: :start_staging, actor: actor)
+    session = transition!(session, :start_staging, %{}, actor)
     # Consume stage_image dispatch
     assert_receive {:send_command, _, _}, 2_000
 
-    {:ok, session} = Ash.update(session, action: :mark_ready, actor: actor)
-    {:ok, session} = Ash.update(session, action: :start_serving, actor: actor)
-    session
+    session = transition!(session, :mark_ready, %{}, actor)
+    transition!(session, :start_serving, %{}, actor)
   end
 
   defp start_control_session(agent_id, test_pid, metadata) do
