@@ -36,6 +36,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.severity_id == 4
       assert row.metadata["signal_type"] == "bmp"
       assert row.metadata["schema_version"] == "1.0"
+      assert row.metadata["primary_domain"] == "routing"
       assert row.device["uid"] == "mac-aabbccddeeff"
       assert row.src_endpoint["ip"] == "192.0.2.10"
     end
@@ -60,6 +61,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.severity_id == 6
       assert row.severity == "Fatal"
       assert row.metadata["signal_type"] == "siem"
+      assert row.metadata["primary_domain"] == "security"
     end
 
     test "returns nil on invalid JSON" do
@@ -84,6 +86,57 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       assert row1.id == row2.id
     end
+
+    test "includes grouped contexts and explainability metadata" do
+      payload = %{
+        "event_id" => "ctx-1",
+        "timestamp" => "2026-02-16T12:20:00Z",
+        "severity" => "high",
+        "signal_domains" => ["routing", "security"],
+        "security_zones" => ["zone-a", "zone-b"],
+        "bgp_prefix_groups" => ["as64512-core"]
+      }
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{subject: "bmp.events.peer", received_at: DateTime.utc_now()}
+      }
+
+      row = CausalSignals.parse_message(message)
+
+      refute is_nil(row)
+      assert row.metadata["primary_domain"] == "security"
+      assert row.metadata["signal_domains"] == ["routing", "security"]
+      assert length(row.metadata["grouped_contexts"]) == 3
+      assert row.metadata["explainability"]["primary_domain"] == "security"
+      assert row.metadata["explainability"]["source_signal_refs"] == ["ctx-1"]
+      assert row.metadata["guardrails"]["contexts_truncated"] == false
+    end
+
+    test "enforces grouped context guardrail truncation" do
+      zones = Enum.map(1..40, &"zone-#{&1}")
+
+      payload = %{
+        "event_id" => "ctx-truncate",
+        "timestamp" => "2026-02-16T12:20:00Z",
+        "severity" => "medium",
+        "signal_domain" => "security",
+        "security_zones" => zones
+      }
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{subject: "siem.events.alert", received_at: DateTime.utc_now()}
+      }
+
+      row = CausalSignals.parse_message(message)
+
+      refute is_nil(row)
+      assert length(row.metadata["grouped_contexts"]) == 32
+      assert row.metadata["guardrails"]["contexts_truncated"] == true
+      assert row.metadata["guardrails"]["input_context_count"] == 40
+      assert row.metadata["guardrails"]["applied_context_count"] == 32
+    end
   end
 
   describe "replay determinism via Broadway causal routing" do
@@ -106,6 +159,55 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       assert first_projection == replay_projection
       assert length(first_projection) == 4
+    end
+
+    test "grouped context replay yields deterministic precedence and explainability" do
+      now = "2026-02-16T13:10:00Z"
+
+      burst =
+        [
+          %{
+            "event_id" => "ctx-a",
+            "timestamp" => now,
+            "severity" => "high",
+            "signal_domains" => ["routing", "security"],
+            "security_zones" => ["zone-a"],
+            "bgp_prefix_groups" => ["as64512-core"]
+          },
+          %{
+            "event_id" => "ctx-b",
+            "timestamp" => now,
+            "severity" => "medium",
+            "signal_domain" => "routing",
+            "bgp_prefix_group" => "as64512-edge"
+          }
+        ]
+        |> Enum.map(fn payload ->
+          %{
+            data: Jason.encode!(payload),
+            metadata: %{subject: "signals.causal.overlay", received_at: DateTime.utc_now()},
+            ack_data: %{}
+          }
+        end)
+
+      first =
+        burst
+        |> route_broadway_messages()
+        |> parse_causal_rows()
+        |> grouped_projection()
+
+      replay =
+        burst
+        |> Enum.reverse()
+        |> route_broadway_messages()
+        |> parse_causal_rows()
+        |> grouped_projection()
+
+      assert first == replay
+
+      assert Enum.any?(first, fn {_id, primary_domain, _contexts} ->
+               primary_domain == "security"
+             end)
     end
   end
 
@@ -196,6 +298,19 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     end)
     |> MapSet.new()
     |> MapSet.to_list()
+    |> Enum.sort()
+  end
+
+  defp grouped_projection(rows) do
+    rows
+    |> Enum.map(fn row ->
+      context_ids =
+        row.metadata["grouped_contexts"]
+        |> Enum.map(&{"#{&1["type"]}", "#{&1["id"]}"})
+        |> Enum.sort()
+
+      {row.metadata["event_identity"], row.metadata["primary_domain"], context_ids}
+    end)
     |> Enum.sort()
   end
 end

@@ -19,6 +19,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   require Logger
 
   @schema_version "1.0"
+  @max_grouped_contexts 32
 
   @impl true
   def table_name, do: "ocsf_events"
@@ -64,6 +65,11 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     subject = metadata[:subject] || ""
     signal_type = infer_signal_type(subject, payload)
     severity_id = normalize_severity(payload)
+    grouped_contexts = grouped_contexts(payload)
+    domains = signal_domains(payload, signal_type)
+    {primary_domain, precedence_rank} = primary_domain(domains)
+    truncated_contexts = Enum.take(grouped_contexts, @max_grouped_contexts)
+    contexts_truncated = length(grouped_contexts) > length(truncated_contexts)
 
     event_time =
       payload["timestamp"] || payload["time"] || payload["event_time"] || metadata[:received_at]
@@ -74,7 +80,22 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "severity_id" => severity_id,
       "source" => normalize_source(payload, subject),
       "event_identity" => stable_event_identity(subject, payload, raw_data),
-      "event_time" => normalize_time(event_time)
+      "event_time" => normalize_time(event_time),
+      "grouped_contexts" => truncated_contexts,
+      "signal_domains" => domains,
+      "primary_domain" => primary_domain,
+      "explainability" => %{
+        "source_signal_refs" => source_signal_refs(payload),
+        "context_ids" => Enum.map(truncated_contexts, & &1["id"]),
+        "primary_domain" => primary_domain,
+        "precedence_rank" => precedence_rank
+      },
+      "guardrails" => %{
+        "max_grouped_contexts" => @max_grouped_contexts,
+        "contexts_truncated" => contexts_truncated,
+        "input_context_count" => length(grouped_contexts),
+        "applied_context_count" => length(truncated_contexts)
+      }
     }
 
     {:ok, envelope}
@@ -136,6 +157,107 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "system" => payload["source"] || payload["provider"] || "external"
     }
   end
+
+  defp grouped_contexts(payload) when is_map(payload) do
+    security_zones =
+      payload
+      |> list_or_scalar(["security_zones", "security_zone"])
+      |> Enum.map(&build_context("security_zone", &1))
+
+    bgp_prefix_groups =
+      payload
+      |> list_or_scalar(["bgp_prefix_groups", "bgp_prefix_group"])
+      |> Enum.map(&build_context("bgp_prefix_group", &1))
+
+    (security_zones ++ bgp_prefix_groups)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(&{&1["type"], &1["id"]})
+  end
+
+  defp grouped_contexts(_), do: []
+
+  defp list_or_scalar(payload, [list_key, scalar_key]) do
+    cond do
+      is_list(payload[list_key]) ->
+        payload[list_key]
+
+      is_binary(payload[scalar_key]) ->
+        [payload[scalar_key]]
+
+      true ->
+        []
+    end
+  end
+
+  defp build_context(type, id) when is_binary(id) do
+    normalized = String.trim(id)
+    if normalized == "", do: nil, else: %{"type" => type, "id" => normalized}
+  end
+
+  defp build_context(_type, _id), do: nil
+
+  defp signal_domains(payload, signal_type) do
+    normalized =
+      case payload["signal_domains"] do
+        values when is_list(values) ->
+          Enum.map(values, &normalize_domain/1)
+
+        _ ->
+          [normalize_domain(payload["signal_domain"] || signal_type)]
+      end
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if normalized == [], do: ["unknown"], else: normalized
+  end
+
+  defp normalize_domain(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "security" -> "security"
+      "routing" -> "routing"
+      "health" -> "health"
+      "bmp" -> "routing"
+      "siem" -> "security"
+      "unknown" -> "unknown"
+      "" -> nil
+      _ -> "unknown"
+    end
+  end
+
+  defp normalize_domain(_), do: nil
+
+  defp primary_domain(domains) when is_list(domains) do
+    domains
+    |> Enum.map(&{&1, domain_rank(&1)})
+    |> Enum.max_by(fn {domain, rank} -> {rank, domain} end, fn -> {"unknown", 0} end)
+  end
+
+  defp primary_domain(_), do: {"unknown", 0}
+
+  defp domain_rank("security"), do: 3
+  defp domain_rank("routing"), do: 2
+  defp domain_rank("health"), do: 1
+  defp domain_rank(_), do: 0
+
+  defp source_signal_refs(payload) when is_map(payload) do
+    [
+      payload["event_id"],
+      payload["id"],
+      payload["eventId"],
+      payload["alert_id"],
+      payload["bmp_message_id"],
+      payload["message_id"]
+    ]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp source_signal_refs(_), do: []
 
   defp normalize_time(%DateTime{} = dt), do: dt
 
