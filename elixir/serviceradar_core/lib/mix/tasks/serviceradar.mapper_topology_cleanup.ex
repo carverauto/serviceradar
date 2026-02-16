@@ -8,13 +8,14 @@ defmodule Mix.Tasks.Serviceradar.MapperTopologyCleanup do
   Usage:
     mix serviceradar.mapper_topology_cleanup
   """
+  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
 
   use Mix.Task
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.NetworkDiscovery.TopologyStateCleanup
   alias ServiceRadar.Repo
-  alias ServiceRadar.Inventory.IdentityReconciler
 
   require Logger
 

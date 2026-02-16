@@ -927,16 +927,20 @@ type deviceGroup struct {
 func (e *DiscoveryEngine) deduplicateDevices(job *DiscoveryJob) {
 	e.seedDeviceMapAlternateIPs(job)
 
-	// Step 1: Group devices by shared attributes
+	// Step 1: Group devices by shared identity attributes (MAC, IP, SysName)
 	deviceGroups := e.buildDeviceGroups(job)
 
-	// Step 2: Use topology links to further merge groups
-	deviceGroups = e.mergeGroupsByTopologyLinks(job, deviceGroups)
+	// NOTE: We intentionally do NOT merge groups based on topology links.
+	// Topology links represent adjacency (a cable between two devices), not
+	// identity (proof that two discoveries are the same device). Merging on
+	// adjacency causes "identity collapse" where distinct devices (gateway,
+	// core switch, access points) get fused into a single mega-node, producing
+	// the classic hairball graph instead of a proper tree topology.
 
-	// Step 3: Rebuild the device list
+	// Step 2: Rebuild the device list
 	newDevices := e.rebuildDeviceList(job, deviceGroups)
 
-	// Step 4: Update interfaces to point to the primary DeviceID
+	// Step 3: Update interfaces to point to the primary DeviceID
 	e.updateInterfaceDeviceIDs(job, deviceGroups)
 
 	// Update the results
@@ -1068,72 +1072,6 @@ func (*DiscoveryEngine) mergeIntoExistingGroup(group *deviceGroup, deviceID stri
 	if group.SysName == "" && deviceEntry.SysName != "" {
 		group.SysName = deviceEntry.SysName
 	}
-}
-
-// mergeGroupsByTopologyLinks uses topology links to further merge device groups
-func (e *DiscoveryEngine) mergeGroupsByTopologyLinks(job *DiscoveryJob, deviceGroups map[string]*deviceGroup) map[string]*deviceGroup {
-	for _, link := range job.Results.TopologyLinks {
-		localDeviceID := e.findDeviceIDByIP(job, link.LocalDeviceIP)
-		neighborDeviceID := e.findDeviceIDByIP(job, link.NeighborMgmtAddr)
-
-		if localDeviceID != "" && neighborDeviceID != "" && localDeviceID != neighborDeviceID {
-			localGroupID := e.findGroupIDForDevice(deviceGroups, localDeviceID)
-			neighborGroupID := e.findGroupIDForDevice(deviceGroups, neighborDeviceID)
-
-			if localGroupID != neighborGroupID && localGroupID != "" && neighborGroupID != "" {
-				// Merge the groups
-				e.mergeDeviceGroups(deviceGroups, localGroupID, neighborGroupID)
-			}
-		}
-	}
-
-	return deviceGroups
-}
-
-// findDeviceIDByIP finds a device ID by its IP address
-func (*DiscoveryEngine) findDeviceIDByIP(job *DiscoveryJob, ip string) string {
-	for deviceID, deviceEntry := range job.deviceMap {
-		if _, exists := deviceEntry.IPs[ip]; exists {
-			return deviceID
-		}
-	}
-
-	return ""
-}
-
-// findGroupIDForDevice finds the group ID for a device
-func (*DiscoveryEngine) findGroupIDForDevice(deviceGroups map[string]*deviceGroup, deviceID string) string {
-	for groupID, group := range deviceGroups {
-		if _, exists := group.DeviceIDs[deviceID]; exists {
-			return groupID
-		}
-	}
-
-	return ""
-}
-
-// mergeDeviceGroups merges two device groups
-func (*DiscoveryEngine) mergeDeviceGroups(deviceGroups map[string]*deviceGroup, targetGroupID, sourceGroupID string) {
-	targetGroup := deviceGroups[targetGroupID]
-	sourceGroup := deviceGroups[sourceGroupID]
-
-	for deviceID := range sourceGroup.DeviceIDs {
-		targetGroup.DeviceIDs[deviceID] = struct{}{}
-	}
-
-	for mac := range sourceGroup.MACs {
-		targetGroup.MACs[mac] = struct{}{}
-	}
-
-	for ip := range sourceGroup.IPs {
-		targetGroup.IPs[ip] = struct{}{}
-	}
-
-	if targetGroup.SysName == "" && sourceGroup.SysName != "" {
-		targetGroup.SysName = sourceGroup.SysName
-	}
-
-	delete(deviceGroups, sourceGroupID)
 }
 
 // rebuildDeviceList rebuilds the device list with merged metadata

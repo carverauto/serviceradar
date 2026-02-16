@@ -53,9 +53,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
          :ok <- validate_generated_at(snapshot),
          :ok <- validate_nodes(snapshot),
          :ok <- validate_edges(snapshot),
-         :ok <- validate_bitmaps(snapshot),
-         :ok <- validate_bitmap_metadata(snapshot) do
-      :ok
+         :ok <- validate_bitmaps(snapshot) do
+      validate_bitmap_metadata(snapshot)
     end
   end
 

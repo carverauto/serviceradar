@@ -90,8 +90,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp compile_job(job, credentials) do
     seeds = job.seeds || []
     unifi_controllers = job.unifi_controllers || []
-    unifi_api_names = unifi_controllers |> Enum.map(& &1.name) |> Enum.reject(&is_nil_or_blank/1)
-    unifi_api_urls = unifi_controllers |> Enum.map(& &1.base_url) |> Enum.reject(&is_nil_or_blank/1)
+    unifi_api_names = unifi_controllers |> Enum.map(& &1.name) |> Enum.reject(&nil_or_blank?/1)
+    unifi_api_urls = unifi_controllers |> Enum.map(& &1.base_url) |> Enum.reject(&nil_or_blank?/1)
 
     options = job.options || %{}
 
@@ -128,9 +128,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     end
   end
 
-  defp is_nil_or_blank(nil), do: true
-  defp is_nil_or_blank(value) when is_binary(value), do: String.trim(value) == ""
-  defp is_nil_or_blank(_), do: false
+  defp nil_or_blank?(nil), do: true
+  defp nil_or_blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp nil_or_blank?(_), do: false
 
   defp resolve_credentials(device_uid, actor) do
     case CredentialResolver.resolve_for_device(device_uid, actor) do

@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @moduledoc """
   Builds God-View snapshot payloads backed by the Rust Arrow encoder.
   """
+  # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
+  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
 
   import Ecto.Query
 
@@ -247,26 +249,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         local_id = normalize_local_id(link) || fallback_local_id(link)
         neighbor_id = normalize_neighbor_id(link) || fallback_neighbor_id(link)
 
-        cond do
-          is_nil(local_id) or is_nil(neighbor_id) or local_id == neighbor_id ->
-            acc
+        if is_nil(local_id) or is_nil(neighbor_id) or local_id == neighbor_id do
+          acc
+        else
+          {a, b} = canonical_pair(local_id, neighbor_id)
 
-          true ->
-            {a, b} = canonical_pair(local_id, neighbor_id)
-
-            Map.put_new(acc, {a, b}, %{
-              source: local_id,
-              target: neighbor_id,
-              kind: "topology",
-              protocol: Map.get(link, :protocol),
-              evidence_class: evidence_class(link),
-              confidence_tier: confidence_tier(link),
-              local_device_ip: normalize_id(Map.get(link, :local_device_ip)),
-              neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
-              local_if_index: Map.get(link, :local_if_index),
-              local_if_name: Map.get(link, :local_if_name),
-              metadata: Map.get(link, :metadata) || %{}
-            })
+          Map.put_new(acc, {a, b}, %{
+            source: local_id,
+            target: neighbor_id,
+            kind: "topology",
+            protocol: Map.get(link, :protocol),
+            evidence_class: evidence_class(link),
+            confidence_tier: confidence_tier(link),
+            local_device_ip: normalize_id(Map.get(link, :local_device_ip)),
+            neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
+            local_if_index: Map.get(link, :local_if_index),
+            local_if_name: Map.get(link, :local_if_name),
+            metadata: Map.get(link, :metadata) || %{}
+          })
         end
       end)
 
@@ -399,8 +399,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     endpoint_candidates =
       edges
-      |> Enum.filter(&endpoint_attachment_edge?(&1, device_by_uid))
-      |> Enum.filter(&endpoint_attachment_allowed?(&1, device_by_uid, router_direct_infra_degree))
+      |> Enum.filter(
+        &(endpoint_attachment_edge?(&1, device_by_uid) and
+            endpoint_attachment_allowed?(&1, device_by_uid, router_direct_infra_degree))
+      )
       |> Enum.group_by(&endpoint_uid_for_edge(&1, device_by_uid))
 
     keep_best =
@@ -1110,10 +1112,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp ip_like_id(id) when is_binary(id) do
-    cond do
-      String.match?(id, ~r/^\d{1,3}(\.\d{1,3}){3}$/) -> id
-      true -> nil
-    end
+    if String.match?(id, ~r/^\d{1,3}(\.\d{1,3}){3}$/), do: id, else: nil
   end
 
   defp ip_like_id(_), do: nil

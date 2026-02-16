@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.TopologyChannel do
+  @moduledoc false
   use Phoenix.Channel
 
   alias ServiceRadarWebNG.Topology.GodViewStream

@@ -2,6 +2,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   @moduledoc """
   Ingests mapper interface and topology results into CNPG and projects topology into AGE.
   """
+  # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
+  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
 
   require Logger
   require Ash.Query

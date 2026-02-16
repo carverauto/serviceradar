@@ -2144,7 +2144,7 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 
 	neighbors := make([]arpNeighbor, 0, 32)
 	err := client.BulkWalk(oidIPToMediaPhys, func(pdu gosnmp.SnmpPDU) error {
-		ifIndex, ip, ok := parseIPToMediaSuffix(pdu.Name)
+		_, ip, ok := parseIPToMediaSuffix(pdu.Name)
 		if !ok || ip == "" || ip == targetIP || !isIPv4(ip) {
 			return nil
 		}
@@ -2165,9 +2165,8 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 
 		norm := NormalizeMAC(mac)
 		if bridgeIf, exists := bridgeIfByMAC[norm]; exists && bridgeIf > 0 {
-			ifIndex = bridgeIf
 			neighbors = append(neighbors, arpNeighbor{
-				ifIndex:       ifIndex,
+				ifIndex:       bridgeIf,
 				ip:            ip,
 				mac:           mac,
 				fdbPortMapped: true,

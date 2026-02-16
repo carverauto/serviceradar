@@ -72,5 +72,5 @@ func TestBuildSNMPL2LinksFromNeighborsRejectsInvalidIfIndex(t *testing.T) {
 	}
 
 	links := buildSNMPL2LinksFromNeighbors("sr:farm01", "192.168.1.1", "disc-3", neighbors)
-	assert.Len(t, links, 0)
+	assert.Empty(t, links)
 }

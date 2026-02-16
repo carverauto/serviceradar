@@ -89,6 +89,7 @@ defmodule ServiceRadarWebNG.Topology.Native do
   @doc """
   Encode snapshot payload directly from the Rust runtime graph resource edge set.
   """
+  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
   def runtime_graph_encode_snapshot(
         _graph_ref,
         _schema_version,

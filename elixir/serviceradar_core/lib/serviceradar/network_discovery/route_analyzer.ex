@@ -15,6 +15,8 @@ defmodule ServiceRadar.NetworkDiscovery.RouteAnalyzer do
   The analyzer applies longest-prefix-match, recursively follows next hops,
   emits ECMP branches, and detects loops/blackholes.
   """
+  # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
+  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
 
   import Bitwise
 
