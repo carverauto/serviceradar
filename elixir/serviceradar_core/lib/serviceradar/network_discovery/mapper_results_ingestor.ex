@@ -968,21 +968,58 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp lookup_device_uids_by_ip(ips) do
     query =
       from(d in Device,
+        where: is_nil(d.deleted_at),
         where: d.ip in ^ips,
-        select: {d.ip, d.uid}
+        select: {d.ip, d.uid, d.metadata}
       )
 
     Repo.all(query)
-    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-    |> Map.new(fn {ip, uids} ->
-      # Prefer sr: UIDs over sweep-/other legacy device IDs
-      uid = Enum.find(uids, List.first(uids), &String.starts_with?(&1, "sr:"))
+    |> Enum.group_by(&elem(&1, 0))
+    |> Map.new(fn {ip, entries} ->
+      uid =
+        entries
+        |> Enum.sort_by(&device_ip_resolution_rank/1)
+        |> List.first()
+        |> case do
+          {_ip, uid, _metadata} -> uid
+          _ -> nil
+        end
+
       {ip, uid}
     end)
   rescue
     e ->
       Logger.warning("Device UID lookup failed: #{inspect(e)}")
       %{}
+  end
+
+  defp device_ip_resolution_rank({_ip, uid, metadata}) do
+    metadata = if is_map(metadata), do: metadata, else: %{}
+    identity_source = normalize_string(Map.get(metadata, "identity_source"))
+    identity_state = normalize_string(Map.get(metadata, "identity_state"))
+
+    provisional_rank =
+      if identity_source == "mapper_topology_sighting" do
+        1
+      else
+        0
+      end
+
+    uid_rank =
+      if is_binary(uid) and String.starts_with?(uid, "sr:") do
+        0
+      else
+        1
+      end
+
+    state_rank =
+      case identity_state do
+        "canonical" -> 0
+        "provisional" -> 1
+        _ -> 2
+      end
+
+    {provisional_rank, uid_rank, state_rank, uid || ""}
   end
 
   # Resolve device IDs for topology records (local_device_id and neighbor_device_id)
@@ -1518,7 +1555,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
             ip: d.ip,
             name: d.name,
             hostname: d.hostname,
-            mac: d.mac
+            mac: d.mac,
+            metadata: d.metadata
           }
         )
 
@@ -1532,7 +1570,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp build_topology_device_index_maps(rows) do
-    Enum.reduce(rows, empty_topology_device_index(), fn row, acc ->
+    rows
+    |> Enum.sort_by(&topology_index_row_rank/1)
+    |> Enum.reduce(empty_topology_device_index(), fn row, acc ->
       uid = normalize_string(row.uid)
       ip = normalize_string(row.ip)
       mac = normalize_mac(row.mac)
@@ -1549,6 +1589,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       |> put_topology_index_entry(:mac_to_uid, mac, uid)
       |> put_topology_name_entries(name_candidates, uid)
     end)
+  end
+
+  defp topology_index_row_rank(row) do
+    uid = normalize_string(row.uid)
+    metadata = if is_map(Map.get(row, :metadata)), do: Map.get(row, :metadata), else: %{}
+    identity_source = normalize_string(Map.get(metadata, "identity_source"))
+    identity_state = normalize_string(Map.get(metadata, "identity_state"))
+
+    provisional_rank =
+      if identity_source == "mapper_topology_sighting" do
+        1
+      else
+        0
+      end
+
+    uid_rank =
+      if is_binary(uid) and String.starts_with?(uid, "sr:") do
+        0
+      else
+        1
+      end
+
+    state_rank =
+      case identity_state do
+        "canonical" -> 0
+        "provisional" -> 1
+        _ -> 2
+      end
+
+    {provisional_rank, uid_rank, state_rank, uid || ""}
   end
 
   defp empty_topology_device_index do
@@ -1695,6 +1765,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     metadata = get_map(update, ["metadata", :metadata])
     neighbor_identity = get_map(update, ["neighbor_identity", :neighbor_identity])
     {tier, score, reason} = score_topology_confidence(update, metadata)
+    protocol = normalize_topology_protocol(get_string(update, ["protocol", :protocol]))
+    source = normalize_topology_source(Map.get(metadata, "source"))
+    evidence_class = classify_topology_evidence_class(protocol, source, metadata)
 
     neighbor_mgmt_addr =
       get_string(update, ["neighbor_mgmt_addr", :neighbor_mgmt_addr]) ||
@@ -1725,6 +1798,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       |> Map.put("confidence_tier", tier)
       |> Map.put("confidence_score", score)
       |> Map.put("confidence_reason", reason)
+      |> Map.put("evidence_class", evidence_class)
       |> maybe_put_neighbor_identity(neighbor_identity)
 
     %{
@@ -1796,6 +1870,33 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> to_string()
     |> String.trim()
     |> String.downcase()
+  end
+
+  defp classify_topology_evidence_class(protocol, source, metadata) do
+    explicit =
+      metadata
+      |> metadata_value("evidence_class")
+      |> normalize_string()
+
+    cond do
+      explicit in ["direct", "inferred", "endpoint-attachment"] ->
+        explicit
+
+      protocol in ["lldp", "cdp", "wireguard-derived"] ->
+        "direct"
+
+      protocol == "unifi-api" and String.contains?(source || "", "port-table") ->
+        "endpoint-attachment"
+
+      protocol == "unifi-api" ->
+        "direct"
+
+      protocol == "snmp-l2" or source == "snmp-arp-fdb" ->
+        "inferred"
+
+      true ->
+        "inferred"
+    end
   end
 
   defp maybe_put_neighbor_identity(metadata, map) when is_map(map) and map_size(map) > 0 do

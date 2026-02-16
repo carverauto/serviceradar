@@ -632,6 +632,7 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 			if link.Metadata == nil {
 				link.Metadata = make(map[string]string)
 			}
+			applyTopologyEvidenceClass(link)
 			NormalizeTopologyLinkNeighborIdentity(link)
 			link.Metadata["discovery_id"] = job.ID
 			link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
@@ -643,6 +644,36 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 					Err(err).Msg("Failed to publish link")
 			}
 		}
+	}
+}
+
+func applyTopologyEvidenceClass(link *TopologyLink) {
+	if link == nil {
+		return
+	}
+
+	if link.Metadata == nil {
+		link.Metadata = make(map[string]string)
+	}
+
+	if cls := strings.TrimSpace(link.Metadata["evidence_class"]); cls != "" {
+		return
+	}
+
+	protocol := strings.ToLower(strings.TrimSpace(link.Protocol))
+	source := strings.ToLower(strings.TrimSpace(link.Metadata["source"]))
+
+	switch {
+	case protocol == "lldp" || protocol == "cdp" || protocol == "wireguard-derived":
+		link.Metadata["evidence_class"] = "direct"
+	case protocol == "unifi-api" && strings.Contains(source, "port-table"):
+		link.Metadata["evidence_class"] = "endpoint-attachment"
+	case protocol == "unifi-api":
+		link.Metadata["evidence_class"] = "direct"
+	case protocol == "snmp-l2" || source == "snmp-arp-fdb":
+		link.Metadata["evidence_class"] = "inferred"
+	default:
+		link.Metadata["evidence_class"] = "inferred"
 	}
 }
 

@@ -216,6 +216,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert result["source"] == "snmp-l2"
   end
 
+  test "upsert_links drops low-confidence single-identifier inferred edges" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    TopologyGraph.upsert_links([
+      %{
+        local_device_id: "dev-1",
+        neighbor_device_id: "dev-2",
+        local_if_name: "eth0",
+        local_if_index: nil,
+        neighbor_port_id: "eth1",
+        protocol: "snmp-l2",
+        metadata: %{
+          "confidence_tier" => "low",
+          "confidence_score" => 40,
+          "confidence_reason" => "single_identifier_inference"
+        },
+        timestamp: now,
+        created_at: now
+      }
+    ])
+
+    [result] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'dev-2\/eth1'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    assert result["count"] == 0
+  end
+
   test "upsert_links keeps multiple resolved SNMP-L2 neighbors for one local device" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 

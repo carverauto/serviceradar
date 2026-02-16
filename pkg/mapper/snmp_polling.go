@@ -2199,6 +2199,7 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 				"discovery_id":    job.ID,
 				"source":          "snmp-arp-fdb",
 				"evidence":        "ipNetToMedia+dot1dTpFdb",
+				"evidence_class":  "inferred",
 				"confidence_tier": "medium",
 			},
 		})

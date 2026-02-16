@@ -2029,6 +2029,7 @@ const Hooks = {
       this.animationTimer = null
       this.animationPhase = 0
       this.layers = {mantle: true, crust: true, atmosphere: true, security: false}
+      this.topologyLayers = {backbone: true, inferred: false, endpoints: false}
       this.layoutMode = "auto"
       this.layoutRevision = null
       this.lastRevision = null
@@ -2149,6 +2150,16 @@ const Hooks = {
             crust: layers.crust !== false,
             atmosphere: layers.atmosphere !== false,
             security: layers.security !== false,
+          }
+          if (this.lastGraph) this.renderGraph(this.lastGraph)
+        }
+      })
+      this.handleEvent("god_view:set_topology_layers", ({layers}) => {
+        if (layers && typeof layers === "object") {
+          this.topologyLayers = {
+            backbone: layers.backbone !== false,
+            inferred: layers.inferred === true,
+            endpoints: layers.endpoints === true,
           }
           if (this.lastGraph) this.renderGraph(this.lastGraph)
         }
@@ -2585,6 +2596,7 @@ const Hooks = {
             flowBps: Number(edgeFlowBps?.get(i) || 0),
             capacityBps: Number(edgeCapacityBps?.get(i) || 0),
             label: this.normalizeDisplayLabel(edgeLabel?.get(i), ""),
+            topologyClass: this.edgeTopologyClassFromLabel(edgeLabel?.get(i) || ""),
           })
           edgeSourceIndex.push(source)
           edgeTargetIndex.push(target)
@@ -2863,11 +2875,15 @@ const Hooks = {
           flowPps: 0,
           flowBps: 0,
           capacityBps: 0,
+          topologyClassCounts: {backbone: 0, inferred: 0, endpoints: 0},
         }
+        const topologyClass = this.edgeTopologyClass(edge)
         current.weight += 1
         current.flowPps += Number(edge.flowPps || 0)
         current.flowBps += Number(edge.flowBps || 0)
         current.capacityBps += Number(edge.capacityBps || 0)
+        current.topologyClassCounts[topologyClass] =
+          Number(current.topologyClassCounts[topologyClass] || 0) + 1
         acc.set(key, current)
       })
       return Array.from(acc.values())
@@ -3227,6 +3243,7 @@ const Hooks = {
       const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
 
       const edgeData = effective.edges
+        .filter((edge) => this.edgeEnabledByTopologyLayer(edge))
         .map((edge, edgeIndex) => {
           const src =
             effective.shape === "local"
@@ -3762,6 +3779,36 @@ const Hooks = {
       const clean = token.replace(/[^a-zA-Z0-9_-]/g, "").toUpperCase()
       if (!clean || clean === "NODE") return "LINK"
       return clean
+    },
+    edgeTopologyClassFromLabel(label) {
+      const text = String(label == null ? "" : label).trim().toUpperCase()
+      if (text.includes(" ENDPOINT ")) return "endpoints"
+      if (text.includes(" INFERRED ")) return "inferred"
+      return "backbone"
+    },
+    edgeTopologyClass(edge) {
+      const explicit = String(edge?.topologyClass || "").trim().toLowerCase()
+      if (explicit === "inferred" || explicit === "endpoints" || explicit === "backbone") {
+        return explicit
+      }
+      return this.edgeTopologyClassFromLabel(edge?.label || "")
+    },
+    edgeEnabledByTopologyLayer(edge) {
+      const classCounts = edge?.topologyClassCounts
+      if (classCounts && typeof classCounts === "object") {
+        const showBackbone =
+          Number(classCounts.backbone || 0) > 0 && this.topologyLayers.backbone !== false
+        const showInferred =
+          Number(classCounts.inferred || 0) > 0 && this.topologyLayers.inferred === true
+        const showEndpoints =
+          Number(classCounts.endpoints || 0) > 0 && this.topologyLayers.endpoints === true
+        return showBackbone || showInferred || showEndpoints
+      }
+
+      const topologyClass = this.edgeTopologyClass(edge)
+      if (topologyClass === "inferred") return this.topologyLayers.inferred === true
+      if (topologyClass === "endpoints") return this.topologyLayers.endpoints === true
+      return this.topologyLayers.backbone !== false
     },
     selectEdgeLabels(edgeData, shape) {
       if (!Array.isArray(edgeData) || edgeData.length === 0) return []

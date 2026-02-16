@@ -130,6 +130,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/role-profiles", RoleProfileController, :create)
     patch("/role-profiles/:id", RoleProfileController, :update)
     delete("/role-profiles/:id", RoleProfileController, :delete)
+
+    post("/topology/route-analysis", TopologyController, :route_analysis)
   end
 
   # Edge onboarding admin API (API key or bearer token auth)

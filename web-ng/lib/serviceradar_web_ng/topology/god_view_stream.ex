@@ -130,19 +130,18 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp fetch_topology_links(actor) do
     runtime_links = runtime_topology_links()
+    graph_links = best_effort_links(fetch_topology_links_from_graph())
 
-    case fetch_topology_links_from_graph() do
-      {:ok, links} when is_list(links) and links != [] ->
-        {:ok, links ++ runtime_links}
+    if graph_links != [] do
+      {:ok, graph_links ++ runtime_links}
+    else
+      case fetch_topology_links_from_table(actor) do
+        {:ok, links} when is_list(links) and links != [] ->
+          {:ok, links ++ runtime_links}
 
-      _ ->
-        case fetch_topology_links_from_table(actor) do
-          {:ok, links} when is_list(links) and links != [] ->
-            {:ok, links ++ runtime_links}
-
-          other ->
-            if runtime_links != [], do: {:ok, runtime_links}, else: other
-        end
+        other ->
+          if runtime_links != [], do: {:ok, runtime_links}, else: other
+      end
     end
   end
 
@@ -177,12 +176,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     escaped_cutoff = AgeGraph.escape(cutoff)
 
     cypher = """
-    MATCH (a:Device)-[:HAS_INTERFACE]->(ai:Interface)-[r:CONNECTS_TO]->(bi:Interface)<-[:HAS_INTERFACE]-(b:Device)
+    MATCH (a:Device)-[:HAS_INTERFACE]->(ai:Interface)-[r]->(bi:Interface)<-[:HAS_INTERFACE]-(b:Device)
     WHERE r.ingestor = 'mapper_topology_v1'
-      AND (
-        toLower(coalesce(r.protocol, r.source, '')) IN ['wireguard-derived', 'snmp-l2', 'snmp-parent', 'snmp-site', 'l3-uplink', 'inferred']
-        OR coalesce(r.confidence_tier, 'low') IN ['high', 'medium']
-      )
+      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
       AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{escaped_cutoff}')
     RETURN {
       local_device_id: ai.device_id,
@@ -194,9 +190,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       neighbor_system_name: b.name,
       protocol: coalesce(r.protocol, r.source, 'unknown'),
       confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+      evidence_class: coalesce(r.evidence_class, ''),
       metadata: {
+        relation_type: type(r),
         source: coalesce(r.source, ''),
         inference: coalesce(r.confidence_reason, ''),
+        evidence_class: coalesce(r.evidence_class, ''),
         confidence_tier: coalesce(r.confidence_tier, 'unknown'),
         confidence_score: coalesce(r.confidence_score, 0)
       }
@@ -227,6 +226,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       neighbor_system_name: map_fetch(row, :neighbor_system_name),
       protocol: map_fetch(row, :protocol),
       confidence_tier: map_fetch(row, :confidence_tier),
+      evidence_class: map_fetch(row, :evidence_class),
       metadata: map_fetch(row, :metadata) || %{}
     }
   end
@@ -259,6 +259,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
               target: neighbor_id,
               kind: "topology",
               protocol: Map.get(link, :protocol),
+              evidence_class: evidence_class(link),
               confidence_tier: confidence_tier(link),
               local_device_ip: normalize_id(Map.get(link, :local_device_ip)),
               neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
@@ -289,6 +290,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         pair_edges
         |> canonicalize_edges(devices)
         |> prune_ap_gateway_inference_edges(devices)
+        |> prune_inferred_infra_edges_with_direct_adjacency(devices)
         |> enforce_edge_interface_contracts()
         |> normalize_router_inferred_infra_edges(devices)
         |> normalize_endpoint_attachments(devices)
@@ -416,6 +418,41 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp normalize_endpoint_attachments(edges, _devices), do: edges
 
+  defp prune_inferred_infra_edges_with_direct_adjacency(edges, devices)
+       when is_list(edges) and is_list(devices) do
+    device_by_uid =
+      Map.new(devices, fn device -> {normalize_id(Map.get(device, :uid)), device} end)
+
+    has_direct_infra_neighbor =
+      edges
+      |> Enum.reduce(MapSet.new(), fn edge, acc ->
+        if direct_protocol?(edge) and infra_infra_edge?(edge, device_by_uid) do
+          source_uid = normalize_id(Map.get(edge, :source))
+          target_uid = normalize_id(Map.get(edge, :target))
+
+          acc
+          |> maybe_put_set(source_uid)
+          |> maybe_put_set(target_uid)
+        else
+          acc
+        end
+      end)
+
+    Enum.reject(edges, fn edge ->
+      if inferred_protocol?(edge) and infra_infra_edge?(edge, device_by_uid) do
+        source_uid = normalize_id(Map.get(edge, :source))
+        target_uid = normalize_id(Map.get(edge, :target))
+
+        MapSet.member?(has_direct_infra_neighbor, source_uid) or
+          MapSet.member?(has_direct_infra_neighbor, target_uid)
+      else
+        false
+      end
+    end)
+  end
+
+  defp prune_inferred_infra_edges_with_direct_adjacency(edges, _devices), do: edges
+
   defp edge_protocol(edge) do
     edge
     |> Map.get(:protocol)
@@ -425,25 +462,28 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp inferred_protocol?(edge) do
-    edge_protocol(edge) in ["snmp-l2", "snmp-parent", "snmp-site", "l3-uplink", "inferred"]
+    evidence_class(edge) == "inferred"
   end
 
   defp direct_protocol?(edge) do
-    edge_protocol(edge) in ["lldp", "cdp", "unifi-api", "wireguard-derived"]
+    evidence_class(edge) == "direct"
   end
 
   defp edge_identity(edge) do
     a = normalize_id(Map.get(edge, :source))
     b = normalize_id(Map.get(edge, :target))
     protocol = edge_protocol(edge)
+    evidence = evidence_class(edge)
     {x, y} = canonical_pair(a || "", b || "")
-    {x, y, protocol}
+    {x, y, protocol, evidence}
   end
 
   defp endpoint_attachment_edge?(edge, device_by_uid) do
     endpoint_uid = endpoint_uid_for_edge(edge, device_by_uid)
     infra_uid = infra_uid_for_edge(edge, device_by_uid)
-    inferred_protocol?(edge) and is_binary(endpoint_uid) and is_binary(infra_uid)
+
+    evidence_class(edge) == "endpoint-attachment" and is_binary(endpoint_uid) and
+      is_binary(infra_uid)
   end
 
   defp endpoint_uid_for_edge(edge, device_by_uid) do
@@ -764,10 +804,13 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           Map.get(resolver, String.downcase(normalized))
 
         true ->
-          nil
+          normalized
       end
     end)
   end
+
+  defp best_effort_links({:ok, links}) when is_list(links), do: links
+  defp best_effort_links(_), do: []
 
   defp dedupe_edges(edges) when is_list(edges) do
     edges
@@ -956,7 +999,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       id
   end
 
-  defp node_kind(nil), do: "external"
+  defp node_kind(nil), do: "endpoint"
   defp node_kind(device), do: node_type(device) || "device"
 
   defp node_details_json(device, id) do
@@ -1525,7 +1568,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         value -> value
       end
 
-    "#{protocol} #{format_rate(flow_pps || 0)} / #{format_capacity(capacity_bps || 0)}"
+    class_token =
+      edge
+      |> Map.get(:evidence_class)
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+      |> case do
+        "endpoint-attachment" -> "ENDPOINT"
+        "inferred" -> "INFERRED"
+        _ -> "BACKBONE"
+      end
+
+    "#{protocol} #{class_token} #{format_rate(flow_pps || 0)} / #{format_capacity(capacity_bps || 0)}"
   end
 
   defp format_rate(value) when is_integer(value) do
@@ -1653,6 +1708,50 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp confidence_tier(link) do
     (Map.get(link, :metadata) || %{})
     |> Map.get("confidence_tier", Map.get(link, :confidence_tier, "unknown"))
+  end
+
+  defp evidence_class(link) do
+    metadata = Map.get(link, :metadata) || %{}
+
+    relation_type =
+      metadata["relation_type"] || metadata[:relation_type] || Map.get(link, :relation_type)
+
+    explicit =
+      metadata["evidence_class"] || metadata[:evidence_class] || Map.get(link, :evidence_class)
+
+    normalized =
+      explicit
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    cond do
+      normalized in ["direct", "inferred", "endpoint-attachment"] ->
+        normalized
+
+      is_binary(relation_type) and String.upcase(String.trim(relation_type)) == "ATTACHED_TO" ->
+        "endpoint-attachment"
+
+      is_binary(relation_type) and String.upcase(String.trim(relation_type)) == "INFERRED_TO" ->
+        "inferred"
+
+      is_binary(relation_type) and String.upcase(String.trim(relation_type)) == "CONNECTS_TO" ->
+        "direct"
+
+      true ->
+        protocol =
+          link
+          |> Map.get(:protocol)
+          |> to_string()
+          |> String.trim()
+          |> String.downcase()
+
+        cond do
+          protocol in ["lldp", "cdp", "wireguard-derived"] -> "direct"
+          protocol == "snmp-l2" -> "inferred"
+          true -> "direct"
+        end
+    end
   end
 
   defp page_results(%{results: results}) when is_list(results), do: results

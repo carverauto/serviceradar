@@ -39,6 +39,11 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
          atmosphere: true,
          security: true
        })
+       |> assign(:topology_layers, %{
+         backbone: true,
+         inferred: false,
+         endpoints: false
+       })
        |> assign(:controls_collapsed, true)}
     else
       {:ok,
@@ -111,6 +116,22 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
      socket
      |> assign(:visual_layers, layers)
      |> push_event("god_view:set_layers", %{layers: stringify_filter_keys(layers)})}
+  end
+
+  def handle_event("toggle_topology_layer", %{"layer" => layer}, socket) do
+    key =
+      case layer do
+        "backbone" -> :backbone
+        "inferred" -> :inferred
+        _ -> :endpoints
+      end
+
+    layers = Map.update!(socket.assigns.topology_layers, key, &(!&1))
+
+    {:noreply,
+     socket
+     |> assign(:topology_layers, layers)
+     |> push_event("god_view:set_topology_layers", %{layers: stringify_filter_keys(layers)})}
   end
 
   def handle_event("toggle_controls_panel", _params, socket) do
@@ -320,6 +341,41 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
                         title="Security Pulse"
                       >
                         Pulse
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-[10px] uppercase tracking-wide text-base-content/60 mb-1">
+                      Topology
+                    </div>
+                    <div class="grid grid-cols-3 gap-1">
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@topology_layers.backbone)}
+                        phx-click="toggle_topology_layer"
+                        phx-value-layer="backbone"
+                        title="Backbone links"
+                      >
+                        Backbone
+                      </button>
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@topology_layers.inferred)}
+                        phx-click="toggle_topology_layer"
+                        phx-value-layer="inferred"
+                        title="Inferred links"
+                      >
+                        Inferred
+                      </button>
+                      <button
+                        type="button"
+                        class={overlay_filter_button_class(@topology_layers.endpoints)}
+                        phx-click="toggle_topology_layer"
+                        phx-value-layer="endpoints"
+                        title="Endpoint attachments"
+                      >
+                        Endpoints
                       </button>
                     </div>
                   </div>

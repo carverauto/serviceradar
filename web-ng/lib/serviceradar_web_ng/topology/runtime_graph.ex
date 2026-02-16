@@ -105,9 +105,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     escaped_cutoff = AgeGraph.escape(cutoff)
 
     cypher = """
-    MATCH (a:Device)-[:HAS_INTERFACE]->(ai:Interface)-[r:CONNECTS_TO]->(bi:Interface)<-[:HAS_INTERFACE]-(b:Device)
+    MATCH (a:Device)-[:HAS_INTERFACE]->(ai:Interface)-[r]->(bi:Interface)<-[:HAS_INTERFACE]-(b:Device)
     WHERE r.ingestor = 'mapper_topology_v1'
-      AND coalesce(r.confidence_tier, 'low') IN ['high', 'medium']
+      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
       AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{escaped_cutoff}')
     RETURN {
       local_device_id: ai.device_id,
@@ -119,9 +119,12 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       neighbor_system_name: b.name,
       protocol: coalesce(r.protocol, r.source, 'unknown'),
       confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+      evidence_class: coalesce(r.evidence_class, ''),
       metadata: {
+        relation_type: type(r),
         source: coalesce(r.source, ''),
         inference: coalesce(r.confidence_reason, ''),
+        evidence_class: coalesce(r.evidence_class, ''),
         confidence_tier: coalesce(r.confidence_tier, 'unknown'),
         confidence_score: coalesce(r.confidence_score, 0)
       }
@@ -151,24 +154,36 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     neighbor_system_name = map_fetch(row, :neighbor_system_name)
     protocol = map_fetch(row, :protocol)
     confidence_tier = map_fetch(row, :confidence_tier)
-    metadata_json = map_fetch(row, :metadata_json) || "{}"
+    evidence_class = map_fetch(row, :evidence_class)
+    metadata_value = map_fetch(row, :metadata) || map_fetch(row, :metadata_json) || %{}
 
     metadata =
-      case Jason.decode(metadata_json || "{}") do
-        {:ok, value} when is_map(value) -> value
-        _ -> %{}
+      cond do
+        is_map(metadata_value) ->
+          metadata_value
+
+        is_binary(metadata_value) ->
+          case Jason.decode(metadata_value) do
+            {:ok, value} when is_map(value) -> value
+            _ -> %{}
+          end
+
+        true ->
+          %{}
       end
 
     %{
       local_device_id: blank_to_nil(local_device_id),
       local_device_ip: blank_to_nil(local_device_ip),
       local_if_name: blank_to_nil(local_if_name),
-      local_if_index: if(is_integer(local_if_index) and local_if_index >= 0, do: local_if_index, else: nil),
+      local_if_index:
+        if(is_integer(local_if_index) and local_if_index >= 0, do: local_if_index, else: nil),
       neighbor_device_id: blank_to_nil(neighbor_device_id),
       neighbor_mgmt_addr: blank_to_nil(neighbor_mgmt_addr),
       neighbor_system_name: blank_to_nil(neighbor_system_name),
       protocol: blank_to_nil(protocol),
       confidence_tier: blank_to_nil(confidence_tier),
+      evidence_class: blank_to_nil(evidence_class),
       metadata: metadata
     }
   end
