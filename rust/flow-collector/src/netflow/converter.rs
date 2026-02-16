@@ -523,6 +523,20 @@ impl Converter {
     }
 }
 
+impl From<Converter> for Vec<flowpb::FlowMessage> {
+    fn from(converter: Converter) -> Self {
+        match &converter.packet {
+            NetflowPacket::V5(v5) => converter.convert_v5(v5),
+            NetflowPacket::V9(v9) => converter.convert_v9(v9),
+            NetflowPacket::IPFix(ipfix) => converter.convert_ipfix(ipfix),
+            _ => {
+                debug!("Unsupported NetFlow version: {:?}", converter.packet);
+                Vec::new()
+            }
+        }
+    }
+}
+
 // Helper functions
 
 fn ip_to_bytes(ip: &IpAddr) -> Vec<u8> {

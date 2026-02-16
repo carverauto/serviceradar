@@ -2,9 +2,9 @@ defmodule ServiceRadar.Repo.Migrations.CreateBgpRoutingInfo do
   use Ecto.Migration
 
   def up do
-    # Create bgp_routing_info table
+    # Create bgp_routing_info table (no single-column PK for TimescaleDB hypertable)
     create table(:bgp_routing_info, primary_key: false, prefix: "platform") do
-      add :id, :uuid, primary_key: true, default: fragment("gen_random_uuid()")
+      add :id, :uuid, null: false, default: fragment("gen_random_uuid()")
       add :timestamp, :utc_datetime_usec, null: false
       add :source_protocol, :text, null: false
       add :as_path, {:array, :integer}, null: false
@@ -28,6 +28,12 @@ defmodule ServiceRadar.Repo.Migrations.CreateBgpRoutingInfo do
     );
     """
 
+    # Composite unique index on (id, timestamp) for TimescaleDB compatibility
+    create unique_index(:bgp_routing_info, [:id, :timestamp],
+      name: :idx_bgp_routing_id_timestamp,
+      prefix: "platform"
+    )
+
     # Create GIN index on as_path for efficient array queries (@> operator)
     create index(:bgp_routing_info, [:as_path],
       name: :idx_bgp_routing_as_path,
@@ -49,10 +55,10 @@ defmodule ServiceRadar.Repo.Migrations.CreateBgpRoutingInfo do
     )
 
     # Create unique index for deduplication (ON CONFLICT support)
-    # Uses time_bucket for 1-minute bucketing
+    # TimescaleDB requires the partitioning column (timestamp) in unique indexes
     execute """
     CREATE UNIQUE INDEX idx_bgp_routing_dedup ON platform.bgp_routing_info (
-      time_bucket('1 minute'::interval, timestamp),
+      timestamp,
       source_protocol,
       as_path,
       COALESCE(bgp_communities, ARRAY[]::integer[]),
@@ -65,14 +71,6 @@ defmodule ServiceRadar.Repo.Migrations.CreateBgpRoutingInfo do
     alter table(:netflow_metrics, prefix: "platform") do
       add :bgp_observation_id, :uuid
     end
-
-    # Add foreign key constraint
-    create constraint(:netflow_metrics, :fk_bgp_observation,
-      foreign_key: [:bgp_observation_id],
-      references: [:bgp_routing_info, :id],
-      on_delete: :nilify_all,
-      prefix: "platform"
-    )
 
     # Create index on bgp_observation_id for efficient JOINs
     create index(:netflow_metrics, [:bgp_observation_id],

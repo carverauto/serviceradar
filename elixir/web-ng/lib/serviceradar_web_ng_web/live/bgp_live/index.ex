@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
       community: nil
     })
 
-    {:noreply, push_patch(socket, to: ~p"/bgp-routing?#{params}")}
+    {:noreply, push_patch(socket, to: ~p"/observability/bgp?#{params}")}
   end
 
   @impl true
@@ -74,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
       community: community
     })
 
-    {:noreply, push_patch(socket, to: ~p"/bgp-routing?#{params}")}
+    {:noreply, push_patch(socket, to: ~p"/observability/bgp?#{params}")}
   end
 
   @impl true
@@ -84,20 +84,20 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
       community: nil
     })
 
-    {:noreply, push_patch(socket, to: ~p"/bgp-routing?#{params}")}
+    {:noreply, push_patch(socket, to: ~p"/observability/bgp?#{params}")}
   end
 
   @impl true
   def handle_event("change_time_range", %{"time_range" => time_range}, socket) do
     params = build_params(socket, %{time_range: time_range})
-    {:noreply, push_patch(socket, to: ~p"/bgp-routing?#{params}")}
+    {:noreply, push_patch(socket, to: ~p"/observability/bgp?#{params}")}
   end
 
   @impl true
   def handle_event("change_source_protocol", %{"source_protocol" => protocol}, socket) do
     protocol = if protocol == "all", do: nil, else: protocol
     params = build_params(socket, %{source_protocol: protocol})
-    {:noreply, push_patch(socket, to: ~p"/bgp-routing?#{params}")}
+    {:noreply, push_patch(socket, to: ~p"/observability/bgp?#{params}")}
   end
 
   @impl true
@@ -202,7 +202,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
             NetFlow
           </.link>
           <.link
-            navigate="/bgp-routing"
+            navigate="/observability/bgp"
             class="btn btn-sm btn-primary rounded-lg flex items-center gap-2"
           >
             <.icon name="hero-globe-alt" class="size-4" />

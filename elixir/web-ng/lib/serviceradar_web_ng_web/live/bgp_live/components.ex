@@ -436,7 +436,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
       <div class="card bg-base-100 border border-base-200 shadow-sm mb-6">
         <div class="card-body">
           <h3 class="card-title text-base">Traffic Over Time (Top ASes)</h3>
-          <div class="h-64" id="timeseries-chart" phx-hook="TimeSeriesChart" data-series={Jason.encode!(@timeseries.series)} data-data={Jason.encode!(@timeseries.data)}>
+          <div class="h-64" id="timeseries-chart" phx-hook="BGPTimeSeriesChart" data-series={Jason.encode!(@timeseries.series)} data-data={Jason.encode!(@timeseries.data)}>
             <!-- Chart will be rendered here by JS hook -->
             <div class="flex items-center justify-center h-full text-base-content/60">
               Chart rendering...

@@ -3214,7 +3214,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.tab_button id="metrics" label="Metrics" icon="hero-chart-bar" active={@active} />
         <.tab_button id="events" label="Events" icon="hero-bell-alert" active={@active} />
         <.tab_button id="alerts" label="Alerts" icon="hero-exclamation-triangle" active={@active} />
-        <.tab_button id="netflows" label="NetFlow" icon="hero-arrow-path" active={@active} />
+        <.tab_button id="netflows" label="Flows" icon="hero-arrow-path" active={@active} />
         <.link
           navigate={~p"/observability/bmp"}
           class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
@@ -3222,7 +3222,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <.icon name="hero-arrows-right-left" class="size-4" /> BMP
         </.link>
         <.external_tab_button
-          path="/bgp-routing"
+          path="/observability/bgp"
           label="BGP Routing"
           icon="hero-globe-alt"
           active={@active}

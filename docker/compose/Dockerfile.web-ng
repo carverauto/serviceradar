@@ -15,13 +15,11 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.cargo/bin:/root/.bun/bin:${PATH}"
 
-# Install bun for asset compilation
-RUN curl -fsSL https://bun.sh/install | bash
-ENV PATH="/root/.bun/bin:${PATH}"
-
 WORKDIR /app
 
-# Copy shared Elixir libraries (dependencies for web-ng)
+# Preserve repo-relative layout so all path deps resolve naturally:
+#   elixir/web-ng/mix.exs uses path: "../serviceradar_core", "../datasvc", etc.
+#   elixir/serviceradar_srql/native/srql_nif/Cargo.toml uses path: "../../../../rust/srql"
 COPY elixir/serviceradar_core ./elixir/serviceradar_core
 COPY elixir/serviceradar_srql ./elixir/serviceradar_srql
 COPY elixir/datasvc ./elixir/datasvc
@@ -29,12 +27,7 @@ COPY elixir/connection ./elixir/connection
 COPY elixir/vendor ./elixir/vendor
 
 # Copy web-ng application
-COPY elixir/web-ng/mix.exs elixir/web-ng/mix.lock ./web-ng/
-COPY elixir/web-ng/config ./web-ng/config
-COPY elixir/web-ng/lib ./web-ng/lib
-COPY elixir/web-ng/priv ./web-ng/priv
-COPY elixir/web-ng/assets ./web-ng/assets
-COPY elixir/web-ng/native ./web-ng/native
+COPY elixir/web-ng ./elixir/web-ng
 
 COPY proto ./proto
 
@@ -58,12 +51,12 @@ tokio = { version = "1" }
 tokio-stream = "0.1"
 EOF
 
-WORKDIR /app/web-ng
+WORKDIR /app/elixir/web-ng
 
 ENV MIX_ENV=prod
 
 RUN mix local.hex --force && mix local.rebar --force
-RUN mix deps.get --only prod
+RUN HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix deps.get --only prod
 RUN mix deps.compile
 RUN mix compile
 RUN mix assets.deploy
@@ -77,13 +70,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV MIX_ENV=prod
 
-WORKDIR /app/web-ng
+WORKDIR /app/elixir/web-ng
 
 RUN mix local.hex --force && mix local.rebar --force
 
 # Copy compiled Elixir code and Rust workspace
 COPY --from=build /app/elixir /app/elixir
-COPY --from=build /app/web-ng /app/web-ng
 COPY --from=build /app/rust /app/rust
 COPY --from=build /app/proto /app/proto
 

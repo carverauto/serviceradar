@@ -424,7 +424,7 @@ defmodule ServiceRadar.BGP.Stats do
             values = Map.new(entries, fn [_time, as_number, bytes] -> {as_number, bytes || 0} end)
             %{time: time_bucket, values: values}
           end)
-          |> Enum.sort_by(& &1.time, DateTime)
+          |> Enum.sort_by(& &1.time, NaiveDateTime)
 
         # Get unique AS numbers
         series =

@@ -77,7 +77,7 @@ defmodule ServiceRadar.Application do
         # RBAC permission cache (shared ETS, must start after PubSub)
         ServiceRadar.Identity.RBAC.Cache,
 
-        # AS Lookup cache for BGP routing (DNS-based whois with ETS caching)
+        # AS Lookup cache for BGP routing (queries GeoIP/ipinfo enrichment caches)
         as_lookup_child(),
 
         # Minimal HTTP client for background jobs (GeoLite downloads, optional ipinfo refresh)
