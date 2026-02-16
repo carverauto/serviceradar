@@ -31,11 +31,11 @@
 
 ## 3. Agent Gateway — Command Routing & File Transfer
 - [x] 3.1 Verify TFTP command types route through existing `ControlStreamSession` (likely no code changes needed)
-- [ ] 3.2 Implement `UploadFile` gRPC handler — receive file chunks from agent, buffer/stream to core-elx via RPC
-- [ ] 3.3 Implement `DownloadFile` gRPC handler — fetch file from core-elx via RPC, stream chunks to agent
-- [ ] 3.4 Add file transfer rate limiting / backpressure at gateway level
-- [ ] 3.5 Test command flow: core → gateway → agent → gateway → core for TFTP lifecycle (both modes)
-- [ ] 3.6 Test file transfer flow: agent ↔ gateway ↔ core for upload and download
+- [x] 3.2 Implement `UploadFile` gRPC handler — receive file chunks from agent, buffer/stream to core-elx via RPC
+- [x] 3.3 Implement `DownloadFile` gRPC handler — fetch file from core-elx via RPC, stream chunks to agent
+- [x] 3.4 Add file transfer rate limiting / backpressure at gateway level
+- [x] 3.5 Test command flow: core → gateway → agent → gateway → core for TFTP lifecycle (both modes)
+- [x] 3.6 Test file transfer flow: agent ↔ gateway ↔ core for upload and download
 
 ## 4. Core-elx — S3 Integration & Storage
 - [x] 4.1 Add `ex_aws`, `ex_aws_s3`, `hackney` (or `sweet_xml`) dependencies to core-elx `mix.exs`
