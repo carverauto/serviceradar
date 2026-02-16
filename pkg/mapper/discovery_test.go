@@ -18,6 +18,8 @@ package mapper
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -560,4 +562,122 @@ func TestCollectRecursiveSNMPTargets(t *testing.T) {
 	assert.Len(t, targets, 1)
 	assert.True(t, targets["192.168.10.154"])
 	assert.False(t, targets["192.168.1.87"])
+}
+
+func TestTopologyStageReadyRequiresIdentityAndEnrichmentCompletion(t *testing.T) {
+	transitions := []DiscoveryStageTransition{
+		{Stage: DiscoveryStagePrepare, Status: DiscoveryStageStatusCompleted},
+		{Stage: DiscoveryStageIdentity, Status: DiscoveryStageStatusCompleted},
+	}
+	assert.False(t, topologyStageReady(transitions))
+
+	transitions = append(transitions, DiscoveryStageTransition{
+		Stage:  DiscoveryStageEnrich,
+		Status: DiscoveryStageStatusCompleted,
+	})
+	assert.True(t, topologyStageReady(transitions))
+}
+
+func TestDeduplicateDevicesDoesNotMergeTopologyAdjacency(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			Devices: []*DiscoveredDevice{
+				{DeviceID: "mac-aa", IP: "10.0.0.1", MAC: "aa:aa:aa:aa:aa:aa", Metadata: map[string]string{}},
+				{DeviceID: "mac-bb", IP: "10.0.0.2", MAC: "bb:bb:bb:bb:bb:bb", Metadata: map[string]string{}},
+			},
+			TopologyLinks: []*TopologyLink{
+				{LocalDeviceIP: "10.0.0.1", NeighborMgmtAddr: "10.0.0.2"},
+			},
+		},
+		deviceMap: map[string]*DeviceInterfaceMap{
+			"mac-aa": {
+				DeviceID: "mac-aa",
+				MACs:     map[string]struct{}{"aa:aa:aa:aa:aa:aa": {}},
+				IPs:      map[string]struct{}{"10.0.0.1": {}},
+			},
+			"mac-bb": {
+				DeviceID: "mac-bb",
+				MACs:     map[string]struct{}{"bb:bb:bb:bb:bb:bb": {}},
+				IPs:      map[string]struct{}{"10.0.0.2": {}},
+			},
+		},
+	}
+
+	engine.deduplicateDevices(job)
+	assert.Len(t, job.Results.Devices, 2)
+}
+
+type countingProber struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *countingProber) Probe(_ context.Context, _ string) error {
+	p.mu.Lock()
+	p.calls++
+	p.mu.Unlock()
+	return nil
+}
+
+func (*countingProber) Close() error { return nil }
+
+func TestStartWorkersUsesSharedHostProber(t *testing.T) {
+	prober := &countingProber{}
+	engine := &DiscoveryEngine{hostProber: prober, done: make(chan struct{}), logger: logger.NewTestLogger()}
+	job := &DiscoveryJob{
+		ID: "job-1",
+		Results: &DiscoveryResults{
+			Contract: DiscoveryContract{},
+		},
+		ctx: context.Background(),
+	}
+
+	targetChan := make(chan string, 3)
+	resultChan := make(chan bool, 3)
+	for _, target := range []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"} {
+		targetChan <- target
+	}
+	close(targetChan)
+
+	var wg sync.WaitGroup
+	engine.startWorkers(job, &wg, targetChan, resultChan, 2, func(_ *DiscoveryJob, _ string) {})
+	wg.Wait()
+	close(resultChan)
+
+	assert.Equal(t, 3, prober.calls)
+	assert.Equal(t, 3, job.Results.Contract.ProbeSummary.Attempts)
+}
+
+func BenchmarkStartWorkersProbeComparison(b *testing.B) {
+	bench := func(b *testing.B, useProber bool) {
+		for i := 0; i < b.N; i++ {
+			engine := &DiscoveryEngine{done: make(chan struct{}), logger: logger.NewTestLogger()}
+			if useProber {
+				engine.hostProber = &countingProber{}
+			}
+			job := &DiscoveryJob{
+				ID: fmt.Sprintf("job-%d", i),
+				Results: &DiscoveryResults{
+					Contract: DiscoveryContract{},
+				},
+				ctx: context.Background(),
+			}
+
+			targetChan := make(chan string, 50)
+			resultChan := make(chan bool, 50)
+			for t := 0; t < 50; t++ {
+				targetChan <- fmt.Sprintf("10.0.0.%d", t+1)
+			}
+			close(targetChan)
+
+			var wg sync.WaitGroup
+			engine.startWorkers(job, &wg, targetChan, resultChan, 10, func(_ *DiscoveryJob, _ string) {})
+			wg.Wait()
+			close(resultChan)
+		}
+	}
+
+	b.Run("without_prober", func(b *testing.B) { bench(b, false) })
+	b.Run("with_shared_prober", func(b *testing.B) { bench(b, true) })
 }

@@ -30,9 +30,7 @@ import (
 
 	"github.com/gosnmp/gosnmp"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/scan"
 )
 
 // safeInt32 safely converts an int to int32, preventing overflow
@@ -1645,7 +1643,7 @@ func (e *DiscoveryEngine) performTopologyDiscovery(
 }
 
 func (e *DiscoveryEngine) scanTargetForSNMP(
-	ctx context.Context, job *DiscoveryJob, snmpTargetIP string,
+	ctx context.Context, job *DiscoveryJob, snmpTargetIP string, mode snmpPollingMode,
 ) {
 	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Msg("SNMP Scanning target")
 
@@ -1689,11 +1687,13 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	e.addOrUpdateDeviceToResults(job, deviceSNMP)
 	job.mu.Unlock()
 
-	// Perform interface discovery if needed
-	e.performInterfaceDiscovery(ctx, job, client, snmpTargetIP)
+	if mode == snmpPollingModeEnrichment {
+		e.performInterfaceDiscovery(ctx, job, client, snmpTargetIP)
+	}
 
-	// Perform topology discovery if needed
-	e.performTopologyDiscovery(ctx, job, client, snmpTargetIP)
+	if mode == snmpPollingModeTopology {
+		e.performTopologyDiscovery(ctx, job, client, snmpTargetIP)
+	}
 }
 
 // walkIPAddrTable walks the ipAddrTable to get IP address information
@@ -2392,58 +2392,6 @@ func macFromFDBOID(oidName string) (string, bool) {
 	}
 
 	return formatMACAddress(macBytes), true
-}
-
-const (
-	defaultTimeoutDuration   = 2 * time.Second
-	defaultRateLimit         = 100
-	defaultRateLimitDuration = 1 * time.Second
-)
-
-func pingHost(ctx context.Context, host string) error {
-	// Create a simple logger for this utility function
-	log := logger.NewTestLogger()
-	// Use the existing ICMPSweeper from your scan package
-	sweeper, err := scan.NewICMPSweeper(defaultRateLimitDuration, defaultRateLimit, log)
-	if err != nil {
-		return err
-	}
-	defer func(sweeper *scan.ICMPSweeper) {
-		err = sweeper.Stop()
-		if err != nil {
-			log.Error().Err(err).Msg("Error stopping sweeper")
-		}
-	}(sweeper)
-
-	ctx, cancel := context.WithTimeout(ctx, defaultTimeoutDuration)
-	defer cancel()
-
-	targets := []models.Target{
-		{Host: host, Mode: models.ModeICMP},
-	}
-
-	resultCh, err := sweeper.Scan(ctx, targets)
-	if err != nil {
-		return err
-	}
-
-	hostReachable := false
-
-	for result := range resultCh {
-		if !result.Available {
-			// Don't return immediately, continue processing the channel
-			continue
-		}
-
-		// Mark that we found at least one successful ping
-		hostReachable = true
-	}
-
-	if hostReachable {
-		return nil
-	}
-
-	return ErrNoICMPResponse
 }
 
 func safeIntToInt32(value int, fieldName string) (int32, error) {

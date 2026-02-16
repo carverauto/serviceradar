@@ -19,7 +19,9 @@ package mapper
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -320,16 +322,7 @@ func convertResultsToProto(results *DiscoveryResults, discoveryID string, includ
 		protoLinks[i] = convertTopologyLinkToProto(link)
 	}
 
-	// Prepare metadata
-	metadata := make(map[string]string)
-
-	if includeRawData && results.RawData != nil {
-		for k, v := range results.RawData {
-			if str, ok := v.(string); ok {
-				metadata[k] = str
-			}
-		}
-	}
+	metadata := discoveryContractToMetadata(results.Contract, includeRawData)
 
 	return &proto.ResultsResponse{
 		DiscoveryId: discoveryID,
@@ -341,6 +334,41 @@ func convertResultsToProto(results *DiscoveryResults, discoveryID string, includ
 		Progress:    float32(results.Status.Progress),
 		Metadata:    metadata,
 	}, nil
+}
+
+func discoveryContractToMetadata(contract DiscoveryContract, includeRawData bool) map[string]string {
+	metadata := make(map[string]string)
+	if contract.AgentID != "" {
+		metadata["agent_id"] = contract.AgentID
+	}
+	if contract.GatewayID != "" {
+		metadata["gateway_id"] = contract.GatewayID
+	}
+
+	if !includeRawData {
+		return metadata
+	}
+
+	if contract.ScheduledJobName != "" {
+		metadata["scheduled_job_name"] = contract.ScheduledJobName
+	}
+
+	metadata["probe_attempts"] = strconv.Itoa(contract.ProbeSummary.Attempts)
+	metadata["probe_failures"] = strconv.Itoa(contract.ProbeSummary.Failures)
+	metadata["stage_transition_count"] = strconv.Itoa(len(contract.StageTransitions))
+
+	for i, transition := range contract.StageTransitions {
+		key := fmt.Sprintf("stage_transition.%03d", i)
+		metadata[key] = fmt.Sprintf(
+			"%s|%s|%s|%s",
+			transition.Stage,
+			transition.Status,
+			transition.Timestamp.UTC().Format(time.RFC3339Nano),
+			transition.Message,
+		)
+	}
+
+	return metadata
 }
 
 // Helper functions to convert between types

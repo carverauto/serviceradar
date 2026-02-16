@@ -6,6 +6,7 @@ go_library(
         "discovery.go",
         "errors.go",
         "grpc.go",
+        "host_probe.go",
         "interface_dedup.go",
         "interfaces.go",
         "mapper_agent_service.go",

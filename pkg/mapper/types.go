@@ -40,6 +40,13 @@ type DiscoveryEngine struct {
 	wg            sync.WaitGroup
 	schedulers    map[string]*time.Ticker
 	logger        logger.Logger
+	hostProber    HostProber
+}
+
+// HostProber provides advisory host reachability checks for worker scheduling.
+type HostProber interface {
+	Probe(ctx context.Context, host string) error
+	Close() error
 }
 
 // DiscoveryType identifies the type of discovery to perform.
@@ -139,6 +146,8 @@ type DiscoveryJob struct {
 	uniFiTopologyPolled bool                           // Guard UniFi topology collection to once per job
 	deviceMap           map[string]*DeviceInterfaceMap // DeviceID -> DeviceInterfaceMap
 	interfaceMap        map[string]*DiscoveredInterface
+	identityReconciled  bool
+	interfacesPublished bool
 }
 
 // DiscoveryResults contains the results of a discovery operation.
@@ -148,7 +157,51 @@ type DiscoveryResults struct {
 	Devices       []*DiscoveredDevice
 	Interfaces    []*DiscoveredInterface
 	TopologyLinks []*TopologyLink
-	RawData       map[string]interface{} // Optional raw SNMP data
+	Contract      DiscoveryContract
+}
+
+// DiscoveryStage identifies the current phase of the staged discovery pipeline.
+type DiscoveryStage string
+
+const (
+	DiscoveryStagePrepare  DiscoveryStage = "prepare"
+	DiscoveryStageIdentity DiscoveryStage = "identity"
+	DiscoveryStageEnrich   DiscoveryStage = "enrichment"
+	DiscoveryStageTopology DiscoveryStage = "topology"
+	DiscoveryStageFinalize DiscoveryStage = "finalize"
+)
+
+// DiscoveryStageStatus describes lifecycle state for a stage transition record.
+type DiscoveryStageStatus string
+
+const (
+	DiscoveryStageStatusStarted   DiscoveryStageStatus = "started"
+	DiscoveryStageStatusCompleted DiscoveryStageStatus = "completed"
+	DiscoveryStageStatusFailed    DiscoveryStageStatus = "failed"
+	DiscoveryStageStatusCanceled  DiscoveryStageStatus = "canceled"
+)
+
+// DiscoveryStageTransition captures a typed stage transition event.
+type DiscoveryStageTransition struct {
+	Stage     DiscoveryStage
+	Status    DiscoveryStageStatus
+	Timestamp time.Time
+	Message   string
+}
+
+// DiscoveryContract captures typed, cross-service discovery metadata.
+type DiscoveryContract struct {
+	AgentID          string
+	GatewayID        string
+	ScheduledJobName string
+	StageTransitions []DiscoveryStageTransition
+	ProbeSummary     DiscoveryProbeSummary
+}
+
+// DiscoveryProbeSummary tracks host probe behavior with typed counters.
+type DiscoveryProbeSummary struct {
+	Attempts int
+	Failures int
 }
 
 // DiscoveredDevice represents a discovered network device.

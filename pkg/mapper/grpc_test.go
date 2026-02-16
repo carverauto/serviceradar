@@ -177,8 +177,22 @@ func TestGRPCGetDiscoveryResults(t *testing.T) {
 				NeighborChassisID: "00:11:22:33:44:55",
 			},
 		},
-		RawData: map[string]interface{}{
-			"raw1": "data1",
+		Contract: DiscoveryContract{
+			AgentID:          "agent-1",
+			GatewayID:        "gateway-1",
+			ScheduledJobName: "nightly",
+			ProbeSummary: DiscoveryProbeSummary{
+				Attempts: 2,
+				Failures: 1,
+			},
+			StageTransitions: []DiscoveryStageTransition{
+				{
+					Stage:     DiscoveryStagePrepare,
+					Status:    DiscoveryStageStatusCompleted,
+					Timestamp: time.Now(),
+					Message:   "targets prepared",
+				},
+			},
 		},
 	}
 
@@ -202,7 +216,10 @@ func TestGRPCGetDiscoveryResults(t *testing.T) {
 	assert.Equal(t, "device1", resp.Devices[0].Hostname)
 	assert.Equal(t, "192.168.1.1", resp.Interfaces[0].DeviceIp)
 	assert.Equal(t, "192.168.1.1", resp.Topology[0].LocalDeviceIp)
-	assert.Equal(t, "data1", resp.Metadata["raw1"])
+	assert.Equal(t, "agent-1", resp.Metadata["agent_id"])
+	assert.Equal(t, "gateway-1", resp.Metadata["gateway_id"])
+	assert.Equal(t, "nightly", resp.Metadata["scheduled_job_name"])
+	assert.Equal(t, "2", resp.Metadata["probe_attempts"])
 
 	// Test with error from mapper
 	mockMapper.EXPECT().GetDiscoveryResults(ctx, discoveryID, includeRawData).Return(nil, assert.AnError)
@@ -447,9 +464,22 @@ func TestConvertResultsToProto(t *testing.T) {
 				NeighborChassisID: "00:11:22:33:44:55",
 			},
 		},
-		RawData: map[string]interface{}{
-			"raw1": "data1",
-			"raw2": 123, // This should be skipped as it's not a string
+		Contract: DiscoveryContract{
+			AgentID:          "agent-1",
+			GatewayID:        "gateway-1",
+			ScheduledJobName: "nightly",
+			ProbeSummary: DiscoveryProbeSummary{
+				Attempts: 2,
+				Failures: 1,
+			},
+			StageTransitions: []DiscoveryStageTransition{
+				{
+					Stage:     DiscoveryStageIdentity,
+					Status:    DiscoveryStageStatusCompleted,
+					Timestamp: time.Now(),
+					Message:   "identity complete",
+				},
+			},
 		},
 	}
 
@@ -468,9 +498,12 @@ func TestConvertResultsToProto(t *testing.T) {
 	assert.Equal(t, "192.168.1.1", resp.Interfaces[0].DeviceIp)
 	assert.Equal(t, uint64(1000000000), resp.Interfaces[0].IfSpeed.Value)
 	assert.Equal(t, "192.168.1.1", resp.Topology[0].LocalDeviceIp)
-	assert.Equal(t, "data1", resp.Metadata["raw1"])
-	_, exists := resp.Metadata["raw2"]
-	assert.False(t, exists, "Non-string raw data should be skipped")
+	assert.Equal(t, "agent-1", resp.Metadata["agent_id"])
+	assert.Equal(t, "gateway-1", resp.Metadata["gateway_id"])
+	assert.Equal(t, "nightly", resp.Metadata["scheduled_job_name"])
+	assert.Equal(t, "2", resp.Metadata["probe_attempts"])
+	assert.Equal(t, "1", resp.Metadata["probe_failures"])
+	assert.Equal(t, "1", resp.Metadata["stage_transition_count"])
 }
 
 func TestProtoToDiscoveryType(t *testing.T) {

@@ -35,6 +35,12 @@ func NewDiscoveryEngine(config *Config, publisher Publisher, log logger.Logger) 
 		return nil, fmt.Errorf("invalid discovery engine configuration: %w", err)
 	}
 
+	probeSvc, err := newSharedICMPProbeService(log)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize shared ICMP probe service; continuing without probes")
+		probeSvc = noopHostProbeService{}
+	}
+
 	engine := &DiscoveryEngine{
 		config:        config,
 		activeJobs:    make(map[string]*DiscoveryJob),
@@ -45,6 +51,7 @@ func NewDiscoveryEngine(config *Config, publisher Publisher, log logger.Logger) 
 		done:          make(chan struct{}),
 		schedulers:    make(map[string]*time.Ticker),
 		logger:        log,
+		hostProber:    probeSvc,
 	}
 
 	return engine, nil
@@ -129,6 +136,12 @@ func (e *DiscoveryEngine) Stop(ctx context.Context) error {
 
 	// Close jobChan after workers have stopped
 	close(e.jobChan)
+
+	if e.hostProber != nil {
+		if err := e.hostProber.Close(); err != nil {
+			e.logger.Warn().Err(err).Msg("Error stopping host probe service")
+		}
+	}
 
 	e.logger.Info().Msg("DiscoveryEngine stopped")
 
@@ -293,9 +306,9 @@ func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, pa
 	e.mu.RLock()
 
 	if job, exists := e.activeJobs[discoveryID]; exists {
-		job.Results.RawData["scheduled_job_name"] = name
-		job.Results.RawData["agent_id"] = params.AgentID
-		job.Results.RawData["gateway_id"] = params.GatewayID
+		job.Results.Contract.ScheduledJobName = name
+		job.Results.Contract.AgentID = params.AgentID
+		job.Results.Contract.GatewayID = params.GatewayID
 	}
 
 	e.mu.RUnlock()
@@ -332,12 +345,11 @@ func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryP
 		Devices:       make([]*DiscoveredDevice, 0),
 		Interfaces:    make([]*DiscoveredInterface, 0),
 		TopologyLinks: make([]*TopologyLink, 0),
-		RawData:       make(map[string]interface{}),
+		Contract: DiscoveryContract{
+			AgentID:   params.AgentID,
+			GatewayID: params.GatewayID,
+		},
 	}
-
-	// Initialize RawData with AgentID and GatewayID
-	results.RawData["agent_id"] = params.AgentID
-	results.RawData["gateway_id"] = params.GatewayID
 
 	job := &DiscoveryJob{
 		ID:           discoveryID,
@@ -401,11 +413,14 @@ func (e *DiscoveryEngine) GetDiscoveryResults(
 	defer e.mu.RUnlock()
 
 	if results, ok := e.completedJobs[discoveryID]; ok {
-		// Return a copy. If includeRawData is false, nil out the RawData.
-		// For simplicity, we'll return it as is for now, or you can make a deep copy.
+		// Return a copy. If includeRawData is false, redact contract metadata
+		// that is only intended for debug/trace responses.
 		resultsCopy := *results
 		if !includeRawData {
-			resultsCopy.RawData = nil // Or an empty map: make(map[string]interface{})
+			resultsCopy.Contract = DiscoveryContract{
+				AgentID:   results.Contract.AgentID,
+				GatewayID: results.Contract.GatewayID,
+			}
 		}
 
 		return &resultsCopy, nil
@@ -767,18 +782,21 @@ func (e *DiscoveryEngine) startWorkers(
 
 					return
 				default:
-					// Ping is advisory — log but do not skip targets that fail ICMP.
-					// Many managed switches and APs block ICMP but respond to SNMP.
-					pingCtx, pingCancel := context.WithTimeout(job.ctx, 5*time.Second)
-					pingErr := pingHost(pingCtx, target)
-
-					pingCancel()
-
-					if pingErr != nil {
-						e.logger.Info().Str("job_id", job.ID).
-							Str("target", target).
-							Err(pingErr).
-							Msg("ICMP ping failed, proceeding to SNMP")
+					// Host probes are advisory and intentionally non-blocking for SNMP collection.
+					if e.hostProber != nil {
+						probeErr := e.hostProber.Probe(job.ctx, target)
+						job.mu.Lock()
+						job.Results.Contract.ProbeSummary.Attempts++
+						if probeErr != nil {
+							job.Results.Contract.ProbeSummary.Failures++
+						}
+						job.mu.Unlock()
+						if probeErr != nil {
+							e.logger.Info().Str("job_id", job.ID).
+								Str("target", target).
+								Err(probeErr).
+								Msg("ICMP probe failed, proceeding to SNMP")
+						}
 					}
 
 					// Process target with overall timeout
@@ -885,48 +903,91 @@ func (e *DiscoveryEngine) checkPhaseJobCancellation(job *DiscoveryJob, seedIP, p
 	}
 }
 
+func recordStageTransition(job *DiscoveryJob, stage DiscoveryStage, status DiscoveryStageStatus, message string) {
+	if job == nil {
+		return
+	}
+
+	job.mu.Lock()
+	job.Results.Contract.StageTransitions = append(job.Results.Contract.StageTransitions, DiscoveryStageTransition{
+		Stage:     stage,
+		Status:    status,
+		Timestamp: time.Now(),
+		Message:   message,
+	})
+	job.mu.Unlock()
+}
+
+func stageCompleted(transitions []DiscoveryStageTransition, stage DiscoveryStage) bool {
+	for _, transition := range transitions {
+		if transition.Stage == stage && transition.Status == DiscoveryStageStatusCompleted {
+			return true
+		}
+	}
+	return false
+}
+
+func topologyStageReady(transitions []DiscoveryStageTransition) bool {
+	return stageCompleted(transitions, DiscoveryStageIdentity) &&
+		stageCompleted(transitions, DiscoveryStageEnrich)
+}
+
 // finalizeJobStatus updates the job status after completion
-func (e *DiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
+func (e *DiscoveryEngine) reconcileIdentityAndPublishInterfaces(job *DiscoveryJob) {
+	if job == nil {
+		return
+	}
+
 	var interfaces []*DiscoveredInterface
 	jobID := ""
 	jobCtx := context.Background()
 
 	job.mu.Lock()
-	if job.Status.Status == DiscoveryStatusRunning {
-		// Step 1: Deduplicate devices using the device map
+	if !job.identityReconciled {
 		e.deduplicateDevices(job)
-		// Step 1b: Deduplicate interfaces after device IDs are reconciled
 		e.deduplicateInterfaces(job)
-		// Step 1c: Capture merged interfaces for publishing after unlock.
-		if len(job.Results.Interfaces) > 0 {
-			interfaces = append(interfaces, job.Results.Interfaces...)
-		}
+		job.identityReconciled = true
+	}
+
+	if !job.interfacesPublished && len(job.Results.Interfaces) > 0 {
+		interfaces = append(interfaces, job.Results.Interfaces...)
+		job.interfacesPublished = true
 		jobID = job.ID
 		if job.ctx != nil {
 			jobCtx = job.ctx
 		}
-
-		// Step 2: Update status
-		job.Status.Status = DiscoveryStatusCompleted
-		job.Status.Progress = progressCompleted
-
-		if len(job.Results.Devices) == 0 {
-			job.Status.Error = "No SNMP devices found"
-			e.logger.Info().Str("job_id", job.ID).Msg("Completed - no SNMP devices found")
-		} else {
-			e.logger.Info().Str("job_id", job.ID).
-				Int("devices", len(job.Results.Devices)).
-				Int("interfaces", len(job.Results.Interfaces)).
-				Int("topology_links", len(job.Results.TopologyLinks)).
-				Msg("Completed successfully")
-		}
 	}
-
 	job.mu.Unlock()
 
 	if len(interfaces) > 0 {
 		e.publishInterfaces(jobCtx, jobID, interfaces)
 	}
+}
+
+func (e *DiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
+	e.reconcileIdentityAndPublishInterfaces(job)
+
+	job.mu.Lock()
+	defer job.mu.Unlock()
+
+	if job.Status.Status != DiscoveryStatusRunning {
+		return
+	}
+
+	job.Status.Status = DiscoveryStatusCompleted
+	job.Status.Progress = progressCompleted
+
+	if len(job.Results.Devices) == 0 {
+		job.Status.Error = "No SNMP devices found"
+		e.logger.Info().Str("job_id", job.ID).Msg("Completed - no SNMP devices found")
+		return
+	}
+
+	e.logger.Info().Str("job_id", job.ID).
+		Int("devices", len(job.Results.Devices)).
+		Int("interfaces", len(job.Results.Interfaces)).
+		Int("topology_links", len(job.Results.TopologyLinks)).
+		Msg("Completed successfully")
 }
 
 // deviceGroup represents a group of devices that might be the same based on shared attributes
@@ -1343,63 +1404,83 @@ func (e *DiscoveryEngine) publishDevice(job *DiscoveryJob, device *DiscoveredDev
 	}
 }
 
-// runDiscoveryJob performs the actual discovery for a job, now in two phases.
+// runDiscoveryJob executes staged discovery with strict identity-before-topology ordering.
 func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob) {
 	e.logger.Info().Str("job_id", job.ID).Strs("seeds", job.Params.Seeds).
 		Str("type", string(job.Params.Type)).Msg("Running discovery for job")
 
+	recordStageTransition(job, DiscoveryStagePrepare, DiscoveryStageStatusStarted, "expanding seeds")
 	initialSeeds := e.expandSeeds(job.Params.Seeds)
-
 	if len(initialSeeds) == 0 {
+		recordStageTransition(job, DiscoveryStagePrepare, DiscoveryStageStatusFailed, "no valid targets after seed expansion")
 		e.handleEmptyTargetList(job)
 		return
 	}
+	recordStageTransition(job, DiscoveryStagePrepare, DiscoveryStageStatusCompleted, "targets prepared")
 
-	// Phase 1: UniFi Device Discovery
+	recordStageTransition(job, DiscoveryStageIdentity, DiscoveryStageStatusStarted, "identity collection started")
 	allPotentialSNMPTargets := e.handleUniFiDiscoveryPhase(ctx, job, initialSeeds)
-
-	if e.checkPhaseJobCancellation(job, "", "UniFi discovery") {
-		e.logger.Info().Str("job_id", job.ID).Msg("UniFi Discovery phase was canceled")
-
-		e.finalizeJobStatus(job)
-
-		return
-	}
-
-	e.logger.Info().Str("job_id", job.ID).Msg("Transitioning to SNMP Polling phase")
-
-	// Phase 2: SNMP Polling
 	if allPotentialSNMPTargets == nil {
 		allPotentialSNMPTargets = make(map[string]bool)
 		for _, seed := range initialSeeds {
 			allPotentialSNMPTargets[seed] = true
 		}
-
-		e.logger.Info().Str("job_id", job.ID).Strs("initial_seeds", initialSeeds).
-			Msg("No UniFi targets found, falling back to initial seeds")
 	}
 
-	if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds) {
-		e.logger.Warn().Str("job_id", job.ID).Msg("SNMP Polling phase failed or was canceled")
+	if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeIdentity) {
+		recordStageTransition(job, DiscoveryStageIdentity, DiscoveryStageStatusFailed, "identity polling canceled or failed")
+		e.finalizeJobStatus(job)
+		return
 	}
+	recordStageTransition(job, DiscoveryStageIdentity, DiscoveryStageStatusCompleted, "identity collection complete")
 
-	recursiveTargets := e.collectRecursiveSNMPTargets(job, allPotentialSNMPTargets)
-	if len(recursiveTargets) > 0 {
-		for target := range recursiveTargets {
-			allPotentialSNMPTargets[target] = true
-		}
-
-		e.logger.Info().Str("job_id", job.ID).Int("recursive_targets_count", len(recursiveTargets)).
-			Msg("Phase 2b - Recursive SNMP Polling from discovered neighbor management IPs")
-
-		if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds) {
-			e.logger.Warn().Str("job_id", job.ID).Msg("Recursive SNMP polling failed or was canceled")
+	recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusStarted, "enrichment started")
+	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
+		if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeEnrichment) {
+			recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusFailed, "enrichment polling canceled or failed")
+			e.finalizeJobStatus(job)
+			return
 		}
 	}
+	recordStageTransition(job, DiscoveryStageEnrich, DiscoveryStageStatusCompleted, "enrichment complete")
 
-	e.logger.Debug().Str("job_id", job.ID).Msg("Finalizing job status")
+	// Hard invariant: topology resolution starts only after identity reconciliation completes.
+	e.reconcileIdentityAndPublishInterfaces(job)
+	job.mu.RLock()
+	transitions := append([]DiscoveryStageTransition(nil), job.Results.Contract.StageTransitions...)
+	job.mu.RUnlock()
+	if !topologyStageReady(transitions) {
+		recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, "identity/enrichment prerequisite missing")
+		e.finalizeJobStatus(job)
+		return
+	}
 
+	recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusStarted, "topology discovery started")
+	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology {
+		if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeTopology) {
+			recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, "topology polling canceled or failed")
+			e.finalizeJobStatus(job)
+			return
+		}
+
+		recursiveTargets := e.collectRecursiveSNMPTargets(job, allPotentialSNMPTargets)
+		if len(recursiveTargets) > 0 {
+			for target := range recursiveTargets {
+				allPotentialSNMPTargets[target] = true
+			}
+
+			if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, snmpPollingModeTopology) {
+				recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, "recursive topology polling canceled or failed")
+				e.finalizeJobStatus(job)
+				return
+			}
+		}
+	}
+	recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusCompleted, "topology complete")
+
+	recordStageTransition(job, DiscoveryStageFinalize, DiscoveryStageStatusStarted, "finalizing job")
 	e.finalizeJobStatus(job)
+	recordStageTransition(job, DiscoveryStageFinalize, DiscoveryStageStatusCompleted, "job finalized")
 }
 
 // handleUniFiDiscoveryPhase performs the UniFi discovery phase and collects potential SNMP targets
@@ -1528,8 +1609,16 @@ func (e *DiscoveryEngine) processDevicesForSNMPTargets(
 }
 
 // setupAndExecuteSNMPPolling sets up and executes the SNMP polling phase
+type snmpPollingMode string
+
+const (
+	snmpPollingModeIdentity   snmpPollingMode = "identity"
+	snmpPollingModeEnrichment snmpPollingMode = "enrichment"
+	snmpPollingModeTopology   snmpPollingMode = "topology"
+)
+
 func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(
-	job *DiscoveryJob, allPotentialSNMPTargets map[string]bool, initialSeeds []string) bool {
+	job *DiscoveryJob, allPotentialSNMPTargets map[string]bool, initialSeeds []string, mode snmpPollingMode) bool {
 	job.scanQueue = make([]string, 0, len(allPotentialSNMPTargets))
 
 	for ip := range allPotentialSNMPTargets {
@@ -1559,7 +1648,7 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(
 
 	// Create a wrapper function that matches the targetProcessorFunc type
 	snmpWrapper := func(job *DiscoveryJob, targetIP string) {
-		e.scanTargetForSNMP(job.ctx, job, targetIP)
+		e.scanTargetForSNMP(job.ctx, job, targetIP, mode)
 	}
 
 	// Start workers and progress tracking
