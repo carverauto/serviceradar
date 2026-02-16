@@ -77,14 +77,14 @@
 - [x] 6.12 Create AshOban job for async S3 upload (receive-mode completed files)
 - [x] 6.13 Create AshOban job for image staging to agents (serve-mode)
 - [x] 6.14 Create AshOban job for retention cleanup (delete expired backups)
-- [ ] 6.15 Implement file reception from gateway RPC (receive mode — gateway forwards upload to core)
-- [ ] 6.16 Implement image serving to gateway RPC (serve mode — core serves file for gateway to stream to agent)
+- [x] 6.15 Implement file reception from gateway RPC (receive mode — gateway forwards upload to core)
+- [x] 6.16 Implement image serving to gateway RPC (serve mode — core serves file for gateway to stream to agent)
 - [x] 6.17 Add `"tftp"` to recognized agent capabilities in `AgentCommandBus`
 - [x] 6.18 Add convenience wrappers to `AgentCommandBus`: `start_tftp_receive/2`, `start_tftp_serve/2`, `stop_tftp_session/2`, `stage_tftp_image/2`
 - [x] 6.19 Seed RBAC permissions: `settings.software.manage`, `settings.software.view`, `software.image.upload`, `software.image.delete`, `tftp.session.create`, `tftp.session.cancel`
 - [x] 6.20 Generate Ash migrations via `mix ash.codegen add_tftp_sessions`
 - [x] 6.21 Write tests for TftpSession state machine transitions (both modes)
-- [ ] 6.22 Write tests for command dispatch hooks
+- [x] 6.22 Write tests for command dispatch hooks
 
 ## 7. Web-NG — Software Tab & Navigation
 - [x] 7.1 Add "Software" tab to settings navigation in `settings_components.ex`
