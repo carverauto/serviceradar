@@ -13,7 +13,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
-  alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Topology.RuntimeGraph
@@ -152,41 +151,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp fetch_topology_links(actor) do
+  defp fetch_topology_links(_actor) do
     runtime_links = runtime_topology_links()
     graph_links = best_effort_links(fetch_topology_links_from_graph())
 
-    if graph_links != [] do
-      {:ok, graph_links ++ runtime_links}
-    else
-      case fetch_topology_links_from_table(actor) do
-        {:ok, links} when is_list(links) and links != [] ->
-          {:ok, links ++ runtime_links}
+    combined = graph_links ++ runtime_links
 
-        other ->
-          if runtime_links != [], do: {:ok, runtime_links}, else: other
-      end
-    end
+    if combined != [], do: {:ok, combined}, else: {:ok, []}
   end
 
   defp runtime_topology_links do
     case RuntimeGraph.get_links() do
       {:ok, links} when is_list(links) -> links
       _ -> []
-    end
-  end
-
-  defp fetch_topology_links_from_table(actor) do
-    query =
-      TopologyLink
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.Query.sort(timestamp: :desc)
-      |> Ash.Query.limit(@max_link_rows)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, links} when is_list(links) -> {:ok, links}
-      {:ok, page} -> {:ok, page_results(page)}
-      {:error, reason} -> {:error, reason}
     end
   end
 

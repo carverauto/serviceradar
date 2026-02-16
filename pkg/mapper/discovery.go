@@ -1558,24 +1558,117 @@ func (e *DiscoveryEngine) collectRecursiveSNMPTargets(
 	defer job.mu.RUnlock()
 
 	targets := make(map[string]bool)
+	identityToIP := recursiveNeighborIdentityIndex(job.Results)
+
 	for _, link := range job.Results.TopologyLinks {
 		if link == nil {
 			continue
 		}
 
-		neighborIP := strings.TrimSpace(link.NeighborMgmtAddr)
-		if neighborIP == "" || !isIPv4(neighborIP) {
-			continue
-		}
+		neighborCandidates := recursiveNeighborCandidates(link, identityToIP)
+		for _, neighborIP := range neighborCandidates {
+			if knownTargets[neighborIP] {
+				continue
+			}
 
-		if knownTargets[neighborIP] {
-			continue
+			targets[neighborIP] = true
 		}
-
-		targets[neighborIP] = true
 	}
 
 	return targets
+}
+
+func recursiveNeighborIdentityIndex(results *DiscoveryResults) map[string]string {
+	index := make(map[string]string)
+	if results == nil {
+		return index
+	}
+
+	for _, device := range results.Devices {
+		if device == nil {
+			continue
+		}
+
+		ip := strings.TrimSpace(device.IP)
+		if ip == "" || !isIPv4(ip) {
+			continue
+		}
+
+		mac := NormalizeMAC(device.MAC)
+		if mac != "" {
+			index["mac:"+mac] = ip
+		}
+
+		for _, name := range []string{device.Hostname, device.SysName, device.DeviceID} {
+			normalized := normalizeRecursiveNeighborName(name)
+			if normalized != "" {
+				index["name:"+normalized] = ip
+			}
+		}
+	}
+
+	return index
+}
+
+func recursiveNeighborCandidates(link *TopologyLink, identityToIP map[string]string) []string {
+	candidates := make([]string, 0, 2)
+	seen := make(map[string]struct{}, 2)
+
+	add := func(value string) {
+		ip := strings.TrimSpace(value)
+		if ip == "" || !isIPv4(ip) {
+			return
+		}
+		if _, exists := seen[ip]; exists {
+			return
+		}
+		seen[ip] = struct{}{}
+		candidates = append(candidates, ip)
+	}
+
+	add(link.NeighborMgmtAddr)
+
+	identity := link.NeighborIdentity
+	if identity == nil {
+		identity = NormalizeTopologyLinkNeighborIdentity(link)
+	}
+
+	if identity == nil {
+		return candidates
+	}
+
+	add(identity.ManagementIP)
+
+	if ip, ok := identityToIP["mac:"+NormalizeMAC(identity.ChassisID)]; ok {
+		add(ip)
+	}
+
+	if key := normalizeRecursiveNeighborName(identity.SystemName); key != "" {
+		if ip, ok := identityToIP["name:"+key]; ok {
+			add(ip)
+		}
+	}
+
+	if key := normalizeRecursiveNeighborName(identity.DeviceID); key != "" {
+		if ip, ok := identityToIP["name:"+key]; ok {
+			add(ip)
+		}
+	}
+
+	return candidates
+}
+
+func normalizeRecursiveNeighborName(value string) string {
+	normalized := strings.TrimSpace(strings.ToLower(value))
+	if normalized == "" {
+		return ""
+	}
+
+	if idx := strings.Index(normalized, "."); idx > 0 {
+		return normalized[:idx]
+	}
+
+	return normalized
 }
 
 // processDevicesForSNMPTargets processes devices for SNMP targets with MAC-based deduplication
