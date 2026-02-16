@@ -800,6 +800,97 @@ func TestTFTPCommandStageImage_NoTFTPService(t *testing.T) {
 
 // ── handleCommand dispatch ─────────────────────────────────────────────────
 
+// TestTFTPCommandDispatch_AllTypes verifies that all 5 TFTP command types are
+// dispatched through handleCommand, producing an ack and a handler result for each.
+func TestTFTPCommandDispatch_AllTypes(t *testing.T) {
+	pl, _, tmpDir := newTestPushLoopWithTFTP(t)
+	ctx := context.Background()
+
+	// Pre-stage a file so the serve command doesn't fail with "staged image not found".
+	sessionDir := filepath.Join(tmpDir, "all-types-serve")
+	require.NoError(t, os.MkdirAll(sessionDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(sessionDir, "firmware.bin"), []byte("data"), 0o640))
+
+	tests := []struct {
+		name    string
+		cmdType string
+		payload interface{}
+	}{
+		{
+			name:    "tftp.start_receive",
+			cmdType: commandTypeTFTPReceive,
+			payload: tftpReceivePayload{
+				SessionID:        "dispatch-recv",
+				ExpectedFilename: "config.bin",
+				MaxFileSize:      1024,
+				TimeoutSeconds:   10,
+				BindAddress:      "127.0.0.1",
+				Port:             findFreePort(t),
+			},
+		},
+		{
+			name:    "tftp.start_serve",
+			cmdType: commandTypeTFTPServe,
+			payload: tftpServePayload{
+				SessionID:      "all-types-serve",
+				Filename:       "firmware.bin",
+				TimeoutSeconds: 10,
+				BindAddress:    "127.0.0.1",
+				Port:           findFreePort(t),
+			},
+		},
+		{
+			name:    "tftp.stop_session",
+			cmdType: commandTypeTFTPStop,
+			// Use a non-existent session — handler will return "not found", which is fine.
+			payload: tftpStopPayload{SessionID: "nonexistent-stop"},
+		},
+		{
+			name:    "tftp.status",
+			cmdType: commandTypeTFTPStatus,
+			payload: nil,
+		},
+		{
+			name:    "tftp.stage_image",
+			cmdType: commandTypeTFTPStageImage,
+			// Missing fields — handler will return validation error quickly.
+			payload: tftpStagePayload{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stream := newMockBidiStream(ctx)
+			sender := newControlStreamSender(stream)
+			cmd := makeCommand(t, tt.cmdType, tt.payload)
+
+			pl.handleCommand(ctx, cmd, sender)
+
+			// handleCommand dispatches the handler in a goroutine; wait for it.
+			time.Sleep(300 * time.Millisecond)
+
+			msgs := stream.getSent()
+
+			// Every dispatched command must produce an ack.
+			var gotAck bool
+			for _, msg := range msgs {
+				if ack := msg.GetCommandAck(); ack != nil {
+					gotAck = true
+					assert.Equal(t, cmd.CommandId, ack.CommandId)
+					assert.Equal(t, tt.cmdType, ack.CommandType)
+				}
+			}
+			assert.True(t, gotAck, "expected command ack for %s", tt.cmdType)
+
+			// Each handler should produce either a result or a progress message.
+			result := findCommandResult(msgs)
+			progress := findCommandProgress(msgs)
+			assert.True(t, result != nil || len(progress) > 0,
+				"expected a result or progress for %s, got neither", tt.cmdType)
+		})
+	}
+}
+
 func TestTFTPCommandDispatch(t *testing.T) {
 	pl, _, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
