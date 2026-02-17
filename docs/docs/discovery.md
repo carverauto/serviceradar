@@ -23,3 +23,8 @@ Discovery keeps the registry aligned with real-world infrastructure. Use Mapper 
 1. Configure integrations in the UI.
 2. Onboard a sync-capable agent.
 3. Verify updates flow through DIRE into inventory.
+
+## Topology Cleanup/Rebuild
+
+For polluted topology evidence or unstable adjacency after parser/pipeline fixes, use the
+[Topology Reset and Rebuild Runbook](./topology-reset-rebuild.md).

@@ -20,9 +20,9 @@
 - [x] 3.4 Add pipeline telemetry cards for raw observations, unique pairs, final edges, direct/inferred split, unresolved endpoints.
 
 ## 4. Data Cleanup and Rebuild
-- [ ] 4.1 Create an operator-safe cleanup script/runbook to clear polluted topology evidence and derived AGE edges.
-- [ ] 4.2 Add deterministic rebuild flow: trigger discovery, replay ingestion, verify expected adjacency invariants.
-- [ ] 4.3 Add pre/post cleanup validation queries and failure gates.
+- [x] 4.1 Create an operator-safe cleanup script/runbook to clear polluted topology evidence and derived AGE edges.
+- [x] 4.2 Add deterministic rebuild flow: trigger discovery, replay ingestion, verify expected adjacency invariants.
+- [x] 4.3 Add pre/post cleanup validation queries and failure gates.
 
 ## 5. Rollout Controls
 - [ ] 5.1 Add feature flags for v2 contract consumption and AGE-authoritative rendering cutover.
