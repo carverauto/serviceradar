@@ -1,0 +1,73 @@
+rules:
+  - id: ubiquiti-router-udm
+    enabled: true
+    priority: 1000
+    confidence: 95
+    reason: "UDM signature in SNMP identity"
+    match:
+      any:
+        sys_descr: ["udm", "unifi udm", "udm-pro", "udm-pro-max"]
+        sys_name: ["udm", "gateway"]
+        hostname: ["router", "gateway"]
+      all:
+        ip_forwarding: [1]
+    set:
+      vendor_name: "Ubiquiti"
+      type: "Router"
+      type_id: 12
+      model_from_sys_descr_prefix: "UniFi "
+
+  - id: ubiquiti-switch-usw
+    enabled: true
+    priority: 900
+    confidence: 90
+    reason: "USW switch signature in SNMP identity"
+    match:
+      any:
+        sys_descr: ["usw", "switch"]
+        sys_name: ["usw", "switch"]
+    set:
+      vendor_name: "Ubiquiti"
+      type: "Switch"
+      type_id: 10
+      model_from_sys_descr_prefix: ""
+
+  - id: ubiquiti-ap-u6-uap
+    enabled: true
+    priority: 850
+    confidence: 90
+    reason: "UAP/U6 AP signature in SNMP identity"
+    match:
+      any:
+        sys_descr: ["u6-", "uap-", "uap ", "nanohd", "access point"]
+        sys_name: ["u6", "uap"]
+        hostname: ["u6", "uap"]
+    set:
+      vendor_name: "Ubiquiti"
+      type: "Access Point"
+      type_id: 99
+
+  - id: ubiquiti-vendor-by-enterprise
+    enabled: true
+    priority: 700
+    confidence: 80
+    reason: "Ubiquiti enterprise OID"
+    match:
+      any:
+        sys_object_id_prefixes:
+          - "1.3.6.1.4.1.41112"
+          - "1.3.6.1.4.1.4413"
+          - "1.3.6.1.4.1.10002"
+    set:
+      vendor_name: "Ubiquiti"
+
+  - id: ubiquiti-vendor-by-ubnt-token
+    enabled: true
+    priority: 650
+    confidence: 75
+    reason: "UBNT token in sysDescr"
+    match:
+      any:
+        sys_descr: ["ubnt", "ubiquiti", "unifi"]
+    set:
+      vendor_name: "Ubiquiti"

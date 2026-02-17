@@ -1,6 +1,7 @@
 defmodule ServiceRadar.SweepJobs.ObanSupportTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker
   alias ServiceRadar.SweepJobs.{ObanSupport, SweepDataCleanupWorker, SweepMonitorWorker}
   alias ServiceRadar.SweepJobs.SweepScheduleReconciler
 
@@ -11,6 +12,7 @@ defmodule ServiceRadar.SweepJobs.ObanSupportTest do
   test "sweep scheduling returns oban_unavailable when Oban is missing" do
     assert {:error, :oban_unavailable} = SweepMonitorWorker.ensure_scheduled()
     assert {:error, :oban_unavailable} = SweepDataCleanupWorker.ensure_scheduled()
+    assert {:error, :oban_unavailable} = TopologyStateCleanupWorker.ensure_scheduled()
   end
 
   test "reconciler skips work when Oban is unavailable" do

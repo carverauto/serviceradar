@@ -177,8 +177,23 @@ func TestGRPCGetDiscoveryResults(t *testing.T) {
 				NeighborChassisID: "00:11:22:33:44:55",
 			},
 		},
-		RawData: map[string]interface{}{
-			"raw1": "data1",
+		Contract: DiscoveryContract{
+			AgentID:          "agent-1",
+			GatewayID:        "gateway-1",
+			TopologyContract: "mapper.topology_observation.v2",
+			ScheduledJobName: "nightly",
+			ProbeSummary: DiscoveryProbeSummary{
+				Attempts: 2,
+				Failures: 1,
+			},
+			StageTransitions: []DiscoveryStageTransition{
+				{
+					Stage:     DiscoveryStagePrepare,
+					Status:    DiscoveryStageStatusCompleted,
+					Timestamp: time.Now(),
+					Message:   "targets prepared",
+				},
+			},
 		},
 	}
 
@@ -202,7 +217,11 @@ func TestGRPCGetDiscoveryResults(t *testing.T) {
 	assert.Equal(t, "device1", resp.Devices[0].Hostname)
 	assert.Equal(t, "192.168.1.1", resp.Interfaces[0].DeviceIp)
 	assert.Equal(t, "192.168.1.1", resp.Topology[0].LocalDeviceIp)
-	assert.Equal(t, "data1", resp.Metadata["raw1"])
+	assert.Equal(t, "agent-1", resp.Metadata["agent_id"])
+	assert.Equal(t, "gateway-1", resp.Metadata["gateway_id"])
+	assert.Equal(t, "mapper.topology_observation.v2", resp.Metadata["topology_contract_version"])
+	assert.Equal(t, "nightly", resp.Metadata["scheduled_job_name"])
+	assert.Equal(t, "2", resp.Metadata["probe_attempts"])
 
 	// Test with error from mapper
 	mockMapper.EXPECT().GetDiscoveryResults(ctx, discoveryID, includeRawData).Return(nil, assert.AnError)
@@ -319,8 +338,49 @@ func TestConvertDeviceToProto(t *testing.T) {
 		SysObjectID: "1.3.6.1.4.1.9.1.1",
 		SysContact:  "admin",
 		SysLocation: "datacenter",
-		Uptime:      3600,
-		Metadata:    map[string]string{"key": "value"},
+		SNMPFingerprint: &SNMPFingerprint{
+			System: &SNMPSystemFingerprint{
+				SysName:      "device1",
+				SysDescr:     "Test Device",
+				SysObjectID:  "1.3.6.1.4.1.9.1.1",
+				SysContact:   "admin",
+				SysLocation:  "datacenter",
+				IPForwarding: 1,
+			},
+			Bridge: &SNMPBridgeFingerprint{
+				BridgeBaseMAC:          "00:11:22:33:44:55",
+				BridgePortCount:        24,
+				STPForwardingPortCount: 18,
+			},
+			VLAN: &SNMPVLANFingerprint{
+				VLANIDsSeen: []int32{1, 2, 3},
+				PVIDDistribution: []SNMPPVIDCount{
+					{PVID: 1, Count: 20},
+					{PVID: 2, Count: 4},
+				},
+				PortEvidence: []SNMPVLANPortEvidence{
+					{
+						VLANID:           1,
+						EgressPortsHex:   "01FE",
+						UntaggedPortsHex: "01FE",
+					},
+				},
+			},
+			InterfaceSummary: &SNMPInterfaceSummaryFingerprint{
+				InterfaceCount: 24,
+				IfTypeCounts: []SNMPInterfaceTypeCount{
+					{IfType: 6, Count: 22},
+					{IfType: 24, Count: 2},
+				},
+				BridgeLikeNameCount:   3,
+				WirelessLikeNameCount: 1,
+			},
+			ExtractionErrors: map[string]string{
+				"dot1q": "unsupported table",
+			},
+		},
+		Uptime:   3600,
+		Metadata: map[string]string{"key": "value"},
 	}
 
 	protoDevice := convertDeviceToProto(device)
@@ -334,6 +394,15 @@ func TestConvertDeviceToProto(t *testing.T) {
 	assert.Equal(t, device.SysLocation, protoDevice.SysLocation)
 	assert.Equal(t, device.Uptime, protoDevice.Uptime)
 	assert.Equal(t, device.Metadata, protoDevice.Metadata)
+	require.NotNil(t, protoDevice.SnmpFingerprint)
+	require.NotNil(t, protoDevice.SnmpFingerprint.System)
+	assert.Equal(t, device.SNMPFingerprint.System.SysName, protoDevice.SnmpFingerprint.System.SysName)
+	assert.Equal(t, device.SNMPFingerprint.System.IPForwarding, protoDevice.SnmpFingerprint.System.IpForwarding)
+	require.NotNil(t, protoDevice.SnmpFingerprint.Bridge)
+	assert.Equal(t, device.SNMPFingerprint.Bridge.BridgePortCount, protoDevice.SnmpFingerprint.Bridge.BridgePortCount)
+	assert.Len(t, protoDevice.SnmpFingerprint.Vlan.VlanIdsSeen, 3)
+	assert.Len(t, protoDevice.SnmpFingerprint.InterfaceSummary.IfTypeCounts, 2)
+	assert.Equal(t, "unsupported table", protoDevice.SnmpFingerprint.ExtractionErrors["dot1q"])
 }
 
 func TestConvertTopologyLinkToProto(t *testing.T) {
@@ -397,9 +466,38 @@ func TestConvertResultsToProto(t *testing.T) {
 				NeighborChassisID: "00:11:22:33:44:55",
 			},
 		},
-		RawData: map[string]interface{}{
-			"raw1": "data1",
-			"raw2": 123, // This should be skipped as it's not a string
+		Contract: DiscoveryContract{
+			AgentID:          "agent-1",
+			GatewayID:        "gateway-1",
+			ScheduledJobName: "nightly",
+			ProbeSummary: DiscoveryProbeSummary{
+				Attempts: 2,
+				Failures: 1,
+			},
+			ParseDiagnostics: DiscoveryParseDiagnostics{
+				ParseFailures: map[string]int{
+					"unifi.detail.direct": 2,
+				},
+				UnknownTopLevel: map[string]int{
+					"unifi.detail.foo": 3,
+				},
+				ParserMismatches: map[string]int{
+					"unifi.detail.wrapped": 1,
+				},
+			},
+			DebugBundle: DiscoveryDebugBundle{
+				Enabled:        true,
+				ExportPath:     "/tmp/serviceradar/mapper-debug/job-1-debug-bundle.json",
+				ExportedAtUnix: 1739760000,
+			},
+			StageTransitions: []DiscoveryStageTransition{
+				{
+					Stage:     DiscoveryStageIdentity,
+					Status:    DiscoveryStageStatusCompleted,
+					Timestamp: time.Now(),
+					Message:   "identity complete",
+				},
+			},
 		},
 	}
 
@@ -418,9 +516,17 @@ func TestConvertResultsToProto(t *testing.T) {
 	assert.Equal(t, "192.168.1.1", resp.Interfaces[0].DeviceIp)
 	assert.Equal(t, uint64(1000000000), resp.Interfaces[0].IfSpeed.Value)
 	assert.Equal(t, "192.168.1.1", resp.Topology[0].LocalDeviceIp)
-	assert.Equal(t, "data1", resp.Metadata["raw1"])
-	_, exists := resp.Metadata["raw2"]
-	assert.False(t, exists, "Non-string raw data should be skipped")
+	assert.Equal(t, "agent-1", resp.Metadata["agent_id"])
+	assert.Equal(t, "gateway-1", resp.Metadata["gateway_id"])
+	assert.Equal(t, "nightly", resp.Metadata["scheduled_job_name"])
+	assert.Equal(t, "2", resp.Metadata["probe_attempts"])
+	assert.Equal(t, "1", resp.Metadata["probe_failures"])
+	assert.Equal(t, "1", resp.Metadata["stage_transition_count"])
+	assert.Equal(t, "2", resp.Metadata["parse_failure_count"])
+	assert.Equal(t, "3", resp.Metadata["unknown_top_level_count"])
+	assert.Equal(t, "1", resp.Metadata["parser_mismatch_count"])
+	assert.Equal(t, "/tmp/serviceradar/mapper-debug/job-1-debug-bundle.json", resp.Metadata["debug_bundle_path"])
+	assert.Equal(t, "1739760000", resp.Metadata["debug_bundle_exported_at_unix"])
 }
 
 func TestProtoToDiscoveryType(t *testing.T) {

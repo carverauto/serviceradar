@@ -20,6 +20,24 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
 
   setup do
     actor = SystemActor.system(:identity_reconciler_mac_classification_test)
+
+    handler_id =
+      "identity-reconciler-mac-classification-test-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :identity_reconciler, :merge, :blocked],
+        fn event, measurements, metadata, pid ->
+          send(pid, {:telemetry_event, event, measurements, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn ->
+      :telemetry.detach(handler_id)
+    end)
+
     {:ok, actor: actor}
   end
 
@@ -157,12 +175,18 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
 
       IdentityReconciler.register_identifiers(device_b.uid, ids, actor: actor)
 
+      assert_receive {:telemetry_event, [:serviceradar, :identity_reconciler, :merge, :blocked],
+                      %{count: 1}, telemetry_metadata}
+
+      assert telemetry_metadata.reason == "mac_only_conflict"
+      assert telemetry_metadata.device_count == 2
+
       # Both devices should still exist
       assert {:ok, _} = Device.get_by_uid(device_a.uid, false, actor: actor)
       assert {:ok, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
     end
 
-    test "shared globally-unique MAC triggers merge", %{actor: actor} do
+    test "shared globally-unique MAC does not auto-merge devices", %{actor: actor} do
       {:ok, device_a} = create_device(actor, "gu-mac-device-a")
       {:ok, device_b} = create_device(actor, "gu-mac-device-b")
 
@@ -172,7 +196,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
       # Register MAC for device A
       assert {:ok, _} = register_identifier(actor, device_a.uid, :mac, gu_mac, :strong)
 
-      # Now register the same MAC for device B — should trigger merge
+      # Now register the same MAC for device B — should NOT trigger auto-merge
       ids = %{
         agent_id: nil,
         armis_id: nil,
@@ -185,14 +209,15 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
 
       IdentityReconciler.register_identifiers(device_b.uid, ids, actor: actor)
 
-      # One device should be merged into the other
-      a_exists = match?({:ok, _}, Device.get_by_uid(device_a.uid, false, actor: actor))
-      b_exists = match?({:ok, _}, Device.get_by_uid(device_b.uid, false, actor: actor))
+      assert_receive {:telemetry_event, [:serviceradar, :identity_reconciler, :merge, :blocked],
+                      %{count: 1}, telemetry_metadata}
 
-      # Exactly one should survive
-      assert a_exists or b_exists
-      refute a_exists and b_exists,
-             "Expected one device to be merged, but both still exist"
+      assert telemetry_metadata.reason == "mac_only_conflict"
+      assert telemetry_metadata.device_count == 2
+
+      # Both devices should still exist
+      assert {:ok, _} = Device.get_by_uid(device_a.uid, false, actor: actor)
+      assert {:ok, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
     end
   end
 

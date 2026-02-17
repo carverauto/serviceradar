@@ -17,6 +17,13 @@
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $database := default (dict) $coreVals.database -}}
 {{- $syncIngestor := default (dict) $coreVals.syncIngestor -}}
+{{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
+{{- $deviceEnrichmentRulesDir := default "/var/lib/serviceradar/rules/device-enrichment" $deviceEnrichment.rulesDir -}}
+{{- $deviceEnrichmentFsOverrides := default (dict) $deviceEnrichment.filesystemOverrides -}}
+{{- $deviceEnrichmentFsEnabled := default false $deviceEnrichmentFsOverrides.enabled -}}
+{{- $deviceEnrichmentFsConfigMap := default "" $deviceEnrichmentFsOverrides.existingConfigMap -}}
+{{- $deviceEnrichmentFsSecret := default "" $deviceEnrichmentFsOverrides.existingSecret -}}
+{{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
 {{- $clusterCookie := default "serviceradar_dev_cookie" $webNg.clusterCookie -}}
 ---
@@ -245,6 +252,8 @@ spec:
         {{- end }}
         - name: SYNC_INGESTOR_ASYNC
           value: {{ default true $syncIngestor.async | quote }}
+        - name: DEVICE_ENRICHMENT_RULES_DIR
+          value: {{ $deviceEnrichmentRulesDir | quote }}
         - name: CNPG_HOST
           value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
         - name: CNPG_PORT
@@ -350,6 +359,11 @@ spec:
           mountPath: /etc/serviceradar/creds
           readOnly: true
         {{- end }}
+        {{- if $deviceEnrichmentFsEnabled }}
+        - name: device-enrichment-rules
+          mountPath: {{ $deviceEnrichmentRulesDir | quote }}
+          readOnly: true
+        {{- end }}
         resources:
           limits:
             cpu: "4"
@@ -402,6 +416,21 @@ spec:
         secret:
           secretName: serviceradar-nats-creds
           optional: true
+      {{- end }}
+      {{- if $deviceEnrichmentFsEnabled }}
+      - name: device-enrichment-rules
+        {{- if $deviceEnrichmentFsConfigMap }}
+        configMap:
+          name: {{ $deviceEnrichmentFsConfigMap | quote }}
+        {{- else if $deviceEnrichmentFsSecret }}
+        secret:
+          secretName: {{ $deviceEnrichmentFsSecret | quote }}
+        {{- else if $deviceEnrichmentFsClaim }}
+        persistentVolumeClaim:
+          claimName: {{ $deviceEnrichmentFsClaim | quote }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
       {{- end }}
 ---
 apiVersion: v1

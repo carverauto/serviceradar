@@ -86,6 +86,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
      # Interface metrics for favorited interfaces
      |> assign(:interface_metrics, nil)
+     |> assign(:interface_metrics_layout, "two")
      |> assign(:ip_aliases, [])
      |> assign(:ip_alias_error, nil)
      |> assign(:show_stale_aliases, false)
@@ -223,6 +224,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     discovery_job = pick_discovery_job(discovery_jobs)
     has_discovery_job = not is_nil(discovery_job)
+
+    network_interfaces = filter_interfaces_for_display(network_interfaces, device_row)
 
     favorited_interfaces = interface_settings.favorited
     metrics_enabled_interfaces = interface_settings.metrics_enabled
@@ -660,7 +663,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_event("set_interface_metrics_layout", %{"layout" => layout}, socket) do
+    {:noreply,
+     assign(socket, :interface_metrics_layout, normalize_interface_metrics_layout(layout))}
+  end
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  defp normalize_interface_metrics_layout(layout) do
+    case to_string(layout || "") do
+      "one" -> "one"
+      "two" -> "two"
+      "four" -> "four"
+      _ -> "two"
+    end
+  end
 
   defp format_tags_for_edit(nil), do: ""
   defp format_tags_for_edit(tags) when is_list(tags), do: Enum.join(tags, "\n")
@@ -774,6 +791,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:error, reason} ->
         {[], "SRQL error: #{format_error(reason)}"}
     end
+  end
+
+  defp filter_interfaces_for_display(interfaces, device_row)
+       when is_list(interfaces) and is_map(device_row) do
+    if switch_device?(device_row) do
+      front_panel = Enum.filter(interfaces, &front_panel_switch_interface?/1)
+
+      # Keep the full list unless we found a meaningful front-panel subset.
+      if length(front_panel) >= 8 and length(front_panel) < length(interfaces) do
+        Enum.sort_by(front_panel, &Map.get(&1, "if_index"))
+      else
+        interfaces
+      end
+    else
+      interfaces
+    end
+  end
+
+  defp filter_interfaces_for_display(interfaces, _device_row), do: interfaces
+
+  defp switch_device?(device_row) when is_map(device_row) do
+    type =
+      device_row
+      |> Map.get("type", "")
+      |> to_string()
+      |> String.downcase()
+      |> String.trim()
+
+    type_id = Map.get(device_row, "type_id")
+    type in ["switch", "l2 switch"] or type_id == 10
+  end
+
+  defp front_panel_switch_interface?(iface) when is_map(iface) do
+    if_index = Map.get(iface, "if_index")
+    if_name = normalize_interface_label(Map.get(iface, "if_name"))
+    if_descr = normalize_interface_label(Map.get(iface, "if_descr"))
+
+    is_integer(if_index) and if_index > 0 and if_index <= 256 and
+      (numeric_port_label?(if_name) or numeric_port_label?(if_descr))
+  end
+
+  defp front_panel_switch_interface?(_), do: false
+
+  defp normalize_interface_label(nil), do: ""
+
+  defp normalize_interface_label(value) do
+    value
+    |> to_string()
+    |> String.trim()
+  end
+
+  defp numeric_port_label?(label) when is_binary(label) do
+    label != "" and String.match?(label, ~r/^(?:port\s*)?\d+$/i)
   end
 
   defp load_interface_settings(_scope, nil), do: empty_interface_settings()
@@ -1211,36 +1281,105 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             :if={is_map(@device_row) and not @editing}
             class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
           >
-            <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-              <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
-              <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
-              <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
-              <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
-              <.kv_inline label="Model" value={Map.get(@device_row, "model")} />
-              <.kv_inline
-                :if={agent_device?(@device_row)}
-                label="Agent"
-                value={agent_label(@device_row)}
-                mono
-              />
-              <.kv_inline label="Gateway" value={Map.get(@device_row, "gateway_id")} mono />
-              <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
-              <.kv_inline
-                :if={@device_deleted}
-                label="Deleted At"
-                value={Map.get(@device_row, "deleted_at")}
-                mono
-              />
-              <.kv_inline
-                :if={@device_deleted}
-                label="Deleted By"
-                value={Map.get(@device_row, "deleted_by")}
-              />
-              <.kv_inline
-                :if={@device_deleted}
-                label="Deleted Reason"
-                value={Map.get(@device_row, "deleted_reason")}
-              />
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
+              <div class="card bg-base-100 border border-base-300">
+                <div class="card-body p-4 gap-2">
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-identification" class="size-4 text-primary" />
+                    <h3 class="text-sm font-semibold">Identity</h3>
+                  </div>
+                  <div class="space-y-1 text-sm">
+                    <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
+                    <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
+                    <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
+                    <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
+                    <.kv_inline
+                      :if={present?(Map.get(@device_row, "model"))}
+                      label="Model"
+                      value={Map.get(@device_row, "model")}
+                    />
+                    <.kv_inline
+                      label="Classification"
+                      value={classification_provenance_label(@device_row)}
+                    />
+                    <.kv_inline
+                      :if={agent_device?(@device_row)}
+                      label="Agent"
+                      value={agent_label(@device_row)}
+                      mono
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div class="card bg-base-100 border border-base-300">
+                <div class="card-body p-4 gap-2">
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-signal" class="size-4 text-info" />
+                    <h3 class="text-sm font-semibold">SNMP</h3>
+                  </div>
+                  <div class="space-y-1 text-sm">
+                    <.kv_inline
+                      label="SNMP Name"
+                      value={snmp_metadata_value(@device_row, "snmp_name", "sys_name")}
+                    />
+                    <.kv_inline
+                      label="SNMP Owner"
+                      value={snmp_owner(@device_row)}
+                    />
+                    <.kv_inline
+                      label="SNMP Location"
+                      value={snmp_metadata_value(@device_row, "snmp_location", "sys_location")}
+                    />
+                    <.kv_inline
+                      label="SNMP Description"
+                      value={snmp_metadata_value(@device_row, "snmp_description", "sys_descr")}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div class="card bg-base-100 border border-base-300">
+                <div class="card-body p-4 gap-2">
+                  <div class="flex items-center gap-2">
+                    <.icon name="hero-clock" class="size-4 text-success" />
+                    <h3 class="text-sm font-semibold">Status</h3>
+                  </div>
+                  <div class="space-y-1 text-sm">
+                    <.kv_inline
+                      :if={present?(Map.get(@device_row, "gateway_id"))}
+                      label="Gateway"
+                      value={Map.get(@device_row, "gateway_id")}
+                      mono
+                    />
+                    <.kv_inline
+                      label="Last Seen"
+                      value={
+                        format_timestamp(
+                          Map.get(@device_row, "last_seen") || Map.get(@device_row, "last_seen_time")
+                        )
+                      }
+                      mono
+                    />
+                    <.kv_inline
+                      :if={@device_deleted}
+                      label="Deleted At"
+                      value={Map.get(@device_row, "deleted_at")}
+                      mono
+                    />
+                    <.kv_inline
+                      :if={@device_deleted and present?(Map.get(@device_row, "deleted_by"))}
+                      label="Deleted By"
+                      value={Map.get(@device_row, "deleted_by")}
+                    />
+                    <.kv_inline
+                      :if={@device_deleted and present?(Map.get(@device_row, "deleted_reason"))}
+                      label="Deleted Reason"
+                      value={Map.get(@device_row, "deleted_reason")}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           
@@ -1762,6 +1901,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               device_uid={@device_uid}
               interface_metrics={@interface_metrics}
               discovery_job={@discovery_job}
+              interface_metrics_layout={@interface_metrics_layout}
             />
           </div>
           
@@ -1875,6 +2015,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_label(key), do: to_string(key)
 
+  defp row_metadata(row) when is_map(row) do
+    case Map.get(row, "metadata") || Map.get(row, :metadata) do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
   defp format_prop_value(nil), do: "—"
   defp format_prop_value(""), do: "—"
   defp format_prop_value(true), do: "Yes"
@@ -1911,6 +2058,84 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_value(""), do: "—"
   defp format_value(v) when is_binary(v), do: v
   defp format_value(v), do: to_string(v)
+
+  defp metadata_value(row, key) when is_map(row) and is_binary(key) do
+    row
+    |> row_metadata()
+    |> Map.get(key)
+  end
+
+  defp metadata_value(_row, _key), do: nil
+
+  defp snmp_metadata_value(row, primary_key, fallback_key) when is_map(row) do
+    metadata_value(row, primary_key) || metadata_value(row, fallback_key)
+  end
+
+  defp snmp_metadata_value(_row, _primary_key, _fallback_key), do: nil
+
+  defp snmp_owner(row) when is_map(row) do
+    owner_name =
+      case Map.get(row, "owner") do
+        %{"name" => name} when is_binary(name) and name != "" -> name
+        _ -> nil
+      end
+
+    owner_name ||
+      metadata_value(row, "snmp_owner") ||
+      metadata_value(row, "sys_owner") ||
+      metadata_value(row, "sys_contact")
+  end
+
+  defp snmp_owner(_row), do: nil
+
+  defp classification_provenance_label(row) when is_map(row) do
+    source = metadata_value(row, "classification_source") |> normalize_metadata_source()
+    rule_id = metadata_value(row, "classification_rule_id")
+
+    cond do
+      present?(rule_id) ->
+        "Rule-based (#{rule_id})"
+
+      source in ["snmp_fallback", "snmp_fingerprint_fallback"] or snmp_fallback_derived?(row) ->
+        "SNMP fallback-derived"
+
+      true ->
+        "Unspecified"
+    end
+  end
+
+  defp classification_provenance_label(_row), do: "Unspecified"
+
+  defp snmp_fallback_derived?(row) when is_map(row) do
+    metadata = row_metadata(row)
+    has_rule = present?(metadata_value(row, "classification_rule_id"))
+
+    has_display_values =
+      present?(Map.get(row, "type")) or present?(Map.get(row, "vendor_name")) or
+        present?(Map.get(row, "model"))
+
+    has_snmp_evidence =
+      is_map(Map.get(metadata, "snmp_fingerprint")) or
+        present?(Map.get(metadata, "sys_object_id")) or
+        present?(Map.get(metadata, "sys_descr")) or
+        present?(Map.get(metadata, "sys_name")) or
+        present?(Map.get(metadata, "snmp_description")) or
+        present?(Map.get(metadata, "snmp_name")) or
+        present?(Map.get(metadata, "ip_forwarding"))
+
+    not has_rule and has_display_values and has_snmp_evidence
+  end
+
+  defp snmp_fallback_derived?(_row), do: false
+
+  defp normalize_metadata_source(nil), do: ""
+
+  defp normalize_metadata_source(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
 
   # ---------------------------------------------------------------------------
   # OCSF Information Section (OS, Hardware, Network, Compliance)
@@ -2160,6 +2385,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :device_uid, :string, required: true
   attr :interface_metrics, :map, default: nil
   attr :discovery_job, :any, default: nil
+  attr :interface_metrics_layout, :string, default: "two"
 
   defp interfaces_tab_content(assigns) do
     selected_count = MapSet.size(assigns.selected_interfaces)
@@ -2184,6 +2410,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       :if={@interface_metrics}
       metrics={@interface_metrics}
       device_uid={@device_uid}
+      layout_mode={@interface_metrics_layout}
     />
 
     <%= if @interfaces == [] and is_nil(@error) do %>
@@ -2465,8 +2692,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   attr :metrics, :map, required: true
   attr :device_uid, :string, required: true
+  attr :layout_mode, :string, default: "two"
 
   defp interface_metrics_section(assigns) do
+    layout_mode = normalize_interface_metrics_layout(assigns.layout_mode)
+    panel_count = length(assigns.metrics.panels)
+
+    panel_layout_class =
+      case layout_mode do
+        "one" ->
+          "space-y-4"
+
+        "two" ->
+          "grid grid-cols-1 xl:grid-cols-2 gap-4"
+
+        "four" ->
+          cond do
+            panel_count >= 4 -> "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4"
+            panel_count == 3 -> "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+            panel_count == 2 -> "grid grid-cols-1 xl:grid-cols-2 gap-4"
+            true -> "space-y-4"
+          end
+      end
+
+    assigns =
+      assigns
+      |> assign(:layout_mode, layout_mode)
+      |> assign(:panel_layout_class, panel_layout_class)
+
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm mb-4">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
@@ -2476,6 +2729,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <span :if={@metrics.favorited_count > 0} class="text-xs text-base-content/50">
             ({@metrics.favorited_count} favorited)
           </span>
+        </div>
+        <div :if={@metrics.panels != []} class="join join-vertical sm:join-horizontal">
+          <button
+            type="button"
+            class={[
+              "btn btn-xs join-item normal-case",
+              @layout_mode == "one" && "btn-primary",
+              @layout_mode != "one" && "btn-ghost"
+            ]}
+            phx-click="set_interface_metrics_layout"
+            phx-value-layout="one"
+            title="One chart per row"
+          >
+            1-up
+          </button>
+          <button
+            type="button"
+            class={[
+              "btn btn-xs join-item normal-case",
+              @layout_mode == "two" && "btn-primary",
+              @layout_mode != "two" && "btn-ghost"
+            ]}
+            phx-click="set_interface_metrics_layout"
+            phx-value-layout="two"
+            title="Two charts per row"
+          >
+            2-up
+          </button>
+          <button
+            type="button"
+            class={[
+              "btn btn-xs join-item normal-case",
+              @layout_mode == "four" && "btn-primary",
+              @layout_mode != "four" && "btn-ghost"
+            ]}
+            phx-click="set_interface_metrics_layout"
+            phx-value-layout="four"
+            title="Four charts per row on wide screens"
+          >
+            4-up
+          </button>
         </div>
       </div>
 
@@ -2513,25 +2807,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       </div>
 
       <%!-- Metrics panels --%>
-      <% panel_count = length(@metrics.panels) %>
       <div
         :if={@metrics.panels != []}
-        class={
-          [
-            "p-4 gap-4",
-            # 1-2 panels: full width stacked
-            panel_count <= 2 && "space-y-4",
-            # 3+ panels: responsive grid
-            panel_count > 2 && "grid grid-cols-1 sm:grid-cols-2"
-          ]
-        }
+        class={["p-4", @panel_layout_class]}
       >
         <%= for {panel, idx} <- Enum.with_index(@metrics.panels) do %>
           <.live_component
             module={panel.plugin}
             id={"interface-metrics-#{@device_uid}-#{panel.id}-#{idx}"}
             title={Map.get(panel.assigns, :interface_label, "Interface Metrics")}
-            panel_assigns={Map.put(panel.assigns, :compact, panel_count > 2)}
+            panel_assigns={Map.put(panel.assigns, :compact, false)}
           />
         <% end %>
       </div>

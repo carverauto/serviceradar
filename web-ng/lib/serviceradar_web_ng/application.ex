@@ -23,7 +23,8 @@ defmodule ServiceRadarWebNG.Application do
     base_children =
       [
         # Web telemetry
-        ServiceRadarWebNGWeb.Telemetry
+        ServiceRadarWebNGWeb.Telemetry,
+        ServiceRadarWebNG.Topology.RuntimeGraph
       ]
       |> maybe_add_grpc_supervisor()
       |> Kernel.++([

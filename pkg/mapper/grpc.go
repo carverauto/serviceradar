@@ -19,7 +19,9 @@ package mapper
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -90,7 +92,7 @@ func (s *GRPCDiscoveryService) StartDiscovery(ctx context.Context, req *proto.Di
 		Timeout:     time.Duration(req.TimeoutSeconds) * time.Second,
 		Retries:     int(req.Retries),
 		AgentID:     req.AgentId,
-		GatewayID:    req.GatewayId,
+		GatewayID:   req.GatewayId,
 	}
 
 	// Start discovery
@@ -130,16 +132,91 @@ func convertInterfaceToProto(iface *DiscoveredInterface) (*proto.DiscoveredInter
 // convertDeviceToProto converts a DiscoveredDevice to proto.DiscoveredDevice
 func convertDeviceToProto(device *DiscoveredDevice) *proto.DiscoveredDevice {
 	return &proto.DiscoveredDevice{
-		Ip:          device.IP,
-		Mac:         device.MAC,
-		Hostname:    device.Hostname,
-		SysDescr:    device.SysDescr,
-		SysObjectId: device.SysObjectID,
-		SysContact:  device.SysContact,
-		SysLocation: device.SysLocation,
-		Uptime:      device.Uptime,
-		Metadata:    device.Metadata,
+		Ip:              device.IP,
+		Mac:             device.MAC,
+		Hostname:        device.Hostname,
+		SysDescr:        device.SysDescr,
+		SysObjectId:     device.SysObjectID,
+		SysContact:      device.SysContact,
+		SysLocation:     device.SysLocation,
+		Uptime:          device.Uptime,
+		Metadata:        device.Metadata,
+		SnmpFingerprint: convertSNMPFingerprintToProto(device.SNMPFingerprint),
 	}
+}
+
+func convertSNMPFingerprintToProto(fp *SNMPFingerprint) *proto.SNMPFingerprint {
+	if fp == nil {
+		return nil
+	}
+
+	protoFP := &proto.SNMPFingerprint{
+		ExtractionErrors: fp.ExtractionErrors,
+	}
+
+	if fp.System != nil {
+		protoFP.System = &proto.SNMPSystemFingerprint{
+			SysName:      fp.System.SysName,
+			SysDescr:     fp.System.SysDescr,
+			SysObjectId:  fp.System.SysObjectID,
+			SysContact:   fp.System.SysContact,
+			SysLocation:  fp.System.SysLocation,
+			IpForwarding: fp.System.IPForwarding,
+		}
+	}
+
+	if fp.Bridge != nil {
+		protoFP.Bridge = &proto.SNMPBridgeFingerprint{
+			BridgeBaseMac:          fp.Bridge.BridgeBaseMAC,
+			BridgePortCount:        fp.Bridge.BridgePortCount,
+			StpForwardingPortCount: fp.Bridge.STPForwardingPortCount,
+		}
+	}
+
+	if fp.VLAN != nil {
+		protoVLAN := &proto.SNMPVLANFingerprint{
+			VlanIdsSeen: fp.VLAN.VLANIDsSeen,
+		}
+
+		protoVLAN.PvidDistribution = make([]*proto.SNMPPVIDCount, 0, len(fp.VLAN.PVIDDistribution))
+		for _, c := range fp.VLAN.PVIDDistribution {
+			protoVLAN.PvidDistribution = append(protoVLAN.PvidDistribution, &proto.SNMPPVIDCount{
+				Pvid:  c.PVID,
+				Count: c.Count,
+			})
+		}
+
+		protoVLAN.PortEvidence = make([]*proto.SNMPVLANPortEvidence, 0, len(fp.VLAN.PortEvidence))
+		for _, p := range fp.VLAN.PortEvidence {
+			protoVLAN.PortEvidence = append(protoVLAN.PortEvidence, &proto.SNMPVLANPortEvidence{
+				VlanId:           p.VLANID,
+				EgressPortsHex:   p.EgressPortsHex,
+				UntaggedPortsHex: p.UntaggedPortsHex,
+			})
+		}
+
+		protoFP.Vlan = protoVLAN
+	}
+
+	if fp.InterfaceSummary != nil {
+		protoSummary := &proto.SNMPInterfaceSummaryFingerprint{
+			InterfaceCount:        fp.InterfaceSummary.InterfaceCount,
+			BridgeLikeNameCount:   fp.InterfaceSummary.BridgeLikeNameCount,
+			WirelessLikeNameCount: fp.InterfaceSummary.WirelessLikeNameCount,
+		}
+
+		protoSummary.IfTypeCounts = make([]*proto.SNMPInterfaceTypeCount, 0, len(fp.InterfaceSummary.IfTypeCounts))
+		for _, c := range fp.InterfaceSummary.IfTypeCounts {
+			protoSummary.IfTypeCounts = append(protoSummary.IfTypeCounts, &proto.SNMPInterfaceTypeCount{
+				IfType: c.IfType,
+				Count:  c.Count,
+			})
+		}
+
+		protoFP.InterfaceSummary = protoSummary
+	}
+
+	return protoFP
 }
 
 // convertTopologyLinkToProto converts a TopologyLink to proto.TopologyLink
@@ -245,16 +322,7 @@ func convertResultsToProto(results *DiscoveryResults, discoveryID string, includ
 		protoLinks[i] = convertTopologyLinkToProto(link)
 	}
 
-	// Prepare metadata
-	metadata := make(map[string]string)
-
-	if includeRawData && results.RawData != nil {
-		for k, v := range results.RawData {
-			if str, ok := v.(string); ok {
-				metadata[k] = str
-			}
-		}
-	}
+	metadata := discoveryContractToMetadata(results.Contract, includeRawData)
 
 	return &proto.ResultsResponse{
 		DiscoveryId: discoveryID,
@@ -266,6 +334,64 @@ func convertResultsToProto(results *DiscoveryResults, discoveryID string, includ
 		Progress:    float32(results.Status.Progress),
 		Metadata:    metadata,
 	}, nil
+}
+
+func discoveryContractToMetadata(contract DiscoveryContract, includeRawData bool) map[string]string {
+	metadata := make(map[string]string)
+	if contract.AgentID != "" {
+		metadata["agent_id"] = contract.AgentID
+	}
+	if contract.GatewayID != "" {
+		metadata["gateway_id"] = contract.GatewayID
+	}
+	if contract.TopologyContract != "" {
+		metadata["topology_contract_version"] = contract.TopologyContract
+	}
+
+	if !includeRawData {
+		return metadata
+	}
+
+	if contract.ScheduledJobName != "" {
+		metadata["scheduled_job_name"] = contract.ScheduledJobName
+	}
+
+	metadata["probe_attempts"] = strconv.Itoa(contract.ProbeSummary.Attempts)
+	metadata["probe_failures"] = strconv.Itoa(contract.ProbeSummary.Failures)
+	metadata["stage_transition_count"] = strconv.Itoa(len(contract.StageTransitions))
+	metadata["parse_failure_count"] = strconv.Itoa(sumIntMap(contract.ParseDiagnostics.ParseFailures))
+	metadata["unknown_top_level_count"] = strconv.Itoa(sumIntMap(contract.ParseDiagnostics.UnknownTopLevel))
+	metadata["parser_mismatch_count"] = strconv.Itoa(sumIntMap(contract.ParseDiagnostics.ParserMismatches))
+	if contract.DebugBundle.ExportPath != "" {
+		metadata["debug_bundle_path"] = contract.DebugBundle.ExportPath
+	}
+	if contract.DebugBundle.ExportedAtUnix > 0 {
+		metadata["debug_bundle_exported_at_unix"] = strconv.FormatInt(contract.DebugBundle.ExportedAtUnix, 10)
+	}
+	if contract.DebugBundle.Error != "" {
+		metadata["debug_bundle_error"] = contract.DebugBundle.Error
+	}
+
+	for i, transition := range contract.StageTransitions {
+		key := fmt.Sprintf("stage_transition.%03d", i)
+		metadata[key] = fmt.Sprintf(
+			"%s|%s|%s|%s",
+			transition.Stage,
+			transition.Status,
+			transition.Timestamp.UTC().Format(time.RFC3339Nano),
+			transition.Message,
+		)
+	}
+
+	return metadata
+}
+
+func sumIntMap(values map[string]int) int {
+	total := 0
+	for _, value := range values {
+		total += value
+	}
+	return total
 }
 
 // Helper functions to convert between types

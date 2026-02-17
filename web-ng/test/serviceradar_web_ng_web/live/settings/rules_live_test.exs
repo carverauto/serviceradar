@@ -5,8 +5,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
   alias ServiceRadar.Observability.ZenRule
   alias ServiceRadar.Observability.EventRule
+  alias ServiceRadarWebNG.AshTestHelpers
 
-  setup :register_and_log_in_user
+  setup %{conn: conn} do
+    user = AshTestHelpers.admin_user_fixture()
+
+    %{
+      conn: log_in_user(conn, user),
+      user: user,
+      scope: ServiceRadarWebNG.Accounts.Scope.for_user(user)
+    }
+  end
 
   describe "log normalization rules" do
     test "creates and deletes a Zen rule", %{conn: conn, scope: scope} do

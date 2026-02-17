@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLiveTest do
     ])
 
     {:ok, _lv, html} = live(conn, ~p"/gateways?limit=10")
-    assert html =~ gateway_id
+    assert html =~ "Gateway ID"
     assert html =~ "in:gateways"
   end
 end

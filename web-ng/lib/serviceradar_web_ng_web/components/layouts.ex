@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   used by your application.
   """
   use ServiceRadarWebNGWeb, :html
+  alias ServiceRadarWebNGWeb.FeatureFlags
 
   # Embed all files in layouts/* within this module.
   # The default root.html.heex file contains the HTML
@@ -159,6 +160,14 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   label="Services"
                   icon="hero-cog-6-tooth"
                   active={@current_path in ["/services", "/gateways"]}
+                />
+              </li>
+              <li :if={FeatureFlags.god_view_enabled?()}>
+                <.sidebar_link
+                  href={~p"/topology"}
+                  label="Topology"
+                  icon="hero-share"
+                  active={@current_path && String.starts_with?(@current_path, "/topology")}
                 />
               </li>
               <li>

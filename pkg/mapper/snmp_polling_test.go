@@ -22,6 +22,7 @@ import (
 
 	"github.com/gosnmp/gosnmp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
@@ -138,6 +139,16 @@ func TestGetInt32FromPDU(t *testing.T) {
 			},
 			fieldName: "testField",
 			expected:  math.MinInt32,
+			ok:        true,
+		},
+		{
+			name: "gauge32 uint32",
+			pdu: gosnmp.SnmpPDU{
+				Type:  gosnmp.Gauge32,
+				Value: uint32(42),
+			},
+			fieldName: "testField",
+			expected:  42,
 			ok:        true,
 		},
 		{
@@ -263,6 +274,33 @@ func TestConvertToUint64(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLLDPManagementAddressLinkKey(t *testing.T) {
+	t.Parallel()
+
+	oid := ".1.0.8802.1.1.2.1.4.2.1.3.100.25.7.1.4.192.168.1.87"
+	assert.Equal(t, "100.25.7", lldpManagementAddressLinkKey(oid))
+}
+
+func TestProcessLLDPManagementAddressAssignsMatchingLink(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	linkMap := map[string]*TopologyLink{
+		"100.25.7": {Metadata: map[string]string{}},
+		"100.25.8": {Metadata: map[string]string{}},
+	}
+
+	pdu := gosnmp.SnmpPDU{
+		Name:  ".1.0.8802.1.1.2.1.4.2.1.3.100.25.7.1.4.192.168.1.87",
+		Type:  gosnmp.OctetString,
+		Value: []byte{1, 192, 168, 1, 87},
+	}
+
+	require.NoError(t, engine.processLLDPManagementAddress(pdu, linkMap))
+	assert.Equal(t, "192.168.1.87", linkMap["100.25.7"].NeighborMgmtAddr)
+	assert.Empty(t, linkMap["100.25.8"].NeighborMgmtAddr)
 }
 
 func TestIsMaxUint32(t *testing.T) {
@@ -395,6 +433,22 @@ func TestUpdateIfDescr(t *testing.T) {
 			expected: "",
 		},
 		{
+			name: "object description string",
+			pdu: gosnmp.SnmpPDU{
+				Type:  gosnmp.ObjectDescription,
+				Value: []byte("object description"),
+			},
+			expected: "object description",
+		},
+		{
+			name: "malformed octet string payload",
+			pdu: gosnmp.SnmpPDU{
+				Type:  gosnmp.OctetString,
+				Value: 42,
+			},
+			expected: originalValue,
+		},
+		{
 			name: wrongTypeError,
 			pdu: gosnmp.SnmpPDU{
 				Type:  gosnmp.Integer,
@@ -407,6 +461,9 @@ func TestUpdateIfDescr(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			iface := &DiscoveredInterface{}
+			if tt.name == "malformed octet string payload" {
+				iface.IfDescr = originalValue
+			}
 			updateIfDescr(iface, tt.pdu)
 			assert.Equal(t, tt.expected, iface.IfDescr)
 		})
@@ -755,6 +812,14 @@ func TestSetObjectIDValue(t *testing.T) {
 				Value: "",
 			},
 			expected: "",
+		},
+		{
+			name: "object identifier bytes",
+			pdu: gosnmp.SnmpPDU{
+				Type:  gosnmp.ObjectIdentifier,
+				Value: []byte(".1.3.6.1.4.1.41112"),
+			},
+			expected: ".1.3.6.1.4.1.41112",
 		},
 		{
 			name: wrongTypeError,
@@ -1459,9 +1524,9 @@ func TestMetric64BitVariants(t *testing.T) {
 
 func TestDiscoveredInterfaceAvailableMetrics(t *testing.T) {
 	iface := &DiscoveredInterface{
-		DeviceIP:    "192.168.1.1",
-		IfIndex:     1,
-		IfName:      "eth0",
+		DeviceIP:     "192.168.1.1",
+		IfIndex:      1,
+		IfName:       "eth0",
 		IfOperStatus: 1,
 	}
 
@@ -1495,4 +1560,71 @@ func TestDiscoveredInterfaceAvailableMetrics(t *testing.T) {
 	assert.Equal(t, "ifOutOctets", iface.AvailableMetrics[1].Name)
 	assert.True(t, iface.AvailableMetrics[0].Supports64Bit)
 	assert.True(t, iface.AvailableMetrics[1].Supports64Bit)
+}
+
+func TestBuildSNMPFingerprintFromDevice(t *testing.T) {
+	device := &DiscoveredDevice{
+		SysName:       "farm01",
+		SysDescr:      "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324",
+		SysObjectID:   ".1.3.6.1.4.1.8072.3.2.10",
+		SysContact:    "mfreeman",
+		SysLocation:   "office",
+		IPForwarding:  1,
+		BridgeBaseMAC: "F4:92:BF:75:C7:2B",
+	}
+
+	fp := buildSNMPFingerprintFromDevice(device, map[string]string{"system.sys_name": "malformed"})
+	require.NotNil(t, fp)
+	require.NotNil(t, fp.System)
+	require.NotNil(t, fp.Bridge)
+	assert.Equal(t, "farm01", fp.System.SysName)
+	assert.Equal(t, int32(1), fp.System.IPForwarding)
+	assert.Equal(t, "F4:92:BF:75:C7:2B", fp.Bridge.BridgeBaseMAC)
+	assert.Equal(t, "malformed", fp.ExtractionErrors["system.sys_name"])
+}
+
+func TestBuildSNMPFingerprintFromDeviceNil(t *testing.T) {
+	assert.Nil(t, buildSNMPFingerprintFromDevice(nil, nil))
+}
+
+func TestParseVLANIDFromOID(t *testing.T) {
+	tests := []struct {
+		name     string
+		oid      string
+		expected int32
+		ok       bool
+	}{
+		{
+			name:     "static table vlan",
+			oid:      ".1.3.6.1.2.1.17.7.1.4.3.1.2.100",
+			expected: 100,
+			ok:       true,
+		},
+		{
+			name:     "current table vlan",
+			oid:      ".1.3.6.1.2.1.17.7.1.4.2.1.4.0.3",
+			expected: 3,
+			ok:       true,
+		},
+		{
+			name: "invalid oid",
+			oid:  ".1.3.6.1.2.1.17.invalid",
+			ok:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseVLANIDFromOID(tt.oid)
+			assert.Equal(t, tt.ok, ok)
+			if ok {
+				assert.Equal(t, tt.expected, got)
+			}
+		})
+	}
+}
+
+func TestBytesToHexString(t *testing.T) {
+	assert.Equal(t, "01FE", bytesToHexString([]byte{0x01, 0xFE}))
+	assert.Empty(t, bytesToHexString(nil))
 }
