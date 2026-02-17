@@ -560,27 +560,24 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
     Enum.reduce(keys, %{}, fn key, acc ->
       raw = Map.get(stats, key) || Map.get(stats, Atom.to_string(key))
-
-      parsed =
-        cond do
-          is_integer(raw) ->
-            raw
-
-          is_binary(raw) ->
-            case Integer.parse(raw) do
-              {value, ""} -> value
-              _ -> nil
-            end
-
-          true ->
-            nil
-        end
+      parsed = parse_pipeline_stat(raw)
 
       if is_integer(parsed), do: Map.put(acc, key, parsed), else: acc
     end)
   end
 
   defp normalize_pipeline_stats(_), do: %{}
+
+  defp parse_pipeline_stat(raw) when is_integer(raw), do: raw
+
+  defp parse_pipeline_stat(raw) when is_binary(raw) do
+    case Integer.parse(raw) do
+      {value, ""} -> value
+      _ -> nil
+    end
+  end
+
+  defp parse_pipeline_stat(_), do: nil
 
   defp normalize_zoom_mode("global"), do: "global"
   defp normalize_zoom_mode("regional"), do: "regional"

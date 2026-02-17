@@ -39,6 +39,12 @@ const (
 	mapperDebugBundlePathOption = "mapper_debug_bundle_path"
 	defaultMapperDebugBundleDir = "/tmp/serviceradar/mapper-debug"
 
+	discoveryModeSNMP = "snmp"
+	protocolLLDP      = "lldp"
+	protocolCDP       = "cdp"
+	protocolSNMPL2    = "snmp-l2"
+	fallbackUnknown   = string(DiscoveryStatusUnknown)
+
 	sourceAdapterUniFiV1 = "unifi.v1"
 	sourceAdapterSNMPV1  = "snmp.v1"
 	sourceAdapterLLDPV1  = "lldp.v1"
@@ -332,7 +338,7 @@ func resolveDiscoveryMode(jobConfig *ScheduledJob) string {
 		return mode
 	}
 	if strings.EqualFold(strings.TrimSpace(jobConfig.Options["snmp_only"]), "true") {
-		return "snmp"
+		return discoveryModeSNMP
 	}
 
 	return ""
@@ -688,7 +694,7 @@ func (e *DiscoveryEngine) recordContractParseFailure(job *DiscoveryJob, parserTy
 	}
 	key := strings.TrimSpace(parserType)
 	if key == "" {
-		key = "unknown"
+		key = fallbackUnknown
 	}
 	job.mu.Lock()
 	defer job.mu.Unlock()
@@ -711,7 +717,7 @@ func (e *DiscoveryEngine) recordContractParserMismatch(job *DiscoveryJob, parser
 	}
 	key := strings.TrimSpace(parserType)
 	if key == "" {
-		key = "unknown"
+		key = fallbackUnknown
 	}
 	job.mu.Lock()
 	defer job.mu.Unlock()
@@ -728,7 +734,7 @@ func (e *DiscoveryEngine) recordContractUnknownTopLevel(job *DiscoveryJob, sourc
 	}
 	scope := strings.TrimSpace(source)
 	if scope == "" {
-		scope = "unknown"
+		scope = fallbackUnknown
 	}
 	job.mu.Lock()
 	defer job.mu.Unlock()
@@ -896,15 +902,15 @@ func applySourceAdapterVersion(link *TopologyLink) {
 	case strings.HasPrefix(source, "unifi-api"):
 		link.Metadata["source_adapter_version"] = sourceAdapterUniFiV1
 		link.Metadata["source_adapter_family"] = "unifi"
-	case protocol == "lldp":
+	case protocol == protocolLLDP:
 		link.Metadata["source_adapter_version"] = sourceAdapterLLDPV1
-		link.Metadata["source_adapter_family"] = "lldp"
-	case protocol == "cdp":
+		link.Metadata["source_adapter_family"] = protocolLLDP
+	case protocol == protocolCDP:
 		link.Metadata["source_adapter_version"] = sourceAdapterCDPV1
-		link.Metadata["source_adapter_family"] = "cdp"
-	case protocol == "snmp-l2" || strings.HasPrefix(source, "snmp-"):
+		link.Metadata["source_adapter_family"] = protocolCDP
+	case protocol == protocolSNMPL2 || strings.HasPrefix(source, "snmp-"):
 		link.Metadata["source_adapter_version"] = sourceAdapterSNMPV1
-		link.Metadata["source_adapter_family"] = "snmp"
+		link.Metadata["source_adapter_family"] = discoveryModeSNMP
 	default:
 		link.Metadata["source_adapter_version"] = "unknown.v1"
 		link.Metadata["source_adapter_family"] = "unknown"

@@ -17,6 +17,7 @@ defmodule Mix.Tasks.Serviceradar.TopologyReport do
 
   import Ecto.Query
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyLink
@@ -62,7 +63,7 @@ defmodule Mix.Tasks.Serviceradar.TopologyReport do
     ORDER BY source
     """
 
-    case Ecto.Adapters.SQL.query(Repo, sql, []) do
+    case SQL.query(Repo, sql, []) do
       {:ok, %{rows: rows}} ->
         Enum.map(rows, fn [source, count] ->
           %{source: source || "unknown", count: count || 0}
@@ -161,7 +162,7 @@ defmodule Mix.Tasks.Serviceradar.TopologyReport do
     ORDER BY ids.uid
     """
 
-    case Ecto.Adapters.SQL.query(Repo, sql, [cutoff]) do
+    case SQL.query(Repo, sql, [cutoff]) do
       {:ok, %{rows: rows}} -> Enum.map(rows, fn [uid] -> uid end)
       _ -> []
     end

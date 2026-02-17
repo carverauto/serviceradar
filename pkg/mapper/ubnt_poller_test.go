@@ -19,7 +19,6 @@ package mapper
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -669,10 +668,10 @@ func TestParseUniFiDeviceDetailsWithAdaptersFixtures(t *testing.T) {
 
 		details, parseErr := engine.parseUniFiDeviceDetailsWithAdapters(job, body)
 		require.Error(t, parseErr)
-		require.True(t, errors.Is(parseErr, ErrUniFiPayloadDriftQuarantined))
+		require.ErrorIs(t, parseErr, ErrUniFiPayloadDriftQuarantined)
 		assert.Nil(t, details)
-		assert.Greater(t, job.Results.Contract.ParseDiagnostics.ParserMismatches["unifi.detail.quarantined"], 0)
-		assert.Greater(t, len(job.Results.Contract.ParseDiagnostics.UnknownTopLevel), 0)
+		assert.Positive(t, job.Results.Contract.ParseDiagnostics.ParserMismatches["unifi.detail.quarantined"])
+		assert.NotEmpty(t, job.Results.Contract.ParseDiagnostics.UnknownTopLevel)
 	})
 }
 
