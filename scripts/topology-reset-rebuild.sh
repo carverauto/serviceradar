@@ -156,23 +156,33 @@ pairs AS (
 ),
 graph_counts AS (
   SELECT
-    COALESCE(SUM(CASE WHEN rel = 'CONNECTS_TO' THEN cnt ELSE 0 END), 0)::bigint AS direct_edges,
-    COALESCE(SUM(CASE WHEN rel = 'INFERRED_TO' THEN cnt ELSE 0 END), 0)::bigint AS inferred_edges,
-    COALESCE(SUM(CASE WHEN rel = 'ATTACHED_TO' THEN cnt ELSE 0 END), 0)::bigint AS attachment_edges
-  FROM (
-    SELECT
-      (result::jsonb ->> 'relation') AS rel,
-      ((result::jsonb ->> 'count')::bigint) AS cnt
-    FROM (
-      SELECT ag_catalog.agtype_to_text(v) AS result
+    COALESCE((
+      SELECT ((ag_catalog.agtype_to_text(v))::jsonb ->> 'count')::bigint
       FROM ag_catalog.cypher('platform_graph', \$\$
-        MATCH ()-[r]->()
+        MATCH ()-[r:CONNECTS_TO]->()
         WHERE r.ingestor = 'mapper_topology_v1'
-          AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
-        RETURN {relation: type(r), count: count(r)} AS v
+        RETURN {count: count(r)} AS v
       \$\$) AS q(v agtype)
-    ) rows
-  ) c
+      LIMIT 1
+    ), 0)::bigint AS direct_edges,
+    COALESCE((
+      SELECT ((ag_catalog.agtype_to_text(v))::jsonb ->> 'count')::bigint
+      FROM ag_catalog.cypher('platform_graph', \$\$
+        MATCH ()-[r:INFERRED_TO]->()
+        WHERE r.ingestor = 'mapper_topology_v1'
+        RETURN {count: count(r)} AS v
+      \$\$) AS q(v agtype)
+      LIMIT 1
+    ), 0)::bigint AS inferred_edges,
+    COALESCE((
+      SELECT ((ag_catalog.agtype_to_text(v))::jsonb ->> 'count')::bigint
+      FROM ag_catalog.cypher('platform_graph', \$\$
+        MATCH ()-[r:ATTACHED_TO]->()
+        WHERE r.ingestor = 'mapper_topology_v1'
+        RETURN {count: count(r)} AS v
+      \$\$) AS q(v agtype)
+      LIMIT 1
+    ), 0)::bigint AS attachment_edges
 ),
 unresolved AS (
   SELECT COUNT(*)::bigint AS unresolved_endpoints
@@ -227,22 +237,24 @@ raw AS (
 ),
 graph_counts AS (
   SELECT
-    COALESCE(SUM(CASE WHEN rel = 'CONNECTS_TO' THEN cnt ELSE 0 END), 0)::bigint AS direct_edges,
-    COALESCE(SUM(CASE WHEN rel = 'INFERRED_TO' THEN cnt ELSE 0 END), 0)::bigint AS inferred_edges
-  FROM (
-    SELECT
-      (result::jsonb ->> 'relation') AS rel,
-      ((result::jsonb ->> 'count')::bigint) AS cnt
-    FROM (
-      SELECT ag_catalog.agtype_to_text(v) AS result
+    COALESCE((
+      SELECT ((ag_catalog.agtype_to_text(v))::jsonb ->> 'count')::bigint
       FROM ag_catalog.cypher('platform_graph', \$\$
-        MATCH ()-[r]->()
+        MATCH ()-[r:CONNECTS_TO]->()
         WHERE r.ingestor = 'mapper_topology_v1'
-          AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
-        RETURN {relation: type(r), count: count(r)} AS v
+        RETURN {count: count(r)} AS v
       \$\$) AS q(v agtype)
-    ) rows
-  ) c
+      LIMIT 1
+    ), 0)::bigint AS direct_edges,
+    COALESCE((
+      SELECT ((ag_catalog.agtype_to_text(v))::jsonb ->> 'count')::bigint
+      FROM ag_catalog.cypher('platform_graph', \$\$
+        MATCH ()-[r:INFERRED_TO]->()
+        WHERE r.ingestor = 'mapper_topology_v1'
+        RETURN {count: count(r)} AS v
+      \$\$) AS q(v agtype)
+      LIMIT 1
+    ), 0)::bigint AS inferred_edges
 ),
 unresolved AS (
   SELECT COUNT(*)::bigint AS unresolved_endpoints
@@ -396,7 +408,7 @@ run_gates() {
     failures=$((failures + 1))
   fi
 
-  if ! run_sql "SELECT (${inferred_ratio}::numeric <= ${MAX_INFERRED_RATIO}::numeric)::text;" | grep -q '^t$'; then
+  if ! run_sql "SELECT (${inferred_ratio}::numeric <= ${MAX_INFERRED_RATIO}::numeric)::text;" | grep -Eq '^(t|true)$'; then
     echo "GATE FAIL: inferred_ratio ${inferred_ratio} > ${MAX_INFERRED_RATIO}" >&2
     failures=$((failures + 1))
   fi
@@ -406,7 +418,7 @@ run_gates() {
     failures=$((failures + 1))
   fi
 
-  if ! run_sql "SELECT (${edge_churn_ratio}::numeric <= ${MAX_EDGE_CHURN_RATIO}::numeric)::text;" | grep -q '^t$'; then
+  if ! run_sql "SELECT (${edge_churn_ratio}::numeric <= ${MAX_EDGE_CHURN_RATIO}::numeric)::text;" | grep -Eq '^(t|true)$'; then
     echo "GATE FAIL: edge_churn_ratio ${edge_churn_ratio} > ${MAX_EDGE_CHURN_RATIO}" >&2
     failures=$((failures + 1))
   fi
