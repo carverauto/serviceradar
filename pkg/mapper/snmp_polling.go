@@ -2479,7 +2479,7 @@ func parseIPToMediaSuffix(oidName string) (int32, string, bool) {
 
 	idxOffset := len(baseParts)
 	ifIndexVal, err := strconv.Atoi(parts[idxOffset])
-	if err != nil || ifIndexVal <= 0 {
+	if err != nil || ifIndexVal <= 0 || ifIndexVal > math.MaxInt32 {
 		return 0, "", false
 	}
 
@@ -2492,7 +2492,7 @@ func parseIPToMediaSuffix(oidName string) (int32, string, bool) {
 		octets[i] = strconv.Itoa(octet)
 	}
 
-	return int32(ifIndexVal), strings.Join(octets, "."), true
+	return int32(ifIndexVal), strings.Join(octets, "."), true //nolint:gosec // G115: bounds checked above
 }
 
 func parseIPToPhysicalSuffix(oidName string) (int32, string, bool) {
@@ -2504,7 +2504,7 @@ func parseIPToPhysicalSuffix(oidName string) (int32, string, bool) {
 
 	idxOffset := len(baseParts)
 	ifIndexVal, err := strconv.Atoi(parts[idxOffset])
-	if err != nil || ifIndexVal <= 0 {
+	if err != nil || ifIndexVal <= 0 || ifIndexVal > math.MaxInt32 {
 		return 0, "", false
 	}
 
@@ -2538,7 +2538,7 @@ func parseIPToPhysicalSuffix(oidName string) (int32, string, bool) {
 		octets[i] = strconv.Itoa(octet)
 	}
 
-	return int32(ifIndexVal), strings.Join(octets, "."), true
+	return int32(ifIndexVal), strings.Join(octets, "."), true //nolint:gosec // G115: bounds checked above
 }
 
 func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) (map[string]int32, map[int32]int) {
@@ -2551,13 +2551,13 @@ func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) (map[string]
 		}
 
 		bridgePort, convErr := strconv.Atoi(parts[len(baseParts)])
-		if convErr != nil {
+		if convErr != nil || bridgePort < 0 || bridgePort > math.MaxInt32 {
 			return nil
 		}
 
 		val, ok := e.getInt32FromPDU(pdu, "dot1dBasePortIfIndex")
 		if ok && val > 0 {
-			bridgePortToIfIndex[int32(bridgePort)] = val
+			bridgePortToIfIndex[int32(bridgePort)] = val //nolint:gosec // G115: bounds checked above
 		}
 		return nil
 	})

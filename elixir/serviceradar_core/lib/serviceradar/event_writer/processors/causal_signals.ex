@@ -283,18 +283,19 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp clamp_severity(value) when value > 6, do: 6
   defp clamp_severity(value), do: value
 
+  @severity_map %{
+    "unknown" => 0,
+    "informational" => 1,
+    "info" => 1,
+    "low" => 2,
+    "medium" => 3,
+    "high" => 4,
+    "critical" => 5,
+    "fatal" => 6
+  }
+
   defp severity_from_string(value) do
-    case String.downcase(value) do
-      "unknown" -> 0
-      "informational" -> 1
-      "info" -> 1
-      "low" -> 2
-      "medium" -> 3
-      "high" -> 4
-      "critical" -> 5
-      "fatal" -> 6
-      _ -> 3
-    end
+    Map.get(@severity_map, String.downcase(value), 3)
   end
 
   defp severity_name(0), do: "Unknown"
