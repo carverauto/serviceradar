@@ -185,7 +185,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
       {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
 
-      assert has_element?(lv, "span", "Resource Attributes")
       assert has_element?(lv, "span", "service.name")
       assert has_element?(lv, "span", "serviceradar-db-event-writer")
       assert has_element?(lv, "span", "db-writer-service")

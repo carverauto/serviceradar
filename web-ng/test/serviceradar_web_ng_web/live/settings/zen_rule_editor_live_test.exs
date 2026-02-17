@@ -4,8 +4,17 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Observability.ZenRule
+  alias ServiceRadarWebNG.AshTestHelpers
 
-  setup :register_and_log_in_user
+  setup %{conn: conn} do
+    user = AshTestHelpers.admin_user_fixture()
+
+    %{
+      conn: log_in_user(conn, user),
+      user: user,
+      scope: ServiceRadarWebNG.Accounts.Scope.for_user(user)
+    }
+  end
 
   test "loads edit route and saves rule changes", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])

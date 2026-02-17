@@ -355,10 +355,29 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   defp normalize_selected(metrics, true) when is_list(metrics) do
     metrics
     |> Enum.map(&normalize_metric_name/1)
+    |> expand_packet_metrics()
     |> Enum.uniq()
   end
 
   defp normalize_selected(_metrics, _enabled), do: []
+
+  # Always include packet counters alongside byte counters so link PPS can be derived
+  # without requiring manual per-interface metric selection in the UI.
+  defp expand_packet_metrics(selected) when is_list(selected) do
+    selected
+    |> maybe_add_metric("ifInOctets", "ifInUcastPkts")
+    |> maybe_add_metric("ifOutOctets", "ifOutUcastPkts")
+    |> maybe_add_metric("ifHCInOctets", "ifHCInUcastPkts")
+    |> maybe_add_metric("ifHCOutOctets", "ifHCOutUcastPkts")
+  end
+
+  defp maybe_add_metric(selected, source, target) do
+    if source in selected and target not in selected do
+      [target | selected]
+    else
+      selected
+    end
+  end
 
   defp normalize_metrics(metrics) when is_list(metrics) do
     metrics

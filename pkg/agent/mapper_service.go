@@ -315,6 +315,12 @@ func (p *MapperResultPublisher) PublishTopologyLink(_ context.Context, link *map
 		return nil
 	}
 
+	identity := mapper.NormalizeTopologyLinkNeighborIdentity(link)
+	neighborMgmtAddr := link.NeighborMgmtAddr
+	if neighborMgmtAddr == "" && identity != nil {
+		neighborMgmtAddr = identity.ManagementIP
+	}
+
 	update := map[string]interface{}{
 		"protocol":             link.Protocol,
 		"local_device_ip":      link.LocalDeviceIP,
@@ -325,9 +331,12 @@ func (p *MapperResultPublisher) PublishTopologyLink(_ context.Context, link *map
 		"neighbor_port_id":     link.NeighborPortID,
 		"neighbor_port_descr":  link.NeighborPortDescr,
 		"neighbor_system_name": link.NeighborSystemName,
-		"neighbor_mgmt_addr":   link.NeighborMgmtAddr,
+		"neighbor_mgmt_addr":   neighborMgmtAddr,
 		"metadata":             link.Metadata,
 		"timestamp":            time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if identityPayload := buildNeighborIdentityPayload(identity); len(identityPayload) > 0 {
+		update["neighbor_identity"] = identityPayload
 	}
 
 	p.mu.Lock()
@@ -336,6 +345,34 @@ func (p *MapperResultPublisher) PublishTopologyLink(_ context.Context, link *map
 	p.mu.Unlock()
 
 	return nil
+}
+
+func buildNeighborIdentityPayload(identity *mapper.TopologyNeighborIdentity) map[string]interface{} {
+	if identity == nil {
+		return nil
+	}
+
+	payload := map[string]interface{}{}
+	if identity.ManagementIP != "" {
+		payload["management_ip"] = identity.ManagementIP
+	}
+	if identity.DeviceID != "" {
+		payload["device_id"] = identity.DeviceID
+	}
+	if identity.ChassisID != "" {
+		payload["chassis_id"] = identity.ChassisID
+	}
+	if identity.PortID != "" {
+		payload["port_id"] = identity.PortID
+	}
+	if identity.PortDescr != "" {
+		payload["port_descr"] = identity.PortDescr
+	}
+	if identity.SystemName != "" {
+		payload["system_name"] = identity.SystemName
+	}
+
+	return payload
 }
 
 func (p *MapperResultPublisher) Drain(max int) ([]map[string]interface{}, bool) {

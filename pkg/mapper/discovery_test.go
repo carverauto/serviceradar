@@ -18,6 +18,8 @@ package mapper
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -490,6 +492,45 @@ func TestEnsureDeviceID(t *testing.T) {
 	assert.Equal(t, "existing-id", device.DeviceID) // DeviceID should not change
 }
 
+func TestAddOrUpdateDeviceToResultsCanonicalizesSameIPIdentity(t *testing.T) {
+	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+
+	existing := &DiscoveredDevice{
+		DeviceID: "mac-f492bf75c721",
+		IP:       "152.117.116.178",
+		MAC:      "f4:92:bf:75:c7:21",
+		Hostname: "farm01",
+		Metadata: map[string]string{"source": "unifi-api"},
+	}
+
+	job := &DiscoveryJob{
+		ID:      "job-1",
+		Results: &DiscoveryResults{Devices: []*DiscoveredDevice{existing}},
+		deviceMap: map[string]*DeviceInterfaceMap{
+			existing.DeviceID: {
+				DeviceID: existing.DeviceID,
+				IPs:      map[string]struct{}{existing.IP: {}},
+				MACs:     map[string]struct{}{existing.MAC: {}},
+			},
+		},
+	}
+
+	incomingSNMP := &DiscoveredDevice{
+		DeviceID: "mac-f692bf75c721",
+		IP:       "152.117.116.178",
+		MAC:      "f6:92:bf:75:c7:21",
+		Hostname: "farm01",
+		Metadata: map[string]string{"source": "snmp"},
+	}
+
+	engine.addOrUpdateDeviceToResults(job, incomingSNMP)
+
+	require.Len(t, job.Results.Devices, 1)
+	assert.Equal(t, "mac-f492bf75c721", job.Results.Devices[0].DeviceID)
+	assert.Equal(t, "f4:92:bf:75:c7:21", job.Results.Devices[0].MAC)
+	assert.Equal(t, "1", job.Results.Devices[0].Metadata["alt_mac:f692bf75c721"])
+}
+
 func TestHandleEmptyTargetList(t *testing.T) {
 	mockPublisher := new(MockPublisher)
 	mockLogger := logger.NewTestLogger()
@@ -528,4 +569,154 @@ func TestGenerateDiscoveryID(t *testing.T) {
 	assert.NotEmpty(t, id1)
 	assert.NotEmpty(t, id2)
 	assert.NotEqual(t, id1, id2)
+}
+
+func TestCollectRecursiveSNMPTargets(t *testing.T) {
+	mockPublisher := new(MockPublisher)
+	mockLogger := logger.NewTestLogger()
+	config := &Config{
+		Workers:       2,
+		MaxActiveJobs: 5,
+		Timeout:       30 * time.Second,
+	}
+
+	engine, err := NewDiscoveryEngine(config, mockPublisher, mockLogger)
+	require.NoError(t, err)
+
+	discoveryEngine := engine.(*DiscoveryEngine)
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			TopologyLinks: []*TopologyLink{
+				{NeighborMgmtAddr: "192.168.1.87"},
+				{NeighborMgmtAddr: "192.168.10.154"},
+				{NeighborMgmtAddr: "not-an-ip"},
+				{NeighborMgmtAddr: "192.168.1.87"},
+			},
+		},
+	}
+
+	known := map[string]bool{"192.168.1.87": true}
+	targets := discoveryEngine.collectRecursiveSNMPTargets(job, known)
+
+	assert.Len(t, targets, 1)
+	assert.True(t, targets["192.168.10.154"])
+	assert.False(t, targets["192.168.1.87"])
+}
+
+func TestTopologyStageReadyRequiresIdentityAndEnrichmentCompletion(t *testing.T) {
+	transitions := []DiscoveryStageTransition{
+		{Stage: DiscoveryStagePrepare, Status: DiscoveryStageStatusCompleted},
+		{Stage: DiscoveryStageIdentity, Status: DiscoveryStageStatusCompleted},
+	}
+	assert.False(t, topologyStageReady(transitions))
+
+	transitions = append(transitions, DiscoveryStageTransition{
+		Stage:  DiscoveryStageEnrich,
+		Status: DiscoveryStageStatusCompleted,
+	})
+	assert.True(t, topologyStageReady(transitions))
+}
+
+func TestDeduplicateDevicesDoesNotMergeTopologyAdjacency(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			Devices: []*DiscoveredDevice{
+				{DeviceID: "mac-aa", IP: "10.0.0.1", MAC: "aa:aa:aa:aa:aa:aa", Metadata: map[string]string{}},
+				{DeviceID: "mac-bb", IP: "10.0.0.2", MAC: "bb:bb:bb:bb:bb:bb", Metadata: map[string]string{}},
+			},
+			TopologyLinks: []*TopologyLink{
+				{LocalDeviceIP: "10.0.0.1", NeighborMgmtAddr: "10.0.0.2"},
+			},
+		},
+		deviceMap: map[string]*DeviceInterfaceMap{
+			"mac-aa": {
+				DeviceID: "mac-aa",
+				MACs:     map[string]struct{}{"aa:aa:aa:aa:aa:aa": {}},
+				IPs:      map[string]struct{}{"10.0.0.1": {}},
+			},
+			"mac-bb": {
+				DeviceID: "mac-bb",
+				MACs:     map[string]struct{}{"bb:bb:bb:bb:bb:bb": {}},
+				IPs:      map[string]struct{}{"10.0.0.2": {}},
+			},
+		},
+	}
+
+	engine.deduplicateDevices(job)
+	assert.Len(t, job.Results.Devices, 2)
+}
+
+type countingProber struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *countingProber) Probe(_ context.Context, _ string) error {
+	p.mu.Lock()
+	p.calls++
+	p.mu.Unlock()
+	return nil
+}
+
+func (*countingProber) Close() error { return nil }
+
+func TestStartWorkersUsesSharedHostProber(t *testing.T) {
+	prober := &countingProber{}
+	engine := &DiscoveryEngine{hostProber: prober, done: make(chan struct{}), logger: logger.NewTestLogger()}
+	job := &DiscoveryJob{
+		ID: "job-1",
+		Results: &DiscoveryResults{
+			Contract: DiscoveryContract{},
+		},
+		ctx: context.Background(),
+	}
+
+	targetChan := make(chan string, 3)
+	resultChan := make(chan bool, 3)
+	for _, target := range []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"} {
+		targetChan <- target
+	}
+	close(targetChan)
+
+	var wg sync.WaitGroup
+	engine.startWorkers(job, &wg, targetChan, resultChan, 2, func(_ *DiscoveryJob, _ string) {})
+	wg.Wait()
+	close(resultChan)
+
+	assert.Equal(t, 3, prober.calls)
+	assert.Equal(t, 3, job.Results.Contract.ProbeSummary.Attempts)
+}
+
+func BenchmarkStartWorkersProbeComparison(b *testing.B) {
+	bench := func(b *testing.B, useProber bool) { //nolint:thelper // not a standalone test helper
+		for i := 0; i < b.N; i++ {
+			engine := &DiscoveryEngine{done: make(chan struct{}), logger: logger.NewTestLogger()}
+			if useProber {
+				engine.hostProber = &countingProber{}
+			}
+			job := &DiscoveryJob{
+				ID: fmt.Sprintf("job-%d", i),
+				Results: &DiscoveryResults{
+					Contract: DiscoveryContract{},
+				},
+				ctx: context.Background(),
+			}
+
+			targetChan := make(chan string, 50)
+			resultChan := make(chan bool, 50)
+			for t := 0; t < 50; t++ {
+				targetChan <- fmt.Sprintf("10.0.0.%d", t+1)
+			}
+			close(targetChan)
+
+			var wg sync.WaitGroup
+			engine.startWorkers(job, &wg, targetChan, resultChan, 10, func(_ *DiscoveryJob, _ string) {})
+			wg.Wait()
+			close(resultChan)
+		}
+	}
+
+	b.Run("without_prober", func(b *testing.B) { bench(b, false) })
+	b.Run("with_shared_prober", func(b *testing.B) { bench(b, true) })
 }

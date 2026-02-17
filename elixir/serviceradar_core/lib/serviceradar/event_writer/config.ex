@@ -149,6 +149,20 @@ defmodule ServiceRadar.EventWriter.Config do
         processor: ServiceRadar.EventWriter.Processors.Logs,
         batch_size: 100,
         batch_timeout: 1_000
+      },
+      %{
+        name: "BMP_CAUSAL",
+        subject: "bmp.events.>",
+        processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
+        name: "SIEM_CAUSAL",
+        subject: "siem.events.>",
+        processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+        batch_size: 100,
+        batch_timeout: 1_000
       }
     ]
   end

@@ -58,7 +58,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLiveTest do
     |> form("#rule-editor-form", %{
       "rule" => %{
         "id" => "ubiquiti-router-custom",
-        "enabled" => "true",
+        "enabled" => "on",
         "priority" => "1200",
         "confidence" => "95",
         "reason" => "UI test",
@@ -135,7 +135,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLiveTest do
     |> form("#rule-editor-form", %{
       "rule" => %{
         "id" => "base-rule",
-        "enabled" => "true",
+        "enabled" => "on",
         "priority" => "1000",
         "confidence" => "90",
         "reason" => "base",
