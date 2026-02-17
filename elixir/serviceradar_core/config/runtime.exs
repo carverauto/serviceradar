@@ -458,6 +458,13 @@ if config_env() == :prod do
           processor: ServiceRadar.EventWriter.Processors.Logs,
           batch_size: 100,
           batch_timeout: 1_000
+        },
+        %{
+          name: "SFLOW_RAW",
+          subject: "flows.raw.sflow",
+          processor: ServiceRadar.EventWriter.Processors.NetFlowMetrics,
+          batch_size: 50,
+          batch_timeout: 500
         }
       ]
   end
