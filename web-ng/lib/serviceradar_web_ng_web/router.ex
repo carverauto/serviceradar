@@ -320,7 +320,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     # Redirect /dashboard to /analytics
     get("/dashboard", PageController, :redirect_to_analytics)
     get("/users/settings", PageController, :redirect_to_settings_profile)
-    get("/netflows", PageController, :redirect_to_netflow)
+    get("/netflows", PageController, :redirect_to_flows)
+    get("/netflow", PageController, :redirect_to_flows)
 
     live_session :require_authenticated_user,
       on_mount: [
@@ -344,7 +345,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/alerts", AlertLive.Index, :index)
       live("/alerts/:alert_id", AlertLive.Show, :show)
       live("/observability", LogLive.Index, :index)
-      live("/netflow", NetflowLive.Visualize, :index)
+      live("/flows", NetflowLive.Visualize, :index)
       live("/observability/metrics/:span_id", MetricLive.Show, :show)
       live("/logs", LogLive.Index, :index)
       live("/logs/:log_id", LogLive.Show, :show)
@@ -371,12 +372,12 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
 
-      # NetFlow settings (directionality + enrichment configuration)
-      live("/settings/netflows", Settings.NetflowLive.Index, :index)
-      live("/settings/netflows/new", Settings.NetflowLive.Index, :new)
-      live("/settings/netflows/:id/edit", Settings.NetflowLive.Index, :edit)
-      live("/settings/netflows/app-rules/new", Settings.NetflowLive.Index, :new_app_rule)
-      live("/settings/netflows/app-rules/:id/edit", Settings.NetflowLive.Index, :edit_app_rule)
+      # Flow settings (directionality + enrichment configuration)
+      live("/settings/flows", Settings.NetflowLive.Index, :index)
+      live("/settings/flows/new", Settings.NetflowLive.Index, :new)
+      live("/settings/flows/:id/edit", Settings.NetflowLive.Index, :edit)
+      live("/settings/flows/app-rules/new", Settings.NetflowLive.Index, :new_app_rule)
+      live("/settings/flows/app-rules/:id/edit", Settings.NetflowLive.Index, :edit_app_rule)
 
       # Integration sources configuration
       live("/settings/networks/integrations", Settings.IntegrationsLive.Index, :index)

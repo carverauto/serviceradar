@@ -10,6 +10,7 @@ members = [
     "cmd/consumers/zen",
     "cmd/checkers/rperf-client",
     "rust/netflow-collector",
+    "rust/sflow-collector",
     "rust/srql",
 ]
 

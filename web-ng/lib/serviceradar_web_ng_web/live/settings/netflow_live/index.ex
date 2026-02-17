@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
       {:ok,
        socket
        |> assign(:page_title, "NetFlow Settings")
-       |> assign(:current_path, "/settings/netflows")
+       |> assign(:current_path, "/settings/flows")
        |> assign(:cidrs, load_cidrs(scope))
        |> assign(:app_rules, load_app_rules(scope))
        |> assign(:settings, settings)
@@ -55,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
   defp apply_action(socket, :index, _params) do
     socket
     |> assign(:page_title, "NetFlow Settings")
-    |> assign(:current_path, "/settings/netflows")
+    |> assign(:current_path, "/settings/flows")
     |> assign(:selected, nil)
     |> assign(:ash_form, nil)
     |> assign(:form, nil)
@@ -70,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
     socket
     |> assign(:page_title, "Add Local CIDR")
-    |> assign(:current_path, "/settings/netflows")
+    |> assign(:current_path, "/settings/flows")
     |> assign(:selected, nil)
     |> assign(:ash_form, ash_form)
     |> assign(:form, to_form(ash_form))
@@ -84,7 +84,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
       nil ->
         socket
         |> put_flash(:error, "CIDR not found")
-        |> push_navigate(to: ~p"/settings/netflows")
+        |> push_navigate(to: ~p"/settings/flows")
 
       cidr ->
         ash_form =
@@ -92,7 +92,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
         socket
         |> assign(:page_title, "Edit Local CIDR")
-        |> assign(:current_path, "/settings/netflows")
+        |> assign(:current_path, "/settings/flows")
         |> assign(:selected, cidr)
         |> assign(:ash_form, ash_form)
         |> assign(:form, to_form(ash_form))
@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
     socket
     |> assign(:page_title, "Add App Rule")
-    |> assign(:current_path, "/settings/netflows")
+    |> assign(:current_path, "/settings/flows")
     |> assign(:selected, nil)
     |> assign(:ash_form, ash_form)
     |> assign(:form, to_form(ash_form))
@@ -125,7 +125,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
       nil ->
         socket
         |> put_flash(:error, "Rule not found")
-        |> push_navigate(to: ~p"/settings/netflows")
+        |> push_navigate(to: ~p"/settings/flows")
 
       rule ->
         ash_form =
@@ -133,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
         socket
         |> assign(:page_title, "Edit App Rule")
-        |> assign(:current_path, "/settings/netflows")
+        |> assign(:current_path, "/settings/flows")
         |> assign(:selected, rule)
         |> assign(:ash_form, ash_form)
         |> assign(:form, to_form(ash_form))
@@ -162,7 +162,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
          |> put_flash(:info, "Saved")
          |> assign(:cidrs, load_cidrs(socket.assigns.current_scope))
          |> assign(:app_rules, load_app_rules(socket.assigns.current_scope))
-         |> push_navigate(to: ~p"/settings/netflows")}
+         |> push_navigate(to: ~p"/settings/flows")}
 
       {:error, ash_form} ->
         {:noreply,
@@ -325,10 +325,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path="/settings/netflows">
+      <.settings_shell current_path="/settings/flows">
         <div class="space-y-4">
-          <.settings_nav current_path="/settings/netflows" current_scope={@current_scope} />
-          <.network_nav current_path="/settings/netflows" current_scope={@current_scope} />
+          <.settings_nav current_path="/settings/flows" current_scope={@current_scope} />
+          <.network_nav current_path="/settings/flows" current_scope={@current_scope} />
         </div>
 
         <div class="grid gap-6 lg:grid-cols-[1fr,520px]">
@@ -545,7 +545,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
             <div class="flex items-center justify-between">
               <h2 class="text-sm font-semibold">Local CIDRs</h2>
-              <.link navigate={~p"/settings/netflows/new"} class="btn btn-sm btn-primary">
+              <.link navigate={~p"/settings/flows/new"} class="btn btn-sm btn-primary">
                 Add CIDR
               </.link>
             </div>
@@ -576,7 +576,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                         </span>
                       </td>
                       <td class="text-right space-x-2">
-                        <.link navigate={~p"/settings/netflows/#{cidr.id}/edit"} class="btn btn-xs">
+                        <.link navigate={~p"/settings/flows/#{cidr.id}/edit"} class="btn btn-xs">
                           Edit
                         </.link>
                         <button
@@ -604,7 +604,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
             <div class="flex items-center justify-between pt-2">
               <h2 class="text-sm font-semibold">Application Classification Rules</h2>
-              <.link navigate={~p"/settings/netflows/app-rules/new"} class="btn btn-sm btn-primary">
+              <.link navigate={~p"/settings/flows/app-rules/new"} class="btn btn-sm btn-primary">
                 Add Rule
               </.link>
             </div>
@@ -650,7 +650,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                       </td>
                       <td class="text-right space-x-2">
                         <.link
-                          navigate={~p"/settings/netflows/app-rules/#{rule.id}/edit"}
+                          navigate={~p"/settings/flows/app-rules/#{rule.id}/edit"}
                           class="btn btn-xs"
                         >
                           Edit
@@ -777,7 +777,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                   </div>
 
                   <div class="mt-5 flex items-center justify-between">
-                    <.link navigate={~p"/settings/netflows"} class="btn btn-ghost btn-sm">
+                    <.link navigate={~p"/settings/flows"} class="btn btn-ghost btn-sm">
                       Cancel
                     </.link>
                     <button class="btn btn-primary btn-sm" type="submit">Save</button>

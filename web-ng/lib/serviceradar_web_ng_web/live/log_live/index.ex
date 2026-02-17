@@ -114,8 +114,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     path = uri |> to_string() |> URI.parse() |> Map.get(:path)
     tab = normalize_tab(Map.get(params, "tab"), path)
 
-    # NetFlow analytics has moved to a dedicated /netflow page. Preserve SRQL `q`
-    # and best-effort preserve netflow-specific options so bookmarks keep working.
+    # Flow analytics has moved to a dedicated /flows page. Preserve SRQL `q`
+    # and best-effort preserve flow-specific options so bookmarks keep working.
     if path == "/observability" and tab == "netflows" do
       nav_params =
         params
@@ -134,8 +134,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
       to =
         case nav_params do
-          %{} = p when map_size(p) > 0 -> "/netflow?" <> URI.encode_query(p)
-          _ -> "/netflow"
+          %{} = p when map_size(p) > 0 -> "/flows?" <> URI.encode_query(p)
+          _ -> "/flows"
         end
 
       {:noreply, push_navigate(socket, to: to)}
@@ -2697,7 +2697,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.tab_button id="metrics" label="Metrics" icon="hero-chart-bar" active={@active} />
         <.tab_button id="events" label="Events" icon="hero-bell-alert" active={@active} />
         <.tab_button id="alerts" label="Alerts" icon="hero-exclamation-triangle" active={@active} />
-        <.tab_button id="netflows" label="NetFlow" icon="hero-arrow-path" active={@active} />
+        <.tab_button id="netflows" label="Flows" icon="hero-arrow-path" active={@active} />
       </div>
     </div>
     """
@@ -5630,7 +5630,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp panel_title("metrics"), do: "Metrics"
   defp panel_title("events"), do: "Events"
   defp panel_title("alerts"), do: "Alerts"
-  defp panel_title("netflows"), do: "NetFlow"
+  defp panel_title("netflows"), do: "Flows"
   defp panel_title(_), do: "Log Stream"
 
   defp panel_subtitle("traces"), do: "Click a trace to jump to correlated logs."

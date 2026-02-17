@@ -130,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   def handle_event("srql_submit", params, socket) do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_submit", params,
-       fallback_path: "/netflow",
+       fallback_path: "/flows",
        extra_params: srql_submit_extra_params(socket)
      )}
   end
@@ -139,7 +139,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_toggle", %{},
        entity: "flows",
-       fallback_path: "/netflow"
+       fallback_path: "/flows"
      )}
   end
 
@@ -155,7 +155,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_run", %{},
        entity: "flows",
-       fallback_path: "/netflow",
+       fallback_path: "/flows",
        extra_params: srql_submit_extra_params(socket)
      )}
   end
@@ -835,7 +835,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   flows={@flows}
                   rdns_map={@rdns_map}
                   geo_iso2_map={@geo_iso2_map}
-                  base_path="/netflow"
+                  base_path="/flows"
                   query={Map.get(@srql, :query) || ""}
                   limit={@limit}
                   nf_param={nf_param(@netflow_viz_state)}
@@ -845,7 +845,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   <.ui_pagination
                     prev_cursor={Map.get(@flows_pagination, "prev_cursor")}
                     next_cursor={Map.get(@flows_pagination, "next_cursor")}
-                    base_path="/netflow"
+                    base_path="/flows"
                     query={Map.get(@srql, :query) || ""}
                     limit={@limit}
                     result_count={length(@flows || [])}
