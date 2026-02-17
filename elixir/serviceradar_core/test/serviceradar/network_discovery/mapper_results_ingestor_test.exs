@@ -611,6 +611,47 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert resolved.local_device_id == "sr:tonka01"
       assert resolved.neighbor_device_id == "sr:endpoint-10-96"
     end
+
+    test "reconciles previously unresolved endpoints after canonical identity becomes available" do
+      records = [
+        %{
+          local_device_id: "sr:tonka01",
+          local_device_ip: "192.168.10.1",
+          neighbor_device_id: "default:192.168.10.154",
+          neighbor_mgmt_addr: "192.168.10.154",
+          neighbor_system_name: "aruba-24g-02",
+          neighbor_chassis_id: nil,
+          partition: "default"
+        }
+      ]
+
+      unresolved_index = %{
+        uid_to_uid: %{"sr:tonka01" => "sr:tonka01"},
+        ip_to_uid: %{"192.168.10.1" => "sr:tonka01"},
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [unresolved] = MapperResultsIngestor.resolve_topology_records(records, unresolved_index)
+      assert unresolved.local_device_id == "sr:tonka01"
+      assert unresolved.neighbor_device_id == nil
+      assert unresolved.metadata["source_target_uid"] == "default:192.168.10.154"
+
+      reconciled_index = %{
+        uid_to_uid: %{"sr:tonka01" => "sr:tonka01", "sr:aruba-10-154" => "sr:aruba-10-154"},
+        ip_to_uid: %{
+          "192.168.10.1" => "sr:tonka01",
+          "192.168.10.154" => "sr:aruba-10-154"
+        },
+        name_to_uid: %{"aruba-24g-02" => "sr:aruba-10-154"},
+        mac_to_uid: %{}
+      }
+
+      [reconciled] = MapperResultsIngestor.resolve_topology_records(records, reconciled_index)
+      assert reconciled.local_device_id == "sr:tonka01"
+      assert reconciled.neighbor_device_id == "sr:aruba-10-154"
+      assert reconciled.metadata["source_target_uid"] == "default:192.168.10.154"
+    end
   end
 
   describe "topology_candidate_metadata/1" do

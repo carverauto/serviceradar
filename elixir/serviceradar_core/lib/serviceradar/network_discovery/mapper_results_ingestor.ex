@@ -1886,16 +1886,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   def normalize_topology(_update), do: nil
 
   defp extract_topology_observation(update, metadata) do
-    explicit =
-      get_map(update, ["observation", :observation])
-      |> normalize_topology_observation_map()
+    if topology_v2_contract_consumption_enabled?() do
+      explicit =
+        get_map(update, ["observation", :observation])
+        |> normalize_topology_observation_map()
 
-    if map_size(explicit) > 0 do
-      explicit
+      if map_size(explicit) > 0 do
+        explicit
+      else
+        metadata
+        |> metadata_value("observation_v2_json")
+        |> decode_topology_observation_json()
+      end
     else
-      metadata
-      |> metadata_value("observation_v2_json")
-      |> decode_topology_observation_json()
+      %{}
     end
   end
 
@@ -1913,6 +1917,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp decode_topology_observation_json(_), do: %{}
+
+  defp topology_v2_contract_consumption_enabled? do
+    Application.get_env(:serviceradar_core, :topology_v2_contract_consumption_enabled, true) ==
+      true
+  end
 
   defp score_topology_confidence(update, metadata) do
     protocol = normalize_topology_protocol(get_string(update, ["protocol", :protocol]))

@@ -14,12 +14,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.RuntimeGraph
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNG.Topology.Native
+  alias ServiceRadarWebNGWeb.FeatureFlags
 
   @max_interface_rows 2_000
+  @max_legacy_topology_rows 5_000
+  @default_topology_stale_minutes 180
   @default_real_time_budget_ms 2_000
   @default_snapshot_coalesce_ms 0
   @drop_counter_key {__MODULE__, :dropped_updates}
@@ -154,13 +158,53 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp fetch_topology_links(_actor) do
-    runtime_links =
-      case RuntimeGraph.get_links() do
-        {:ok, links} when is_list(links) -> links
-        _ -> []
-      end
+    if FeatureFlags.age_authoritative_topology_enabled?() do
+      runtime_links =
+        case RuntimeGraph.get_links() do
+          {:ok, links} when is_list(links) -> links
+          _ -> []
+        end
 
-    if runtime_links != [], do: {:ok, runtime_links}, else: {:ok, []}
+      {:ok, runtime_links}
+    else
+      fetch_topology_links_legacy()
+    end
+  end
+
+  defp fetch_topology_links_legacy do
+    cutoff = DateTime.utc_now() |> DateTime.add(-topology_stale_minutes() * 60, :second)
+
+    links =
+      TopologyLink
+      |> where([l], l.timestamp >= ^cutoff)
+      |> order_by([l], desc: l.timestamp)
+      |> limit(@max_legacy_topology_rows)
+      |> Repo.all()
+      |> Enum.map(fn link ->
+        %{
+          local_device_id: normalize_id(Map.get(link, :local_device_id)),
+          local_device_ip: normalize_id(Map.get(link, :local_device_ip)),
+          local_if_name: normalize_id(Map.get(link, :local_if_name)),
+          local_if_index: Map.get(link, :local_if_index),
+          neighbor_device_id: normalize_id(Map.get(link, :neighbor_device_id)),
+          neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
+          neighbor_system_name: normalize_id(Map.get(link, :neighbor_system_name)),
+          protocol: normalize_id(Map.get(link, :protocol)),
+          confidence_tier: metadata_value(Map.get(link, :metadata), "confidence_tier"),
+          evidence_class: metadata_value(Map.get(link, :metadata), "evidence_class"),
+          metadata: Map.get(link, :metadata) || %{}
+        }
+      end)
+
+    {:ok, links}
+  end
+
+  defp topology_stale_minutes do
+    Application.get_env(
+      :serviceradar_core,
+      :mapper_topology_edge_stale_minutes,
+      @default_topology_stale_minutes
+    )
   end
 
   defp unique_pairs(links) when is_list(links) do
@@ -2258,4 +2302,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         counter
     end
   end
+
+  defp metadata_value(metadata, key) when is_map(metadata) and is_binary(key) do
+    Map.get(metadata, key) || Map.get(metadata, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> Map.get(metadata, key)
+  end
+
+  defp metadata_value(_metadata, _key), do: nil
 end

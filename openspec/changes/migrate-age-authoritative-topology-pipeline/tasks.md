@@ -25,12 +25,12 @@
 - [x] 4.3 Add pre/post cleanup validation queries and failure gates.
 
 ## 5. Rollout Controls
-- [ ] 5.1 Add feature flags for v2 contract consumption and AGE-authoritative rendering cutover.
-- [ ] 5.2 Define rollout SLO gates: direct-edge minimum, inferred-edge ratio maximum, unresolved edge ceiling, edge churn ceiling.
-- [ ] 5.3 Document rollback switches and recovery procedure.
+- [x] 5.1 Add feature flags for v2 contract consumption and AGE-authoritative rendering cutover.
+- [x] 5.2 Define rollout SLO gates: direct-edge minimum, inferred-edge ratio maximum, unresolved edge ceiling, edge churn ceiling.
+- [x] 5.3 Document rollback switches and recovery procedure.
 
 ## 6. Verification
-- [ ] 6.1 Add synthetic fixtures for farm01/tonka01 expected uplinks (farm01 <-> USW Aggregation, AP uplinks).
-- [ ] 6.2 Add integration tests for unresolved endpoint rendering and later reconciliation to canonical nodes.
-- [ ] 6.3 Add per-run operator report output (devices by source, observations by type, accepted/rejected edges, unresolved IDs).
-- [ ] 6.4 Run `openspec validate migrate-age-authoritative-topology-pipeline --strict`.
+- [x] 6.1 Add synthetic fixtures for farm01/tonka01 expected uplinks (farm01 <-> USW Aggregation, AP uplinks).
+- [x] 6.2 Add integration tests for unresolved endpoint rendering and later reconciliation to canonical nodes.
+- [x] 6.3 Add per-run operator report output (devices by source, observations by type, accepted/rejected edges, unresolved IDs).
+- [x] 6.4 Run `openspec validate migrate-age-authoritative-topology-pipeline --strict`.
