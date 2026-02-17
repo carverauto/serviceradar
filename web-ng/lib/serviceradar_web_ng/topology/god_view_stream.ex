@@ -315,6 +315,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       target_uid = normalize_id(Map.get(edge, :target))
       source = Map.get(device_by_uid, source_uid)
       target = Map.get(device_by_uid, target_uid)
+      infra_uid = infra_uid_for_edge(edge, device_by_uid)
+      infra = Map.get(device_by_uid, infra_uid)
 
       infra_infra_attachment? =
         infrastructure_device?(source) and infrastructure_device?(target) and
@@ -324,7 +326,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         protocol == "snmp-l2" and evidence == "endpoint-attachment" and
           (tier == "low" or reason == "single_identifier_inference")
 
-      infra_infra_attachment? or low_confidence_attachment?
+      # Keep low-confidence endpoint attachments on switch/AP edges so endpoints
+      # are still anchored, but suppress risky router fan-out attachments.
+      router_low_confidence_attachment? = low_confidence_attachment? and router_device?(infra)
+
+      infra_infra_attachment? or router_low_confidence_attachment?
     end)
   end
 

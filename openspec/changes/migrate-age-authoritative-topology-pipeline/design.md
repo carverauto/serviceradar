@@ -76,4 +76,6 @@ This allows bad or partial evidence to become persistent graph structure and mak
 
 ## Open Questions
 - Final threshold for SNMP trunk suppression (`macs_per_ifindex` cutoff).
+  - Resolved for current rollout: `maxSNMPFDBMacsPerPort=8` with dense-port unknown neighbor cap `2` per `ifIndex`.
+  - Rationale: preserves single-seed adjacency recovery while preventing trunk fan-out explosions.
 - Whether to maintain dual-write v1/v2 contracts for one release or two.

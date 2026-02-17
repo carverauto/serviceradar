@@ -81,6 +81,7 @@ const (
 	oidIPAdEntIfIndex = ".1.3.6.1.2.1.4.20.1.2"
 	oidIPNetToMedia   = ".1.3.6.1.2.1.4.22.1"
 	oidIPToMediaPhys  = ".1.3.6.1.2.1.4.22.1.2"
+	oidIPToPhysicalPhys = ".1.3.6.1.2.1.4.35.1.4"
 
 	// Extended interface table (ifXTable)
 	oidIfXTable    = ".1.3.6.1.2.1.31.1.1.1"
@@ -2185,13 +2186,43 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 	bridgeIfByMAC, fdbMacCountByIf := e.bridgeIfIndexByMAC(client)
 
 	neighbors := make([]arpNeighbor, 0, 32)
-	err := client.BulkWalk(oidIPToMediaPhys, func(pdu gosnmp.SnmpPDU) error {
-		_, ip, ok := parseIPToMediaSuffix(pdu.Name)
-		if !ok || ip == "" || ip == targetIP || !isIPv4(ip) {
-			return nil
+
+	appendNeighborEvidence := func(ip, mac string) {
+		if ip == "" || ip == targetIP || !isIPv4(ip) || !inSubnetSet(localSubnets, ip) {
+			return
+		}
+		if mac == "" || mac == "00:00:00:00:00:00" {
+			return
 		}
 
-		if !inSubnetSet(localSubnets, ip) {
+		norm := NormalizeMAC(mac)
+		if bridgeIf, exists := bridgeIfByMAC[norm]; exists && bridgeIf > 0 {
+			fdbMacCount := fdbMacCountByIf[bridgeIf]
+			neighborKnown := knownNeighborIPs[ip]
+			neighbors = append(neighbors, arpNeighbor{
+				ifIndex:       bridgeIf,
+				ip:            ip,
+				mac:           mac,
+				fdbPortMapped: true,
+				fdbMacCount:   fdbMacCount,
+				neighborKnown: neighborKnown,
+			})
+			return
+		}
+
+		neighbors = append(neighbors, arpNeighbor{
+			ifIndex:       0,
+			ip:            ip,
+			mac:           mac,
+			fdbPortMapped: false,
+			fdbMacCount:   0,
+			neighborKnown: knownNeighborIPs[ip],
+		})
+	}
+
+	err := client.BulkWalk(oidIPToMediaPhys, func(pdu gosnmp.SnmpPDU) error {
+		_, ip, ok := parseIPToMediaSuffix(pdu.Name)
+		if !ok || ip == "" {
 			return nil
 		}
 
@@ -2201,40 +2232,33 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 		}
 
 		mac := formatMACAddress(raw)
-		if mac == "" || mac == "00:00:00:00:00:00" {
-			return nil
-		}
-
-		norm := NormalizeMAC(mac)
-		if bridgeIf, exists := bridgeIfByMAC[norm]; exists && bridgeIf > 0 {
-			fdbMacCount := fdbMacCountByIf[bridgeIf]
-			neighborKnown := knownNeighborIPs[ip]
-			// Guard against trunk/flood fan-out: keep dense-port neighbors only when
-			// the neighbor is already identified as infrastructure in discovery results.
-			if fdbMacCount > maxSNMPFDBMacsPerPort && !neighborKnown {
-				return nil
-			}
-
-			neighbors = append(neighbors, arpNeighbor{
-				ifIndex:       bridgeIf,
-				ip:            ip,
-				mac:           mac,
-				fdbPortMapped: true,
-				fdbMacCount:   fdbMacCount,
-				neighborKnown: neighborKnown,
-			})
-			return nil
-		}
-
-		// ARP-only observations are too noisy for physical topology and are dropped.
-		// Keep only FDB-mapped evidence and protocol-native links (LLDP/CDP/UniFi).
-
+		appendNeighborEvidence(ip, mac)
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed SNMP L2 walk (%s): %w", oidIPToMediaPhys, err)
 	}
 
+	err = client.BulkWalk(oidIPToPhysicalPhys, func(pdu gosnmp.SnmpPDU) error {
+		_, ip, ok := parseIPToPhysicalSuffix(pdu.Name)
+		if !ok || ip == "" {
+			return nil
+		}
+
+		raw, ok := pdu.Value.([]byte)
+		if !ok || len(raw) == 0 {
+			return nil
+		}
+
+		mac := formatMACAddress(raw)
+		appendNeighborEvidence(ip, mac)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed SNMP L2 walk (%s): %w", oidIPToPhysicalPhys, err)
+	}
+
+	neighbors = e.selectDensePortNeighbors(neighbors)
 	links := buildSNMPL2LinksFromNeighbors(localDeviceID, targetIP, job.ID, neighbors)
 
 	if len(links) == 0 {
@@ -2245,25 +2269,107 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 }
 
 const maxSNMPFDBMacsPerPort = 8
+const maxDensePortUnknownNeighborsPerIf = 2
+const maxSNMPARPCandidateNeighbors = 64
+
+// selectDensePortNeighbors bounds noisy neighbors on dense ports while preserving
+// known infrastructure and enough unknown candidates for single-seed discovery.
+func (e *DiscoveryEngine) selectDensePortNeighbors(neighbors []arpNeighbor) []arpNeighbor {
+	if len(neighbors) == 0 {
+		return neighbors
+	}
+
+	selected := make([]arpNeighbor, 0, len(neighbors))
+	unknownDenseByIf := make(map[int32][]arpNeighbor)
+
+	for _, n := range neighbors {
+		if n.fdbMacCount <= maxSNMPFDBMacsPerPort || n.neighborKnown {
+			selected = append(selected, n)
+			continue
+		}
+
+		unknownDenseByIf[n.ifIndex] = append(unknownDenseByIf[n.ifIndex], n)
+	}
+
+	for _, candidates := range unknownDenseByIf {
+		sort.Slice(candidates, func(i, j int) bool {
+			left := net.ParseIP(candidates[i].ip).To4()
+			right := net.ParseIP(candidates[j].ip).To4()
+			switch {
+			case left == nil && right == nil:
+				// fall through to MAC tie-breaker
+			case left == nil:
+				return false
+			case right == nil:
+				return true
+			default:
+				for idx := 0; idx < 4; idx++ {
+					if left[idx] == right[idx] {
+						continue
+					}
+					return left[idx] < right[idx]
+				}
+			}
+
+			return candidates[i].mac < candidates[j].mac
+		})
+
+		limit := maxDensePortUnknownNeighborsPerIf
+		if len(candidates) < limit {
+			limit = len(candidates)
+		}
+		selected = append(selected, candidates[:limit]...)
+	}
+
+	return selected
+}
 
 func buildSNMPL2LinksFromNeighbors(
 	localDeviceID, targetIP, discoveryID string, neighbors []arpNeighbor) []*TopologyLink {
 	links := make([]*TopologyLink, 0, len(neighbors))
 	seen := make(map[string]struct{}, len(neighbors))
+	arpCandidateCount := 0
 
 	for _, n := range neighbors {
 		if n.ip == "" {
 			continue
 		}
-		if !n.fdbPortMapped {
-			continue
-		}
 
-		key := fmt.Sprintf("%s|%d|%s", n.ip, n.ifIndex, NormalizeMAC(n.mac))
+		key := fmt.Sprintf("%s|%d|%s|%t", n.ip, n.ifIndex, NormalizeMAC(n.mac), n.fdbPortMapped)
 		if _, exists := seen[key]; exists {
 			continue
 		}
 		seen[key] = struct{}{}
+
+		if !n.fdbPortMapped {
+			if arpCandidateCount >= maxSNMPARPCandidateNeighbors {
+				continue
+			}
+
+			arpCandidateCount++
+			links = append(links, &TopologyLink{
+				Protocol:          "SNMP-L2",
+				LocalDeviceIP:     targetIP,
+				LocalDeviceID:     localDeviceID,
+				LocalIfIndex:      0,
+				NeighborChassisID: n.mac,
+				NeighborMgmtAddr:  n.ip,
+				Metadata: map[string]string{
+					"protocol":          "SNMP-L2",
+					"discovery_id":      discoveryID,
+					"source":            "snmp-arp-only",
+					"evidence":          "ipNetToMedia",
+					"fdb_port_mapped":   "false",
+					"evidence_class":    "endpoint-attachment",
+					"confidence_tier":   "low",
+					"confidence_reason": "single_identifier_inference",
+					// Keep ARP-only observations for recursive target expansion
+					// but do not publish them as topology edges.
+					"candidate_only": "true",
+				},
+			})
+			continue
+		}
 
 		if n.ifIndex <= 0 {
 			continue
@@ -2389,6 +2495,52 @@ func parseIPToMediaSuffix(oidName string) (int32, string, bool) {
 	return int32(ifIndexVal), strings.Join(octets, "."), true
 }
 
+func parseIPToPhysicalSuffix(oidName string) (int32, string, bool) {
+	parts := strings.Split(strings.TrimPrefix(oidName, "."), ".")
+	baseParts := strings.Split(strings.TrimPrefix(oidIPToPhysicalPhys, "."), ".")
+	if len(parts) < len(baseParts)+3 {
+		return 0, "", false
+	}
+
+	idxOffset := len(baseParts)
+	ifIndexVal, err := strconv.Atoi(parts[idxOffset])
+	if err != nil || ifIndexVal <= 0 {
+		return 0, "", false
+	}
+
+	addrType, err := strconv.Atoi(parts[idxOffset+1])
+	if err != nil || addrType != 1 {
+		// Only support IPv4 inetAddressType.
+		return 0, "", false
+	}
+
+	rest := parts[idxOffset+2:]
+	switch {
+	case len(rest) == 4:
+		// Some agents encode IPv4 directly as 4 trailing octets.
+	case len(rest) >= 5:
+		// Common encoding: addrLen, then octets.
+		addrLen, lenErr := strconv.Atoi(rest[0])
+		if lenErr != nil || addrLen != 4 || len(rest) < 5 {
+			return 0, "", false
+		}
+		rest = rest[1:5]
+	default:
+		return 0, "", false
+	}
+
+	octets := make([]string, 4)
+	for i := 0; i < 4; i++ {
+		octet, convErr := strconv.Atoi(rest[i])
+		if convErr != nil || octet < 0 || octet > 255 {
+			return 0, "", false
+		}
+		octets[i] = strconv.Itoa(octet)
+	}
+
+	return int32(ifIndexVal), strings.Join(octets, "."), true
+}
+
 func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) (map[string]int32, map[int32]int) {
 	bridgePortToIfIndex := make(map[int32]int32)
 	_ = client.BulkWalk(oidDot1dBasePortIfIndex, func(pdu gosnmp.SnmpPDU) error {
@@ -2475,6 +2627,12 @@ func (e *DiscoveryEngine) knownDeviceIPv4Set(job *DiscoveryJob) map[string]bool 
 					known[ip] = true
 				}
 			}
+		}
+	}
+
+	for _, ip := range job.scanQueue {
+		if isIPv4(ip) {
+			known[ip] = true
 		}
 	}
 

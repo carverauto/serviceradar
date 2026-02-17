@@ -1832,29 +1832,68 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     has_neighbor_id = has_neighbor_identifier?(update)
     has_neighbor_ip = present?(get_string(update, ["neighbor_mgmt_addr", :neighbor_mgmt_addr]))
     has_neighbor_port = has_neighbor_port?(update)
+    has_canonical_neighbor_device_id = has_canonical_neighbor_device_id?(update)
 
     topology_protocol_confidence(protocol) ||
-      indirect_topology_confidence(source, has_neighbor_id, has_neighbor_port, has_neighbor_ip)
+      indirect_topology_confidence(
+        source,
+        has_neighbor_id,
+        has_neighbor_port,
+        has_neighbor_ip,
+        has_canonical_neighbor_device_id
+      )
   end
 
   defp topology_protocol_confidence("lldp"), do: {"high", 95, "direct_lldp_neighbor"}
   defp topology_protocol_confidence("cdp"), do: {"high", 95, "direct_cdp_neighbor"}
   defp topology_protocol_confidence(_), do: nil
 
-  defp indirect_topology_confidence("unifi-api", true, true, true),
+  defp indirect_topology_confidence("unifi-api", true, true, true, _has_canonical_neighbor_device_id),
     do: {"medium", 78, "bridge_uplink_with_neighbor_ip"}
 
-  defp indirect_topology_confidence("unifi-api", true, true, false),
+  defp indirect_topology_confidence("unifi-api", true, true, false, _has_canonical_neighbor_device_id),
     do: {"medium", 72, "bridge_uplink_without_neighbor_ip"}
 
-  defp indirect_topology_confidence(_source, true, true, _has_neighbor_ip),
+  defp indirect_topology_confidence(_source, true, true, _has_neighbor_ip, _has_canonical_neighbor_device_id),
     do: {"medium", 66, "port_neighbor_inference"}
 
-  defp indirect_topology_confidence(_source, true, false, _has_neighbor_ip),
+  defp indirect_topology_confidence(
+         source,
+       true,
+       false,
+       true,
+       true
+       )
+       when source in ["snmp-arp-fdb", "snmp-arp-only", "unifi-api"] do
+    {"medium", 62, "managed_neighbor_identifier"}
+  end
+
+  defp indirect_topology_confidence(_source, true, false, _has_neighbor_ip, _has_canonical_neighbor_device_id),
     do: {"low", 40, "single_identifier_inference"}
 
-  defp indirect_topology_confidence(_source, false, _has_neighbor_port, _has_neighbor_ip),
+  defp indirect_topology_confidence(
+         _source,
+         false,
+         _has_neighbor_port,
+         _has_neighbor_ip,
+         _has_canonical_neighbor_device_id
+       ),
     do: {"low", 20, "insufficient_neighbor_evidence"}
+
+  defp has_canonical_neighbor_device_id?(update) when is_map(update) do
+    neighbor_identity = get_map(update, ["neighbor_identity", :neighbor_identity])
+
+    candidate =
+      get_string(update, ["neighbor_device_id", :neighbor_device_id]) ||
+        get_string(neighbor_identity, ["device_id", :device_id])
+
+    case normalize_string(candidate) do
+      value when is_binary(value) -> String.starts_with?(value, "sr:")
+      _ -> false
+    end
+  end
+
+  defp has_canonical_neighbor_device_id?(_update), do: false
 
   defp normalize_topology_protocol(nil), do: "unknown"
 

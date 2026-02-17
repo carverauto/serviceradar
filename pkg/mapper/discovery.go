@@ -681,6 +681,9 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 			link.Metadata["discovery_id"] = job.ID
 			link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
 			applyJobOptionsMetadata(job, link.Metadata)
+			if strings.EqualFold(strings.TrimSpace(link.Metadata["candidate_only"]), "true") {
+				continue
+			}
 
 			if err := e.publisher.PublishTopologyLink(job.ctx, link); err != nil {
 				e.logger.Error().Str("job_id", job.ID).Str("protocol", protocol).

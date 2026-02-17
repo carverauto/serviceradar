@@ -1,13 +1,70 @@
 package mapper
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildSNMPL2LinksFromNeighborsDropsARPOnlyNeighbors(t *testing.T) {
+func TestPublishTopologyLinksSkipsCandidateOnlyPublishing(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	publisher := &recordingPublisher{}
+	engine := &DiscoveryEngine{publisher: publisher}
+	job := &DiscoveryJob{
+		ID:     "disc-test",
+		ctx:    ctx,
+		Params: &DiscoveryParams{},
+		Results: &DiscoveryResults{
+			TopologyLinks: []*TopologyLink{},
+		},
+	}
+
+	links := []*TopologyLink{
+		{
+			Protocol:         "SNMP-L2",
+			LocalDeviceIP:    "192.168.10.1",
+			LocalDeviceID:    "sr:tonka01",
+			NeighborMgmtAddr: "192.168.10.154",
+			Metadata: map[string]string{
+				"candidate_only": "true",
+			},
+		},
+		{
+			Protocol:         "LLDP",
+			LocalDeviceIP:    "192.168.10.154",
+			LocalDeviceID:    "sr:aruba",
+			NeighborMgmtAddr: "192.168.10.1",
+			Metadata:         map[string]string{},
+		},
+	}
+
+	engine.publishTopologyLinks(job, links, "192.168.10.1", "SNMP-L2")
+
+	// candidate_only link remains in in-memory results (for recursive targeting)
+	// but only non-candidate links are published downstream.
+	require.Len(t, job.Results.TopologyLinks, 2)
+	require.Len(t, publisher.topologyLinks, 1)
+	assert.Equal(t, "192.168.10.1", publisher.topologyLinks[0].NeighborMgmtAddr)
+}
+
+type recordingPublisher struct {
+	topologyLinks []*TopologyLink
+}
+
+func (r *recordingPublisher) PublishDevice(_ context.Context, _ *DiscoveredDevice) error { return nil }
+func (r *recordingPublisher) PublishInterface(_ context.Context, _ *DiscoveredInterface) error {
+	return nil
+}
+func (r *recordingPublisher) PublishTopologyLink(_ context.Context, link *TopologyLink) error {
+	r.topologyLinks = append(r.topologyLinks, link)
+	return nil
+}
+
+func TestBuildSNMPL2LinksFromNeighborsKeepsARPOnlyAsCandidateOnly(t *testing.T) {
 	t.Parallel()
 
 	neighbors := []arpNeighbor{
@@ -26,15 +83,37 @@ func TestBuildSNMPL2LinksFromNeighborsDropsARPOnlyNeighbors(t *testing.T) {
 	}
 
 	links := buildSNMPL2LinksFromNeighbors("sr:farm01", "192.168.1.1", "disc-1", neighbors)
-	require.Len(t, links, 1)
+	require.Len(t, links, 2)
 
-	assert.Equal(t, int32(7), links[0].LocalIfIndex)
-	assert.Equal(t, "192.168.1.51", links[0].NeighborMgmtAddr)
-	assert.Equal(t, "aa:bb:cc:dd:ee:02", links[0].NeighborChassisID)
-	assert.Equal(t, "snmp-arp-fdb", links[0].Metadata["source"])
-	assert.Equal(t, "true", links[0].Metadata["fdb_port_mapped"])
-	assert.Equal(t, "inferred", links[0].Metadata["evidence_class"])
-	assert.Equal(t, "medium", links[0].Metadata["confidence_tier"])
+	var fdbLink *TopologyLink
+	var candidateLink *TopologyLink
+
+	for _, link := range links {
+		if link.Metadata["candidate_only"] == "true" {
+			candidateLink = link
+		} else {
+			fdbLink = link
+		}
+	}
+
+	require.NotNil(t, fdbLink)
+	require.NotNil(t, candidateLink)
+
+	assert.Equal(t, int32(7), fdbLink.LocalIfIndex)
+	assert.Equal(t, "192.168.1.51", fdbLink.NeighborMgmtAddr)
+	assert.Equal(t, "aa:bb:cc:dd:ee:02", fdbLink.NeighborChassisID)
+	assert.Equal(t, "snmp-arp-fdb", fdbLink.Metadata["source"])
+	assert.Equal(t, "true", fdbLink.Metadata["fdb_port_mapped"])
+	assert.Equal(t, "inferred", fdbLink.Metadata["evidence_class"])
+	assert.Equal(t, "medium", fdbLink.Metadata["confidence_tier"])
+
+	assert.Equal(t, int32(0), candidateLink.LocalIfIndex)
+	assert.Equal(t, "192.168.1.50", candidateLink.NeighborMgmtAddr)
+	assert.Equal(t, "snmp-arp-only", candidateLink.Metadata["source"])
+	assert.Equal(t, "false", candidateLink.Metadata["fdb_port_mapped"])
+	assert.Equal(t, "endpoint-attachment", candidateLink.Metadata["evidence_class"])
+	assert.Equal(t, "low", candidateLink.Metadata["confidence_tier"])
+	assert.Equal(t, "true", candidateLink.Metadata["candidate_only"])
 }
 
 func TestBuildSNMPL2LinksFromNeighborsDeduplicatesIdenticalEvidence(t *testing.T) {
@@ -74,4 +153,67 @@ func TestBuildSNMPL2LinksFromNeighborsRejectsInvalidIfIndex(t *testing.T) {
 
 	links := buildSNMPL2LinksFromNeighbors("sr:farm01", "192.168.1.1", "disc-3", neighbors)
 	assert.Empty(t, links)
+}
+
+func TestSelectDensePortNeighborsKeepsKnownAndBoundsUnknown(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	neighbors := []arpNeighbor{
+		{ifIndex: 9, ip: "192.168.10.40", mac: "aa:bb:cc:dd:ee:40", fdbMacCount: 12, neighborKnown: true},
+		{ifIndex: 9, ip: "192.168.10.30", mac: "aa:bb:cc:dd:ee:30", fdbMacCount: 12, neighborKnown: false},
+		{ifIndex: 9, ip: "192.168.10.10", mac: "aa:bb:cc:dd:ee:10", fdbMacCount: 12, neighborKnown: false},
+		{ifIndex: 9, ip: "192.168.10.20", mac: "aa:bb:cc:dd:ee:20", fdbMacCount: 12, neighborKnown: false},
+		{ifIndex: 7, ip: "192.168.1.2", mac: "aa:bb:cc:dd:ee:02", fdbMacCount: 2, neighborKnown: false},
+	}
+
+	selected := engine.selectDensePortNeighbors(neighbors)
+
+	seen := make(map[string]bool, len(selected))
+	for _, n := range selected {
+		seen[n.ip] = true
+	}
+
+	assert.True(t, seen["192.168.10.40"], "known dense-port neighbor should be retained")
+	assert.True(t, seen["192.168.10.10"], "lowest unknown candidate should be retained")
+	assert.True(t, seen["192.168.10.20"], "second unknown candidate should be retained")
+	assert.False(t, seen["192.168.10.30"], "unknown dense-port neighbors should be bounded")
+	assert.True(t, seen["192.168.1.2"], "low-density neighbors should be retained")
+}
+
+func TestKnownDeviceIPv4SetIncludesScanQueueTargets(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			Devices: []*DiscoveredDevice{},
+		},
+		scanQueue: []string{"192.168.10.154", "not-an-ip"},
+	}
+
+	known := engine.knownDeviceIPv4Set(job)
+
+	assert.True(t, known["192.168.10.154"])
+	assert.False(t, known["not-an-ip"])
+}
+
+func TestParseIPToPhysicalSuffixWithLengthEncoding(t *testing.T) {
+	t.Parallel()
+
+	oid := ".1.3.6.1.2.1.4.35.1.4.22.1.4.192.168.10.154"
+	ifIndex, ip, ok := parseIPToPhysicalSuffix(oid)
+	require.True(t, ok)
+	assert.Equal(t, int32(22), ifIndex)
+	assert.Equal(t, "192.168.10.154", ip)
+}
+
+func TestParseIPToPhysicalSuffixWithDirectIPv4Encoding(t *testing.T) {
+	t.Parallel()
+
+	oid := ".1.3.6.1.2.1.4.35.1.4.7.1.192.168.10.1"
+	ifIndex, ip, ok := parseIPToPhysicalSuffix(oid)
+	require.True(t, ok)
+	assert.Equal(t, int32(7), ifIndex)
+	assert.Equal(t, "192.168.10.1", ip)
 }
