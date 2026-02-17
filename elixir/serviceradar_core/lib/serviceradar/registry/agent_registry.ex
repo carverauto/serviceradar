@@ -170,12 +170,18 @@ defmodule ServiceRadar.AgentRegistry do
 
   @doc """
   Find agents with specific capabilities.
+
+  Accepts both atoms and strings — capabilities are stored as strings
+  in the registry (from `normalize_capabilities/1` in the gateway).
   """
-  @spec find_agents_with_capability(atom()) :: [map()]
+  @spec find_agents_with_capability(atom() | String.t()) :: [map()]
   def find_agents_with_capability(capability) do
+    cap_str = to_string(capability)
+
     find_agents()
     |> Enum.filter(fn agent ->
-      capability in Map.get(agent, :capabilities, [])
+      caps = Map.get(agent, :capabilities, [])
+      cap_str in caps or capability in caps
     end)
   end
 
