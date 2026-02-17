@@ -472,6 +472,22 @@ func TestConvertResultsToProto(t *testing.T) {
 				Attempts: 2,
 				Failures: 1,
 			},
+			ParseDiagnostics: DiscoveryParseDiagnostics{
+				ParseFailures: map[string]int{
+					"unifi.detail.direct": 2,
+				},
+				UnknownTopLevel: map[string]int{
+					"unifi.detail.foo": 3,
+				},
+				ParserMismatches: map[string]int{
+					"unifi.detail.wrapped": 1,
+				},
+			},
+			DebugBundle: DiscoveryDebugBundle{
+				Enabled:        true,
+				ExportPath:     "/tmp/serviceradar/mapper-debug/job-1-debug-bundle.json",
+				ExportedAtUnix: 1739760000,
+			},
 			StageTransitions: []DiscoveryStageTransition{
 				{
 					Stage:     DiscoveryStageIdentity,
@@ -504,6 +520,11 @@ func TestConvertResultsToProto(t *testing.T) {
 	assert.Equal(t, "2", resp.Metadata["probe_attempts"])
 	assert.Equal(t, "1", resp.Metadata["probe_failures"])
 	assert.Equal(t, "1", resp.Metadata["stage_transition_count"])
+	assert.Equal(t, "2", resp.Metadata["parse_failure_count"])
+	assert.Equal(t, "3", resp.Metadata["unknown_top_level_count"])
+	assert.Equal(t, "1", resp.Metadata["parser_mismatch_count"])
+	assert.Equal(t, "/tmp/serviceradar/mapper-debug/job-1-debug-bundle.json", resp.Metadata["debug_bundle_path"])
+	assert.Equal(t, "1739760000", resp.Metadata["debug_bundle_exported_at_unix"])
 }
 
 func TestProtoToDiscoveryType(t *testing.T) {

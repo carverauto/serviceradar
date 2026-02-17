@@ -197,12 +197,33 @@ type DiscoveryContract struct {
 	ScheduledJobName string
 	StageTransitions []DiscoveryStageTransition
 	ProbeSummary     DiscoveryProbeSummary
+	ParseDiagnostics DiscoveryParseDiagnostics
+	DebugBundle      DiscoveryDebugBundle
 }
 
 // DiscoveryProbeSummary tracks host probe behavior with typed counters.
 type DiscoveryProbeSummary struct {
 	Attempts int
 	Failures int
+}
+
+// DiscoveryParseDiagnostics tracks source-shape drift and parser quality signals.
+type DiscoveryParseDiagnostics struct {
+	ParseFailures     map[string]int
+	UnknownTopLevel   map[string]int
+	ParserMismatches  map[string]int
+	LastFailureByType map[string]string
+}
+
+// DiscoveryDebugBundle captures debug export metadata for a discovery job.
+type DiscoveryDebugBundle struct {
+	Enabled        bool
+	ExportPath     string
+	ExportedAtUnix int64
+	DeviceCount    int
+	InterfaceCount int
+	TopologyCount  int
+	Error          string
 }
 
 // DiscoveredDevice represents a discovered network device.

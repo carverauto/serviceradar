@@ -356,6 +356,18 @@ func discoveryContractToMetadata(contract DiscoveryContract, includeRawData bool
 	metadata["probe_attempts"] = strconv.Itoa(contract.ProbeSummary.Attempts)
 	metadata["probe_failures"] = strconv.Itoa(contract.ProbeSummary.Failures)
 	metadata["stage_transition_count"] = strconv.Itoa(len(contract.StageTransitions))
+	metadata["parse_failure_count"] = strconv.Itoa(sumIntMap(contract.ParseDiagnostics.ParseFailures))
+	metadata["unknown_top_level_count"] = strconv.Itoa(sumIntMap(contract.ParseDiagnostics.UnknownTopLevel))
+	metadata["parser_mismatch_count"] = strconv.Itoa(sumIntMap(contract.ParseDiagnostics.ParserMismatches))
+	if contract.DebugBundle.ExportPath != "" {
+		metadata["debug_bundle_path"] = contract.DebugBundle.ExportPath
+	}
+	if contract.DebugBundle.ExportedAtUnix > 0 {
+		metadata["debug_bundle_exported_at_unix"] = strconv.FormatInt(contract.DebugBundle.ExportedAtUnix, 10)
+	}
+	if contract.DebugBundle.Error != "" {
+		metadata["debug_bundle_error"] = contract.DebugBundle.Error
+	}
 
 	for i, transition := range contract.StageTransitions {
 		key := fmt.Sprintf("stage_transition.%03d", i)
@@ -369,6 +381,14 @@ func discoveryContractToMetadata(contract DiscoveryContract, includeRawData bool
 	}
 
 	return metadata
+}
+
+func sumIntMap(values map[string]int) int {
+	total := 0
+	for _, value := range values {
+		total += value
+	}
+	return total
 }
 
 // Helper functions to convert between types

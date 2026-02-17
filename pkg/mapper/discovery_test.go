@@ -19,6 +19,8 @@ package mapper
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -719,4 +721,103 @@ func BenchmarkStartWorkersProbeComparison(b *testing.B) {
 
 	b.Run("without_prober", func(b *testing.B) { bench(b, false) })
 	b.Run("with_shared_prober", func(b *testing.B) { bench(b, true) })
+}
+
+func TestMaybeExportDebugBundle(t *testing.T) {
+	mockLogger := logger.NewTestLogger()
+	engine := &DiscoveryEngine{logger: mockLogger}
+	exportDir := t.TempDir()
+
+	job := &DiscoveryJob{
+		ID: "job-debug-1",
+		Params: &DiscoveryParams{
+			Options: map[string]string{
+				mapperDebugBundleOption:     "true",
+				mapperDebugBundlePathOption: exportDir,
+			},
+		},
+		Status: &DiscoveryStatus{
+			Status:   DiscoveryStatusCompleted,
+			Progress: 100,
+		},
+		Results: &DiscoveryResults{
+			Devices: []*DiscoveredDevice{
+				{DeviceID: "mac-a", IP: "192.168.1.10"},
+			},
+			Interfaces: []*DiscoveredInterface{
+				{DeviceID: "mac-a", DeviceIP: "192.168.1.10", IfIndex: 1, IfName: "eth0"},
+			},
+			TopologyLinks: []*TopologyLink{
+				{LocalDeviceID: "mac-a", LocalDeviceIP: "192.168.1.10", NeighborMgmtAddr: "192.168.1.1"},
+			},
+			Contract: DiscoveryContract{
+				AgentID: "agent-dusk",
+			},
+		},
+	}
+
+	engine.maybeExportDebugBundle(job)
+
+	expectedPath := filepath.Join(exportDir, "job-debug-1-debug-bundle.json")
+	_, err := os.Stat(expectedPath)
+	require.NoError(t, err)
+	assert.Equal(t, expectedPath, job.Results.Contract.DebugBundle.ExportPath)
+	assert.Equal(t, 1, job.Results.Contract.DebugBundle.DeviceCount)
+	assert.Equal(t, 1, job.Results.Contract.DebugBundle.InterfaceCount)
+	assert.Equal(t, 1, job.Results.Contract.DebugBundle.TopologyCount)
+	assert.Empty(t, job.Results.Contract.DebugBundle.Error)
+}
+
+func TestApplySourceAdapterVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		link     *TopologyLink
+		expected string
+		family   string
+	}{
+		{
+			name: "unifi source",
+			link: &TopologyLink{
+				Protocol: "UniFi-API",
+				Metadata: map[string]string{"source": "unifi-api-uplink"},
+			},
+			expected: sourceAdapterUniFiV1,
+			family:   "unifi",
+		},
+		{
+			name: "lldp protocol",
+			link: &TopologyLink{
+				Protocol: "LLDP",
+				Metadata: map[string]string{},
+			},
+			expected: sourceAdapterLLDPV1,
+			family:   "lldp",
+		},
+		{
+			name: "cdp protocol",
+			link: &TopologyLink{
+				Protocol: "CDP",
+				Metadata: map[string]string{},
+			},
+			expected: sourceAdapterCDPV1,
+			family:   "cdp",
+		},
+		{
+			name: "snmp inferred",
+			link: &TopologyLink{
+				Protocol: "SNMP-L2",
+				Metadata: map[string]string{"source": "snmp-arp-fdb"},
+			},
+			expected: sourceAdapterSNMPV1,
+			family:   "snmp",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			applySourceAdapterVersion(tt.link)
+			assert.Equal(t, tt.expected, tt.link.Metadata["source_adapter_version"])
+			assert.Equal(t, tt.family, tt.link.Metadata["source_adapter_family"])
+		})
+	}
 }

@@ -1,10 +1,10 @@
 ## 1. Mapper Observation Contract
 - [ ] 1.1 Define and implement versioned topology observation envelope (v2) with typed identity/evidence fields.
-- [ ] 1.2 Add mapper contract-drift diagnostics: store unknown/extra controller fields and parse-failure counters.
+- [x] 1.2 Add mapper contract-drift diagnostics: store unknown/extra controller fields and parse-failure counters.
 - [x] 1.3 Implement SNMP flood/trunk suppression for high-fanout ifIndex observations.
-- [ ] 1.4 Add mapper debug bundle export for a job run (devices, interfaces, topology evidence, parse diagnostics).
-- [ ] 1.5 Add versioned source adapters for UniFi/SNMP/LLDP/CDP payload normalization.
-- [ ] 1.6 Add contract fixture tests per source and quarantine drifted payloads on parser mismatch.
+- [x] 1.4 Add mapper debug bundle export for a job run (devices, interfaces, topology evidence, parse diagnostics).
+- [x] 1.5 Add versioned source adapters for UniFi/SNMP/LLDP/CDP payload normalization.
+- [x] 1.6 Add contract fixture tests per source and quarantine drifted payloads on parser mismatch.
 
 ## 2. Core Reconciliation and Projection
 - [ ] 2.1 Update mapper ingestor to consume v2 observation envelope and preserve immutable source endpoint IDs.

@@ -19,7 +19,10 @@ package mapper
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +33,17 @@ import (
 )
 
 const evidenceClassDirect = "direct"
+
+const (
+	mapperDebugBundleOption     = "mapper_debug_bundle"
+	mapperDebugBundlePathOption = "mapper_debug_bundle_path"
+	defaultMapperDebugBundleDir = "/tmp/serviceradar/mapper-debug"
+
+	sourceAdapterUniFiV1 = "unifi.v1"
+	sourceAdapterSNMPV1  = "snmp.v1"
+	sourceAdapterLLDPV1  = "lldp.v1"
+	sourceAdapterCDPV1   = "cdp.v1"
+)
 
 // NewDiscoveryEngine creates a new discovery engine with the given configuration
 func NewDiscoveryEngine(config *Config, publisher Publisher, log logger.Logger) (Mapper, error) {
@@ -379,6 +393,12 @@ func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryP
 		Contract: DiscoveryContract{
 			AgentID:   params.AgentID,
 			GatewayID: params.GatewayID,
+			ParseDiagnostics: DiscoveryParseDiagnostics{
+				ParseFailures:     make(map[string]int),
+				UnknownTopLevel:   make(map[string]int),
+				ParserMismatches:  make(map[string]int),
+				LastFailureByType: make(map[string]string),
+			},
 		},
 	}
 
@@ -539,6 +559,7 @@ func (e *DiscoveryEngine) worker(ctx context.Context, workerID int) {
 
 			// Placeholder for actual discovery logic
 			e.runDiscoveryJob(ctx, job) // Pass job.ctx here
+			e.maybeExportDebugBundle(job)
 
 			// After job execution (success, failure, or cancellation handled within runDiscoveryJob)
 			e.mu.Lock()
@@ -562,6 +583,162 @@ func (e *DiscoveryEngine) worker(ctx context.Context, workerID int) {
 			e.logger.Info().Int("worker_id", workerID).Str("job_id", job.ID).
 				Str("status", string(job.Status.Status)).Msg("Worker finished job")
 		}
+	}
+}
+
+type discoveryDebugBundlePayload struct {
+	DiscoveryID   string                 `json:"discovery_id"`
+	GeneratedAt   string                 `json:"generated_at"`
+	Status        *DiscoveryStatus       `json:"status"`
+	Contract      DiscoveryContract      `json:"contract"`
+	Devices       []*DiscoveredDevice    `json:"devices"`
+	Interfaces    []*DiscoveredInterface `json:"interfaces"`
+	TopologyLinks []*TopologyLink        `json:"topology_links"`
+}
+
+func (e *DiscoveryEngine) maybeExportDebugBundle(job *DiscoveryJob) {
+	if job == nil || job.Params == nil {
+		return
+	}
+	if !isTruthyOption(job.Params.Options[mapperDebugBundleOption]) {
+		return
+	}
+
+	exportDir := strings.TrimSpace(job.Params.Options[mapperDebugBundlePathOption])
+	if exportDir == "" {
+		exportDir = defaultMapperDebugBundleDir
+	}
+	filename := fmt.Sprintf("%s-debug-bundle.json", job.ID)
+	exportPath := filepath.Join(exportDir, filename)
+	now := time.Now().UTC()
+
+	var payload discoveryDebugBundlePayload
+	job.mu.Lock()
+	payload = discoveryDebugBundlePayload{
+		DiscoveryID:   job.ID,
+		GeneratedAt:   now.Format(time.RFC3339Nano),
+		Status:        job.Status,
+		Contract:      job.Results.Contract,
+		Devices:       append([]*DiscoveredDevice(nil), job.Results.Devices...),
+		Interfaces:    append([]*DiscoveredInterface(nil), job.Results.Interfaces...),
+		TopologyLinks: append([]*TopologyLink(nil), job.Results.TopologyLinks...),
+	}
+	job.Results.Contract.DebugBundle.Enabled = true
+	job.Results.Contract.DebugBundle.ExportPath = exportPath
+	job.Results.Contract.DebugBundle.ExportedAtUnix = now.Unix()
+	job.Results.Contract.DebugBundle.DeviceCount = len(job.Results.Devices)
+	job.Results.Contract.DebugBundle.InterfaceCount = len(job.Results.Interfaces)
+	job.Results.Contract.DebugBundle.TopologyCount = len(job.Results.TopologyLinks)
+	job.Results.Contract.DebugBundle.Error = ""
+	job.mu.Unlock()
+
+	if err := os.MkdirAll(exportDir, 0o750); err != nil {
+		e.recordDebugBundleError(job, err)
+		e.logger.Warn().Str("job_id", job.ID).Str("path", exportPath).
+			Err(err).Msg("Failed to create mapper debug bundle directory")
+		return
+	}
+
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		e.recordDebugBundleError(job, err)
+		e.logger.Warn().Str("job_id", job.ID).Str("path", exportPath).
+			Err(err).Msg("Failed to marshal mapper debug bundle")
+		return
+	}
+	if err := os.WriteFile(exportPath, raw, 0o640); err != nil {
+		e.recordDebugBundleError(job, err)
+		e.logger.Warn().Str("job_id", job.ID).Str("path", exportPath).
+			Err(err).Msg("Failed to write mapper debug bundle")
+		return
+	}
+
+	e.logger.Info().Str("job_id", job.ID).Str("path", exportPath).
+		Int("devices", len(payload.Devices)).
+		Int("interfaces", len(payload.Interfaces)).
+		Int("topology_links", len(payload.TopologyLinks)).
+		Msg("Mapper debug bundle exported")
+}
+
+func isTruthyOption(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func (e *DiscoveryEngine) recordDebugBundleError(job *DiscoveryJob, err error) {
+	if job == nil || err == nil {
+		return
+	}
+	job.mu.Lock()
+	defer job.mu.Unlock()
+	job.Results.Contract.DebugBundle.Enabled = true
+	job.Results.Contract.DebugBundle.Error = err.Error()
+}
+
+func (e *DiscoveryEngine) recordContractParseFailure(job *DiscoveryJob, parserType, detail string) {
+	if job == nil {
+		return
+	}
+	key := strings.TrimSpace(parserType)
+	if key == "" {
+		key = "unknown"
+	}
+	job.mu.Lock()
+	defer job.mu.Unlock()
+	diag := &job.Results.Contract.ParseDiagnostics
+	if diag.ParseFailures == nil {
+		diag.ParseFailures = make(map[string]int)
+	}
+	if diag.LastFailureByType == nil {
+		diag.LastFailureByType = make(map[string]string)
+	}
+	diag.ParseFailures[key]++
+	if detail != "" {
+		diag.LastFailureByType[key] = detail
+	}
+}
+
+func (e *DiscoveryEngine) recordContractParserMismatch(job *DiscoveryJob, parserType string) {
+	if job == nil {
+		return
+	}
+	key := strings.TrimSpace(parserType)
+	if key == "" {
+		key = "unknown"
+	}
+	job.mu.Lock()
+	defer job.mu.Unlock()
+	diag := &job.Results.Contract.ParseDiagnostics
+	if diag.ParserMismatches == nil {
+		diag.ParserMismatches = make(map[string]int)
+	}
+	diag.ParserMismatches[key]++
+}
+
+func (e *DiscoveryEngine) recordContractUnknownTopLevel(job *DiscoveryJob, source string, keys []string) {
+	if job == nil || len(keys) == 0 {
+		return
+	}
+	scope := strings.TrimSpace(source)
+	if scope == "" {
+		scope = "unknown"
+	}
+	job.mu.Lock()
+	defer job.mu.Unlock()
+	diag := &job.Results.Contract.ParseDiagnostics
+	if diag.UnknownTopLevel == nil {
+		diag.UnknownTopLevel = make(map[string]int)
+	}
+	for _, key := range keys {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			continue
+		}
+		diag.UnknownTopLevel[scope+"."+trimmed]++
 	}
 }
 
@@ -678,6 +855,7 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 			if link.Metadata == nil {
 				link.Metadata = make(map[string]string)
 			}
+			applySourceAdapterVersion(link)
 			applyTopologyEvidenceClass(link)
 			NormalizeTopologyLinkNeighborIdentity(link)
 			link.Metadata["discovery_id"] = job.ID
@@ -693,6 +871,39 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 					Err(err).Msg("Failed to publish link")
 			}
 		}
+	}
+}
+
+func applySourceAdapterVersion(link *TopologyLink) {
+	if link == nil {
+		return
+	}
+	if link.Metadata == nil {
+		link.Metadata = make(map[string]string)
+	}
+	if strings.TrimSpace(link.Metadata["source_adapter_version"]) != "" {
+		return
+	}
+
+	source := strings.ToLower(strings.TrimSpace(link.Metadata["source"]))
+	protocol := strings.ToLower(strings.TrimSpace(link.Protocol))
+
+	switch {
+	case strings.HasPrefix(source, "unifi-api"):
+		link.Metadata["source_adapter_version"] = sourceAdapterUniFiV1
+		link.Metadata["source_adapter_family"] = "unifi"
+	case protocol == "lldp":
+		link.Metadata["source_adapter_version"] = sourceAdapterLLDPV1
+		link.Metadata["source_adapter_family"] = "lldp"
+	case protocol == "cdp":
+		link.Metadata["source_adapter_version"] = sourceAdapterCDPV1
+		link.Metadata["source_adapter_family"] = "cdp"
+	case protocol == "snmp-l2" || strings.HasPrefix(source, "snmp-"):
+		link.Metadata["source_adapter_version"] = sourceAdapterSNMPV1
+		link.Metadata["source_adapter_family"] = "snmp"
+	default:
+		link.Metadata["source_adapter_version"] = "unknown.v1"
+		link.Metadata["source_adapter_family"] = "unknown"
 	}
 }
 
