@@ -17,20 +17,46 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   def upsert_links([]), do: :ok
 
   def upsert_links(links) when is_list(links) do
-    {local_device_ids, neighbor_index, projected_count, evidence_count, skipped_count} =
-      Enum.reduce(links, {MapSet.new(), %{}, 0, 0, 0}, &reduce_topology_link/2)
+    {local_device_ids, neighbor_index, diagnostics} =
+      Enum.reduce(
+        links,
+        {MapSet.new(), %{}, empty_projection_diagnostics()},
+        &reduce_topology_link/2
+      )
 
     prune_unseen_projected_links(neighbor_index)
     prune_stale_projected_links(MapSet.to_list(local_device_ids))
     prune_stale_mapper_evidence_links()
 
-    if skipped_count > 0 or evidence_count > 0 do
-      Logger.debug(
-        "Skipped #{skipped_count} topology link(s); projected #{projected_count} backbone link(s); stored #{evidence_count} evidence link(s)"
-      )
-    end
+    Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
 
     :ok
+  end
+
+  @doc """
+  Returns projection diagnostics for a batch without mutating AGE.
+  """
+  @spec projection_diagnostics([map()]) :: %{
+          accepted: map(),
+          rejected: map(),
+          total: non_neg_integer()
+        }
+  def projection_diagnostics(links) when is_list(links) do
+    Enum.reduce(links, empty_projection_diagnostics(), fn link, diagnostics ->
+      case classify_projection(link) do
+        {:ok, %{mode: :backbone, reason: reason}} ->
+          increment_diagnostic(diagnostics, :accepted, reason)
+
+        {:ok, %{mode: :auxiliary, reason: reason}} ->
+          increment_diagnostic(diagnostics, :accepted, reason)
+
+        {:ok, %{mode: :skip, reason: reason}} ->
+          increment_diagnostic(diagnostics, :rejected, reason)
+
+        {:error, :missing_ids} ->
+          increment_diagnostic(diagnostics, :rejected, :missing_ids)
+      end
+    end)
   end
 
   @doc """
@@ -50,15 +76,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     case build_link_payload(link) do
       {:ok, payload} ->
         case projection_mode(payload) do
-          :backbone ->
-            {:ok, %{mode: :backbone, relation: "CONNECTS_TO", payload: payload}}
+          {:backbone, reason} ->
+            {:ok, %{mode: :backbone, relation: "CONNECTS_TO", payload: payload, reason: reason}}
 
-          :auxiliary ->
+          {:auxiliary, reason} ->
             {:ok,
-             %{mode: :auxiliary, relation: evidence_relation_type(payload), payload: payload}}
+             %{
+               mode: :auxiliary,
+               relation: evidence_relation_type(payload),
+               payload: payload,
+               reason: reason
+             }}
 
-          :skip ->
-            {:ok, %{mode: :skip, relation: nil, payload: payload}}
+          {:skip, reason} ->
+            {:ok, %{mode: :skip, relation: nil, payload: payload, reason: reason}}
         end
 
       {:error, :missing_ids} = error ->
@@ -66,27 +97,31 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     end
   end
 
-  defp reduce_topology_link(link, {local_ids, neighbor_index, projected, evidence, skipped}) do
+  defp reduce_topology_link(link, {local_ids, neighbor_index, diagnostics}) do
     case classify_projection(link) do
-      {:ok, %{mode: :backbone, payload: payload}} ->
+      {:ok, %{mode: :backbone, payload: payload, reason: reason}} ->
         local_ids = MapSet.put(local_ids, payload.local_device_id)
         upsert_backbone_link_payload(payload)
+        diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
 
         neighbor_index =
           add_neighbor_edge(neighbor_index, payload.local_device_id, payload.neighbor_device_id)
 
-        {local_ids, neighbor_index, projected + 1, evidence, skipped}
+        {local_ids, neighbor_index, diagnostics}
 
-      {:ok, %{mode: :auxiliary, payload: payload}} ->
+      {:ok, %{mode: :auxiliary, payload: payload, reason: reason}} ->
         upsert_auxiliary_link_payload(payload)
-        {local_ids, neighbor_index, projected, evidence + 1, skipped}
+        diagnostics = increment_diagnostic(diagnostics, :accepted, reason)
+        {local_ids, neighbor_index, diagnostics}
 
-      {:ok, %{mode: :skip}} ->
-        {local_ids, neighbor_index, projected, evidence, skipped + 1}
+      {:ok, %{mode: :skip, reason: reason}} ->
+        diagnostics = increment_diagnostic(diagnostics, :rejected, reason)
+        {local_ids, neighbor_index, diagnostics}
 
       {:error, :missing_ids} ->
         Logger.debug("Skipping topology link missing device identifiers")
-        {local_ids, neighbor_index, projected, evidence, skipped}
+        diagnostics = increment_diagnostic(diagnostics, :rejected, :missing_ids)
+        {local_ids, neighbor_index, diagnostics}
     end
   end
 
@@ -321,10 +356,54 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp projection_mode(payload) when is_map(payload) do
     cond do
-      backbone_projectable_link?(payload) -> :backbone
-      auxiliary_evidence_link?(payload) -> :auxiliary
-      true -> :skip
+      backbone_projectable_link?(payload) -> {:backbone, :projected_backbone}
+      auxiliary_evidence_link?(payload) -> {:auxiliary, auxiliary_reason(payload)}
+      true -> {:skip, skip_reason(payload)}
     end
+  end
+
+  defp auxiliary_reason(payload) do
+    case evidence_relation_type(payload) do
+      "ATTACHED_TO" -> :projected_attachment
+      "INFERRED_TO" -> :projected_inferred
+      _ -> :projected_observed
+    end
+  end
+
+  defp skip_reason(payload) do
+    evidence_class = normalize_evidence_class(payload.evidence_class)
+    confidence_reason = normalize_confidence_reason(payload.confidence_reason)
+    protocol = normalize_protocol(payload.protocol)
+    strict_ifindex? = MapSet.member?(@strict_ifindex_protocols, protocol)
+
+    cond do
+      confidence_reason == "single_identifier_inference" ->
+        :skip_single_identifier_inference
+
+      strict_ifindex? and not valid_ifindex?(payload.local_if_index) ->
+        :skip_missing_ifindex
+
+      MapSet.member?(@inferred_evidence_classes, evidence_class) ->
+        :skip_inferred_low_confidence
+
+      true ->
+        :skip_policy_filtered
+    end
+  end
+
+  defp empty_projection_diagnostics do
+    %{accepted: %{}, rejected: %{}, total: 0}
+  end
+
+  defp increment_diagnostic(diag, bucket, reason) when is_map(diag) do
+    reason_key = to_string(reason || :unknown)
+
+    diag
+    |> update_in([bucket, reason_key], fn
+      nil -> 1
+      existing -> existing + 1
+    end)
+    |> Map.update!(:total, &(&1 + 1))
   end
 
   defp inferred_evidence_projectable?(payload) when is_map(payload) do

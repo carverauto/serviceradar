@@ -112,6 +112,14 @@ if config_env() == :prod do
 
   config :serviceradar_core, :age_graph_name, age_graph_name
 
+  topology_v2_contract_consumption_enabled =
+    System.get_env("SERVICERADAR_TOPOLOGY_V2_CONSUMPTION_ENABLED", "true")
+    |> String.downcase()
+    |> then(&(&1 in ["1", "true", "yes", "on"]))
+
+  config :serviceradar_core,
+    topology_v2_contract_consumption_enabled: topology_v2_contract_consumption_enabled
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

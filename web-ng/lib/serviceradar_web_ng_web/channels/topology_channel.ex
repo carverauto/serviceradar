@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
     socket =
       case GodViewStream.latest_snapshot() do
         {:ok, %{snapshot: snapshot, payload: payload}} ->
+          push(socket, "snapshot_meta", %{pipeline_stats: pipeline_stats(snapshot)})
           push(socket, "snapshot", {:binary, encode_snapshot_frame(snapshot, payload)})
 
           socket
@@ -67,5 +68,26 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
     |> Map.get(key, %{bytes: 0, count: 0})
     |> Map.take([:bytes, :count])
     |> Map.merge(%{bytes: 0, count: 0})
+  end
+
+  defp pipeline_stats(snapshot) do
+    snapshot
+    |> Map.get(:pipeline_stats, %{})
+    |> Map.take([
+      :raw_links,
+      :unique_pairs,
+      :final_edges,
+      :final_nodes,
+      :raw_direct,
+      :raw_inferred,
+      :raw_attachment,
+      :pair_direct,
+      :pair_inferred,
+      :pair_attachment,
+      :final_direct,
+      :final_inferred,
+      :final_attachment,
+      :unresolved_endpoints
+    ])
   end
 end

@@ -2,6 +2,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   @moduledoc """
   Ingests mapper interface and topology results into CNPG and projects topology into AGE.
   """
+
   # credo:disable-for-this-file Credo.Check.Refactor.CyclomaticComplexity
   # credo:disable-for-this-file Credo.Check.Refactor.Nesting
 
@@ -1428,6 +1429,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
       if resolved_local_uid do
         record
+        |> preserve_source_endpoint_ids()
         |> Map.put(:local_device_id, resolved_local_uid)
         |> maybe_put_neighbor_id(neighbor_uid)
       else
@@ -1467,6 +1469,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         Enum.find_value(name_candidates, fn name -> Map.get(index.name_to_uid, name) end)
     end
   end
+
+  defp preserve_source_endpoint_ids(record) when is_map(record) do
+    metadata =
+      record
+      |> Map.get(:metadata, %{})
+      |> case do
+        map when is_map(map) -> map
+        _ -> %{}
+      end
+
+    metadata =
+      metadata
+      |> maybe_put_metadata_value("source_local_uid", normalize_string(record.local_device_id))
+      |> maybe_put_metadata_value(
+        "source_target_uid",
+        normalize_string(record.neighbor_device_id)
+      )
+
+    Map.put(record, :metadata, metadata)
+  end
+
+  defp preserve_source_endpoint_ids(record), do: record
 
   defp canonical_topology_uid?(uid) when is_binary(uid) do
     IdentityReconciler.serviceradar_uuid?(uid) or IdentityReconciler.service_device_id?(uid)
@@ -1765,27 +1789,57 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   def normalize_topology(update) when is_map(update) do
     timestamp = parse_timestamp(get_value(update, ["timestamp", :timestamp]))
     metadata = get_map(update, ["metadata", :metadata])
+    observation = extract_topology_observation(update, metadata)
+    source_endpoint = get_map(observation, ["source_endpoint", :source_endpoint])
+    target_endpoint = get_map(observation, ["target_endpoint", :target_endpoint])
     neighbor_identity = get_map(update, ["neighbor_identity", :neighbor_identity])
     {tier, score, reason} = score_topology_confidence(update, metadata)
-    protocol = normalize_topology_protocol(get_string(update, ["protocol", :protocol]))
+
+    protocol_value =
+      get_string(update, ["protocol", :protocol]) ||
+        get_string(observation, ["source_protocol", :source_protocol]) ||
+        "unknown"
+
+    protocol = normalize_topology_protocol(protocol_value)
     source = normalize_topology_source(Map.get(metadata, "source"))
-    evidence_class = classify_topology_evidence_class(protocol, source, reason, metadata)
+
+    observation_evidence_class =
+      get_string(observation, ["evidence_class", :evidence_class]) ||
+        metadata_value(metadata, "observation_evidence_class")
+
+    evidence_class =
+      classify_topology_evidence_class(
+        protocol,
+        source,
+        reason,
+        metadata,
+        observation_evidence_class
+      )
+
+    tier =
+      get_string(observation, ["confidence_tier", :confidence_tier]) ||
+        metadata_value(metadata, "observation_confidence_tier") ||
+        tier
 
     neighbor_mgmt_addr =
       get_string(update, ["neighbor_mgmt_addr", :neighbor_mgmt_addr]) ||
-        get_string(neighbor_identity, ["management_ip", :management_ip, "neighbor_mgmt_addr"])
+        get_string(neighbor_identity, ["management_ip", :management_ip, "neighbor_mgmt_addr"]) ||
+        get_string(target_endpoint, ["ip", :ip])
 
     neighbor_device_id =
       get_string(update, ["neighbor_device_id", :neighbor_device_id]) ||
-        get_string(neighbor_identity, ["device_id", :device_id])
+        get_string(neighbor_identity, ["device_id", :device_id]) ||
+        get_string(target_endpoint, ["device_id", :device_id])
 
     neighbor_chassis_id =
       get_string(update, ["neighbor_chassis_id", :neighbor_chassis_id]) ||
-        get_string(neighbor_identity, ["chassis_id", :chassis_id])
+        get_string(neighbor_identity, ["chassis_id", :chassis_id]) ||
+        get_string(target_endpoint, ["mac", :mac])
 
     neighbor_port_id =
       get_string(update, ["neighbor_port_id", :neighbor_port_id]) ||
-        get_string(neighbor_identity, ["port_id", :port_id])
+        get_string(neighbor_identity, ["port_id", :port_id]) ||
+        get_string(target_endpoint, ["port_id", :port_id])
 
     neighbor_port_descr =
       get_string(update, ["neighbor_port_descr", :neighbor_port_descr]) ||
@@ -1801,6 +1855,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       |> Map.put("confidence_score", score)
       |> Map.put("confidence_reason", reason)
       |> Map.put("evidence_class", evidence_class)
+      |> maybe_put_topology_observation_metadata(observation, source_endpoint, target_endpoint)
       |> maybe_put_neighbor_identity(neighbor_identity)
 
     %{
@@ -1808,11 +1863,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       agent_id: get_string(update, ["agent_id", :agent_id]),
       gateway_id: get_string(update, ["gateway_id", :gateway_id]),
       partition: get_string(update, ["partition", :partition]) || "default",
-      protocol: get_string(update, ["protocol", :protocol]),
+      protocol: protocol_value,
       local_device_ip: get_string(update, ["local_device_ip", :local_device_ip]),
-      local_device_id: get_string(update, ["local_device_id", :local_device_id]),
+      local_device_id:
+        get_string(update, ["local_device_id", :local_device_id]) ||
+          get_string(source_endpoint, ["device_id", :device_id]),
       local_if_index: get_integer(update, ["local_if_index", :local_if_index]),
-      local_if_name: get_string(update, ["local_if_name", :local_if_name]),
+      local_if_name:
+        get_string(update, ["local_if_name", :local_if_name]) ||
+          get_string(source_endpoint, ["if_name", :if_name]),
       neighbor_device_id: neighbor_device_id,
       neighbor_chassis_id: neighbor_chassis_id,
       neighbor_port_id: neighbor_port_id,
@@ -1825,6 +1884,44 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   def normalize_topology(_update), do: nil
+
+  defp extract_topology_observation(update, metadata) do
+    if topology_v2_contract_consumption_enabled?() do
+      explicit =
+        get_map(update, ["observation", :observation])
+        |> normalize_topology_observation_map()
+
+      if map_size(explicit) > 0 do
+        explicit
+      else
+        metadata
+        |> metadata_value("observation_v2_json")
+        |> decode_topology_observation_json()
+      end
+    else
+      %{}
+    end
+  end
+
+  defp normalize_topology_observation_map(map) when is_map(map), do: map
+  defp normalize_topology_observation_map(_), do: %{}
+
+  defp decode_topology_observation_json(nil), do: %{}
+  defp decode_topology_observation_json(""), do: %{}
+
+  defp decode_topology_observation_json(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _ -> %{}
+    end
+  end
+
+  defp decode_topology_observation_json(_), do: %{}
+
+  defp topology_v2_contract_consumption_enabled? do
+    Application.get_env(:serviceradar_core, :topology_v2_contract_consumption_enabled, true) ==
+      true
+  end
 
   defp score_topology_confidence(update, metadata) do
     protocol = normalize_topology_protocol(get_string(update, ["protocol", :protocol]))
@@ -1848,28 +1945,52 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp topology_protocol_confidence("cdp"), do: {"high", 95, "direct_cdp_neighbor"}
   defp topology_protocol_confidence(_), do: nil
 
-  defp indirect_topology_confidence("unifi-api", true, true, true, _has_canonical_neighbor_device_id),
-    do: {"medium", 78, "bridge_uplink_with_neighbor_ip"}
+  defp indirect_topology_confidence(
+         "unifi-api",
+         true,
+         true,
+         true,
+         _has_canonical_neighbor_device_id
+       ),
+       do: {"medium", 78, "bridge_uplink_with_neighbor_ip"}
 
-  defp indirect_topology_confidence("unifi-api", true, true, false, _has_canonical_neighbor_device_id),
-    do: {"medium", 72, "bridge_uplink_without_neighbor_ip"}
+  defp indirect_topology_confidence(
+         "unifi-api",
+         true,
+         true,
+         false,
+         _has_canonical_neighbor_device_id
+       ),
+       do: {"medium", 72, "bridge_uplink_without_neighbor_ip"}
 
-  defp indirect_topology_confidence(_source, true, true, _has_neighbor_ip, _has_canonical_neighbor_device_id),
-    do: {"medium", 66, "port_neighbor_inference"}
+  defp indirect_topology_confidence(
+         _source,
+         true,
+         true,
+         _has_neighbor_ip,
+         _has_canonical_neighbor_device_id
+       ),
+       do: {"medium", 66, "port_neighbor_inference"}
 
   defp indirect_topology_confidence(
          source,
-       true,
-       false,
-       true,
-       true
+         true,
+         false,
+         true,
+         true
        )
        when source in ["snmp-arp-fdb", "snmp-arp-only", "unifi-api"] do
     {"medium", 62, "managed_neighbor_identifier"}
   end
 
-  defp indirect_topology_confidence(_source, true, false, _has_neighbor_ip, _has_canonical_neighbor_device_id),
-    do: {"low", 40, "single_identifier_inference"}
+  defp indirect_topology_confidence(
+         _source,
+         true,
+         false,
+         _has_neighbor_ip,
+         _has_canonical_neighbor_device_id
+       ),
+       do: {"low", 40, "single_identifier_inference"}
 
   defp indirect_topology_confidence(
          _source,
@@ -1878,7 +1999,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          _has_neighbor_ip,
          _has_canonical_neighbor_device_id
        ),
-    do: {"low", 20, "insufficient_neighbor_evidence"}
+       do: {"low", 20, "insufficient_neighbor_evidence"}
 
   defp has_canonical_neighbor_device_id?(update) when is_map(update) do
     neighbor_identity = get_map(update, ["neighbor_identity", :neighbor_identity])
@@ -1913,13 +2034,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> String.downcase()
   end
 
-  defp classify_topology_evidence_class(protocol, source, reason, metadata) do
+  defp classify_topology_evidence_class(protocol, source, reason, metadata, observation_class) do
+    observation_class = normalize_string(observation_class)
+
     explicit =
       metadata
       |> metadata_value("evidence_class")
       |> normalize_string()
 
     cond do
+      observation_class in ["direct", "inferred", "endpoint-attachment"] ->
+        observation_class
+
       explicit in ["direct", "inferred", "endpoint-attachment"] ->
         explicit
 
@@ -1943,6 +2069,43 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         "inferred"
     end
   end
+
+  defp maybe_put_topology_observation_metadata(
+         metadata,
+         observation,
+         source_endpoint,
+         target_endpoint
+       )
+       when is_map(metadata) do
+    metadata
+    |> maybe_put_metadata_value(
+      "observation_contract_version",
+      get_string(observation, ["contract_version", :contract_version])
+    )
+    |> maybe_put_metadata_value(
+      "observation_source_adapter",
+      get_string(observation, ["source_adapter", :source_adapter])
+    )
+    |> maybe_put_metadata_value(
+      "source_local_uid",
+      get_string(source_endpoint, ["uid", :uid])
+    )
+    |> maybe_put_metadata_value(
+      "source_target_uid",
+      get_string(target_endpoint, ["uid", :uid])
+    )
+  end
+
+  defp maybe_put_topology_observation_metadata(
+         metadata,
+         _observation,
+         _source_endpoint,
+         _target_endpoint
+       ),
+       do: metadata
+
+  defp maybe_put_metadata_value(metadata, _key, value) when value in [nil, ""], do: metadata
+  defp maybe_put_metadata_value(metadata, key, value), do: Map.put(metadata, key, value)
 
   defp maybe_put_neighbor_identity(metadata, map) when is_map(map) and map_size(map) > 0 do
     Map.put(metadata, "neighbor_identity", map)

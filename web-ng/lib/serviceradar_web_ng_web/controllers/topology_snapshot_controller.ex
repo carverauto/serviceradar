@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
           affected_meta = bitmap_meta(snapshot, :affected)
           healthy_meta = bitmap_meta(snapshot, :healthy)
           unknown_meta = bitmap_meta(snapshot, :unknown)
+          pipeline_stats = pipeline_stats(snapshot)
 
           conn
           |> put_resp_content_type("application/octet-stream")
@@ -57,6 +58,34 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
             "x-sr-god-view-generated-at",
             DateTime.to_iso8601(snapshot.generated_at)
           )
+          |> put_resp_header(
+            "x-sr-god-view-pipeline-raw-links",
+            Integer.to_string(Map.get(pipeline_stats, :raw_links, 0))
+          )
+          |> put_resp_header(
+            "x-sr-god-view-pipeline-unique-pairs",
+            Integer.to_string(Map.get(pipeline_stats, :unique_pairs, 0))
+          )
+          |> put_resp_header(
+            "x-sr-god-view-pipeline-final-edges",
+            Integer.to_string(Map.get(pipeline_stats, :final_edges, 0))
+          )
+          |> put_resp_header(
+            "x-sr-god-view-pipeline-final-direct",
+            Integer.to_string(Map.get(pipeline_stats, :final_direct, 0))
+          )
+          |> put_resp_header(
+            "x-sr-god-view-pipeline-final-inferred",
+            Integer.to_string(Map.get(pipeline_stats, :final_inferred, 0))
+          )
+          |> put_resp_header(
+            "x-sr-god-view-pipeline-final-attachment",
+            Integer.to_string(Map.get(pipeline_stats, :final_attachment, 0))
+          )
+          |> put_resp_header(
+            "x-sr-god-view-pipeline-unresolved-endpoints",
+            Integer.to_string(Map.get(pipeline_stats, :unresolved_endpoints, 0))
+          )
           |> send_resp(200, payload)
 
         {:error, reason} ->
@@ -76,5 +105,19 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
     |> Map.get(key, %{bytes: 0, count: 0})
     |> Map.take([:bytes, :count])
     |> Map.merge(%{bytes: 0, count: 0})
+  end
+
+  defp pipeline_stats(snapshot) do
+    snapshot
+    |> Map.get(:pipeline_stats, %{})
+    |> Map.take([
+      :raw_links,
+      :unique_pairs,
+      :final_edges,
+      :final_direct,
+      :final_inferred,
+      :final_attachment,
+      :unresolved_endpoints
+    ])
   end
 end

@@ -14,12 +14,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.RuntimeGraph
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNG.Topology.Native
+  alias ServiceRadarWebNGWeb.FeatureFlags
 
   @max_interface_rows 2_000
+  @max_legacy_topology_rows 5_000
+  @default_topology_stale_minutes 180
   @default_real_time_budget_ms 2_000
   @default_snapshot_coalesce_ms 0
   @drop_counter_key {__MODULE__, :dropped_updates}
@@ -57,7 +61,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
            nodes: projection.nodes,
            edges: projection.edges,
            causal_bitmaps: projection.causal_bitmaps,
-           bitmap_metadata: projection.bitmap_metadata
+           bitmap_metadata: projection.bitmap_metadata,
+           pipeline_stats: projection.pipeline_stats
          },
          :ok <- GodViewSnapshot.validate(snapshot),
          {:ok, payload} <- encode_payload(snapshot) do
@@ -130,9 +135,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp build_projection(actor) do
     with {:ok, links} <- fetch_topology_links(actor),
          {:ok, pairs} <- unique_pairs(links),
-         {:ok, nodes, edges} <- build_nodes_and_edges(actor, pairs),
+         {:ok, nodes, edges, pipeline_stats} <- build_nodes_and_edges(actor, links, pairs),
          {:ok, indexed_edges} <- index_edges(nodes, edges) do
-      emit_pipeline_stats(links, pairs, edges, nodes)
+      emit_pipeline_stats(pipeline_stats)
       topology_revision = topology_revision(nodes, indexed_edges)
       nodes = apply_native_layout_with_indexed_edges(nodes, indexed_edges, topology_revision)
       nodes = apply_causal_states(nodes, indexed_edges)
@@ -146,19 +151,60 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
          topology_revision: topology_revision,
          causal_revision: causal_revision,
          causal_bitmaps: causal_bitmaps,
-         bitmap_metadata: bitmap_metadata
+         bitmap_metadata: bitmap_metadata,
+         pipeline_stats: pipeline_stats
        }}
     end
   end
 
   defp fetch_topology_links(_actor) do
-    runtime_links =
-      case RuntimeGraph.get_links() do
-        {:ok, links} when is_list(links) -> links
-        _ -> []
-      end
+    if FeatureFlags.age_authoritative_topology_enabled?() do
+      runtime_links =
+        case RuntimeGraph.get_links() do
+          {:ok, links} when is_list(links) -> links
+          _ -> []
+        end
 
-    if runtime_links != [], do: {:ok, runtime_links}, else: {:ok, []}
+      {:ok, runtime_links}
+    else
+      fetch_topology_links_legacy()
+    end
+  end
+
+  defp fetch_topology_links_legacy do
+    cutoff = DateTime.utc_now() |> DateTime.add(-topology_stale_minutes() * 60, :second)
+
+    links =
+      TopologyLink
+      |> where([l], l.timestamp >= ^cutoff)
+      |> order_by([l], desc: l.timestamp)
+      |> limit(@max_legacy_topology_rows)
+      |> Repo.all()
+      |> Enum.map(fn link ->
+        %{
+          local_device_id: normalize_id(Map.get(link, :local_device_id)),
+          local_device_ip: normalize_id(Map.get(link, :local_device_ip)),
+          local_if_name: normalize_id(Map.get(link, :local_if_name)),
+          local_if_index: Map.get(link, :local_if_index),
+          neighbor_device_id: normalize_id(Map.get(link, :neighbor_device_id)),
+          neighbor_mgmt_addr: normalize_id(Map.get(link, :neighbor_mgmt_addr)),
+          neighbor_system_name: normalize_id(Map.get(link, :neighbor_system_name)),
+          protocol: normalize_id(Map.get(link, :protocol)),
+          confidence_tier: metadata_value(Map.get(link, :metadata), "confidence_tier"),
+          evidence_class: metadata_value(Map.get(link, :metadata), "evidence_class"),
+          metadata: Map.get(link, :metadata) || %{}
+        }
+      end)
+
+    {:ok, links}
+  end
+
+  defp topology_stale_minutes do
+    Application.get_env(
+      :serviceradar_core,
+      :mapper_topology_edge_stale_minutes,
+      @default_topology_stale_minutes
+    )
   end
 
   defp unique_pairs(links) when is_list(links) do
@@ -195,7 +241,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     {:ok, pairs}
   end
 
-  defp build_nodes_and_edges(actor, pairs) do
+  defp build_nodes_and_edges(actor, raw_links, pairs) do
     pair_edges = Map.values(pairs)
     edge_node_ids = pairs |> Map.keys() |> Enum.flat_map(&Tuple.to_list/1) |> Enum.uniq()
 
@@ -234,18 +280,23 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       edges = canonical_edges |> dedupe_edges()
 
       with {:ok, edges} <- enrich_edges_via_native(edges, interfaces, pps_by_if, bps_by_if) do
-        {:ok, nodes, edges}
+        unresolved_endpoints =
+          Enum.count(canonical_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
+
+        pipeline_stats =
+          pipeline_stats(raw_links, pair_edges, edges, nodes, unresolved_endpoints)
+
+        {:ok, nodes, edges, pipeline_stats}
       end
     end
   end
 
-  defp emit_pipeline_stats(raw_links, pairs, final_edges, final_nodes)
-       when is_list(raw_links) and is_map(pairs) and is_list(final_edges) and is_list(final_nodes) do
-    pair_links = Map.values(pairs)
-
-    measurements = %{
+  defp pipeline_stats(raw_links, pair_links, final_edges, final_nodes, unresolved_endpoints)
+       when is_list(raw_links) and is_list(pair_links) and is_list(final_edges) and
+              is_list(final_nodes) and is_integer(unresolved_endpoints) do
+    %{
       raw_links: length(raw_links),
-      unique_pairs: map_size(pairs),
+      unique_pairs: length(pair_links),
       final_edges: length(final_edges),
       final_nodes: length(final_nodes),
       raw_direct: count_by_evidence(raw_links, "direct"),
@@ -256,14 +307,20 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       pair_attachment: count_by_evidence(pair_links, "endpoint-attachment"),
       final_direct: count_by_evidence(final_edges, "direct"),
       final_inferred: count_by_evidence(final_edges, "inferred"),
-      final_attachment: count_by_evidence(final_edges, "endpoint-attachment")
+      final_attachment: count_by_evidence(final_edges, "endpoint-attachment"),
+      unresolved_endpoints: unresolved_endpoints
     }
+  end
 
+  defp pipeline_stats(_raw_links, _pair_links, _final_edges, _final_nodes, _unresolved_endpoints),
+    do: %{}
+
+  defp emit_pipeline_stats(measurements) when is_map(measurements) do
     :telemetry.execute([:serviceradar, :god_view, :pipeline, :stats], measurements, %{})
     Logger.info("god_view_pipeline_stats #{inspect(measurements)}")
   end
 
-  defp emit_pipeline_stats(_raw_links, _pairs, _final_edges, _final_nodes), do: :ok
+  defp emit_pipeline_stats(_measurements), do: :ok
 
   defp count_by_evidence(items, expected) when is_list(items) and is_binary(expected) do
     Enum.count(items, fn item -> evidence_class(item) == expected end)
@@ -899,24 +956,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     |> Map.values()
   end
 
-  defp canonicalize_edges(edges, devices) when is_list(edges) do
-    resolver = build_device_identifier_resolver(devices)
-
+  defp canonicalize_edges(edges, _devices) when is_list(edges) do
     edges
     |> Enum.map(fn edge ->
-      source =
-        resolve_device_id(
-          Map.get(edge, :source),
-          [Map.get(edge, :local_device_ip)],
-          resolver
-        )
-
-      target =
-        resolve_device_id(
-          Map.get(edge, :target),
-          [Map.get(edge, :neighbor_mgmt_addr)],
-          resolver
-        )
+      source = normalize_id(Map.get(edge, :source))
+      target = normalize_id(Map.get(edge, :target))
 
       edge
       |> Map.put(:source, source)
@@ -929,96 +973,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp canonicalize_edges(_, _), do: []
-
-  defp build_device_identifier_resolver(devices) when is_list(devices) do
-    Enum.reduce(devices, %{}, fn device, acc ->
-      uid = normalize_id(Map.get(device, :uid))
-
-      if is_binary(uid) do
-        acc
-        |> Map.put(uid, uid)
-        |> put_identifier(uid, Map.get(device, :ip))
-        |> put_identifier(uid, Map.get(device, :name))
-        |> put_identifier(uid, Map.get(device, :hostname))
-        |> put_identifier(uid, Map.get(device, :mac))
-        |> put_identifier(uid, Map.get(device, :uid_alt))
-        |> put_metadata_identifiers(uid, Map.get(device, :metadata))
-      else
-        acc
-      end
-    end)
-  end
-
-  defp put_identifier(acc, uid, value) do
-    case normalize_id(value) do
-      nil -> acc
-      key -> Map.put_new(acc, String.downcase(key), uid)
-    end
-  end
-
-  defp put_metadata_identifiers(acc, uid, metadata) when is_map(metadata) do
-    acc
-    |> put_identifier(uid, metadata["device_id"] || metadata[:device_id])
-    |> put_identifier(uid, metadata["snmp_name"] || metadata[:snmp_name])
-    |> put_ip_alias_identifiers(uid, metadata)
-  end
-
-  defp put_metadata_identifiers(acc, _uid, _metadata), do: acc
-
-  defp put_ip_alias_identifiers(acc, uid, metadata) when is_map(metadata) do
-    Enum.reduce(metadata, acc, fn {raw_key, _value}, inner ->
-      key =
-        case raw_key do
-          atom when is_atom(atom) -> Atom.to_string(atom)
-          binary when is_binary(binary) -> binary
-          _ -> nil
-        end
-
-      cond do
-        is_nil(key) ->
-          inner
-
-        String.starts_with?(key, "alt_ip:") ->
-          ip = String.trim_leading(key, "alt_ip:")
-          put_identifier(inner, uid, ip)
-
-        String.starts_with?(key, "ip_alias:") ->
-          ip = String.trim_leading(key, "ip_alias:")
-          put_identifier(inner, uid, ip)
-
-        true ->
-          inner
-      end
-    end)
-  end
-
-  defp resolve_device_id(raw_value, fallbacks, resolver) do
-    candidates = [raw_value | List.wrap(fallbacks)]
-
-    {resolved, first_unresolved} =
-      Enum.reduce_while(candidates, {nil, nil}, fn value, {_resolved, first_unresolved} ->
-        normalized = normalize_id(value)
-
-        cond do
-          is_nil(normalized) ->
-            {:cont, {nil, first_unresolved}}
-
-          Map.has_key?(resolver, normalized) ->
-            {:halt, {Map.get(resolver, normalized), first_unresolved}}
-
-          Map.has_key?(resolver, String.downcase(normalized)) ->
-            {:halt, {Map.get(resolver, String.downcase(normalized)), first_unresolved}}
-
-          is_nil(first_unresolved) ->
-            {:cont, {nil, normalized}}
-
-          true ->
-            {:cont, {nil, first_unresolved}}
-        end
-      end)
-
-    resolved || first_unresolved
-  end
 
   defp dedupe_edges(edges) when is_list(edges) do
     edges
@@ -2348,4 +2302,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         counter
     end
   end
+
+  defp metadata_value(metadata, key) when is_map(metadata) and is_binary(key) do
+    Map.get(metadata, key) || Map.get(metadata, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> Map.get(metadata, key)
+  end
+
+  defp metadata_value(_metadata, _key), do: nil
 end
