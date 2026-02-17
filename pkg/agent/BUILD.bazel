@@ -24,6 +24,7 @@ go_library(
         "sweep_service.go",
         "sysmon_service.go",
         "test_helpers.go",
+        "tftp_service.go",
         "types.go",
     ],
     importpath = "github.com/carverauto/serviceradar/pkg/agent",
@@ -44,6 +45,8 @@ go_library(
         "//proto",
         "@com_github_google_uuid//:uuid",
         "@com_github_gorilla_websocket//:websocket",
+        "@com_github_pin_tftp_v3//:tftp",
+        "@com_github_rs_zerolog//:zerolog",
         "@com_github_tetratelabs_wazero//:wazero",
         "@com_github_tetratelabs_wazero//api",
         "@com_github_tetratelabs_wazero//imports/wasi_snapshot_preview1",
@@ -58,11 +61,13 @@ go_library(
 go_test(
     name = "agent_test",
     srcs = [
+        "control_stream_tftp_test.go",
         "server_test.go",
         "sweep_test_helpers_test.go",
         "sweep_performance_test.go",
         "sweep_service_sequencing_test.go",
         "sysmon_service_test.go",
+        "tftp_service_test.go",
     ],
     embed = [":agent"],
     deps = [
@@ -73,8 +78,12 @@ go_test(
         "//pkg/models",
         "//pkg/sysmon",
         "//proto",
+        "@com_github_pin_tftp_v3//:tftp",
+        "@com_github_rs_zerolog//:zerolog",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//metadata",
         "@org_uber_go_mock//gomock",
     ],
 )
