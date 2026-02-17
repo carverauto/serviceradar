@@ -344,6 +344,9 @@ func discoveryContractToMetadata(contract DiscoveryContract, includeRawData bool
 	if contract.GatewayID != "" {
 		metadata["gateway_id"] = contract.GatewayID
 	}
+	if contract.TopologyContract != "" {
+		metadata["topology_contract_version"] = contract.TopologyContract
+	}
 
 	if !includeRawData {
 		return metadata

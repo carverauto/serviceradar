@@ -43,6 +43,7 @@ const (
 	sourceAdapterSNMPV1  = "snmp.v1"
 	sourceAdapterLLDPV1  = "lldp.v1"
 	sourceAdapterCDPV1   = "cdp.v1"
+	topologyContractV2   = "mapper.topology_observation.v2"
 )
 
 // NewDiscoveryEngine creates a new discovery engine with the given configuration
@@ -391,8 +392,9 @@ func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryP
 		Interfaces:    make([]*DiscoveredInterface, 0),
 		TopologyLinks: make([]*TopologyLink, 0),
 		Contract: DiscoveryContract{
-			AgentID:   params.AgentID,
-			GatewayID: params.GatewayID,
+			AgentID:          params.AgentID,
+			GatewayID:        params.GatewayID,
+			TopologyContract: topologyContractV2,
 			ParseDiagnostics: DiscoveryParseDiagnostics{
 				ParseFailures:     make(map[string]int),
 				UnknownTopLevel:   make(map[string]int),
@@ -469,8 +471,9 @@ func (e *DiscoveryEngine) GetDiscoveryResults(
 		resultsCopy := *results
 		if !includeRawData {
 			resultsCopy.Contract = DiscoveryContract{
-				AgentID:   results.Contract.AgentID,
-				GatewayID: results.Contract.GatewayID,
+				AgentID:          results.Contract.AgentID,
+				GatewayID:        results.Contract.GatewayID,
+				TopologyContract: results.Contract.TopologyContract,
 			}
 		}
 
@@ -857,6 +860,7 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 			}
 			applySourceAdapterVersion(link)
 			applyTopologyEvidenceClass(link)
+			attachTopologyObservationV2(link)
 			NormalizeTopologyLinkNeighborIdentity(link)
 			link.Metadata["discovery_id"] = job.ID
 			link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
@@ -904,6 +908,91 @@ func applySourceAdapterVersion(link *TopologyLink) {
 	default:
 		link.Metadata["source_adapter_version"] = "unknown.v1"
 		link.Metadata["source_adapter_family"] = "unknown"
+	}
+}
+
+func attachTopologyObservationV2(link *TopologyLink) {
+	if link == nil {
+		return
+	}
+	if link.Metadata == nil {
+		link.Metadata = make(map[string]string)
+	}
+
+	if link.Observation == nil {
+		link.Observation = buildTopologyObservationV2(link)
+	}
+	if link.Observation == nil {
+		return
+	}
+
+	link.Metadata["observation_contract_version"] = link.Observation.ContractVersion
+	link.Metadata["observation_type"] = link.Observation.ObservationType
+	link.Metadata["observation_source_protocol"] = link.Observation.SourceProtocol
+	link.Metadata["observation_source_adapter"] = link.Observation.SourceAdapter
+	link.Metadata["observation_evidence_class"] = link.Observation.EvidenceClass
+	link.Metadata["observation_confidence_tier"] = link.Observation.ConfidenceTier
+
+	raw, err := json.Marshal(link.Observation)
+	if err == nil {
+		link.Metadata["observation_v2_json"] = string(raw)
+	}
+}
+
+func buildTopologyObservationV2(link *TopologyLink) *TopologyObservationV2 {
+	if link == nil {
+		return nil
+	}
+	sourceProtocol := strings.ToLower(strings.TrimSpace(link.Protocol))
+	if sourceProtocol == "" {
+		sourceProtocol = "unknown"
+	}
+	evidenceClass := strings.TrimSpace(link.Metadata["evidence_class"])
+	confidenceTier := strings.TrimSpace(link.Metadata["confidence_tier"])
+	adapter := strings.TrimSpace(link.Metadata["source_adapter_version"])
+
+	sourceUID := strings.TrimSpace(link.LocalDeviceID)
+	if sourceUID == "" {
+		sourceUID = strings.TrimSpace(link.LocalDeviceIP)
+	}
+	targetUID := strings.TrimSpace(link.NeighborChassisID)
+	if targetUID == "" {
+		targetUID = strings.TrimSpace(link.NeighborMgmtAddr)
+	}
+	neighborDeviceID := ""
+	if link.NeighborIdentity != nil {
+		neighborDeviceID = strings.TrimSpace(link.NeighborIdentity.DeviceID)
+	}
+
+	return &TopologyObservationV2{
+		ContractVersion: topologyContractV2,
+		ObservationType: "topology_link",
+		SourceProtocol:  sourceProtocol,
+		SourceAdapter:   adapter,
+		EvidenceClass:   evidenceClass,
+		ConfidenceTier:  confidenceTier,
+		ObservedAtUnix:  time.Now().UTC().Unix(),
+		DiscoveryID:     strings.TrimSpace(link.Metadata["discovery_id"]),
+		SourceEndpoint: TopologyObservationEndpointV2{
+			UID:      sourceUID,
+			DeviceID: strings.TrimSpace(link.LocalDeviceID),
+			IP:       strings.TrimSpace(link.LocalDeviceIP),
+			IfIndex:  link.LocalIfIndex,
+			IfName:   strings.TrimSpace(link.LocalIfName),
+		},
+		TargetEndpoint: TopologyObservationEndpointV2{
+			UID:      targetUID,
+			DeviceID: neighborDeviceID,
+			IP:       strings.TrimSpace(link.NeighborMgmtAddr),
+			MAC:      strings.TrimSpace(link.NeighborChassisID),
+			PortID:   strings.TrimSpace(link.NeighborPortID),
+			SysName:  strings.TrimSpace(link.NeighborSystemName),
+		},
+		RawAttributes: map[string]string{
+			"neighbor_port_descr": strings.TrimSpace(link.NeighborPortDescr),
+			"source":              strings.TrimSpace(link.Metadata["source"]),
+			"confidence_reason":   strings.TrimSpace(link.Metadata["confidence_reason"]),
+		},
 	}
 }
 

@@ -180,6 +180,7 @@ func TestGRPCGetDiscoveryResults(t *testing.T) {
 		Contract: DiscoveryContract{
 			AgentID:          "agent-1",
 			GatewayID:        "gateway-1",
+			TopologyContract: "mapper.topology_observation.v2",
 			ScheduledJobName: "nightly",
 			ProbeSummary: DiscoveryProbeSummary{
 				Attempts: 2,
@@ -218,6 +219,7 @@ func TestGRPCGetDiscoveryResults(t *testing.T) {
 	assert.Equal(t, "192.168.1.1", resp.Topology[0].LocalDeviceIp)
 	assert.Equal(t, "agent-1", resp.Metadata["agent_id"])
 	assert.Equal(t, "gateway-1", resp.Metadata["gateway_id"])
+	assert.Equal(t, "mapper.topology_observation.v2", resp.Metadata["topology_contract_version"])
 	assert.Equal(t, "nightly", resp.Metadata["scheduled_job_name"])
 	assert.Equal(t, "2", resp.Metadata["probe_attempts"])
 

@@ -197,6 +197,7 @@ type DiscoveryContract struct {
 	ScheduledJobName string
 	StageTransitions []DiscoveryStageTransition
 	ProbeSummary     DiscoveryProbeSummary
+	TopologyContract string
 	ParseDiagnostics DiscoveryParseDiagnostics
 	DebugBundle      DiscoveryDebugBundle
 }
@@ -349,6 +350,34 @@ type TopologyLink struct {
 	NeighborMgmtAddr   string
 	NeighborIdentity   *TopologyNeighborIdentity
 	Metadata           map[string]string
+	Observation        *TopologyObservationV2
+}
+
+// TopologyObservationV2 is the typed mapper evidence envelope for topology.
+type TopologyObservationV2 struct {
+	ContractVersion string                        `json:"contract_version"`
+	ObservationType string                        `json:"observation_type"`
+	SourceProtocol  string                        `json:"source_protocol"`
+	SourceAdapter   string                        `json:"source_adapter"`
+	EvidenceClass   string                        `json:"evidence_class"`
+	ConfidenceTier  string                        `json:"confidence_tier"`
+	ObservedAtUnix  int64                         `json:"observed_at_unix"`
+	DiscoveryID     string                        `json:"discovery_id"`
+	SourceEndpoint  TopologyObservationEndpointV2 `json:"source_endpoint"`
+	TargetEndpoint  TopologyObservationEndpointV2 `json:"target_endpoint"`
+	RawAttributes   map[string]string             `json:"raw_attributes,omitempty"`
+}
+
+// TopologyObservationEndpointV2 captures immutable endpoint identity fields.
+type TopologyObservationEndpointV2 struct {
+	UID      string `json:"uid,omitempty"`
+	DeviceID string `json:"device_id,omitempty"`
+	IP       string `json:"ip,omitempty"`
+	IfIndex  int32  `json:"if_index,omitempty"`
+	IfName   string `json:"if_name,omitempty"`
+	MAC      string `json:"mac,omitempty"`
+	PortID   string `json:"port_id,omitempty"`
+	SysName  string `json:"sys_name,omitempty"`
 }
 
 // TopologyNeighborIdentity stores canonical neighbor identity evidence.

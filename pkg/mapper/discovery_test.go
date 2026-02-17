@@ -18,6 +18,7 @@ package mapper
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -820,4 +821,40 @@ func TestApplySourceAdapterVersion(t *testing.T) {
 			assert.Equal(t, tt.family, tt.link.Metadata["source_adapter_family"])
 		})
 	}
+}
+
+func TestAttachTopologyObservationV2(t *testing.T) {
+	link := &TopologyLink{
+		Protocol:           "LLDP",
+		LocalDeviceIP:      "192.168.10.1",
+		LocalDeviceID:      "mac-001122334455",
+		LocalIfIndex:       23,
+		LocalIfName:        "eth4",
+		NeighborMgmtAddr:   "192.168.10.154",
+		NeighborChassisID:  "0c:ea:14:32:d2:77",
+		NeighborPortID:     "eth4",
+		NeighborSystemName: "tonka01",
+		Metadata: map[string]string{
+			"discovery_id":           "job-1",
+			"source":                 "snmp-lldp",
+			"evidence_class":         "direct",
+			"confidence_tier":        "high",
+			"source_adapter_version": sourceAdapterLLDPV1,
+		},
+	}
+
+	attachTopologyObservationV2(link)
+
+	require.NotNil(t, link.Observation)
+	assert.Equal(t, topologyContractV2, link.Observation.ContractVersion)
+	assert.Equal(t, "topology_link", link.Observation.ObservationType)
+	assert.Equal(t, "lldp", link.Observation.SourceProtocol)
+	assert.Equal(t, sourceAdapterLLDPV1, link.Observation.SourceAdapter)
+	assert.Equal(t, topologyContractV2, link.Metadata["observation_contract_version"])
+	require.NotEmpty(t, link.Metadata["observation_v2_json"])
+
+	var parsed TopologyObservationV2
+	require.NoError(t, json.Unmarshal([]byte(link.Metadata["observation_v2_json"]), &parsed))
+	assert.Equal(t, "mac-001122334455", parsed.SourceEndpoint.UID)
+	assert.Equal(t, "0c:ea:14:32:d2:77", parsed.TargetEndpoint.UID)
 }
