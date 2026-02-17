@@ -1,0 +1,14 @@
+{
+  "listen_addr": "0.0.0.0:6343",
+  "buffer_size": 65536,
+  "nats_url": "tls://serviceradar-nats:4222",
+  "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+  "stream_name": "events",
+  "subject": "flows.raw.sflow",
+  "stream_subjects": ["flows.raw.sflow", "flows.raw.sflow.processed"],
+  "channel_size": 10000,
+  "batch_size": 100,
+  "publish_timeout_ms": 5000,
+  "drop_policy": "drop_oldest",
+  "metrics_addr": "0.0.0.0:50047"
+}
