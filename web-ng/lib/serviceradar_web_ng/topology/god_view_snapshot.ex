@@ -39,7 +39,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
               optional(:bytes) => non_neg_integer(),
               optional(:count) => non_neg_integer()
             }
-          }
+          },
+          optional(:pipeline_stats) => map()
         }
 
   @spec schema_version() :: pos_integer()
@@ -54,7 +55,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
          :ok <- validate_nodes(snapshot),
          :ok <- validate_edges(snapshot),
          :ok <- validate_bitmaps(snapshot) do
-      validate_bitmap_metadata(snapshot)
+      with :ok <- validate_bitmap_metadata(snapshot) do
+        validate_pipeline_stats(snapshot)
+      end
     end
   end
 
@@ -117,6 +120,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
   end
 
   defp validate_bitmap_metadata(_), do: {:error, :invalid_bitmap_metadata}
+
+  defp validate_pipeline_stats(%{pipeline_stats: stats}) when is_map(stats), do: :ok
+  defp validate_pipeline_stats(%{}), do: :ok
+  defp validate_pipeline_stats(_), do: {:error, :invalid_pipeline_stats}
 
   defp valid_bitmap_entry?({key, value})
        when key in [:root_cause, :affected, :healthy, :unknown] and is_binary(value),

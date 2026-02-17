@@ -9,15 +9,15 @@
 ## 2. Core Reconciliation and Projection
 - [x] 2.1 Update mapper ingestor to consume v2 observation envelope and preserve immutable source endpoint IDs.
 - [x] 2.2 Reconcile observations to canonical device identity without rewriting source IDs.
-- [ ] 2.3 Project canonical adjacency to AGE with idempotent upserts and freshness timestamps.
-- [ ] 2.4 Add stale-edge expiry/retraction for inferred edges with no recent supporting evidence.
-- [ ] 2.5 Emit per-run reconciliation diagnostics (accepted/rejected edges with explicit reason codes).
+- [x] 2.3 Project canonical adjacency to AGE with idempotent upserts and freshness timestamps.
+- [x] 2.4 Add stale-edge expiry/retraction for inferred edges with no recent supporting evidence.
+- [x] 2.5 Emit per-run reconciliation diagnostics (accepted/rejected edges with explicit reason codes).
 
 ## 3. Web Topology Consumption
-- [ ] 3.1 Remove UI-layer greedy identifier fusion from topology edge construction.
-- [ ] 3.2 Render unresolved endpoints explicitly instead of guessing identity matches.
-- [ ] 3.3 Enforce strict graph class policy (physical default = direct L2; inferred edges separate/toggleable).
-- [ ] 3.4 Add pipeline telemetry cards for raw observations, unique pairs, final edges, direct/inferred split, unresolved endpoints.
+- [x] 3.1 Remove UI-layer greedy identifier fusion from topology edge construction.
+- [x] 3.2 Render unresolved endpoints explicitly instead of guessing identity matches.
+- [x] 3.3 Enforce strict graph class policy (physical default = direct L2; inferred edges separate/toggleable).
+- [x] 3.4 Add pipeline telemetry cards for raw observations, unique pairs, final edges, direct/inferred split, unresolved endpoints.
 
 ## 4. Data Cleanup and Rebuild
 - [ ] 4.1 Create an operator-safe cleanup script/runbook to clear polluted topology evidence and derived AGE edges.

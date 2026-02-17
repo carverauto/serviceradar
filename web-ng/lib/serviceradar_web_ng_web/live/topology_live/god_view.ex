@@ -42,8 +42,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
        |> assign(:topology_layers, %{
          backbone: true,
          inferred: false,
-         endpoints: true
+         endpoints: false
        })
+       |> assign(:pipeline_stats, %{})
        |> assign(:controls_collapsed, true)}
     else
       {:ok,
@@ -55,6 +56,11 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
 
   @impl true
   def handle_event("god_view_stream_stats", params, socket) do
+    pipeline_stats =
+      params
+      |> Map.get("pipeline_stats", %{})
+      |> normalize_pipeline_stats()
+
     {:noreply,
      socket
      |> assign(:stream_state, :ok)
@@ -69,6 +75,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
      |> assign(:last_decode_ms, Map.get(params, "decode_ms"))
      |> assign(:last_render_ms, Map.get(params, "render_ms"))
      |> assign(:last_bitmap_metadata, Map.get(params, "bitmap_metadata"))
+     |> assign(:pipeline_stats, pipeline_stats)
      |> assign(:last_zoom_tier, Map.get(params, "zoom_tier"))
      |> assign(:last_zoom_mode, Map.get(params, "zoom_mode", socket.assigns.last_zoom_mode))}
   end
@@ -459,6 +466,50 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
             </div>
           </div>
         </.ui_panel>
+
+        <.ui_panel>
+          <:header>
+            <div class="text-sm font-semibold">Pipeline Telemetry</div>
+          </:header>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Raw Observations</div>
+              <div class="text-sm font-mono mt-1">{Map.get(@pipeline_stats, :raw_links, "—")}</div>
+            </div>
+            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Unique Pairs</div>
+              <div class="text-sm font-mono mt-1">{Map.get(@pipeline_stats, :unique_pairs, "—")}</div>
+            </div>
+            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Final Edges</div>
+              <div class="text-sm font-mono mt-1">{Map.get(@pipeline_stats, :final_edges, "—")}</div>
+            </div>
+            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">
+                Unresolved Endpoints
+              </div>
+              <div class="text-sm font-mono mt-1">
+                {Map.get(@pipeline_stats, :unresolved_endpoints, "—")}
+              </div>
+            </div>
+            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Direct</div>
+              <div class="text-sm font-mono mt-1">{Map.get(@pipeline_stats, :final_direct, "—")}</div>
+            </div>
+            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Inferred</div>
+              <div class="text-sm font-mono mt-1">
+                {Map.get(@pipeline_stats, :final_inferred, "—")}
+              </div>
+            </div>
+            <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+              <div class="text-xs uppercase tracking-wide text-base-content/60">Attachments</div>
+              <div class="text-sm font-mono mt-1">
+                {Map.get(@pipeline_stats, :final_attachment, "—")}
+              </div>
+            </div>
+          </div>
+        </.ui_panel>
       </div>
     </Layouts.app>
     """
@@ -495,6 +546,41 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
       bytes: Map.get(entry, "bytes") || Map.get(entry, :bytes) || 0
     }
   end
+
+  defp normalize_pipeline_stats(stats) when is_map(stats) do
+    keys = [
+      :raw_links,
+      :unique_pairs,
+      :final_edges,
+      :final_direct,
+      :final_inferred,
+      :final_attachment,
+      :unresolved_endpoints
+    ]
+
+    Enum.reduce(keys, %{}, fn key, acc ->
+      raw = Map.get(stats, key) || Map.get(stats, Atom.to_string(key))
+
+      parsed =
+        cond do
+          is_integer(raw) ->
+            raw
+
+          is_binary(raw) ->
+            case Integer.parse(raw) do
+              {value, ""} -> value
+              _ -> nil
+            end
+
+          true ->
+            nil
+        end
+
+      if is_integer(parsed), do: Map.put(acc, key, parsed), else: acc
+    end)
+  end
+
+  defp normalize_pipeline_stats(_), do: %{}
 
   defp normalize_zoom_mode("global"), do: "global"
   defp normalize_zoom_mode("regional"), do: "regional"
