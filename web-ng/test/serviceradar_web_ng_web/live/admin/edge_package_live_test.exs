@@ -97,15 +97,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   end
 
   describe "package creation flow" do
-    test "creates a package and shows success", %{conn: conn, gateway_id: gateway_id} do
+    test "creates a package and shows success", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
 
       # Submit form
       lv
       |> form("#create_package_form",
         form: %{
-          label: "test-new-agent",
-          gateway_id: gateway_id
+          label: "test-new-agent"
         }
       )
       |> render_submit()
@@ -120,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
                html =~ "Failed to create package"
     end
 
-    test "auto-generates component_id from label", %{conn: conn, actor: actor} do
+    test "auto-generates component_id from label", %{actor: actor} do
       # Create a package via the UI flow
       attrs = %{
         label: "Production Gateway 01",

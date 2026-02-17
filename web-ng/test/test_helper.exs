@@ -1,5 +1,10 @@
 ExUnit.start()
 
+# Test suite should exercise app behavior, not startup migration gating.
+if System.get_env("SERVICERADAR_MIGRATIONS_GATE") in [nil, ""] do
+  System.put_env("SERVICERADAR_MIGRATIONS_GATE", "false")
+end
+
 {:ok, _} = Application.ensure_all_started(:serviceradar_web_ng)
 
 # Use ServiceRadar.Repo from serviceradar_core directly for SQL adapter operations

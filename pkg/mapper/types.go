@@ -40,6 +40,13 @@ type DiscoveryEngine struct {
 	wg            sync.WaitGroup
 	schedulers    map[string]*time.Ticker
 	logger        logger.Logger
+	hostProber    HostProber
+}
+
+// HostProber provides advisory host reachability checks for worker scheduling.
+type HostProber interface {
+	Probe(ctx context.Context, host string) error
+	Close() error
 }
 
 // DiscoveryType identifies the type of discovery to perform.
@@ -72,6 +79,7 @@ const (
 type DiscoveryParams struct {
 	Seeds       []string          // IP addresses or CIDR ranges to scan
 	Type        DiscoveryType     // Type of discovery to perform
+	Mode        string            // Discovery mode (e.g., "snmp", "hybrid")
 	Credentials *SNMPCredentials  // SNMP credentials to use
 	Options     map[string]string // Additional discovery options
 	Concurrency int               // Maximum number of concurrent operations
@@ -127,17 +135,20 @@ type DiscoveryStatus struct {
 
 // DiscoveryJob represents a running discovery operation.
 type DiscoveryJob struct {
-	ID             string
-	Params         *DiscoveryParams
-	Status         *DiscoveryStatus
-	Results        *DiscoveryResults
-	ctx            context.Context
-	cancelFunc     context.CancelFunc
-	scanQueue      []string
-	mu             sync.RWMutex
-	uniFiSiteCache map[string][]UniFiSite         // Key: baseURL, Value: list of sites
-	deviceMap      map[string]*DeviceInterfaceMap // DeviceID -> DeviceInterfaceMap
-	interfaceMap   map[string]*DiscoveredInterface
+	ID                  string
+	Params              *DiscoveryParams
+	Status              *DiscoveryStatus
+	Results             *DiscoveryResults
+	ctx                 context.Context
+	cancelFunc          context.CancelFunc
+	scanQueue           []string
+	mu                  sync.RWMutex
+	uniFiSiteCache      map[string][]UniFiSite         // Key: baseURL, Value: list of sites
+	uniFiTopologyPolled bool                           // Guard UniFi topology collection to once per job
+	deviceMap           map[string]*DeviceInterfaceMap // DeviceID -> DeviceInterfaceMap
+	interfaceMap        map[string]*DiscoveredInterface
+	identityReconciled  bool
+	interfacesPublished bool
 }
 
 // DiscoveryResults contains the results of a discovery operation.
@@ -147,7 +158,51 @@ type DiscoveryResults struct {
 	Devices       []*DiscoveredDevice
 	Interfaces    []*DiscoveredInterface
 	TopologyLinks []*TopologyLink
-	RawData       map[string]interface{} // Optional raw SNMP data
+	Contract      DiscoveryContract
+}
+
+// DiscoveryStage identifies the current phase of the staged discovery pipeline.
+type DiscoveryStage string
+
+const (
+	DiscoveryStagePrepare  DiscoveryStage = "prepare"
+	DiscoveryStageIdentity DiscoveryStage = "identity"
+	DiscoveryStageEnrich   DiscoveryStage = "enrichment"
+	DiscoveryStageTopology DiscoveryStage = "topology"
+	DiscoveryStageFinalize DiscoveryStage = "finalize"
+)
+
+// DiscoveryStageStatus describes lifecycle state for a stage transition record.
+type DiscoveryStageStatus string
+
+const (
+	DiscoveryStageStatusStarted   DiscoveryStageStatus = "started"
+	DiscoveryStageStatusCompleted DiscoveryStageStatus = "completed"
+	DiscoveryStageStatusFailed    DiscoveryStageStatus = "failed"
+	DiscoveryStageStatusCanceled  DiscoveryStageStatus = "canceled"
+)
+
+// DiscoveryStageTransition captures a typed stage transition event.
+type DiscoveryStageTransition struct {
+	Stage     DiscoveryStage
+	Status    DiscoveryStageStatus
+	Timestamp time.Time
+	Message   string
+}
+
+// DiscoveryContract captures typed, cross-service discovery metadata.
+type DiscoveryContract struct {
+	AgentID          string
+	GatewayID        string
+	ScheduledJobName string
+	StageTransitions []DiscoveryStageTransition
+	ProbeSummary     DiscoveryProbeSummary
+}
+
+// DiscoveryProbeSummary tracks host probe behavior with typed counters.
+type DiscoveryProbeSummary struct {
+	Attempts int
+	Failures int
 }
 
 // DiscoveredDevice represents a discovered network device.
@@ -271,7 +326,18 @@ type TopologyLink struct {
 	NeighborPortDescr  string
 	NeighborSystemName string
 	NeighborMgmtAddr   string
+	NeighborIdentity   *TopologyNeighborIdentity
 	Metadata           map[string]string
+}
+
+// TopologyNeighborIdentity stores canonical neighbor identity evidence.
+type TopologyNeighborIdentity struct {
+	ManagementIP string
+	DeviceID     string
+	ChassisID    string
+	PortID       string
+	PortDescr    string
+	SystemName   string
 }
 
 // SNMPCredentialConfig represents SNMP credentials for specific target IP ranges.
@@ -288,16 +354,17 @@ type SNMPCredentialConfig struct {
 
 // ScheduledJob represents a scheduled discovery job configuration
 type ScheduledJob struct {
-	Name        string            `json:"name"`
-	Interval    string            `json:"interval"`
-	Enabled     bool              `json:"enabled"`
-	Seeds       []string          `json:"seeds"`
-	Type        string            `json:"type"`
-	Credentials SNMPCredentials   `json:"credentials"`
-	Concurrency int               `json:"concurrency"`
-	Timeout     string            `json:"timeout"`
-	Retries     int               `json:"retries"`
-	Options     map[string]string `json:"options"`
+	Name          string            `json:"name"`
+	Interval      string            `json:"interval"`
+	Enabled       bool              `json:"enabled"`
+	Seeds         []string          `json:"seeds"`
+	Type          string            `json:"type"`
+	DiscoveryMode string            `json:"discovery_mode,omitempty"`
+	Credentials   SNMPCredentials   `json:"credentials"`
+	Concurrency   int               `json:"concurrency"`
+	Timeout       string            `json:"timeout"`
+	Retries       int               `json:"retries"`
+	Options       map[string]string `json:"options"`
 }
 
 // Config defines the configuration settings for the mapper service.
@@ -345,16 +412,17 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			PublishRetryInterval string `json:"publish_retry_interval"`
 		} `json:"stream_config"`
 		ScheduledJobs []struct {
-			Name        string            `json:"name"`
-			Interval    string            `json:"interval"`
-			Enabled     bool              `json:"enabled"`
-			Seeds       []string          `json:"seeds"`
-			Type        string            `json:"type"`
-			Credentials SNMPCredentials   `json:"credentials"`
-			Concurrency int               `json:"concurrency"`
-			Timeout     string            `json:"timeout"`
-			Retries     int               `json:"retries"`
-			Options     map[string]string `json:"options"`
+			Name          string            `json:"name"`
+			Interval      string            `json:"interval"`
+			Enabled       bool              `json:"enabled"`
+			Seeds         []string          `json:"seeds"`
+			Type          string            `json:"type"`
+			DiscoveryMode string            `json:"discovery_mode,omitempty"`
+			Credentials   SNMPCredentials   `json:"credentials"`
+			Concurrency   int               `json:"concurrency"`
+			Timeout       string            `json:"timeout"`
+			Retries       int               `json:"retries"`
+			Options       map[string]string `json:"options"`
 		} `json:"scheduled_jobs"`
 		*Alias
 	}{
@@ -399,15 +467,16 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	c.ScheduledJobs = make([]*ScheduledJob, len(aux.ScheduledJobs))
 	for i := 0; i < len(aux.ScheduledJobs); i++ {
 		c.ScheduledJobs[i] = &ScheduledJob{
-			Name:        aux.ScheduledJobs[i].Name,
-			Interval:    aux.ScheduledJobs[i].Interval,
-			Enabled:     aux.ScheduledJobs[i].Enabled,
-			Seeds:       aux.ScheduledJobs[i].Seeds,
-			Type:        aux.ScheduledJobs[i].Type,
-			Credentials: aux.ScheduledJobs[i].Credentials,
-			Concurrency: aux.ScheduledJobs[i].Concurrency,
-			Retries:     aux.ScheduledJobs[i].Retries,
-			Options:     aux.ScheduledJobs[i].Options,
+			Name:          aux.ScheduledJobs[i].Name,
+			Interval:      aux.ScheduledJobs[i].Interval,
+			Enabled:       aux.ScheduledJobs[i].Enabled,
+			Seeds:         aux.ScheduledJobs[i].Seeds,
+			Type:          aux.ScheduledJobs[i].Type,
+			DiscoveryMode: aux.ScheduledJobs[i].DiscoveryMode,
+			Credentials:   aux.ScheduledJobs[i].Credentials,
+			Concurrency:   aux.ScheduledJobs[i].Concurrency,
+			Retries:       aux.ScheduledJobs[i].Retries,
+			Options:       aux.ScheduledJobs[i].Options,
 		}
 
 		if aux.ScheduledJobs[i].Timeout != "" {

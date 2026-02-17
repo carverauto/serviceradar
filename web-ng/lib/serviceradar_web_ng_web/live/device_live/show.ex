@@ -225,6 +225,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     discovery_job = pick_discovery_job(discovery_jobs)
     has_discovery_job = not is_nil(discovery_job)
 
+    network_interfaces = filter_interfaces_for_display(network_interfaces, device_row)
+
     favorited_interfaces = interface_settings.favorited
     metrics_enabled_interfaces = interface_settings.metrics_enabled
 
@@ -789,6 +791,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:error, reason} ->
         {[], "SRQL error: #{format_error(reason)}"}
     end
+  end
+
+  defp filter_interfaces_for_display(interfaces, device_row)
+       when is_list(interfaces) and is_map(device_row) do
+    if switch_device?(device_row) do
+      front_panel = Enum.filter(interfaces, &front_panel_switch_interface?/1)
+
+      # Keep the full list unless we found a meaningful front-panel subset.
+      if length(front_panel) >= 8 and length(front_panel) < length(interfaces) do
+        Enum.sort_by(front_panel, &Map.get(&1, "if_index"))
+      else
+        interfaces
+      end
+    else
+      interfaces
+    end
+  end
+
+  defp filter_interfaces_for_display(interfaces, _device_row), do: interfaces
+
+  defp switch_device?(device_row) when is_map(device_row) do
+    type =
+      device_row
+      |> Map.get("type", "")
+      |> to_string()
+      |> String.downcase()
+      |> String.trim()
+
+    type_id = Map.get(device_row, "type_id")
+    type in ["switch", "l2 switch"] or type_id == 10
+  end
+
+  defp front_panel_switch_interface?(iface) when is_map(iface) do
+    if_index = Map.get(iface, "if_index")
+    if_name = normalize_interface_label(Map.get(iface, "if_name"))
+    if_descr = normalize_interface_label(Map.get(iface, "if_descr"))
+
+    is_integer(if_index) and if_index > 0 and if_index <= 256 and
+      (numeric_port_label?(if_name) or numeric_port_label?(if_descr))
+  end
+
+  defp front_panel_switch_interface?(_), do: false
+
+  defp normalize_interface_label(nil), do: ""
+
+  defp normalize_interface_label(value) do
+    value
+    |> to_string()
+    |> String.trim()
+  end
+
+  defp numeric_port_label?(label) when is_binary(label) do
+    label != "" and String.match?(label, ~r/^(?:port\s*)?\d+$/i)
   end
 
   defp load_interface_settings(_scope, nil), do: empty_interface_settings()

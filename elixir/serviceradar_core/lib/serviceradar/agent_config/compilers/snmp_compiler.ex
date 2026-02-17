@@ -582,6 +582,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       target.oid_configs
       |> Enum.map(&oid_config_to_map/1)
       |> Enum.reject(&is_nil/1)
+      |> ensure_packet_counter_oids()
 
     if oids == [] do
       nil
@@ -615,6 +616,94 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   defp oid_config_to_map(_), do: nil
+
+  # Backfill packet counter OIDs at compile time so existing interface selections that
+  # only persisted octet counters begin emitting packet metrics without manual edits.
+  defp ensure_packet_counter_oids(oids) when is_list(oids) do
+    additions =
+      oids
+      |> Enum.map(&derive_packet_oid/1)
+      |> Enum.reject(&is_nil/1)
+
+    (oids ++ additions)
+    |> Enum.reduce(%{}, fn oid, acc ->
+      key = "#{Map.get(oid, "name")}::#{Map.get(oid, "oid")}"
+      Map.put_new(acc, key, oid)
+    end)
+    |> Map.values()
+  end
+
+  defp derive_packet_oid(%{"name" => name, "oid" => oid})
+       when is_binary(name) and is_binary(oid) do
+    with {base_oid, if_index} <- split_oid_index(oid),
+         packet_name when is_binary(packet_name) <- packet_metric_name(name),
+         packet_base when is_binary(packet_base) <- packet_metric_base_oid(base_oid) do
+      %{
+        "oid" => "#{packet_base}.#{if_index}",
+        "name" => packet_name,
+        "data_type" => "counter",
+        "scale" => 1.0,
+        "delta" => true
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp derive_packet_oid(_), do: nil
+
+  defp split_oid_index(oid) when is_binary(oid) do
+    oid = String.trim(oid)
+
+    case Regex.run(~r/^(.*)\.(\d+)$/, oid) do
+      [_, base, idx] ->
+        case Integer.parse(idx) do
+          {if_index, ""} -> {base, if_index}
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp packet_metric_name(name) do
+    cond do
+      String.starts_with?(name, "ifInOctets") ->
+        String.replace_prefix(name, "ifInOctets", "ifInUcastPkts")
+
+      String.starts_with?(name, "ifOutOctets") ->
+        String.replace_prefix(name, "ifOutOctets", "ifOutUcastPkts")
+
+      String.starts_with?(name, "ifHCInOctets") ->
+        String.replace_prefix(name, "ifHCInOctets", "ifHCInUcastPkts")
+
+      String.starts_with?(name, "ifHCOutOctets") ->
+        String.replace_prefix(name, "ifHCOutOctets", "ifHCOutUcastPkts")
+
+      true ->
+        nil
+    end
+  end
+
+  defp packet_metric_base_oid(base_oid) do
+    cond do
+      String.ends_with?(base_oid, ".1.3.6.1.2.1.2.2.1.10") ->
+        ".1.3.6.1.2.1.2.2.1.11"
+
+      String.ends_with?(base_oid, ".1.3.6.1.2.1.2.2.1.16") ->
+        ".1.3.6.1.2.1.2.2.1.17"
+
+      String.ends_with?(base_oid, ".1.3.6.1.2.1.31.1.1.1.6") ->
+        ".1.3.6.1.2.1.31.1.1.1.7"
+
+      String.ends_with?(base_oid, ".1.3.6.1.2.1.31.1.1.1.10") ->
+        ".1.3.6.1.2.1.31.1.1.1.11"
+
+      true ->
+        nil
+    end
+  end
 
   defp target_credential(%SNMPTarget{} = target) do
     %{

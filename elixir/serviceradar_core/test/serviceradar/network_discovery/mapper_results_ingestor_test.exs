@@ -251,6 +251,53 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert result.available_metrics != nil
       assert length(result.available_metrics) == 1
     end
+
+    test "strips unifi controller metadata for non-unifi interface rows" do
+      update = %{
+        "device_id" => "device-001",
+        "device_ip" => "192.168.1.1",
+        "if_index" => 1,
+        "if_name" => "1",
+        "source" => "snmp",
+        "metadata" => %{
+          "source" => "snmp",
+          "discovery_id" => "abc",
+          "unifi_api_urls" => "https://192.168.10.1/proxy/network/integration/v1",
+          "unifi_api_names" => "tonka01",
+          "controller_name" => "tonka01"
+        }
+      }
+
+      result = MapperResultsIngestor.normalize_interface(update)
+
+      assert result != nil
+      assert result.metadata["source"] == "snmp"
+      assert result.metadata["discovery_id"] == "abc"
+      refute Map.has_key?(result.metadata, "unifi_api_urls")
+      refute Map.has_key?(result.metadata, "unifi_api_names")
+      refute Map.has_key?(result.metadata, "controller_name")
+    end
+
+    test "keeps unifi metadata for unifi interface rows" do
+      update = %{
+        "device_id" => "device-001",
+        "device_ip" => "192.168.1.1",
+        "if_index" => 1,
+        "if_name" => "eth0",
+        "source" => "unifi-api",
+        "metadata" => %{
+          "source" => "unifi-api",
+          "unifi_api_urls" => "https://192.168.2.1/proxy/network/integration/v1"
+        }
+      }
+
+      result = MapperResultsIngestor.normalize_interface(update)
+
+      assert result != nil
+
+      assert result.metadata["unifi_api_urls"] ==
+               "https://192.168.2.1/proxy/network/integration/v1"
+    end
   end
 
   describe "normalize_topology/1 confidence scoring" do
@@ -297,6 +344,374 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert result.metadata["confidence_tier"] == "low"
       assert result.metadata["confidence_score"] == 20
       assert result.metadata["confidence_reason"] == "insufficient_neighbor_evidence"
+    end
+
+    test "hydrates topology neighbor fields from neighbor_identity payload" do
+      result =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "LLDP",
+          "local_device_ip" => "192.168.1.195",
+          "local_device_id" => "sr:uswpro24-a",
+          "neighbor_identity" => %{
+            "management_ip" => "192.168.1.87",
+            "device_id" => "sr:usw-aggregation",
+            "chassis_id" => "aa:bb:cc:dd:ee:ff",
+            "port_id" => "Gi1/0/48",
+            "port_descr" => "uplink",
+            "system_name" => "USWAggregation"
+          },
+          "metadata" => %{}
+        })
+
+      assert result.neighbor_mgmt_addr == "192.168.1.87"
+      assert result.neighbor_device_id == "sr:usw-aggregation"
+      assert result.neighbor_chassis_id == "aa:bb:cc:dd:ee:ff"
+      assert result.neighbor_port_id == "Gi1/0/48"
+      assert result.neighbor_port_descr == "uplink"
+      assert result.neighbor_system_name == "USWAggregation"
+      assert result.metadata["neighbor_identity"]["management_ip"] == "192.168.1.87"
+    end
+  end
+
+  describe "suppress_topology_sighting_candidate?/1" do
+    test "suppresses low-confidence public SNMP ARP/FDB sightings without neighbor name" do
+      record = %{
+        protocol: "SNMP-L2",
+        neighbor_mgmt_addr: "204.209.51.58",
+        neighbor_system_name: nil,
+        metadata: %{
+          "source" => "snmp-arp-fdb",
+          "confidence_reason" => "single_identifier_inference"
+        }
+      }
+
+      assert MapperResultsIngestor.suppress_topology_sighting_candidate?(record)
+    end
+
+    test "does not suppress private-address SNMP ARP/FDB sightings" do
+      record = %{
+        protocol: "SNMP-L2",
+        neighbor_mgmt_addr: "192.168.1.87",
+        neighbor_system_name: nil,
+        metadata: %{
+          "source" => "snmp-arp-fdb",
+          "confidence_reason" => "single_identifier_inference"
+        }
+      }
+
+      refute MapperResultsIngestor.suppress_topology_sighting_candidate?(record)
+    end
+
+    test "does not suppress when neighbor system name is present" do
+      record = %{
+        protocol: "SNMP-L2",
+        neighbor_mgmt_addr: "204.209.51.58",
+        neighbor_system_name: "wan-uplink",
+        metadata: %{
+          "source" => "snmp-arp-fdb",
+          "confidence_reason" => "single_identifier_inference"
+        }
+      }
+
+      refute MapperResultsIngestor.suppress_topology_sighting_candidate?(record)
+    end
+  end
+
+  describe "resolve_topology_records/2" do
+    test "resolves local and neighbor by IP first and keeps unresolved neighbor" do
+      records = [
+        %{
+          local_device_id: "default:192.168.1.1",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "192.168.1.87",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: nil
+        },
+        %{
+          local_device_id: "default:192.168.1.1",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: nil,
+          neighbor_system_name: "external-host",
+          neighbor_chassis_id: nil
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:farm01" => "sr:farm01"},
+        ip_to_uid: %{
+          "192.168.1.1" => "sr:farm01",
+          "192.168.1.87" => "sr:uswagg"
+        },
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved, unresolved_neighbor] =
+        MapperResultsIngestor.resolve_topology_records(records, index)
+
+      assert resolved.local_device_id == "sr:farm01"
+      assert resolved.neighbor_device_id == "sr:uswagg"
+      assert unresolved_neighbor.local_device_id == "sr:farm01"
+      assert unresolved_neighbor.neighbor_device_id == nil
+    end
+
+    test "resolves neighbor from system name and chassis id when mgmt ip is missing" do
+      records = [
+        %{
+          local_device_id: "sr:farm01",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: nil,
+          neighbor_system_name: "USWAggregation.local",
+          neighbor_chassis_id: nil
+        },
+        %{
+          local_device_id: "sr:farm01",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: nil,
+          neighbor_system_name: nil,
+          neighbor_chassis_id: "AA:BB:CC:DD:EE:FF"
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:farm01" => "sr:farm01", "sr:uswagg" => "sr:uswagg"},
+        ip_to_uid: %{"192.168.1.1" => "sr:farm01"},
+        name_to_uid: %{"uswaggregation" => "sr:uswagg"},
+        mac_to_uid: %{"AABBCCDDEEFF" => "sr:uswagg"}
+      }
+
+      [by_name, by_mac] = MapperResultsIngestor.resolve_topology_records(records, index)
+
+      assert by_name.neighbor_device_id == "sr:uswagg"
+      assert by_mac.neighbor_device_id == "sr:uswagg"
+    end
+
+    test "preserves records when local endpoint cannot be canonically resolved" do
+      records = [
+        %{
+          local_device_id: "default:10.10.10.10",
+          local_device_ip: "10.10.10.10",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "192.168.1.87",
+          neighbor_system_name: "USWAggregation",
+          neighbor_chassis_id: nil
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{},
+        ip_to_uid: %{"192.168.1.87" => "sr:uswagg"},
+        name_to_uid: %{"uswaggregation" => "sr:uswagg"},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+      assert resolved.local_device_id == "default:10.10.10.10"
+      assert resolved.neighbor_device_id == "sr:uswagg"
+    end
+
+    test "treats default-prefixed neighbor ids as unresolved when canonical device cannot be found" do
+      records = [
+        %{
+          local_device_id: "sr:tonka01",
+          local_device_ip: "192.168.10.1",
+          neighbor_device_id: "default:192.168.10.96",
+          neighbor_mgmt_addr: "192.168.10.96",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: nil,
+          partition: "default"
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:tonka01" => "sr:tonka01"},
+        ip_to_uid: %{"192.168.10.1" => "sr:tonka01"},
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+      assert resolved.local_device_id == "sr:tonka01"
+      assert resolved.neighbor_device_id == nil
+    end
+
+    test "preserves canonical sr neighbor ids even when they are not indexed" do
+      records = [
+        %{
+          local_device_id: "sr:tonka01",
+          local_device_ip: "192.168.10.1",
+          neighbor_device_id: "sr:endpoint-10-96",
+          neighbor_mgmt_addr: "192.168.10.96",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: nil,
+          partition: "default"
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:tonka01" => "sr:tonka01"},
+        ip_to_uid: %{"192.168.10.1" => "sr:tonka01"},
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+      assert resolved.local_device_id == "sr:tonka01"
+      assert resolved.neighbor_device_id == "sr:endpoint-10-96"
+    end
+  end
+
+  describe "topology_candidate_metadata/1" do
+    test "builds freshness and confidence metadata for topology-only endpoint sightings" do
+      ts = ~U[2026-02-15 12:30:00Z]
+
+      metadata =
+        MapperResultsIngestor.topology_candidate_metadata(%{
+          timestamp: ts,
+          neighbor_mgmt_addr: "192.168.10.96",
+          local_device_id: "sr:aruba-10-154",
+          protocol: "LLDP",
+          metadata: %{
+            "confidence_tier" => "medium",
+            "confidence_score" => 66,
+            "confidence_reason" => "port_neighbor_inference"
+          }
+        })
+
+      assert metadata["topology_last_seen_at"] == "2026-02-15T12:30:00Z"
+      assert metadata["topology_last_seen_neighbor_ip"] == "192.168.10.96"
+      assert metadata["topology_last_seen_from_device_id"] == "sr:aruba-10-154"
+      assert metadata["topology_last_seen_protocol"] == "lldp"
+      assert metadata["topology_last_seen_confidence_tier"] == "medium"
+      assert metadata["topology_last_seen_confidence_score"] == "66"
+      assert metadata["topology_last_seen_confidence_reason"] == "port_neighbor_inference"
+    end
+  end
+
+  describe "infer_wireguard_tunnel_links/3" do
+    test "infers farm01 to tonka01 wireguard edge from matching tunnel interface name" do
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      records = [
+        %{
+          timestamp: now,
+          agent_id: "agent-1",
+          gateway_id: "gw-1",
+          partition: "default",
+          protocol: "SNMP-L2",
+          local_device_id: "sr:farm01",
+          local_device_ip: "192.168.2.1",
+          neighbor_device_id: "sr:uswagg",
+          neighbor_mgmt_addr: "192.168.1.87"
+        }
+      ]
+
+      interfaces = [
+        %{
+          device_id: "sr:farm01",
+          timestamp: now,
+          if_name: "wgsts1000",
+          if_descr: "wgsts1000",
+          ip_addresses: ["192.168.0.0"]
+        },
+        %{
+          device_id: "sr:tonka01",
+          timestamp: now,
+          if_name: "wgsts1000",
+          if_descr: "wgsts1000",
+          ip_addresses: ["192.168.0.1"]
+        }
+      ]
+
+      devices = [
+        %{
+          uid: "sr:farm01",
+          ip: "192.168.2.1",
+          name: "farm01",
+          hostname: "farm01",
+          type: "router",
+          type_id: 12
+        },
+        %{
+          uid: "sr:tonka01",
+          ip: "192.168.10.1",
+          name: "tonka01",
+          hostname: "tonka01",
+          type: "router",
+          type_id: 12
+        }
+      ]
+
+      [inferred] =
+        MapperResultsIngestor.infer_wireguard_tunnel_links(records, interfaces, devices)
+
+      assert inferred.protocol == "wireguard-derived"
+      assert inferred.local_device_id == "sr:farm01"
+      assert inferred.neighbor_device_id == "sr:tonka01"
+      assert inferred.local_if_name == "wgsts1000"
+      assert inferred.metadata["source"] == "wireguard-derived"
+      assert inferred.metadata["tunnel_name"] == "wgsts1000"
+    end
+
+    test "does not add duplicate wireguard edges when one already exists" do
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      records = [
+        %{
+          timestamp: now,
+          agent_id: "agent-1",
+          gateway_id: "gw-1",
+          partition: "default",
+          protocol: "wireguard",
+          local_device_id: "sr:farm01",
+          local_device_ip: "192.168.2.1",
+          neighbor_device_id: "sr:tonka01",
+          neighbor_mgmt_addr: "192.168.10.1"
+        }
+      ]
+
+      interfaces = [
+        %{
+          device_id: "sr:farm01",
+          timestamp: now,
+          if_name: "wgsts1000",
+          if_descr: nil,
+          ip_addresses: ["192.168.0.0"]
+        },
+        %{
+          device_id: "sr:tonka01",
+          timestamp: now,
+          if_name: "wgsts1000",
+          if_descr: nil,
+          ip_addresses: ["192.168.0.1"]
+        }
+      ]
+
+      devices = [
+        %{
+          uid: "sr:farm01",
+          ip: "192.168.2.1",
+          name: "farm01",
+          hostname: "farm01",
+          type: "router",
+          type_id: 12
+        },
+        %{
+          uid: "sr:tonka01",
+          ip: "192.168.10.1",
+          name: "tonka01",
+          hostname: "tonka01",
+          type: "router",
+          type_id: 12
+        }
+      ]
+
+      assert MapperResultsIngestor.infer_wireguard_tunnel_links(records, interfaces, devices) ==
+               []
     end
   end
 end

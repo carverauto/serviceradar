@@ -30,9 +30,7 @@ import (
 
 	"github.com/gosnmp/gosnmp"
 
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/scan"
 )
 
 // safeInt32 safely converts an int to int32, preventing overflow
@@ -59,6 +57,8 @@ const (
 	oidDot1dBaseBridgeAddress  = ".1.3.6.1.2.1.17.1.1.0"
 	oidDot1dBaseNumPorts       = ".1.3.6.1.2.1.17.1.2.0"
 	oidDot1dStpPortState       = ".1.3.6.1.2.1.17.2.15.1.3"
+	oidDot1dBasePortIfIndex    = ".1.3.6.1.2.1.17.1.4.1.2"
+	oidDot1dTpFdbPort          = ".1.3.6.1.2.1.17.4.3.1.2"
 	oidDot1qVlanCurrentEgress  = ".1.3.6.1.2.1.17.7.1.4.2.1.4"
 	oidDot1qVlanStaticEgress   = ".1.3.6.1.2.1.17.7.1.4.3.1.2"
 	oidDot1qVlanStaticUntagged = ".1.3.6.1.2.1.17.7.1.4.3.1.4"
@@ -79,6 +79,9 @@ const (
 	oidIPAddrTable    = ".1.3.6.1.2.1.4.20.1"
 	oidIPAdEntAddr    = ".1.3.6.1.2.1.4.20.1.1"
 	oidIPAdEntIfIndex = ".1.3.6.1.2.1.4.20.1.2"
+	oidIPNetToMedia   = ".1.3.6.1.2.1.4.22.1"
+	oidIPToMediaPhys  = ".1.3.6.1.2.1.4.22.1.2"
+	oidIPToPhysicalPhys = ".1.3.6.1.2.1.4.35.1.4"
 
 	// Extended interface table (ifXTable)
 	oidIfXTable    = ".1.3.6.1.2.1.31.1.1.1"
@@ -218,6 +221,17 @@ func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 
 	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(cdpErr).
 		Msg("CDP not supported or no neighbors")
+
+	// Fallback for devices that do not expose LLDP/CDP over SNMP:
+	// correlate ARP and bridge forwarding table evidence.
+	l2Links, l2Err := e.querySNMPL2Neighbors(client, targetIP, job)
+	if l2Err == nil && len(l2Links) > 0 {
+		e.publishTopologyLinks(job, l2Links, targetIP, "SNMP-L2")
+		return
+	}
+
+	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(l2Err).
+		Msg("SNMP L2 enrichment returned no neighbors")
 }
 
 // setupSNMPClient creates and configures an SNMP client
@@ -439,8 +453,17 @@ func (e *DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID str
 	return mac
 }
 
-// generateDeviceID generates a device ID based on MAC or IP
-func (*DiscoveryEngine) generateDeviceID(device *DiscoveredDevice, target string) {
+// generateDeviceID generates a device ID based on canonical job identity, MAC, or IP.
+func (e *DiscoveryEngine) generateDeviceID(job *DiscoveryJob, device *DiscoveredDevice, target string) {
+	if existingID, existingMAC := e.resolveExistingDeviceIdentityByIP(job, target); existingID != "" {
+		device.DeviceID = existingID
+		if device.MAC == "" && existingMAC != "" {
+			device.MAC = existingMAC
+		}
+
+		return
+	}
+
 	if device.MAC != "" && device.DeviceID == "" {
 		device.DeviceID = GenerateDeviceID(device.MAC)
 	} else if device.DeviceID == "" {
@@ -498,7 +521,7 @@ func (e *DiscoveryEngine) querySysInfo(
 	}
 
 	// Generate device ID
-	e.generateDeviceID(device, target)
+	e.generateDeviceID(job, device, target)
 
 	return device, nil
 }
@@ -1516,12 +1539,49 @@ func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 
 // checkUniFiAPI checks if UniFi API is configured and queries it for topology links
 func (e *DiscoveryEngine) checkUniFiAPI(ctx context.Context, job *DiscoveryJob, snmpTargetIP string) {
-	if len(e.config.UniFiAPIs) > 0 && (job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology) {
-		links, err := e.queryUniFiAPI(ctx, job, snmpTargetIP)
-		if err == nil && len(links) > 0 {
-			e.publishTopologyLinks(job, links, snmpTargetIP, "UniFi-API")
-		}
+	if len(e.config.UniFiAPIs) == 0 || (job.Params.Type != DiscoveryTypeFull && job.Params.Type != DiscoveryTypeTopology) {
+		return
 	}
+
+	job.mu.Lock()
+	if job.uniFiTopologyPolled {
+		job.mu.Unlock()
+		return
+	}
+	job.uniFiTopologyPolled = true
+	job.mu.Unlock()
+
+	links, err := e.queryUniFiAPI(ctx, job, snmpTargetIP)
+	if err != nil {
+		e.logger.Warn().
+			Str("job_id", job.ID).
+			Str("target_ip", snmpTargetIP).
+			Err(err).
+			Msg("UniFi topology query returned no links or failed")
+		job.mu.Lock()
+		job.uniFiTopologyPolled = false
+		job.mu.Unlock()
+		return
+	}
+
+	if len(links) == 0 {
+		// Allow subsequent attempts (other seeds/contextless) when this target produced no links.
+		e.logger.Info().
+			Str("job_id", job.ID).
+			Str("target_ip", snmpTargetIP).
+			Msg("UniFi topology query returned zero links")
+		job.mu.Lock()
+		job.uniFiTopologyPolled = false
+		job.mu.Unlock()
+		return
+	}
+
+	e.logger.Info().
+		Str("job_id", job.ID).
+		Str("target_ip", snmpTargetIP).
+		Int("links", len(links)).
+		Msg("UniFi topology links discovered")
+	e.publishTopologyLinks(job, links, snmpTargetIP, "UniFi-API")
 }
 
 // connectSNMPClient attempts to connect to the SNMP client with a timeout
@@ -1613,12 +1673,9 @@ func (e *DiscoveryEngine) performTopologyDiscovery(
 }
 
 func (e *DiscoveryEngine) scanTargetForSNMP(
-	ctx context.Context, job *DiscoveryJob, snmpTargetIP string,
+	ctx context.Context, job *DiscoveryJob, snmpTargetIP string, mode snmpPollingMode,
 ) {
 	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Msg("SNMP Scanning target")
-
-	// Check UniFi API if configured
-	e.checkUniFiAPI(ctx, job, snmpTargetIP)
 
 	// Setup SNMP client
 	client, err := e.setupSNMPClient(job, snmpTargetIP)
@@ -1649,6 +1706,19 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 		e.logger.Warn().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(err).
 			Msg("Failed to query system info via SNMP, skipping")
 
+		// For topology mode, continue with LLDP/CDP/L2 polling when the target
+		// is already known from other evidence (e.g., UniFi inventory).
+		if mode == snmpPollingModeTopology {
+			if localDeviceID := e.lookupLocalDeviceID(job, snmpTargetIP); localDeviceID != "" {
+				e.logger.Info().
+					Str("job_id", job.ID).
+					Str("target_ip", snmpTargetIP).
+					Str("local_device_id", localDeviceID).
+					Msg("Continuing topology polling without sysinfo due to known device identity")
+				e.performTopologyDiscovery(ctx, job, client, snmpTargetIP)
+			}
+		}
+
 		return
 	}
 
@@ -1657,11 +1727,13 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	e.addOrUpdateDeviceToResults(job, deviceSNMP)
 	job.mu.Unlock()
 
-	// Perform interface discovery if needed
-	e.performInterfaceDiscovery(ctx, job, client, snmpTargetIP)
+	if mode == snmpPollingModeEnrichment {
+		e.performInterfaceDiscovery(ctx, job, client, snmpTargetIP)
+	}
 
-	// Perform topology discovery if needed
-	e.performTopologyDiscovery(ctx, job, client, snmpTargetIP)
+	if mode == snmpPollingModeTopology {
+		e.performTopologyDiscovery(ctx, job, client, snmpTargetIP)
+	}
 }
 
 // walkIPAddrTable walks the ipAddrTable to get IP address information
@@ -1800,6 +1872,11 @@ func (*DiscoveryEngine) processLLDPManagementAddress(pdu gosnmp.SnmpPDU, linkMap
 		return nil
 	}
 
+	key := lldpManagementAddressLinkKey(pdu.Name)
+	if key == "" {
+		key = lldpManagementAddressLinkKey(strings.TrimPrefix(pdu.Name, "."))
+	}
+
 	// Try to extract IP address from management address
 	bytes := pdu.Value.([]byte)
 	if len(bytes) >= defaultByteLengthCheck {
@@ -1807,18 +1884,39 @@ func (*DiscoveryEngine) processLLDPManagementAddress(pdu gosnmp.SnmpPDU, linkMap
 		if bytes[0] == 1 && len(bytes) >= 5 {
 			ip := net.IPv4(bytes[1], bytes[2], bytes[3], bytes[4])
 
-			// Try to match with existing links
-			// This is approximate since LLDP MIB structure doesn't make a perfect match easy
+			if link, ok := linkMap[key]; ok && link.NeighborMgmtAddr == "" {
+				link.NeighborMgmtAddr = ip.String()
+				return nil
+			}
+
+			// Fallback for incomplete OIDs: assign to first unresolved link.
 			for _, link := range linkMap {
 				if link.NeighborMgmtAddr == "" {
 					link.NeighborMgmtAddr = ip.String()
-					break
+					return nil
 				}
 			}
 		}
 	}
 
 	return nil
+}
+
+func lldpManagementAddressLinkKey(oid string) string {
+	base := strings.TrimPrefix(oidLLDPRemManAddr, ".")
+	trimmed := strings.TrimPrefix(oid, ".")
+	prefix := base + "."
+	if !strings.HasPrefix(trimmed, prefix) {
+		return ""
+	}
+
+	suffix := strings.TrimPrefix(trimmed, prefix)
+	parts := strings.Split(suffix, ".")
+	if len(parts) < 3 {
+		return ""
+	}
+
+	return fmt.Sprintf("%s.%s.%s", parts[0], parts[1], parts[2])
 }
 
 // isValidLLDPLink checks if a link has at least one neighbor identifier
@@ -2067,56 +2165,497 @@ func formatLLDPID(bytes []byte) string {
 	return string(bytes)
 }
 
-const (
-	defaultTimeoutDuration   = 2 * time.Second
-	defaultRateLimit         = 100
-	defaultRateLimitDuration = 1 * time.Second
-)
+type arpNeighbor struct {
+	ifIndex       int32
+	ip            string
+	mac           string
+	fdbPortMapped bool
+	fdbMacCount   int
+	neighborKnown bool
+}
 
-func pingHost(ctx context.Context, host string) error {
-	// Create a simple logger for this utility function
-	log := logger.NewTestLogger()
-	// Use the existing ICMPSweeper from your scan package
-	sweeper, err := scan.NewICMPSweeper(defaultRateLimitDuration, defaultRateLimit, log)
-	if err != nil {
-		return err
+func (e *DiscoveryEngine) querySNMPL2Neighbors(
+	client *gosnmp.GoSNMP, targetIP string, job *DiscoveryJob) ([]*TopologyLink, error) {
+	localDeviceID := e.lookupLocalDeviceID(job, targetIP)
+	if localDeviceID == "" {
+		return nil, ErrNoSNMPDataReturned
 	}
-	defer func(sweeper *scan.ICMPSweeper) {
-		err = sweeper.Stop()
-		if err != nil {
-			log.Error().Err(err).Msg("Error stopping sweeper")
+
+	localSubnets := e.localIPv4Subnets(job, targetIP)
+	knownNeighborIPs := e.knownDeviceIPv4Set(job)
+	bridgeIfByMAC, fdbMacCountByIf := e.bridgeIfIndexByMAC(client)
+
+	neighbors := make([]arpNeighbor, 0, 32)
+
+	appendNeighborEvidence := func(ip, mac string) {
+		if ip == "" || ip == targetIP || !isIPv4(ip) || !inSubnetSet(localSubnets, ip) {
+			return
 		}
-	}(sweeper)
+		if mac == "" || mac == "00:00:00:00:00:00" {
+			return
+		}
 
-	ctx, cancel := context.WithTimeout(ctx, defaultTimeoutDuration)
-	defer cancel()
+		norm := NormalizeMAC(mac)
+		if bridgeIf, exists := bridgeIfByMAC[norm]; exists && bridgeIf > 0 {
+			fdbMacCount := fdbMacCountByIf[bridgeIf]
+			neighborKnown := knownNeighborIPs[ip]
+			neighbors = append(neighbors, arpNeighbor{
+				ifIndex:       bridgeIf,
+				ip:            ip,
+				mac:           mac,
+				fdbPortMapped: true,
+				fdbMacCount:   fdbMacCount,
+				neighborKnown: neighborKnown,
+			})
+			return
+		}
 
-	targets := []models.Target{
-		{Host: host, Mode: models.ModeICMP},
+		neighbors = append(neighbors, arpNeighbor{
+			ifIndex:       0,
+			ip:            ip,
+			mac:           mac,
+			fdbPortMapped: false,
+			fdbMacCount:   0,
+			neighborKnown: knownNeighborIPs[ip],
+		})
 	}
 
-	resultCh, err := sweeper.Scan(ctx, targets)
-	if err != nil {
-		return err
+	ipToMediaErr := client.BulkWalk(oidIPToMediaPhys, func(pdu gosnmp.SnmpPDU) error {
+		_, ip, ok := parseIPToMediaSuffix(pdu.Name)
+		if !ok || ip == "" {
+			return nil
+		}
+
+		raw, ok := pdu.Value.([]byte)
+		if !ok || len(raw) == 0 {
+			return nil
+		}
+
+		mac := formatMACAddress(raw)
+		appendNeighborEvidence(ip, mac)
+		return nil
+	})
+
+	ipToPhysicalErr := client.BulkWalk(oidIPToPhysicalPhys, func(pdu gosnmp.SnmpPDU) error {
+		_, ip, ok := parseIPToPhysicalSuffix(pdu.Name)
+		if !ok || ip == "" {
+			return nil
+		}
+
+		raw, ok := pdu.Value.([]byte)
+		if !ok || len(raw) == 0 {
+			return nil
+		}
+
+		mac := formatMACAddress(raw)
+		appendNeighborEvidence(ip, mac)
+		return nil
+	})
+
+	// Some devices only implement one of these ARP tables.
+	// Continue when one walk fails and use whatever evidence is available.
+	if ipToMediaErr != nil && ipToPhysicalErr != nil {
+		return nil, fmt.Errorf(
+			"failed SNMP L2 walks (%s: %w, %s: %w)",
+			oidIPToMediaPhys,
+			ipToMediaErr,
+			oidIPToPhysicalPhys,
+			ipToPhysicalErr,
+		)
 	}
 
-	hostReachable := false
+	neighbors = e.selectDensePortNeighbors(neighbors)
+	links := buildSNMPL2LinksFromNeighbors(localDeviceID, targetIP, job.ID, neighbors)
 
-	for result := range resultCh {
-		if !result.Available {
-			// Don't return immediately, continue processing the channel
+	if len(links) == 0 {
+		return nil, ErrNoLLDPNeighborsFound
+	}
+
+	return links, nil
+}
+
+const maxSNMPFDBMacsPerPort = 8
+const maxDensePortUnknownNeighborsPerIf = 2
+const maxSNMPARPCandidateNeighbors = 64
+
+// selectDensePortNeighbors bounds noisy neighbors on dense ports while preserving
+// known infrastructure and enough unknown candidates for single-seed discovery.
+func (e *DiscoveryEngine) selectDensePortNeighbors(neighbors []arpNeighbor) []arpNeighbor {
+	if len(neighbors) == 0 {
+		return neighbors
+	}
+
+	selected := make([]arpNeighbor, 0, len(neighbors))
+	unknownDenseByIf := make(map[int32][]arpNeighbor)
+
+	for _, n := range neighbors {
+		if n.fdbMacCount <= maxSNMPFDBMacsPerPort || n.neighborKnown {
+			selected = append(selected, n)
 			continue
 		}
 
-		// Mark that we found at least one successful ping
-		hostReachable = true
+		unknownDenseByIf[n.ifIndex] = append(unknownDenseByIf[n.ifIndex], n)
 	}
 
-	if hostReachable {
+	for _, candidates := range unknownDenseByIf {
+		sort.Slice(candidates, func(i, j int) bool {
+			left := net.ParseIP(candidates[i].ip).To4()
+			right := net.ParseIP(candidates[j].ip).To4()
+			switch {
+			case left == nil && right == nil:
+				// fall through to MAC tie-breaker
+			case left == nil:
+				return false
+			case right == nil:
+				return true
+			default:
+				for idx := 0; idx < 4; idx++ {
+					if left[idx] == right[idx] {
+						continue
+					}
+					return left[idx] < right[idx]
+				}
+			}
+
+			return candidates[i].mac < candidates[j].mac
+		})
+
+		limit := maxDensePortUnknownNeighborsPerIf
+		if len(candidates) < limit {
+			limit = len(candidates)
+		}
+		selected = append(selected, candidates[:limit]...)
+	}
+
+	return selected
+}
+
+func buildSNMPL2LinksFromNeighbors(
+	localDeviceID, targetIP, discoveryID string, neighbors []arpNeighbor) []*TopologyLink {
+	links := make([]*TopologyLink, 0, len(neighbors))
+	seen := make(map[string]struct{}, len(neighbors))
+	arpCandidateCount := 0
+
+	for _, n := range neighbors {
+		if n.ip == "" {
+			continue
+		}
+
+		key := fmt.Sprintf("%s|%d|%s|%t", n.ip, n.ifIndex, NormalizeMAC(n.mac), n.fdbPortMapped)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		if !n.fdbPortMapped {
+			if arpCandidateCount >= maxSNMPARPCandidateNeighbors {
+				continue
+			}
+
+			arpCandidateCount++
+			links = append(links, &TopologyLink{
+				Protocol:          "SNMP-L2",
+				LocalDeviceIP:     targetIP,
+				LocalDeviceID:     localDeviceID,
+				LocalIfIndex:      0,
+				NeighborChassisID: n.mac,
+				NeighborMgmtAddr:  n.ip,
+				Metadata: map[string]string{
+					"protocol":          "SNMP-L2",
+					"discovery_id":      discoveryID,
+					"source":            "snmp-arp-only",
+					"evidence":          "ipNetToMedia",
+					"fdb_port_mapped":   "false",
+					"evidence_class":    "endpoint-attachment",
+					"confidence_tier":   "low",
+					"confidence_reason": "single_identifier_inference",
+					// Keep ARP-only observations for recursive target expansion
+					// but do not publish them as topology edges.
+					"candidate_only": "true",
+				},
+			})
+			continue
+		}
+
+		if n.ifIndex <= 0 {
+			continue
+		}
+
+		links = append(links, &TopologyLink{
+			Protocol:          "SNMP-L2",
+			LocalDeviceIP:     targetIP,
+			LocalDeviceID:     localDeviceID,
+			LocalIfIndex:      n.ifIndex,
+			NeighborChassisID: n.mac,
+			NeighborMgmtAddr:  n.ip,
+			Metadata: map[string]string{
+				"protocol":          "SNMP-L2",
+				"discovery_id":      discoveryID,
+				"source":            "snmp-arp-fdb",
+				"evidence":          "ipNetToMedia+dot1dTpFdb",
+				"fdb_port_mapped":   "true",
+				"evidence_class":    "inferred",
+				"confidence_tier":   "medium",
+				"confidence_reason": "arp_fdb_port_mapping",
+			},
+		})
+	}
+
+	return links
+}
+
+func (e *DiscoveryEngine) lookupLocalDeviceID(job *DiscoveryJob, targetIP string) string {
+	if job == nil {
+		return ""
+	}
+
+	// Support reconciled identities where the polled target IP is stored as an
+	// alternate/alias IP instead of the device primary IP.
+	deviceID, _ := e.resolveExistingDeviceIdentityByIP(job, targetIP)
+	return strings.TrimSpace(deviceID)
+}
+
+func (e *DiscoveryEngine) localIPv4Subnets(job *DiscoveryJob, targetIP string) map[string]struct{} {
+	subnets := make(map[string]struct{})
+	addIfIPv4Subnet(subnets, targetIP)
+
+	if job == nil || job.Results == nil {
+		return subnets
+	}
+
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	for _, iface := range job.Results.Interfaces {
+		if iface.DeviceIP != targetIP {
+			continue
+		}
+		for _, ip := range iface.IPAddresses {
+			addIfIPv4Subnet(subnets, ip)
+		}
+	}
+
+	return subnets
+}
+
+func addIfIPv4Subnet(subnets map[string]struct{}, ip string) {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil || parsed.To4() == nil {
+		return
+	}
+
+	v4 := parsed.To4()
+	key := fmt.Sprintf("%d.%d.%d", v4[0], v4[1], v4[2])
+	subnets[key] = struct{}{}
+}
+
+func inSubnetSet(subnets map[string]struct{}, ip string) bool {
+	if len(subnets) == 0 {
+		return true
+	}
+
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil || parsed.To4() == nil {
+		return false
+	}
+
+	v4 := parsed.To4()
+	key := fmt.Sprintf("%d.%d.%d", v4[0], v4[1], v4[2])
+	_, exists := subnets[key]
+	return exists
+}
+
+func isIPv4(ip string) bool {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	return parsed != nil && parsed.To4() != nil
+}
+
+func parseIPToMediaSuffix(oidName string) (int32, string, bool) {
+	parts := strings.Split(strings.TrimPrefix(oidName, "."), ".")
+	baseParts := strings.Split(strings.TrimPrefix(oidIPToMediaPhys, "."), ".")
+	if len(parts) < len(baseParts)+5 {
+		return 0, "", false
+	}
+
+	idxOffset := len(baseParts)
+	ifIndexVal, err := strconv.Atoi(parts[idxOffset])
+	if err != nil || ifIndexVal <= 0 || ifIndexVal > math.MaxInt32 {
+		return 0, "", false
+	}
+
+	octets := make([]string, 4)
+	for i := 0; i < 4; i++ {
+		octet, convErr := strconv.Atoi(parts[idxOffset+1+i])
+		if convErr != nil || octet < 0 || octet > 255 {
+			return 0, "", false
+		}
+		octets[i] = strconv.Itoa(octet)
+	}
+
+	return int32(ifIndexVal), strings.Join(octets, "."), true //nolint:gosec // G115: bounds checked above
+}
+
+func parseIPToPhysicalSuffix(oidName string) (int32, string, bool) {
+	parts := strings.Split(strings.TrimPrefix(oidName, "."), ".")
+	baseParts := strings.Split(strings.TrimPrefix(oidIPToPhysicalPhys, "."), ".")
+	if len(parts) < len(baseParts)+3 {
+		return 0, "", false
+	}
+
+	idxOffset := len(baseParts)
+	ifIndexVal, err := strconv.Atoi(parts[idxOffset])
+	if err != nil || ifIndexVal <= 0 || ifIndexVal > math.MaxInt32 {
+		return 0, "", false
+	}
+
+	addrType, err := strconv.Atoi(parts[idxOffset+1])
+	if err != nil || addrType != 1 {
+		// Only support IPv4 inetAddressType.
+		return 0, "", false
+	}
+
+	rest := parts[idxOffset+2:]
+	switch {
+	case len(rest) == 4:
+		// Some agents encode IPv4 directly as 4 trailing octets.
+	case len(rest) >= 5:
+		// Common encoding: addrLen, then octets.
+		addrLen, lenErr := strconv.Atoi(rest[0])
+		if lenErr != nil || addrLen != 4 || len(rest) < 5 {
+			return 0, "", false
+		}
+		rest = rest[1:5]
+	default:
+		return 0, "", false
+	}
+
+	octets := make([]string, 4)
+	for i := 0; i < 4; i++ {
+		octet, convErr := strconv.Atoi(rest[i])
+		if convErr != nil || octet < 0 || octet > 255 {
+			return 0, "", false
+		}
+		octets[i] = strconv.Itoa(octet)
+	}
+
+	return int32(ifIndexVal), strings.Join(octets, "."), true //nolint:gosec // G115: bounds checked above
+}
+
+func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) (map[string]int32, map[int32]int) {
+	bridgePortToIfIndex := make(map[int32]int32)
+	_ = client.BulkWalk(oidDot1dBasePortIfIndex, func(pdu gosnmp.SnmpPDU) error {
+		baseParts := strings.Split(strings.TrimPrefix(oidDot1dBasePortIfIndex, "."), ".")
+		parts := strings.Split(strings.TrimPrefix(pdu.Name, "."), ".")
+		if len(parts) < len(baseParts)+1 {
+			return nil
+		}
+
+		bridgePort, convErr := strconv.Atoi(parts[len(baseParts)])
+		if convErr != nil || bridgePort < 0 || bridgePort > math.MaxInt32 {
+			return nil
+		}
+
+		val, ok := e.getInt32FromPDU(pdu, "dot1dBasePortIfIndex")
+		if ok && val > 0 {
+			bridgePortToIfIndex[int32(bridgePort)] = val //nolint:gosec // G115: bounds checked above
+		}
 		return nil
+	})
+
+	result := make(map[string]int32)
+	fdbMacCountByIf := make(map[int32]int)
+	seenByIfMAC := make(map[string]struct{})
+
+	_ = client.BulkWalk(oidDot1dTpFdbPort, func(pdu gosnmp.SnmpPDU) error {
+		bridgePort, ok := e.getInt32FromPDU(pdu, "dot1dTpFdbPort")
+		if !ok || bridgePort <= 0 {
+			return nil
+		}
+
+		ifIndex, exists := bridgePortToIfIndex[bridgePort]
+		if !exists || ifIndex <= 0 {
+			return nil
+		}
+
+		mac, ok := macFromFDBOID(pdu.Name)
+		if !ok || mac == "" {
+			return nil
+		}
+
+		normalized := NormalizeMAC(mac)
+		result[normalized] = ifIndex
+		seenKey := fmt.Sprintf("%d|%s", ifIndex, normalized)
+		if _, exists := seenByIfMAC[seenKey]; !exists {
+			seenByIfMAC[seenKey] = struct{}{}
+			fdbMacCountByIf[ifIndex]++
+		}
+
+		return nil
+	})
+
+	return result, fdbMacCountByIf
+}
+
+func (e *DiscoveryEngine) knownDeviceIPv4Set(job *DiscoveryJob) map[string]bool {
+	known := make(map[string]bool)
+	if job == nil || job.Results == nil {
+		return known
 	}
 
-	return ErrNoICMPResponse
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	for _, device := range job.Results.Devices {
+		if device == nil {
+			continue
+		}
+
+		if ip := strings.TrimSpace(device.IP); isIPv4(ip) {
+			known[ip] = true
+		}
+
+		for k := range device.Metadata {
+			if strings.HasPrefix(k, "alt_ip:") {
+				ip := strings.TrimPrefix(k, "alt_ip:")
+				if isIPv4(ip) {
+					known[ip] = true
+				}
+			}
+			if strings.HasPrefix(k, "ip_alias:") {
+				ip := strings.TrimPrefix(k, "ip_alias:")
+				if isIPv4(ip) {
+					known[ip] = true
+				}
+			}
+		}
+	}
+
+	for _, ip := range job.scanQueue {
+		if isIPv4(ip) {
+			known[ip] = true
+		}
+	}
+
+	return known
+}
+
+func macFromFDBOID(oidName string) (string, bool) {
+	parts := strings.Split(strings.TrimPrefix(oidName, "."), ".")
+	baseParts := strings.Split(strings.TrimPrefix(oidDot1dTpFdbPort, "."), ".")
+	if len(parts) < len(baseParts)+6 {
+		return "", false
+	}
+
+	macBytes := make([]byte, 6)
+	for i := 0; i < 6; i++ {
+		val, err := strconv.Atoi(parts[len(baseParts)+i])
+		if err != nil || val < 0 || val > 255 {
+			return "", false
+		}
+		macBytes[i] = byte(val)
+	}
+
+	return formatMACAddress(macBytes), true
 }
 
 func safeIntToInt32(value int, fieldName string) (int32, error) {

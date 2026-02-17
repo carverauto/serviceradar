@@ -12,7 +12,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
-  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
+  alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler, Interface}
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.TestSupport
 
@@ -482,5 +482,59 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert {:ok, vlan_aliases} = DeviceAliasState.lookup_by_value(:ip, vlan_alias, actor: actor)
     assert Enum.any?(vlan_aliases, &(&1.state in [:detected, :updated, :confirmed]))
+  end
+
+  test "mapper interface ingestion prefers canonical UID when duplicate devices share IP", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = "198.19.#{rem(uniq, 200) + 1}.#{rem(div(uniq, 200), 200) + 1}"
+    canonical_uid = "sr:" <> Ecto.UUID.generate()
+    provisional_uid = "sr:" <> Ecto.UUID.generate()
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    {:ok, _canonical} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: canonical_uid,
+        ip: ip,
+        metadata: %{"identity_state" => "canonical", "identity_source" => "unifi-api"}
+      })
+      |> Ash.create(actor: actor)
+
+    {:ok, _provisional} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: provisional_uid,
+        ip: ip,
+        metadata: %{
+          "identity_state" => "provisional",
+          "identity_source" => "mapper_topology_sighting"
+        }
+      })
+      |> Ash.create(actor: actor)
+
+    payload =
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{ip}",
+          "partition" => "default",
+          "device_ip" => ip,
+          "if_index" => 1,
+          "if_name" => "eth0",
+          "if_phys_address" => "F4:92:BF:75:C7:21",
+          "timestamp" => ts
+        }
+      ])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    {:ok, interfaces} =
+      Interface
+      |> Ash.Query.filter(device_ip == ^ip)
+      |> Ash.read(actor: actor)
+
+    assert Enum.any?(interfaces, &(&1.device_id == canonical_uid))
+    refute Enum.any?(interfaces, &(&1.device_id == provisional_uid))
   end
 end

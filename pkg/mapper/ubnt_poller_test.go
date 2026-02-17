@@ -347,15 +347,7 @@ func TestProcessLLDPTable(t *testing.T) {
 	deviceID := "device-id-1"
 
 	details := &UniFiDeviceDetails{
-		LLDPTable: []struct {
-			LocalPortIdx    int32  `json:"local_port_idx"`
-			LocalPortName   string `json:"local_port_name"`
-			ChassisID       string `json:"chassis_id"`
-			PortID          string `json:"port_id"`
-			PortDescription string `json:"port_description"`
-			SystemName      string `json:"system_name"`
-			ManagementAddr  string `json:"management_address"`
-		}{
+		LLDPTable: []UniFiLLDPEntry{
 			{
 				LocalPortIdx:    1,
 				LocalPortName:   "Port 1",
@@ -408,7 +400,8 @@ func TestProcessLLDPTable(t *testing.T) {
 	// Check metadata
 	assert.NotNil(t, link.Metadata)
 	assert.Equal(t, job.ID, link.Metadata["discovery_id"])
-	assert.Equal(t, "unifi-api", link.Metadata["source"])
+	assert.Equal(t, "unifi-api-lldp", link.Metadata["source"])
+	assert.Equal(t, "direct", link.Metadata["evidence_class"])
 	assert.Equal(t, apiConfig.BaseURL, link.Metadata["controller_url"])
 	assert.Equal(t, site.ID, link.Metadata["site_id"])
 	assert.Equal(t, site.Name, link.Metadata["site_name"])
@@ -427,38 +420,20 @@ func TestProcessPortTable(t *testing.T) {
 	deviceID := "device-id-1"
 
 	details := &UniFiDeviceDetails{
-		PortTable: []struct {
-			PortIdx         int32  `json:"port_idx"`
-			Name            string `json:"name"`
-			ConnectedDevice struct {
-				MAC  string `json:"mac"`
-				Name string `json:"name"`
-				IP   string `json:"ip"`
-			} `json:"connected_device"`
-		}{
+		PortTable: []UniFiPortEntry{
 			{
 				PortIdx: 1,
 				Name:    "Port 1",
-				ConnectedDevice: struct {
-					MAC  string `json:"mac"`
-					Name string `json:"name"`
-					IP   string `json:"ip"`
-				}{
+				Connected: UniFiPortConnectedPeer{
 					MAC:  "aa:bb:cc:dd:ee:ff",
 					Name: "connected-device",
 					IP:   "192.168.1.2",
 				},
 			},
 			{
-				PortIdx: 2,
-				Name:    "Port 2",
-				ConnectedDevice: struct {
-					MAC  string `json:"mac"`
-					Name string `json:"name"`
-					IP   string `json:"ip"`
-				}{
-					// Empty connected device
-				},
+				PortIdx:   2,
+				Name:      "Port 2",
+				Connected: UniFiPortConnectedPeer{},
 			},
 		},
 	}
@@ -481,8 +456,15 @@ func TestProcessPortTable(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
+	deviceCache := map[string]struct {
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	}{}
+
 	// Call the function
-	links := engine.processPortTable(job, device, deviceID, details, apiConfig, site)
+	links := engine.processPortTable(job, device, deviceID, details, deviceCache, apiConfig, site)
 
 	// Check results
 	assert.NotNil(t, links)
@@ -494,14 +476,15 @@ func TestProcessPortTable(t *testing.T) {
 	assert.Equal(t, deviceID, link.LocalDeviceID)
 	assert.Equal(t, details.PortTable[0].PortIdx, link.LocalIfIndex)
 	assert.Equal(t, details.PortTable[0].Name, link.LocalIfName)
-	assert.Equal(t, details.PortTable[0].ConnectedDevice.MAC, link.NeighborChassisID)
-	assert.Equal(t, details.PortTable[0].ConnectedDevice.Name, link.NeighborSystemName)
-	assert.Equal(t, details.PortTable[0].ConnectedDevice.IP, link.NeighborMgmtAddr)
+	assert.Equal(t, details.PortTable[0].Connected.MAC, link.NeighborChassisID)
+	assert.Equal(t, details.PortTable[0].Connected.Name, link.NeighborSystemName)
+	assert.Equal(t, details.PortTable[0].Connected.IP, link.NeighborMgmtAddr)
 
 	// Check metadata
 	assert.NotNil(t, link.Metadata)
 	assert.Equal(t, job.ID, link.Metadata["discovery_id"])
-	assert.Equal(t, "unifi-api", link.Metadata["source"])
+	assert.Equal(t, "unifi-api-port-table", link.Metadata["source"])
+	assert.Equal(t, "endpoint-attachment", link.Metadata["evidence_class"])
 	assert.Equal(t, apiConfig.BaseURL, link.Metadata["controller_url"])
 	assert.Equal(t, site.ID, link.Metadata["site_id"])
 	assert.Equal(t, site.Name, link.Metadata["site_name"])
@@ -515,10 +498,10 @@ func TestProcessUplinkInfo(t *testing.T) {
 		IPAddress: "192.168.1.1",
 		Name:      "Device 1",
 		MAC:       "00:11:22:33:44:55",
-		Uplink: struct {
-			DeviceID string `json:"deviceId"`
-		}{
-			DeviceID: "uplink-device",
+		Uplink: UniFiUplink{
+			DeviceID:      "uplink-device",
+			LocalPortIdx:  26,
+			LocalPortName: "Port 26",
 		},
 	}
 
@@ -555,7 +538,7 @@ func TestProcessUplinkInfo(t *testing.T) {
 	}
 
 	// Call the function
-	links := engine.processUplinkInfo(job, device, deviceCache, apiConfig, site)
+	links := engine.processUplinkInfo(job, device, nil, deviceCache, apiConfig, site)
 
 	// Check results
 	assert.NotNil(t, links)
@@ -565,7 +548,8 @@ func TestProcessUplinkInfo(t *testing.T) {
 	assert.Equal(t, "UniFi-API", link.Protocol)
 	assert.Equal(t, deviceCache["uplink-device"].IP, link.LocalDeviceIP)
 	assert.Equal(t, deviceCache["uplink-device"].DeviceID, link.LocalDeviceID)
-	assert.Equal(t, int32(0), link.LocalIfIndex)
+	assert.Equal(t, int32(26), link.LocalIfIndex)
+	assert.Equal(t, "Port 26", link.LocalIfName)
 	assert.Equal(t, device.MAC, link.NeighborChassisID)
 	assert.Equal(t, device.Name, link.NeighborSystemName)
 	assert.Equal(t, device.IPAddress, link.NeighborMgmtAddr)
@@ -573,13 +557,61 @@ func TestProcessUplinkInfo(t *testing.T) {
 	// Check metadata
 	assert.NotNil(t, link.Metadata)
 	assert.Equal(t, job.ID, link.Metadata["discovery_id"])
-	assert.Equal(t, "unifi-api", link.Metadata["source"])
+	assert.Equal(t, "unifi-api-uplink", link.Metadata["source"])
+	assert.Equal(t, "direct", link.Metadata["evidence_class"])
 	assert.Equal(t, apiConfig.BaseURL, link.Metadata["controller_url"])
 	assert.Equal(t, site.ID, link.Metadata["site_id"])
 	assert.Equal(t, site.Name, link.Metadata["site_name"])
 	assert.Equal(t, apiConfig.Name, link.Metadata["controller_name"])
 	assert.Equal(t, "uplink-device", link.Metadata["uplink_device_id"])
 	assert.Equal(t, deviceCache["uplink-device"].Name, link.Metadata["uplink_device_name"])
+}
+
+func TestUniFiDeviceDetailsCamelCaseCompatibility(t *testing.T) {
+	raw := []byte(`{
+		"lldpTable": [{
+			"localPortIdx": 26,
+			"localPortName": "Port 26",
+			"chassisId": "d0:21:f9:00:00:01",
+			"portId": "26",
+			"portDescription": "SFP+",
+			"systemName": "USWAggregation",
+			"managementAddr": "192.168.1.87"
+		}],
+		"portTable": [{
+			"portIdx": 22,
+			"name": "Port 22",
+			"connectedDevice": {
+				"macAddress": "d0:21:f9:00:00:02",
+				"name": "Nano HD",
+				"ipAddress": "192.168.1.233"
+			}
+		}],
+		"uplink": {
+			"deviceId": "uplink-device",
+			"localPortIdx": 26,
+			"localPortName": "Port 26"
+		}
+	}`)
+
+	var details UniFiDeviceDetails
+	require.NoError(t, json.Unmarshal(raw, &details))
+
+	lldp := details.normalizedLLDPTable()
+	require.Len(t, lldp, 1)
+	assert.Equal(t, int32(26), lldp[0].ifIndex())
+	assert.Equal(t, "Port 26", lldp[0].ifName())
+	assert.Equal(t, "192.168.1.87", lldp[0].mgmtAddr())
+
+	ports := details.normalizedPortTable()
+	require.Len(t, ports, 1)
+	peer := ports[0].connected()
+	assert.Equal(t, "d0:21:f9:00:00:02", peer.mac())
+	assert.Equal(t, "192.168.1.233", peer.ip())
+
+	assert.Equal(t, "uplink-device", details.Uplink.upstreamDeviceID())
+	assert.Equal(t, int32(26), details.Uplink.parentPortIndex())
+	assert.Equal(t, "Port 26", details.Uplink.parentPortName())
 }
 
 func TestCreateDiscoveredDevice(t *testing.T) {
@@ -604,7 +636,7 @@ func TestCreateDiscoveredDevice(t *testing.T) {
 	job := &DiscoveryJob{
 		ID: "test-job",
 		Params: &DiscoveryParams{
-			AgentID:  "agent1",
+			AgentID:   "agent1",
 			GatewayID: "gateway1",
 		},
 	}
@@ -644,6 +676,35 @@ func TestCreateDiscoveredDevice(t *testing.T) {
 
 	result = engine.createDiscoveredDevice(job, deviceNoIP, apiConfig, site)
 	assert.Nil(t, result) // Should return nil for devices without IP
+}
+
+func TestUniFiLinkDedupKeyIncludesChassisAndPortWhenMgmtAddrMissing(t *testing.T) {
+	t.Parallel()
+
+	linkA := &TopologyLink{
+		Protocol:          "LLDP",
+		LocalDeviceIP:     "192.168.1.87",
+		LocalDeviceID:     "mac-aabbccddeeff",
+		LocalIfIndex:      5,
+		NeighborMgmtAddr:  "",
+		NeighborChassisID: "aa:aa:aa:aa:aa:01",
+		NeighborPortID:    "port-1",
+	}
+
+	linkB := &TopologyLink{
+		Protocol:          "LLDP",
+		LocalDeviceIP:     "192.168.1.87",
+		LocalDeviceID:     "mac-aabbccddeeff",
+		LocalIfIndex:      5,
+		NeighborMgmtAddr:  "",
+		NeighborChassisID: "aa:aa:aa:aa:aa:02",
+		NeighborPortID:    "port-2",
+	}
+
+	keyA := uniFiLinkDedupKey(linkA, "site-1")
+	keyB := uniFiLinkDedupKey(linkB, "site-1")
+
+	assert.NotEqual(t, keyA, keyB)
 }
 
 func TestAddPoEMetadata(t *testing.T) {

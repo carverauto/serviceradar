@@ -276,6 +276,33 @@ func TestConvertToUint64(t *testing.T) {
 	}
 }
 
+func TestLLDPManagementAddressLinkKey(t *testing.T) {
+	t.Parallel()
+
+	oid := ".1.0.8802.1.1.2.1.4.2.1.3.100.25.7.1.4.192.168.1.87"
+	assert.Equal(t, "100.25.7", lldpManagementAddressLinkKey(oid))
+}
+
+func TestProcessLLDPManagementAddressAssignsMatchingLink(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	linkMap := map[string]*TopologyLink{
+		"100.25.7": {Metadata: map[string]string{}},
+		"100.25.8": {Metadata: map[string]string{}},
+	}
+
+	pdu := gosnmp.SnmpPDU{
+		Name:  ".1.0.8802.1.1.2.1.4.2.1.3.100.25.7.1.4.192.168.1.87",
+		Type:  gosnmp.OctetString,
+		Value: []byte{1, 192, 168, 1, 87},
+	}
+
+	require.NoError(t, engine.processLLDPManagementAddress(pdu, linkMap))
+	assert.Equal(t, "192.168.1.87", linkMap["100.25.7"].NeighborMgmtAddr)
+	assert.Empty(t, linkMap["100.25.8"].NeighborMgmtAddr)
+}
+
 func TestIsMaxUint32(t *testing.T) {
 	tests := []struct {
 		name     string

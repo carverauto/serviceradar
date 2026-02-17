@@ -89,6 +89,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
   defp compile_job(job, credentials) do
     seeds = job.seeds || []
+    unifi_controllers = job.unifi_controllers || []
+    unifi_api_names = unifi_controllers |> Enum.map(& &1.name) |> Enum.reject(&nil_or_blank?/1)
+    unifi_api_urls = unifi_controllers |> Enum.map(& &1.base_url) |> Enum.reject(&nil_or_blank?/1)
 
     options = job.options || %{}
 
@@ -96,6 +99,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       options
       |> Map.put_new("mapper_job_id", to_string(job.id))
       |> Map.put_new("mapper_job_name", job.name)
+      |> maybe_put_csv_option("unifi_api_names", unifi_api_names)
+      |> maybe_put_csv_option("unifi_api_urls", unifi_api_urls)
 
     %{
       "name" => job.name,
@@ -111,18 +116,44 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     }
   end
 
+  defp maybe_put_csv_option(options, _key, []), do: options
+
+  defp maybe_put_csv_option(options, key, values) when is_list(values) do
+    csv = values |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == "")) |> Enum.join(",")
+
+    if csv == "" do
+      options
+    else
+      Map.put_new(options, key, csv)
+    end
+  end
+
+  defp nil_or_blank?(nil), do: true
+  defp nil_or_blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp nil_or_blank?(_), do: false
+
   defp resolve_credentials(device_uid, actor) do
     case CredentialResolver.resolve_for_device(device_uid, actor) do
       {:ok, %{credential: nil}} ->
-        Logger.warning("MapperCompiler: no SNMP credentials resolved for discovery jobs")
-        %{"version" => "v2c"}
+        resolve_default_credentials(actor)
 
       {:ok, %{credential: credential}} ->
         CredentialResolver.to_mapper_credentials(credential)
 
       {:error, _} ->
         Logger.warning("MapperCompiler: failed to resolve SNMP credentials for discovery jobs")
+        resolve_default_credentials(actor)
+    end
+  end
+
+  defp resolve_default_credentials(actor) do
+    case CredentialResolver.resolve_default(actor) do
+      {:ok, %{credential: nil}} ->
+        Logger.warning("MapperCompiler: no default SNMP credentials resolved for discovery jobs")
         %{"version" => "v2c"}
+
+      {:ok, %{credential: credential}} ->
+        CredentialResolver.to_mapper_credentials(credential)
     end
   end
 end

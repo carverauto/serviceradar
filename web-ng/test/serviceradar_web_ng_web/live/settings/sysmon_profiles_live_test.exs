@@ -3,7 +3,17 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLiveTest do
 
   import Phoenix.LiveViewTest
 
-  setup :register_and_log_in_user
+  alias ServiceRadarWebNG.AshTestHelpers
+
+  setup %{conn: conn} do
+    user = AshTestHelpers.admin_user_fixture()
+
+    %{
+      conn: log_in_user(conn, user),
+      user: user,
+      scope: ServiceRadarWebNG.Accounts.Scope.for_user(user)
+    }
+  end
 
   test "syncs builder when SRQL query is pasted", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/sysmon/new")

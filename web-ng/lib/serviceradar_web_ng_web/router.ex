@@ -36,6 +36,19 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:set_ash_actor)
   end
 
+  # Authenticated browser pipeline without content negotiation.
+  # Used for binary endpoints where clients may send non-HTML Accept headers.
+  pipeline :browser_raw_auth do
+    plug(:fetch_session)
+    plug(:fetch_live_flash)
+    plug(:protect_from_forgery)
+    plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
+    plug(ServiceRadarWebNGWeb.Plugs.GatewayAuth)
+    plug(:fetch_current_scope_for_user)
+    plug(:set_ash_actor)
+    plug(:require_authenticated_user)
+  end
+
   pipeline :api do
     plug(:accepts, ["json"])
   end
@@ -117,6 +130,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/role-profiles", RoleProfileController, :create)
     patch("/role-profiles/:id", RoleProfileController, :update)
     delete("/role-profiles/:id", RoleProfileController, :delete)
+
+    post("/topology/route-analysis", TopologyController, :route_analysis)
   end
 
   # Edge onboarding admin API (API key or bearer token auth)
@@ -315,6 +330,14 @@ defmodule ServiceRadarWebNGWeb.Router do
   ## Authenticated routes
 
   scope "/", ServiceRadarWebNGWeb do
+    pipe_through([:browser_raw_auth])
+
+    get("/topology/snapshot/latest", TopologySnapshotController, :show)
+    get("/god_view_exec.wasm", WasmAssetController, :plain)
+    get("/god_view_exec-:digest", WasmAssetController, :hashed)
+  end
+
+  scope "/", ServiceRadarWebNGWeb do
     pipe_through([:browser, :require_authenticated_user])
 
     # Redirect /dashboard to /analytics
@@ -350,6 +373,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/logs/:log_id", LogLive.Show, :show)
       live("/services", ServiceLive.Index, :index)
       live("/services/check", ServiceLive.Show, :show)
+      live("/topology", TopologyLive.GodView, :index)
       live("/settings/profile", UserLive.Settings, :edit)
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)

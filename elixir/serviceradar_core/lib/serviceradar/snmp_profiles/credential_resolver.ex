@@ -60,6 +60,27 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   end
 
   @doc """
+  Resolve credentials from the instance default SNMP profile.
+
+  Useful when no device UID is available but callers still need a concrete
+  SNMP credential instead of an empty v2c fallback.
+  """
+  @spec resolve_default(map()) ::
+          {:ok,
+           %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
+          | {:error, term()}
+  def resolve_default(actor) do
+    profile = get_default_profile(actor)
+    credential = build_credential(profile)
+
+    if credential_present?(credential) do
+      {:ok, %{credential: credential, profile: profile, source: :default_profile}}
+    else
+      {:ok, %{credential: nil, profile: profile, source: :none}}
+    end
+  end
+
+  @doc """
   Resolve credentials for a target host (IP/hostname/device UID).
   """
   @spec resolve_for_host(String.t() | nil, map()) ::

@@ -57,8 +57,8 @@ defmodule ServiceRadar.Application do
     ensure_started(:ash_state_machine)
     ensure_started(:ssl)
 
-      children =
-        [
+    children =
+      [
         # Encryption vault for AshCloak (must start before repo for encrypted field access)
         vault_child(),
 
@@ -153,6 +153,7 @@ defmodule ServiceRadar.Application do
         ipinfo_mmdb_scheduler_child(),
         netflow_security_scheduler_child(),
         netflow_cache_scheduler_child(),
+        topology_state_scheduler_child(),
 
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
@@ -470,6 +471,14 @@ defmodule ServiceRadar.Application do
   defp ipinfo_mmdb_scheduler_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
       ServiceRadar.Observability.IpinfoMmdbScheduler
+    else
+      nil
+    end
+  end
+
+  defp topology_state_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.NetworkDiscovery.TopologyStateScheduler
     else
       nil
     end

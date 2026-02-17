@@ -124,6 +124,13 @@ config :serviceradar_web_ng,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
 
+god_view_enabled =
+  System.get_env("SERVICERADAR_GOD_VIEW_ENABLED", "false")
+  |> String.downcase()
+  |> then(&(&1 in ["1", "true", "yes", "on"]))
+
+config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
+
 config :serviceradar_core,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
