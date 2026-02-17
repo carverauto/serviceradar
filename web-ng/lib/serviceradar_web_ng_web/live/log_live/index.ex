@@ -4270,6 +4270,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     {label, variant} =
       case flow_type do
+        "SFLOW_5" -> {"sFlow v5", "primary"}
         "NETFLOW_V5" -> {"v5", "warning"}
         "NETFLOW_V9" -> {"v9", "info"}
         "IPFIX" -> {"IPFIX", "success"}
@@ -5596,7 +5597,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp compute_netflow_summary(flows) when is_list(flows) do
     Enum.reduce(
       flows,
-      %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0},
+      %{total: 0, tcp: 0, udp: 0, other: 0, total_bytes: 0, v5: 0, v9: 0, ipfix: 0, sflow: 0},
       fn flow, acc ->
         protocol = flow |> netflow_protocol_num() |> to_int()
         bytes = flow |> netflow_bytes() |> to_int()
@@ -5614,6 +5615,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             "NETFLOW_V5" -> Map.update!(updated, :v5, &(&1 + 1))
             "NETFLOW_V9" -> Map.update!(updated, :v9, &(&1 + 1))
             "IPFIX" -> Map.update!(updated, :ipfix, &(&1 + 1))
+            "SFLOW_5" -> Map.update!(updated, :sflow, &(&1 + 1))
             _ -> updated
           end
 

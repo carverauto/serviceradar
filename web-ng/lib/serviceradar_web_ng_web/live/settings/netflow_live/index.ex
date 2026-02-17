@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
       {:ok,
        socket
-       |> assign(:page_title, "NetFlow Settings")
+       |> assign(:page_title, "Network Flow Settings")
        |> assign(:current_path, "/settings/flows")
        |> assign(:cidrs, load_cidrs(scope))
        |> assign(:app_rules, load_app_rules(scope))
@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
   defp apply_action(socket, :index, _params) do
     socket
-    |> assign(:page_title, "NetFlow Settings")
+    |> assign(:page_title, "Network Flow Settings")
     |> assign(:current_path, "/settings/flows")
     |> assign(:selected, nil)
     |> assign(:ash_form, nil)
@@ -334,7 +334,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
         <div class="grid gap-6 lg:grid-cols-[1fr,520px]">
           <section class="space-y-4">
             <div>
-              <h1 class="text-xl font-semibold">NetFlow</h1>
+              <h1 class="text-xl font-semibold">Network Flows</h1>
               <p class="text-sm text-base-content/60">
                 Configure directionality tagging based on local networks. These CIDRs are used by SRQL
                 queries and enrichment pipelines to label flows as inbound/outbound/internal/external.

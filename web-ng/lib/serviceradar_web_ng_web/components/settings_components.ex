@@ -238,7 +238,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             not String.starts_with?(path, "/settings/networks/device-enrichment")
       },
       %{
-        label: "NetFlow",
+        label: "Network Flows",
         navigate: ~p"/settings/netflows",
         active: String.starts_with?(path, "/settings/netflows")
       },

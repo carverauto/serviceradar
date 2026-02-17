@@ -427,7 +427,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             <div class="card bg-base-100 border border-base-200 shadow-sm">
               <div class="card-body gap-3">
                 <div class="min-w-0">
-                  <div class="text-base font-semibold">NetFlow Visualize</div>
+                  <div class="text-base font-semibold">Network Flows</div>
                   <div class="text-xs text-base-content/60">
                     SRQL-driven analytics (preview). Charts and dimensions will expand in follow-up changes.
                   </div>
