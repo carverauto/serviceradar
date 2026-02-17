@@ -855,8 +855,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       phx-click="toggle_select_all"
                     />
                   </th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Hostname</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">IP</th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Device</th>
                   <th
                     class="text-xs font-semibold text-base-content/70 bg-base-200/60"
                     title="OCSF Device Type"
@@ -864,6 +863,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     Type
                   </th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Vendor</th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Model</th>
                   <th
                     class="text-xs font-semibold text-base-content/70 bg-base-200/60"
                     title="GRPC Health Check Status"
@@ -907,6 +907,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
+                  <% snmp_fallback = snmp_fallback_derived?(row) %>
                   <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted, do: "opacity-60", else: ""}"}>
                     <td class="text-center">
                       <input
@@ -918,37 +919,57 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                         phx-value-uid={device_uid}
                       />
                     </td>
-                    <td class="text-sm max-w-[18rem] truncate">
+                    <td class="max-w-[18rem]">
                       <div class="flex items-center gap-2 min-w-0">
-                        <.icon
-                          :if={agent_device_row?(row)}
-                          name="hero-bolt"
-                          class="size-3 text-accent"
-                          title="Agent device"
-                        />
-                        <.link
-                          :if={is_binary(device_uid)}
-                          navigate={~p"/devices/#{device_uid}"}
-                          class="link link-hover truncate"
-                          title={"UID: #{device_uid}"}
-                        >
-                          {Map.get(row, "hostname") || device_uid}
-                        </.link>
-                        <span :if={not is_binary(device_uid)} class="truncate">
-                          {Map.get(row, "hostname") || "—"}
-                        </span>
-                        <span :if={deleted} class="badge badge-ghost badge-xs">Deleted</span>
+                        <div class="flex items-center gap-2 min-w-0">
+                          <.icon
+                            :if={agent_device_row?(row)}
+                            name="hero-bolt"
+                            class="size-3 text-accent shrink-0"
+                            title="Agent device"
+                          />
+                          <.link
+                            :if={is_binary(device_uid)}
+                            navigate={~p"/devices/#{device_uid}"}
+                            class="link link-hover truncate text-sm"
+                            title={"UID: #{device_uid}"}
+                          >
+                            {Map.get(row, "hostname") || device_uid}
+                          </.link>
+                          <span :if={not is_binary(device_uid)} class="truncate text-sm">
+                            {Map.get(row, "hostname") || "—"}
+                          </span>
+                        </div>
+                        <span :if={deleted} class="badge badge-ghost badge-xs shrink-0">Deleted</span>
+                      </div>
+                      <div class="font-mono text-[0.7rem] text-base-content/60 truncate mt-0.5">
+                        {Map.get(row, "ip") || "—"}
                       </div>
                     </td>
-                    <td class="font-mono text-xs">{Map.get(row, "ip") || "—"}</td>
                     <td class="text-xs">
                       <.device_type_badge
                         type={Map.get(row, "type")}
                         type_id={Map.get(row, "type_id")}
+                        snmp_fallback={snmp_fallback}
                       />
                     </td>
                     <td class="text-xs max-w-[8rem] truncate">
                       {Map.get(row, "vendor_name") || "—"}
+                      <span
+                        :if={snmp_fallback and present_text?(Map.get(row, "vendor_name"))}
+                        class="badge badge-ghost badge-xs ml-1"
+                      >
+                        SNMP
+                      </span>
+                    </td>
+                    <td class="text-xs max-w-[12rem] truncate">
+                      {display_model(Map.get(row, "model"))}
+                      <span
+                        :if={snmp_fallback and display_model(Map.get(row, "model")) != "—"}
+                        class="badge badge-ghost badge-xs ml-1"
+                      >
+                        Fallback
+                      </span>
                     </td>
                     <td class="text-xs">
                       <.availability_badge available={Map.get(row, "is_available")} />
@@ -1681,10 +1702,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   attr :type, :string, default: nil
   attr :type_id, :integer, default: nil
+  attr :snmp_fallback, :boolean, default: false
 
   def device_type_badge(assigns) do
     label = device_type_label(assigns.type, assigns.type_id)
-    icon = device_type_icon(assigns.type_id)
+    icon = device_type_icon(assigns.type, assigns.type_id)
 
     assigns =
       assigns
@@ -1692,9 +1714,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       |> assign(:icon, icon)
 
     ~H"""
-    <div class="flex items-center gap-1" title={"Type ID: #{@type_id}"}>
+    <div class="flex items-center gap-1.5" title={"Type ID: #{@type_id}"}>
       <.icon :if={@icon} name={@icon} class="size-3.5 text-base-content/60" />
       <span class="text-base-content/80">{@label}</span>
+      <span :if={@snmp_fallback and @label != "—"} class="badge badge-ghost badge-xs">
+        SNMP Fallback
+      </span>
     </div>
     """
   end
@@ -1719,18 +1744,130 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp device_type_label(_type, 99), do: "Other"
   defp device_type_label(_type, _type_id), do: "—"
 
-  defp device_type_icon(1), do: "hero-server"
-  defp device_type_icon(2), do: "hero-computer-desktop"
-  defp device_type_icon(3), do: "hero-computer-desktop"
-  defp device_type_icon(4), do: "hero-device-tablet"
-  defp device_type_icon(5), do: "hero-device-phone-mobile"
-  defp device_type_icon(6), do: "hero-cube"
-  defp device_type_icon(7), do: "hero-cpu-chip"
-  defp device_type_icon(9), do: "hero-shield-check"
-  defp device_type_icon(10), do: "hero-square-3-stack-3d"
-  defp device_type_icon(12), do: "hero-arrows-right-left"
-  defp device_type_icon(15), do: "hero-scale"
-  defp device_type_icon(_), do: nil
+  defp device_type_icon(type, type_id) when is_binary(type) do
+    normalized = type |> String.downcase() |> String.trim()
+
+    cond do
+      normalized in ["access point", "access_point", "wireless ap", "wireless access point", "ap"] ->
+        "hero-wifi"
+
+      normalized in ["server"] ->
+        "hero-server"
+
+      normalized in ["router"] ->
+        "hero-arrows-right-left"
+
+      normalized in ["switch"] ->
+        "hero-square-3-stack-3d"
+
+      normalized in ["firewall"] ->
+        "hero-shield-check"
+
+      normalized in ["desktop"] ->
+        "hero-computer-desktop"
+
+      normalized in ["laptop"] ->
+        "hero-computer-desktop"
+
+      true ->
+        device_type_icon(nil, type_id)
+    end
+  end
+
+  defp device_type_icon(_type, 1), do: "hero-server"
+  defp device_type_icon(_type, 2), do: "hero-computer-desktop"
+  defp device_type_icon(_type, 3), do: "hero-computer-desktop"
+  defp device_type_icon(_type, 4), do: "hero-device-tablet"
+  defp device_type_icon(_type, 5), do: "hero-device-phone-mobile"
+  defp device_type_icon(_type, 6), do: "hero-cube"
+  defp device_type_icon(_type, 7), do: "hero-cpu-chip"
+  defp device_type_icon(_type, 9), do: "hero-shield-check"
+  defp device_type_icon(_type, 10), do: "hero-square-3-stack-3d"
+  defp device_type_icon(_type, 12), do: "hero-arrows-right-left"
+  defp device_type_icon(_type, 15), do: "hero-scale"
+  defp device_type_icon(_type, _type_id), do: nil
+
+  defp display_model(nil), do: "—"
+
+  defp display_model(model) when is_binary(model) do
+    trimmed = String.trim(model)
+
+    if trimmed == "" or String.downcase(trimmed) == "nil" do
+      "—"
+    else
+      trimmed
+    end
+  end
+
+  defp display_model(model), do: model |> to_string() |> display_model()
+
+  defp row_metadata(row) when is_map(row) do
+    case Map.get(row, "metadata") || Map.get(row, :metadata) do
+      metadata when is_map(metadata) -> metadata
+      _ -> %{}
+    end
+  end
+
+  defp metadata_value(row, key) when is_binary(key) do
+    row
+    |> row_metadata()
+    |> Map.get(key)
+  end
+
+  defp metadata_value(_row, _key), do: nil
+
+  defp snmp_fallback_derived?(row) when is_map(row) do
+    metadata = row_metadata(row)
+
+    classification_source =
+      metadata_value(row, "classification_source")
+      |> normalize_meta_text()
+
+    has_rule = present_text?(metadata_value(row, "classification_rule_id"))
+
+    has_display_values =
+      present_text?(Map.get(row, "type")) or present_text?(Map.get(row, "vendor_name")) or
+        display_model(Map.get(row, "model")) != "—"
+
+    has_snmp_evidence = snmp_evidence_present?(metadata)
+
+    cond do
+      classification_source in ["snmp_fallback", "snmp_fingerprint_fallback"] ->
+        true
+
+      has_rule ->
+        false
+
+      true ->
+        has_display_values and has_snmp_evidence
+    end
+  end
+
+  defp snmp_fallback_derived?(_row), do: false
+
+  defp snmp_evidence_present?(metadata) when is_map(metadata) do
+    is_map(Map.get(metadata, "snmp_fingerprint")) or
+      present_text?(Map.get(metadata, "sys_object_id")) or
+      present_text?(Map.get(metadata, "sys_descr")) or
+      present_text?(Map.get(metadata, "sys_name")) or
+      present_text?(Map.get(metadata, "snmp_description")) or
+      present_text?(Map.get(metadata, "snmp_name")) or
+      present_text?(Map.get(metadata, "ip_forwarding"))
+  end
+
+  defp snmp_evidence_present?(_metadata), do: false
+
+  defp normalize_meta_text(nil), do: ""
+
+  defp normalize_meta_text(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_text?(_value), do: false
 
   attr :risk_level, :string, default: nil
 
@@ -1824,14 +1961,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         data-tip="SNMP metrics available (last 24h)"
         aria-label="View device details (SNMP metrics available)"
       >
-        <.icon name="hero-signal" class="size-4 text-info" />
+        <.icon name="hero-chart-bar" class="size-4 text-info" />
       </.link>
       <span
         :if={@has_snmp and not is_binary(@device_path)}
         class="tooltip"
         data-tip="SNMP metrics available (last 24h)"
       >
-        <.icon name="hero-signal" class="size-4 text-info" />
+        <.icon name="hero-chart-bar" class="size-4 text-info" />
       </span>
 
       <.link

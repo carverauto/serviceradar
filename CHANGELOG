@@ -1,3 +1,16 @@
+# ServiceRadar v1.1.1
+
+Mapper/DIRE robustness hardening, SNMP enrichment rule improvements, topology projection fixes, and device enrollment profile updates.
+
+## Whats New
+
+**1.1.1**
+- Added SNMP fingerprint normalization and rule-driven enrichment improvements for vendor/type/model inference, including Ubiquiti-specific router/switch/AP detection refinements.
+- Improved DIRE ingest behavior for duplicate-IP/device identity handling and strengthened test coverage for bulk upsert conflict recovery paths.
+- Fixed Apache AGE topology projection compatibility issues and improved mapper interface/link graph ingestion reliability.
+- Added robust tests for mapper topology confidence handling, stale-link pruning, and idempotent link updates.
+- Improved device enrollment profile behavior and related platform integration paths for more consistent onboarding outcomes.
+
 # ServiceRadar v1.1.0
 
 DIRE device deduplication fixes, OpenTelemetry tracing, and gateway hardening.

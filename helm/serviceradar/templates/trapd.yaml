@@ -115,3 +115,35 @@ metadata:
   name: {{ .Values.spire.trapdServiceAccount | default "serviceradar-trapd" }}
   labels:
     app.kubernetes.io/part-of: serviceradar
+{{- if .Values.trapd.externalService.enabled }}
+---
+# External LoadBalancer service for SNMP trap ingestion from outside the cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-trapd-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with .Values.trapd.externalService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.trapd.externalService.type | default "LoadBalancer" }}
+  {{- with .Values.trapd.externalService.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- if .Values.trapd.externalService.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.trapd.externalService.loadBalancerIP }}
+  {{- end }}
+  selector:
+    app: serviceradar-trapd
+    app.kubernetes.io/part-of: serviceradar
+  ports:
+  {{- if .Values.trapd.externalService.ports.snmp.enabled }}
+  - name: snmp
+    port: {{ .Values.trapd.externalService.ports.snmp.port | default 162 }}
+    targetPort: {{ .Values.trapd.externalService.ports.snmp.targetPort | default 162 }}
+    protocol: {{ .Values.trapd.externalService.ports.snmp.protocol | default "UDP" }}
+  {{- end }}
+{{- end }}

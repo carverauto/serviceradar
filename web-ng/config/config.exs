@@ -106,6 +106,8 @@ config :serviceradar_web_ng, :session,
   absolute_timeout_seconds: 30 * 24 * 60 * 60
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
+config :serviceradar_web_ng, :god_view_enabled, false
+config :serviceradar_web_ng, :age_authoritative_topology_enabled, true
 
 config :serviceradar_web_ng, :plugin_storage,
   backend: :filesystem,
@@ -178,7 +180,7 @@ config :esbuild,
   version: "0.25.4",
   serviceradar_web_ng: [
     args:
-      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file),
+      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]

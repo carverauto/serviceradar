@@ -40,6 +40,13 @@ type DiscoveryEngine struct {
 	wg            sync.WaitGroup
 	schedulers    map[string]*time.Ticker
 	logger        logger.Logger
+	hostProber    HostProber
+}
+
+// HostProber provides advisory host reachability checks for worker scheduling.
+type HostProber interface {
+	Probe(ctx context.Context, host string) error
+	Close() error
 }
 
 // DiscoveryType identifies the type of discovery to perform.
@@ -72,6 +79,7 @@ const (
 type DiscoveryParams struct {
 	Seeds       []string          // IP addresses or CIDR ranges to scan
 	Type        DiscoveryType     // Type of discovery to perform
+	Mode        string            // Discovery mode (e.g., "snmp", "hybrid")
 	Credentials *SNMPCredentials  // SNMP credentials to use
 	Options     map[string]string // Additional discovery options
 	Concurrency int               // Maximum number of concurrent operations
@@ -127,17 +135,20 @@ type DiscoveryStatus struct {
 
 // DiscoveryJob represents a running discovery operation.
 type DiscoveryJob struct {
-	ID             string
-	Params         *DiscoveryParams
-	Status         *DiscoveryStatus
-	Results        *DiscoveryResults
-	ctx            context.Context
-	cancelFunc     context.CancelFunc
-	scanQueue      []string
-	mu             sync.RWMutex
-	uniFiSiteCache map[string][]UniFiSite         // Key: baseURL, Value: list of sites
-	deviceMap      map[string]*DeviceInterfaceMap // DeviceID -> DeviceInterfaceMap
-	interfaceMap   map[string]*DiscoveredInterface
+	ID                  string
+	Params              *DiscoveryParams
+	Status              *DiscoveryStatus
+	Results             *DiscoveryResults
+	ctx                 context.Context
+	cancelFunc          context.CancelFunc
+	scanQueue           []string
+	mu                  sync.RWMutex
+	uniFiSiteCache      map[string][]UniFiSite         // Key: baseURL, Value: list of sites
+	uniFiTopologyPolled bool                           // Guard UniFi topology collection to once per job
+	deviceMap           map[string]*DeviceInterfaceMap // DeviceID -> DeviceInterfaceMap
+	interfaceMap        map[string]*DiscoveredInterface
+	identityReconciled  bool
+	interfacesPublished bool
 }
 
 // DiscoveryResults contains the results of a discovery operation.
@@ -147,23 +158,153 @@ type DiscoveryResults struct {
 	Devices       []*DiscoveredDevice
 	Interfaces    []*DiscoveredInterface
 	TopologyLinks []*TopologyLink
-	RawData       map[string]interface{} // Optional raw SNMP data
+	Contract      DiscoveryContract
+}
+
+// DiscoveryStage identifies the current phase of the staged discovery pipeline.
+type DiscoveryStage string
+
+const (
+	DiscoveryStagePrepare  DiscoveryStage = "prepare"
+	DiscoveryStageIdentity DiscoveryStage = "identity"
+	DiscoveryStageEnrich   DiscoveryStage = "enrichment"
+	DiscoveryStageTopology DiscoveryStage = "topology"
+	DiscoveryStageFinalize DiscoveryStage = "finalize"
+)
+
+// DiscoveryStageStatus describes lifecycle state for a stage transition record.
+type DiscoveryStageStatus string
+
+const (
+	DiscoveryStageStatusStarted   DiscoveryStageStatus = "started"
+	DiscoveryStageStatusCompleted DiscoveryStageStatus = "completed"
+	DiscoveryStageStatusFailed    DiscoveryStageStatus = "failed"
+	DiscoveryStageStatusCanceled  DiscoveryStageStatus = "canceled"
+)
+
+// DiscoveryStageTransition captures a typed stage transition event.
+type DiscoveryStageTransition struct {
+	Stage     DiscoveryStage
+	Status    DiscoveryStageStatus
+	Timestamp time.Time
+	Message   string
+}
+
+// DiscoveryContract captures typed, cross-service discovery metadata.
+type DiscoveryContract struct {
+	AgentID          string
+	GatewayID        string
+	ScheduledJobName string
+	StageTransitions []DiscoveryStageTransition
+	ProbeSummary     DiscoveryProbeSummary
+	TopologyContract string
+	ParseDiagnostics DiscoveryParseDiagnostics
+	DebugBundle      DiscoveryDebugBundle
+}
+
+// DiscoveryProbeSummary tracks host probe behavior with typed counters.
+type DiscoveryProbeSummary struct {
+	Attempts int
+	Failures int
+}
+
+// DiscoveryParseDiagnostics tracks source-shape drift and parser quality signals.
+type DiscoveryParseDiagnostics struct {
+	ParseFailures     map[string]int
+	UnknownTopLevel   map[string]int
+	ParserMismatches  map[string]int
+	LastFailureByType map[string]string
+}
+
+// DiscoveryDebugBundle captures debug export metadata for a discovery job.
+type DiscoveryDebugBundle struct {
+	Enabled        bool
+	ExportPath     string
+	ExportedAtUnix int64
+	DeviceCount    int
+	InterfaceCount int
+	TopologyCount  int
+	Error          string
 }
 
 // DiscoveredDevice represents a discovered network device.
 type DiscoveredDevice struct {
-	DeviceID    string // Unique identifier for the device (agentID:gatewayID:deviceIP)
-	IP          string
-	MAC         string
-	Hostname    string
-	SysDescr    string
-	SysObjectID string
-	SysContact  string
-	SysLocation string
-	Uptime      int64
-	Metadata    map[string]string
-	FirstSeen   time.Time
-	LastSeen    time.Time
+	DeviceID        string // Unique identifier for the device (agentID:gatewayID:deviceIP)
+	IP              string
+	MAC             string
+	Hostname        string
+	SysName         string
+	SysDescr        string
+	SysObjectID     string
+	SysContact      string
+	SysLocation     string
+	IPForwarding    int32
+	BridgeBaseMAC   string
+	SNMPFingerprint *SNMPFingerprint
+	Uptime          int64
+	Metadata        map[string]string
+	FirstSeen       time.Time
+	LastSeen        time.Time
+}
+
+// SNMPFingerprint captures normalized SNMP evidence for enrichment and identity processing.
+type SNMPFingerprint struct {
+	System           *SNMPSystemFingerprint
+	Bridge           *SNMPBridgeFingerprint
+	VLAN             *SNMPVLANFingerprint
+	InterfaceSummary *SNMPInterfaceSummaryFingerprint
+	ExtractionErrors map[string]string
+}
+
+// SNMPSystemFingerprint stores standard system-level identity fields.
+type SNMPSystemFingerprint struct {
+	SysName      string
+	SysDescr     string
+	SysObjectID  string
+	SysContact   string
+	SysLocation  string
+	IPForwarding int32
+}
+
+// SNMPBridgeFingerprint stores bridge-level identity fields.
+type SNMPBridgeFingerprint struct {
+	BridgeBaseMAC          string
+	BridgePortCount        int32
+	STPForwardingPortCount int32
+}
+
+// SNMPPVIDCount stores a single PVID histogram entry.
+type SNMPPVIDCount struct {
+	PVID  int32
+	Count int32
+}
+
+// SNMPVLANPortEvidence stores per-VLAN port membership evidence.
+type SNMPVLANPortEvidence struct {
+	VLANID           int32
+	EgressPortsHex   string
+	UntaggedPortsHex string
+}
+
+// SNMPVLANFingerprint stores VLAN-related evidence.
+type SNMPVLANFingerprint struct {
+	VLANIDsSeen      []int32
+	PVIDDistribution []SNMPPVIDCount
+	PortEvidence     []SNMPVLANPortEvidence
+}
+
+// SNMPInterfaceTypeCount stores a count for one ifType value.
+type SNMPInterfaceTypeCount struct {
+	IfType int32
+	Count  int32
+}
+
+// SNMPInterfaceSummaryFingerprint stores interface-level summary signals.
+type SNMPInterfaceSummaryFingerprint struct {
+	InterfaceCount        int32
+	IfTypeCounts          []SNMPInterfaceTypeCount
+	BridgeLikeNameCount   int32
+	WirelessLikeNameCount int32
 }
 
 // InterfaceMetric represents an available SNMP metric for an interface.
@@ -207,7 +348,46 @@ type TopologyLink struct {
 	NeighborPortDescr  string
 	NeighborSystemName string
 	NeighborMgmtAddr   string
+	NeighborIdentity   *TopologyNeighborIdentity
 	Metadata           map[string]string
+	Observation        *TopologyObservationV2
+}
+
+// TopologyObservationV2 is the typed mapper evidence envelope for topology.
+type TopologyObservationV2 struct {
+	ContractVersion string                        `json:"contract_version"`
+	ObservationType string                        `json:"observation_type"`
+	SourceProtocol  string                        `json:"source_protocol"`
+	SourceAdapter   string                        `json:"source_adapter"`
+	EvidenceClass   string                        `json:"evidence_class"`
+	ConfidenceTier  string                        `json:"confidence_tier"`
+	ObservedAtUnix  int64                         `json:"observed_at_unix"`
+	DiscoveryID     string                        `json:"discovery_id"`
+	SourceEndpoint  TopologyObservationEndpointV2 `json:"source_endpoint"`
+	TargetEndpoint  TopologyObservationEndpointV2 `json:"target_endpoint"`
+	RawAttributes   map[string]string             `json:"raw_attributes,omitempty"`
+}
+
+// TopologyObservationEndpointV2 captures immutable endpoint identity fields.
+type TopologyObservationEndpointV2 struct {
+	UID      string `json:"uid,omitempty"`
+	DeviceID string `json:"device_id,omitempty"`
+	IP       string `json:"ip,omitempty"`
+	IfIndex  int32  `json:"if_index,omitempty"`
+	IfName   string `json:"if_name,omitempty"`
+	MAC      string `json:"mac,omitempty"`
+	PortID   string `json:"port_id,omitempty"`
+	SysName  string `json:"sys_name,omitempty"`
+}
+
+// TopologyNeighborIdentity stores canonical neighbor identity evidence.
+type TopologyNeighborIdentity struct {
+	ManagementIP string
+	DeviceID     string
+	ChassisID    string
+	PortID       string
+	PortDescr    string
+	SystemName   string
 }
 
 // SNMPCredentialConfig represents SNMP credentials for specific target IP ranges.
@@ -224,16 +404,17 @@ type SNMPCredentialConfig struct {
 
 // ScheduledJob represents a scheduled discovery job configuration
 type ScheduledJob struct {
-	Name        string            `json:"name"`
-	Interval    string            `json:"interval"`
-	Enabled     bool              `json:"enabled"`
-	Seeds       []string          `json:"seeds"`
-	Type        string            `json:"type"`
-	Credentials SNMPCredentials   `json:"credentials"`
-	Concurrency int               `json:"concurrency"`
-	Timeout     string            `json:"timeout"`
-	Retries     int               `json:"retries"`
-	Options     map[string]string `json:"options"`
+	Name          string            `json:"name"`
+	Interval      string            `json:"interval"`
+	Enabled       bool              `json:"enabled"`
+	Seeds         []string          `json:"seeds"`
+	Type          string            `json:"type"`
+	DiscoveryMode string            `json:"discovery_mode,omitempty"`
+	Credentials   SNMPCredentials   `json:"credentials"`
+	Concurrency   int               `json:"concurrency"`
+	Timeout       string            `json:"timeout"`
+	Retries       int               `json:"retries"`
+	Options       map[string]string `json:"options"`
 }
 
 // Config defines the configuration settings for the mapper service.
@@ -281,16 +462,17 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			PublishRetryInterval string `json:"publish_retry_interval"`
 		} `json:"stream_config"`
 		ScheduledJobs []struct {
-			Name        string            `json:"name"`
-			Interval    string            `json:"interval"`
-			Enabled     bool              `json:"enabled"`
-			Seeds       []string          `json:"seeds"`
-			Type        string            `json:"type"`
-			Credentials SNMPCredentials   `json:"credentials"`
-			Concurrency int               `json:"concurrency"`
-			Timeout     string            `json:"timeout"`
-			Retries     int               `json:"retries"`
-			Options     map[string]string `json:"options"`
+			Name          string            `json:"name"`
+			Interval      string            `json:"interval"`
+			Enabled       bool              `json:"enabled"`
+			Seeds         []string          `json:"seeds"`
+			Type          string            `json:"type"`
+			DiscoveryMode string            `json:"discovery_mode,omitempty"`
+			Credentials   SNMPCredentials   `json:"credentials"`
+			Concurrency   int               `json:"concurrency"`
+			Timeout       string            `json:"timeout"`
+			Retries       int               `json:"retries"`
+			Options       map[string]string `json:"options"`
 		} `json:"scheduled_jobs"`
 		*Alias
 	}{
@@ -335,15 +517,16 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	c.ScheduledJobs = make([]*ScheduledJob, len(aux.ScheduledJobs))
 	for i := 0; i < len(aux.ScheduledJobs); i++ {
 		c.ScheduledJobs[i] = &ScheduledJob{
-			Name:        aux.ScheduledJobs[i].Name,
-			Interval:    aux.ScheduledJobs[i].Interval,
-			Enabled:     aux.ScheduledJobs[i].Enabled,
-			Seeds:       aux.ScheduledJobs[i].Seeds,
-			Type:        aux.ScheduledJobs[i].Type,
-			Credentials: aux.ScheduledJobs[i].Credentials,
-			Concurrency: aux.ScheduledJobs[i].Concurrency,
-			Retries:     aux.ScheduledJobs[i].Retries,
-			Options:     aux.ScheduledJobs[i].Options,
+			Name:          aux.ScheduledJobs[i].Name,
+			Interval:      aux.ScheduledJobs[i].Interval,
+			Enabled:       aux.ScheduledJobs[i].Enabled,
+			Seeds:         aux.ScheduledJobs[i].Seeds,
+			Type:          aux.ScheduledJobs[i].Type,
+			DiscoveryMode: aux.ScheduledJobs[i].DiscoveryMode,
+			Credentials:   aux.ScheduledJobs[i].Credentials,
+			Concurrency:   aux.ScheduledJobs[i].Concurrency,
+			Retries:       aux.ScheduledJobs[i].Retries,
+			Options:       aux.ScheduledJobs[i].Options,
 		}
 
 		if aux.ScheduledJobs[i].Timeout != "" {

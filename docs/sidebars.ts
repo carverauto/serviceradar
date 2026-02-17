@@ -41,7 +41,11 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Data',
-      items: [{type: 'doc', id: 'data-pipeline', label: 'Data Pipeline'}, {type: 'doc', id: 'srql-language-reference', label: 'SRQL Reference'}],
+      items: [
+        {type: 'doc', id: 'data-pipeline', label: 'Data Pipeline'},
+        {type: 'doc', id: 'srql-language-reference', label: 'SRQL Reference'},
+        {type: 'doc', id: 'god-view-topology', label: 'God-View Topology'},
+      ],
     },
     {
       type: 'category',

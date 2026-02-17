@@ -96,6 +96,13 @@ core:
     maxInflight: 2
     queueMaxChunks: 10
     async: true
+  deviceEnrichment:
+    rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
+    filesystemOverrides:
+      enabled: false
+      existingConfigMap: ""
+      existingSecret: ""
+      existingClaim: ""
   migrations:
     enabled: true
     markerPath: /var/lib/serviceradar/migrations/complete
@@ -307,6 +314,21 @@ flowgger:
         enabled: false
         port: 2055
         targetPort: 2055
+        protocol: UDP
+trapd:
+  # External service configuration for SNMP trap ingestion from outside the cluster.
+  # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
+  externalService:
+    enabled: false
+    type: LoadBalancer
+    externalTrafficPolicy: Cluster
+    annotations: {}
+    loadBalancerIP: ""
+    ports:
+      snmp:
+        enabled: true
+        port: 162
+        targetPort: 162
         protocol: UDP
 netflowCollector:
   enabled: false

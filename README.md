@@ -8,6 +8,11 @@
 # ServiceRadar
 
 <img width="1470" height="836" alt="Screenshot 2025-12-16 at 10 09 19 PM" src="https://github.com/user-attachments/assets/e64ca26b-f4d8-42df-ab81-2de1d7941f92" />
+<img width="1470" height="801" alt="Screenshot 2026-02-16 at 8 39 36 PM" src="https://github.com/user-attachments/assets/4f959217-4e53-487b-ae78-30c2fd3344b3" />
+<img width="1470" height="804" alt="Screenshot 2026-02-16 at 8 36 26 PM" src="https://github.com/user-attachments/assets/bec3d2cb-c311-4a26-848d-2fece4a5af86" />
+<img width="1470" height="801" alt="Screenshot 2026-02-16 at 8 37 08 PM" src="https://github.com/user-attachments/assets/0384520a-755f-4bdd-843a-a41f02d7c439" />
+<img width="1470" height="802" alt="Screenshot 2026-02-17 at 3 18 44 AM" src="https://github.com/user-attachments/assets/a28bfeb7-bc66-4ed4-ad81-98dfb443ed40" />
+
 
 [![CI](https://github.com/carverauto/serviceradar/actions/workflows/main.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/main.yml)
 [![Go Linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
@@ -28,6 +33,8 @@ Demo site available at https://demo.serviceradar.cloud login: `demo@localhost` p
 
 - **Distributed Architecture**: Multi-component design (Agent, Gateway, Core) for flexible edge deployments.
 - **WASM Plugin System**: Securely extend monitoring with custom checks in Go or Rust. Runs in a hardware-level sandbox with zero local dependencies and proxied networking.
+- **Topology**: GPU-native topology engine capable of rendering millions of interactive nodes and edges at 60fps via [deck.gl](https://deck.gl/), [Apache Arrow](https://arrow.apache.org/) for zero-copy streaming, and WASM-native logic layer.
+- **Causal Engine**: Real-time triage and isolation via [DeepCausality](https://github.com/deepcausality-rs) (Rust). Employs hybrid filtering and [roaring bitmaps](https://github.com/RoaringBitmap/roaring) to identify root causes and visually isolate an event's "blast radius" in microseconds.
 - **SRQL**: intuitive key:value syntax for querying time-series and relational data.
 - **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, and Apache AGE for relational, time-series, and graph topology data.
 - **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), and NetFlow.
