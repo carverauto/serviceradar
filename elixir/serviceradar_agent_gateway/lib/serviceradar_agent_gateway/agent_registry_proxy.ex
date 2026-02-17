@@ -30,7 +30,10 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
 
   @impl true
   def handle_call({:touch_agent, agent_id, metadata}, _from, state) do
-    case ProcessRegistry.update_value({:agent, agent_id}, fn existing ->
+    # Key must match the 3-tuple format used by ProcessRegistry.register_agent/3
+    registry_key = {:agent, agent_id, Node.self()}
+
+    case ProcessRegistry.update_value(registry_key, fn existing ->
            existing
            |> Map.merge(metadata)
            |> Map.put(:last_heartbeat, DateTime.utc_now())
@@ -44,7 +47,13 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
             {:reply, :ok, state}
 
           {:error, {:already_registered, _pid}} ->
-            {:reply, :ok, state}
+            # Entry exists but update_value failed — force update via unregister + re-register
+            ProcessRegistry.unregister_agent(agent_id)
+
+            case AgentRegistry.register_agent(agent_id, metadata) do
+              {:ok, _pid} -> {:reply, :ok, state}
+              {:error, reason} -> {:reply, {:error, reason}, state}
+            end
 
           {:error, reason} ->
             Logger.warning("Failed to register agent #{agent_id}: #{inspect(reason)}")
