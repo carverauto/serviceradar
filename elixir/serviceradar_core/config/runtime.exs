@@ -353,6 +353,11 @@ if config_env() == :prod do
            Keyword.merge(software_storage_defaults, software_storage_overrides)
   end
 
+  # Optional: require signed firmware images before activation
+  config :serviceradar_core,
+    require_signed_images:
+      System.get_env("SOFTWARE_REQUIRE_SIGNED_IMAGES", "false") in ~w(true 1 yes)
+
   # Oban configuration
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,

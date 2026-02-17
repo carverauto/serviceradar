@@ -64,7 +64,7 @@ const (
 	pluginErrInvalid   int32 = -1
 	pluginErrDenied    int32 = -2
 	pluginErrTooLarge  int32 = -3
-	pluginErrNotFound  int32 = -4
+	pluginErrNotFound  int32 = -4 //nolint:unusedfunc // Part of plugin error code set
 	pluginErrInternal  int32 = -5
 	pluginErrTimeout   int32 = -6
 	pluginErrBadHandle int32 = -7

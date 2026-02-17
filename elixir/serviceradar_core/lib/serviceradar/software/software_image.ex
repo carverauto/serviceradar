@@ -82,6 +82,9 @@ defmodule ServiceRadar.Software.SoftwareImage do
     update :activate do
       description "Mark image as active and available for serving"
       accept []
+      require_atomic? false
+
+      validate {ServiceRadar.Software.Validations.RequireSignature, []}
     end
 
     update :archive do
@@ -171,12 +174,34 @@ defmodule ServiceRadar.Software.SoftwareImage do
   end
 
   policies do
-    policy action_type(:read) do
-      authorize_if always()
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
     end
 
-    policy action_type([:create, :update, :destroy]) do
-      authorize_if always()
+    policy action_type(:read) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.view"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
+    end
+
+    policy action(:create) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "software.image.upload"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
+    end
+
+    policy action([:verify, :activate, :archive, :update]) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
+    end
+
+    policy action([:soft_delete, :destroy]) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "software.image.delete"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
     end
   end
 end

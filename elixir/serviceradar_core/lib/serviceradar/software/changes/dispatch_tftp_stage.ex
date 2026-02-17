@@ -9,6 +9,8 @@ defmodule ServiceRadar.Software.Changes.DispatchTftpStage do
 
   use Ash.Resource.Change
 
+  require Logger
+
   alias ServiceRadar.Edge.AgentCommandBus
 
   @impl true
@@ -26,8 +28,27 @@ defmodule ServiceRadar.Software.Changes.DispatchTftpStage do
       ]
 
       case AgentCommandBus.dispatch(record.agent_id, "tftp.stage_image", payload, opts) do
-        {:ok, _command_id} -> {:ok, record}
-        {:error, reason} -> {:error, reason}
+        {:ok, command_id} ->
+          Logger.info(
+            "TFTP image staging dispatched",
+            session_id: record.id,
+            agent_id: record.agent_id,
+            image_id: record.image_id,
+            command_id: command_id
+          )
+
+          {:ok, record}
+
+        {:error, reason} ->
+          Logger.error(
+            "TFTP image staging dispatch failed",
+            session_id: record.id,
+            agent_id: record.agent_id,
+            image_id: record.image_id,
+            reason: inspect(reason)
+          )
+
+          {:error, reason}
       end
     end)
   end

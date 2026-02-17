@@ -5,6 +5,8 @@ defmodule ServiceRadar.Software.Changes.DispatchTftpStop do
 
   use Ash.Resource.Change
 
+  require Logger
+
   alias ServiceRadar.Edge.AgentCommandBus
 
   @impl true
@@ -18,6 +20,12 @@ defmodule ServiceRadar.Software.Changes.DispatchTftpStop do
         required_capability: "tftp",
         context: %{tftp_session_id: record.id}
       ]
+
+      Logger.info(
+        "TFTP session canceled",
+        session_id: record.id,
+        agent_id: record.agent_id
+      )
 
       case AgentCommandBus.dispatch(record.agent_id, "tftp.stop_session", payload, opts) do
         {:ok, _command_id} -> {:ok, record}

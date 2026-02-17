@@ -43,7 +43,6 @@ const (
 	defaultStagingDir      = "/var/lib/serviceradar/tftp-staging"
 	defaultStagingTTL      = 1 * time.Hour
 	stagingCleanupInterval = 5 * time.Minute
-	tftpBlockSize          = 512
 	tftpProgressIntervalRx = time.Second
 	tftpHeartbeatInterval  = 5 * time.Second
 )
@@ -534,6 +533,13 @@ func (s *TFTPService) receiveFile(session *TFTPSession, wt io.WriterTo, outputPa
 
 // isFilenameAllowed checks if a filename matches the expected pattern.
 func (s *TFTPService) isFilenameAllowed(requested, expected string) bool {
+	// Reject null bytes and control characters
+	for _, c := range requested {
+		if c == 0 || (c < 32 && c != '\t') || c == 127 {
+			return false
+		}
+	}
+
 	// Reject path traversal attempts
 	if strings.Contains(requested, "..") ||
 		strings.Contains(requested, "/") ||
