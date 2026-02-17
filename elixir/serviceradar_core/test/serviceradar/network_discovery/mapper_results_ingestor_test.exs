@@ -371,6 +371,49 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert result.neighbor_system_name == "USWAggregation"
       assert result.metadata["neighbor_identity"]["management_ip"] == "192.168.1.87"
     end
+
+    test "hydrates topology from observation v2 envelope and preserves source endpoint uids" do
+      result =
+        MapperResultsIngestor.normalize_topology(%{
+          "metadata" => %{
+            "source" => "snmp-arp-fdb",
+            "observation_v2_json" =>
+              Jason.encode!(%{
+                "contract_version" => "mapper.topology_observation.v2",
+                "source_protocol" => "snmp-l2",
+                "source_adapter" => "snmp.v1",
+                "evidence_class" => "inferred",
+                "confidence_tier" => "medium",
+                "source_endpoint" => %{
+                  "uid" => "mac-f492bf75c721",
+                  "device_id" => "mac-f492bf75c721",
+                  "ip" => "152.117.116.178",
+                  "if_name" => "eth0"
+                },
+                "target_endpoint" => %{
+                  "uid" => "chassis-0cea1432d277",
+                  "device_id" => "sr:tonka01",
+                  "ip" => "192.168.10.1",
+                  "mac" => "0c:ea:14:32:d2:77",
+                  "port_id" => "eth4"
+                }
+              })
+          }
+        })
+
+      assert result.protocol == "snmp-l2"
+      assert result.local_device_id == "mac-f492bf75c721"
+      assert result.local_if_name == "eth0"
+      assert result.neighbor_device_id == "sr:tonka01"
+      assert result.neighbor_mgmt_addr == "192.168.10.1"
+      assert result.neighbor_port_id == "eth4"
+      assert result.metadata["observation_contract_version"] == "mapper.topology_observation.v2"
+      assert result.metadata["observation_source_adapter"] == "snmp.v1"
+      assert result.metadata["source_local_uid"] == "mac-f492bf75c721"
+      assert result.metadata["source_target_uid"] == "chassis-0cea1432d277"
+      assert result.metadata["confidence_tier"] == "medium"
+      assert result.metadata["evidence_class"] == "inferred"
+    end
   end
 
   describe "suppress_topology_sighting_candidate?/1" do
@@ -453,8 +496,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       assert resolved.local_device_id == "sr:farm01"
       assert resolved.neighbor_device_id == "sr:uswagg"
+      assert resolved.metadata["source_local_uid"] == "default:192.168.1.1"
+      assert resolved.metadata["source_target_uid"] == nil
       assert unresolved_neighbor.local_device_id == "sr:farm01"
       assert unresolved_neighbor.neighbor_device_id == nil
+      assert unresolved_neighbor.metadata["source_local_uid"] == "default:192.168.1.1"
     end
 
     test "resolves neighbor from system name and chassis id when mgmt ip is missing" do
@@ -512,6 +558,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
       assert resolved.local_device_id == "default:10.10.10.10"
       assert resolved.neighbor_device_id == "sr:uswagg"
+      assert resolved.metadata["source_local_uid"] == "default:10.10.10.10"
     end
 
     test "treats default-prefixed neighbor ids as unresolved when canonical device cannot be found" do
@@ -537,6 +584,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
       assert resolved.local_device_id == "sr:tonka01"
       assert resolved.neighbor_device_id == nil
+      assert resolved.metadata["source_target_uid"] == "default:192.168.10.96"
     end
 
     test "preserves canonical sr neighbor ids even when they are not indexed" do
@@ -562,6 +610,47 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
       assert resolved.local_device_id == "sr:tonka01"
       assert resolved.neighbor_device_id == "sr:endpoint-10-96"
+    end
+
+    test "reconciles previously unresolved endpoints after canonical identity becomes available" do
+      records = [
+        %{
+          local_device_id: "sr:tonka01",
+          local_device_ip: "192.168.10.1",
+          neighbor_device_id: "default:192.168.10.154",
+          neighbor_mgmt_addr: "192.168.10.154",
+          neighbor_system_name: "aruba-24g-02",
+          neighbor_chassis_id: nil,
+          partition: "default"
+        }
+      ]
+
+      unresolved_index = %{
+        uid_to_uid: %{"sr:tonka01" => "sr:tonka01"},
+        ip_to_uid: %{"192.168.10.1" => "sr:tonka01"},
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [unresolved] = MapperResultsIngestor.resolve_topology_records(records, unresolved_index)
+      assert unresolved.local_device_id == "sr:tonka01"
+      assert unresolved.neighbor_device_id == nil
+      assert unresolved.metadata["source_target_uid"] == "default:192.168.10.154"
+
+      reconciled_index = %{
+        uid_to_uid: %{"sr:tonka01" => "sr:tonka01", "sr:aruba-10-154" => "sr:aruba-10-154"},
+        ip_to_uid: %{
+          "192.168.10.1" => "sr:tonka01",
+          "192.168.10.154" => "sr:aruba-10-154"
+        },
+        name_to_uid: %{"aruba-24g-02" => "sr:aruba-10-154"},
+        mac_to_uid: %{}
+      }
+
+      [reconciled] = MapperResultsIngestor.resolve_topology_records(records, reconciled_index)
+      assert reconciled.local_device_id == "sr:tonka01"
+      assert reconciled.neighbor_device_id == "sr:aruba-10-154"
+      assert reconciled.metadata["source_target_uid"] == "default:192.168.10.154"
     end
   end
 

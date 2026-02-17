@@ -19,7 +19,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "metadata" => %{"source" => "snmp-lldp"}
         })
 
-      assert {:ok, %{mode: :backbone, relation: "CONNECTS_TO"}} =
+      assert {:ok, %{mode: :backbone, relation: "CONNECTS_TO", reason: :projected_backbone}} =
                TopologyGraph.classify_projection(normalized)
     end
 
@@ -40,7 +40,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert normalized.metadata["confidence_reason"] == "single_identifier_inference"
       assert normalized.metadata["evidence_class"] == "endpoint-attachment"
 
-      assert {:ok, %{mode: :auxiliary, relation: "ATTACHED_TO"}} =
+      assert {:ok, %{mode: :auxiliary, relation: "ATTACHED_TO", reason: :projected_attachment}} =
                TopologyGraph.classify_projection(normalized)
     end
 
@@ -63,7 +63,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           }
         })
 
-      assert {:ok, %{mode: :auxiliary, relation: "INFERRED_TO"}} =
+      assert {:ok, %{mode: :auxiliary, relation: "INFERRED_TO", reason: :projected_inferred}} =
                TopologyGraph.classify_projection(normalized)
     end
 
@@ -77,8 +77,67 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "metadata" => %{}
         })
 
-      assert {:ok, %{mode: :skip, relation: nil}} =
+      assert {:ok, %{mode: :skip, relation: nil, reason: :skip_single_identifier_inference}} =
                TopologyGraph.classify_projection(normalized)
+    end
+
+    test "single-identifier inference skip reason is explicit" do
+      normalized =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "SNMP-L2",
+          "local_device_id" => "dev-router",
+          "local_device_ip" => "192.168.1.1",
+          "local_if_name" => "eth0",
+          "neighbor_mgmt_addr" => "192.168.1.77",
+          "metadata" => %{
+            "source" => "snmp-arp-fdb",
+            "confidence_tier" => "low",
+            "confidence_score" => 40,
+            "confidence_reason" => "single_identifier_inference",
+            "evidence_class" => "inferred"
+          }
+        })
+
+      assert {:ok, %{mode: :skip, reason: :skip_single_identifier_inference}} =
+               TopologyGraph.classify_projection(normalized)
+    end
+  end
+
+  describe "projection_diagnostics/1 contract" do
+    test "aggregates accepted and rejected reasons with explicit keys" do
+      accepted_link =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "LLDP",
+          "local_device_id" => "dev-a",
+          "local_device_ip" => "192.168.1.87",
+          "local_if_index" => 7,
+          "local_if_name" => "sfp+7",
+          "neighbor_device_id" => "dev-b",
+          "neighbor_port_id" => "sfp+1",
+          "neighbor_mgmt_addr" => "192.168.1.138"
+        })
+
+      rejected_link =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "LLDP",
+          "local_device_id" => "dev-a",
+          "local_device_ip" => "192.168.1.87",
+          "local_if_index" => nil,
+          "local_if_name" => "sfp+7",
+          "neighbor_device_id" => "dev-c",
+          "neighbor_port_id" => "sfp+2",
+          "neighbor_mgmt_addr" => "192.168.1.139"
+        })
+
+      missing_ids_link = %{"protocol" => "LLDP"}
+
+      diagnostics =
+        TopologyGraph.projection_diagnostics([accepted_link, rejected_link, missing_ids_link])
+
+      assert diagnostics.total == 3
+      assert diagnostics.accepted["projected_backbone"] == 1
+      assert diagnostics.rejected["skip_missing_ifindex"] == 1
+      assert diagnostics.rejected["missing_ids"] == 1
     end
   end
 end

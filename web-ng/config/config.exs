@@ -105,6 +105,7 @@ config :serviceradar_web_ng, :session,
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 config :serviceradar_web_ng, :god_view_enabled, false
+config :serviceradar_web_ng, :age_authoritative_topology_enabled, true
 
 config :serviceradar_web_ng, :plugin_storage,
   backend: :filesystem,

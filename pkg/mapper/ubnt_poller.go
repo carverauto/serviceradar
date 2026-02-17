@@ -148,6 +148,9 @@ type UniFiDeviceDetails struct {
 	PortTableCamel []UniFiPortEntry `json:"portTable"`
 
 	Uplink UniFiUplink `json:"uplink"`
+
+	AdapterVersion string `json:"-"`
+	AdapterShape   string `json:"-"`
 }
 
 type UniFiLLDPEntry struct {
@@ -447,7 +450,8 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 
 var (
 	// ErrNoUniFiNeighborsFound indicates that no neighboring devices were found during UniFi discovery.
-	ErrNoUniFiNeighborsFound = errors.New("no UniFi neighbors found")
+	ErrNoUniFiNeighborsFound        = errors.New("no UniFi neighbors found")
+	ErrUniFiPayloadDriftQuarantined = errors.New("unifi payload drift quarantined")
 )
 
 // fetchUniFiDevicesForSite fetches devices from a UniFi site and creates a device cache
@@ -569,12 +573,58 @@ func (e *DiscoveryEngine) fetchDeviceDetails(
 		return nil, fmt.Errorf("failed to read details for device %s: %w", deviceID, err)
 	}
 
-	var details UniFiDeviceDetails
-	if err := json.Unmarshal(body, &details); err == nil {
-		if len(details.normalizedLLDPTable()) > 0 || len(details.normalizedPortTable()) > 0 ||
-			details.Uplink.upstreamDeviceID() != "" {
-			return &details, nil
+	details, err := e.parseUniFiDeviceDetailsWithAdapters(job, body)
+	if err == nil {
+		return details, nil
+	}
+
+	if errors.Is(err, ErrUniFiPayloadDriftQuarantined) {
+		topKeys := extractTopLevelJSONKeys(body)
+		preview := string(body)
+		if len(preview) > 1500 {
+			preview = preview[:1500]
 		}
+		e.logger.Warn().
+			Str("job_id", job.ID).
+			Str("api_name", apiConfig.Name).
+			Str("site_name", site.Name).
+			Str("device_id", deviceID).
+			Int("payload_bytes", len(body)).
+			Strs("top_level_keys", topKeys).
+			Str("payload_preview", preview).
+			Msg("Quarantined UniFi detail payload drift")
+	}
+
+	return nil, fmt.Errorf("failed to parse details for device %s: %w", deviceID, err)
+}
+
+const (
+	unifiDetailAdapterV1Direct      = "unifi.detail.v1.direct"
+	unifiDetailAdapterV1WrappedData = "unifi.detail.v1.wrapped_data"
+	unifiDetailAdapterV1WrappedNode = "unifi.detail.v1.wrapped_device"
+)
+
+func hasUniFiTopologySignals(details *UniFiDeviceDetails) bool {
+	if details == nil {
+		return false
+	}
+	return len(details.normalizedLLDPTable()) > 0 ||
+		len(details.normalizedPortTable()) > 0 ||
+		details.Uplink.upstreamDeviceID() != ""
+}
+
+func (e *DiscoveryEngine) parseUniFiDeviceDetailsWithAdapters(
+	job *DiscoveryJob, body []byte) (*UniFiDeviceDetails, error) {
+	var direct UniFiDeviceDetails
+	if err := json.Unmarshal(body, &direct); err == nil {
+		if hasUniFiTopologySignals(&direct) {
+			direct.AdapterVersion = unifiDetailAdapterV1Direct
+			direct.AdapterShape = "direct"
+			return &direct, nil
+		}
+		e.recordContractParserMismatch(job, "unifi.detail.direct")
+	} else {
+		e.recordContractParseFailure(job, "unifi.detail.direct", err.Error())
 	}
 
 	var wrapped struct {
@@ -582,32 +632,25 @@ func (e *DiscoveryEngine) fetchDeviceDetails(
 		Device UniFiDeviceDetails `json:"device"`
 	}
 	if err := json.Unmarshal(body, &wrapped); err == nil {
-		if len(wrapped.Data.normalizedLLDPTable()) > 0 || len(wrapped.Data.normalizedPortTable()) > 0 ||
-			wrapped.Data.Uplink.upstreamDeviceID() != "" {
+		if hasUniFiTopologySignals(&wrapped.Data) {
+			wrapped.Data.AdapterVersion = unifiDetailAdapterV1WrappedData
+			wrapped.Data.AdapterShape = "wrapped_data"
 			return &wrapped.Data, nil
 		}
-		if len(wrapped.Device.normalizedLLDPTable()) > 0 || len(wrapped.Device.normalizedPortTable()) > 0 ||
-			wrapped.Device.Uplink.upstreamDeviceID() != "" {
+		if hasUniFiTopologySignals(&wrapped.Device) {
+			wrapped.Device.AdapterVersion = unifiDetailAdapterV1WrappedNode
+			wrapped.Device.AdapterShape = "wrapped_device"
 			return &wrapped.Device, nil
 		}
+		e.recordContractParserMismatch(job, "unifi.detail.wrapped")
+	} else {
+		e.recordContractParseFailure(job, "unifi.detail.wrapped", err.Error())
 	}
 
 	topKeys := extractTopLevelJSONKeys(body)
-	preview := string(body)
-	if len(preview) > 1500 {
-		preview = preview[:1500]
-	}
-	e.logger.Warn().
-		Str("job_id", job.ID).
-		Str("api_name", apiConfig.Name).
-		Str("site_name", site.Name).
-		Str("device_id", deviceID).
-		Int("payload_bytes", len(body)).
-		Strs("top_level_keys", topKeys).
-		Str("payload_preview", preview).
-		Msg("UniFi detail payload parsed but yielded no topology fields")
-
-	return &UniFiDeviceDetails{}, nil
+	e.recordContractUnknownTopLevel(job, "unifi.detail", topKeys)
+	e.recordContractParserMismatch(job, "unifi.detail.quarantined")
+	return nil, ErrUniFiPayloadDriftQuarantined
 }
 
 func extractTopLevelJSONKeys(body []byte) []string {
@@ -622,6 +665,18 @@ func extractTopLevelJSONKeys(body []byte) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func applyUniFiDetailAdapterMetadata(metadata map[string]string, details *UniFiDeviceDetails) {
+	if metadata == nil || details == nil {
+		return
+	}
+	if strings.TrimSpace(details.AdapterVersion) != "" {
+		metadata["source_adapter_version"] = strings.TrimSpace(details.AdapterVersion)
+	}
+	if strings.TrimSpace(details.AdapterShape) != "" {
+		metadata["source_adapter_shape"] = strings.TrimSpace(details.AdapterShape)
+	}
 }
 
 // processLLDPTable processes LLDP table entries and creates topology links
@@ -659,6 +714,7 @@ func (*DiscoveryEngine) processLLDPTable(
 				"controller_name": apiConfig.Name,
 			},
 		}
+		applyUniFiDetailAdapterMetadata(link.Metadata, details)
 
 		links = append(links, link)
 	}
@@ -726,6 +782,7 @@ func (*DiscoveryEngine) processPortTable(
 					"neighbor_id":     peerDeviceID,
 				},
 			}
+			applyUniFiDetailAdapterMetadata(link.Metadata, details)
 
 			links = append(links, link)
 		}
@@ -784,6 +841,7 @@ func (*DiscoveryEngine) processUplinkInfo(
 					"uplink_device_name": uplink.Name,
 				},
 			}
+			applyUniFiDetailAdapterMetadata(link.Metadata, details)
 			links = append(links, link)
 		}
 	}
@@ -835,7 +893,17 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		// Fetch device details
 		details, err := e.fetchDeviceDetails(ctx, job, client, headers, apiConfig, site, device.ID)
 		if err != nil {
-			e.logger.Error().Str("job_id", job.ID).Err(err).Msg("UniFi device processing error")
+			if errors.Is(err, ErrUniFiPayloadDriftQuarantined) {
+				e.logger.Warn().
+					Str("job_id", job.ID).
+					Str("api_name", apiConfig.Name).
+					Str("site_name", site.Name).
+					Str("device_id", device.ID).
+					Err(err).
+					Msg("Skipping quarantined UniFi detail payload")
+			} else {
+				e.logger.Error().Str("job_id", job.ID).Err(err).Msg("UniFi device processing error")
+			}
 			continue
 		}
 

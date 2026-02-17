@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -612,6 +614,65 @@ func TestUniFiDeviceDetailsCamelCaseCompatibility(t *testing.T) {
 	assert.Equal(t, "uplink-device", details.Uplink.upstreamDeviceID())
 	assert.Equal(t, int32(26), details.Uplink.parentPortIndex())
 	assert.Equal(t, "Port 26", details.Uplink.parentPortName())
+}
+
+func TestParseUniFiDeviceDetailsWithAdaptersFixtures(t *testing.T) {
+	engine := &DiscoveryEngine{
+		logger: logger.NewTestLogger(),
+	}
+
+	newJob := func() *DiscoveryJob {
+		return &DiscoveryJob{
+			ID: "job-fixture",
+			Results: &DiscoveryResults{
+				Contract: DiscoveryContract{
+					ParseDiagnostics: DiscoveryParseDiagnostics{
+						ParseFailures:     make(map[string]int),
+						UnknownTopLevel:   make(map[string]int),
+						ParserMismatches:  make(map[string]int),
+						LastFailureByType: make(map[string]string),
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("direct fixture", func(t *testing.T) {
+		body, err := os.ReadFile(filepath.Join("testdata", "unifi", "detail_direct.json"))
+		require.NoError(t, err)
+
+		details, parseErr := engine.parseUniFiDeviceDetailsWithAdapters(newJob(), body)
+		require.NoError(t, parseErr)
+		require.NotNil(t, details)
+		assert.Equal(t, unifiDetailAdapterV1Direct, details.AdapterVersion)
+		assert.Equal(t, "direct", details.AdapterShape)
+		assert.True(t, hasUniFiTopologySignals(details))
+	})
+
+	t.Run("wrapped data fixture", func(t *testing.T) {
+		body, err := os.ReadFile(filepath.Join("testdata", "unifi", "detail_wrapped_data.json"))
+		require.NoError(t, err)
+
+		details, parseErr := engine.parseUniFiDeviceDetailsWithAdapters(newJob(), body)
+		require.NoError(t, parseErr)
+		require.NotNil(t, details)
+		assert.Equal(t, unifiDetailAdapterV1WrappedData, details.AdapterVersion)
+		assert.Equal(t, "wrapped_data", details.AdapterShape)
+		assert.True(t, hasUniFiTopologySignals(details))
+	})
+
+	t.Run("drift fixture quarantined", func(t *testing.T) {
+		job := newJob()
+		body, err := os.ReadFile(filepath.Join("testdata", "unifi", "detail_drifted.json"))
+		require.NoError(t, err)
+
+		details, parseErr := engine.parseUniFiDeviceDetailsWithAdapters(job, body)
+		require.Error(t, parseErr)
+		require.ErrorIs(t, parseErr, ErrUniFiPayloadDriftQuarantined)
+		assert.Nil(t, details)
+		assert.Positive(t, job.Results.Contract.ParseDiagnostics.ParserMismatches["unifi.detail.quarantined"])
+		assert.NotEmpty(t, job.Results.Contract.ParseDiagnostics.UnknownTopLevel)
+	})
 }
 
 func TestCreateDiscoveredDevice(t *testing.T) {

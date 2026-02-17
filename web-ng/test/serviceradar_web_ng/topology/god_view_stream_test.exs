@@ -296,6 +296,70 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert second.revision != first.revision
   end
 
+  test "latest_snapshot/0 preserves unresolved endpoint IDs without resolver fusion" do
+    actor = SystemActor.system(:god_view_stream_unresolved_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    local_uid = "strict-local-#{suffix}"
+    existing_uid = "existing-device-#{suffix}"
+    unresolved_id = "mystery-uplink-#{suffix}"
+    now = DateTime.utc_now()
+
+    _local =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: local_uid,
+          hostname: "local-#{suffix}.lan",
+          type_id: 12,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    _existing =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: existing_uid,
+          hostname: unresolved_id,
+          type_id: 10,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    TopologyLink
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: now,
+        protocol: "lldp",
+        local_device_id: local_uid,
+        local_if_name: "eth0",
+        local_if_index: 7,
+        neighbor_device_id: unresolved_id,
+        neighbor_mgmt_addr: "10.255.0.77",
+        metadata: @topology_link_metadata
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    assert {:ok, %{snapshot: snapshot}} = GodViewStream.latest_snapshot()
+
+    assert Enum.any?(snapshot.nodes, &(&1.id == unresolved_id))
+    assert Enum.any?(snapshot.edges, &(&1.source == local_uid and &1.target == unresolved_id))
+    refute Enum.any?(snapshot.edges, &(&1.source == local_uid and &1.target == existing_uid))
+  end
+
   defp coords_for(snapshot, node_ids) do
     snapshot.nodes
     |> Enum.filter(&(&1.id in node_ids))

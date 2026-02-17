@@ -2029,7 +2029,8 @@ const Hooks = {
       this.animationTimer = null
       this.animationPhase = 0
       this.layers = {mantle: true, crust: true, atmosphere: true, security: true}
-      this.topologyLayers = {backbone: true, inferred: false, endpoints: true}
+      this.topologyLayers = {backbone: true, inferred: false, endpoints: false}
+      this.lastPipelineStats = null
       this.layoutMode = "auto"
       this.layoutRevision = null
       this.lastRevision = null
@@ -2171,6 +2172,10 @@ const Hooks = {
       }
 
       this.channel = window.godViewSocket.channel("topology:god_view", {})
+      this.channel.on("snapshot_meta", (msg) => {
+        const stats = msg?.pipeline_stats || msg?.pipelineStats
+        if (stats && typeof stats === "object") this.lastPipelineStats = stats
+      })
       this.channel.on("snapshot", (msg) => this.handleSnapshot(msg))
       this.channel.on("snapshot_error", (msg) => {
         this.summary.textContent = "snapshot stream error"
@@ -2356,6 +2361,7 @@ const Hooks = {
           network_ms: networkMs,
           decode_ms: decodeMs,
           render_ms: renderMs,
+          pipeline_stats: this.normalizePipelineStats(this.lastPipelineStats),
         })
       } catch (error) {
         this.summary.textContent = "snapshot decode failed"
@@ -2468,6 +2474,8 @@ const Hooks = {
           },
         }
         const effectiveBitmapMetadata = this.ensureBitmapMetadata(bitmapMetadata, graph.nodes)
+        const pipelineStats = this.pipelineStatsFromHeaders(response.headers)
+        if (pipelineStats) this.lastPipelineStats = pipelineStats
 
         this.summary.textContent =
           `snapshot revision=${revisionHeader || "—"} nodes=${graph.nodes.length} ` +
@@ -2489,6 +2497,7 @@ const Hooks = {
           network_ms: networkMs,
           decode_ms: decodeMs,
           render_ms: renderMs,
+          pipeline_stats: this.normalizePipelineStats(pipelineStats || this.lastPipelineStats),
         })
       } catch (error) {
         this.summary.textContent = "snapshot polling error"
@@ -4003,6 +4012,50 @@ const Hooks = {
       const clean = token.replace(/[^a-zA-Z0-9_-]/g, "").toUpperCase()
       if (!clean || clean === "NODE") return "LINK"
       return clean
+    },
+    pipelineStatsFromHeaders(headers) {
+      if (!headers || typeof headers.get !== "function") return null
+      const readInt = (name) => {
+        const raw = headers.get(name)
+        if (raw == null || raw === "") return null
+        const parsed = Number.parseInt(raw, 10)
+        return Number.isFinite(parsed) ? parsed : null
+      }
+
+      const stats = {
+        raw_links: readInt("x-sr-god-view-pipeline-raw-links"),
+        unique_pairs: readInt("x-sr-god-view-pipeline-unique-pairs"),
+        final_edges: readInt("x-sr-god-view-pipeline-final-edges"),
+        final_direct: readInt("x-sr-god-view-pipeline-final-direct"),
+        final_inferred: readInt("x-sr-god-view-pipeline-final-inferred"),
+        final_attachment: readInt("x-sr-god-view-pipeline-final-attachment"),
+        unresolved_endpoints: readInt("x-sr-god-view-pipeline-unresolved-endpoints"),
+      }
+
+      const hasAny = Object.values(stats).some((value) => Number.isFinite(value))
+      return hasAny ? stats : null
+    },
+    normalizePipelineStats(raw) {
+      if (!raw || typeof raw !== "object") return null
+      const keys = [
+        "raw_links",
+        "unique_pairs",
+        "final_edges",
+        "final_direct",
+        "final_inferred",
+        "final_attachment",
+        "unresolved_endpoints",
+      ]
+      const out = {}
+      for (let i = 0; i < keys.length; i += 1) {
+        const key = keys[i]
+        const value = raw[key]
+        const parsed =
+          Number.isFinite(value) ? Number(value) :
+          (typeof value === "string" ? Number.parseInt(value, 10) : NaN)
+        if (Number.isFinite(parsed)) out[key] = parsed
+      }
+      return Object.keys(out).length > 0 ? out : null
     },
     edgeTopologyClassFromLabel(label) {
       const text = String(label == null ? "" : label).trim().toUpperCase()

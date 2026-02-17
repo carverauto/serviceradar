@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testStringTrue = "true"
+
 func TestPublishTopologyLinksSkipsCandidateOnlyPublishing(t *testing.T) {
 	t.Parallel()
 
@@ -30,7 +32,7 @@ func TestPublishTopologyLinksSkipsCandidateOnlyPublishing(t *testing.T) {
 			LocalDeviceID:    "sr:tonka01",
 			NeighborMgmtAddr: "192.168.10.154",
 			Metadata: map[string]string{
-				"candidate_only": "true",
+				"candidate_only": testStringTrue,
 			},
 		},
 		{
@@ -89,7 +91,7 @@ func TestBuildSNMPL2LinksFromNeighborsKeepsARPOnlyAsCandidateOnly(t *testing.T) 
 	var candidateLink *TopologyLink
 
 	for _, link := range links {
-		if link.Metadata["candidate_only"] == "true" {
+		if link.Metadata["candidate_only"] == testStringTrue {
 			candidateLink = link
 		} else {
 			fdbLink = link
@@ -103,7 +105,7 @@ func TestBuildSNMPL2LinksFromNeighborsKeepsARPOnlyAsCandidateOnly(t *testing.T) 
 	assert.Equal(t, "192.168.1.51", fdbLink.NeighborMgmtAddr)
 	assert.Equal(t, "aa:bb:cc:dd:ee:02", fdbLink.NeighborChassisID)
 	assert.Equal(t, "snmp-arp-fdb", fdbLink.Metadata["source"])
-	assert.Equal(t, "true", fdbLink.Metadata["fdb_port_mapped"])
+	assert.Equal(t, testStringTrue, fdbLink.Metadata["fdb_port_mapped"])
 	assert.Equal(t, "inferred", fdbLink.Metadata["evidence_class"])
 	assert.Equal(t, "medium", fdbLink.Metadata["confidence_tier"])
 
@@ -113,7 +115,7 @@ func TestBuildSNMPL2LinksFromNeighborsKeepsARPOnlyAsCandidateOnly(t *testing.T) 
 	assert.Equal(t, "false", candidateLink.Metadata["fdb_port_mapped"])
 	assert.Equal(t, "endpoint-attachment", candidateLink.Metadata["evidence_class"])
 	assert.Equal(t, "low", candidateLink.Metadata["confidence_tier"])
-	assert.Equal(t, "true", candidateLink.Metadata["candidate_only"])
+	assert.Equal(t, testStringTrue, candidateLink.Metadata["candidate_only"])
 }
 
 func TestBuildSNMPL2LinksFromNeighborsDeduplicatesIdenticalEvidence(t *testing.T) {
