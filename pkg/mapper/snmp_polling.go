@@ -2220,7 +2220,7 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 		})
 	}
 
-	err := client.BulkWalk(oidIPToMediaPhys, func(pdu gosnmp.SnmpPDU) error {
+	ipToMediaErr := client.BulkWalk(oidIPToMediaPhys, func(pdu gosnmp.SnmpPDU) error {
 		_, ip, ok := parseIPToMediaSuffix(pdu.Name)
 		if !ok || ip == "" {
 			return nil
@@ -2235,11 +2235,8 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 		appendNeighborEvidence(ip, mac)
 		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed SNMP L2 walk (%s): %w", oidIPToMediaPhys, err)
-	}
 
-	err = client.BulkWalk(oidIPToPhysicalPhys, func(pdu gosnmp.SnmpPDU) error {
+	ipToPhysicalErr := client.BulkWalk(oidIPToPhysicalPhys, func(pdu gosnmp.SnmpPDU) error {
 		_, ip, ok := parseIPToPhysicalSuffix(pdu.Name)
 		if !ok || ip == "" {
 			return nil
@@ -2254,8 +2251,17 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 		appendNeighborEvidence(ip, mac)
 		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed SNMP L2 walk (%s): %w", oidIPToPhysicalPhys, err)
+
+	// Some devices only implement one of these ARP tables.
+	// Continue when one walk fails and use whatever evidence is available.
+	if ipToMediaErr != nil && ipToPhysicalErr != nil {
+		return nil, fmt.Errorf(
+			"failed SNMP L2 walks (%s: %w, %s: %w)",
+			oidIPToMediaPhys,
+			ipToMediaErr,
+			oidIPToPhysicalPhys,
+			ipToPhysicalErr,
+		)
 	}
 
 	neighbors = e.selectDensePortNeighbors(neighbors)
@@ -2399,20 +2405,14 @@ func buildSNMPL2LinksFromNeighbors(
 }
 
 func (e *DiscoveryEngine) lookupLocalDeviceID(job *DiscoveryJob, targetIP string) string {
-	if job == nil || job.Results == nil {
+	if job == nil {
 		return ""
 	}
 
-	job.mu.RLock()
-	defer job.mu.RUnlock()
-
-	for _, device := range job.Results.Devices {
-		if device.IP == targetIP {
-			return device.DeviceID
-		}
-	}
-
-	return ""
+	// Support reconciled identities where the polled target IP is stored as an
+	// alternate/alias IP instead of the device primary IP.
+	deviceID, _ := e.resolveExistingDeviceIdentityByIP(job, targetIP)
+	return strings.TrimSpace(deviceID)
 }
 
 func (e *DiscoveryEngine) localIPv4Subnets(job *DiscoveryJob, targetIP string) map[string]struct{} {

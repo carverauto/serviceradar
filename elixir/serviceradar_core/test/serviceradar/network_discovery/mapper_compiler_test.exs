@@ -81,4 +81,51 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
     assert compiled_job["credentials"]["version"] == "v2c"
     assert compiled_job["credentials"]["community"] == "public"
   end
+
+  @tag :integration
+  test "falls back to default SNMP profile credentials when device uid is missing" do
+    actor = SystemActor.system(:test)
+
+    {:ok, _profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Mapper Default",
+          enabled: true,
+          is_default: true,
+          community: "C4rv3rAut0"
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Mapper Job Default",
+          discovery_mode: :snmp,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, _seed} =
+      MapperSeed
+      |> Ash.Changeset.for_create(
+        :create,
+        %{mapper_job_id: job.id, seed: "192.168.10.1"},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, config} = MapperCompiler.compile("default", nil, actor: actor)
+
+    assert [compiled_job] = config["scheduled_jobs"]
+    assert compiled_job["credentials"]["version"] == "v2c"
+    assert compiled_job["credentials"]["community"] == "C4rv3rAut0"
+  end
 end

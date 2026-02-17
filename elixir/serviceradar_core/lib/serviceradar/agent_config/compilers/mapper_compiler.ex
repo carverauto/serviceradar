@@ -135,15 +135,25 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp resolve_credentials(device_uid, actor) do
     case CredentialResolver.resolve_for_device(device_uid, actor) do
       {:ok, %{credential: nil}} ->
-        Logger.warning("MapperCompiler: no SNMP credentials resolved for discovery jobs")
-        %{"version" => "v2c"}
+        resolve_default_credentials(actor)
 
       {:ok, %{credential: credential}} ->
         CredentialResolver.to_mapper_credentials(credential)
 
       {:error, _} ->
         Logger.warning("MapperCompiler: failed to resolve SNMP credentials for discovery jobs")
+        resolve_default_credentials(actor)
+    end
+  end
+
+  defp resolve_default_credentials(actor) do
+    case CredentialResolver.resolve_default(actor) do
+      {:ok, %{credential: nil}} ->
+        Logger.warning("MapperCompiler: no default SNMP credentials resolved for discovery jobs")
         %{"version" => "v2c"}
+
+      {:ok, %{credential: credential}} ->
+        CredentialResolver.to_mapper_credentials(credential)
     end
   end
 end
