@@ -212,6 +212,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         pair_edges
         |> canonicalize_edges(devices)
         |> prune_non_physical_protocol_edges(devices)
+        |> prune_lldp_endpoint_noise_edges(devices)
         |> prune_low_confidence_attachment_edges(devices)
         |> prune_ap_gateway_inference_edges(devices)
         |> prune_router_ap_attachment_edges_with_direct_adjacency(devices)
@@ -299,6 +300,69 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp prune_non_physical_protocol_edges(edges, _devices), do: edges
+
+  defp prune_lldp_endpoint_noise_edges(edges, devices)
+       when is_list(edges) and is_list(devices) do
+    device_by_uid =
+      Map.new(devices, fn device -> {normalize_id(Map.get(device, :uid)), device} end)
+
+    Enum.reject(edges, fn edge ->
+      protocol = edge_protocol(edge)
+      source_uid = normalize_id(Map.get(edge, :source))
+      target_uid = normalize_id(Map.get(edge, :target))
+      source = Map.get(device_by_uid, source_uid)
+      target = Map.get(device_by_uid, target_uid)
+
+      one_infra_one_non_infra? =
+        (infrastructure_device?(source) and not infrastructure_device?(target)) or
+          (infrastructure_device?(target) and not infrastructure_device?(source))
+
+      no_neighbor_mgmt? = is_nil(normalize_id(Map.get(edge, :neighbor_mgmt_addr)))
+
+      protocol == "lldp" and one_infra_one_non_infra? and no_neighbor_mgmt? and
+        lldp_endpoint_noise_signature?(edge)
+    end)
+  end
+
+  defp prune_lldp_endpoint_noise_edges(edges, _devices), do: edges
+
+  defp lldp_endpoint_noise_signature?(edge) when is_map(edge) do
+    system_name =
+      edge
+      |> Map.get(:neighbor_system_name)
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    metadata = Map.get(edge, :metadata) || %{}
+
+    port_descr =
+      metadata["neighbor_port_descr"] ||
+        metadata[:neighbor_port_descr] ||
+        metadata["port_descr"] ||
+        metadata[:port_descr] ||
+        ""
+
+    port_descr =
+      port_descr
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    endpoint_like_terms = [
+      "broadcom",
+      "netxtreme",
+      "ethernet pcie",
+      "nic ",
+      "network adapter"
+    ]
+
+    Enum.any?(endpoint_like_terms, fn term ->
+      String.contains?(system_name, term) or String.contains?(port_descr, term)
+    end)
+  end
+
+  defp lldp_endpoint_noise_signature?(_), do: false
 
   defp prune_low_confidence_attachment_edges(edges, devices)
        when is_list(edges) and is_list(devices) do
@@ -931,23 +995,29 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp resolve_device_id(raw_value, fallbacks, resolver) do
     candidates = [raw_value | List.wrap(fallbacks)]
 
-    Enum.find_value(candidates, fn value ->
-      normalized = normalize_id(value)
+    {resolved, first_unresolved} =
+      Enum.reduce_while(candidates, {nil, nil}, fn value, {_resolved, first_unresolved} ->
+        normalized = normalize_id(value)
 
-      cond do
-        is_nil(normalized) ->
-          nil
+        cond do
+          is_nil(normalized) ->
+            {:cont, {nil, first_unresolved}}
 
-        Map.has_key?(resolver, normalized) ->
-          Map.get(resolver, normalized)
+          Map.has_key?(resolver, normalized) ->
+            {:halt, {Map.get(resolver, normalized), first_unresolved}}
 
-        Map.has_key?(resolver, String.downcase(normalized)) ->
-          Map.get(resolver, String.downcase(normalized))
+          Map.has_key?(resolver, String.downcase(normalized)) ->
+            {:halt, {Map.get(resolver, String.downcase(normalized)), first_unresolved}}
 
-        true ->
-          normalized
-      end
-    end)
+          is_nil(first_unresolved) ->
+            {:cont, {nil, normalized}}
+
+          true ->
+            {:cont, {nil, first_unresolved}}
+        end
+      end)
+
+    resolved || first_unresolved
   end
 
   defp dedupe_edges(edges) when is_list(edges) do
