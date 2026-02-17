@@ -1175,7 +1175,7 @@ const (
 )
 
 func (e *DiscoveryEngine) processSwitchInterfaces(
-	job *DiscoveryJob,
+	_ *DiscoveryJob,
 	device *UniFiDevice,
 	deviceID string,
 	switchInterfaces UniFiInterfaces,

@@ -689,7 +689,7 @@ func TestStartWorkersUsesSharedHostProber(t *testing.T) {
 }
 
 func BenchmarkStartWorkersProbeComparison(b *testing.B) {
-	bench := func(b *testing.B, useProber bool) {
+	bench := func(b *testing.B, useProber bool) { //nolint:thelper // not a standalone test helper
 		for i := 0; i < b.N; i++ {
 			engine := &DiscoveryEngine{done: make(chan struct{}), logger: logger.NewTestLogger()}
 			if useProber {

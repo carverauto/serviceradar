@@ -29,6 +29,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
+const evidenceClassDirect = "direct"
+
 // NewDiscoveryEngine creates a new discovery engine with the given configuration
 func NewDiscoveryEngine(config *Config, publisher Publisher, log logger.Logger) (Mapper, error) {
 	if err := validateConfig(config); err != nil {
@@ -712,11 +714,11 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 
 	switch {
 	case protocol == "lldp" || protocol == "cdp" || protocol == "wireguard-derived":
-		link.Metadata["evidence_class"] = "direct"
+		link.Metadata["evidence_class"] = evidenceClassDirect
 	case protocol == "unifi-api" && strings.Contains(source, "port-table"):
 		link.Metadata["evidence_class"] = "endpoint-attachment"
 	case protocol == "unifi-api":
-		link.Metadata["evidence_class"] = "direct"
+		link.Metadata["evidence_class"] = evidenceClassDirect
 	case protocol == "snmp-l2" || source == "snmp-arp-fdb":
 		link.Metadata["evidence_class"] = "inferred"
 	default:
@@ -728,7 +730,7 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 	}
 
 	switch link.Metadata["evidence_class"] {
-	case "direct":
+	case evidenceClassDirect:
 		link.Metadata["confidence_tier"] = "high"
 	case "endpoint-attachment":
 		link.Metadata["confidence_tier"] = "medium"
