@@ -701,6 +701,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
             <div><span class="text-base-content/60">SHA-256:</span></div>
             <div class="font-mono text-xs break-all">{@image.content_hash || "Not computed"}</div>
             <div><span class="text-base-content/60">Object Key:</span> {@image.object_key || "Not stored"}</div>
+            <div>
+              <span class="text-base-content/60">Signature:</span>
+              <%= if @image.signature && @image.signature != %{} do %>
+                <.ui_badge variant="info" size="xs">{@image.signature["source"] || "signed"}</.ui_badge>
+                <span :if={@image.signature["signer"]} class="text-xs ml-1">{@image.signature["signer"]}</span>
+              <% else %>
+                <span class="text-xs text-base-content/50">Unsigned</span>
+              <% end %>
+            </div>
           </div>
         </div>
       </div>
@@ -838,6 +847,46 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
             <% end %>
           </div>
         <% end %>
+
+        <div class="collapse collapse-arrow border border-base-200 rounded-lg">
+          <input type="checkbox" name="sig_toggle" />
+          <div class="collapse-title text-xs font-semibold py-2 min-h-0">
+            Signature Metadata (optional)
+          </div>
+          <div class="collapse-content px-4 pb-3">
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="label"><span class="label-text text-xs">Signature Type</span></label>
+                <select name="upload[sig_type]" class="select select-bordered select-sm w-full">
+                  <option value="" selected={@form["sig_type"] == ""}>None</option>
+                  <option value="gpg" selected={@form["sig_type"] == "gpg"}>GPG</option>
+                  <option value="cosign" selected={@form["sig_type"] == "cosign"}>Cosign</option>
+                  <option value="other" selected={@form["sig_type"] == "other"}>Other</option>
+                </select>
+              </div>
+              <div>
+                <label class="label"><span class="label-text text-xs">Key ID / Signer</span></label>
+                <input
+                  type="text"
+                  name="upload[sig_signer]"
+                  value={@form["sig_signer"]}
+                  placeholder="e.g., vendor@example.com"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+              <div>
+                <label class="label"><span class="label-text text-xs">Key ID</span></label>
+                <input
+                  type="text"
+                  name="upload[sig_key_id]"
+                  value={@form["sig_key_id"]}
+                  placeholder="e.g., 0xABCD1234"
+                  class="input input-bordered input-sm w-full"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
 
         <%= if @errors != [] do %>
           <div class="rounded-lg border border-error/40 bg-error/5 p-2 text-xs text-error">
@@ -1760,6 +1809,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
           file_size: client_size
         }
 
+        # Build signature metadata if provided
+        attrs = maybe_add_signature(attrs, form)
+
         # Compute hash
         hash_result = Storage.sha256(temp_path)
         attrs = case hash_result do
@@ -1892,6 +1944,25 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
 
   # -- Helpers --
 
+  defp maybe_add_signature(attrs, form) do
+    sig_type = form["sig_type"]
+
+    if sig_type in ["gpg", "cosign", "other"] do
+      signature =
+        %{"source" => sig_type, "verified" => false, "hash_algorithm" => "sha256"}
+        |> maybe_put("signer", form["sig_signer"])
+        |> maybe_put("key_id", form["sig_key_id"])
+
+      Map.put(attrs, :signature, signature)
+    else
+      attrs
+    end
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
   defp prepare_storage_form(socket) do
     config = socket.assigns.storage_config
 
@@ -1942,7 +2013,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
       "name" => "",
       "version" => "",
       "device_type" => "",
-      "description" => ""
+      "description" => "",
+      "sig_type" => "",
+      "sig_signer" => "",
+      "sig_key_id" => ""
     }
   end
 

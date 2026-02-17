@@ -151,12 +151,20 @@ defmodule ServiceRadar.Software.StorageConfig do
   end
 
   policies do
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     policy action_type(:read) do
-      authorize_if always()
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.view"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
     end
 
     policy action_type([:create, :update, :destroy]) do
-      authorize_if always()
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
     end
   end
 end

@@ -57,7 +57,7 @@
 - [x] 5.6 Add AshCloak `cloak do` block: vault `ServiceRadar.Vault`, encrypt `s3_access_key_id_encrypted`, `s3_secret_access_key_encrypted`
 - [x] 5.7 Add `SoftwareStorageConfig` attributes: storage_mode (local/s3/both), s3_bucket, s3_region, s3_endpoint, s3_prefix, local_path, retention_days
 - [x] 5.8 Add RBAC policies to `SoftwareImage` and `SoftwareStorageConfig`
-- [ ] 5.9 Add optional signature verification policy (ENV var `SOFTWARE_REQUIRE_SIGNED_IMAGES`)
+- [x] 5.9 Add optional signature verification policy (ENV var `SOFTWARE_REQUIRE_SIGNED_IMAGES`)
 - [x] 5.10 Generate Ash migrations via `mix ash.codegen add_software_library`
 - [x] 5.11 Write tests for SoftwareImage state machine transitions
 - [x] 5.12 Write tests for SoftwareStorageConfig credential resolution
@@ -100,7 +100,7 @@
 - [x] 8.5 Build image detail view with full metadata and signature info
 - [x] 8.6 Add image actions: verify, activate, archive, delete (with confirmation)
 - [x] 8.7 Add image download via HMAC-signed URL
-- [ ] 8.8 Add optional signature metadata input on upload
+- [x] 8.8 Add optional signature metadata input on upload
 
 ## 9. Web-NG — TFTP Sessions UI
 - [x] 9.1 Build receive-session creation form (agent selector, filename, storage destination, timeout, notes)
@@ -128,21 +128,21 @@
 - [x] 11.5 Add filtering by file type (backup vs image), date range, agent
 
 ## 12. Security & Hardening
-- [ ] 12.1 Audit TFTP service for security: filename validation, path traversal prevention
-- [ ] 12.2 Ensure TFTP server binds to configured interface only
-- [ ] 12.3 Verify file size limits enforced at agent level (both modes)
-- [ ] 12.4 Verify SHA-256 checksum end-to-end (agent ↔ core)
-- [ ] 12.5 Verify session timeout enforcement
-- [ ] 12.6 Verify RBAC permissions block unauthorized access at all layers
-- [ ] 12.7 Add audit log entries for all session and image lifecycle events
-- [ ] 12.8 Test concurrent session rejection (max 1 per agent)
-- [ ] 12.9 Test with malicious filenames (path traversal, special characters, unicode)
-- [ ] 12.10 Test with oversized files (verify limit enforcement)
-- [ ] 12.11 Verify serve mode only serves library images (no arbitrary files)
-- [ ] 12.12 Verify AshCloak encryption of S3 credentials in database
-- [ ] 12.13 Verify ENV-based credentials are never written to database
-- [ ] 12.14 Test S3 credential resolution order (ENV > DB > disabled)
-- [ ] 12.15 Test staged image cleanup on session completion/expiration
+- [x] 12.1 Audit TFTP service for security: filename validation, path traversal prevention
+- [x] 12.2 Ensure TFTP server binds to configured interface only
+- [x] 12.3 Verify file size limits enforced at agent level (both modes)
+- [x] 12.4 Verify SHA-256 checksum end-to-end (agent ↔ core)
+- [x] 12.5 Verify session timeout enforcement
+- [x] 12.6 Verify RBAC permissions block unauthorized access at all layers
+- [x] 12.7 Add audit log entries for all session and image lifecycle events
+- [x] 12.8 Test concurrent session rejection (max 1 per agent)
+- [x] 12.9 Test with malicious filenames (path traversal, special characters, unicode)
+- [x] 12.10 Test with oversized files (verify limit enforcement)
+- [x] 12.11 Verify serve mode only serves library images (no arbitrary files)
+- [x] 12.12 Verify AshCloak encryption of S3 credentials in database
+- [x] 12.13 Verify ENV-based credentials are never written to database
+- [x] 12.14 Test S3 credential resolution order (ENV > DB > disabled)
+- [x] 12.15 Test staged image cleanup on session completion/expiration
 
 ## 13. Documentation & Integration Tests
 - [ ] 13.1 Write end-to-end test: receive mode (UI → core → gateway → agent → TFTP receive → storage)

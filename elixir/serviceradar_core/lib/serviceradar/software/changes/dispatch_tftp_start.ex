@@ -8,6 +8,8 @@ defmodule ServiceRadar.Software.Changes.DispatchTftpStart do
 
   use Ash.Resource.Change
 
+  require Logger
+
   alias ServiceRadar.Edge.AgentCommandBus
 
   @impl true
@@ -36,8 +38,28 @@ defmodule ServiceRadar.Software.Changes.DispatchTftpStart do
       ]
 
       case AgentCommandBus.dispatch(record.agent_id, command_type, payload, opts) do
-        {:ok, _command_id} -> {:ok, record}
-        {:error, reason} -> {:error, reason}
+        {:ok, command_id} ->
+          Logger.info(
+            "TFTP session dispatched",
+            session_id: record.id,
+            agent_id: record.agent_id,
+            command_type: command_type,
+            command_id: command_id,
+            filename: record.expected_filename
+          )
+
+          {:ok, record}
+
+        {:error, reason} ->
+          Logger.error(
+            "TFTP session dispatch failed",
+            session_id: record.id,
+            agent_id: record.agent_id,
+            command_type: command_type,
+            reason: inspect(reason)
+          )
+
+          {:error, reason}
       end
     end)
   end
