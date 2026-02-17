@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -52,24 +53,35 @@ type UniFiDevice struct {
 type UniFiUplink struct {
 	DeviceID      string `json:"deviceId"`
 	DeviceIDSnake string `json:"device_id"`
+	UpstreamID    string `json:"upstreamDeviceId"`
+	UpstreamSnake string `json:"upstream_device_id"`
 
 	LocalPortIdx      int32 `json:"localPortIdx"`
 	LocalPortIdxSnake int32 `json:"local_port_idx"`
 	PortIdx           int32 `json:"portIdx"`
 	PortIdxSnake      int32 `json:"port_idx"`
+	ParentPortIdx     int32 `json:"parentPortIdx"`
+	ParentPortSnake   int32 `json:"parent_port_idx"`
 
 	LocalPortName      string `json:"localPortName"`
 	LocalPortNameSnake string `json:"local_port_name"`
 	PortName           string `json:"portName"`
 	PortNameSnake      string `json:"port_name"`
+	ParentPortName     string `json:"parentPortName"`
+	ParentPortNameSnk  string `json:"parent_port_name"`
 }
 
 func (u UniFiUplink) upstreamDeviceID() string {
 	if u.DeviceID != "" {
 		return u.DeviceID
 	}
-
-	return u.DeviceIDSnake
+	if u.DeviceIDSnake != "" {
+		return u.DeviceIDSnake
+	}
+	if u.UpstreamID != "" {
+		return u.UpstreamID
+	}
+	return u.UpstreamSnake
 }
 
 func (u UniFiUplink) parentPortIndex() int32 {
@@ -82,6 +94,10 @@ func (u UniFiUplink) parentPortIndex() int32 {
 		return u.PortIdx
 	case u.PortIdxSnake > 0:
 		return u.PortIdxSnake
+	case u.ParentPortIdx > 0:
+		return u.ParentPortIdx
+	case u.ParentPortSnake > 0:
+		return u.ParentPortSnake
 	default:
 		return 0
 	}
@@ -97,6 +113,10 @@ func (u UniFiUplink) parentPortName() string {
 		return strings.TrimSpace(u.PortName)
 	case strings.TrimSpace(u.PortNameSnake) != "":
 		return strings.TrimSpace(u.PortNameSnake)
+	case strings.TrimSpace(u.ParentPortName) != "":
+		return strings.TrimSpace(u.ParentPortName)
+	case strings.TrimSpace(u.ParentPortNameSnk) != "":
+		return strings.TrimSpace(u.ParentPortNameSnk)
 	default:
 		return ""
 	}
@@ -161,6 +181,12 @@ type UniFiPortConnectedPeer struct {
 	Name     string `json:"name"`
 	IP       string `json:"ip"`
 	IPCamel  string `json:"ipAddress"`
+
+	DeviceID      string `json:"deviceId"`
+	DeviceIDSnake string `json:"device_id"`
+	RemoteID      string `json:"remoteDeviceId"`
+	RemoteIDSnake string `json:"remote_device_id"`
+	ID            string `json:"id"`
 }
 
 func (d *UniFiDeviceDetails) normalizedLLDPTable() []UniFiLLDPEntry {
@@ -268,6 +294,21 @@ func (p UniFiPortConnectedPeer) ip() string {
 	}
 
 	return strings.TrimSpace(p.IP)
+}
+
+func (p UniFiPortConnectedPeer) deviceID() string {
+	switch {
+	case strings.TrimSpace(p.DeviceID) != "":
+		return strings.TrimSpace(p.DeviceID)
+	case strings.TrimSpace(p.DeviceIDSnake) != "":
+		return strings.TrimSpace(p.DeviceIDSnake)
+	case strings.TrimSpace(p.RemoteID) != "":
+		return strings.TrimSpace(p.RemoteID)
+	case strings.TrimSpace(p.RemoteIDSnake) != "":
+		return strings.TrimSpace(p.RemoteIDSnake)
+	default:
+		return strings.TrimSpace(p.ID)
+	}
 }
 
 // createUniFiClient initializes an HTTP client for UniFi API calls with configured timeout and TLS settings.
@@ -387,8 +428,7 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 			}
 
 			for _, link := range links {
-				linkKey := fmt.Sprintf("%s:%s:%s:%s",
-					link.LocalDeviceIP, link.NeighborMgmtAddr, link.Protocol, site.ID)
+				linkKey := uniFiLinkDedupKey(link, site.ID)
 				if _, exists := seenLinks[linkKey]; !exists {
 					seenLinks[linkKey] = struct{}{}
 
@@ -493,9 +533,9 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 }
 
 // fetchDeviceDetails fetches detailed information for a specific device
-func (*DiscoveryEngine) fetchDeviceDetails(
+func (e *DiscoveryEngine) fetchDeviceDetails(
 	ctx context.Context,
-	_ *DiscoveryJob,
+	job *DiscoveryJob,
 	client *http.Client,
 	headers map[string]string,
 	apiConfig UniFiAPIConfig,
@@ -524,13 +564,64 @@ func (*DiscoveryEngine) fetchDeviceDetails(
 			ErrUniFiDeviceDetailsFailed, deviceID, resp.StatusCode)
 	}
 
-	var details UniFiDeviceDetails
-
-	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
-		return nil, fmt.Errorf("failed to parse details for device %s: %w", deviceID, err)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read details for device %s: %w", deviceID, err)
 	}
 
-	return &details, nil
+	var details UniFiDeviceDetails
+	if err := json.Unmarshal(body, &details); err == nil {
+		if len(details.normalizedLLDPTable()) > 0 || len(details.normalizedPortTable()) > 0 ||
+			details.Uplink.upstreamDeviceID() != "" {
+			return &details, nil
+		}
+	}
+
+	var wrapped struct {
+		Data   UniFiDeviceDetails `json:"data"`
+		Device UniFiDeviceDetails `json:"device"`
+	}
+	if err := json.Unmarshal(body, &wrapped); err == nil {
+		if len(wrapped.Data.normalizedLLDPTable()) > 0 || len(wrapped.Data.normalizedPortTable()) > 0 ||
+			wrapped.Data.Uplink.upstreamDeviceID() != "" {
+			return &wrapped.Data, nil
+		}
+		if len(wrapped.Device.normalizedLLDPTable()) > 0 || len(wrapped.Device.normalizedPortTable()) > 0 ||
+			wrapped.Device.Uplink.upstreamDeviceID() != "" {
+			return &wrapped.Device, nil
+		}
+	}
+
+	topKeys := extractTopLevelJSONKeys(body)
+	preview := string(body)
+	if len(preview) > 1500 {
+		preview = preview[:1500]
+	}
+	e.logger.Warn().
+		Str("job_id", job.ID).
+		Str("api_name", apiConfig.Name).
+		Str("site_name", site.Name).
+		Str("device_id", deviceID).
+		Int("payload_bytes", len(body)).
+		Strs("top_level_keys", topKeys).
+		Str("payload_preview", preview).
+		Msg("UniFi detail payload parsed but yielded no topology fields")
+
+	return &UniFiDeviceDetails{}, nil
+}
+
+func extractTopLevelJSONKeys(body []byte) []string {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(body, &m); err != nil {
+		return nil
+	}
+
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // processLLDPTable processes LLDP table entries and creates topology links
@@ -581,6 +672,12 @@ func (*DiscoveryEngine) processPortTable(
 	device *UniFiDevice,
 	deviceID string,
 	details *UniFiDeviceDetails,
+	deviceCache map[string]struct {
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	},
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
@@ -591,6 +688,22 @@ func (*DiscoveryEngine) processPortTable(
 		peer := port.connected()
 		peerMAC := peer.mac()
 		peerIP := peer.ip()
+		peerName := peer.Name
+		peerDeviceID := peer.deviceID()
+		if peerDeviceID != "" && (peerMAC == "" || peerIP == "" || strings.TrimSpace(peerName) == "") {
+			if cached, exists := deviceCache[peerDeviceID]; exists {
+				if peerMAC == "" {
+					peerMAC = cached.MAC
+				}
+				if peerIP == "" {
+					peerIP = cached.IP
+				}
+				if strings.TrimSpace(peerName) == "" {
+					peerName = cached.Name
+				}
+			}
+		}
+
 		if peerMAC != "" || peerIP != "" {
 			link := &TopologyLink{
 				Protocol:           "UniFi-API",
@@ -599,7 +712,7 @@ func (*DiscoveryEngine) processPortTable(
 				LocalIfIndex:       port.ifIndex(),
 				LocalIfName:        port.Name,
 				NeighborChassisID:  peerMAC,
-				NeighborSystemName: peer.Name,
+				NeighborSystemName: peerName,
 				NeighborMgmtAddr:   peerIP,
 				Metadata: map[string]string{
 					"discovery_id":    job.ID,
@@ -610,6 +723,7 @@ func (*DiscoveryEngine) processPortTable(
 					"site_id":         site.ID,
 					"site_name":       site.Name,
 					"controller_name": apiConfig.Name,
+					"neighbor_id":     peerDeviceID,
 				},
 			}
 
@@ -624,6 +738,7 @@ func (*DiscoveryEngine) processPortTable(
 func (*DiscoveryEngine) processUplinkInfo(
 	job *DiscoveryJob,
 	device *UniFiDevice,
+	details *UniFiDeviceDetails,
 	deviceCache map[string]struct {
 		IP       string
 		Name     string
@@ -634,10 +749,15 @@ func (*DiscoveryEngine) processUplinkInfo(
 	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
 
-	if uplinkID := device.Uplink.upstreamDeviceID(); uplinkID != "" {
+	uplinkInfo := device.Uplink
+	if uplinkInfo.upstreamDeviceID() == "" && details != nil {
+		uplinkInfo = details.Uplink
+	}
+
+	if uplinkID := uplinkInfo.upstreamDeviceID(); uplinkID != "" {
 		if uplink, exists := deviceCache[uplinkID]; exists {
-			localIfIndex := device.Uplink.parentPortIndex()
-			localIfName := device.Uplink.parentPortName()
+			localIfIndex := uplinkInfo.parentPortIndex()
+			localIfName := uplinkInfo.parentPortName()
 			if localIfName == "" && localIfIndex > 0 {
 				localIfName = fmt.Sprintf("Port %d", localIfIndex)
 			}
@@ -691,6 +811,9 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 	}
 
 	var links []*TopologyLink
+	lldpCount := 0
+	portCount := 0
+	uplinkCount := 0
 	if targetIP != "" {
 		e.logger.Debug().
 			Str("job_id", job.ID).
@@ -704,11 +827,9 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 	for i := range devices {
 		device := &devices[i]
 
-		// generate DeviceID using IP+MAC
-		// deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC)
-		deviceID := ""
-		if device.MAC != "" && job.Params.AgentID != "" && job.Params.GatewayID != "" {
-			deviceID = GenerateDeviceID(device.MAC)
+		deviceID := GenerateDeviceID(device.MAC)
+		if deviceID == "" {
+			deviceID = GenerateDeviceIDFromIP(device.IPAddress)
 		}
 
 		// Fetch device details
@@ -721,15 +842,29 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		// Process LLDP table
 		lldpLinks := e.processLLDPTable(job, device, deviceID, details, apiConfig, site)
 		links = append(links, lldpLinks...)
+		lldpCount += len(lldpLinks)
 
 		// Process port table
-		portLinks := e.processPortTable(job, device, deviceID, details, apiConfig, site)
+		portLinks := e.processPortTable(job, device, deviceID, details, deviceCache, apiConfig, site)
 		links = append(links, portLinks...)
+		portCount += len(portLinks)
 
 		// Process uplink information
-		uplinkLinks := e.processUplinkInfo(job, device, deviceCache, apiConfig, site)
+		uplinkLinks := e.processUplinkInfo(job, device, details, deviceCache, apiConfig, site)
 		links = append(links, uplinkLinks...)
+		uplinkCount += len(uplinkLinks)
 	}
+
+	e.logger.Info().
+		Str("job_id", job.ID).
+		Str("api_name", apiConfig.Name).
+		Str("site_name", site.Name).
+		Int("devices", len(devices)).
+		Int("lldp_links", lldpCount).
+		Int("port_links", portCount).
+		Int("uplink_links", uplinkCount).
+		Int("total_links", len(links)).
+		Msg("UniFi topology extraction summary")
 
 	return links, nil
 }
@@ -880,6 +1015,25 @@ func normalizeURLKey(raw string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(raw)), "/")
 }
 
+func uniFiLinkDedupKey(link *TopologyLink, siteID string) string {
+	if link == nil {
+		return siteID + ":nil"
+	}
+
+	return fmt.Sprintf(
+		"%s:%s:%s:%d:%s:%s:%s:%s:%s",
+		siteID,
+		link.Protocol,
+		link.LocalDeviceID,
+		link.LocalIfIndex,
+		link.LocalIfName,
+		link.LocalDeviceIP,
+		link.NeighborMgmtAddr,
+		NormalizeMAC(link.NeighborChassisID),
+		link.NeighborPortID,
+	)
+}
+
 func (e *DiscoveryEngine) fetchUniFiDevices(
 	ctx context.Context,
 	job *DiscoveryJob,
@@ -954,9 +1108,9 @@ func (e *DiscoveryEngine) createDiscoveredDevice(
 	}
 
 	// Generate standardized device ID
-	deviceID := ""
-	if device.MAC != "" && job.Params.AgentID != "" && job.Params.GatewayID != "" {
-		deviceID = GenerateDeviceID(device.MAC)
+	deviceID := GenerateDeviceID(device.MAC)
+	if deviceID == "" {
+		deviceID = GenerateDeviceIDFromIP(device.IPAddress)
 	}
 
 	return &DiscoveredDevice{
@@ -1029,8 +1183,11 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 	site UniFiSite) []*DiscoveredInterface {
 	interfaces := make([]*DiscoveredInterface, 0, len(switchInterfaces.Ports))
 	// Ensure we have a proper device ID
-	if deviceID == "" && device.MAC != "" && job.Params.AgentID != "" && job.Params.GatewayID != "" {
+	if deviceID == "" {
 		deviceID = GenerateDeviceID(device.MAC)
+	}
+	if deviceID == "" {
+		deviceID = GenerateDeviceIDFromIP(device.IPAddress)
 	}
 
 	for i := range switchInterfaces.Ports {

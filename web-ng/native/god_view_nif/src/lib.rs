@@ -764,8 +764,19 @@ fn deep_causality_eval(obs: NumericalValue) -> PropagatingEffect<bool> {
     PropagatingEffect::pure(obs > 0.5)
 }
 
-#[rustler::nif(schedule = "DirtyCpu")]
-fn evaluate_causal_states(health_signals: Vec<u8>, edges: Vec<(u32, u32)>) -> NifResult<Vec<u8>> {
+#[derive(Debug, Clone, NifMap)]
+struct CausalStateReasonRow {
+    state: u8,
+    reason: String,
+    root_index: i64,
+    parent_index: i64,
+    hop_distance: i64,
+}
+
+fn evaluate_causal_states_with_reasons_impl(
+    health_signals: Vec<u8>,
+    edges: Vec<(u32, u32)>,
+) -> NifResult<Vec<CausalStateReasonRow>> {
     let node_count = health_signals.len();
     if node_count == 0 {
         return Ok(Vec::new());
@@ -820,13 +831,24 @@ fn evaluate_causal_states(health_signals: Vec<u8>, edges: Vec<(u32, u32)>) -> Ni
         .filter_map(|(idx, signal)| if *signal == 1 { Some(idx) } else { None })
         .collect();
 
-    let mut states = vec![3u8; node_count];
-
     if unhealthy.is_empty() {
-        for (idx, signal) in health_signals.iter().enumerate() {
-            states[idx] = if *signal == 0 { 2 } else { 3 };
-        }
-        return Ok(states);
+        return Ok(health_signals
+            .iter()
+            .map(|signal| {
+                let state = if *signal == 0 { 2 } else { 3 };
+                CausalStateReasonRow {
+                    state,
+                    reason: if state == 2 {
+                        "healthy_signal_no_detected_causal_impact".to_string()
+                    } else {
+                        "unknown_signal_without_identified_root".to_string()
+                    },
+                    root_index: -1,
+                    parent_index: -1,
+                    hop_distance: -1,
+                }
+            })
+            .collect());
     }
 
     let root = unhealthy
@@ -844,6 +866,7 @@ fn evaluate_causal_states(health_signals: Vec<u8>, edges: Vec<(u32, u32)>) -> Ni
         .ok_or(rustler::Error::BadArg)?;
 
     let mut dist = vec![usize::MAX; node_count];
+    let mut parent = vec![usize::MAX; node_count];
     let mut queue = VecDeque::new();
     dist[root] = 0;
     queue.push_back(root);
@@ -857,28 +880,74 @@ fn evaluate_causal_states(health_signals: Vec<u8>, edges: Vec<(u32, u32)>) -> Ni
         for neighbor in &adjacency[current] {
             if dist[*neighbor] == usize::MAX {
                 dist[*neighbor] = next_dist;
+                parent[*neighbor] = current;
                 queue.push_back(*neighbor);
             }
         }
     }
 
-    states[root] = 0;
+    let mut out = Vec::with_capacity(node_count);
 
     for idx in 0..node_count {
         if idx == root {
+            out.push(CausalStateReasonRow {
+                state: 0,
+                reason: "selected_as_root_from_unhealthy_candidates".to_string(),
+                root_index: root as i64,
+                parent_index: -1,
+                hop_distance: 0,
+            });
             continue;
         }
 
         if dist[idx] != usize::MAX && dist[idx] <= 3 {
-            states[idx] = 1;
+            let parent_idx = if parent[idx] == usize::MAX {
+                -1
+            } else {
+                parent[idx] as i64
+            };
+
+            out.push(CausalStateReasonRow {
+                state: 1,
+                reason: format!("reachable_from_root_within_{}_hops", dist[idx]),
+                root_index: root as i64,
+                parent_index: parent_idx,
+                hop_distance: dist[idx] as i64,
+            });
         } else if health_signals[idx] == 0 {
-            states[idx] = 2;
+            out.push(CausalStateReasonRow {
+                state: 2,
+                reason: "healthy_signal_no_path_to_selected_root".to_string(),
+                root_index: root as i64,
+                parent_index: -1,
+                hop_distance: -1,
+            });
         } else {
-            states[idx] = 3;
+            out.push(CausalStateReasonRow {
+                state: 3,
+                reason: "unhealthy_signal_not_reachable_from_selected_root".to_string(),
+                root_index: root as i64,
+                parent_index: -1,
+                hop_distance: -1,
+            });
         }
     }
 
-    Ok(states)
+    Ok(out)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn evaluate_causal_states_with_reasons(
+    health_signals: Vec<u8>,
+    edges: Vec<(u32, u32)>,
+) -> NifResult<Vec<CausalStateReasonRow>> {
+    evaluate_causal_states_with_reasons_impl(health_signals, edges)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn evaluate_causal_states(health_signals: Vec<u8>, edges: Vec<(u32, u32)>) -> NifResult<Vec<u8>> {
+    evaluate_causal_states_with_reasons_impl(health_signals, edges)
+        .map(|rows| rows.into_iter().map(|row| row.state).collect())
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -1513,6 +1582,10 @@ mod tests {
 
         assert_eq!(positions.len(), node_count);
         // Baseline guard: layered layout on a large fanout graph should complete quickly.
-        assert!(elapsed.as_millis() < 3_000, "layout took {}ms", elapsed.as_millis());
+        assert!(
+            elapsed.as_millis() < 3_000,
+            "layout took {}ms",
+            elapsed.as_millis()
+        );
     }
 }

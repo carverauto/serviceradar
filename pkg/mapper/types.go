@@ -79,6 +79,7 @@ const (
 type DiscoveryParams struct {
 	Seeds       []string          // IP addresses or CIDR ranges to scan
 	Type        DiscoveryType     // Type of discovery to perform
+	Mode        string            // Discovery mode (e.g., "snmp", "hybrid")
 	Credentials *SNMPCredentials  // SNMP credentials to use
 	Options     map[string]string // Additional discovery options
 	Concurrency int               // Maximum number of concurrent operations
@@ -353,16 +354,17 @@ type SNMPCredentialConfig struct {
 
 // ScheduledJob represents a scheduled discovery job configuration
 type ScheduledJob struct {
-	Name        string            `json:"name"`
-	Interval    string            `json:"interval"`
-	Enabled     bool              `json:"enabled"`
-	Seeds       []string          `json:"seeds"`
-	Type        string            `json:"type"`
-	Credentials SNMPCredentials   `json:"credentials"`
-	Concurrency int               `json:"concurrency"`
-	Timeout     string            `json:"timeout"`
-	Retries     int               `json:"retries"`
-	Options     map[string]string `json:"options"`
+	Name          string            `json:"name"`
+	Interval      string            `json:"interval"`
+	Enabled       bool              `json:"enabled"`
+	Seeds         []string          `json:"seeds"`
+	Type          string            `json:"type"`
+	DiscoveryMode string            `json:"discovery_mode,omitempty"`
+	Credentials   SNMPCredentials   `json:"credentials"`
+	Concurrency   int               `json:"concurrency"`
+	Timeout       string            `json:"timeout"`
+	Retries       int               `json:"retries"`
+	Options       map[string]string `json:"options"`
 }
 
 // Config defines the configuration settings for the mapper service.
@@ -410,16 +412,17 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			PublishRetryInterval string `json:"publish_retry_interval"`
 		} `json:"stream_config"`
 		ScheduledJobs []struct {
-			Name        string            `json:"name"`
-			Interval    string            `json:"interval"`
-			Enabled     bool              `json:"enabled"`
-			Seeds       []string          `json:"seeds"`
-			Type        string            `json:"type"`
-			Credentials SNMPCredentials   `json:"credentials"`
-			Concurrency int               `json:"concurrency"`
-			Timeout     string            `json:"timeout"`
-			Retries     int               `json:"retries"`
-			Options     map[string]string `json:"options"`
+			Name          string            `json:"name"`
+			Interval      string            `json:"interval"`
+			Enabled       bool              `json:"enabled"`
+			Seeds         []string          `json:"seeds"`
+			Type          string            `json:"type"`
+			DiscoveryMode string            `json:"discovery_mode,omitempty"`
+			Credentials   SNMPCredentials   `json:"credentials"`
+			Concurrency   int               `json:"concurrency"`
+			Timeout       string            `json:"timeout"`
+			Retries       int               `json:"retries"`
+			Options       map[string]string `json:"options"`
 		} `json:"scheduled_jobs"`
 		*Alias
 	}{
@@ -464,15 +467,16 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	c.ScheduledJobs = make([]*ScheduledJob, len(aux.ScheduledJobs))
 	for i := 0; i < len(aux.ScheduledJobs); i++ {
 		c.ScheduledJobs[i] = &ScheduledJob{
-			Name:        aux.ScheduledJobs[i].Name,
-			Interval:    aux.ScheduledJobs[i].Interval,
-			Enabled:     aux.ScheduledJobs[i].Enabled,
-			Seeds:       aux.ScheduledJobs[i].Seeds,
-			Type:        aux.ScheduledJobs[i].Type,
-			Credentials: aux.ScheduledJobs[i].Credentials,
-			Concurrency: aux.ScheduledJobs[i].Concurrency,
-			Retries:     aux.ScheduledJobs[i].Retries,
-			Options:     aux.ScheduledJobs[i].Options,
+			Name:          aux.ScheduledJobs[i].Name,
+			Interval:      aux.ScheduledJobs[i].Interval,
+			Enabled:       aux.ScheduledJobs[i].Enabled,
+			Seeds:         aux.ScheduledJobs[i].Seeds,
+			Type:          aux.ScheduledJobs[i].Type,
+			DiscoveryMode: aux.ScheduledJobs[i].DiscoveryMode,
+			Credentials:   aux.ScheduledJobs[i].Credentials,
+			Concurrency:   aux.ScheduledJobs[i].Concurrency,
+			Retries:       aux.ScheduledJobs[i].Retries,
+			Options:       aux.ScheduledJobs[i].Options,
 		}
 
 		if aux.ScheduledJobs[i].Timeout != "" {

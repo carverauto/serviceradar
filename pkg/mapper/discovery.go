@@ -94,7 +94,8 @@ func (e *DiscoveryEngine) Start(ctx context.Context) error {
 }
 
 const (
-	defaultFallbackTimeout = 10 * time.Second // Fallback timeout for stopping
+	defaultFallbackTimeout   = 10 * time.Second // Fallback timeout for stopping
+	defaultUniFiPhaseTimeout = 60 * time.Second
 )
 
 // Stop gracefully shuts down the discovery engine
@@ -280,6 +281,7 @@ func (e *DiscoveryEngine) buildDiscoveryParamsForJob(jobConfig *ScheduledJob) (*
 	params := &DiscoveryParams{
 		Seeds:       jobConfig.Seeds,
 		Type:        discoveryType,
+		Mode:        resolveDiscoveryMode(jobConfig),
 		Credentials: &(jobConfig.Credentials),
 		Options:     jobConfig.Options,
 		Concurrency: jobConfig.Concurrency,
@@ -290,6 +292,33 @@ func (e *DiscoveryEngine) buildDiscoveryParamsForJob(jobConfig *ScheduledJob) (*
 	}
 
 	return params, nil
+}
+
+func resolveDiscoveryMode(jobConfig *ScheduledJob) string {
+	if jobConfig == nil {
+		return ""
+	}
+
+	mode := strings.TrimSpace(strings.ToLower(jobConfig.DiscoveryMode))
+	if mode != "" {
+		return mode
+	}
+
+	if jobConfig.Options == nil {
+		return ""
+	}
+
+	if mode = strings.TrimSpace(strings.ToLower(jobConfig.Options["discovery_mode"])); mode != "" {
+		return mode
+	}
+	if mode = strings.TrimSpace(strings.ToLower(jobConfig.Options["mode"])); mode != "" {
+		return mode
+	}
+	if strings.EqualFold(strings.TrimSpace(jobConfig.Options["snmp_only"]), "true") {
+		return "snmp"
+	}
+
+	return ""
 }
 
 // startScheduledJob initiates a discovery job.
@@ -1246,6 +1275,7 @@ const (
 
 // addOrUpdateDeviceToResults adds or updates a device in the job's results.
 func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevice *DiscoveredDevice) {
+	e.applyCanonicalIdentityFromIP(job, newDevice)
 	e.ensureDeviceID(newDevice)
 
 	// Look for an existing device to merge with
@@ -1319,6 +1349,100 @@ func (*DiscoveryEngine) ensureDeviceID(device *DiscoveredDevice) {
 	}
 }
 
+func (e *DiscoveryEngine) applyCanonicalIdentityFromIP(job *DiscoveryJob, device *DiscoveredDevice) {
+	if job == nil || device == nil || strings.TrimSpace(device.IP) == "" {
+		return
+	}
+
+	existingID, existingMAC := e.resolveExistingDeviceIdentityByIPUnlocked(job, device.IP)
+	if existingID == "" {
+		return
+	}
+
+	currentID := strings.TrimSpace(device.DeviceID)
+	if currentID == "" || strings.HasPrefix(currentID, "ip-") || currentID == existingID {
+		device.DeviceID = existingID
+	}
+
+	if existingMAC == "" {
+		return
+	}
+
+	if device.MAC == "" {
+		device.MAC = existingMAC
+		return
+	}
+
+	if NormalizeMAC(device.MAC) != NormalizeMAC(existingMAC) {
+		device.Metadata = addAlternateMAC(device.Metadata, device.MAC)
+		device.MAC = existingMAC
+	}
+}
+
+func (e *DiscoveryEngine) resolveExistingDeviceIdentityByIP(job *DiscoveryJob, ip string) (string, string) {
+	if job == nil {
+		return "", ""
+	}
+
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	return e.resolveExistingDeviceIdentityByIPUnlocked(job, ip)
+}
+
+func (*DiscoveryEngine) resolveExistingDeviceIdentityByIPUnlocked(job *DiscoveryJob, ip string) (string, string) {
+	if job == nil {
+		return "", ""
+	}
+
+	targetIP := strings.TrimSpace(ip)
+	if targetIP == "" {
+		return "", ""
+	}
+
+	for _, existing := range job.Results.Devices {
+		if existing == nil {
+			continue
+		}
+
+		if strings.TrimSpace(existing.IP) == targetIP {
+			return existing.DeviceID, existing.MAC
+		}
+	}
+
+	for _, existing := range job.Results.Devices {
+		if existing == nil {
+			continue
+		}
+
+		if _, ok := existing.Metadata["alt_ip:"+targetIP]; ok {
+			return existing.DeviceID, existing.MAC
+		}
+		if _, ok := existing.Metadata["ip_alias:"+targetIP]; ok {
+			return existing.DeviceID, existing.MAC
+		}
+	}
+
+	for deviceID, entry := range job.deviceMap {
+		if entry == nil {
+			continue
+		}
+		if _, ok := entry.IPs[targetIP]; !ok {
+			continue
+		}
+
+		for mac := range entry.MACs {
+			if norm := NormalizeMAC(mac); norm != "" {
+				return deviceID, mac
+			}
+		}
+
+		return deviceID, ""
+	}
+
+	return "", ""
+}
+
 func (*DiscoveryEngine) isDeviceMatch(existingDevice, newDevice *DiscoveredDevice) bool {
 	// First check by DeviceID if both have it
 	if newDevice.DeviceID != "" && existingDevice.DeviceID != "" && newDevice.DeviceID == existingDevice.DeviceID {
@@ -1341,7 +1465,12 @@ func (e *DiscoveryEngine) updateExistingDevice(job *DiscoveryJob, index int, new
 	}
 
 	if newDevice.MAC != "" {
-		job.Results.Devices[index].MAC = newDevice.MAC
+		existingMAC := job.Results.Devices[index].MAC
+		if existingMAC == "" {
+			job.Results.Devices[index].MAC = newDevice.MAC
+		} else if NormalizeMAC(existingMAC) != NormalizeMAC(newDevice.MAC) {
+			job.Results.Devices[index].Metadata = addAlternateMAC(job.Results.Devices[index].Metadata, newDevice.MAC)
+		}
 	}
 
 	if newDevice.SysDescr != "" {
@@ -1407,7 +1536,7 @@ func (e *DiscoveryEngine) publishDevice(job *DiscoveryJob, device *DiscoveredDev
 // runDiscoveryJob executes staged discovery with strict identity-before-topology ordering.
 func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob) {
 	e.logger.Info().Str("job_id", job.ID).Strs("seeds", job.Params.Seeds).
-		Str("type", string(job.Params.Type)).Msg("Running discovery for job")
+		Str("type", string(job.Params.Type)).Str("mode", job.Params.Mode).Msg("Running discovery for job")
 
 	recordStageTransition(job, DiscoveryStagePrepare, DiscoveryStageStatusStarted, "expanding seeds")
 	initialSeeds := e.expandSeeds(job.Params.Seeds)
@@ -1419,11 +1548,14 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 	recordStageTransition(job, DiscoveryStagePrepare, DiscoveryStageStatusCompleted, "targets prepared")
 
 	recordStageTransition(job, DiscoveryStageIdentity, DiscoveryStageStatusStarted, "identity collection started")
-	allPotentialSNMPTargets := e.handleUniFiDiscoveryPhase(ctx, job, initialSeeds)
-	if allPotentialSNMPTargets == nil {
-		allPotentialSNMPTargets = make(map[string]bool)
-		for _, seed := range initialSeeds {
-			allPotentialSNMPTargets[seed] = true
+	allPotentialSNMPTargets := make(map[string]bool)
+	for _, seed := range initialSeeds {
+		allPotentialSNMPTargets[seed] = true
+	}
+	if shouldRunUniFiDiscovery(job) {
+		uniFiTargets := e.handleUniFiDiscoveryPhase(ctx, job, initialSeeds)
+		if uniFiTargets != nil {
+			allPotentialSNMPTargets = uniFiTargets
 		}
 	}
 
@@ -1457,6 +1589,10 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 
 	recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusStarted, "topology discovery started")
 	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology {
+		if shouldRunUniFiDiscovery(job) {
+			e.triggerUniFiTopologyDiscovery(ctx, job, initialSeeds)
+		}
+
 		if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds, snmpPollingModeTopology) {
 			recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, "topology polling canceled or failed")
 			e.finalizeJobStatus(job)
@@ -1481,6 +1617,61 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 	recordStageTransition(job, DiscoveryStageFinalize, DiscoveryStageStatusStarted, "finalizing job")
 	e.finalizeJobStatus(job)
 	recordStageTransition(job, DiscoveryStageFinalize, DiscoveryStageStatusCompleted, "job finalized")
+}
+
+func shouldRunUniFiDiscovery(job *DiscoveryJob) bool {
+	if job == nil || job.Params == nil {
+		return true
+	}
+
+	mode := strings.TrimSpace(strings.ToLower(job.Params.Mode))
+	if mode == "" {
+		return true
+	}
+
+	switch mode {
+	case "snmp", "snmp_only", "snmp-only":
+		return false
+	default:
+		return true
+	}
+}
+
+func (e *DiscoveryEngine) triggerUniFiTopologyDiscovery(ctx context.Context, job *DiscoveryJob, initialSeeds []string) {
+	if len(e.config.UniFiAPIs) == 0 || (job.Params.Type != DiscoveryTypeFull && job.Params.Type != DiscoveryTypeTopology) {
+		return
+	}
+
+	seen := make(map[string]struct{})
+	candidates := make([]string, 0, len(initialSeeds)+1)
+
+	for _, seed := range initialSeeds {
+		seed = strings.TrimSpace(seed)
+		if seed == "" {
+			continue
+		}
+		if _, ok := seen[seed]; ok {
+			continue
+		}
+		seen[seed] = struct{}{}
+		candidates = append(candidates, seed)
+	}
+
+	// Final fallback contextless attempt (build from full controller inventory).
+	candidates = append(candidates, "")
+
+	for _, candidate := range candidates {
+		attemptCtx, cancel := context.WithTimeout(ctx, defaultUniFiPhaseTimeout)
+		e.checkUniFiAPI(attemptCtx, job, candidate)
+		cancel()
+
+		job.mu.RLock()
+		polled := job.uniFiTopologyPolled
+		job.mu.RUnlock()
+		if polled {
+			return
+		}
+	}
 }
 
 // handleUniFiDiscoveryPhase performs the UniFi discovery phase and collects potential SNMP targets
@@ -1516,7 +1707,9 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 		}
 
 		if len(e.config.UniFiAPIs) > 0 {
-			devices, interfaces, err := e.queryUniFiDevices(ctx, job, seedIP)
+			seedCtx, cancel := context.WithTimeout(ctx, defaultUniFiPhaseTimeout)
+			devices, interfaces, err := e.queryUniFiDevices(seedCtx, job, seedIP)
+			cancel()
 			if err != nil {
 				e.logger.Error().Str("job_id", job.ID).
 					Str("seed_ip", seedIP).Err(err).Msg("UniFi discovery for seed failed")
@@ -1532,9 +1725,8 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 			job.mu.Unlock()
 
 			for _, iface := range interfaces {
-				if iface.DeviceID == "" && iface.DeviceIP != "" && job.Params.AgentID != "" && job.Params.GatewayID != "" {
-					iface.DeviceID = fmt.Sprintf("%s:%s:%s",
-						job.Params.AgentID, job.Params.GatewayID, iface.DeviceIP)
+				if iface.DeviceID == "" && iface.DeviceIP != "" {
+					iface.DeviceID = GenerateDeviceIDFromIP(iface.DeviceIP)
 				}
 				e.upsertInterface(job, iface)
 			}

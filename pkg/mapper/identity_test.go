@@ -44,6 +44,39 @@ func TestIsDeviceMatchDoesNotMatchOnIPOnly(t *testing.T) {
 	}
 }
 
+func TestGenerateDeviceIDPrefersExistingIdentityForSameIP(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			Devices: []*DiscoveredDevice{
+				{
+					DeviceID: "mac-f492bf75c721",
+					IP:       "152.117.116.178",
+					MAC:      "f4:92:bf:75:c7:21",
+					Metadata: map[string]string{},
+				},
+			},
+		},
+		deviceMap: map[string]*DeviceInterfaceMap{},
+	}
+
+	device := &DiscoveredDevice{
+		IP:       "152.117.116.178",
+		MAC:      "f6:92:bf:75:c7:21",
+		DeviceID: "",
+	}
+
+	engine.generateDeviceID(job, device, device.IP)
+
+	if device.DeviceID != "mac-f492bf75c721" {
+		t.Fatalf("expected existing ID to be reused, got %q", device.DeviceID)
+	}
+
+	if device.MAC != "f6:92:bf:75:c7:21" {
+		t.Fatalf("expected SNMP MAC to remain on device object for conflict handling, got %q", device.MAC)
+	}
+}
+
 func TestApplyTopologyEvidenceClassAssignsConfidenceTier(t *testing.T) {
 	link := &TopologyLink{
 		Protocol: "lldp",

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildSNMPL2LinksFromNeighborsRequiresFDBPortMapping(t *testing.T) {
+func TestBuildSNMPL2LinksFromNeighborsDropsARPOnlyNeighbors(t *testing.T) {
 	t.Parallel()
 
 	neighbors := []arpNeighbor{
@@ -28,12 +28,13 @@ func TestBuildSNMPL2LinksFromNeighborsRequiresFDBPortMapping(t *testing.T) {
 	links := buildSNMPL2LinksFromNeighbors("sr:farm01", "192.168.1.1", "disc-1", neighbors)
 	require.Len(t, links, 1)
 
-	link := links[0]
-	assert.Equal(t, int32(7), link.LocalIfIndex)
-	assert.Equal(t, "192.168.1.51", link.NeighborMgmtAddr)
-	assert.Equal(t, "aa:bb:cc:dd:ee:02", link.NeighborChassisID)
-	assert.Equal(t, "snmp-arp-fdb", link.Metadata["source"])
-	assert.Equal(t, "true", link.Metadata["fdb_port_mapped"])
+	assert.Equal(t, int32(7), links[0].LocalIfIndex)
+	assert.Equal(t, "192.168.1.51", links[0].NeighborMgmtAddr)
+	assert.Equal(t, "aa:bb:cc:dd:ee:02", links[0].NeighborChassisID)
+	assert.Equal(t, "snmp-arp-fdb", links[0].Metadata["source"])
+	assert.Equal(t, "true", links[0].Metadata["fdb_port_mapped"])
+	assert.Equal(t, "inferred", links[0].Metadata["evidence_class"])
+	assert.Equal(t, "medium", links[0].Metadata["confidence_tier"])
 }
 
 func TestBuildSNMPL2LinksFromNeighborsDeduplicatesIdenticalEvidence(t *testing.T) {

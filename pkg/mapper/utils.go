@@ -393,3 +393,22 @@ func addAlternateIP(metadata map[string]string, ip string) map[string]string {
 
 	return metadata
 }
+
+// addAlternateMAC stores an alternate MAC in metadata under a stable key.
+func addAlternateMAC(metadata map[string]string, mac string) map[string]string {
+	norm := NormalizeMAC(mac)
+	if norm == "" {
+		return metadata
+	}
+
+	if metadata == nil {
+		metadata = make(map[string]string)
+	}
+
+	key := "alt_mac:" + norm
+	if _, exists := metadata[key]; !exists {
+		metadata[key] = "1"
+	}
+
+	return metadata
+}

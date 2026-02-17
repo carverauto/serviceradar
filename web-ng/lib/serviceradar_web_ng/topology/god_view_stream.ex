@@ -9,17 +9,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   import Ecto.Query
 
   require Ash.Query
+  require Logger
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Repo
-  alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Topology.RuntimeGraph
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNG.Topology.Native
 
-  @max_link_rows 5_000
   @max_interface_rows 2_000
   @default_real_time_budget_ms 2_000
   @default_snapshot_coalesce_ms 0
@@ -133,6 +132,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
          {:ok, pairs} <- unique_pairs(links),
          {:ok, nodes, edges} <- build_nodes_and_edges(actor, pairs),
          {:ok, indexed_edges} <- index_edges(nodes, edges) do
+      emit_pipeline_stats(links, pairs, edges, nodes)
       topology_revision = topology_revision(nodes, indexed_edges)
       nodes = apply_native_layout_with_indexed_edges(nodes, indexed_edges, topology_revision)
       nodes = apply_causal_states(nodes, indexed_edges)
@@ -152,94 +152,13 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp fetch_topology_links(_actor) do
-    runtime_links = runtime_topology_links()
-    graph_links = best_effort_links(fetch_topology_links_from_graph())
+    runtime_links =
+      case RuntimeGraph.get_links() do
+        {:ok, links} when is_list(links) -> links
+        _ -> []
+      end
 
-    combined = graph_links ++ runtime_links
-
-    if combined != [], do: {:ok, combined}, else: {:ok, []}
-  end
-
-  defp runtime_topology_links do
-    case RuntimeGraph.get_links() do
-      {:ok, links} when is_list(links) -> links
-      _ -> []
-    end
-  end
-
-  defp fetch_topology_links_from_graph do
-    cutoff =
-      DateTime.utc_now()
-      |> DateTime.add(-topology_stale_minutes() * 60, :second)
-      |> DateTime.truncate(:second)
-      |> DateTime.to_iso8601()
-
-    escaped_cutoff = AgeGraph.escape(cutoff)
-
-    cypher = """
-    MATCH (a:Device)-[:HAS_INTERFACE]->(ai:Interface)-[r]->(bi:Interface)<-[:HAS_INTERFACE]-(b:Device)
-    WHERE r.ingestor = 'mapper_topology_v1'
-      AND type(r) IN ['CONNECTS_TO', 'INFERRED_TO', 'ATTACHED_TO']
-      AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{escaped_cutoff}')
-    RETURN {
-      local_device_id: ai.device_id,
-      local_device_ip: a.ip,
-      local_if_name: ai.name,
-      local_if_index: ai.ifindex,
-      neighbor_device_id: bi.device_id,
-      neighbor_mgmt_addr: b.ip,
-      neighbor_system_name: b.name,
-      protocol: coalesce(r.protocol, r.source, 'unknown'),
-      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
-      evidence_class: coalesce(r.evidence_class, ''),
-      metadata: {
-        relation_type: type(r),
-        source: coalesce(r.source, ''),
-        inference: coalesce(r.confidence_reason, ''),
-        evidence_class: coalesce(r.evidence_class, ''),
-        confidence_tier: coalesce(r.confidence_tier, 'unknown'),
-        confidence_score: coalesce(r.confidence_score, 0)
-      }
-    }
-    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
-    LIMIT #{@max_link_rows}
-    """
-
-    case AgeGraph.query(cypher) do
-      {:ok, rows} when is_list(rows) ->
-        {:ok, Enum.map(rows, &normalize_graph_link/1)}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  rescue
-    error -> {:error, error}
-  end
-
-  defp normalize_graph_link(%{} = row) do
-    %{
-      local_device_id: map_fetch(row, :local_device_id),
-      local_device_ip: map_fetch(row, :local_device_ip),
-      local_if_name: map_fetch(row, :local_if_name),
-      local_if_index: map_fetch(row, :local_if_index),
-      neighbor_device_id: map_fetch(row, :neighbor_device_id),
-      neighbor_mgmt_addr: map_fetch(row, :neighbor_mgmt_addr),
-      neighbor_system_name: map_fetch(row, :neighbor_system_name),
-      protocol: map_fetch(row, :protocol),
-      confidence_tier: map_fetch(row, :confidence_tier),
-      evidence_class: map_fetch(row, :evidence_class),
-      metadata: map_fetch(row, :metadata) || %{}
-    }
-  end
-
-  defp normalize_graph_link(_), do: %{}
-
-  defp map_fetch(map, key) when is_map(map) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  end
-
-  defp topology_stale_minutes do
-    Application.get_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 180)
+    if runtime_links != [], do: {:ok, runtime_links}, else: {:ok, []}
   end
 
   defp unique_pairs(links) when is_list(links) do
@@ -253,7 +172,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         else
           {a, b} = canonical_pair(local_id, neighbor_id)
 
-          Map.put_new(acc, {a, b}, %{
+          candidate = %{
             source: local_id,
             target: neighbor_id,
             kind: "topology",
@@ -265,7 +184,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
             local_if_index: Map.get(link, :local_if_index),
             local_if_name: Map.get(link, :local_if_name),
             metadata: Map.get(link, :metadata) || %{}
-          })
+          }
+
+          Map.update(acc, {a, b}, candidate, fn existing ->
+            if pair_link_rank(candidate) > pair_link_rank(existing), do: candidate, else: existing
+          end)
         end
       end)
 
@@ -288,7 +211,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       canonical_edges =
         pair_edges
         |> canonicalize_edges(devices)
+        |> prune_non_physical_protocol_edges(devices)
+        |> prune_low_confidence_attachment_edges(devices)
         |> prune_ap_gateway_inference_edges(devices)
+        |> prune_router_ap_attachment_edges_with_direct_adjacency(devices)
         |> prune_inferred_infra_edges_with_direct_adjacency(devices)
         |> enforce_edge_interface_contracts()
         |> normalize_router_inferred_infra_edges(devices)
@@ -312,42 +238,102 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp prune_ap_gateway_inference_edges(edges, devices)
+  defp emit_pipeline_stats(raw_links, pairs, final_edges, final_nodes)
+       when is_list(raw_links) and is_map(pairs) and is_list(final_edges) and is_list(final_nodes) do
+    pair_links = Map.values(pairs)
+
+    measurements = %{
+      raw_links: length(raw_links),
+      unique_pairs: map_size(pairs),
+      final_edges: length(final_edges),
+      final_nodes: length(final_nodes),
+      raw_direct: count_by_evidence(raw_links, "direct"),
+      raw_inferred: count_by_evidence(raw_links, "inferred"),
+      raw_attachment: count_by_evidence(raw_links, "endpoint-attachment"),
+      pair_direct: count_by_evidence(pair_links, "direct"),
+      pair_inferred: count_by_evidence(pair_links, "inferred"),
+      pair_attachment: count_by_evidence(pair_links, "endpoint-attachment"),
+      final_direct: count_by_evidence(final_edges, "direct"),
+      final_inferred: count_by_evidence(final_edges, "inferred"),
+      final_attachment: count_by_evidence(final_edges, "endpoint-attachment")
+    }
+
+    :telemetry.execute([:serviceradar, :god_view, :pipeline, :stats], measurements, %{})
+    Logger.info("god_view_pipeline_stats #{inspect(measurements)}")
+  end
+
+  defp emit_pipeline_stats(_raw_links, _pairs, _final_edges, _final_nodes), do: :ok
+
+  defp count_by_evidence(items, expected) when is_list(items) and is_binary(expected) do
+    Enum.count(items, fn item -> evidence_class(item) == expected end)
+  end
+
+  defp prune_non_physical_protocol_edges(edges, devices)
        when is_list(edges) and is_list(devices) do
     device_by_uid =
-      devices
-      |> Enum.reduce(%{}, fn device, acc ->
-        uid = normalize_id(Map.get(device, :uid))
-        if is_binary(uid), do: Map.put(acc, uid, device), else: acc
-      end)
+      Map.new(devices, fn device -> {normalize_id(Map.get(device, :uid)), device} end)
 
-    has_direct_neighbor =
-      edges
-      |> Enum.reduce(MapSet.new(), fn edge, acc ->
-        if direct_protocol?(edge) do
-          source = normalize_id(Map.get(edge, :source))
-          target = normalize_id(Map.get(edge, :target))
+    Enum.filter(edges, fn edge ->
+      source_uid = normalize_id(Map.get(edge, :source))
+      target_uid = normalize_id(Map.get(edge, :target))
+      source = Map.get(device_by_uid, source_uid)
+      target = Map.get(device_by_uid, target_uid)
+      protocol = edge_protocol(edge)
 
-          acc
-          |> maybe_put_set(source)
-          |> maybe_put_set(target)
-        else
-          acc
-        end
-      end)
+      both_infra? = infrastructure_device?(source) and infrastructure_device?(target)
+      one_infra_one_endpoint? = endpoint_attachment_edge?(edge, device_by_uid)
+
+      cond do
+        both_infra? ->
+          protocol in ["lldp", "cdp", "unifi-api", "wireguard-derived"]
+
+        one_infra_one_endpoint? and protocol == "snmp-l2" ->
+          # Keep only stronger SNMP-L2 endpoint attachments.
+          confidence_tier(edge) in ["high", "medium"] and
+            valid_ifindex?(Map.get(edge, :local_if_index))
+
+        true ->
+          true
+      end
+    end)
+  end
+
+  defp prune_non_physical_protocol_edges(edges, _devices), do: edges
+
+  defp prune_low_confidence_attachment_edges(edges, devices)
+       when is_list(edges) and is_list(devices) do
+    device_by_uid =
+      Map.new(devices, fn device -> {normalize_id(Map.get(device, :uid)), device} end)
 
     Enum.reject(edges, fn edge ->
       protocol = edge_protocol(edge)
-      source = normalize_id(Map.get(edge, :source))
-      target = normalize_id(Map.get(edge, :target))
-      source_device = Map.get(device_by_uid, source)
-      target_device = Map.get(device_by_uid, target)
+      evidence = evidence_class(edge)
+      tier = confidence_tier(edge)
+      reason = edge_confidence_reason(edge)
 
-      protocol == "l3-uplink" and gateway_corr_edge?(edge) and
-        ((ap_device?(source_device) and router_device?(target_device) and
-            MapSet.member?(has_direct_neighbor, source)) or
-           (ap_device?(target_device) and router_device?(source_device) and
-              MapSet.member?(has_direct_neighbor, target)))
+      source_uid = normalize_id(Map.get(edge, :source))
+      target_uid = normalize_id(Map.get(edge, :target))
+      source = Map.get(device_by_uid, source_uid)
+      target = Map.get(device_by_uid, target_uid)
+
+      infra_infra_attachment? =
+        infrastructure_device?(source) and infrastructure_device?(target) and
+          evidence == "endpoint-attachment"
+
+      low_confidence_attachment? =
+        protocol == "snmp-l2" and evidence == "endpoint-attachment" and
+          (tier == "low" or reason == "single_identifier_inference")
+
+      infra_infra_attachment? or low_confidence_attachment?
+    end)
+  end
+
+  defp prune_low_confidence_attachment_edges(edges, _devices), do: edges
+
+  defp prune_ap_gateway_inference_edges(edges, _devices)
+       when is_list(edges) do
+    Enum.reject(edges, fn edge ->
+      gateway_corr_edge?(edge) or edge_protocol(edge) == "l3-uplink"
     end)
   end
 
@@ -475,15 +461,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp prune_inferred_infra_edges_with_direct_adjacency(edges, devices)
-       when is_list(edges) and is_list(devices) do
-    device_by_uid =
-      Map.new(devices, fn device -> {normalize_id(Map.get(device, :uid)), device} end)
-
-    has_direct_infra_neighbor =
+  defp prune_inferred_infra_edges_with_direct_adjacency(edges, _devices)
+       when is_list(edges) do
+    has_direct_neighbor =
       edges
       |> Enum.reduce(MapSet.new(), fn edge, acc ->
-        if direct_protocol?(edge) and infra_infra_edge?(edge, device_by_uid) do
+        if direct_protocol?(edge) do
           source_uid = normalize_id(Map.get(edge, :source))
           target_uid = normalize_id(Map.get(edge, :target))
 
@@ -496,12 +479,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       end)
 
     Enum.reject(edges, fn edge ->
-      if inferred_protocol?(edge) and infra_infra_edge?(edge, device_by_uid) do
+      if inferred_protocol?(edge) do
         source_uid = normalize_id(Map.get(edge, :source))
         target_uid = normalize_id(Map.get(edge, :target))
 
-        MapSet.member?(has_direct_infra_neighbor, source_uid) or
-          MapSet.member?(has_direct_infra_neighbor, target_uid)
+        MapSet.member?(has_direct_neighbor, source_uid) or
+          MapSet.member?(has_direct_neighbor, target_uid)
       else
         false
       end
@@ -509,6 +492,55 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp prune_inferred_infra_edges_with_direct_adjacency(edges, _devices), do: edges
+
+  defp prune_router_ap_attachment_edges_with_direct_adjacency(edges, devices)
+       when is_list(edges) and is_list(devices) do
+    device_by_uid =
+      Map.new(devices, fn device -> {normalize_id(Map.get(device, :uid)), device} end)
+
+    ap_with_direct_infra_neighbor =
+      edges
+      |> Enum.reduce(MapSet.new(), fn edge, acc ->
+        if direct_protocol?(edge) and infra_infra_edge?(edge, device_by_uid) do
+          source_uid = normalize_id(Map.get(edge, :source))
+          target_uid = normalize_id(Map.get(edge, :target))
+          source = Map.get(device_by_uid, source_uid)
+          target = Map.get(device_by_uid, target_uid)
+
+          acc
+          |> maybe_put_set_if(ap_device?(source), source_uid)
+          |> maybe_put_set_if(ap_device?(target), target_uid)
+        else
+          acc
+        end
+      end)
+
+    Enum.reject(edges, fn edge ->
+      protocol = edge_protocol(edge)
+      evidence = evidence_class(edge)
+      source_uid = normalize_id(Map.get(edge, :source))
+      target_uid = normalize_id(Map.get(edge, :target))
+      source = Map.get(device_by_uid, source_uid)
+      target = Map.get(device_by_uid, target_uid)
+
+      router_to_ap_attachment? =
+        infrastructure_device?(source) and infrastructure_device?(target) and
+          ((router_device?(source) and ap_device?(target)) or
+             (router_device?(target) and ap_device?(source)))
+
+      ap_uid =
+        cond do
+          ap_device?(source) -> source_uid
+          ap_device?(target) -> target_uid
+          true -> nil
+        end
+
+      protocol == "snmp-l2" and evidence == "endpoint-attachment" and router_to_ap_attachment? and
+        is_binary(ap_uid) and MapSet.member?(ap_with_direct_infra_neighbor, ap_uid)
+    end)
+  end
+
+  defp prune_router_ap_attachment_edges_with_direct_adjacency(edges, _devices), do: edges
 
   defp edge_protocol(edge) do
     edge
@@ -651,6 +683,52 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp maybe_put_set(set, value) do
     if is_binary(value), do: MapSet.put(set, value), else: set
   end
+
+  defp maybe_put_set_if(set, true, value), do: maybe_put_set(set, value)
+  defp maybe_put_set_if(set, false, _value), do: set
+
+  defp pair_link_rank(edge) when is_map(edge) do
+    confidence_rank =
+      case confidence_tier(edge) do
+        "high" -> 4
+        "medium" -> 3
+        "low" -> 2
+        _ -> 1
+      end
+
+    evidence_rank =
+      case evidence_class(edge) do
+        "direct" -> 4
+        "inferred" -> 3
+        "endpoint-attachment" -> 2
+        _ -> 1
+      end
+
+    protocol_rank =
+      case edge_protocol(edge) do
+        "lldp" -> 6
+        "cdp" -> 6
+        "unifi-api" -> 5
+        "wireguard-derived" -> 4
+        "snmp-l2" -> 3
+        "snmp-parent" -> 2
+        "snmp-site" -> 1
+        _ -> 0
+      end
+
+    ifindex_rank =
+      case Map.get(edge, :local_if_index) do
+        value when is_integer(value) and value > 0 -> 1
+        _ -> 0
+      end
+
+    mgmt_addr_rank =
+      if is_binary(normalize_id(Map.get(edge, :neighbor_mgmt_addr))), do: 1, else: 0
+
+    {evidence_rank, confidence_rank, protocol_rank, ifindex_rank, mgmt_addr_rank}
+  end
+
+  defp pair_link_rank(_), do: {0, 0, 0, 0, 0}
 
   defp fetch_devices(_actor, []), do: {:ok, []}
 
@@ -865,9 +943,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       end
     end)
   end
-
-  defp best_effort_links({:ok, links}) when is_list(links), do: links
-  defp best_effort_links(_), do: []
 
   defp dedupe_edges(edges) when is_list(edges) do
     edges
@@ -1197,35 +1272,73 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp type_name_from_id(_), do: nil
 
   defp router_device?(device) when is_map(device) do
-    type = Map.get(device, :type) |> to_string() |> String.downcase()
-    Map.get(device, :type_id) == 12 or type == "router"
+    type = node_type(device) |> to_string() |> String.downcase()
+    model = Map.get(device, :model) |> to_string() |> String.downcase()
+    vendor = Map.get(device, :vendor_name) |> to_string() |> String.downcase()
+    name = Map.get(device, :name) |> to_string() |> String.downcase()
+    hostname = Map.get(device, :hostname) |> to_string() |> String.downcase()
+    role = node_meta_value(device, ["device_role", "role"]) |> to_string() |> String.downcase()
+
+    Map.get(device, :type_id) == 12 or type == "router" or
+      String.contains?(type, "gateway") or String.contains?(type, "firewall") or
+      String.contains?(role, "gateway") or String.contains?(role, "router") or
+      String.starts_with?(model, "udm") or String.starts_with?(model, "usg") or
+      String.contains?(model, "router") or String.contains?(model, "firewall") or
+      String.contains?(name, "gateway") or String.contains?(hostname, "gateway") or
+      (String.contains?(vendor, "ubiquiti") and String.contains?(model, "gateway"))
   end
 
   defp router_device?(_), do: false
 
   defp switch_device?(device) when is_map(device) do
-    type = Map.get(device, :type) |> to_string() |> String.downcase()
-    Map.get(device, :type_id) == 10 or String.contains?(type, "switch")
+    type = node_type(device) |> to_string() |> String.downcase()
+    model = Map.get(device, :model) |> to_string() |> String.downcase()
+    vendor = Map.get(device, :vendor_name) |> to_string() |> String.downcase()
+    name = Map.get(device, :name) |> to_string() |> String.downcase()
+    hostname = Map.get(device, :hostname) |> to_string() |> String.downcase()
+    role = node_meta_value(device, ["device_role", "role"]) |> to_string() |> String.downcase()
+
+    Map.get(device, :type_id) == 10 or String.contains?(type, "switch") or
+      String.contains?(role, "switch") or String.starts_with?(model, "usw") or
+      String.contains?(model, "switch") or String.contains?(name, "switch") or
+      String.contains?(hostname, "switch") or
+      (String.contains?(vendor, "aruba") and String.contains?(name, "aruba")) or
+      String.contains?(vendor, "aruba")
   end
 
   defp switch_device?(_), do: false
 
   defp ap_device?(device) when is_map(device) do
-    type = Map.get(device, :type) |> to_string() |> String.downcase()
+    type = node_type(device) |> to_string() |> String.downcase()
     model = Map.get(device, :model) |> to_string() |> String.downcase()
+    vendor = Map.get(device, :vendor_name) |> to_string() |> String.downcase()
+    name = Map.get(device, :name) |> to_string() |> String.downcase()
     role = node_meta_value(device, ["device_role"]) |> to_string() |> String.downcase()
 
     String.contains?(type, "access point") or String.contains?(role, "ap") or
-      String.starts_with?(model, "u6") or String.contains?(model, "uap")
+      String.starts_with?(model, "u6") or String.contains?(model, "uap") or
+      String.contains?(name, "uap") or
+      (String.contains?(vendor, "ubiquiti") and
+         (String.contains?(model, "mesh") or String.contains?(model, "nano")))
   end
 
   defp ap_device?(_), do: false
 
   defp infrastructure_device?(device) when is_map(device) do
     type = node_type(device) |> to_string() |> String.downcase()
+    model = Map.get(device, :model) |> to_string() |> String.downcase()
+    vendor = Map.get(device, :vendor_name) |> to_string() |> String.downcase()
+    name = Map.get(device, :name) |> to_string() |> String.downcase()
+    hostname = Map.get(device, :hostname) |> to_string() |> String.downcase()
+    role = node_meta_value(device, ["device_role", "role"]) |> to_string() |> String.downcase()
 
     router_device?(device) or switch_device?(device) or ap_device?(device) or
-      type in ["firewall", "load_balancer", "ids", "ips", "hub"]
+      type in ["firewall", "load_balancer", "ids", "ips", "hub"] or
+      String.contains?(role, "infrastructure") or String.contains?(role, "network") or
+      String.contains?(name, "usw") or String.contains?(hostname, "usw") or
+      String.contains?(model, "aggregation") or String.contains?(model, "poe") or
+      String.contains?(model, "aruba") or String.contains?(vendor, "aruba") or
+      String.contains?(vendor, "ubiquiti")
   end
 
   defp infrastructure_device?(_), do: false
@@ -1734,17 +1847,101 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         end
       end)
 
-    states = Native.evaluate_causal_states(signals, indexed_edges)
+    case Native.evaluate_causal_states_with_reasons(signals, indexed_edges) do
+      rows when is_list(rows) and length(rows) == length(nodes) ->
+        Enum.zip(nodes, rows)
+        |> Enum.map(fn {node, row} ->
+          state = causal_row_value(row, :state, 3)
+          reason = causal_row_value(row, :reason, "causal_reason_unavailable")
+          root_index = causal_row_value(row, :root_index, -1)
+          parent_index = causal_row_value(row, :parent_index, -1)
+          hop_distance = causal_row_value(row, :hop_distance, -1)
 
-    Enum.zip(nodes, states)
-    |> Enum.map(fn {node, state} ->
-      node
-      |> Map.put(:state, state)
-      |> Map.delete(:health_signal)
-    end)
+          details_json =
+            merge_causal_reason_details(
+              Map.get(node, :details_json),
+              state,
+              reason,
+              root_index,
+              parent_index,
+              hop_distance
+            )
+
+          node
+          |> Map.put(:state, state)
+          |> Map.put(:details_json, details_json)
+          |> Map.delete(:health_signal)
+        end)
+
+      _ ->
+        states = Native.evaluate_causal_states(signals, indexed_edges)
+
+        Enum.zip(nodes, states)
+        |> Enum.map(fn {node, state} ->
+          details_json =
+            merge_causal_reason_details(
+              Map.get(node, :details_json),
+              state,
+              "fallback_state_only_engine_result",
+              -1,
+              -1,
+              -1
+            )
+
+          node
+          |> Map.put(:state, state)
+          |> Map.put(:details_json, details_json)
+          |> Map.delete(:health_signal)
+        end)
+    end
   end
 
   defp apply_causal_states(nodes, _), do: nodes
+
+  defp causal_row_value(row, key, default) when is_map(row) do
+    Map.get(row, key, Map.get(row, Atom.to_string(key), default))
+  end
+
+  defp causal_row_value(_row, _key, default), do: default
+
+  defp merge_causal_reason_details(
+         details_json,
+         state,
+         reason,
+         root_index,
+         parent_index,
+         hop_distance
+       ) do
+    base =
+      case details_json do
+        value when is_binary(value) ->
+          case Jason.decode(value) do
+            {:ok, decoded} when is_map(decoded) -> decoded
+            _ -> %{}
+          end
+
+        _ ->
+          %{}
+      end
+
+    updated =
+      base
+      |> Map.put("state_label", causal_state_label(state))
+      |> Map.put("causal_reason", to_string(reason))
+      |> Map.put("causal_root_index", root_index)
+      |> Map.put("causal_parent_index", parent_index)
+      |> Map.put("causal_hop_distance", hop_distance)
+
+    case Jason.encode(updated) do
+      {:ok, json} -> json
+      _ -> "{}"
+    end
+  end
+
+  defp causal_state_label(0), do: "Root Cause"
+  defp causal_state_label(1), do: "Affected"
+  defp causal_state_label(2), do: "Healthy"
+  defp causal_state_label(_), do: "Unknown"
 
   defp build_bitmaps(nodes) do
     states = Enum.map(nodes, &Map.get(&1, :state, 3))

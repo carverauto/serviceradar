@@ -2628,6 +2628,23 @@ const Hooks = {
       this.details.className =
         "absolute left-2 top-2 z-30 max-w-sm whitespace-pre-line rounded border border-primary/30 bg-base-100/95 px-3 py-2 text-xs shadow-xl hidden"
       this.details.textContent = "Select a node for details"
+      this.details.addEventListener("click", (event) => {
+        const action = event.target?.closest?.("[data-node-index]")
+        if (!action) return
+        const nextIndex = Number(action.getAttribute("data-node-index"))
+        if (!Number.isFinite(nextIndex)) return
+        event.preventDefault()
+        this.focusNodeByIndex(nextIndex, true)
+      })
+      this.el.addEventListener("click", (event) => {
+        const action = event.target?.closest?.(".deck-tooltip [data-node-index]")
+        if (!action) return
+        const nextIndex = Number(action.getAttribute("data-node-index"))
+        if (!Number.isFinite(nextIndex)) return
+        event.preventDefault()
+        event.stopPropagation()
+        this.focusNodeByIndex(nextIndex, true)
+      })
 
       this.el.appendChild(this.canvas)
       this.el.appendChild(this.summary)
@@ -3138,11 +3155,43 @@ const Hooks = {
       }
       if (layer?.id !== "god-view-nodes") return null
       const d = object?.details || {}
+      const nodeMap = this.nodeIndexLookup((this.lastGraph?.nodes || []))
+      const reason = this.escapeHtml(object.stateReason || this.defaultStateReason(object.state))
+      const rootRef = this.nodeReferenceAction(
+        d?.causal_root_index,
+        "Root",
+        nodeMap,
+      )
+      const parentRef = this.nodeReferenceAction(
+        d?.causal_parent_index,
+        "Parent",
+        nodeMap,
+      )
       const geo = [d.geo_city, d.geo_country].filter(Boolean).join(", ")
       return {
-        text:
-          `${object.label}\n${d.ip || "ip: unknown"}\n${d.type || "type: unknown"}` +
-          `${geo ? `\n${geo}` : ""}${d.asn ? `\nASN ${d.asn}` : ""}`,
+        html: [
+          `<div class="font-semibold">${this.escapeHtml(object.label || "node")}</div>`,
+          `<div>IP: ${this.escapeHtml(d.ip || "unknown")}</div>`,
+          `<div>Type: ${this.escapeHtml(d.type || "unknown")}</div>`,
+          `<div>State: ${this.escapeHtml(this.stateDisplayName(object.state))}</div>`,
+          `<div>Why: ${reason}</div>`,
+          rootRef,
+          parentRef,
+          geo ? `<div>Geo: ${this.escapeHtml(geo)}</div>` : "",
+          d.asn ? `<div>ASN: ${this.escapeHtml(d.asn)}</div>` : "",
+        ].filter(Boolean).join(""),
+        style: {
+          backgroundColor: "rgba(15, 23, 42, 0.94)",
+          border: "1px solid rgba(148, 163, 184, 0.35)",
+          borderRadius: "10px",
+          color: "#e2e8f0",
+          fontSize: "12px",
+          lineHeight: "1.35",
+          maxWidth: "360px",
+          padding: "8px 10px",
+          pointerEvents: "auto",
+          whiteSpace: "normal",
+        },
       }
     },
     edgeLayerId(layerId) {
@@ -3172,18 +3221,76 @@ const Hooks = {
       }
 
       const d = node.details || {}
-      const lines = [
-        `${node.label}`,
-        `ID: ${d.id || node.id || "unknown"}`,
-        `IP: ${d.ip || "unknown"}`,
-        `Type: ${d.type || "unknown"}`,
-        `Vendor/Model: ${d.vendor || "—"} ${d.model || ""}`.trim(),
-        `Last Seen: ${d.last_seen || "unknown"}`,
-        `ASN: ${d.asn || "unknown"}`,
-        `Geo: ${[d.geo_city, d.geo_country].filter(Boolean).join(", ") || "unknown"}`,
-      ]
-      this.details.textContent = lines.join("\n")
+      const nodeMap = this.nodeIndexLookup((this.lastGraph?.nodes || []))
+      const reason = this.escapeHtml(node.stateReason || this.defaultStateReason(node.state))
+      const rootRef = this.nodeReferenceAction(
+        d?.causal_root_index,
+        "Root",
+        nodeMap,
+      )
+      const parentRef = this.nodeReferenceAction(
+        d?.causal_parent_index,
+        "Parent",
+        nodeMap,
+      )
+      const detailLines = [
+        `<div class="font-semibold text-sm mb-1">${this.escapeHtml(node.label || "node")}</div>`,
+        `<div>ID: ${this.escapeHtml(d.id || node.id || "unknown")}</div>`,
+        `<div>IP: ${this.escapeHtml(d.ip || "unknown")}</div>`,
+        `<div>Type: ${this.escapeHtml(d.type || "unknown")}</div>`,
+        `<div>State: ${this.escapeHtml(this.stateDisplayName(node.state))}</div>`,
+        `<div>Why: ${reason}</div>`,
+        rootRef,
+        parentRef,
+        `<div>Vendor/Model: ${this.escapeHtml(`${d.vendor || "—"} ${d.model || ""}`.trim())}</div>`,
+        `<div>Last Seen: ${this.escapeHtml(d.last_seen || "unknown")}</div>`,
+        `<div>ASN: ${this.escapeHtml(d.asn || "unknown")}</div>`,
+        `<div>Geo: ${this.escapeHtml([d.geo_city, d.geo_country].filter(Boolean).join(", ") || "unknown")}</div>`,
+      ].filter(Boolean)
+
+      this.details.innerHTML = detailLines.join("")
       this.details.classList.remove("hidden")
+    },
+    escapeHtml(value) {
+      const text = String(value == null ? "" : value)
+      return text
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;")
+    },
+    nodeReferenceAction(index, label, nodeMap) {
+      const idx = Number(index)
+      if (!Number.isFinite(idx) || idx < 0) return ""
+      const ref = this.nodeRefByIndex(idx, nodeMap) || `node#${idx}`
+      return `<div>${this.escapeHtml(label)}: <button type="button" class="link link-primary text-xs" data-node-index="${idx}">${this.escapeHtml(ref)}</button></div>`
+    },
+    focusNodeByIndex(index, switchToLocal = false) {
+      const idx = Number(index)
+      if (!Number.isFinite(idx) || idx < 0) return
+      const node = this.lastGraph?.nodes?.[idx]
+      if (!node) return
+
+      if (switchToLocal) {
+        this.zoomMode = "local"
+        this.zoomTier = "local"
+      }
+
+      this.selectedNodeIndex = idx
+
+      const x = Number(node.x)
+      const y = Number(node.y)
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        this.viewState = {...this.viewState, target: [x, y, 0]}
+        if (this.deck) {
+          this.isProgrammaticViewUpdate = true
+          this.deck.setProps({viewState: this.viewState})
+          this.isProgrammaticViewUpdate = false
+        }
+      }
+
+      if (this.lastGraph) this.renderGraph(this.lastGraph)
     },
     handlePick(info) {
       const layerId = info?.layer?.id || ""
@@ -3263,6 +3370,8 @@ const Hooks = {
           const targetId = effective.shape === "local" ? dst.id : dst.id || edge.targetCluster || "dst"
           const rawEdgeId = edge.id || edge.edge_id || edge.label || edge.type || `${sourceId}:${targetId}:${edgeIndex}`
           return {
+            sourceId,
+            targetId,
             sourcePosition: [src.x, src.y, 0],
             targetPosition: [dst.x, dst.y, 0],
             weight: edge.weight || 1,
@@ -3297,6 +3406,7 @@ const Hooks = {
             this.normalizeDisplayLabel(node.label, node.id || `node-${node.index + 1}`),
           metricText: this.nodeMetricText(node, effective.shape),
           statusIcon: this.nodeStatusIcon(node.operUp),
+          stateReason: this.stateReasonForNode(node, edgeData, visibleNodes),
         }))
       this.lastVisibleNodeCount = nodeData.length
       this.lastVisibleEdgeCount = edgeData.length
@@ -3679,6 +3789,120 @@ const Hooks = {
       if (state === 1) return "Affected"
       if (state === 2) return "Healthy"
       return "Unknown"
+    },
+    defaultStateReason(state) {
+      if (state === 0) return "Primary failure detected by causal model."
+      if (state === 1) return "Impacted by an upstream dependency."
+      if (state === 2) return "No active causal impact detected."
+      return "Insufficient telemetry to classify root or affected."
+    },
+    stateReasonForNode(node, edgeData, allNodes = []) {
+      const state = Number(node?.state)
+      if (!Number.isFinite(state)) return this.defaultStateReason(3)
+      const details = node?.details || {}
+      const nodeIndexMap = this.nodeIndexLookup(allNodes)
+
+      const causalReason = String(details?.causal_reason || "").trim()
+      if (causalReason) {
+        return this.humanizeCausalReason(causalReason, details, nodeIndexMap)
+      }
+
+      if (state === 0) {
+        if (Number(node?.operUp) === 2) return "Device is operationally down and identified as a root cause."
+        return "Marked as the most upstream causal source in current dependencies."
+      }
+
+      if (state === 2) {
+        return "Healthy signal with no active upstream dependency impact."
+      }
+
+      if (state === 3) {
+        return this.defaultStateReason(state)
+      }
+
+      const id = node?.id
+      if (!id || !Array.isArray(edgeData) || edgeData.length === 0) return this.defaultStateReason(state)
+
+      const neighbors = []
+      const seen = new Set()
+
+      for (const edge of edgeData) {
+        if (!edge) continue
+        let peerId = null
+
+        if (edge.sourceId === id) peerId = edge.targetId
+        else if (edge.targetId === id) peerId = edge.sourceId
+
+        if (!peerId || seen.has(peerId)) continue
+        seen.add(peerId)
+        neighbors.push(peerId)
+        if (neighbors.length >= 3) break
+      }
+
+      if (neighbors.length > 0) {
+        return `Affected through dependencies on ${neighbors.join(", ")}.`
+      }
+
+      return this.defaultStateReason(state)
+    },
+    nodeIndexLookup(nodes) {
+      const map = new Map()
+      if (!Array.isArray(nodes)) return map
+      for (const n of nodes) {
+        const idx = Number(n?.index)
+        if (!Number.isFinite(idx)) continue
+        map.set(idx, n)
+      }
+      return map
+    },
+    nodeRefByIndex(index, nodeIndexMap) {
+      const idx = Number(index)
+      if (!Number.isFinite(idx) || idx < 0) return null
+      const node = nodeIndexMap.get(idx)
+      if (!node) return `node#${idx}`
+      const label = this.normalizeDisplayLabel(node.label, node.id || `node#${idx}`)
+      const ip = node?.details?.ip
+      return ip ? `${label} (${ip})` : label
+    },
+    humanizeCausalReason(reason, details, nodeIndexMap) {
+      const key = String(reason || "").trim().toLowerCase()
+      const hop = Number(details?.causal_hop_distance)
+      const rootRef = this.nodeRefByIndex(details?.causal_root_index, nodeIndexMap)
+      const parentRef = this.nodeRefByIndex(details?.causal_parent_index, nodeIndexMap)
+
+      if (key === "selected_as_root_from_unhealthy_candidates") {
+        return "Selected as root cause from unhealthy candidates by topology centrality."
+      }
+
+      if (key.startsWith("reachable_from_root_within_") && Number.isFinite(hop) && hop >= 0) {
+        const via = parentRef ? ` via ${parentRef}` : ""
+        const root = rootRef ? ` from ${rootRef}` : ""
+        return `Affected: reachable${root} within ${hop} hop(s)${via}.`
+      }
+
+      if (key === "healthy_signal_no_path_to_selected_root") {
+        return rootRef
+          ? `Healthy: no dependency path from selected root ${rootRef}.`
+          : "Healthy: no dependency path from selected root."
+      }
+
+      if (key === "unhealthy_signal_not_reachable_from_selected_root") {
+        return rootRef
+          ? `Unhealthy but not causally linked to selected root ${rootRef}.`
+          : "Unhealthy but not causally linked to selected root."
+      }
+
+      if (key === "healthy_signal_no_detected_causal_impact") {
+        return "Healthy signal with no detected causal impact."
+      }
+
+      if (key === "unknown_signal_without_identified_root") {
+        return "State unknown: insufficient telemetry to identify a root cause."
+      }
+
+      const root = rootRef ? ` Root: ${rootRef}.` : ""
+      const via = parentRef ? ` Parent: ${parentRef}.` : ""
+      return `${reason}.${root}${via}`.trim()
     },
     nodeMetricText(node, shape) {
       const clusterCount = Number(node?.clusterCount || 1)

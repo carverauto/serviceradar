@@ -492,6 +492,45 @@ func TestEnsureDeviceID(t *testing.T) {
 	assert.Equal(t, "existing-id", device.DeviceID) // DeviceID should not change
 }
 
+func TestAddOrUpdateDeviceToResultsCanonicalizesSameIPIdentity(t *testing.T) {
+	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+
+	existing := &DiscoveredDevice{
+		DeviceID: "mac-f492bf75c721",
+		IP:       "152.117.116.178",
+		MAC:      "f4:92:bf:75:c7:21",
+		Hostname: "farm01",
+		Metadata: map[string]string{"source": "unifi-api"},
+	}
+
+	job := &DiscoveryJob{
+		ID:      "job-1",
+		Results: &DiscoveryResults{Devices: []*DiscoveredDevice{existing}},
+		deviceMap: map[string]*DeviceInterfaceMap{
+			existing.DeviceID: {
+				DeviceID: existing.DeviceID,
+				IPs:      map[string]struct{}{existing.IP: {}},
+				MACs:     map[string]struct{}{existing.MAC: {}},
+			},
+		},
+	}
+
+	incomingSNMP := &DiscoveredDevice{
+		DeviceID: "mac-f692bf75c721",
+		IP:       "152.117.116.178",
+		MAC:      "f6:92:bf:75:c7:21",
+		Hostname: "farm01",
+		Metadata: map[string]string{"source": "snmp"},
+	}
+
+	engine.addOrUpdateDeviceToResults(job, incomingSNMP)
+
+	require.Len(t, job.Results.Devices, 1)
+	assert.Equal(t, "mac-f492bf75c721", job.Results.Devices[0].DeviceID)
+	assert.Equal(t, "f4:92:bf:75:c7:21", job.Results.Devices[0].MAC)
+	assert.Equal(t, "1", job.Results.Devices[0].Metadata["alt_mac:f692bf75c721"])
+}
+
 func TestHandleEmptyTargetList(t *testing.T) {
 	mockPublisher := new(MockPublisher)
 	mockLogger := logger.NewTestLogger()

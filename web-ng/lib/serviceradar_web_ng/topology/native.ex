@@ -42,6 +42,12 @@ defmodule ServiceRadarWebNG.Topology.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Evaluate causal states with per-node causal reason metadata.
+  """
+  def evaluate_causal_states_with_reasons(_health_signals, _edges),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Build serialized Roaring bitmaps for each causal state bucket.
   """
   def build_roaring_bitmaps(_states),

@@ -456,8 +456,15 @@ func TestProcessPortTable(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
+	deviceCache := map[string]struct {
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	}{}
+
 	// Call the function
-	links := engine.processPortTable(job, device, deviceID, details, apiConfig, site)
+	links := engine.processPortTable(job, device, deviceID, details, deviceCache, apiConfig, site)
 
 	// Check results
 	assert.NotNil(t, links)
@@ -531,7 +538,7 @@ func TestProcessUplinkInfo(t *testing.T) {
 	}
 
 	// Call the function
-	links := engine.processUplinkInfo(job, device, deviceCache, apiConfig, site)
+	links := engine.processUplinkInfo(job, device, nil, deviceCache, apiConfig, site)
 
 	// Check results
 	assert.NotNil(t, links)
@@ -669,6 +676,35 @@ func TestCreateDiscoveredDevice(t *testing.T) {
 
 	result = engine.createDiscoveredDevice(job, deviceNoIP, apiConfig, site)
 	assert.Nil(t, result) // Should return nil for devices without IP
+}
+
+func TestUniFiLinkDedupKeyIncludesChassisAndPortWhenMgmtAddrMissing(t *testing.T) {
+	t.Parallel()
+
+	linkA := &TopologyLink{
+		Protocol:          "LLDP",
+		LocalDeviceIP:     "192.168.1.87",
+		LocalDeviceID:     "mac-aabbccddeeff",
+		LocalIfIndex:      5,
+		NeighborMgmtAddr:  "",
+		NeighborChassisID: "aa:aa:aa:aa:aa:01",
+		NeighborPortID:    "port-1",
+	}
+
+	linkB := &TopologyLink{
+		Protocol:          "LLDP",
+		LocalDeviceIP:     "192.168.1.87",
+		LocalDeviceID:     "mac-aabbccddeeff",
+		LocalIfIndex:      5,
+		NeighborMgmtAddr:  "",
+		NeighborChassisID: "aa:aa:aa:aa:aa:02",
+		NeighborPortID:    "port-2",
+	}
+
+	keyA := uniFiLinkDedupKey(linkA, "site-1")
+	keyB := uniFiLinkDedupKey(linkB, "site-1")
+
+	assert.NotEqual(t, keyA, keyB)
 }
 
 func TestAddPoEMetadata(t *testing.T) {

@@ -452,8 +452,17 @@ func (e *DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID str
 	return mac
 }
 
-// generateDeviceID generates a device ID based on MAC or IP
-func (*DiscoveryEngine) generateDeviceID(device *DiscoveredDevice, target string) {
+// generateDeviceID generates a device ID based on canonical job identity, MAC, or IP.
+func (e *DiscoveryEngine) generateDeviceID(job *DiscoveryJob, device *DiscoveredDevice, target string) {
+	if existingID, existingMAC := e.resolveExistingDeviceIdentityByIP(job, target); existingID != "" {
+		device.DeviceID = existingID
+		if device.MAC == "" && existingMAC != "" {
+			device.MAC = existingMAC
+		}
+
+		return
+	}
+
 	if device.MAC != "" && device.DeviceID == "" {
 		device.DeviceID = GenerateDeviceID(device.MAC)
 	} else if device.DeviceID == "" {
@@ -511,7 +520,7 @@ func (e *DiscoveryEngine) querySysInfo(
 	}
 
 	// Generate device ID
-	e.generateDeviceID(device, target)
+	e.generateDeviceID(job, device, target)
 
 	return device, nil
 }
@@ -1543,15 +1552,35 @@ func (e *DiscoveryEngine) checkUniFiAPI(ctx context.Context, job *DiscoveryJob, 
 
 	links, err := e.queryUniFiAPI(ctx, job, snmpTargetIP)
 	if err != nil {
+		e.logger.Warn().
+			Str("job_id", job.ID).
+			Str("target_ip", snmpTargetIP).
+			Err(err).
+			Msg("UniFi topology query returned no links or failed")
 		job.mu.Lock()
 		job.uniFiTopologyPolled = false
 		job.mu.Unlock()
 		return
 	}
 
-	if len(links) > 0 {
-		e.publishTopologyLinks(job, links, snmpTargetIP, "UniFi-API")
+	if len(links) == 0 {
+		// Allow subsequent attempts (other seeds/contextless) when this target produced no links.
+		e.logger.Info().
+			Str("job_id", job.ID).
+			Str("target_ip", snmpTargetIP).
+			Msg("UniFi topology query returned zero links")
+		job.mu.Lock()
+		job.uniFiTopologyPolled = false
+		job.mu.Unlock()
+		return
 	}
+
+	e.logger.Info().
+		Str("job_id", job.ID).
+		Str("target_ip", snmpTargetIP).
+		Int("links", len(links)).
+		Msg("UniFi topology links discovered")
+	e.publishTopologyLinks(job, links, snmpTargetIP, "UniFi-API")
 }
 
 // connectSNMPClient attempts to connect to the SNMP client with a timeout
@@ -1647,9 +1676,6 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 ) {
 	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Msg("SNMP Scanning target")
 
-	// Check UniFi API if configured
-	e.checkUniFiAPI(ctx, job, snmpTargetIP)
-
 	// Setup SNMP client
 	client, err := e.setupSNMPClient(job, snmpTargetIP)
 	if err != nil {
@@ -1678,6 +1704,19 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	if err != nil {
 		e.logger.Warn().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(err).
 			Msg("Failed to query system info via SNMP, skipping")
+
+		// For topology mode, continue with LLDP/CDP/L2 polling when the target
+		// is already known from other evidence (e.g., UniFi inventory).
+		if mode == snmpPollingModeTopology {
+			if localDeviceID := e.lookupLocalDeviceID(job, snmpTargetIP); localDeviceID != "" {
+				e.logger.Info().
+					Str("job_id", job.ID).
+					Str("target_ip", snmpTargetIP).
+					Str("local_device_id", localDeviceID).
+					Msg("Continuing topology polling without sysinfo due to known device identity")
+				e.performTopologyDiscovery(ctx, job, client, snmpTargetIP)
+			}
+		}
 
 		return
 	}
@@ -2130,6 +2169,8 @@ type arpNeighbor struct {
 	ip            string
 	mac           string
 	fdbPortMapped bool
+	fdbMacCount   int
+	neighborKnown bool
 }
 
 func (e *DiscoveryEngine) querySNMPL2Neighbors(
@@ -2140,7 +2181,8 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 	}
 
 	localSubnets := e.localIPv4Subnets(job, targetIP)
-	bridgeIfByMAC := e.bridgeIfIndexByMAC(client)
+	knownNeighborIPs := e.knownDeviceIPv4Set(job)
+	bridgeIfByMAC, fdbMacCountByIf := e.bridgeIfIndexByMAC(client)
 
 	neighbors := make([]arpNeighbor, 0, 32)
 	err := client.BulkWalk(oidIPToMediaPhys, func(pdu gosnmp.SnmpPDU) error {
@@ -2165,17 +2207,28 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 
 		norm := NormalizeMAC(mac)
 		if bridgeIf, exists := bridgeIfByMAC[norm]; exists && bridgeIf > 0 {
+			fdbMacCount := fdbMacCountByIf[bridgeIf]
+			neighborKnown := knownNeighborIPs[ip]
+			// Guard against trunk/flood fan-out: keep dense-port neighbors only when
+			// the neighbor is already identified as infrastructure in discovery results.
+			if fdbMacCount > maxSNMPFDBMacsPerPort && !neighborKnown {
+				return nil
+			}
+
 			neighbors = append(neighbors, arpNeighbor{
 				ifIndex:       bridgeIf,
 				ip:            ip,
 				mac:           mac,
 				fdbPortMapped: true,
+				fdbMacCount:   fdbMacCount,
+				neighborKnown: neighborKnown,
 			})
 			return nil
 		}
 
-		// ARP-only observations are not sufficient topology evidence:
-		// require bridge FDB correlation to avoid router fan-out links.
+		// ARP-only observations are too noisy for physical topology and are dropped.
+		// Keep only FDB-mapped evidence and protocol-native links (LLDP/CDP/UniFi).
+
 		return nil
 	})
 	if err != nil {
@@ -2191,6 +2244,8 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 	return links, nil
 }
 
+const maxSNMPFDBMacsPerPort = 8
+
 func buildSNMPL2LinksFromNeighbors(
 	localDeviceID, targetIP, discoveryID string, neighbors []arpNeighbor) []*TopologyLink {
 	links := make([]*TopologyLink, 0, len(neighbors))
@@ -2200,6 +2255,9 @@ func buildSNMPL2LinksFromNeighbors(
 		if n.ip == "" {
 			continue
 		}
+		if !n.fdbPortMapped {
+			continue
+		}
 
 		key := fmt.Sprintf("%s|%d|%s", n.ip, n.ifIndex, NormalizeMAC(n.mac))
 		if _, exists := seen[key]; exists {
@@ -2207,7 +2265,7 @@ func buildSNMPL2LinksFromNeighbors(
 		}
 		seen[key] = struct{}{}
 
-		if !n.fdbPortMapped || n.ifIndex <= 0 {
+		if n.ifIndex <= 0 {
 			continue
 		}
 
@@ -2219,13 +2277,14 @@ func buildSNMPL2LinksFromNeighbors(
 			NeighborChassisID: n.mac,
 			NeighborMgmtAddr:  n.ip,
 			Metadata: map[string]string{
-				"protocol":        "SNMP-L2",
-				"discovery_id":    discoveryID,
-				"source":          "snmp-arp-fdb",
-				"evidence":        "ipNetToMedia+dot1dTpFdb",
-				"fdb_port_mapped": "true",
-				"evidence_class":  "inferred",
-				"confidence_tier": "medium",
+				"protocol":          "SNMP-L2",
+				"discovery_id":      discoveryID,
+				"source":            "snmp-arp-fdb",
+				"evidence":          "ipNetToMedia+dot1dTpFdb",
+				"fdb_port_mapped":   "true",
+				"evidence_class":    "inferred",
+				"confidence_tier":   "medium",
+				"confidence_reason": "arp_fdb_port_mapping",
 			},
 		})
 	}
@@ -2330,7 +2389,7 @@ func parseIPToMediaSuffix(oidName string) (int32, string, bool) {
 	return int32(ifIndexVal), strings.Join(octets, "."), true
 }
 
-func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) map[string]int32 {
+func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) (map[string]int32, map[int32]int) {
 	bridgePortToIfIndex := make(map[int32]int32)
 	_ = client.BulkWalk(oidDot1dBasePortIfIndex, func(pdu gosnmp.SnmpPDU) error {
 		baseParts := strings.Split(strings.TrimPrefix(oidDot1dBasePortIfIndex, "."), ".")
@@ -2352,6 +2411,9 @@ func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) map[string]i
 	})
 
 	result := make(map[string]int32)
+	fdbMacCountByIf := make(map[int32]int)
+	seenByIfMAC := make(map[string]struct{})
+
 	_ = client.BulkWalk(oidDot1dTpFdbPort, func(pdu gosnmp.SnmpPDU) error {
 		bridgePort, ok := e.getInt32FromPDU(pdu, "dot1dTpFdbPort")
 		if !ok || bridgePort <= 0 {
@@ -2368,11 +2430,55 @@ func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) map[string]i
 			return nil
 		}
 
-		result[NormalizeMAC(mac)] = ifIndex
+		normalized := NormalizeMAC(mac)
+		result[normalized] = ifIndex
+		seenKey := fmt.Sprintf("%d|%s", ifIndex, normalized)
+		if _, exists := seenByIfMAC[seenKey]; !exists {
+			seenByIfMAC[seenKey] = struct{}{}
+			fdbMacCountByIf[ifIndex]++
+		}
+
 		return nil
 	})
 
-	return result
+	return result, fdbMacCountByIf
+}
+
+func (e *DiscoveryEngine) knownDeviceIPv4Set(job *DiscoveryJob) map[string]bool {
+	known := make(map[string]bool)
+	if job == nil || job.Results == nil {
+		return known
+	}
+
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	for _, device := range job.Results.Devices {
+		if device == nil {
+			continue
+		}
+
+		if ip := strings.TrimSpace(device.IP); isIPv4(ip) {
+			known[ip] = true
+		}
+
+		for k := range device.Metadata {
+			if strings.HasPrefix(k, "alt_ip:") {
+				ip := strings.TrimPrefix(k, "alt_ip:")
+				if isIPv4(ip) {
+					known[ip] = true
+				}
+			}
+			if strings.HasPrefix(k, "ip_alias:") {
+				ip := strings.TrimPrefix(k, "ip_alias:")
+				if isIPv4(ip) {
+					known[ip] = true
+				}
+			}
+		}
+	}
+
+	return known
 }
 
 func macFromFDBOID(oidName string) (string, bool) {
