@@ -27,3 +27,27 @@ BMP routing events SHALL enter ServiceRadar through `BMP collector (risotto) -> 
 - **WHEN** external BMP events are processed
 - **THEN** the system SHALL process BMP events through the JetStream/Broadway path
 - **AND** the agent stream contract SHALL remain unchanged for agent-originated data
+
+### Requirement: Routing Signal Persistence Fidelity
+The observability pipeline SHALL persist BMP routing signals in a way that preserves raw payload fidelity while storing normalized causal envelope fields for query and overlay use.
+
+#### Scenario: Routing event persists normalized and raw forms
+- **GIVEN** a BMP routing event is consumed by Broadway
+- **WHEN** the event is persisted
+- **THEN** the system SHALL store normalized causal fields used by overlays and queries
+- **AND** the system SHALL preserve raw routing payload data for replay/remapping
+
+#### Scenario: OCSF projection remains optional
+- **GIVEN** a routing event does not map cleanly to a single OCSF activity class
+- **WHEN** the event is normalized and persisted
+- **THEN** the system SHALL preserve the event in canonical causal form without dropping routing detail
+- **AND** optional OCSF projection fields MAY be emitted where semantically suitable
+
+### Requirement: Routing Correlation Keys
+Normalized BMP causal events SHALL include routing correlation keys needed to join with topology and causal overlays.
+
+#### Scenario: Event carries topology-joinable keys
+- **GIVEN** a BMP event includes peer/router context
+- **WHEN** the event is normalized
+- **THEN** the normalized envelope SHALL include stable source identity and routing correlation fields
+- **AND** those fields SHALL be sufficient for downstream topology/causal association workflows

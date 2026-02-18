@@ -6,7 +6,10 @@
 ## What Changes
 - Add discovery requirements that prohibit topology-link evidence from being used as device identity proof and require deterministic identity anchors for mapper outputs.
 - Add observability signal requirements for normalized external causal signals (SIEM + BMP/BGP) with provenance, severity, and replay-safe event identity.
+- Add explicit persistence guidance: preserve raw routing payload plus normalized causal envelope fields so OCSF projection remains optional, not lossy.
 - Add a new `topology-causal-overlays` capability that separates structural layout from causal state overlays.
+- Add explicit topology integration requirements so causal overlays are joined against AGE-authoritative topology (`platform_graph`) and not UI-side identity heuristics.
+- Add explicit God-View atmosphere requirements so routing-driven causal states (root cause/affected/healthy/unknown) map to stable overlay behavior without coordinate churn.
 - Add a `prop2.md` traceability artifact that enumerates every actionable `prop2.md` item and maps each item to:
   - a spec requirement,
   - an implementation task,
@@ -39,6 +42,8 @@ This proposal uses `prop2-traceability.md` as the authoritative scope ledger.
 - Every `implement` item in `prop2-traceability.md` has completed task coverage and test evidence.
 - No topology-adjacency-only evidence can cause device identity equivalence.
 - BMP causal events flow through `risotto -> JetStream -> Broadway` and update overlays without agent-stream dependency.
+- Causal signal persistence retains raw payload and normalized envelope fields required for future remapping without replay loss.
+- Causal overlay evaluation uses AGE-authoritative topology context and produces atmosphere-layer classifications without structural coordinate churn when topology revision is unchanged.
 - Causal bursts update classifications while topology coordinates remain stable for unchanged topology revision.
 - `openspec validate add-causal-topology-signal-pipeline --strict` passes.
 
