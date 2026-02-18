@@ -484,6 +484,20 @@ patch_file(
         ),
     ],
 )
+
+patch_file(
+    Path("deps/opentelemetry_api_experimental/mix.exs"),
+    [
+        (
+            "    {:ok, config} = :file.consult('rebar.config')\\n",
+            "    {:ok, config} = :file.consult(~c'rebar.config')\\n",
+        ),
+        (
+            "      :file.consult('src/opentelemetry_api_experimental.app.src')\\n",
+            "      :file.consult(~c'src/opentelemetry_api_experimental.app.src')\\n",
+        ),
+    ],
+)
 PY
 """
     # Note: We use a placeholder and manual replacement instead of .format()

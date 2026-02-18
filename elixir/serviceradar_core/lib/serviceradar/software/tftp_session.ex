@@ -140,6 +140,25 @@ defmodule ServiceRadar.Software.TftpSession do
       change set_attribute(:status, :configuring)
     end
 
+    create :create_and_queue do
+      accept [
+        :mode,
+        :agent_id,
+        :expected_filename,
+        :storage_destination,
+        :timeout_seconds,
+        :image_id,
+        :notes,
+        :bind_address,
+        :port,
+        :max_file_size
+      ]
+
+      description "Create and immediately queue a TFTP session for agent dispatch"
+      change set_attribute(:status, :configuring)
+      change ServiceRadar.Software.Changes.QueueTftpSession
+    end
+
     read :list do
       description "List TFTP sessions"
 
@@ -344,9 +363,9 @@ defmodule ServiceRadar.Software.TftpSession do
     attribute :port, :integer do
       allow_nil? true
       public? true
-      default 6969
+      default 69
       description "UDP port for the TFTP server"
-      constraints min: 1024, max: 65535
+      constraints min: 1, max: 65535
     end
 
     attribute :max_file_size, :integer do
@@ -451,6 +470,13 @@ defmodule ServiceRadar.Software.TftpSession do
     end
 
     policy action(:create) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "tftp.session.create"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
+    end
+
+    policy action(:create_and_queue) do
       authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
                     permission: "tftp.session.create"}
       authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,

@@ -30,12 +30,12 @@ chmod 755 /etc/serviceradar/
 chmod 755 /var/lib/serviceradar
 chmod 755 /var/lib/serviceradar/cache
 
-# Set required capability for ICMP scanning
+# Set required capabilities for ICMP scanning and privileged TFTP port binding
 if [ -x /usr/local/bin/serviceradar-agent ]; then
-    setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent || {
-        echo "Warning: Failed to set cap_net_raw capability on /usr/local/bin/serviceradar-agent"
-        echo "ICMP scanning will not work without this capability. Ensure libcap2-bin is installed and run:"
-        echo "  sudo setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent"
+    setcap cap_net_raw,cap_net_bind_service=+ep /usr/local/bin/serviceradar-agent || {
+        echo "Warning: Failed to set capabilities on /usr/local/bin/serviceradar-agent"
+        echo "ICMP scanning and TFTP port 69 binding require these capabilities. Ensure libcap2-bin is installed and run:"
+        echo "  sudo setcap cap_net_raw,cap_net_bind_service=+ep /usr/local/bin/serviceradar-agent"
     }
 fi
 
@@ -54,5 +54,7 @@ else
     echo "Skipping serviceradar-agent start: enrollment assets not found. Run serviceradar-cli enroll, then: systemctl restart serviceradar-agent"
 fi
 
-# Set required capability for ICMP scanning
-setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
+# Ensure required capabilities are set after service management steps
+if [ -x /usr/local/bin/serviceradar-agent ]; then
+    setcap cap_net_raw,cap_net_bind_service=+ep /usr/local/bin/serviceradar-agent || true
+fi

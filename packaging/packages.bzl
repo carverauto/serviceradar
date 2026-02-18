@@ -8,7 +8,7 @@ PACKAGES = {
         "architecture": "amd64",
         "section": "utils",
         "priority": "optional",
-        "deb_depends": ["systemd"],
+        "deb_depends": ["systemd", "libcap2-bin"],
         "rpm_requires": ["systemd"],
         "rpm_tags": [],
         "files": [
