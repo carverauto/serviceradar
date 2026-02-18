@@ -420,7 +420,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   end
 
   def handle_event("test_s3", _params, socket) do
-    result = test_s3_connection()
+    result = test_s3_connection(socket)
     {:noreply, assign(socket, :s3_test_result, result)}
   end
 
@@ -2105,21 +2105,90 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     assign(socket, :storage_form, form)
   end
 
-  defp s3_env_configured? do
-    access_key = System.get_env("S3_ACCESS_KEY_ID")
-    secret_key = System.get_env("S3_SECRET_ACCESS_KEY")
-    is_binary(access_key) and access_key != "" and
-      is_binary(secret_key) and secret_key != ""
-  end
+  defp test_s3_connection(socket) do
+    form = socket.assigns.storage_form || %{}
+    config = socket.assigns.storage_config
 
-  defp test_s3_connection do
-    case Storage.list("__test__/") do
-      {:ok, _} -> :ok
-      {:error, reason} -> inspect(reason)
+    mode =
+      form["storage_mode"] ||
+        (config && to_string(config.storage_mode)) ||
+        "local"
+
+    if mode in ["s3", "both"] do
+      bucket = form_value(form, "s3_bucket", config && config.s3_bucket)
+      region = form_value(form, "s3_region", config && config.s3_region) || "us-east-1"
+      endpoint = form_value(form, "s3_endpoint", config && config.s3_endpoint)
+      prefix = form_value(form, "s3_prefix", config && config.s3_prefix) || "software/"
+
+      cond do
+        bucket in [nil, ""] ->
+          "S3 bucket is required"
+
+        true ->
+          case resolve_s3_credentials(config) do
+            {:ok, access_key, secret_key} ->
+              s3_config = %{
+                bucket: bucket,
+                region: region,
+                endpoint: endpoint,
+                prefix: prefix,
+                access_key_id: access_key,
+                secret_access_key: secret_key
+              }
+
+              case Storage.test_s3_connection(s3_config) do
+                :ok -> :ok
+                {:error, reason} -> inspect(reason)
+              end
+
+            {:error, reason} ->
+              reason
+          end
+      end
+    else
+      "Storage mode must be set to S3 or Both to test S3 connectivity"
     end
   rescue
     e -> Exception.message(e)
   end
+
+  defp resolve_s3_credentials(config) do
+    access_key = String.trim(System.get_env("S3_ACCESS_KEY_ID") || "")
+    secret_key = String.trim(System.get_env("S3_SECRET_ACCESS_KEY") || "")
+
+    cond do
+      access_key != "" and secret_key != "" ->
+        {:ok, access_key, secret_key}
+
+      is_nil(config) ->
+        {:error, "S3 credentials are required"}
+
+      true ->
+        case Ash.load(config, [:s3_access_key_id, :s3_secret_access_key]) do
+          {:ok, loaded} ->
+            db_access = loaded.calculations[:s3_access_key_id] |> to_string_safe() |> String.trim()
+            db_secret = loaded.calculations[:s3_secret_access_key] |> to_string_safe() |> String.trim()
+
+            if db_access != "" and db_secret != "" do
+              {:ok, db_access, db_secret}
+            else
+              {:error, "S3 credentials are required"}
+            end
+
+          _ ->
+            {:error, "S3 credentials are required"}
+        end
+    end
+  end
+
+  defp form_value(form, key, fallback) do
+    value = String.trim(form[key] || "")
+    if value == "", do: fallback, else: value
+  end
+
+  defp to_string_safe(nil), do: ""
+  defp to_string_safe(value) when is_binary(value), do: value
+  defp to_string_safe(value), do: to_string(value)
 
   defp default_upload_form do
     %{
