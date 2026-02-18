@@ -14,8 +14,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
-  alias ServiceRadar.Observability.CausalPubSub
   alias ServiceRadar.Observability.BmpSettingsRuntime
+  alias ServiceRadar.Observability.CausalPubSub
 
   require Logger
 
@@ -138,16 +138,13 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       time: normalized["event_time"],
       event_type: normalized["event_type"] || "unknown",
       severity_id: normalized["severity_id"],
-      router_id: correlation["router_id"] || source_identity["router_id"],
-      router_ip: correlation["router_ip"] || source_identity["router_ip"],
-      peer_ip: correlation["peer_ip"] || source_identity["peer_ip"],
+      router_id: merged_identity(correlation, source_identity, "router_id"),
+      router_ip: merged_identity(correlation, source_identity, "router_ip"),
+      peer_ip: merged_identity(correlation, source_identity, "peer_ip"),
       peer_asn: correlation["peer_asn"],
       local_asn: correlation["local_asn"],
       prefix: correlation["prefix"],
-      message:
-        payload["message"] ||
-          payload["description"] ||
-          "#{normalized["signal_type"] || "bmp"} routing signal",
+      message: routing_message(payload, normalized),
       metadata: normalized,
       raw_data: raw_data,
       created_at: DateTime.utc_now()
@@ -155,6 +152,14 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp build_routing_event_row(_), do: nil
+
+  defp merged_identity(correlation, source_identity, key) do
+    correlation[key] || source_identity[key]
+  end
+
+  defp routing_message(payload, normalized) do
+    payload["message"] || payload["description"] || "#{normalized["signal_type"] || "bmp"} routing signal"
+  end
 
   defp normalize_payload(payload, metadata, raw_data) when is_map(payload) do
     subject = metadata[:subject] || ""

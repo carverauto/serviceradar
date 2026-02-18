@@ -221,22 +221,16 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   def network_tabs(current_path, current_scope \\ nil) do
     path = current_path || ""
+    network_tabs_with_state(path)
+    |> Enum.filter(&show_network_tab?(&1.label, current_scope))
+  end
 
-    can_networks = RBAC.can?(current_scope, "settings.networks.manage")
-    can_netflow = RBAC.can?(current_scope, "settings.netflow.manage")
-    can_integrations = RBAC.can?(current_scope, "settings.integrations.manage")
-    can_snmp = RBAC.can?(current_scope, "settings.snmp_profiles.manage")
-
+  defp network_tabs_with_state(path) do
     [
       %{
         label: "Sweep Profiles",
         navigate: ~p"/settings/networks",
-        active:
-          String.starts_with?(path, "/settings/networks") and
-            not String.starts_with?(path, "/settings/networks/discovery") and
-            not String.starts_with?(path, "/settings/networks/integrations") and
-            not String.starts_with?(path, "/settings/networks/device-enrichment") and
-            not String.starts_with?(path, "/settings/networks/bmp")
+        active: sweep_profiles_active?(path)
       },
       %{
         label: "NetFlow",
@@ -269,14 +263,28 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active: String.starts_with?(path, "/settings/networks/integrations")
       }
     ]
-    |> Enum.filter(fn tab ->
-      case tab.label do
-        "Integrations" -> can_integrations or is_nil(current_scope)
-        "SNMP" -> can_snmp or is_nil(current_scope)
-        "NetFlow" -> can_netflow or is_nil(current_scope)
-        _ -> can_networks or is_nil(current_scope)
+  end
+
+  defp sweep_profiles_active?(path) do
+    String.starts_with?(path, "/settings/networks") and
+      not String.starts_with?(path, "/settings/networks/discovery") and
+      not String.starts_with?(path, "/settings/networks/integrations") and
+      not String.starts_with?(path, "/settings/networks/device-enrichment") and
+      not String.starts_with?(path, "/settings/networks/bmp")
+  end
+
+  defp show_network_tab?(_label, nil), do: true
+
+  defp show_network_tab?(label, scope) do
+    permission =
+      case label do
+        "Integrations" -> "settings.integrations.manage"
+        "SNMP" -> "settings.snmp_profiles.manage"
+        "NetFlow" -> "settings.netflow.manage"
+        _ -> "settings.networks.manage"
       end
-    end)
+
+    RBAC.can?(scope, permission)
   end
 
   # Agents section sub-navigation

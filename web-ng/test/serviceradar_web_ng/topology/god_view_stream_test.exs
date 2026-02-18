@@ -543,8 +543,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
         router_id: router_uid,
         router_ip: "10.0.0.1",
         peer_ip: peer_ip,
-        peer_asn: 64513,
-        local_asn: 64512,
+        peer_asn: 64_513,
+        local_asn: 64_512,
         prefix: nil,
         message: "BGP peer down",
         metadata: %{

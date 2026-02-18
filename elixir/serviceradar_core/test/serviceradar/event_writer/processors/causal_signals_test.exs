@@ -155,7 +155,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         "deviceId" => "router-edge-01",
         "peer_ip" => "198.51.100.77",
         "peerAsn" => "64522",
-        "localAsn" => 64512,
+        "localAsn" => 64_512,
         "prefix" => "203.0.113.0/24",
         "vrf" => "default"
       }

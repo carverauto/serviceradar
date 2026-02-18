@@ -83,18 +83,26 @@ defmodule ServiceRadarWebNG.Api.BmpSettingsController do
       {"god_view_routing_causal_severity_threshold", :god_view_routing_causal_severity_threshold}
     ]
 
-    Enum.reduce_while(fields, {:ok, %{}}, fn {key, attr}, {:ok, acc} ->
-      case Map.fetch(params, key) do
-        :error ->
-          {:cont, {:ok, acc}}
-
-        {:ok, value} ->
-          case int_param(value) do
-            {:ok, int} -> {:cont, {:ok, Map.put(acc, attr, int)}}
-            {:error, :invalid_integer} -> {:halt, {:error, {:invalid_integer, key}}}
-          end
+    Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, acc} ->
+      case parse_field(params, field) do
+        {:ok, :skip} -> {:cont, {:ok, acc}}
+        {:ok, {attr, int}} -> {:cont, {:ok, Map.put(acc, attr, int)}}
+        {:error, {:invalid_integer, _} = error} -> {:halt, {:error, error}}
       end
     end)
+  end
+
+  defp parse_field(params, {key, attr}) do
+    case Map.fetch(params, key) do
+      :error ->
+        {:ok, :skip}
+
+      {:ok, value} ->
+        case int_param(value) do
+          {:ok, int} -> {:ok, {attr, int}}
+          {:error, :invalid_integer} -> {:error, {:invalid_integer, key}}
+        end
+    end
   end
 
   defp int_param(value) when is_integer(value), do: {:ok, value}
