@@ -87,18 +87,18 @@ ServiceRadar provides an official Helm chart for Kubernetes deployments, publish
 
 ```bash
 # Inspect chart metadata and default values
-helm show chart oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.91
-helm show values oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.91 > values.yaml
+helm show chart oci://ghcr.io/carverauto/charts/serviceradar --version 1.1.1
+helm show values oci://ghcr.io/carverauto/charts/serviceradar --version 1.1.1 > values.yaml
 
 # Install a pinned release (recommended)
 helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
-  --version 1.0.91 \
+  --version 1.1.1 \
   -n serviceradar --create-namespace \
-  --set global.imageTag="v1.0.91"
+  --set global.imageTag="v1.1.1"
 
 # Track mutable images (staging/dev): pulls :latest and forces re-pull
 helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
-  --version 1.0.91 \
+  --version 1.1.1 \
   -n serviceradar --create-namespace \
   --set global.imageTag="latest" \
   --set global.imagePullPolicy="Always"
@@ -111,13 +111,13 @@ kubectl get secret serviceradar-secrets -n serviceradar \
 Note: if you omit `global.imageTag`, the chart defaults to `latest`. Set `global.imagePullPolicy=Always` when you want to pick up new pushes on restart.
 
 Docker Compose notes:
-- Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.0.91`).
+- Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.1.1`).
 - Set `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env` to default to the dev overlay without `-f`.
 
 **Chart URL:** `oci://ghcr.io/carverauto/charts/serviceradar`
 
 Notes:
-- [Chart](https://github.com/carverauto/serviceradar/blob/staging/helm/serviceradar/Chart.yaml) versions are like `1.0.91`; ServiceRadar image tags are like `v1.0.91`.
+- [Chart](https://github.com/carverauto/serviceradar/blob/staging/helm/serviceradar/Chart.yaml) versions are like `1.1.1`; ServiceRadar image tags are like `v1.1.1`.
 - If your cluster requires registry credentials, set `image.registryPullSecret` (default `ghcr-io-cred`).
 
 For ArgoCD deployments, use `ghcr.io/carverauto/charts` as the repository URL (without the `oci://` prefix):
@@ -135,11 +135,11 @@ spec:
   source:
     repoURL: ghcr.io/carverauto/charts
     chart: serviceradar
-    targetRevision: "1.0.91"
+    targetRevision: "1.1.1"
     helm:
       values: |
         global:
-          imageTag: "v1.0.91"
+          imageTag: "v1.1.1"
 ```
 
 ## Architecture
