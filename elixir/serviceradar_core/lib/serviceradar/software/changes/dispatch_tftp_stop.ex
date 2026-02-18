@@ -34,20 +34,7 @@ defmodule ServiceRadar.Software.Changes.DispatchTftpStop do
       if previous_status == :configuring do
         {:ok, record}
       else
-        case safe_dispatch_stop(record.agent_id, payload, opts) do
-          {:ok, _command_id} ->
-            {:ok, record}
-
-          {:error, reason} ->
-            Logger.warning(
-              "Ignoring tftp.stop_session dispatch failure during cancel",
-              session_id: record.id,
-              agent_id: record.agent_id,
-              reason: inspect(reason)
-            )
-
-            {:ok, record}
-        end
+        dispatch_cancel_stop(record, payload, opts)
       end
     end)
   end
@@ -55,12 +42,27 @@ defmodule ServiceRadar.Software.Changes.DispatchTftpStop do
   @impl true
   def atomic(_changeset, _opts, _context), do: :not_atomic
 
-  defp safe_dispatch_stop(agent_id, payload, opts) do
-    try do
-      AgentCommandBus.dispatch(agent_id, "tftp.stop_session", payload, opts)
-    catch
-      :exit, reason ->
-        {:error, {:dispatch_exit, reason}}
+  defp dispatch_cancel_stop(record, payload, opts) do
+    case safe_dispatch_stop(record.agent_id, payload, opts) do
+      {:ok, _command_id} ->
+        {:ok, record}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Ignoring tftp.stop_session dispatch failure during cancel",
+          session_id: record.id,
+          agent_id: record.agent_id,
+          reason: inspect(reason)
+        )
+
+        {:ok, record}
     end
+  end
+
+  defp safe_dispatch_stop(agent_id, payload, opts) do
+    AgentCommandBus.dispatch(agent_id, "tftp.stop_session", payload, opts)
+  catch
+    :exit, reason ->
+      {:error, {:dispatch_exit, reason}}
   end
 end

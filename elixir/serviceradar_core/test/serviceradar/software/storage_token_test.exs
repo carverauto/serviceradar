@@ -99,7 +99,7 @@ defmodule ServiceRadar.Software.StorageTokenTest do
 
       # Tamper with the payload portion
       [_payload_b64, sig] = String.split(token, ".", parts: 2)
-      tampered_payload = Base.url_encode64("{\"id\":\"hacked\"}", padding: false)
+      tampered_payload = Base.url_encode64(~s({"id":"hacked"}), padding: false)
 
       assert {:error, :invalid_signature} =
                StorageToken.verify_token(tampered_payload <> "." <> sig)

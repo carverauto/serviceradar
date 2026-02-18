@@ -51,6 +51,10 @@ var (
 	ErrNoChunksToSend = errors.New("no status chunks to send")
 	// ErrConnectionShutdown indicates the gRPC connection entered shutdown state.
 	ErrConnectionShutdown = errors.New("connection shutdown")
+	// ErrDownloadHashMismatch indicates the downloaded content did not match the server hash.
+	ErrDownloadHashMismatch = errors.New("download hash mismatch")
+	// ErrDownloadExpectedHashMismatch indicates the downloaded content did not match request expected hash.
+	ErrDownloadExpectedHashMismatch = errors.New("download hash mismatch with expected hash")
 )
 
 const (
@@ -525,7 +529,11 @@ func (g *GatewayClient) UploadFile(ctx context.Context, sessionID, filename, fil
 	if err != nil {
 		return nil, fmt.Errorf("open file for upload: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			g.logger.Warn().Err(closeErr).Str("path", filePath).Msg("failed to close upload file")
+		}
+	}()
 
 	fi, err := file.Stat()
 	if err != nil {
@@ -585,7 +593,7 @@ func (g *GatewayClient) UploadFile(ctx context.Context, sessionID, filename, fil
 		}
 
 		if readErr != nil {
-			if readErr == io.EOF {
+			if errors.Is(readErr, io.EOF) {
 				break
 			}
 
@@ -630,7 +638,11 @@ func (g *GatewayClient) DownloadFile(ctx context.Context, req *proto.FileDownloa
 	if err != nil {
 		return fmt.Errorf("create destination file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			g.logger.Warn().Err(closeErr).Str("path", destPath).Msg("failed to close download file")
+		}
+	}()
 
 	hasher := sha256.New()
 	var totalBytes int64
@@ -639,7 +651,7 @@ func (g *GatewayClient) DownloadFile(ctx context.Context, req *proto.FileDownloa
 	for {
 		chunk, recvErr := stream.Recv()
 		if recvErr != nil {
-			if recvErr == io.EOF {
+			if errors.Is(recvErr, io.EOF) {
 				break
 			}
 
@@ -669,7 +681,7 @@ func (g *GatewayClient) DownloadFile(ctx context.Context, req *proto.FileDownloa
 			// Remove the corrupt file
 			_ = os.Remove(destPath)
 
-			return fmt.Errorf("download hash mismatch: expected %s, got %s", serverHash, computed)
+			return fmt.Errorf("%w: expected=%s got=%s", ErrDownloadHashMismatch, serverHash, computed)
 		}
 	}
 
@@ -679,7 +691,7 @@ func (g *GatewayClient) DownloadFile(ctx context.Context, req *proto.FileDownloa
 		if computed != req.ExpectedHash {
 			_ = os.Remove(destPath)
 
-			return fmt.Errorf("download hash mismatch with expected: expected %s, got %s", req.ExpectedHash, computed)
+			return fmt.Errorf("%w: expected=%s got=%s", ErrDownloadExpectedHashMismatch, req.ExpectedHash, computed)
 		}
 	}
 

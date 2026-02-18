@@ -85,41 +85,11 @@ defmodule ServiceRadar.Software.TftpStatusHandler do
 
   defp update_session_progress(session, data, actor) do
     message = Map.get(data, :message, "")
+    params = progress_params(data)
 
-    params =
-      %{}
-      |> maybe_put(:bytes_transferred, Map.get(data, :payload, %{}) |> Map.get("bytes_transferred"))
-      |> maybe_put(:transfer_rate, Map.get(data, :payload, %{}) |> Map.get("transfer_rate"))
-
-    # Transition based on progress message content
-    cond do
-      session.status == :queued and session.mode == :receive ->
-        transition(session, :start_waiting, %{}, actor)
-
-      session.status == :waiting and String.contains?(message, "receiving") ->
-        transition(session, :start_receiving, %{}, actor)
-
-      session.status == :queued and session.mode == :serve ->
-        transition(session, :start_staging, %{}, actor)
-
-      session.status == :staging and String.contains?(message, "ready") ->
-        transition(session, :mark_ready, %{}, actor)
-
-      session.status == :ready and String.contains?(message, "serving") ->
-        transition(session, :start_serving, %{}, actor)
-
-      params != %{} ->
-        case Ash.update(session, action: :update_progress, params: params, actor: actor) do
-          {:ok, updated} ->
-            TftpPubSub.broadcast_session_progress(updated.id, params)
-            :ok
-
-          _ ->
-            :ok
-        end
-
-      true ->
-        :ok
+    case progress_transition(session, message) do
+      {:transition, action} -> transition(session, action, %{}, actor)
+      :none -> persist_progress_update(session, params, actor)
     end
   end
 
@@ -187,4 +157,45 @@ defmodule ServiceRadar.Software.TftpStatusHandler do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp progress_params(data) do
+    payload = Map.get(data, :payload, %{})
+
+    %{}
+    |> maybe_put(:bytes_transferred, Map.get(payload, "bytes_transferred"))
+    |> maybe_put(:transfer_rate, Map.get(payload, "transfer_rate"))
+  end
+
+  defp progress_transition(%{status: :queued, mode: :receive}, _message),
+    do: {:transition, :start_waiting}
+
+  defp progress_transition(%{status: :waiting}, message) when is_binary(message) do
+    if String.contains?(message, "receiving"), do: {:transition, :start_receiving}, else: :none
+  end
+
+  defp progress_transition(%{status: :queued, mode: :serve}, _message),
+    do: {:transition, :start_staging}
+
+  defp progress_transition(%{status: :staging}, message) when is_binary(message) do
+    if String.contains?(message, "ready"), do: {:transition, :mark_ready}, else: :none
+  end
+
+  defp progress_transition(%{status: :ready}, message) when is_binary(message) do
+    if String.contains?(message, "serving"), do: {:transition, :start_serving}, else: :none
+  end
+
+  defp progress_transition(_, _), do: :none
+
+  defp persist_progress_update(_session, params, _actor) when params == %{}, do: :ok
+
+  defp persist_progress_update(session, params, actor) do
+    case Ash.update(session, action: :update_progress, params: params, actor: actor) do
+      {:ok, updated} ->
+        TftpPubSub.broadcast_session_progress(updated.id, params)
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
 end

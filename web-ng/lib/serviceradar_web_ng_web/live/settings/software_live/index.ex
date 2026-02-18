@@ -412,7 +412,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
            |> put_flash(:info, "S3 credentials saved")}
 
         {:error, error} ->
-          {:noreply, put_flash(socket, :error, "Failed to save credentials: #{format_error(error)}")}
+          {:noreply,
+           put_flash(socket, :error, "Failed to save credentials: #{format_error(error)}")}
       end
     else
       {:noreply, put_flash(socket, :error, "Save storage config first")}
@@ -486,11 +487,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     sessions =
       Enum.map(socket.assigns.sessions, fn session ->
         if session.id == data.id do
-          %{session |
-            status: data.status,
-            bytes_transferred: data.bytes_transferred || session.bytes_transferred,
-            transfer_rate: data.transfer_rate || session.transfer_rate,
-            file_size: data.file_size || session.file_size
+          %{
+            session
+            | status: data.status,
+              bytes_transferred: data.bytes_transferred || session.bytes_transferred,
+              transfer_rate: data.transfer_rate || session.transfer_rate,
+              file_size: data.file_size || session.file_size
           }
         else
           session
@@ -503,13 +505,17 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   defp maybe_update_selected_session(socket, data) do
     case socket.assigns.selected_session do
       %{id: id} when id == data.id ->
-        selected = %{socket.assigns.selected_session |
-          status: data.status,
-          bytes_transferred: data.bytes_transferred || socket.assigns.selected_session.bytes_transferred,
-          transfer_rate: data.transfer_rate || socket.assigns.selected_session.transfer_rate,
-          file_size: data.file_size || socket.assigns.selected_session.file_size
+        selected = %{
+          socket.assigns.selected_session
+          | status: data.status,
+            bytes_transferred:
+              data.bytes_transferred || socket.assigns.selected_session.bytes_transferred,
+            transfer_rate: data.transfer_rate || socket.assigns.selected_session.transfer_rate,
+            file_size: data.file_size || socket.assigns.selected_session.file_size
         }
+
         assign(socket, :selected_session, selected)
+
       _ ->
         socket
     end
@@ -519,9 +525,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     sessions =
       Enum.map(socket.assigns.sessions, fn session ->
         if session.id == data.session_id do
-          %{session |
-            bytes_transferred: data[:bytes_transferred] || session.bytes_transferred,
-            transfer_rate: data[:transfer_rate] || session.transfer_rate
+          %{
+            session
+            | bytes_transferred: data[:bytes_transferred] || session.bytes_transferred,
+              transfer_rate: data[:transfer_rate] || session.transfer_rate
           }
         else
           session
@@ -539,7 +546,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/software">
         <.settings_nav current_path="/settings/software" current_scope={@current_scope} />
-        <.software_nav current_path={current_software_path(@active_tab)} current_scope={@current_scope} />
+        <.software_nav
+          current_path={current_software_path(@active_tab)}
+          current_scope={@current_scope}
+        />
 
         <div class="space-y-4">
           <%= case @active_tab do %>
@@ -722,10 +732,17 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
         <div class="rounded-lg border border-base-200 p-4 space-y-2">
           <div class="text-xs font-semibold uppercase text-base-content/60">Metadata</div>
           <div class="space-y-1 text-sm">
-            <div><span class="text-base-content/60">Device Type:</span> {@image.device_type || "Any"}</div>
+            <div>
+              <span class="text-base-content/60">Device Type:</span> {@image.device_type || "Any"}
+            </div>
             <div><span class="text-base-content/60">Filename:</span> {@image.filename}</div>
-            <div><span class="text-base-content/60">File Size:</span> {format_bytes(@image.file_size)}</div>
-            <div><span class="text-base-content/60">Status:</span> <.image_status_badge status={@image.status} /></div>
+            <div>
+              <span class="text-base-content/60">File Size:</span> {format_bytes(@image.file_size)}
+            </div>
+            <div>
+              <span class="text-base-content/60">Status:</span>
+              <.image_status_badge status={@image.status} />
+            </div>
           </div>
         </div>
 
@@ -734,12 +751,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
           <div class="space-y-1 text-sm">
             <div><span class="text-base-content/60">SHA-256:</span></div>
             <div class="font-mono text-xs break-all">{@image.content_hash || "Not computed"}</div>
-            <div><span class="text-base-content/60">Object Key:</span> {@image.object_key || "Not stored"}</div>
+            <div>
+              <span class="text-base-content/60">Object Key:</span> {@image.object_key || "Not stored"}
+            </div>
             <div>
               <span class="text-base-content/60">Signature:</span>
               <%= if @image.signature && @image.signature != %{} do %>
-                <.ui_badge variant="info" size="xs">{@image.signature["source"] || "signed"}</.ui_badge>
-                <span :if={@image.signature["signer"]} class="text-xs ml-1">{@image.signature["signer"]}</span>
+                <.ui_badge variant="info" size="xs">
+                  {@image.signature["source"] || "signed"}
+                </.ui_badge>
+                <span :if={@image.signature["signer"]} class="text-xs ml-1">
+                  {@image.signature["signer"]}
+                </span>
               <% else %>
                 <span class="text-xs text-base-content/50">Unsigned</span>
               <% end %>
@@ -955,7 +978,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
           <select name="status" class="select select-sm select-bordered" phx-change="filter_sessions">
             <option value="">All Statuses</option>
             <option value="active" selected={@session_filter_status == "active"}>Active</option>
-            <option value="completed" selected={@session_filter_status == "completed"}>Completed</option>
+            <option value="completed" selected={@session_filter_status == "completed"}>
+              Completed
+            </option>
             <option value="failed" selected={@session_filter_status == "failed"}>Failed</option>
           </select>
           <.link
@@ -1015,7 +1040,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
             <%= for session <- @sessions do %>
               <tr class="hover:bg-base-200/30">
                 <td>
-                  <.ui_badge variant={if(session.mode == :receive, do: "info", else: "warning")} size="xs">
+                  <.ui_badge
+                    variant={if(session.mode == :receive, do: "info", else: "warning")}
+                    size="xs"
+                  >
                     {session.mode}
                   </.ui_badge>
                 </td>
@@ -1050,7 +1078,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
                       Queue
                     </button>
                     <button
-                      :if={@can_manage and session.status in [:configuring, :queued, :waiting, :receiving, :staging, :ready, :serving]}
+                      :if={
+                        @can_manage and
+                          session.status in [
+                            :configuring,
+                            :queued,
+                            :waiting,
+                            :receiving,
+                            :staging,
+                            :ready,
+                            :serving
+                          ]
+                      }
                       class="btn btn-ghost btn-xs text-error"
                       phx-click="cancel_session"
                       phx-value-id={session.id}
@@ -1104,7 +1143,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
             Queue for Dispatch
           </button>
           <button
-            :if={@can_manage and @session.status in [:configuring, :queued, :waiting, :receiving, :staging, :ready, :serving]}
+            :if={
+              @can_manage and
+                @session.status in [
+                  :configuring,
+                  :queued,
+                  :waiting,
+                  :receiving,
+                  :staging,
+                  :ready,
+                  :serving
+                ]
+            }
             class="btn btn-error btn-sm"
             phx-click="cancel_session"
             phx-value-id={@session.id}
@@ -1128,11 +1178,20 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
         <div class="rounded-lg border border-base-200 p-4 space-y-2">
           <div class="text-xs font-semibold uppercase text-base-content/60">Configuration</div>
           <div class="space-y-1 text-sm">
-            <div><span class="text-base-content/60">Status:</span> <.session_status_badge status={@session.status} /></div>
+            <div>
+              <span class="text-base-content/60">Status:</span>
+              <.session_status_badge status={@session.status} />
+            </div>
             <div><span class="text-base-content/60">Timeout:</span> {@session.timeout_seconds}s</div>
             <div><span class="text-base-content/60">Port:</span> {@session.port || 69}</div>
-            <div :if={@session.bind_address}><span class="text-base-content/60">Bind:</span> {@session.bind_address}</div>
-            <div :if={@session.max_file_size}><span class="text-base-content/60">Max Size:</span> {format_bytes(@session.max_file_size)}</div>
+            <div :if={@session.bind_address}>
+              <span class="text-base-content/60">Bind:</span> {@session.bind_address}
+            </div>
+            <div :if={@session.max_file_size}>
+              <span class="text-base-content/60">Max Size:</span> {format_bytes(
+                @session.max_file_size
+              )}
+            </div>
           </div>
         </div>
 
@@ -1145,10 +1204,21 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
             status={@session.status}
           />
           <div class="space-y-1 text-sm">
-            <div><span class="text-base-content/60">Bytes:</span> {format_bytes(@session.bytes_transferred)}</div>
-            <div :if={@session.transfer_rate}><span class="text-base-content/60">Rate:</span> {format_bytes(@session.transfer_rate)}/s</div>
-            <div :if={@session.file_size}><span class="text-base-content/60">File Size:</span> {format_bytes(@session.file_size)}</div>
-            <div :if={@session.content_hash}><span class="text-base-content/60">SHA-256:</span> <span class="font-mono text-xs">{@session.content_hash}</span></div>
+            <div>
+              <span class="text-base-content/60">Bytes:</span> {format_bytes(
+                @session.bytes_transferred
+              )}
+            </div>
+            <div :if={@session.transfer_rate}>
+              <span class="text-base-content/60">Rate:</span> {format_bytes(@session.transfer_rate)}/s
+            </div>
+            <div :if={@session.file_size}>
+              <span class="text-base-content/60">File Size:</span> {format_bytes(@session.file_size)}
+            </div>
+            <div :if={@session.content_hash}>
+              <span class="text-base-content/60">SHA-256:</span>
+              <span class="font-mono text-xs">{@session.content_hash}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1205,7 +1275,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
               <option value="">Select an agent...</option>
               <%= for agent <- @tftp_agents do %>
                 <option value={agent.agent_id} selected={@form["agent_id"] == agent.agent_id}>
-                  {agent.agent_id}<%= if agent.partition_id do %> ({agent.partition_id})<% end %>
+                  {agent.agent_id}
+                  <%= if agent.partition_id do %>
+                    ({agent.partition_id})
+                  <% end %>
                 </option>
               <% end %>
             </select>
@@ -1281,7 +1354,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
         </div>
 
         <div class="flex gap-2 justify-end">
-          <.link navigate={~p"/settings/software/sessions"} class="btn btn-ghost btn-sm">Cancel</.link>
+          <.link navigate={~p"/settings/software/sessions"} class="btn btn-ghost btn-sm">
+            Cancel
+          </.link>
           <button type="submit" class="btn btn-primary btn-sm">Create Session</button>
         </div>
       </.form>
@@ -1377,11 +1452,20 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
 
       <%= if @config do %>
         <div class="space-y-1 text-sm">
-          <div><span class="text-base-content/60">Mode:</span> <.ui_badge variant="info" size="xs">{@config.storage_mode}</.ui_badge></div>
-          <div><span class="text-base-content/60">Local Path:</span> {@config.local_path || "/var/lib/serviceradar/software"}</div>
-          <div><span class="text-base-content/60">Retention:</span> {@config.retention_days || 90} days</div>
+          <div>
+            <span class="text-base-content/60">Mode:</span>
+            <.ui_badge variant="info" size="xs">{@config.storage_mode}</.ui_badge>
+          </div>
+          <div>
+            <span class="text-base-content/60">Local Path:</span> {@config.local_path ||
+              "/var/lib/serviceradar/software"}
+          </div>
+          <div>
+            <span class="text-base-content/60">Retention:</span> {@config.retention_days || 90} days
+          </div>
           <div :if={@config.storage_mode in [:s3, :both]}>
-            <span class="text-base-content/60">S3 Bucket:</span> {@config.s3_bucket || "Not configured"}
+            <span class="text-base-content/60">S3 Bucket:</span> {@config.s3_bucket ||
+              "Not configured"}
           </div>
           <div :if={@config.storage_mode in [:s3, :both]}>
             <span class="text-base-content/60">S3 Region:</span> {@config.s3_region || "us-east-1"}
@@ -1496,7 +1580,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
       </div>
 
       <div class="flex gap-2 justify-end">
-        <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel_edit_storage">Cancel</button>
+        <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel_edit_storage">
+          Cancel
+        </button>
         <button type="submit" class="btn btn-primary btn-sm">Save</button>
       </div>
     </.form>
@@ -1657,29 +1743,34 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   defp session_status_badge(assigns) do
     status = to_string(assigns.status)
 
-    variant =
-      case status do
-        "configuring" -> "ghost"
-        "queued" -> "info"
-        "waiting" -> "info"
-        "receiving" -> "warning"
-        "completed" -> "success"
-        "storing" -> "warning"
-        "stored" -> "success"
-        "staging" -> "info"
-        "ready" -> "info"
-        "serving" -> "warning"
-        "failed" -> "error"
-        "expired" -> "ghost"
-        "canceled" -> "ghost"
-        _ -> "ghost"
-      end
-
-    assigns = assigns |> assign(:variant, variant) |> assign(:label, status)
+    assigns =
+      assigns |> assign(:variant, session_status_variant(status)) |> assign(:label, status)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
     """
+  end
+
+  defp session_status_variant(status) do
+    Map.get(
+      %{
+        "configuring" => "ghost",
+        "queued" => "info",
+        "waiting" => "info",
+        "receiving" => "warning",
+        "completed" => "success",
+        "storing" => "warning",
+        "stored" => "success",
+        "staging" => "info",
+        "ready" => "info",
+        "serving" => "warning",
+        "failed" => "error",
+        "expired" => "ghost",
+        "canceled" => "ghost"
+      },
+      status,
+      "ghost"
+    )
   end
 
   # -- Transfer Progress --
@@ -1717,8 +1808,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
         </div>
         <div class="text-[10px] text-base-content/60">
           {format_bytes(@bytes)}
-          <span :if={@rate}> &middot; {format_bytes(@rate)}/s</span>
-          <span :if={@eta}> &middot; {format_eta(@eta)}</span>
+          <span :if={@rate}> &middot;   {format_bytes(@rate)}/s</span>
+          <span :if={@eta}> &middot;   {format_eta(@eta)}</span>
         </div>
       </div>
     <% else %>
@@ -1785,7 +1876,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
         query =
           case socket.assigns[:session_filter_status] do
             "active" ->
-              Ash.Query.filter(query,
+              Ash.Query.filter(
+                query,
                 status in [
                   :configuring,
                   :queued,
@@ -1859,67 +1951,71 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   # -- Mutations --
 
   defp handle_image_upload(socket, form) do
-    results =
-      consume_uploaded_entries(socket, :image_file, fn %{path: path}, entry ->
-        {:ok, {path, entry.client_name, entry.client_size}}
-      end)
+    with {:ok, temp_path, client_name, client_size} <- extract_uploaded_image(socket),
+         attrs <- build_image_attrs(form, client_name, client_size, temp_path),
+         {:ok, object_key} <- persist_uploaded_file(form, client_name, temp_path),
+         {:ok, _image} <-
+           create_image(Map.put(attrs, :object_key, object_key), socket.assigns.current_scope) do
+      {:noreply,
+       socket
+       |> load_images()
+       |> assign(:show_upload_form, false)
+       |> assign(:upload_errors, [])
+       |> put_flash(:info, "Image uploaded successfully")
+       |> push_navigate(to: ~p"/settings/software")}
+    else
+      {:error, message} when is_binary(message) ->
+        {:noreply, socket |> assign(:upload_errors, [message])}
 
-    case results do
-      [{temp_path, client_name, client_size}] ->
-        attrs = %{
-          name: form["name"],
-          version: form["version"],
-          device_type: form["device_type"],
-          description: form["description"],
-          filename: client_name,
-          file_size: client_size
-        }
-
-        # Build signature metadata if provided
-        attrs = maybe_add_signature(attrs, form)
-
-        # Compute hash
-        hash_result = Storage.sha256(temp_path)
-        attrs = case hash_result do
-          {:ok, hash} -> Map.put(attrs, :content_hash, hash)
-          _ -> attrs
-        end
-
-        # Store the file
-        object_key = "images/#{form["name"]}/#{form["version"]}/#{client_name}"
-
-        case Storage.put(object_key, temp_path) do
-          {:ok, _} ->
-            attrs = Map.put(attrs, :object_key, object_key)
-
-            case create_image(attrs, socket.assigns.current_scope) do
-              {:ok, _image} ->
-                {:noreply,
-                 socket
-                 |> load_images()
-                 |> assign(:show_upload_form, false)
-                 |> assign(:upload_errors, [])
-                 |> put_flash(:info, "Image uploaded successfully")
-                 |> push_navigate(to: ~p"/settings/software")}
-
-              {:error, error} ->
-                {:noreply,
-                 socket
-                 |> assign(:upload_errors, [format_error(error)])
-                 |> put_flash(:error, "Failed to create image record")}
-            end
-
-          {:error, reason} ->
-            {:noreply,
-             socket
-             |> assign(:upload_errors, ["Storage error: #{inspect(reason)}"])
-             |> put_flash(:error, "Failed to store file")}
-        end
-
-      _ ->
+      {:error, {:storage, reason}} ->
         {:noreply,
          socket
-         |> assign(:upload_errors, ["Failed to process uploaded file"])}
+         |> assign(:upload_errors, ["Storage error: #{inspect(reason)}"])
+         |> put_flash(:error, "Failed to store file")}
+
+      {:error, error} ->
+        {:noreply,
+         socket
+         |> assign(:upload_errors, [format_error(error)])
+         |> put_flash(:error, "Failed to create image record")}
+    end
+  end
+
+  defp extract_uploaded_image(socket) do
+    case consume_uploaded_entries(socket, :image_file, fn %{path: path}, entry ->
+           {:ok, {path, entry.client_name, entry.client_size}}
+         end) do
+      [{temp_path, client_name, client_size}] -> {:ok, temp_path, client_name, client_size}
+      _ -> {:error, "Failed to process uploaded file"}
+    end
+  end
+
+  defp build_image_attrs(form, client_name, client_size, temp_path) do
+    %{
+      name: form["name"],
+      version: form["version"],
+      device_type: form["device_type"],
+      description: form["description"],
+      filename: client_name,
+      file_size: client_size
+    }
+    |> maybe_add_signature(form)
+    |> maybe_add_content_hash(temp_path)
+  end
+
+  defp maybe_add_content_hash(attrs, temp_path) do
+    case Storage.sha256(temp_path) do
+      {:ok, hash} -> Map.put(attrs, :content_hash, hash)
+      _ -> attrs
+    end
+  end
+
+  defp persist_uploaded_file(form, client_name, temp_path) do
+    object_key = "images/#{form["name"]}/#{form["version"]}/#{client_name}"
+
+    case Storage.put(object_key, temp_path) do
+      {:ok, _} -> {:ok, object_key}
+      {:error, reason} -> {:error, {:storage, reason}}
     end
   end
 
@@ -2039,19 +2135,27 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   defp filter_by_date(files, nil), do: files
 
   defp filter_by_date(files, days_str) do
-    case Integer.parse(days_str) do
-      {days, _} ->
+    case parse_filter_days(days_str) do
+      {:ok, days} ->
         cutoff = DateTime.utc_now() |> DateTime.add(-days * 86_400, :second)
+        Enum.filter(files, &modified_since?(&1, cutoff))
 
-        Enum.filter(files, fn file ->
-          case file[:modified] do
-            %DateTime{} = dt -> DateTime.compare(dt, cutoff) != :lt
-            _ -> true
-          end
-        end)
-
-      _ ->
+      :error ->
         files
+    end
+  end
+
+  defp parse_filter_days(days_str) do
+    case Integer.parse(days_str) do
+      {days, _} -> {:ok, days}
+      _ -> :error
+    end
+  end
+
+  defp modified_since?(file, cutoff) do
+    case file[:modified] do
+      %DateTime{} = dt -> DateTime.compare(dt, cutoff) != :lt
+      _ -> true
     end
   end
 
@@ -2109,77 +2213,95 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     form = socket.assigns.storage_form || %{}
     config = socket.assigns.storage_config
 
-    mode =
-      form["storage_mode"] ||
-        (config && to_string(config.storage_mode)) ||
-        "local"
-
-    if mode in ["s3", "both"] do
-      bucket = form_value(form, "s3_bucket", config && config.s3_bucket)
-      region = form_value(form, "s3_region", config && config.s3_region) || "us-east-1"
-      endpoint = form_value(form, "s3_endpoint", config && config.s3_endpoint)
-      prefix = form_value(form, "s3_prefix", config && config.s3_prefix) || "software/"
-
-      cond do
-        bucket in [nil, ""] ->
-          "S3 bucket is required"
-
-        true ->
-          case resolve_s3_credentials(config) do
-            {:ok, access_key, secret_key} ->
-              s3_config = %{
-                bucket: bucket,
-                region: region,
-                endpoint: endpoint,
-                prefix: prefix,
-                access_key_id: access_key,
-                secret_access_key: secret_key
-              }
-
-              case Storage.test_s3_connection(s3_config) do
-                :ok -> :ok
-                {:error, reason} -> inspect(reason)
-              end
-
-            {:error, reason} ->
-              reason
-          end
-      end
+    with :ok <- validate_s3_mode(form, config),
+         {:ok, s3_config} <- build_s3_test_config(form, config),
+         :ok <- Storage.test_s3_connection(s3_config) do
+      :ok
     else
-      "Storage mode must be set to S3 or Both to test S3 connectivity"
+      {:error, reason} -> reason_to_message(reason)
     end
   rescue
     e -> Exception.message(e)
   end
 
   defp resolve_s3_credentials(config) do
+    case env_s3_credentials() do
+      {:ok, _, _} = credentials ->
+        credentials
+
+      {:error, _} ->
+        load_s3_credentials_from_config(config)
+    end
+  end
+
+  defp validate_s3_mode(form, config) do
+    mode = form["storage_mode"] || (config && to_string(config.storage_mode)) || "local"
+
+    if mode in ["s3", "both"] do
+      :ok
+    else
+      {:error, "Storage mode must be set to S3 or Both to test S3 connectivity"}
+    end
+  end
+
+  defp build_s3_test_config(form, config) do
+    bucket = form_value(form, "s3_bucket", config && config.s3_bucket)
+    region = form_value(form, "s3_region", config && config.s3_region) || "us-east-1"
+    endpoint = form_value(form, "s3_endpoint", config && config.s3_endpoint)
+    prefix = form_value(form, "s3_prefix", config && config.s3_prefix) || "software/"
+
+    with :ok <- validate_s3_bucket(bucket),
+         {:ok, access_key, secret_key} <- resolve_s3_credentials(config) do
+      {:ok,
+       %{
+         bucket: bucket,
+         region: region,
+         endpoint: endpoint,
+         prefix: prefix,
+         access_key_id: access_key,
+         secret_access_key: secret_key
+       }}
+    end
+  end
+
+  defp validate_s3_bucket(bucket) when bucket in [nil, ""], do: {:error, "S3 bucket is required"}
+  defp validate_s3_bucket(_bucket), do: :ok
+
+  defp env_s3_credentials do
     access_key = String.trim(System.get_env("S3_ACCESS_KEY_ID") || "")
     secret_key = String.trim(System.get_env("S3_SECRET_ACCESS_KEY") || "")
 
-    cond do
-      access_key != "" and secret_key != "" ->
-        {:ok, access_key, secret_key}
-
-      is_nil(config) ->
-        {:error, "S3 credentials are required"}
-
-      true ->
-        case Ash.load(config, [:s3_access_key_id, :s3_secret_access_key]) do
-          {:ok, loaded} ->
-            db_access = loaded.calculations[:s3_access_key_id] |> to_string_safe() |> String.trim()
-            db_secret = loaded.calculations[:s3_secret_access_key] |> to_string_safe() |> String.trim()
-
-            if db_access != "" and db_secret != "" do
-              {:ok, db_access, db_secret}
-            else
-              {:error, "S3 credentials are required"}
-            end
-
-          _ ->
-            {:error, "S3 credentials are required"}
-        end
+    if access_key != "" and secret_key != "" do
+      {:ok, access_key, secret_key}
+    else
+      {:error, "S3 credentials are required"}
     end
   end
+
+  defp load_s3_credentials_from_config(nil), do: {:error, "S3 credentials are required"}
+
+  defp load_s3_credentials_from_config(config) do
+    case Ash.load(config, [:s3_access_key_id, :s3_secret_access_key]) do
+      {:ok, loaded} ->
+        db_access = loaded.calculations[:s3_access_key_id] |> to_string_safe() |> String.trim()
+
+        db_secret =
+          loaded.calculations[:s3_secret_access_key] |> to_string_safe() |> String.trim()
+
+        if db_access != "" and db_secret != "" do
+          {:ok, db_access, db_secret}
+        else
+          {:error, "S3 credentials are required"}
+        end
+
+      _ ->
+        {:error, "S3 credentials are required"}
+    end
+  end
+
+  defp reason_to_message({:s3_list_failed, reason}), do: inspect(reason)
+  defp reason_to_message(reason) when is_binary(reason), do: reason
+  defp reason_to_message(reason), do: inspect(reason)
 
   defp form_value(form, key, fallback) do
     value = String.trim(form[key] || "")

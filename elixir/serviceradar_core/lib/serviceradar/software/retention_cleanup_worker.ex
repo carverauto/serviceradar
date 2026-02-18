@@ -12,8 +12,8 @@ defmodule ServiceRadar.Software.RetentionCleanupWorker do
     unique: [period: 300, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Software.SoftwareImage
-  alias ServiceRadar.Software.TftpSession
   alias ServiceRadar.Software.Storage
+  alias ServiceRadar.Software.TftpSession
 
   require Ash.Query
   require Logger
@@ -28,7 +28,10 @@ defmodule ServiceRadar.Software.RetentionCleanupWorker do
     deleted_images = cleanup_deleted_images(cutoff)
     old_sessions = cleanup_old_session_files(cutoff)
 
-    Logger.info("Retention cleanup: removed #{deleted_images} images, #{old_sessions} session files")
+    Logger.info(
+      "Retention cleanup: removed #{deleted_images} images, #{old_sessions} session files"
+    )
+
     :ok
   end
 
@@ -46,22 +49,27 @@ defmodule ServiceRadar.Software.RetentionCleanupWorker do
   end
 
   defp do_cleanup_images(images) do
-    Enum.count(images, fn image ->
-      if image.object_key do
-        case Storage.delete(image.object_key) do
-          :ok ->
-            Ash.destroy!(image)
-            true
+    Enum.count(images, &cleanup_image/1)
+  end
 
-          {:error, reason} ->
-            Logger.warning("Failed to delete storage object for image #{image.id}: #{inspect(reason)}")
-            false
-        end
-      else
+  defp cleanup_image(%{object_key: nil} = image) do
+    Ash.destroy!(image)
+    true
+  end
+
+  defp cleanup_image(image) do
+    case Storage.delete(image.object_key) do
+      :ok ->
         Ash.destroy!(image)
         true
-      end
-    end)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to delete storage object for image #{image.id}: #{inspect(reason)}"
+        )
+
+        false
+    end
   end
 
   defp cleanup_old_session_files(cutoff) do

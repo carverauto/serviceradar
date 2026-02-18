@@ -57,39 +57,58 @@ defmodule ServiceRadar.Software.StorageToken do
 
   @spec verify_token(String.t()) :: {:ok, map()} | {:error, atom()}
   def verify_token(token) when is_binary(token) do
-    secret = signing_secret()
-
-    if secret == nil do
-      {:error, :signing_secret_not_configured}
+    with {:ok, secret} <- fetch_signing_secret(),
+         {:ok, payload_json, expected_sig} <- decode_token_parts(token),
+         :ok <- verify_signature(payload_json, expected_sig, secret),
+         {:ok, payload} <- decode_payload(payload_json),
+         :ok <- ensure_not_expired(payload) do
+      {:ok, payload}
     else
-      case String.split(token, ".", parts: 2) do
-        [payload_b64, sig_b64] ->
-          with {:ok, payload_json} <- Base.url_decode64(payload_b64, padding: false),
-               {:ok, expected_sig} <- Base.url_decode64(sig_b64, padding: false) do
-            actual_sig = :crypto.mac(:hmac, :sha256, secret, payload_json)
-
-            if :crypto.hash_equals(expected_sig, actual_sig) do
-              payload = Jason.decode!(payload_json)
-
-              if payload["exp"] > DateTime.to_unix(DateTime.utc_now()) do
-                {:ok, payload}
-              else
-                {:error, :token_expired}
-              end
-            else
-              {:error, :invalid_signature}
-            end
-          else
-            _ -> {:error, :invalid_token_format}
-          end
-
-        _ ->
-          {:error, :invalid_token_format}
-      end
+      {:error, reason} -> {:error, reason}
     end
   end
 
   def verify_token(_), do: {:error, :invalid_token_format}
+
+  defp fetch_signing_secret do
+    case signing_secret() do
+      nil -> {:error, :signing_secret_not_configured}
+      secret -> {:ok, secret}
+    end
+  end
+
+  defp decode_token_parts(token) do
+    case String.split(token, ".", parts: 2) do
+      [payload_b64, sig_b64] ->
+        with {:ok, payload_json} <- Base.url_decode64(payload_b64, padding: false),
+             {:ok, expected_sig} <- Base.url_decode64(sig_b64, padding: false) do
+          {:ok, payload_json, expected_sig}
+        else
+          _ -> {:error, :invalid_token_format}
+        end
+
+      _ ->
+        {:error, :invalid_token_format}
+    end
+  end
+
+  defp verify_signature(payload_json, expected_sig, secret) do
+    actual_sig = :crypto.mac(:hmac, :sha256, secret, payload_json)
+    if :crypto.hash_equals(expected_sig, actual_sig), do: :ok, else: {:error, :invalid_signature}
+  end
+
+  defp decode_payload(payload_json) do
+    case Jason.decode(payload_json) do
+      {:ok, payload} when is_map(payload) -> {:ok, payload}
+      _ -> {:error, :invalid_token_format}
+    end
+  end
+
+  defp ensure_not_expired(%{"exp" => exp}) when is_integer(exp) do
+    if exp > DateTime.to_unix(DateTime.utc_now()), do: :ok, else: {:error, :token_expired}
+  end
+
+  defp ensure_not_expired(_), do: {:error, :invalid_token_format}
 
   defp download_ttl_seconds do
     config()

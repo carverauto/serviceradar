@@ -288,9 +288,15 @@ defmodule ServiceRadar.Software.Storage do
     s3_result = delete_s3(object_key)
 
     case {local_result, s3_result} do
-      {:ok, :ok} -> :ok
-      {:ok, {:error, reason}} -> Logger.warning("S3 delete failed: #{inspect(reason)}"); :ok
-      {error, _} -> error
+      {:ok, :ok} ->
+        :ok
+
+      {:ok, {:error, reason}} ->
+        Logger.warning("S3 delete failed: #{inspect(reason)}")
+        :ok
+
+      {error, _} ->
+        error
     end
   end
 

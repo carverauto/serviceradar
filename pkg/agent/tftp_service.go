@@ -168,7 +168,7 @@ func (s *TFTPService) StartReceive(ctx context.Context, payload tftpReceivePaylo
 	defer s.mu.Unlock()
 
 	if s.session != nil {
-		return fmt.Errorf("agent already has active TFTP session %s", s.session.SessionID)
+		return fmt.Errorf("%w: %s", errActiveSessionExists, s.session.SessionID)
 	}
 
 	port := payload.Port
@@ -241,7 +241,7 @@ func (s *TFTPService) StartServe(ctx context.Context, payload tftpServePayload) 
 	defer s.mu.Unlock()
 
 	if s.session != nil {
-		return fmt.Errorf("agent already has active TFTP session %s", s.session.SessionID)
+		return fmt.Errorf("%w: %s", errActiveSessionExists, s.session.SessionID)
 	}
 
 	// Verify the staged image exists
@@ -317,7 +317,7 @@ func (s *TFTPService) stopSession(_ context.Context, sessionID string) error {
 	}
 
 	if session.SessionID != sessionID {
-		return fmt.Errorf("session %s not found (active: %s)", sessionID, session.SessionID)
+		return fmt.Errorf("%w: requested=%s active=%s", errSessionNotFound, sessionID, session.SessionID)
 	}
 
 	s.logger.Info().Str("session_id", sessionID).Msg("stopping TFTP session")
@@ -346,7 +346,8 @@ func (s *TFTPService) runServer(ctx context.Context, session *TFTPSession, bindA
 
 	addr := fmt.Sprintf("%s:%d", bindAddr, port)
 
-	conn, err := net.ListenPacket("udp", addr)
+	var lc net.ListenConfig
+	conn, err := lc.ListenPacket(ctx, "udp", addr)
 	if err != nil {
 		s.logger.Error().Err(err).Str("addr", addr).Msg("failed to bind TFTP server")
 		s.reportResult(session.SessionID, false, fmt.Sprintf("bind failed: %v", err), 0, "")
@@ -360,7 +361,9 @@ func (s *TFTPService) runServer(ctx context.Context, session *TFTPSession, bindA
 		session.server.Shutdown()
 
 		// Also close the connection to unblock Serve()
-		conn.Close()
+		if closeErr := conn.Close(); closeErr != nil {
+			s.logger.Debug().Err(closeErr).Str("session_id", session.SessionID).Msg("failed to close TFTP listener")
+		}
 	}()
 
 	s.logger.Info().Str("addr", addr).Str("session_id", session.SessionID).Msg("TFTP server listening")
@@ -384,7 +387,7 @@ func (s *TFTPService) makeWriteHandler(session *TFTPSession) func(string, io.Wri
 				Str("expected", session.ExpectedFilename).
 				Msg("TFTP write request rejected: filename mismatch")
 
-			return fmt.Errorf("filename not allowed: %s", filename)
+			return fmt.Errorf("%w: %s", errFilenameNotAllowed, filename)
 		}
 
 		s.logger.Info().
@@ -433,7 +436,7 @@ func (s *TFTPService) makeReadHandler(session *TFTPSession) func(string, io.Read
 				Str("expected", session.ExpectedFilename).
 				Msg("TFTP read request rejected: filename mismatch")
 
-			return fmt.Errorf("filename not allowed: %s", filename)
+			return fmt.Errorf("%w: %s", errFilenameNotAllowed, filename)
 		}
 
 		s.logger.Info().
@@ -447,7 +450,11 @@ func (s *TFTPService) makeReadHandler(session *TFTPSession) func(string, io.Read
 			s.reportResult(session.SessionID, false, fmt.Sprintf("open image failed: %v", err), 0, "")
 			return fmt.Errorf("open staged image: %w", err)
 		}
-		defer file.Close()
+		defer func() {
+			if closeErr := file.Close(); closeErr != nil {
+				s.logger.Debug().Err(closeErr).Str("session_id", session.SessionID).Msg("failed to close staged image file")
+			}
+		}()
 
 		// Set transfer size if available
 		if fi, statErr := file.Stat(); statErr == nil {
@@ -488,7 +495,11 @@ func (s *TFTPService) receiveFile(session *TFTPSession, wt io.WriterTo, outputPa
 	if err != nil {
 		return "", 0, fmt.Errorf("create output file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			s.logger.Debug().Err(closeErr).Str("session_id", session.SessionID).Msg("failed to close output file")
+		}
+	}()
 
 	hasher := sha256.New()
 	limitWriter := &limitedWriter{
@@ -520,7 +531,7 @@ func (s *TFTPService) receiveFile(session *TFTPSession, wt io.WriterTo, outputPa
 
 	if err != nil {
 		if errors.Is(err, errFileSizeLimitExceeded) {
-			return "", n, fmt.Errorf("file exceeds maximum size of %d bytes", session.MaxFileSize)
+			return "", n, fmt.Errorf("%w: %d bytes", errFileExceedsMaxSize, session.MaxFileSize)
 		}
 
 		return "", n, fmt.Errorf("write: %w", err)
@@ -687,11 +698,16 @@ func (s *TFTPService) cleanupStaleStagingDirs() {
 
 // primaryInterfaceAddr returns the primary non-loopback interface address.
 func primaryInterfaceAddr() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	conn, err := (&net.Dialer{}).DialContext(ctx, "udp", "8.8.8.8:80")
 	if err != nil {
 		return "127.0.0.1"
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 
@@ -706,6 +722,10 @@ type limitedWriter struct {
 }
 
 var errFileSizeLimitExceeded = errors.New("file size limit exceeded")
+var errActiveSessionExists = errors.New("agent already has active TFTP session")
+var errSessionNotFound = errors.New("session not found")
+var errFilenameNotAllowed = errors.New("filename not allowed")
+var errFileExceedsMaxSize = errors.New("file exceeds maximum size")
 
 func (lw *limitedWriter) Write(p []byte) (int, error) {
 	if lw.written+int64(len(p)) > lw.limit {
