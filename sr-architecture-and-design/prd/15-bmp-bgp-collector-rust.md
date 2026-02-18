@@ -1,207 +1,146 @@
-# Product Requirements Document (PRD): Rust BMP (BGP) Collector + OCSF Pipeline
+# Product Requirements Document (PRD): BGP/BMP Routing Intelligence Pipeline (Risotto + Broadway)
 
 | Metadata | Value |
 |----------|-------|
-| Date     | 2025-12-18 |
+| Date     | 2026-02-18 |
 | Author   | @mfreeman451 |
 | Status   | Draft |
-| Links    | https://github.com/carverauto/serviceradar/issues/2183, https://github.com/carverauto/serviceradar/issues/859, https://github.com/nxthdr/risotto, https://schema.ocsf.io/1.7.0/classes/network_activity |
+| Links    | https://github.com/carverauto/serviceradar/issues/2183, https://github.com/carverauto/serviceradar/issues/859, https://github.com/nxthdr/risotto |
 
 ## 1. Summary
 
-ServiceRadar needs a **Rust-based BMP (BGP Monitoring Protocol) collector daemon** that can run on the edge or in-cluster, accept BMP sessions from routers/route reflectors, decode BMP/BGP messages, and publish records to a **message broker** (initially **NATS JetStream**). Downstream processing should remain pipeline-based (not embedded into the collector) by using the existing stateless rule-based Zen engine (`serviceradar-zen`) to transform raw BMP events into an **OCSF 1.7.0**-aligned schema (using the `network_activity` class), republish to a separate subject, and then persist via **`db-event-writer`** into CNPG for SRQL queries and UI dashboards.
+ServiceRadar will implement a **Rust BMP collector** (risotto-based) that ingests BGP/BMP telemetry and publishes routing events to **NATS JetStream**. Normalization and persistence will be handled by an **Elixir Broadway consumer** in the core event pipeline, not by Zen.
 
-The collector must keep its broker integration behind an abstraction so ServiceRadar can support additional brokers in the future (e.g., `iggy.rs`).
+The pipeline goal is not "force everything into a single schema at ingest time," but to preserve routing fidelity while producing a normalized causal envelope that is directly usable by:
+- the **topology system** (AGE `platform_graph` + God-View projection), and
+- the **causality system** (Rust NIF with `deep_causality*` crates used by `web-ng`).
+
+OCSF alignment remains useful where it helps interoperability, but `OCSF_Activity` is **optional** for BMP routing data. The canonical requirement is: data is queryable, replay-safe, and structurally useful for topology and causal reasoning.
 
 ## 2. Problem Statement
 
-ServiceRadar does not currently have a first-class ingest path for control-plane telemetry from BGP devices. Without BMP ingestion, it is hard to build:
-
-- BGP session health monitoring (peer up/down, resets, flaps)
-- Route update visibility (update/withdraw rates)
-- Prefix counters and policy troubleshooting workflows
-- Correlation between topology/inventory and routing behavior over time
-
-The platform needs a robust, deployable BMP collector that integrates with existing ServiceRadar patterns: broker-first buffering, stateless ETL in Zen, and persistence in CNPG via `db-event-writer`.
+ServiceRadar currently lacks a first-class routing-intelligence pipeline for control-plane events (BGP peer state, route churn, path changes). Without this pipeline we cannot reliably:
+- correlate route changes with topology changes,
+- explain blast radius in God-View with routing-aware evidence,
+- separate physical failure from routing-policy/provider failure in causal analysis.
 
 ## 3. Goals
 
-- Provide a **Rust BMP collector** capable of ingesting BMP streams and publishing decoded events to NATS JetStream.
-- Keep the collector generic: no OCSF mapping logic in the collector; do transformation in `serviceradar-zen`.
-- Use an abstract broker interface so we can add alternate brokers later.
-- Persist OCSF `network_activity` records in CNPG in a queryable form.
-- Add a UI dashboard for BGP/BMP observability and troubleshooting.
+- Ingest BMP/BGP events via Rust risotto collector and publish to JetStream.
+- Consume BMP events via Elixir Broadway in `serviceradar_core`.
+- Normalize events into a causal envelope with replay-safe identity and provenance.
+- Persist data in a model that supports SRQL, topology overlay updates, and causality evaluation.
+- Integrate with AGE-authoritative topology and God-View atmosphere overlays.
 
-## 4. Non-Goals (Initial Release)
+## 4. Non-Goals
 
-- Full BGP analytics suite (path hunting, policy simulation, RPKI validation, etc).
-- Long-term historical storage in external lakehouse systems (Iceberg/Parquet/ClickHouse) as part of this PRD.
-- Perfect coverage of all BMP/BGP optional/transitive attributes on day one (store extras in `unmapped` or metadata-friendly fields).
+- Reintroducing Zen consumer/rule DSL for BMP normalization.
+- Building a full BGP policy simulator in this phase.
+- Requiring every routing signal to fit a single strict OCSF class if that harms fidelity.
 
-## 5. Primary Use Cases
-
-- **NOC operator**: see which peers are flapping and when.
-- **Network engineer**: inspect update/withdraw rates by peer or ASN over time.
-- **SRE/platform**: operate the collector at scale (health checks, backpressure behavior, metrics).
-
-## 6. Proposed Architecture (High-Level)
+## 5. High-Level Architecture
 
 ```mermaid
 flowchart LR
-  Routers["BGP devices<br/>export BMP over TCP"] -->|TCP 11019| Collector["serviceradar-bmp-collector<br/>Rust, risotto-based"]
-  Collector -->|raw BMP events| Broker["Message Broker<br/>NATS JetStream"]
-  Broker -->|consume raw| Zen["serviceradar-zen<br/>rule-based ETL"]
-  Zen -->|publish OCSF network_activity| Broker
-  Broker -->|consume OCSF| DBWriter["db-event-writer"]
-  DBWriter --> CNPG["CNPG/Timescale"]
-  Web["Web UI"] --> Core["Core/SRQL API"]
-  Core --> CNPG
+  Routers["Routers / Reflectors\nBMP over TCP"] -->|TCP 11019| Collector["serviceradar-bmp-collector\nRust + risotto"]
+  Collector -->|bmp.events.*| JetStream["NATS JetStream"]
+  JetStream -->|durable consumer| Broadway["Elixir Broadway\nEventWriter CausalSignals processor"]
+  Broadway --> CNPG["CNPG platform schema\nnormalized + raw payload"]
+  CNPG --> AGE["AGE platform_graph\ntopology projection"]
+  AGE --> GodView["web-ng God-View stream\nRust NIF snapshot + causal eval"]
+  CNPG --> SRQL["Rust SRQL (NIF in web-ng)"]
 ```
 
-## 7. Functional Requirements
+## 6. Functional Requirements
 
-### 7.1 Rust BMP Collector Daemon
+### 6.1 Collector and Transport
 
-#### FR-1: Deployment modes
-- The collector SHALL support running:
-  - **In-cluster** (Kubernetes), exposed via a TCP Service.
-  - **Edge/on-prem** (systemd, docker-compose), listening on TCP.
+#### FR-1: BMP ingest
+- Collector SHALL accept BMP sessions and decode common BMP message types (Peer Up/Down, Route Monitoring, Stats).
+- Collector SHOULD use `nxthdr/risotto` as primary parser.
 
-#### FR-2: Protocol support (MVP)
-- The collector SHALL accept BMP sessions and decode BMP messages into a structured representation.
-- The collector SHOULD support the common BMP message types used for monitoring:
-  - Initiation
-  - Peer Up
-  - Peer Down
-  - Route Monitoring
-  - Statistics Report
-  - Termination
+#### FR-2: Broker publication
+- Collector SHALL publish decoded routing events to JetStream subjects under `bmp.events.*`.
+- Message identity fields SHALL be stable enough for idempotent downstream processing.
 
-#### FR-3: Use upstream library where possible
-- The implementation SHOULD leverage `nxthdr/risotto` (MIT licensed) as the core BMP decoding/parsing library.
-- Any gaps needed for ServiceRadar integration SHOULD be upstreamable (PRs) where practical.
+#### FR-3: Reliability and security
+- Collector SHALL support bounded buffering and clear drop/backpressure metrics.
+- Collector-to-broker communication SHALL support mTLS consistent with ServiceRadar deployment patterns.
 
-#### FR-4: Broker abstraction
-- The collector SHALL publish decoded BMP events through an internal broker interface (e.g., `Publisher` trait).
-- The initial broker implementation SHALL target NATS JetStream.
-- The collector SHOULD support future alternate brokers without redesigning the collector core.
+### 6.2 Elixir Broadway Normalization and Persistence
 
-#### FR-5: Raw message publication
-- Raw BMP events SHALL be published to a dedicated subject prefix (name TBD), for example:
-  - `bmp.raw`
-- OCSF-transformed records SHALL be published to a separate subject prefix (name TBD), for example:
-  - `bmp.ocsf.network_activity`
-- The raw payload SHOULD be stable across languages (JSON or protobuf). The initial choice MUST:
-  - allow Zen to access key fields needed for OCSF mapping
-  - preserve additional BMP/BGP data for future analytics (store extras in an `unmapped`-style field)
+#### FR-4: Canonical ingestion path
+- BMP routing events SHALL be consumed by Elixir Broadway (`serviceradar_core` EventWriter pipeline).
+- Zen consumer SHALL NOT be used for BMP routing normalization.
 
-#### FR-6: Reliability and buffering
-- The collector SHALL tolerate temporary broker unavailability without crashing.
-- The collector SHALL provide bounded buffering with configurable backpressure/drop behavior.
-- The collector SHOULD expose clear metrics for buffered messages and drops.
+#### FR-5: Normalized causal envelope
+- Broadway processing SHALL normalize BMP events into a causal envelope including:
+  - event identity (stable/replay-safe),
+  - source provenance,
+  - severity,
+  - routing context (peer, ASN, prefix group where available),
+  - event timestamp normalization.
 
-#### FR-7: Security
-- Collector-to-broker communication SHALL support mTLS consistent with existing ServiceRadar deployments.
-- When running in SPIFFE/SPIRE environments, the collector SHOULD support SPIFFE workload identity patterns already used by other ServiceRadar services.
+#### FR-6: Storage strategy
+- The database model SHALL preserve:
+  - raw routing payload (for future remapping/replay),
+  - normalized causal fields (for fast queries and overlays),
+  - optional OCSF-compatible projection fields where useful.
+- If `OCSF_Activity` is suitable for specific views, it MAY be used; it is not a hard coupling requirement.
 
-#### FR-8: Observability
-- The collector SHALL provide:
-  - health endpoint (or gRPC health) and readiness semantics
-  - structured logs
-- The collector SHOULD expose metrics including:
-  - active BMP sessions / connected exporters
-  - messages received/sec (by BMP message type)
-  - decode errors/sec
-  - bytes received/sec
-  - publish success/failure counters
-  - buffer depth / drops
+### 6.3 Topology and Causality Integration
 
-### 7.2 Zen Engine Transformation (`serviceradar-zen`)
+#### FR-7: AGE-authoritative topology join
+- Causal overlay generation SHALL join against AGE-authoritative topology (`platform_graph`) instead of ad hoc UI identity heuristics.
+- Topology adjacency SHALL remain relationship evidence, not identity equivalence proof.
 
-#### FR-9: OCSF schema commitment
-Zen output MUST validate against the OCSF 1.7.0 JSON schema for the `network_activity` class:
-- https://schema.ocsf.io/1.7.0/classes/network_activity
+#### FR-8: Deep causality evaluation path
+- God-View causal classification SHALL continue to execute through the Rust NIF path (`deep_causality`, `deep_causality_sparse`, `deep_causality_tensor`, `deep_causality_topology`).
+- High-rate BMP bursts SHALL update overlay state without forcing full coordinate/layout recomputation when topology revision is unchanged.
 
-#### FR-10: Event mapping (MVP)
-Zen MUST map BMP-derived events into OCSF `network_activity` in a consistent way so dashboards and SRQL can rely on it.
+#### FR-9: Atmosphere layer behavior
+- God-View atmosphere overlays SHALL expose routing-aware visual state transitions (root cause, affected, healthy, unknown) driven by causal bitmaps and explainability metadata.
+- Overlay updates SHALL maintain stable topology coordinates across causal-only revision changes.
 
-Minimum mappings:
-- Base requirements:
-  - `class_uid = 4001` and `category_uid = 4`
-  - `severity_id = 1` (Informational) unless a higher severity is explicitly derived by policy
-  - `cloud.provider` populated (default `"on_prem"`, configurable)
-  - `metadata.product = "ServiceRadar"` and `metadata.version` populated
-  - `osint = []` (empty array) by default
-- Timestamps:
-  - `time` from BMP message time when available; otherwise collector receive time
-- Endpoints:
-  - `src_endpoint.ip` set to BMP exporter/router address
-  - `dst_endpoint.ip` set to collector address (or service name/IP)
-  - `connection_info.protocol_num = 6` (TCP) and `dst_endpoint.port = 11019` when known
+### 6.4 SRQL and Product UX
 
-BMP message type to OCSF mapping (proposed defaults):
-- Peer Up:
-  - `activity_id = 1` (Open), `type_uid = 400101`
-- Peer Down:
-  - `activity_id = 2` (Close), `type_uid = 400102`
-  - if reset semantics are available, MAY use `activity_id = 3` (Reset), `type_uid = 400103`
-- Route Monitoring / Statistics Report:
-  - `activity_id = 6` (Traffic), `type_uid = 400106`
+#### FR-10: Query support
+- SRQL and backend APIs SHALL support queries for:
+  - peer/session transitions over time,
+  - route churn and update/withdraw trends,
+  - routing-correlated causal events by node/prefix/peer context.
 
-Non-core BMP/BGP details (peer ASN, peer IP, AFI/SAFI, NLRI, withdrawals, counters, reason codes) SHOULD be included under `unmapped` (or a similar JSON subtree) without breaking schema validation.
+#### FR-11: Routing intelligence UX
+- UI SHALL support operator workflows to inspect:
+  - routing signal timelines,
+  - affected topology regions,
+  - causal reasoning details tied to routing events.
 
-### 7.3 Persistence (`db-event-writer` + CNPG)
+## 7. Data Model Requirements
 
-#### FR-11: Persist OCSF `network_activity` records
-- `db-event-writer` SHALL be updated to persist OCSF `network_activity` records in CNPG in a queryable form.
-- The persistence strategy MUST support powering dashboards and SRQL aggregations without requiring full JSON parsing in the UI.
+- Every normalized routing event SHALL include correlation keys sufficient to map into topology/causal contexts (examples: device/peer identifiers, IPs, ASN context, prefix or prefix-group hints, source collector metadata).
+- Ingestion SHALL remain idempotent under replay.
+- Schema evolution SHALL permit adding richer routing context without destructive rewrites.
 
-Implementation options (choose one during design):
-1. Dedicated table for OCSF `network_activity` (recommended), with query-friendly columns + JSONB payload.
-2. Reuse an existing table (e.g., `events`) for the full payload, plus add summary columns elsewhere for common aggregations.
+## 8. Milestones
 
-### 7.4 SRQL + UI
+1. Collector path: risotto collector publishes BMP events to JetStream (`bmp.events.*`).
+2. Broadway path: causal processor consumes BMP subjects with durable replay/idempotency.
+3. Persistence path: normalized + raw routing payload written to CNPG in queryable shape.
+4. Integration path: causal overlays in God-View use AGE topology + NIF causal evaluation.
+5. UX path: routing-intelligence panels and SRQL-backed workflows.
 
-#### FR-12: Query support
-- SRQL MUST support querying the persisted BMP/OCSF records for:
-  - peer up/down over time
-  - update/withdraw counts or rates over time
-  - top peers by update volume
+## 9. Risks and Mitigations
 
-#### FR-13: BGP/BMP dashboard (MVP)
-- The UI SHALL provide a dashboard with at least:
-  - peer session timeline (up/down/reset)
-  - update volume over time (overall and by peer)
-  - top peers by updates/withdraws
-  - recent "peer down" reasons (when available)
+- **Schema overfitting risk**: forcing strict OCSF mapping can drop routing nuance.
+  - Mitigation: keep raw payload + normalized causal envelope; project to OCSF where it adds value.
+- **Burst load risk**: route storms can overwhelm overlay updates.
+  - Mitigation: Broadway batching, bounded concurrency, coalescing windows, replay-safe ids.
+- **Topology/correlation drift risk**: inconsistent ids degrade attribution.
+  - Mitigation: AGE-authoritative topology, deterministic identity anchors, explicit correlation keys.
 
-## 8. Non-Functional Requirements
+## 10. Open Questions
 
-- **Performance**: sustain BMP ingestion for small/medium networks; include benchmark targets in acceptance.
-- **Scalability**: support horizontal scaling of Zen and DB writers (JetStream queue groups / consumers).
-- **Operability**: predictable config, clear logs/metrics, and safe failure modes.
-- **Compatibility**: run in docker-compose and k8s; align with ServiceRadar mTLS/SPIFFE conventions.
-
-## 9. Milestones / Phases (Suggested)
-
-1. Collector MVP: BMP accept + decode + publish raw events to JetStream.
-2. Zen ETL MVP: map to OCSF `network_activity`, republish to OCSF subject.
-3. Persistence MVP: db-event-writer persists OCSF records into CNPG.
-4. SRQL + UI: queries and dashboard for sessions and update rates.
-5. Hardening: backpressure tuning, scale tests, docs/runbooks.
-
-## 10. Risks & Mitigations
-
-- **Schema fit**: BMP is routing/control-plane telemetry; `network_activity` may be a pragmatic but imperfect semantic home.
-  - Mitigation: keep full structured data under `unmapped` so we can evolve mappings later without losing fidelity.
-- **High-volume bursts**: route storms can create spikes.
-  - Mitigation: bounded buffers, publish batching, queue group scaling, drop metrics and alerting.
-- **Interoperability**: routers vary in BMP support and content.
-  - Mitigation: rely on upstream library parsing; store unknown fields in `unmapped`; add compatibility fixtures.
-
-## 11. Open Questions
-
-- What is the canonical raw payload format: protobuf vs JSON (and do we need a new proto like `proto/bmp/bmp.proto`)?
-- What subject/stream naming conventions should we standardize on for `bmp.raw` and OCSF output?
-- Which CNPG table layout best supports SRQL queries and dashboards for BGP telemetry?
-- How do we represent "peer identity" canonically (exporter IP, peer IP, ASN) for grouping/aggregation?
+- Final subject taxonomy for BMP domains (`bmp.events.*` variants and partitioning).
+- Which routing context fields should be mandatory at v1 vs optional enrichment.
+- Which views should use strict OCSF projection vs native causal envelope fields.
