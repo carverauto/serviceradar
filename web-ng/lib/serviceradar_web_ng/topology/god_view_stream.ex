@@ -26,6 +26,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @default_topology_stale_minutes 180
   @default_real_time_budget_ms 2_000
   @default_snapshot_coalesce_ms 0
+  @default_causal_overlay_window_seconds 300
+  @default_causal_overlay_max_events 512
+  @default_routing_causal_severity_threshold 4
   @drop_counter_key {__MODULE__, :dropped_updates}
   @layout_cache_key {__MODULE__, :layout_cache}
   @snapshot_cache_key {__MODULE__, :snapshot_cache}
@@ -1868,13 +1871,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp apply_causal_states(nodes, indexed_edges) when is_list(nodes) and is_list(indexed_edges) do
+    routing_overrides = routing_causal_node_indexes(nodes)
+
     signals =
-      Enum.map(nodes, fn node ->
-        case Map.get(node, :health_signal, :unknown) do
-          :healthy -> 0
-          :unhealthy -> 1
-          _ -> 2
-        end
+      Enum.with_index(nodes)
+      |> Enum.map(fn {node, idx} ->
+        base_signal =
+          case Map.get(node, :health_signal, :unknown) do
+            :healthy -> 0
+            :unhealthy -> 1
+            _ -> 2
+          end
+
+        if MapSet.member?(routing_overrides, idx), do: 1, else: base_signal
       end)
 
     case Native.evaluate_causal_states_with_reasons(signals, indexed_edges) do
@@ -1927,6 +1936,157 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp apply_causal_states(nodes, _), do: nodes
+
+  defp routing_causal_node_indexes(nodes) when is_list(nodes) do
+    indexed_keys =
+      nodes
+      |> Enum.with_index()
+      |> Enum.reduce(%{}, fn {node, idx}, acc ->
+        node_correlation_keys(node)
+        |> Enum.reduce(acc, fn key, inner ->
+          Map.update(inner, key, MapSet.new([idx]), &MapSet.put(&1, idx))
+        end)
+      end)
+
+    fetch_recent_routing_causal_events()
+    |> Enum.reduce(MapSet.new(), fn event, matched ->
+      event_correlation_keys(event)
+      |> Enum.reduce(matched, fn key, key_acc ->
+        case Map.get(indexed_keys, key) do
+          nil -> key_acc
+          node_indexes -> MapSet.union(key_acc, node_indexes)
+        end
+      end)
+    end)
+  end
+
+  defp routing_causal_node_indexes(_), do: MapSet.new()
+
+  defp node_correlation_keys(node) when is_map(node) do
+    details =
+      case Map.get(node, :details_json) do
+        value when is_binary(value) ->
+          case Jason.decode(value) do
+            {:ok, decoded} when is_map(decoded) -> decoded
+            _ -> %{}
+          end
+
+        _ ->
+          %{}
+      end
+
+    [
+      normalize_id(Map.get(node, :id)),
+      normalize_id(Map.get(details, "ip")),
+      normalize_id(Map.get(details, "hostname"))
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp node_correlation_keys(_), do: []
+
+  defp event_correlation_keys(event) when is_map(event) do
+    metadata = map_value(event, :metadata) || %{}
+    routing = map_value(metadata, "routing_correlation") || %{}
+    source_identity = map_value(metadata, "source_identity") || %{}
+    device = map_value(event, :device) || %{}
+    src_endpoint = map_value(event, :src_endpoint) || %{}
+
+    topology_keys =
+      case map_value(routing, "topology_keys") do
+        values when is_list(values) -> values
+        _ -> []
+      end
+
+    [
+      map_value(device, "uid"),
+      map_value(src_endpoint, "ip"),
+      map_value(routing, "router_id"),
+      map_value(routing, "router_ip"),
+      map_value(routing, "peer_ip"),
+      map_value(source_identity, "device_uid"),
+      map_value(source_identity, "router_id"),
+      map_value(source_identity, "router_ip"),
+      map_value(source_identity, "peer_ip")
+      | topology_keys
+    ]
+    |> Enum.map(&normalize_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp event_correlation_keys(_), do: []
+
+  defp fetch_recent_routing_causal_events do
+    cutoff =
+      DateTime.utc_now()
+      |> DateTime.add(-causal_overlay_window_seconds(), :second)
+      |> DateTime.truncate(:second)
+
+    query =
+      from(e in "ocsf_events",
+        where: e.time >= ^cutoff,
+        where:
+          fragment(
+            "(?->>'signal_type' = 'bmp') OR (?->>'primary_domain' = 'routing')",
+            e.metadata,
+            e.metadata
+          ),
+        where: coalesce(e.severity_id, 0) >= ^routing_causal_severity_threshold(),
+        order_by: [desc: e.time],
+        limit: ^causal_overlay_max_events(),
+        select: %{
+          metadata: e.metadata,
+          device: e.device,
+          src_endpoint: e.src_endpoint
+        }
+      )
+
+    Repo.all(query)
+  rescue
+    _ -> []
+  end
+
+  defp map_value(map, key) when is_map(map) and is_atom(key) do
+    Map.get(map, key)
+  end
+
+  defp map_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) ||
+      Enum.find_value(map, fn
+        {atom_key, value} when is_atom(atom_key) ->
+          if Atom.to_string(atom_key) == key, do: value, else: nil
+
+        _ -> nil
+      end)
+  end
+
+  defp map_value(_, _), do: nil
+
+  defp causal_overlay_window_seconds do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :god_view_causal_overlay_window_seconds,
+      @default_causal_overlay_window_seconds
+    )
+  end
+
+  defp causal_overlay_max_events do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :god_view_causal_overlay_max_events,
+      @default_causal_overlay_max_events
+    )
+  end
+
+  defp routing_causal_severity_threshold do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :god_view_routing_causal_severity_threshold,
+      @default_routing_causal_severity_threshold
+    )
+  end
 
   defp causal_row_value(row, key, default) when is_map(row) do
     Map.get(row, key, Map.get(row, Atom.to_string(key), default))

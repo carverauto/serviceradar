@@ -17,6 +17,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         "timestamp" => "2026-02-16T12:00:00Z",
         "severity" => "high",
         "peer_ip" => "192.0.2.10",
+        "peer_asn" => "64513",
+        "router_id" => "router-a",
+        "router_ip" => "10.0.0.1",
         "device_id" => "mac-aabbccddeeff",
         "message" => "BGP peer down"
       }
@@ -37,8 +40,13 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.metadata["signal_type"] == "bmp"
       assert row.metadata["schema_version"] == "1.0"
       assert row.metadata["primary_domain"] == "routing"
+      assert row.metadata["source_identity"]["router_id"] == "router-a"
+      assert row.metadata["routing_correlation"]["peer_asn"] == 64_513
+      assert row.metadata["routing_correlation"]["router_ip"] == "10.0.0.1"
+      assert "192.0.2.10" in row.metadata["routing_correlation"]["topology_keys"]
       assert row.device["uid"] == "mac-aabbccddeeff"
       assert row.src_endpoint["ip"] == "192.0.2.10"
+      assert row.src_endpoint["asn"] == 64_513
     end
 
     test "normalizes SIEM payload and clamps numeric severity" do
@@ -136,6 +144,36 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.metadata["guardrails"]["contexts_truncated"] == true
       assert row.metadata["guardrails"]["input_context_count"] == 40
       assert row.metadata["guardrails"]["applied_context_count"] == 32
+    end
+
+    test "normalizes routing correlation keys for topology joins" do
+      payload = %{
+        "event_id" => "join-1",
+        "timestamp" => "2026-02-16T12:20:00Z",
+        "severity" => "critical",
+        "deviceId" => "router-edge-01",
+        "peer_ip" => "198.51.100.77",
+        "peerAsn" => "64522",
+        "localAsn" => 64512,
+        "prefix" => "203.0.113.0/24",
+        "vrf" => "default"
+      }
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{subject: "bmp.events.update", received_at: DateTime.utc_now()}
+      }
+
+      row = CausalSignals.parse_message(message)
+
+      refute is_nil(row)
+      assert row.metadata["source_identity"]["device_uid"] == "router-edge-01"
+      assert row.metadata["routing_correlation"]["local_asn"] == 64_512
+      assert row.metadata["routing_correlation"]["peer_asn"] == 64_522
+      assert row.metadata["routing_correlation"]["vrf"] == "default"
+      assert row.metadata["routing_correlation"]["prefix"] == "203.0.113.0/24"
+      assert "router-edge-01" in row.metadata["routing_correlation"]["topology_keys"]
+      assert "198.51.100.77" in row.metadata["explainability"]["routing_topology_keys"]
     end
   end
 

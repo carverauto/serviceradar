@@ -1,12 +1,12 @@
 use super::{BindParam, QueryPlan};
+use crate::query::flows::{
+    FLOW_APP_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_IN_IF_NAME_EXPR, FLOW_IN_IF_SPEED_BPS_EXPR,
+    FLOW_OUT_IF_NAME_EXPR, FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
+};
 use crate::{
     error::{Result, ServiceError},
     parser::{DownsampleAgg, Entity, Filter, FilterOp},
     time::TimeRange,
-};
-use crate::query::flows::{
-    FLOW_APP_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_IN_IF_NAME_EXPR, FLOW_IN_IF_SPEED_BPS_EXPR,
-    FLOW_OUT_IF_NAME_EXPR, FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
 };
 use chrono::{DateTime, Utc};
 use diesel::deserialize::QueryableByName;

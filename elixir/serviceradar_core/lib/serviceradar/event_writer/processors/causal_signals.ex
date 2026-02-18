@@ -66,6 +66,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     signal_type = infer_signal_type(subject, payload)
     severity_id = normalize_severity(payload)
     grouped_contexts = grouped_contexts(payload)
+    routing_correlation = routing_correlation(payload)
     domains = signal_domains(payload, signal_type)
     {primary_domain, precedence_rank} = primary_domain(domains)
     truncated_contexts = Enum.take(grouped_contexts, @max_grouped_contexts)
@@ -79,14 +80,17 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "signal_type" => signal_type,
       "severity_id" => severity_id,
       "source" => normalize_source(payload, subject),
+      "source_identity" => source_identity(payload),
       "event_identity" => stable_event_identity(subject, payload, raw_data),
       "event_time" => normalize_time(event_time),
+      "routing_correlation" => routing_correlation,
       "grouped_contexts" => truncated_contexts,
       "signal_domains" => domains,
       "primary_domain" => primary_domain,
       "explainability" => %{
         "source_signal_refs" => source_signal_refs(payload),
         "context_ids" => Enum.map(truncated_contexts, & &1["id"]),
+        "routing_topology_keys" => routing_correlation["topology_keys"],
         "primary_domain" => primary_domain,
         "precedence_rank" => precedence_rank
       },
@@ -155,6 +159,69 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "subject" => subject,
       "collector" => payload["collector"] || payload["source_collector"],
       "system" => payload["source"] || payload["provider"] || "external"
+    }
+  end
+
+  defp source_identity(payload) do
+    %{
+      "device_uid" =>
+        first_non_blank([
+          payload["device_id"],
+          payload["deviceId"],
+          payload["router_id"],
+          payload["routerId"]
+        ]),
+      "router_id" => first_non_blank([payload["router_id"], payload["routerId"]]),
+      "router_ip" =>
+        first_non_blank([
+          payload["router_ip"],
+          payload["routerIp"],
+          payload["device_ip"],
+          payload["source_ip"]
+        ]),
+      "peer_ip" => first_non_blank([payload["peer_ip"], payload["peerIp"], payload["src_ip"]])
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  defp routing_correlation(payload) do
+    router_id =
+      first_non_blank([
+        payload["router_id"],
+        payload["routerId"],
+        payload["device_id"],
+        payload["deviceId"]
+      ])
+
+    router_ip =
+      first_non_blank([
+        payload["router_ip"],
+        payload["routerIp"],
+        payload["device_ip"],
+        payload["source_ip"]
+      ])
+
+    peer_ip = first_non_blank([payload["peer_ip"], payload["peerIp"], payload["src_ip"]])
+    peer_asn = normalize_int(payload["peer_asn"] || payload["peerAsn"])
+    local_asn = normalize_int(payload["local_asn"] || payload["localAsn"] || payload["asn"])
+    vrf = first_non_blank([payload["vrf"], payload["routing_instance"]])
+    prefix = first_non_blank([payload["prefix"], payload["nlri"], payload["announced_prefix"]])
+
+    topology_keys =
+      [router_id, router_ip, peer_ip, prefix]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    %{
+      "router_id" => router_id,
+      "router_ip" => router_ip,
+      "peer_ip" => peer_ip,
+      "peer_asn" => peer_asn,
+      "local_asn" => local_asn,
+      "vrf" => vrf,
+      "prefix" => prefix,
+      "topology_keys" => topology_keys
     }
   end
 
@@ -323,12 +390,11 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp normalize_src_endpoint(payload) do
     ip = payload["peer_ip"] || payload["src_ip"] || payload["source_ip"]
+    asn = normalize_int(payload["peer_asn"] || payload["peerAsn"])
 
-    if is_binary(ip) and ip != "" do
-      %{"ip" => ip}
-    else
-      %{}
-    end
+    %{"ip" => normalize_optional_string(ip), "asn" => asn}
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
   end
 
   defp stable_event_identity(subject, payload, raw_data) do
@@ -363,4 +429,30 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     )
     |> IO.iodata_to_binary()
   end
+
+  defp first_non_blank(values) when is_list(values) do
+    values
+    |> Enum.map(&normalize_optional_string/1)
+    |> Enum.find(&is_binary/1)
+  end
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_optional_string(value) when is_float(value), do: Float.to_string(value)
+  defp normalize_optional_string(_), do: nil
+
+  defp normalize_int(value) when is_integer(value), do: value
+
+  defp normalize_int(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
+
+  defp normalize_int(_), do: nil
 end

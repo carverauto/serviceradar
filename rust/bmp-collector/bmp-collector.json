@@ -1,0 +1,10 @@
+{
+  "nats_url": "nats://127.0.0.1:4222",
+  "stream_name": "BMP_CAUSAL",
+  "subject_prefix": "bmp.events",
+  "stream_subjects": [
+    "bmp.events.>"
+  ],
+  "stream_max_bytes": 10737418240,
+  "publish_timeout_ms": 5000
+}
