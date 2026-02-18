@@ -496,5 +496,12 @@ defmodule ServiceRadar.Software.TftpSession do
       authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
                     permission: "settings.software.manage"}
     end
+
+    policy action(:destroy) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "tftp.session.cancel"}
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
+    end
   end
 end
