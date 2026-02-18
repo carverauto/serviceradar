@@ -22,7 +22,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -36,13 +35,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testFirmwareFilename = "firmware.bin"
+
 func newTestTFTPService(t *testing.T) (*TFTPService, string) {
 	t.Helper()
 
 	tmpDir, err := os.MkdirTemp("", "tftp-test-*")
 	require.NoError(t, err)
 
-	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+	t.Cleanup(func() {
+		require.NoError(t, os.RemoveAll(tmpDir))
+	})
 
 	logger := zerolog.New(zerolog.NewTestWriter(t)).With().Timestamp().Logger()
 	svc := NewTFTPService(logger, tmpDir)
@@ -157,7 +160,7 @@ func TestTFTPService_ConcurrencyLimit(t *testing.T) {
 		TimeoutSeconds:   5,
 		BindAddress:      "127.0.0.1",
 	})
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "active TFTP session")
 
 	// Stop and cleanup
@@ -270,7 +273,7 @@ func TestTFTPService_ReceiveMode_WrongFilename(t *testing.T) {
 
 	// Try to send with wrong filename — should be rejected by server
 	_, err = client.Send("wrong-name.bin", "octet")
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	require.NoError(t, svc.Stop(ctx))
 }
@@ -284,7 +287,7 @@ func TestTFTPService_ServeMode(t *testing.T) {
 
 	// Stage a file to serve
 	sessionID := "test-serve"
-	filename := "firmware.bin"
+	filename := testFirmwareFilename
 	testData := []byte("firmware image data for serving")
 	expectedHash := sha256Hex(testData)
 
@@ -357,7 +360,7 @@ func TestTFTPService_ServeMode_WrongFilename(t *testing.T) {
 	require.NoError(t, svc.Start(ctx))
 
 	sessionID := "test-serve-wrong"
-	filename := "firmware.bin"
+	filename := testFirmwareFilename
 	testData := []byte("firmware data")
 
 	sessionDir := filepath.Join(tmpDir, sessionID)
@@ -383,7 +386,7 @@ func TestTFTPService_ServeMode_WrongFilename(t *testing.T) {
 
 	// Try to receive with wrong filename
 	_, err = client.Receive("wrong-file.bin", "octet")
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	require.NoError(t, svc.Stop(ctx))
 }
@@ -399,7 +402,7 @@ func TestTFTPService_ServeMode_StagedImageMissing(t *testing.T) {
 		TimeoutSeconds: 5,
 		BindAddress:    "127.0.0.1",
 	})
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "staged image not found")
 }
 
@@ -475,7 +478,7 @@ func TestTFTPService_StopSession_WrongID(t *testing.T) {
 
 	// Stop with wrong session ID
 	err = svc.stopSession(ctx, "wrong-id")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 
 	require.NoError(t, svc.Stop(ctx))
@@ -521,9 +524,12 @@ func TestTFTPService_Callbacks_Nil(t *testing.T) {
 func findFreePort(t *testing.T) int {
 	t.Helper()
 
-	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	var lc net.ListenConfig
+	conn, err := lc.ListenPacket(context.Background(), "udp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() {
+		require.NoError(t, conn.Close())
+	}()
 
 	return conn.LocalAddr().(*net.UDPAddr).Port
 }
@@ -531,13 +537,4 @@ func findFreePort(t *testing.T) int {
 func sha256Hex(data []byte) string {
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])
-}
-
-// writerToAdapter adapts an io.Reader to io.WriterTo for testing.
-type writerToAdapter struct {
-	r io.Reader
-}
-
-func (w *writerToAdapter) WriteTo(dst io.Writer) (int64, error) {
-	return io.Copy(dst, w.r)
 }

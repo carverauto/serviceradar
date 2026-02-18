@@ -17,6 +17,8 @@ defmodule ServiceRadar.Software.TftpSession do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshOban]
 
+  alias ServiceRadar.Oban.AshObanQueueResolver
+
   postgres do
     table "tftp_sessions"
     repo ServiceRadar.Repo
@@ -87,7 +89,7 @@ defmodule ServiceRadar.Software.TftpSession do
     triggers do
       trigger :expire_sessions do
         queue :software
-        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
+        extra_args &AshObanQueueResolver.job_meta/1
         read_action :needs_expiration
         scheduler_cron "* * * * *"
         action :expire
@@ -98,7 +100,7 @@ defmodule ServiceRadar.Software.TftpSession do
 
       trigger :store_received_files do
         queue :software
-        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
+        extra_args &AshObanQueueResolver.job_meta/1
         read_action :needs_storing
         scheduler_cron "* * * * *"
         action :start_storing
@@ -109,7 +111,7 @@ defmodule ServiceRadar.Software.TftpSession do
 
       trigger :stage_images do
         queue :software
-        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
+        extra_args &AshObanQueueResolver.job_meta/1
         read_action :needs_staging
         scheduler_cron "* * * * *"
         action :start_staging
@@ -313,6 +315,81 @@ defmodule ServiceRadar.Software.TftpSession do
     end
   end
 
+  policies do
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    # AshOban schedulers run without an actor
+    bypass action([
+             :expire,
+             :start_storing,
+             :start_staging,
+             :start_waiting,
+             :start_receiving,
+             :complete_receive,
+             :finish_store,
+             :mark_ready,
+             :start_serving,
+             :complete_serve,
+             :fail,
+             :update_progress,
+             :needs_expiration,
+             :needs_storing,
+             :needs_staging
+           ]) do
+      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
+    end
+
+    policy action_type(:read) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.view"}
+
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
+    end
+
+    policy action(:create) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "tftp.session.create"}
+
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
+    end
+
+    policy action(:create_and_queue) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "tftp.session.create"}
+
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
+    end
+
+    policy action(:queue) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "tftp.session.create"}
+
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
+    end
+
+    policy action(:cancel) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "tftp.session.cancel"}
+
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
+    end
+
+    policy action(:destroy) do
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "tftp.session.cancel"}
+
+      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
+                    permission: "settings.software.manage"}
+    end
+  end
+
   attributes do
     uuid_primary_key :id
 
@@ -365,7 +442,7 @@ defmodule ServiceRadar.Software.TftpSession do
       public? true
       default 69
       description "UDP port for the TFTP server"
-      constraints min: 1, max: 65535
+      constraints min: 1, max: 65_535
     end
 
     attribute :max_file_size, :integer do
@@ -443,65 +520,6 @@ defmodule ServiceRadar.Software.TftpSession do
       allow_nil? true
       public? true
       description "Software image being served (serve mode only)"
-    end
-  end
-
-  policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
-
-    # AshOban schedulers run without an actor
-    bypass action([
-      :expire, :start_storing, :start_staging,
-      :start_waiting, :start_receiving, :complete_receive,
-      :finish_store, :mark_ready, :start_serving, :complete_serve,
-      :fail, :update_progress,
-      :needs_expiration, :needs_storing, :needs_staging
-    ]) do
-      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
-    end
-
-    policy action_type(:read) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.software.view"}
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.software.manage"}
-    end
-
-    policy action(:create) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "tftp.session.create"}
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.software.manage"}
-    end
-
-    policy action(:create_and_queue) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "tftp.session.create"}
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.software.manage"}
-    end
-
-    policy action(:queue) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "tftp.session.create"}
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.software.manage"}
-    end
-
-    policy action(:cancel) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "tftp.session.cancel"}
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.software.manage"}
-    end
-
-    policy action(:destroy) do
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "tftp.session.cancel"}
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "settings.software.manage"}
     end
   end
 end

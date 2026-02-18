@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -60,7 +61,7 @@ func (m *mockGatewayServer) UploadFile(stream grpc.ClientStreamingServer[proto.F
 
 	for {
 		chunk, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -149,7 +150,8 @@ func (m *mockGatewayServer) getUploadedChunks() []*proto.FileChunk {
 func startMockServer(t *testing.T, mock *mockGatewayServer) (*GatewayClient, func()) {
 	t.Helper()
 
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	var lc net.ListenConfig
+	lis, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	srv := grpc.NewServer()

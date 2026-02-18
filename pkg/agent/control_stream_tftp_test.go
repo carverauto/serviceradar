@@ -82,12 +82,14 @@ var _ grpc.BidiStreamingClient[proto.ControlStreamRequest, proto.ControlStreamRe
 
 // newTestPushLoopWithTFTP creates a minimal PushLoop with a real TFTPService
 // backed by a temporary staging directory.
-func newTestPushLoopWithTFTP(t *testing.T) (*PushLoop, *TFTPService, string) {
+func newTestPushLoopWithTFTP(t *testing.T) (*PushLoop, string) {
 	t.Helper()
 
 	tmpDir, err := os.MkdirTemp("", "tftp-cmd-test-*")
 	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+	t.Cleanup(func() {
+		require.NoError(t, os.RemoveAll(tmpDir))
+	})
 
 	log := logger.NewTestLogger()
 
@@ -96,7 +98,9 @@ func newTestPushLoopWithTFTP(t *testing.T) (*PushLoop, *TFTPService, string) {
 		tmpDir,
 	)
 	require.NoError(t, tftpSvc.Start(context.Background()))
-	t.Cleanup(func() { tftpSvc.Stop(context.Background()) })
+	t.Cleanup(func() {
+		require.NoError(t, tftpSvc.Stop(context.Background()))
+	})
 
 	server := &Server{
 		config:      &ServerConfig{AgentID: "test-agent", Partition: "default"},
@@ -109,7 +113,7 @@ func newTestPushLoopWithTFTP(t *testing.T) (*PushLoop, *TFTPService, string) {
 
 	pl := NewPushLoop(server, nil, time.Second, log)
 
-	return pl, tftpSvc, tmpDir
+	return pl, tmpDir
 }
 
 // makeCommand creates a CommandRequest with the given type and JSON payload.
@@ -164,10 +168,41 @@ func unmarshalResultPayload(t *testing.T, r *proto.CommandResult) map[string]int
 	return m
 }
 
+type missingFieldTestCase[T any] struct {
+	name    string
+	payload T
+}
+
+func runMissingFieldsTest[T any](
+	t *testing.T,
+	ctx context.Context,
+	cmdType string,
+	cases []missingFieldTestCase[T],
+	expectedMessage string,
+	handler func(context.Context, *proto.CommandRequest, *controlStreamSender),
+) {
+	t.Helper()
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := newMockBidiStream(ctx)
+			sender := newControlStreamSender(stream)
+			cmd := makeCommand(t, cmdType, tc.payload)
+
+			handler(ctx, cmd, sender)
+
+			result := findCommandResult(stream.getSent())
+			require.NotNil(t, result)
+			assert.False(t, result.Success)
+			assert.Contains(t, result.Message, expectedMessage)
+		})
+	}
+}
+
 // ── handleTFTPReceive ──────────────────────────────────────────────────────
 
 func TestTFTPCommandReceive_InvalidPayload(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	stream := newMockBidiStream(ctx)
@@ -191,13 +226,10 @@ func TestTFTPCommandReceive_InvalidPayload(t *testing.T) {
 }
 
 func TestTFTPCommandReceive_MissingFields(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
-	tests := []struct {
-		name    string
-		payload tftpReceivePayload
-	}{
+	tests := []missingFieldTestCase[tftpReceivePayload]{
 		{
 			name:    "missing session_id",
 			payload: tftpReceivePayload{ExpectedFilename: "config.bin"},
@@ -212,20 +244,7 @@ func TestTFTPCommandReceive_MissingFields(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			stream := newMockBidiStream(ctx)
-			sender := newControlStreamSender(stream)
-			cmd := makeCommand(t, commandTypeTFTPReceive, tt.payload)
-
-			pl.handleTFTPReceive(ctx, cmd, sender)
-
-			result := findCommandResult(stream.getSent())
-			require.NotNil(t, result)
-			assert.False(t, result.Success)
-			assert.Contains(t, result.Message, "missing session_id or expected_filename")
-		})
-	}
+	runMissingFieldsTest(t, ctx, commandTypeTFTPReceive, tests, "missing session_id or expected_filename", pl.handleTFTPReceive)
 }
 
 func TestTFTPCommandReceive_NoTFTPService(t *testing.T) {
@@ -258,7 +277,7 @@ func TestTFTPCommandReceive_NoTFTPService(t *testing.T) {
 }
 
 func TestTFTPCommandReceive_ValidPayload(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	port := findFreePort(t)
@@ -290,7 +309,7 @@ func TestTFTPCommandReceive_ValidPayload(t *testing.T) {
 // ── handleTFTPServe ────────────────────────────────────────────────────────
 
 func TestTFTPCommandServe_InvalidPayload(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	stream := newMockBidiStream(ctx)
@@ -313,13 +332,10 @@ func TestTFTPCommandServe_InvalidPayload(t *testing.T) {
 }
 
 func TestTFTPCommandServe_MissingFields(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
-	tests := []struct {
-		name    string
-		payload tftpServePayload
-	}{
+	tests := []missingFieldTestCase[tftpServePayload]{
 		{
 			name:    "missing session_id",
 			payload: tftpServePayload{Filename: "firmware.bin"},
@@ -334,24 +350,11 @@ func TestTFTPCommandServe_MissingFields(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			stream := newMockBidiStream(ctx)
-			sender := newControlStreamSender(stream)
-			cmd := makeCommand(t, commandTypeTFTPServe, tt.payload)
-
-			pl.handleTFTPServe(ctx, cmd, sender)
-
-			result := findCommandResult(stream.getSent())
-			require.NotNil(t, result)
-			assert.False(t, result.Success)
-			assert.Contains(t, result.Message, "missing session_id or filename")
-		})
-	}
+	runMissingFieldsTest(t, ctx, commandTypeTFTPServe, tests, "missing session_id or filename", pl.handleTFTPServe)
 }
 
 func TestTFTPCommandServe_StagedImageMissing(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	stream := newMockBidiStream(ctx)
@@ -402,7 +405,7 @@ func TestTFTPCommandServe_NoTFTPService(t *testing.T) {
 }
 
 func TestTFTPCommandServe_ValidPayload(t *testing.T) {
-	pl, _, tmpDir := newTestPushLoopWithTFTP(t)
+	pl, tmpDir := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	// Pre-stage a file
@@ -440,7 +443,7 @@ func TestTFTPCommandServe_ValidPayload(t *testing.T) {
 // ── handleTFTPStop ─────────────────────────────────────────────────────────
 
 func TestTFTPCommandStop_InvalidPayload(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	stream := newMockBidiStream(ctx)
@@ -463,7 +466,7 @@ func TestTFTPCommandStop_InvalidPayload(t *testing.T) {
 }
 
 func TestTFTPCommandStop_MissingSessionID(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	stream := newMockBidiStream(ctx)
@@ -479,7 +482,7 @@ func TestTFTPCommandStop_MissingSessionID(t *testing.T) {
 }
 
 func TestTFTPCommandStop_WrongSessionID(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	// Start a real receive session so there's something active
@@ -510,7 +513,7 @@ func TestTFTPCommandStop_WrongSessionID(t *testing.T) {
 }
 
 func TestTFTPCommandStop_ActiveSession(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	// Start a receive session
@@ -575,7 +578,7 @@ func TestTFTPCommandStop_NoTFTPService(t *testing.T) {
 // ── handleTFTPStatus ───────────────────────────────────────────────────────
 
 func TestTFTPCommandStatus_NoActiveSession(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 
 	stream := newMockBidiStream(context.Background())
 	sender := newControlStreamSender(stream)
@@ -593,7 +596,7 @@ func TestTFTPCommandStatus_NoActiveSession(t *testing.T) {
 }
 
 func TestTFTPCommandStatus_ActiveSession(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	// Start a receive session
@@ -662,7 +665,7 @@ func TestTFTPCommandStatus_NoTFTPService(t *testing.T) {
 // ── handleTFTPStageImage ───────────────────────────────────────────────────
 
 func TestTFTPCommandStageImage_InvalidPayload(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	stream := newMockBidiStream(ctx)
@@ -685,13 +688,10 @@ func TestTFTPCommandStageImage_InvalidPayload(t *testing.T) {
 }
 
 func TestTFTPCommandStageImage_MissingFields(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
-	tests := []struct {
-		name    string
-		payload tftpStagePayload
-	}{
+	tests := []missingFieldTestCase[tftpStagePayload]{
 		{
 			name:    "missing session_id",
 			payload: tftpStagePayload{ImageID: "img-1"},
@@ -706,24 +706,11 @@ func TestTFTPCommandStageImage_MissingFields(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			stream := newMockBidiStream(ctx)
-			sender := newControlStreamSender(stream)
-			cmd := makeCommand(t, commandTypeTFTPStageImage, tt.payload)
-
-			pl.handleTFTPStageImage(ctx, cmd, sender)
-
-			result := findCommandResult(stream.getSent())
-			require.NotNil(t, result)
-			assert.False(t, result.Success)
-			assert.Contains(t, result.Message, "missing session_id or image_id")
-		})
-	}
+	runMissingFieldsTest(t, ctx, commandTypeTFTPStageImage, tests, "missing session_id or image_id", pl.handleTFTPStageImage)
 }
 
 func TestTFTPCommandStageImage_NilGateway(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	stream := newMockBidiStream(ctx)
@@ -803,7 +790,7 @@ func TestTFTPCommandStageImage_NoTFTPService(t *testing.T) {
 // TestTFTPCommandDispatch_AllTypes verifies that all 5 TFTP command types are
 // dispatched through handleCommand, producing an ack and a handler result for each.
 func TestTFTPCommandDispatch_AllTypes(t *testing.T) {
-	pl, _, tmpDir := newTestPushLoopWithTFTP(t)
+	pl, tmpDir := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	// Pre-stage a file so the serve command doesn't fail with "staged image not found".
@@ -892,7 +879,7 @@ func TestTFTPCommandDispatch_AllTypes(t *testing.T) {
 }
 
 func TestTFTPCommandDispatch(t *testing.T) {
-	pl, _, _ := newTestPushLoopWithTFTP(t)
+	pl, _ := newTestPushLoopWithTFTP(t)
 	ctx := context.Background()
 
 	// Verify that handleCommand dispatches TFTP commands and sends an ack
