@@ -23,6 +23,30 @@ The system SHALL apply backpressure-aware causal overlay updates so high-rate BM
 - **THEN** the system SHALL coalesce or batch overlay evaluations within configured bounds
 - **AND** snapshot latency objectives SHALL remain within configured limits
 
+### Requirement: AGE-Authoritative Topology Context for Overlays
+Causal overlay evaluation SHALL consume AGE-authoritative topology context and SHALL NOT depend on UI-side identity fusion for adjacency reasoning.
+
+#### Scenario: Overlay evaluation uses canonical graph context
+- **GIVEN** canonical topology edges are projected in AGE
+- **WHEN** causal overlay evaluation executes
+- **THEN** adjacency reasoning SHALL use AGE-authoritative topology context
+- **AND** overlay state SHALL remain aligned with canonical topology projections
+
+#### Scenario: Unresolved endpoints do not trigger identity collapse
+- **GIVEN** causal signals reference endpoints that are unresolved in canonical identity
+- **WHEN** overlay state is computed
+- **THEN** unresolved references SHALL remain explicit
+- **AND** the system SHALL NOT merge identities based only on adjacency heuristics
+
+### Requirement: Atmosphere Layer Causal Contract
+God-View atmosphere overlays SHALL consume causal classifications and explainability metadata without forcing structural layout recomputation when topology revision is unchanged.
+
+#### Scenario: Causal-only revision updates atmosphere layers
+- **GIVEN** topology revision is unchanged and only causal signal state changes
+- **WHEN** God-View refreshes overlay data
+- **THEN** atmosphere-layer visual classes SHALL update from causal outputs
+- **AND** node coordinates SHALL remain unchanged
+
 ### Requirement: prop2.md Traceability Coverage
 The change implementation SHALL maintain explicit traceability to actionable `prop2.md` items so no actionable plan step is omitted without an explicit disposition.
 
