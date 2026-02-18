@@ -70,6 +70,23 @@ defmodule ServiceRadar.Software.Storage do
     end
   end
 
+  @doc "Test S3 connectivity with explicit S3 configuration."
+  @spec test_s3_connection(map()) :: :ok | {:error, term()}
+  def test_s3_connection(%{bucket: bucket} = config) when is_binary(bucket) and bucket != "" do
+    request =
+      ExAws.S3.list_objects(bucket,
+        prefix: Map.get(config, :prefix, ""),
+        max_keys: 1
+      )
+
+    case ExAws.request(request, s3_request_opts(config)) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, {:s3_list_failed, reason}}
+    end
+  end
+
+  def test_s3_connection(_), do: {:error, :invalid_s3_config}
+
   defp list_local_with_metadata(prefix) do
     base = local_path()
     search_path = Path.join(base, prefix)
