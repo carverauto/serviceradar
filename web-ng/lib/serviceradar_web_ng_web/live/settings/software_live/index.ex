@@ -296,6 +296,22 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     end
   end
 
+  def handle_event("delete_session", %{"id" => id}, socket) do
+    with {:ok, session} <- load_session(id, socket.assigns.current_scope),
+         {:ok, _} <- delete_session(session, socket.assigns.current_scope) do
+      {:noreply,
+       socket
+       |> load_sessions()
+       |> put_flash(:info, "Session deleted")}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to delete session: #{format_error(reason)}")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Failed to delete session")}
+    end
+  end
+
   def handle_event("queue_session", %{"id" => id}, socket) do
     with {:ok, session} <- load_session(id, socket.assigns.current_scope),
          {:ok, _} <- queue_session(session, socket.assigns.current_scope) do
@@ -1042,6 +1058,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
                     >
                       Cancel
                     </button>
+                    <button
+                      :if={@can_manage}
+                      class="btn btn-ghost btn-xs text-error"
+                      phx-click="delete_session"
+                      phx-value-id={session.id}
+                      data-confirm="Delete this session record?"
+                    >
+                      Delete
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -1086,6 +1111,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
             data-confirm="Cancel this TFTP session?"
           >
             Cancel
+          </button>
+          <button
+            :if={@can_manage}
+            class="btn btn-ghost btn-sm text-error"
+            phx-click="delete_session"
+            phx-value-id={@session.id}
+            data-confirm="Delete this session record?"
+          >
+            Delete
           </button>
         </div>
       </div>
@@ -1911,6 +1945,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     session
     |> Ash.Changeset.for_update(:cancel, %{}, scope: scope)
     |> Ash.update(scope: scope)
+  end
+
+  defp delete_session(session, scope) do
+    Ash.destroy(session, scope: scope)
   end
 
   defp queue_session(session, scope) do
