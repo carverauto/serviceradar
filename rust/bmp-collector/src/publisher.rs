@@ -1,5 +1,4 @@
 use crate::config::Config;
-use crate::model::BmpRoutingEvent;
 use anyhow::{Context, Result};
 use async_nats::jetstream::{self, stream::StorageType};
 use async_nats::{Client, ConnectOptions};
@@ -12,6 +11,12 @@ pub struct Publisher {
     config: Arc<Config>,
     client: Client,
     js: jetstream::Context,
+    subject_peer_up: String,
+    subject_peer_down: String,
+    subject_route_update: String,
+    subject_route_withdraw: String,
+    subject_stats: String,
+    subject_unknown: String,
 }
 
 impl Publisher {
@@ -38,18 +43,29 @@ impl Publisher {
 
         ensure_stream(&config, &js).await?;
 
-        Ok(Self { config, client, js })
+        let base = config.subject_prefix.trim_end_matches('.').to_string();
+
+        Ok(Self {
+            config,
+            client,
+            js,
+            subject_peer_up: format!("{base}.peer_up"),
+            subject_peer_down: format!("{base}.peer_down"),
+            subject_route_update: format!("{base}.route_update"),
+            subject_route_withdraw: format!("{base}.route_withdraw"),
+            subject_stats: format!("{base}.stats"),
+            subject_unknown: format!("{base}.unknown"),
+        })
     }
 
-    pub async fn publish_event(&self, event: &BmpRoutingEvent) -> Result<()> {
-        let subject = format!(
-            "{}.{}",
-            self.config.subject_prefix.trim_end_matches('.'),
-            event.subject_suffix()
-        );
-
-        let payload = serde_json::to_vec(event)?;
-        let ack = self.js.publish(subject.clone(), payload.into()).await?;
+    pub async fn publish_raw_event(
+        &self,
+        event_type: &str,
+        event_id: &str,
+        payload: Vec<u8>,
+    ) -> Result<()> {
+        let subject = self.subject_for_event_type(event_type);
+        let ack = self.js.publish(subject.to_owned(), payload.into()).await?;
 
         timeout(Duration::from_millis(self.config.publish_timeout_ms), ack)
             .await
@@ -60,13 +76,24 @@ impl Publisher {
                 )
             })??;
 
-        info!("published BMP event {} to {}", event.event_id, subject);
+        info!("published BMP event {} to {}", event_id, subject);
         Ok(())
     }
 
     #[allow(dead_code)]
     pub fn client(&self) -> &Client {
         &self.client
+    }
+
+    fn subject_for_event_type(&self, event_type: &str) -> &str {
+        match event_type {
+            "peer_up" => self.subject_peer_up.as_str(),
+            "peer_down" => self.subject_peer_down.as_str(),
+            "route_update" => self.subject_route_update.as_str(),
+            "route_withdraw" => self.subject_route_withdraw.as_str(),
+            "stats" => self.subject_stats.as_str(),
+            _ => self.subject_unknown.as_str(),
+        }
     }
 }
 

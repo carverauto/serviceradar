@@ -3,11 +3,11 @@ mod model;
 mod publisher;
 
 use crate::config::Config;
-use crate::model::BmpRoutingEvent;
 use crate::publisher::Publisher;
 use anyhow::{Context, Result};
 use clap::Parser;
 use log::{error, info};
+use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
@@ -66,16 +66,22 @@ async fn run_publish_loop(publisher: &Publisher, input: Option<PathBuf>) -> Resu
 }
 
 async fn publish_line(publisher: &Publisher, line: String) -> Result<()> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
+    if line.trim().is_empty() {
         return Ok(());
     }
 
-    let event: BmpRoutingEvent = serde_json::from_str(trimmed)
-        .with_context(|| format!("invalid BMP event JSON: {}", trimmed))?;
+    // Parse only envelope keys as borrowed refs, then publish original bytes.
+    // This avoids full deserialize/serialize churn on hot BMP paths.
+    let envelope: BorrowedEnvelope<'_> = serde_json::from_str(line.as_str())
+        .with_context(|| format!("invalid BMP event JSON envelope: {}", line))?;
+    let event_type = envelope.event_type.to_owned();
+    let event_id = envelope.event_id.to_owned();
 
-    if let Err(err) = publisher.publish_event(&event).await {
-        error!("failed publishing event {}: {}", event.event_id, err);
+    if let Err(err) = publisher
+        .publish_raw_event(event_type.as_str(), event_id.as_str(), line.into_bytes())
+        .await
+    {
+        error!("failed publishing event {}: {}", event_id, err);
         return Err(err);
     }
 
@@ -85,4 +91,10 @@ async fn publish_line(publisher: &Publisher, line: String) -> Result<()> {
 fn path_to_string(path: &PathBuf) -> Result<&str> {
     path.to_str()
         .ok_or_else(|| anyhow::anyhow!("config path contains non-UTF-8 characters"))
+}
+
+#[derive(Debug, Deserialize)]
+struct BorrowedEnvelope<'a> {
+    event_id: &'a str,
+    event_type: &'a str,
 }

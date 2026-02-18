@@ -15,33 +15,50 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.Observability.CausalPubSub
+  alias ServiceRadar.Observability.BmpSettingsRuntime
 
   require Logger
 
   @schema_version "1.0"
   @max_grouped_contexts 32
+  @routing_table "bmp_routing_events"
 
   @impl true
   def table_name, do: "ocsf_events"
 
   @impl true
   def process_batch(messages) do
-    rows =
+    parsed_rows =
       messages
-      |> Enum.map(&parse_message/1)
+      |> Enum.map(&parse_components/1)
       |> Enum.reject(&is_nil/1)
 
-    if Enum.empty?(rows) do
+    if Enum.empty?(parsed_rows) do
       {:ok, 0}
     else
-      case ServiceRadar.Repo.insert_all(table_name(), rows,
-             on_conflict: :nothing,
-             returning: false
-           ) do
-        {count, _} ->
-          CausalPubSub.broadcast_ingest(%{count: count})
-          {:ok, count}
-      end
+      routing_rows =
+        parsed_rows
+        |> Enum.filter(&(&1.normalized["signal_type"] == "bmp"))
+        |> Enum.map(&build_routing_event_row/1)
+        |> Enum.reject(&is_nil/1)
+
+      ocsf_rows =
+        parsed_rows
+        |> Enum.filter(&persist_to_ocsf?/1)
+        |> Enum.map(fn %{
+                         normalized: normalized,
+                         payload: payload,
+                         raw_data: raw_data,
+                         metadata: metadata
+                       } ->
+          build_ocsf_event_row(normalized, payload, raw_data, metadata)
+        end)
+
+      _ = insert_rows(@routing_table, routing_rows)
+      ocsf_count = insert_rows(table_name(), ocsf_rows)
+
+      CausalPubSub.broadcast_ingest(%{count: ocsf_count})
+      {:ok, length(parsed_rows)}
     end
   rescue
     e ->
@@ -51,9 +68,24 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
+    with %{normalized: normalized, payload: payload, raw_data: raw_data, metadata: row_metadata} <-
+           parse_components(%{data: data, metadata: metadata}) do
+      build_ocsf_event_row(normalized, payload, raw_data, row_metadata)
+    else
+      nil ->
+        nil
+    end
+  end
+
+  defp parse_components(%{data: data, metadata: metadata}) do
     with {:ok, payload} <- Jason.decode(data),
          {:ok, normalized} <- normalize_payload(payload, metadata, data) do
-      build_ocsf_event_row(normalized, payload, data, metadata)
+      %{
+        normalized: normalized,
+        payload: payload,
+        raw_data: data,
+        metadata: metadata
+      }
     else
       _ ->
         Logger.debug("Failed to parse causal signal payload", subject: metadata[:subject])
@@ -61,9 +93,73 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     end
   end
 
+  defp parse_components(_), do: nil
+
+  defp insert_rows(_table, []), do: 0
+
+  defp insert_rows(table, rows) when is_list(rows) do
+    case ServiceRadar.Repo.insert_all(table, rows, on_conflict: :nothing, returning: false) do
+      {count, _} -> count
+    end
+  end
+
+  defp persist_to_ocsf?(%{normalized: normalized}) when is_map(normalized) do
+    signal_type = normalized["signal_type"]
+    event_type = normalized["event_type"]
+    severity_id = normalized["severity_id"] || 0
+
+    cond do
+      signal_type != "bmp" ->
+        true
+
+      event_type in ["peer_up", "peer_down"] ->
+        true
+
+      severity_id >= bmp_ocsf_min_severity() ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp persist_to_ocsf?(_), do: false
+
+  defp bmp_ocsf_min_severity do
+    BmpSettingsRuntime.bmp_ocsf_min_severity()
+  end
+
+  defp build_routing_event_row(%{normalized: normalized, payload: payload, raw_data: raw_data}) do
+    correlation = normalized["routing_correlation"] || %{}
+    source_identity = normalized["source_identity"] || %{}
+
+    %{
+      id: Ecto.UUID.dump!(normalized["event_identity"]),
+      time: normalized["event_time"],
+      event_type: normalized["event_type"] || "unknown",
+      severity_id: normalized["severity_id"],
+      router_id: correlation["router_id"] || source_identity["router_id"],
+      router_ip: correlation["router_ip"] || source_identity["router_ip"],
+      peer_ip: correlation["peer_ip"] || source_identity["peer_ip"],
+      peer_asn: correlation["peer_asn"],
+      local_asn: correlation["local_asn"],
+      prefix: correlation["prefix"],
+      message:
+        payload["message"] ||
+          payload["description"] ||
+          "#{normalized["signal_type"] || "bmp"} routing signal",
+      metadata: normalized,
+      raw_data: raw_data,
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp build_routing_event_row(_), do: nil
+
   defp normalize_payload(payload, metadata, raw_data) when is_map(payload) do
     subject = metadata[:subject] || ""
     signal_type = infer_signal_type(subject, payload)
+    event_type = infer_event_type(subject, payload)
     severity_id = normalize_severity(payload)
     grouped_contexts = grouped_contexts(payload)
     routing_correlation = routing_correlation(payload)
@@ -78,6 +174,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     envelope = %{
       "schema_version" => @schema_version,
       "signal_type" => signal_type,
+      "event_type" => event_type,
       "severity_id" => severity_id,
       "source" => normalize_source(payload, subject),
       "source_identity" => source_identity(payload),
@@ -106,6 +203,41 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp normalize_payload(_, _, _), do: {:error, :invalid_payload}
+
+  defp infer_event_type(subject, payload) when is_binary(subject) and is_map(payload) do
+    candidate =
+      payload["event_type"] ||
+        payload["eventType"] ||
+        subject_to_event_type(subject)
+
+    normalize_event_type(candidate)
+  end
+
+  defp infer_event_type(subject, _payload) when is_binary(subject) do
+    subject_to_event_type(subject)
+  end
+
+  defp infer_event_type(_, _), do: "unknown"
+
+  defp subject_to_event_type(subject) do
+    case String.split(subject, ".", trim: true) do
+      ["bmp", "events", suffix | _] -> normalize_event_type(suffix)
+      _ -> "unknown"
+    end
+  end
+
+  defp normalize_event_type(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace("-", "_")
+    |> case do
+      "" -> "unknown"
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_event_type(_), do: "unknown"
 
   defp build_ocsf_event_row(normalized, payload, raw_data, metadata) do
     severity_id = normalized["severity_id"]

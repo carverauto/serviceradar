@@ -470,6 +470,108 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert second_states[router_uid] in [0, 1]
   end
 
+  test "latest_snapshot/0 applies BMP routing overlays from bmp_routing_events table" do
+    actor = SystemActor.system(:god_view_stream_bmp_table_overlay_test)
+    suffix = Integer.to_string(System.unique_integer([:positive]))
+    router_uid = "router-bmp-table-#{suffix}"
+    peer_uid = "peer-bmp-table-#{suffix}"
+    peer_ip = "203.0.113.#{rem(String.to_integer(suffix), 200) + 10}"
+    now = DateTime.utc_now()
+
+    _router =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: router_uid,
+          hostname: "router-bmp-table-#{suffix}.local",
+          type_id: 12,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    _peer =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: peer_uid,
+          hostname: "peer-bmp-table-#{suffix}.local",
+          type_id: 12,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now,
+          metadata: %{"ip" => peer_ip}
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    TopologyLink
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: now,
+        protocol: "lldp",
+        local_device_id: router_uid,
+        local_if_name: "eth0",
+        local_if_index: 1,
+        neighbor_device_id: peer_uid,
+        neighbor_mgmt_addr: peer_ip,
+        metadata: @topology_link_metadata
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    assert {:ok, %{snapshot: first}} = GodViewStream.latest_snapshot()
+
+    tracked = [router_uid, peer_uid]
+    first_coords = coords_for(first, tracked)
+    first_states = states_for(first, tracked)
+
+    Repo.insert_all("bmp_routing_events", [
+      %{
+        id: Ecto.UUID.generate(),
+        time: DateTime.utc_now(),
+        event_type: "peer_down",
+        severity_id: 5,
+        router_id: router_uid,
+        router_ip: "10.0.0.1",
+        peer_ip: peer_ip,
+        peer_asn: 64513,
+        local_asn: 64512,
+        prefix: nil,
+        message: "BGP peer down",
+        metadata: %{
+          "event_identity" => "bmp-table-#{suffix}",
+          "signal_type" => "bmp",
+          "primary_domain" => "routing",
+          "routing_correlation" => %{
+            "router_id" => router_uid,
+            "peer_ip" => peer_ip,
+            "topology_keys" => [router_uid, peer_ip]
+          }
+        },
+        raw_data: "{\"event_id\":\"bmp-table-#{suffix}\"}",
+        created_at: DateTime.utc_now()
+      }
+    ])
+
+    assert {:ok, %{snapshot: second}} = GodViewStream.latest_snapshot()
+
+    second_coords = coords_for(second, tracked)
+    second_states = states_for(second, tracked)
+
+    assert second_coords == first_coords
+    assert second_states != first_states
+    assert second_states[router_uid] in [0, 1]
+  end
+
   defp coords_for(snapshot, node_ids) do
     snapshot.nodes
     |> Enum.filter(&(&1.id in node_ids))

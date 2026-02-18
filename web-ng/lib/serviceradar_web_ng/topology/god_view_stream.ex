@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.TopologyLink
+  alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.RuntimeGraph
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
@@ -26,9 +27,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @default_topology_stale_minutes 180
   @default_real_time_budget_ms 2_000
   @default_snapshot_coalesce_ms 0
-  @default_causal_overlay_window_seconds 300
-  @default_causal_overlay_max_events 512
-  @default_routing_causal_severity_threshold 4
   @drop_counter_key {__MODULE__, :dropped_updates}
   @layout_cache_key {__MODULE__, :layout_cache}
   @snapshot_cache_key {__MODULE__, :snapshot_cache}
@@ -2024,6 +2022,42 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       |> DateTime.add(-causal_overlay_window_seconds(), :second)
       |> DateTime.truncate(:second)
 
+    source_limit = causal_overlay_source_limit()
+    max_events = causal_overlay_max_events()
+
+    bmp_events = fetch_recent_bmp_routing_events(cutoff, source_limit)
+    ocsf_events = fetch_recent_ocsf_routing_events(cutoff, source_limit)
+
+    (bmp_events ++ ocsf_events)
+    |> dedupe_recent_causal_events()
+    |> Enum.take(max_events)
+  rescue
+    _ -> []
+  end
+
+  defp fetch_recent_bmp_routing_events(cutoff, limit) do
+    query =
+      from(e in "bmp_routing_events",
+        where: e.time >= ^cutoff,
+        where: coalesce(e.severity_id, 0) >= ^routing_causal_severity_threshold(),
+        order_by: [desc: e.time],
+        limit: ^limit,
+        select: %{
+          source: "bmp_routing_events",
+          event_time: e.time,
+          event_identity: e.metadata["event_identity"],
+          metadata: e.metadata,
+          device: %{"uid" => e.router_id},
+          src_endpoint: %{"ip" => e.peer_ip}
+        }
+      )
+
+    Repo.all(query)
+  rescue
+    _ -> []
+  end
+
+  defp fetch_recent_ocsf_routing_events(cutoff, limit) do
     query =
       from(e in "ocsf_events",
         where: e.time >= ^cutoff,
@@ -2035,8 +2069,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           ),
         where: coalesce(e.severity_id, 0) >= ^routing_causal_severity_threshold(),
         order_by: [desc: e.time],
-        limit: ^causal_overlay_max_events(),
+        limit: ^limit,
         select: %{
+          source: "ocsf_events",
+          event_time: e.time,
+          event_identity: e.metadata["event_identity"],
           metadata: e.metadata,
           device: e.device,
           src_endpoint: e.src_endpoint
@@ -2048,6 +2085,52 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     _ -> []
   end
 
+  defp dedupe_recent_causal_events(events) when is_list(events) do
+    events
+    |> Enum.sort_by(&event_sort_key/1, :desc)
+    |> Enum.reduce({MapSet.new(), []}, fn event, {seen, acc} ->
+      key = causal_event_dedupe_key(event)
+
+      if MapSet.member?(seen, key) do
+        {seen, acc}
+      else
+        {MapSet.put(seen, key), [event | acc]}
+      end
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp dedupe_recent_causal_events(_), do: []
+
+  defp event_sort_key(event) when is_map(event) do
+    event_time =
+      case map_value(event, :event_time) do
+        %DateTime{} = value -> value
+        _ -> DateTime.from_unix!(0, :second)
+      end
+
+    {event_time, source_rank(map_value(event, :source))}
+  end
+
+  defp event_sort_key(_), do: {DateTime.from_unix!(0, :second), 0}
+
+  defp source_rank("bmp_routing_events"), do: 2
+  defp source_rank("ocsf_events"), do: 1
+  defp source_rank(_), do: 0
+
+  defp causal_event_dedupe_key(event) when is_map(event) do
+    event_identity = map_value(event, :event_identity)
+    metadata = map_value(event, :metadata) || %{}
+    metadata_identity = map_value(metadata, "event_identity")
+    source = map_value(event, :source) || "unknown"
+    fallback_time = map_value(event, :event_time)
+
+    event_identity || metadata_identity || "#{source}:#{inspect(fallback_time)}"
+  end
+
+  defp causal_event_dedupe_key(_), do: "unknown"
+
   defp map_value(map, key) when is_map(map) and is_atom(key) do
     Map.get(map, key)
   end
@@ -2058,34 +2141,27 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         {atom_key, value} when is_atom(atom_key) ->
           if Atom.to_string(atom_key) == key, do: value, else: nil
 
-        _ -> nil
+        _ ->
+          nil
       end)
   end
 
   defp map_value(_, _), do: nil
 
   defp causal_overlay_window_seconds do
-    Application.get_env(
-      :serviceradar_web_ng,
-      :god_view_causal_overlay_window_seconds,
-      @default_causal_overlay_window_seconds
-    )
+    BmpSettingsRuntime.god_view_causal_overlay_window_seconds()
   end
 
   defp causal_overlay_max_events do
-    Application.get_env(
-      :serviceradar_web_ng,
-      :god_view_causal_overlay_max_events,
-      @default_causal_overlay_max_events
-    )
+    BmpSettingsRuntime.god_view_causal_overlay_max_events()
+  end
+
+  defp causal_overlay_source_limit do
+    max(1, causal_overlay_max_events() * 2)
   end
 
   defp routing_causal_severity_threshold do
-    Application.get_env(
-      :serviceradar_web_ng,
-      :god_view_routing_causal_severity_threshold,
-      @default_routing_causal_severity_threshold
-    )
+    BmpSettingsRuntime.god_view_routing_causal_severity_threshold()
   end
 
   defp causal_row_value(row, key, default) when is_map(row) do

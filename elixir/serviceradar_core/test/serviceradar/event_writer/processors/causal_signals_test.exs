@@ -38,6 +38,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.type_uid == 100_811
       assert row.severity_id == 4
       assert row.metadata["signal_type"] == "bmp"
+      assert row.metadata["event_type"] == "peer"
       assert row.metadata["schema_version"] == "1.0"
       assert row.metadata["primary_domain"] == "routing"
       assert row.metadata["source_identity"]["router_id"] == "router-a"
@@ -174,6 +175,24 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.metadata["routing_correlation"]["prefix"] == "203.0.113.0/24"
       assert "router-edge-01" in row.metadata["routing_correlation"]["topology_keys"]
       assert "198.51.100.77" in row.metadata["explainability"]["routing_topology_keys"]
+    end
+
+    test "uses explicit event_type when provided by collector payload" do
+      payload = %{
+        "event_id" => "evt-typed-1",
+        "event_type" => "route_withdraw",
+        "timestamp" => "2026-02-16T12:21:00Z",
+        "severity" => "low"
+      }
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{subject: "bmp.events.peer_down", received_at: DateTime.utc_now()}
+      }
+
+      row = CausalSignals.parse_message(message)
+      refute is_nil(row)
+      assert row.metadata["event_type"] == "route_withdraw"
     end
   end
 
