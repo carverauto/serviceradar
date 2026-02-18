@@ -18,6 +18,10 @@ defmodule ServiceRadarWebNG.Api.OpenapiControllerTest do
       assert body["openapi"] == "3.0.3"
       assert get_in(body, ["paths", "/api/admin/bmp-settings", "get"])
       assert get_in(body, ["paths", "/api/admin/bmp-settings", "put"])
+      assert get_in(body, ["paths", "/api/admin/users", "get"])
+      assert get_in(body, ["paths", "/api/admin/edge-packages/{id}/download", "post"])
+      assert get_in(body, ["paths", "/api/admin/plugin-packages/{id}/approve", "post"])
+      assert get_in(body, ["paths", "/api/admin/collectors/{id}/download", "post"])
       assert get_in(body, ["components", "schemas", "BmpSettings"])
     end
 
