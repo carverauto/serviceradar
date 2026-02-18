@@ -63,9 +63,8 @@ fi
 chown -R serviceradar:serviceradar /etc/serviceradar
 install -d -m 0750 -o serviceradar -g serviceradar /var/lib/serviceradar
 chmod 755 /usr/local/bin/serviceradar-agent
-# Set required capability for ICMP scanning
-# setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
-sudo setcap '13,21,38,39+ep' /usr/local/bin/serviceradar-agent
+# Set required capabilities for ICMP scanning and privileged TFTP port binding
+setcap cap_net_raw,cap_net_bind_service=+ep /usr/local/bin/serviceradar-agent || :
 
 # Enable and start service
 systemctl daemon-reload

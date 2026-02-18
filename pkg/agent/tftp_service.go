@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	defaultTFTPPort        = 6969
+	defaultTFTPPort        = 69
 	defaultMaxFileSize     = 100 * 1024 * 1024 // 100MB
 	defaultSessionTimeout  = 5 * time.Minute
 	defaultStagingDir      = "/var/lib/serviceradar/tftp-staging"

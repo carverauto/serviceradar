@@ -77,7 +77,7 @@ defmodule ServiceRadar.Software.TftpDispatchTest do
       assert payload["mode"] == "receive"
       assert payload["expected_filename"] == "running-config"
       assert payload["timeout_seconds"] == 300
-      assert payload["port"] == 6969
+      assert payload["port"] == 69
     end
 
     test "dispatches tftp.start_serve for serve-mode session", %{

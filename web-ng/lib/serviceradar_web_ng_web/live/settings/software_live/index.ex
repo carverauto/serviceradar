@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   alias ServiceRadar.Software.StorageToken
   alias ServiceRadar.Software.TftpPubSub
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.Infrastructure.Agent, as: InfraAgent
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
@@ -29,7 +30,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     can_view = RBAC.can?(scope, "settings.software.view") or can_manage
 
     if can_view do
-      if connected?(socket), do: TftpPubSub.subscribe()
+      if connected?(socket) do
+        TftpPubSub.subscribe()
+        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
+      end
 
       {:ok,
        socket
@@ -50,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
        |> assign(:upload_form, default_upload_form())
        |> assign(:session_form, default_session_form())
        |> assign(:tftp_agents, [])
+       |> assign(:tftp_agents_error, nil)
        |> assign(:file_search, "")
        |> assign(:file_date_filter, nil)
        |> assign(:storage_form, nil)
@@ -94,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   end
 
   defp apply_action(socket, :show_image, %{"id" => id}) do
-    case load_image(id) do
+    case load_image(id, socket.assigns.current_scope) do
       {:ok, image} ->
         socket
         |> assign(:page_title, "Image: #{image.name}")
@@ -129,7 +134,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   end
 
   defp apply_action(socket, :show_session, %{"id" => id}) do
-    case load_session(id) do
+    case load_session(id, socket.assigns.current_scope) do
       {:ok, session} ->
         socket
         |> assign(:page_title, "Session: #{session.expected_filename}")
@@ -185,8 +190,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   end
 
   def handle_event("verify_image", %{"id" => id}, socket) do
-    with {:ok, image} <- load_image(id),
-         {:ok, _} <- transition_image(image, :verify) do
+    with {:ok, image} <- load_image(id, socket.assigns.current_scope),
+         {:ok, _} <- transition_image(image, :verify, socket.assigns.current_scope) do
       {:noreply,
        socket
        |> load_images()
@@ -197,8 +202,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   end
 
   def handle_event("activate_image", %{"id" => id}, socket) do
-    with {:ok, image} <- load_image(id),
-         {:ok, _} <- transition_image(image, :activate) do
+    with {:ok, image} <- load_image(id, socket.assigns.current_scope),
+         {:ok, _} <- transition_image(image, :activate, socket.assigns.current_scope) do
       {:noreply,
        socket
        |> load_images()
@@ -209,8 +214,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   end
 
   def handle_event("archive_image", %{"id" => id}, socket) do
-    with {:ok, image} <- load_image(id),
-         {:ok, _} <- transition_image(image, :archive) do
+    with {:ok, image} <- load_image(id, socket.assigns.current_scope),
+         {:ok, _} <- transition_image(image, :archive, socket.assigns.current_scope) do
       {:noreply,
        socket
        |> load_images()
@@ -221,8 +226,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   end
 
   def handle_event("delete_image", %{"id" => id}, socket) do
-    with {:ok, image} <- load_image(id),
-         {:ok, _} <- transition_image(image, :soft_delete) do
+    with {:ok, image} <- load_image(id, socket.assigns.current_scope),
+         {:ok, _} <- transition_image(image, :soft_delete, socket.assigns.current_scope) do
       {:noreply,
        socket
        |> load_images()
@@ -257,18 +262,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
       timeout_seconds: parse_int(params["timeout_seconds"], 300),
       notes: params["notes"],
       bind_address: params["bind_address"],
-      port: parse_int(params["port"], 6969),
+      port: parse_int(params["port"], 69),
       max_file_size: parse_int(params["max_file_size"], nil),
       image_id: if(mode == :serve, do: params["image_id"])
     }
 
-    case create_tftp_session(attrs) do
+    case create_tftp_session(attrs, socket.assigns.current_scope) do
       {:ok, _session} ->
         {:noreply,
          socket
          |> load_sessions()
          |> assign(:show_session_form, false)
-         |> put_flash(:info, "TFTP session created")}
+         |> put_flash(:info, "TFTP session created and queued for dispatch")}
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, "Failed to create session: #{format_error(error)}")}
@@ -276,20 +281,24 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   end
 
   def handle_event("cancel_session", %{"id" => id}, socket) do
-    with {:ok, session} <- load_session(id),
-         {:ok, _} <- cancel_session(session) do
+    with {:ok, session} <- load_session(id, socket.assigns.current_scope),
+         {:ok, _} <- cancel_session(session, socket.assigns.current_scope) do
       {:noreply,
        socket
        |> load_sessions()
        |> put_flash(:info, "Session canceled")}
     else
-      _ -> {:noreply, put_flash(socket, :error, "Failed to cancel session")}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to cancel session: #{format_error(reason)}")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Failed to cancel session")}
     end
   end
 
   def handle_event("queue_session", %{"id" => id}, socket) do
-    with {:ok, session} <- load_session(id),
-         {:ok, _} <- queue_session(session) do
+    with {:ok, session} <- load_session(id, socket.assigns.current_scope),
+         {:ok, _} <- queue_session(session, socket.assigns.current_scope) do
       {:noreply,
        socket
        |> load_sessions()
@@ -447,6 +456,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     {:noreply, socket}
   end
 
+  def handle_info({:agent_registered, _metadata}, socket) do
+    {:noreply, load_tftp_agents(socket)}
+  end
+
+  def handle_info({:agent_disconnected, _agent_id}, socket) do
+    {:noreply, load_tftp_agents(socket)}
+  end
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   defp update_session_in_list(socket, data) do
@@ -531,6 +548,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
                 session_mode={@session_mode}
                 images={@images}
                 tftp_agents={@tftp_agents}
+                tftp_agents_error={@tftp_agents_error}
                 can_manage={@can_manage}
                 live_action={@live_action}
                 session_filter_status={@session_filter_status}
@@ -940,6 +958,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
           mode={@session_mode}
           images={@images}
           tftp_agents={@tftp_agents}
+          tftp_agents_error={@tftp_agents_error}
         />
         <div class="divider my-2"></div>
       <% end %>
@@ -1007,6 +1026,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
                       View
                     </.link>
                     <button
+                      :if={@can_manage and session.status == :configuring}
+                      class="btn btn-primary btn-xs"
+                      phx-click="queue_session"
+                      phx-value-id={session.id}
+                    >
+                      Queue
+                    </button>
+                    <button
                       :if={@can_manage and session.status in [:configuring, :queued, :waiting, :receiving, :staging, :ready, :serving]}
                       class="btn btn-ghost btn-xs text-error"
                       phx-click="cancel_session"
@@ -1069,7 +1096,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
           <div class="space-y-1 text-sm">
             <div><span class="text-base-content/60">Status:</span> <.session_status_badge status={@session.status} /></div>
             <div><span class="text-base-content/60">Timeout:</span> {@session.timeout_seconds}s</div>
-            <div><span class="text-base-content/60">Port:</span> {@session.port || 6969}</div>
+            <div><span class="text-base-content/60">Port:</span> {@session.port || 69}</div>
             <div :if={@session.bind_address}><span class="text-base-content/60">Bind:</span> {@session.bind_address}</div>
             <div :if={@session.max_file_size}><span class="text-base-content/60">Max Size:</span> {format_bytes(@session.max_file_size)}</div>
           </div>
@@ -1106,6 +1133,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   end
 
   defp session_create_form(assigns) do
+    assigns = assign_new(assigns, :tftp_agents_error, fn -> nil end)
+
     ~H"""
     <div class="space-y-4">
       <h3 class="text-sm font-semibold">New TFTP Session</h3>
@@ -1147,7 +1176,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
               <% end %>
             </select>
             <p :if={@tftp_agents == []} class="text-xs text-warning mt-1">
-              No agents with TFTP capability found. Ensure agents are connected with TFTP support enabled.
+              No agents with TFTP capability found. Ensure agents are connected and advertising "tftp".
+            </p>
+            <p :if={@tftp_agents_error} class="text-xs text-error mt-1">
+              {@tftp_agents_error}
             </p>
           </div>
           <div>
@@ -1178,7 +1210,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
             <input
               type="number"
               name="session[port]"
-              value={@form["port"] || "6969"}
+              value={@form["port"] || "69"}
               class="input input-bordered input-sm w-full"
             />
           </div>
@@ -1685,7 +1717,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
             status -> Ash.Query.filter(query, status == ^String.to_existing_atom(status))
           end
 
-        case Ash.read(query) do
+        case Ash.read(query, scope: socket.assigns.current_scope) do
           {:ok, %{results: results}} -> results
           {:ok, results} when is_list(results) -> results
           _ -> []
@@ -1697,10 +1729,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     assign(socket, :images, images)
   end
 
-  defp load_image(id) do
+  defp load_image(id, scope) do
     SoftwareImage
     |> Ash.Query.for_read(:by_id, %{id: id})
-    |> Ash.read_one()
+    |> Ash.read_one(scope: scope)
     |> case do
       {:ok, nil} -> {:error, :not_found}
       {:ok, image} -> {:ok, image}
@@ -1742,7 +1774,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
               query
           end
 
-        case Ash.read(query) do
+        case Ash.read(query, scope: socket.assigns.current_scope) do
           {:ok, %{results: results}} -> results
           {:ok, results} when is_list(results) -> results
           _ -> []
@@ -1754,10 +1786,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     assign(socket, :sessions, sessions)
   end
 
-  defp load_session(id) do
+  defp load_session(id, scope) do
     TftpSession
     |> Ash.Query.for_read(:by_id, %{id: id})
-    |> Ash.read_one()
+    |> Ash.read_one(scope: scope)
     |> case do
       {:ok, nil} -> {:error, :not_found}
       {:ok, session} -> {:ok, session}
@@ -1768,7 +1800,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
   defp load_storage_config(socket) do
     config =
       try do
-        case Ash.read_one(StorageConfig, action: :get_config) do
+        case Ash.read_one(StorageConfig, action: :get_config, scope: socket.assigns.current_scope) do
           {:ok, config} -> config
           _ -> nil
         end
@@ -1826,7 +1858,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
           {:ok, _} ->
             attrs = Map.put(attrs, :object_key, object_key)
 
-            case create_image(attrs) do
+            case create_image(attrs, socket.assigns.current_scope) do
               {:ok, _image} ->
                 {:noreply,
                  socket
@@ -1857,39 +1889,54 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
     end
   end
 
-  defp create_image(attrs) do
+  defp create_image(attrs, scope) do
     SoftwareImage
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create()
+    |> Ash.Changeset.for_create(:create, attrs, scope: scope)
+    |> Ash.create(scope: scope)
   end
 
-  defp transition_image(image, action) do
+  defp transition_image(image, action, scope) do
     image
-    |> Ash.Changeset.for_update(action, %{})
-    |> Ash.update()
+    |> Ash.Changeset.for_update(action, %{}, scope: scope)
+    |> Ash.update(scope: scope)
   end
 
-  defp create_tftp_session(attrs) do
+  defp create_tftp_session(attrs, scope) do
     TftpSession
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create()
+    |> Ash.Changeset.for_create(:create_and_queue, attrs, scope: scope)
+    |> Ash.create(scope: scope)
   end
 
-  defp cancel_session(session) do
+  defp cancel_session(session, scope) do
     session
-    |> Ash.Changeset.for_update(:cancel, %{})
-    |> Ash.update()
+    |> Ash.Changeset.for_update(:cancel, %{}, scope: scope)
+    |> Ash.update(scope: scope)
   end
 
-  defp queue_session(session) do
+  defp queue_session(session, scope) do
     session
-    |> Ash.Changeset.for_update(:queue, %{})
-    |> Ash.update()
+    |> Ash.Changeset.for_update(:queue, %{}, scope: scope)
+    |> Ash.update(scope: scope)
   end
 
   defp load_tftp_agents(socket) do
-    agents =
-      try do
+    {live_agents, live_error} = load_live_tftp_agents()
+    db_agents = load_db_tftp_agents(socket)
+
+    merged_agents =
+      (live_agents ++ db_agents)
+      |> Enum.reduce(%{}, fn agent, acc -> Map.put(acc, agent.agent_id, agent) end)
+      |> Map.values()
+      |> Enum.sort_by(& &1.agent_id)
+
+    socket
+    |> assign(:tftp_agents, merged_agents)
+    |> assign(:tftp_agents_error, live_error)
+  end
+
+  defp load_live_tftp_agents do
+    try do
+      agents =
         AgentRegistry.find_agents_with_capability(:tftp)
         |> Enum.map(fn agent ->
           %{
@@ -1898,13 +1945,41 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
             status: Map.get(agent, :status, :unknown)
           }
         end)
-        |> Enum.sort_by(& &1.agent_id)
-      rescue
-        _ -> []
-      end
 
-    assign(socket, :tftp_agents, agents)
+      {agents, nil}
+    rescue
+      error ->
+        {[],
+         "Live agent registry unavailable (#{Exception.message(error)}). Showing database fallback."}
+    end
   end
+
+  defp load_db_tftp_agents(socket) do
+    scope = socket.assigns.current_scope
+
+    InfraAgent
+    |> Ash.Query.for_read(:by_capability, %{capability: "tftp"})
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, page_or_agents} ->
+        page_or_agents
+        |> extract_results()
+        |> Enum.map(fn agent ->
+          %{
+            agent_id: agent.uid,
+            partition_id: get_in(agent.metadata || %{}, ["partition_id"]),
+            status: if(agent.is_healthy, do: :connected, else: :unknown)
+          }
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp extract_results(%Ash.Page.Keyset{} = page), do: page.results
+  defp extract_results(results) when is_list(results), do: results
+  defp extract_results(_), do: []
 
   defp filter_files(files, search, date_filter) do
     files
@@ -2025,7 +2100,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SoftwareLive.Index do
       "agent_id" => "",
       "expected_filename" => "",
       "timeout_seconds" => "300",
-      "port" => "6969",
+      "port" => "69",
       "max_file_size" => "",
       "notes" => "",
       "bind_address" => "",

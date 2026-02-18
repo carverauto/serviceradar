@@ -61,9 +61,9 @@ defmodule ServiceRadar.Software.TftpSessionTest do
       assert session.timeout_seconds == 300
     end
 
-    test "defaults port to 6969", %{actor: actor} do
+    test "defaults port to 69", %{actor: actor} do
       session = create_session(actor)
-      assert session.port == 6969
+      assert session.port == 69
     end
   end
 
