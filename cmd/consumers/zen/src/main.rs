@@ -3,6 +3,7 @@ use clap::Parser;
 use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat};
 use env_logger::Env;
 use log::{debug, info, warn};
+use std::sync::Once;
 use std::time::Duration;
 
 use async_nats::jetstream::{
@@ -45,6 +46,7 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    ensure_rustls_provider_installed();
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let cli = Cli::parse();
     let pinned_path = config_bootstrap::pinned_path_from_env();
@@ -210,6 +212,13 @@ async fn main() -> Result<()> {
             }
         }
     }
+}
+
+fn ensure_rustls_provider_installed() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
 }
 
 #[cfg(test)]

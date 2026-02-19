@@ -42,7 +42,16 @@ func TestNewAccountSigner(t *testing.T) {
 	}
 
 	// Check for expected default mappings (collectors publish to these, NATS maps to namespace-prefixed)
-	expectedMappings := []string{"events.>", "logs.syslog.>", "logs.snmp.>", "netflow.>", "otel.>", "logs.>", "telemetry.>"}
+	expectedMappings := []string{
+		"events.>",
+		"logs.syslog.>",
+		"logs.snmp.>",
+		"netflow.>",
+		"arancini.updates.>",
+		"otel.>",
+		"logs.>",
+		"telemetry.>",
+	}
 	for _, expected := range expectedMappings {
 		found := false
 		for _, mapping := range signer.defaultSubjectMappings {

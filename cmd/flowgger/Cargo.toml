@@ -69,6 +69,7 @@ kvutil = { path = "../../rust/kvutil" }
 tonic-health = { workspace = true }
 spiffe = { version = "0.6", default-features = false, features = ["spiffe-types", "workload-api"] }
 config-bootstrap = { path = "../../rust/config-bootstrap" }
+rustls = "0.23"
 
 [dev-dependencies]
 tempdir = "0.3"

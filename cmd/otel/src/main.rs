@@ -7,9 +7,11 @@ use otel::setup::{
 use otel::tls::setup_grpc_tls;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Once;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ensure_rustls_provider_installed();
     let args = setup_logging_and_parse_args()?;
 
     if args.generate_config {
@@ -53,6 +55,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     start_server(addr, grpc_tls_config, collector).await
+}
+
+fn ensure_rustls_provider_installed() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
 }
 
 fn resolve_config_path(args: &otel::cli::CLI) -> PathBuf {

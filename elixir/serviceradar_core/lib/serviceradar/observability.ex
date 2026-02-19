@@ -52,6 +52,7 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.NetflowPortScanFlag
     resource ServiceRadar.Observability.NetflowPortAnomalyFlag
     resource ServiceRadar.Observability.NetflowSettings
+    resource ServiceRadar.Observability.BmpSettings
     resource ServiceRadar.Observability.NetflowLocalCidr
     resource ServiceRadar.Observability.NetflowAppClassificationRule
     resource ServiceRadar.Observability.NetflowExporterCache

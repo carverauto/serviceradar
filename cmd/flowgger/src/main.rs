@@ -3,6 +3,7 @@ extern crate flowgger;
 use clap::{Arg, Command};
 use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat};
 use std::io::{stderr, Write};
+use std::sync::Once;
 use tempfile::NamedTempFile;
 use toml::Value;
 
@@ -11,6 +12,7 @@ const FLOWGGER_VERSION_STRING: &str = env!("CARGO_PKG_VERSION");
 
 #[tokio::main]
 async fn main() {
+    ensure_rustls_provider_installed();
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format(|buf, record| {
             writeln!(
@@ -27,6 +29,13 @@ async fn main() {
         let _ = writeln!(stderr(), "flowgger bootstrap error: {err}");
         std::process::exit(1);
     }
+}
+
+fn ensure_rustls_provider_installed() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {

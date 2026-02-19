@@ -330,6 +330,37 @@ PACKAGES = {
             "/etc/serviceradar/netflow-collector.json",
         ],
     },
+    "bmp-collector": {
+        "package_name": "serviceradar-bmp-collector",
+        "description": "ServiceRadar BMP collector powered by arancini-lib",
+        "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+        "architecture": "amd64",
+        "section": "net",
+        "priority": "optional",
+        "deb_depends": ["systemd", "serviceradar-cli"],
+        "rpm_requires": ["systemd", "serviceradar-cli"],
+        "binary": {
+            "target": "//rust/bmp-collector:bmp-collector",
+            "dest": "/usr/local/bin/serviceradar-bmp-collector",
+        },
+        "files": [
+            {
+                "src": "config/bmp-collector.json",
+                "dest": "/etc/serviceradar/bmp-collector.json",
+                "mode": "0644",
+                "rpm_filetag": "config(noreplace)",
+            },
+        ],
+        "systemd": {
+            "src": "systemd/serviceradar-bmp-collector.service",
+            "dest": "/lib/systemd/system/serviceradar-bmp-collector.service",
+        },
+        "postinst": "scripts/postinstall.sh",
+        "prerm": "scripts/preremove.sh",
+        "conffiles": [
+            "/etc/serviceradar/bmp-collector.json",
+        ],
+    },
     "nats": {
         "package_name": "serviceradar-nats",
         "description": "ServiceRadar NATS JetStream service",

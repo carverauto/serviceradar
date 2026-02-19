@@ -149,6 +149,9 @@ func TestGenerateUserCredentials_CollectorType(t *testing.T) {
 	if !contains(pubAllow, "otel.metrics.>") {
 		t.Error("Collector should have 'otel.metrics.>' publish permission")
 	}
+	if !contains(pubAllow, "arancini.updates.>") {
+		t.Error("Collector should have 'arancini.updates.>' publish permission")
+	}
 
 	subAllow := claims.Sub.Allow
 	if !contains(subAllow, "_INBOX.>") {

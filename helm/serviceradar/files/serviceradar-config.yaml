@@ -886,6 +886,17 @@ data:
             }
           },
           {
+            user: "CN=serviceradar-bmp-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["arancini.updates.>", "$JS.API.STREAM.INFO.ARANCINI_CAUSAL", "$JS.API.STREAM.CREATE.ARANCINI_CAUSAL", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
             user: "O=ServiceRadar"
             permissions: {
               publish: {

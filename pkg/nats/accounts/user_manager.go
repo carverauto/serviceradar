@@ -137,6 +137,7 @@ func applyUserPermissions(
 		claims.Pub.Allow.Add("otel.metrics.>")
 		claims.Pub.Allow.Add("telemetry.>")
 		claims.Pub.Allow.Add("netflow.>")
+		claims.Pub.Allow.Add("arancini.updates.>")
 		claims.Sub.Allow.Add("_INBOX.>")
 		claims.Resp = &jwt.ResponsePermission{
 			MaxMsgs: 1,

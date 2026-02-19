@@ -25,6 +25,7 @@ tonic-health = { workspace = true }
 tonic-reflection = { workspace = true }
 spiffe = { version = "0.6", default-features = false, features = ["spiffe-types", "workload-api"] }
 config-bootstrap = { path = "../../../rust/config-bootstrap" }
+rustls = "0.23"
 
 [build-dependencies]
 tonic-build = { workspace = true }

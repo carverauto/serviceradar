@@ -12,6 +12,7 @@
   (dict "name" "serviceradar-rperf-checker" "label" "serviceradar-rperf-client" "sa" (.Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker"))
   (dict "name" "serviceradar-flowgger" "label" "serviceradar-flowgger" "sa" (.Values.spire.flowggerServiceAccount | default "serviceradar-flowgger"))
   (dict "name" "serviceradar-netflow-collector" "label" "serviceradar-netflow-collector" "sa" (.Values.spire.netflowCollectorServiceAccount | default "serviceradar-netflow-collector"))
+  (dict "name" "serviceradar-bmp-collector" "label" "serviceradar-bmp-collector" "sa" (.Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector"))
   (dict "name" "serviceradar-trapd" "label" "serviceradar-trapd" "sa" (.Values.spire.trapdServiceAccount | default "serviceradar-trapd"))
 }}
 {{- range $entries }}

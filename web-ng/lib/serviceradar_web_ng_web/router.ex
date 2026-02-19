@@ -114,6 +114,8 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/api/admin", ServiceRadarWebNG.Api do
     pipe_through(:api_auth)
 
+    get("/openapi", OpenapiController, :admin)
+
     get("/users", UserController, :index)
     get("/users/:id", UserController, :show)
     post("/users", UserController, :create)
@@ -123,6 +125,8 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/authorization-settings", AuthorizationSettingsController, :show)
     put("/authorization-settings", AuthorizationSettingsController, :update)
+    get("/bmp-settings", BmpSettingsController, :show)
+    put("/bmp-settings", BmpSettingsController, :update)
 
     get("/role-profiles/catalog", RoleProfileController, :catalog)
     get("/role-profiles", RoleProfileController, :index)
@@ -394,6 +398,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job)
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
+      live("/settings/networks/bmp", Settings.BmpLive.Index, :index)
 
       # NetFlow settings (directionality + enrichment configuration)
       live("/settings/netflows", Settings.NetflowLive.Index, :index)

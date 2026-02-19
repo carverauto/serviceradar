@@ -61,11 +61,10 @@ impl SecurityConfig {
             return PathBuf::from(trimmed);
         }
 
-        self.cert_dir
-            .as_deref()
-            .map_or_else(|| PathBuf::from(trimmed), |cert_dir| {
-                PathBuf::from(cert_dir).join(trimmed)
-            })
+        self.cert_dir.as_deref().map_or_else(
+            || PathBuf::from(trimmed),
+            |cert_dir| PathBuf::from(cert_dir).join(trimmed),
+        )
     }
 }
 

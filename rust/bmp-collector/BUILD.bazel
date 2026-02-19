@@ -1,0 +1,17 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rust_crates//:defs.bzl", "all_crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "bmp-collector.json",
+])
+
+rust_binary(
+    name = "bmp-collector",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/main.rs",
+    edition = "2024",
+    deps = all_crate_deps(normal = True),
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)

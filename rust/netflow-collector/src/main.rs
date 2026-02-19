@@ -12,6 +12,7 @@ use listener::Listener;
 use metrics::MetricsReporter;
 use publisher::Publisher;
 use std::sync::Arc;
+use std::sync::Once;
 use tokio::sync::mpsc;
 
 #[derive(Parser, Debug)]
@@ -24,6 +25,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    ensure_rustls_provider_installed();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args = Args::parse();
@@ -112,4 +114,11 @@ async fn main() -> Result<()> {
 
     log::info!("NetFlow collector shutting down");
     Ok(())
+}
+
+fn ensure_rustls_provider_installed() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
 }

@@ -34,26 +34,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build_server(false)
             .build_client(false)
             .compile_protos(&otel_files, &[otel_base.as_path()])?;
-        println!(
-            "cargo:rerun-if-changed={}",
-            otel_files[0].display()
-        );
-        println!(
-            "cargo:rerun-if-changed={}",
-            otel_files[1].display()
-        );
-        println!(
-            "cargo:rerun-if-changed={}",
-            otel_files[2].display()
-        );
-        println!(
-            "cargo:rerun-if-changed={}",
-            otel_files[3].display()
-        );
-        println!(
-            "cargo:rerun-if-changed={}",
-            otel_files[4].display()
-        );
+        println!("cargo:rerun-if-changed={}", otel_files[0].display());
+        println!("cargo:rerun-if-changed={}", otel_files[1].display());
+        println!("cargo:rerun-if-changed={}", otel_files[2].display());
+        println!("cargo:rerun-if-changed={}", otel_files[3].display());
+        println!("cargo:rerun-if-changed={}", otel_files[4].display());
     }
 
     // Compile flow.proto

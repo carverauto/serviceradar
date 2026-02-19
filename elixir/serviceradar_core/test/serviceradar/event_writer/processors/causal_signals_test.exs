@@ -17,6 +17,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         "timestamp" => "2026-02-16T12:00:00Z",
         "severity" => "high",
         "peer_ip" => "192.0.2.10",
+        "peer_asn" => "64513",
+        "router_id" => "router-a",
+        "router_ip" => "10.0.0.1",
         "device_id" => "mac-aabbccddeeff",
         "message" => "BGP peer down"
       }
@@ -35,10 +38,16 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.type_uid == 100_811
       assert row.severity_id == 4
       assert row.metadata["signal_type"] == "bmp"
+      assert row.metadata["event_type"] == "peer"
       assert row.metadata["schema_version"] == "1.0"
       assert row.metadata["primary_domain"] == "routing"
+      assert row.metadata["source_identity"]["router_id"] == "router-a"
+      assert row.metadata["routing_correlation"]["peer_asn"] == 64_513
+      assert row.metadata["routing_correlation"]["router_ip"] == "10.0.0.1"
+      assert "192.0.2.10" in row.metadata["routing_correlation"]["topology_keys"]
       assert row.device["uid"] == "mac-aabbccddeeff"
       assert row.src_endpoint["ip"] == "192.0.2.10"
+      assert row.src_endpoint["asn"] == 64_513
     end
 
     test "normalizes SIEM payload and clamps numeric severity" do
@@ -137,6 +146,118 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.metadata["guardrails"]["input_context_count"] == 40
       assert row.metadata["guardrails"]["applied_context_count"] == 32
     end
+
+    test "normalizes routing correlation keys for topology joins" do
+      payload = %{
+        "event_id" => "join-1",
+        "timestamp" => "2026-02-16T12:20:00Z",
+        "severity" => "critical",
+        "deviceId" => "router-edge-01",
+        "peer_ip" => "198.51.100.77",
+        "peerAsn" => "64522",
+        "localAsn" => 64_512,
+        "prefix" => "203.0.113.0/24",
+        "vrf" => "default"
+      }
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{subject: "bmp.events.update", received_at: DateTime.utc_now()}
+      }
+
+      row = CausalSignals.parse_message(message)
+
+      refute is_nil(row)
+      assert row.metadata["source_identity"]["device_uid"] == "router-edge-01"
+      assert row.metadata["routing_correlation"]["local_asn"] == 64_512
+      assert row.metadata["routing_correlation"]["peer_asn"] == 64_522
+      assert row.metadata["routing_correlation"]["vrf"] == "default"
+      assert row.metadata["routing_correlation"]["prefix"] == "203.0.113.0/24"
+      assert "router-edge-01" in row.metadata["routing_correlation"]["topology_keys"]
+      assert "198.51.100.77" in row.metadata["explainability"]["routing_topology_keys"]
+    end
+
+    test "uses explicit event_type when provided by collector payload" do
+      payload = %{
+        "event_id" => "evt-typed-1",
+        "event_type" => "route_withdraw",
+        "timestamp" => "2026-02-16T12:21:00Z",
+        "severity" => "low"
+      }
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{subject: "bmp.events.peer_down", received_at: DateTime.utc_now()}
+      }
+
+      row = CausalSignals.parse_message(message)
+      refute is_nil(row)
+      assert row.metadata["event_type"] == "route_withdraw"
+    end
+
+    test "normalizes arancini update payload into bmp causal envelope" do
+      payload = load_event_writer_fixture!("arancini_update_route_update.json")
+      assert_arancini_contract_keys!(payload)
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{
+          subject: "arancini.updates.v4_10_0_0_1.64513.1_1",
+          received_at: DateTime.utc_now()
+        }
+      }
+
+      row = CausalSignals.parse_message(message)
+
+      refute is_nil(row)
+      assert row.type_uid == 100_811
+      assert row.metadata["signal_type"] == "bmp"
+      assert row.metadata["event_type"] == "route_update"
+      assert row.metadata["source"]["system"] == "arancini"
+      assert row.metadata["routing_correlation"]["router_ip"] == "10.0.0.1"
+      assert row.metadata["routing_correlation"]["peer_ip"] == "192.0.2.10"
+      assert row.metadata["routing_correlation"]["prefix"] == "203.0.113.0/24"
+      assert row.src_endpoint["ip"] == "192.0.2.10"
+      assert row.device["uid"] == "10.0.0.1"
+    end
+
+    test "normalizes arancini withdraw payload to route_withdraw event type" do
+      payload = load_event_writer_fixture!("arancini_update_route_withdraw.json")
+      assert_arancini_contract_keys!(payload)
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{
+          subject: "arancini.updates.v4_10_0_0_2.64514.1_1",
+          received_at: DateTime.utc_now()
+        }
+      }
+
+      row = CausalSignals.parse_message(message)
+
+      refute is_nil(row)
+      assert row.metadata["signal_type"] == "bmp"
+      assert row.metadata["event_type"] == "route_withdraw"
+      assert row.metadata["routing_correlation"]["prefix"] == "203.0.114.0/24"
+      assert row.src_endpoint["ip"] == "192.0.2.11"
+      assert row.src_endpoint["asn"] == 64_514
+    end
+
+    test "rejects arancini payloads missing required contract fields" do
+      payload =
+        load_event_writer_fixture!("arancini_update_route_update.json")
+        |> Map.delete("peer_asn")
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{
+          subject: "arancini.updates.v4_10_0_0_1.64513.1_1",
+          received_at: DateTime.utc_now()
+        }
+      }
+
+      assert CausalSignals.parse_message(message) == nil
+    end
   end
 
   describe "replay determinism via Broadway causal routing" do
@@ -208,6 +329,21 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert Enum.any?(first, fn {_id, primary_domain, _contexts} ->
                primary_domain == "security"
              end)
+    end
+
+    test "arancini subject routes to causal_signals batcher" do
+      event = %{
+        data: Jason.encode!(%{"announced" => true}),
+        metadata: %{
+          subject: "arancini.updates.v4_10_0_0_1.64513.1_1",
+          received_at: DateTime.utc_now()
+        },
+        ack_data: %{}
+      }
+
+      message = Pipeline.transform(event, [])
+      routed = Pipeline.handle_message(:default, message, %{})
+      assert routed.batcher == :causal_signals
     end
   end
 
@@ -312,5 +448,38 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       {row.metadata["event_identity"], row.metadata["primary_domain"], context_ids}
     end)
     |> Enum.sort()
+  end
+
+  defp load_event_writer_fixture!(file_name) do
+    fixture_path =
+      Path.join([
+        __DIR__,
+        "..",
+        "..",
+        "..",
+        "support",
+        "fixtures",
+        "event_writer",
+        file_name
+      ])
+
+    fixture_path
+    |> File.read!()
+    |> Jason.decode!()
+  end
+
+  defp assert_arancini_contract_keys!(payload) when is_map(payload) do
+    required_keys = [
+      "router_addr",
+      "peer_addr",
+      "peer_asn",
+      "prefix_addr",
+      "prefix_len",
+      "announced"
+    ]
+
+    for key <- required_keys do
+      assert Map.has_key?(payload, key), "missing required arancini key: #{key}"
+    end
   end
 end
