@@ -127,6 +127,11 @@ core:
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
 
+zenRulesBootstrap:
+  # Disabled in demo for now: this post-upgrade hook job is currently failing
+  # and keeps Helm upgrades stuck in pending-upgrade.
+  enabled: false
+
 # Temporarily disabled client CA for initial testing - there's a circular dependency
 # where CNPG needs the client CA secret, but the job that creates it
 # runs post-install and needs CNPG to be running first.
@@ -172,4 +177,26 @@ netflowCollector:
     annotations:
       metallb.universe.tf/address-pool: k3s-pool
     loadBalancerIP: "23.138.124.25"
+    externalTrafficPolicy: Local
+
+certs:
+  regenerator:
+    # Ensure new collector certs (including bmp-collector.pem) are created
+    # in existing demo cert volumes during upgrades.
+    enabled: true
+
+bmpCollector:
+  enabled: true
+  config:
+    stream_max_bytes: 1073741824
+    # Workaround: NATS verify_and_map currently fails to match the
+    # serviceradar-bmp-collector DN in demo.
+    # Use the known-good debug client mTLS identity for NATS auth.
+    nats_tls_client_cert_path: "/etc/serviceradar/certs/client.pem"
+    nats_tls_client_key_path: "/etc/serviceradar/certs/client-key.pem"
+  service:
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
+    loadBalancerIP: "23.138.124.27"
     externalTrafficPolicy: Local

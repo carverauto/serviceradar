@@ -210,6 +210,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp causal_signal_subject?(subject) do
     String.starts_with?(subject, "bmp.events.") or
+      String.starts_with?(subject, "arancini.updates.") or
       String.starts_with?(subject, "siem.events.") or
       String.starts_with?(subject, "signals.causal.")
   end

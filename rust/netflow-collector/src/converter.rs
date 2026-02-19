@@ -142,8 +142,12 @@ impl Converter {
                                 }
 
                                 // Ports
-                                V9Field::L4SrcPort => msg.src_port = field_value_to_u32(field_value),
-                                V9Field::L4DstPort => msg.dst_port = field_value_to_u32(field_value),
+                                V9Field::L4SrcPort => {
+                                    msg.src_port = field_value_to_u32(field_value)
+                                }
+                                V9Field::L4DstPort => {
+                                    msg.dst_port = field_value_to_u32(field_value)
+                                }
 
                                 // Protocol
                                 V9Field::Protocol => {
@@ -182,7 +186,9 @@ impl Converter {
                                 V9Field::OutputSnmp => msg.out_if = field_value_to_u32(field_value),
 
                                 // MAC addresses
-                                V9Field::InSrcMac => msg.src_mac = field_value_to_mac_u64(field_value),
+                                V9Field::InSrcMac => {
+                                    msg.src_mac = field_value_to_mac_u64(field_value)
+                                }
                                 V9Field::InDstMac | V9Field::OutDstMac => {
                                     if msg.dst_mac == 0 {
                                         msg.dst_mac = field_value_to_mac_u64(field_value);
@@ -220,7 +226,9 @@ impl Converter {
                                 }
 
                                 // Flags and ToS
-                                V9Field::TcpFlags => msg.tcp_flags = field_value_to_u32(field_value),
+                                V9Field::TcpFlags => {
+                                    msg.tcp_flags = field_value_to_u32(field_value)
+                                }
                                 V9Field::SrcTos => msg.ip_tos = field_value_to_u32(field_value),
 
                                 // VLAN
@@ -252,7 +260,9 @@ impl Converter {
                 FlowSetBody::NoTemplate(info) => {
                     debug!(
                         "V9 flowset skipped - no template for ID {} (available: {:?}, {} bytes raw data)",
-                        info.template_id, info.available_templates, info.raw_data.len()
+                        info.template_id,
+                        info.available_templates,
+                        info.raw_data.len()
                     );
                 }
                 _ => {}
@@ -502,7 +512,9 @@ impl Converter {
                 FlowSetBody::NoTemplate(info) => {
                     debug!(
                         "IPFIX flowset skipped - no template for ID {} (available: {:?}, {} bytes raw data)",
-                        info.template_id, info.available_templates, info.raw_data.len()
+                        info.template_id,
+                        info.available_templates,
+                        info.raw_data.len()
                     );
                 }
                 _ => {}

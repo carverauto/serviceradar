@@ -7,41 +7,58 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   causality from a durable source.
 
   Expected subjects include:
-  - `bmp.events.>`
+  - `arancini.updates.>`
   - `siem.events.>`
   - `signals.causal.>`
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
 
   require Logger
 
   @schema_version "1.0"
   @max_grouped_contexts 32
+  @routing_table "bmp_routing_events"
 
   @impl true
   def table_name, do: "ocsf_events"
 
   @impl true
   def process_batch(messages) do
-    rows =
+    parsed_rows =
       messages
-      |> Enum.map(&parse_message/1)
+      |> Enum.map(&parse_components/1)
       |> Enum.reject(&is_nil/1)
 
-    if Enum.empty?(rows) do
+    if Enum.empty?(parsed_rows) do
       {:ok, 0}
     else
-      case ServiceRadar.Repo.insert_all(table_name(), rows,
-             on_conflict: :nothing,
-             returning: false
-           ) do
-        {count, _} ->
-          CausalPubSub.broadcast_ingest(%{count: count})
-          {:ok, count}
-      end
+      routing_rows =
+        parsed_rows
+        |> Enum.filter(&(&1.normalized["signal_type"] == "bmp"))
+        |> Enum.map(&build_routing_event_row/1)
+        |> Enum.reject(&is_nil/1)
+
+      ocsf_rows =
+        parsed_rows
+        |> Enum.filter(&persist_to_ocsf?/1)
+        |> Enum.map(fn %{
+                         normalized: normalized,
+                         payload: payload,
+                         raw_data: raw_data,
+                         metadata: metadata
+                       } ->
+          build_ocsf_event_row(normalized, payload, raw_data, metadata)
+        end)
+
+      _ = insert_rows(@routing_table, routing_rows)
+      ocsf_count = insert_rows(table_name(), ocsf_rows)
+
+      CausalPubSub.broadcast_ingest(%{count: ocsf_count})
+      {:ok, length(parsed_rows)}
     end
   rescue
     e ->
@@ -51,9 +68,24 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
+    with %{normalized: normalized, payload: payload, raw_data: raw_data, metadata: row_metadata} <-
+           parse_components(%{data: data, metadata: metadata}) do
+      build_ocsf_event_row(normalized, payload, raw_data, row_metadata)
+    else
+      nil ->
+        nil
+    end
+  end
+
+  defp parse_components(%{data: data, metadata: metadata}) do
     with {:ok, payload} <- Jason.decode(data),
          {:ok, normalized} <- normalize_payload(payload, metadata, data) do
-      build_ocsf_event_row(normalized, payload, data, metadata)
+      %{
+        normalized: normalized,
+        payload: payload,
+        raw_data: data,
+        metadata: metadata
+      }
     else
       _ ->
         Logger.debug("Failed to parse causal signal payload", subject: metadata[:subject])
@@ -61,47 +93,206 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     end
   end
 
+  defp parse_components(_), do: nil
+
+  defp insert_rows(_table, []), do: 0
+
+  defp insert_rows(table, rows) when is_list(rows) do
+    case ServiceRadar.Repo.insert_all(table, rows, on_conflict: :nothing, returning: false) do
+      {count, _} -> count
+    end
+  end
+
+  defp persist_to_ocsf?(%{normalized: normalized}) when is_map(normalized) do
+    signal_type = normalized["signal_type"]
+    event_type = normalized["event_type"]
+    severity_id = normalized["severity_id"] || 0
+
+    cond do
+      signal_type != "bmp" ->
+        true
+
+      event_type in ["peer_up", "peer_down"] ->
+        true
+
+      severity_id >= bmp_ocsf_min_severity() ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp persist_to_ocsf?(_), do: false
+
+  defp bmp_ocsf_min_severity do
+    BmpSettingsRuntime.bmp_ocsf_min_severity()
+  end
+
+  defp build_routing_event_row(%{normalized: normalized, payload: payload, raw_data: raw_data}) do
+    correlation = normalized["routing_correlation"] || %{}
+    source_identity = normalized["source_identity"] || %{}
+
+    %{
+      id: Ecto.UUID.dump!(normalized["event_identity"]),
+      time: normalized["event_time"],
+      event_type: normalized["event_type"] || "unknown",
+      severity_id: normalized["severity_id"],
+      router_id: merged_identity(correlation, source_identity, "router_id"),
+      router_ip: merged_identity(correlation, source_identity, "router_ip"),
+      peer_ip: merged_identity(correlation, source_identity, "peer_ip"),
+      peer_asn: correlation["peer_asn"],
+      local_asn: correlation["local_asn"],
+      prefix: correlation["prefix"],
+      message: routing_message(payload, normalized),
+      metadata: normalized,
+      raw_data: raw_data,
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp build_routing_event_row(_), do: nil
+
+  defp merged_identity(correlation, source_identity, key) do
+    correlation[key] || source_identity[key]
+  end
+
+  defp routing_message(payload, normalized) do
+    payload["message"] || payload["description"] ||
+      "#{normalized["signal_type"] || "bmp"} routing signal"
+  end
+
   defp normalize_payload(payload, metadata, raw_data) when is_map(payload) do
     subject = metadata[:subject] || ""
-    signal_type = infer_signal_type(subject, payload)
-    severity_id = normalize_severity(payload)
-    grouped_contexts = grouped_contexts(payload)
-    domains = signal_domains(payload, signal_type)
-    {primary_domain, precedence_rank} = primary_domain(domains)
-    truncated_contexts = Enum.take(grouped_contexts, @max_grouped_contexts)
-    contexts_truncated = length(grouped_contexts) > length(truncated_contexts)
 
-    event_time =
-      payload["timestamp"] || payload["time"] || payload["event_time"] || metadata[:received_at]
+    if arancini_subject?(subject) and not valid_arancini_payload?(payload) do
+      {:error, :invalid_arancini_payload}
+    else
+      signal_type = infer_signal_type(subject, payload)
+      event_type = infer_event_type(subject, payload)
+      severity_id = normalize_severity(payload)
+      grouped_contexts = grouped_contexts(payload)
+      routing_correlation = routing_correlation(payload)
+      domains = signal_domains(payload, signal_type)
+      {primary_domain, precedence_rank} = primary_domain(domains)
+      truncated_contexts = Enum.take(grouped_contexts, @max_grouped_contexts)
+      contexts_truncated = length(grouped_contexts) > length(truncated_contexts)
 
-    envelope = %{
-      "schema_version" => @schema_version,
-      "signal_type" => signal_type,
-      "severity_id" => severity_id,
-      "source" => normalize_source(payload, subject),
-      "event_identity" => stable_event_identity(subject, payload, raw_data),
-      "event_time" => normalize_time(event_time),
-      "grouped_contexts" => truncated_contexts,
-      "signal_domains" => domains,
-      "primary_domain" => primary_domain,
-      "explainability" => %{
-        "source_signal_refs" => source_signal_refs(payload),
-        "context_ids" => Enum.map(truncated_contexts, & &1["id"]),
+      event_time =
+        payload["timestamp"] ||
+          payload["time"] ||
+          payload["event_time"] ||
+          payload["time_bmp_header_ns"] ||
+          payload["time_received_ns"] ||
+          metadata[:received_at]
+
+      envelope = %{
+        "schema_version" => @schema_version,
+        "signal_type" => signal_type,
+        "event_type" => event_type,
+        "severity_id" => severity_id,
+        "source" => normalize_source(payload, subject),
+        "source_identity" => source_identity(payload),
+        "event_identity" => stable_event_identity(subject, payload, raw_data),
+        "event_time" => normalize_time(event_time),
+        "routing_correlation" => routing_correlation,
+        "grouped_contexts" => truncated_contexts,
+        "signal_domains" => domains,
         "primary_domain" => primary_domain,
-        "precedence_rank" => precedence_rank
-      },
-      "guardrails" => %{
-        "max_grouped_contexts" => @max_grouped_contexts,
-        "contexts_truncated" => contexts_truncated,
-        "input_context_count" => length(grouped_contexts),
-        "applied_context_count" => length(truncated_contexts)
+        "explainability" => %{
+          "source_signal_refs" => source_signal_refs(payload),
+          "context_ids" => Enum.map(truncated_contexts, & &1["id"]),
+          "routing_topology_keys" => routing_correlation["topology_keys"],
+          "primary_domain" => primary_domain,
+          "precedence_rank" => precedence_rank
+        },
+        "guardrails" => %{
+          "max_grouped_contexts" => @max_grouped_contexts,
+          "contexts_truncated" => contexts_truncated,
+          "input_context_count" => length(grouped_contexts),
+          "applied_context_count" => length(truncated_contexts)
+        }
       }
-    }
 
-    {:ok, envelope}
+      {:ok, envelope}
+    end
   end
 
   defp normalize_payload(_, _, _), do: {:error, :invalid_payload}
+
+  defp arancini_subject?(subject) when is_binary(subject),
+    do: String.starts_with?(subject, "arancini.updates.")
+
+  defp arancini_subject?(_), do: false
+
+  defp valid_arancini_payload?(payload) when is_map(payload) do
+    required_string_keys_present? =
+      Enum.all?(["router_addr", "peer_addr", "prefix_addr"], fn key ->
+        payload[key] |> normalize_optional_string() |> is_binary()
+      end)
+
+    required_numeric_keys_present? =
+      is_integer(normalize_int(payload["peer_asn"])) and
+        is_integer(normalize_int(payload["prefix_len"]))
+
+    required_boolean_keys_present? = is_boolean(payload["announced"])
+
+    required_string_keys_present? and required_numeric_keys_present? and
+      required_boolean_keys_present?
+  end
+
+  defp valid_arancini_payload?(_), do: false
+
+  defp infer_event_type(subject, payload) when is_binary(subject) and is_map(payload) do
+    candidate =
+      payload["event_type"] ||
+        payload["eventType"] ||
+        arancini_event_type(payload) ||
+        subject_to_event_type(subject)
+
+    normalize_event_type(candidate)
+  end
+
+  defp infer_event_type(subject, _payload) when is_binary(subject) do
+    subject_to_event_type(subject)
+  end
+
+  defp infer_event_type(_, _), do: "unknown"
+
+  defp subject_to_event_type(subject) do
+    case String.split(subject, ".", trim: true) do
+      ["bmp", "events", suffix | _] -> normalize_event_type(suffix)
+      _ -> "unknown"
+    end
+  end
+
+  defp arancini_event_type(payload) when is_map(payload) do
+    cond do
+      is_boolean(payload["announced"]) and payload["announced"] ->
+        "route_update"
+
+      is_boolean(payload["announced"]) and not payload["announced"] ->
+        "route_withdraw"
+
+      true ->
+        nil
+    end
+  end
+
+  defp arancini_event_type(_), do: nil
+
+  defp normalize_event_type(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace("-", "_")
+    |> case do
+      "" -> "unknown"
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_event_type(_), do: "unknown"
 
   defp build_ocsf_event_row(normalized, payload, raw_data, metadata) do
     severity_id = normalized["severity_id"]
@@ -145,6 +336,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     cond do
       is_binary(payload["signal_type"]) -> String.downcase(payload["signal_type"])
       String.starts_with?(subject, "bmp.events.") -> "bmp"
+      String.starts_with?(subject, "arancini.updates.") -> "bmp"
       String.starts_with?(subject, "siem.events.") -> "siem"
       true -> "unknown"
     end
@@ -154,7 +346,101 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     %{
       "subject" => subject,
       "collector" => payload["collector"] || payload["source_collector"],
-      "system" => payload["source"] || payload["provider"] || "external"
+      "system" =>
+        payload["source"] ||
+          payload["provider"] ||
+          if(String.starts_with?(subject, "arancini.updates."), do: "arancini", else: "external")
+    }
+  end
+
+  defp source_identity(payload) do
+    %{
+      "device_uid" =>
+        first_non_blank([
+          payload["device_id"],
+          payload["deviceId"],
+          payload["router_id"],
+          payload["routerId"]
+        ]),
+      "router_id" => first_non_blank([payload["router_id"], payload["routerId"]]),
+      "router_ip" =>
+        first_non_blank([
+          payload["router_ip"],
+          payload["routerIp"],
+          payload["router_addr"],
+          payload["device_ip"],
+          payload["source_ip"]
+        ]),
+      "peer_ip" =>
+        first_non_blank([
+          payload["peer_ip"],
+          payload["peerIp"],
+          payload["peer_addr"],
+          payload["src_ip"]
+        ])
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  defp routing_correlation(payload) do
+    router_id =
+      first_non_blank([
+        payload["router_id"],
+        payload["routerId"],
+        payload["router_addr"],
+        payload["device_id"],
+        payload["deviceId"]
+      ])
+
+    router_ip =
+      first_non_blank([
+        payload["router_ip"],
+        payload["routerIp"],
+        payload["router_addr"],
+        payload["device_ip"],
+        payload["source_ip"]
+      ])
+
+    peer_ip =
+      first_non_blank([
+        payload["peer_ip"],
+        payload["peerIp"],
+        payload["peer_addr"],
+        payload["src_ip"]
+      ])
+
+    peer_asn = normalize_int(payload["peer_asn"] || payload["peerAsn"])
+
+    local_asn =
+      normalize_int(
+        payload["local_asn"] || payload["localAsn"] || payload["local_as"] || payload["asn"]
+      )
+
+    vrf = first_non_blank([payload["vrf"], payload["routing_instance"]])
+
+    prefix =
+      first_non_blank([
+        payload["prefix"],
+        payload["nlri"],
+        payload["announced_prefix"],
+        arancini_prefix(payload)
+      ])
+
+    topology_keys =
+      [router_id, router_ip, peer_ip, prefix]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    %{
+      "router_id" => router_id,
+      "router_ip" => router_ip,
+      "peer_ip" => peer_ip,
+      "peer_asn" => peer_asn,
+      "local_asn" => local_asn,
+      "vrf" => vrf,
+      "prefix" => prefix,
+      "topology_keys" => topology_keys
     }
   end
 
@@ -248,6 +534,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       payload["id"],
       payload["eventId"],
       payload["alert_id"],
+      payload["arancini_message_id"],
       payload["bmp_message_id"],
       payload["message_id"]
     ]
@@ -312,7 +599,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp type_uid_for(_), do: 100_810
 
   defp normalize_device(payload) do
-    device_id = payload["device_id"] || payload["deviceId"] || payload["router_id"]
+    device_id =
+      payload["device_id"] || payload["deviceId"] || payload["router_id"] ||
+        payload["router_addr"]
 
     if is_binary(device_id) and device_id != "" do
       %{"uid" => device_id}
@@ -322,13 +611,12 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp normalize_src_endpoint(payload) do
-    ip = payload["peer_ip"] || payload["src_ip"] || payload["source_ip"]
+    ip = payload["peer_ip"] || payload["peer_addr"] || payload["src_ip"] || payload["source_ip"]
+    asn = normalize_int(payload["peer_asn"] || payload["peerAsn"])
 
-    if is_binary(ip) and ip != "" do
-      %{"ip" => ip}
-    else
-      %{}
-    end
+    %{"ip" => normalize_optional_string(ip), "asn" => asn}
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
   end
 
   defp stable_event_identity(subject, payload, raw_data) do
@@ -337,6 +625,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         payload["id"] ||
         payload["eventId"] ||
         payload["alert_id"] ||
+        payload["arancini_message_id"] ||
         payload["bmp_message_id"] ||
         payload["message_id"]
 
@@ -363,4 +652,42 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     )
     |> IO.iodata_to_binary()
   end
+
+  defp first_non_blank(values) when is_list(values) do
+    values
+    |> Enum.map(&normalize_optional_string/1)
+    |> Enum.find(&is_binary/1)
+  end
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp normalize_optional_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_optional_string(value) when is_float(value), do: Float.to_string(value)
+  defp normalize_optional_string(_), do: nil
+
+  defp normalize_int(value) when is_integer(value), do: value
+
+  defp normalize_int(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
+
+  defp normalize_int(_), do: nil
+
+  defp arancini_prefix(payload) when is_map(payload) do
+    with prefix_addr when is_binary(prefix_addr) <-
+           normalize_optional_string(payload["prefix_addr"]),
+         prefix_len when is_integer(prefix_len) <- normalize_int(payload["prefix_len"]) do
+      "#{prefix_addr}/#{prefix_len}"
+    else
+      _ -> nil
+    end
+  end
+
+  defp arancini_prefix(_), do: nil
 end

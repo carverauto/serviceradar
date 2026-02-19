@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.TopologyLink
+  alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.RuntimeGraph
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
@@ -1868,13 +1869,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp apply_causal_states(nodes, indexed_edges) when is_list(nodes) and is_list(indexed_edges) do
+    routing_overrides = routing_causal_node_indexes(nodes)
+
     signals =
-      Enum.map(nodes, fn node ->
-        case Map.get(node, :health_signal, :unknown) do
-          :healthy -> 0
-          :unhealthy -> 1
-          _ -> 2
-        end
+      Enum.with_index(nodes)
+      |> Enum.map(fn {node, idx} ->
+        base_signal =
+          case Map.get(node, :health_signal, :unknown) do
+            :healthy -> 0
+            :unhealthy -> 1
+            _ -> 2
+          end
+
+        if MapSet.member?(routing_overrides, idx), do: 1, else: base_signal
       end)
 
     case Native.evaluate_causal_states_with_reasons(signals, indexed_edges) do
@@ -1927,6 +1934,235 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp apply_causal_states(nodes, _), do: nodes
+
+  defp routing_causal_node_indexes(nodes) when is_list(nodes) do
+    indexed_keys =
+      nodes
+      |> Enum.with_index()
+      |> Enum.reduce(%{}, fn {node, idx}, acc ->
+        node_correlation_keys(node)
+        |> Enum.reduce(acc, fn key, inner ->
+          Map.update(inner, key, MapSet.new([idx]), &MapSet.put(&1, idx))
+        end)
+      end)
+
+    fetch_recent_routing_causal_events()
+    |> Enum.reduce(MapSet.new(), fn event, matched ->
+      event_correlation_keys(event)
+      |> Enum.reduce(matched, fn key, key_acc ->
+        case Map.get(indexed_keys, key) do
+          nil -> key_acc
+          node_indexes -> MapSet.union(key_acc, node_indexes)
+        end
+      end)
+    end)
+  end
+
+  defp routing_causal_node_indexes(_), do: MapSet.new()
+
+  defp node_correlation_keys(node) when is_map(node) do
+    details =
+      case Map.get(node, :details_json) do
+        value when is_binary(value) ->
+          case Jason.decode(value) do
+            {:ok, decoded} when is_map(decoded) -> decoded
+            _ -> %{}
+          end
+
+        _ ->
+          %{}
+      end
+
+    [
+      normalize_id(Map.get(node, :id)),
+      normalize_id(Map.get(details, "ip")),
+      normalize_id(Map.get(details, "hostname"))
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp node_correlation_keys(_), do: []
+
+  defp event_correlation_keys(event) when is_map(event) do
+    metadata = map_value(event, :metadata) || %{}
+    routing = map_value(metadata, "routing_correlation") || %{}
+    source_identity = map_value(metadata, "source_identity") || %{}
+    device = map_value(event, :device) || %{}
+    src_endpoint = map_value(event, :src_endpoint) || %{}
+
+    topology_keys =
+      case map_value(routing, "topology_keys") do
+        values when is_list(values) -> values
+        _ -> []
+      end
+
+    [
+      map_value(device, "uid"),
+      map_value(src_endpoint, "ip"),
+      map_value(routing, "router_id"),
+      map_value(routing, "router_ip"),
+      map_value(routing, "peer_ip"),
+      map_value(source_identity, "device_uid"),
+      map_value(source_identity, "router_id"),
+      map_value(source_identity, "router_ip"),
+      map_value(source_identity, "peer_ip")
+      | topology_keys
+    ]
+    |> Enum.map(&normalize_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp event_correlation_keys(_), do: []
+
+  defp fetch_recent_routing_causal_events do
+    cutoff =
+      DateTime.utc_now()
+      |> DateTime.add(-causal_overlay_window_seconds(), :second)
+      |> DateTime.truncate(:second)
+
+    source_limit = causal_overlay_source_limit()
+    max_events = causal_overlay_max_events()
+
+    bmp_events = fetch_recent_bmp_routing_events(cutoff, source_limit)
+    ocsf_events = fetch_recent_ocsf_routing_events(cutoff, source_limit)
+
+    (bmp_events ++ ocsf_events)
+    |> dedupe_recent_causal_events()
+    |> Enum.take(max_events)
+  rescue
+    _ -> []
+  end
+
+  defp fetch_recent_bmp_routing_events(cutoff, limit) do
+    query =
+      from(e in "bmp_routing_events",
+        where: e.time >= ^cutoff,
+        where: coalesce(e.severity_id, 0) >= ^routing_causal_severity_threshold(),
+        order_by: [desc: e.time],
+        limit: ^limit,
+        select: %{
+          source: "bmp_routing_events",
+          event_time: e.time,
+          event_identity: e.metadata["event_identity"],
+          metadata: e.metadata,
+          device: %{"uid" => e.router_id},
+          src_endpoint: %{"ip" => e.peer_ip}
+        }
+      )
+
+    Repo.all(query)
+  rescue
+    _ -> []
+  end
+
+  defp fetch_recent_ocsf_routing_events(cutoff, limit) do
+    query =
+      from(e in "ocsf_events",
+        where: e.time >= ^cutoff,
+        where:
+          fragment(
+            "(?->>'signal_type' = 'bmp') OR (?->>'primary_domain' = 'routing')",
+            e.metadata,
+            e.metadata
+          ),
+        where: coalesce(e.severity_id, 0) >= ^routing_causal_severity_threshold(),
+        order_by: [desc: e.time],
+        limit: ^limit,
+        select: %{
+          source: "ocsf_events",
+          event_time: e.time,
+          event_identity: e.metadata["event_identity"],
+          metadata: e.metadata,
+          device: e.device,
+          src_endpoint: e.src_endpoint
+        }
+      )
+
+    Repo.all(query)
+  rescue
+    _ -> []
+  end
+
+  defp dedupe_recent_causal_events(events) when is_list(events) do
+    events
+    |> Enum.sort_by(&event_sort_key/1, :desc)
+    |> Enum.reduce({MapSet.new(), []}, fn event, {seen, acc} ->
+      key = causal_event_dedupe_key(event)
+
+      if MapSet.member?(seen, key) do
+        {seen, acc}
+      else
+        {MapSet.put(seen, key), [event | acc]}
+      end
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp dedupe_recent_causal_events(_), do: []
+
+  defp event_sort_key(event) when is_map(event) do
+    event_time =
+      case map_value(event, :event_time) do
+        %DateTime{} = value -> value
+        _ -> DateTime.from_unix!(0, :second)
+      end
+
+    {event_time, source_rank(map_value(event, :source))}
+  end
+
+  defp event_sort_key(_), do: {DateTime.from_unix!(0, :second), 0}
+
+  defp source_rank("bmp_routing_events"), do: 2
+  defp source_rank("ocsf_events"), do: 1
+  defp source_rank(_), do: 0
+
+  defp causal_event_dedupe_key(event) when is_map(event) do
+    event_identity = map_value(event, :event_identity)
+    metadata = map_value(event, :metadata) || %{}
+    metadata_identity = map_value(metadata, "event_identity")
+    source = map_value(event, :source) || "unknown"
+    fallback_time = map_value(event, :event_time)
+
+    event_identity || metadata_identity || "#{source}:#{inspect(fallback_time)}"
+  end
+
+  defp causal_event_dedupe_key(_), do: "unknown"
+
+  defp map_value(map, key) when is_map(map) and is_atom(key) do
+    Map.get(map, key)
+  end
+
+  defp map_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) ||
+      Enum.find_value(map, fn
+        {atom_key, value} when is_atom(atom_key) ->
+          if Atom.to_string(atom_key) == key, do: value, else: nil
+
+        _ ->
+          nil
+      end)
+  end
+
+  defp map_value(_, _), do: nil
+
+  defp causal_overlay_window_seconds do
+    BmpSettingsRuntime.god_view_causal_overlay_window_seconds()
+  end
+
+  defp causal_overlay_max_events do
+    BmpSettingsRuntime.god_view_causal_overlay_max_events()
+  end
+
+  defp causal_overlay_source_limit do
+    max(1, causal_overlay_max_events() * 2)
+  end
+
+  defp routing_causal_severity_threshold do
+    BmpSettingsRuntime.god_view_routing_causal_severity_threshold()
+  end
 
   defp causal_row_value(row, key, default) when is_map(row) do
     Map.get(row, key, Map.get(row, Atom.to_string(key), default))

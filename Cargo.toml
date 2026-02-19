@@ -4,6 +4,7 @@ members = [
     "rust/kvutil",
     "rust/config-bootstrap",
     "rust/edge-onboarding",
+    "rust/bmp-collector",
     "cmd/flowgger",
     "cmd/trapd",
     "cmd/otel",

@@ -769,5 +769,56 @@
       "source": "packaging/profiler/systemd/serviceradar-profiler.service"
     },
     "version": "1.0.58"
+  },
+  {
+    "architecture": "amd64",
+    "binary": {
+      "build_method": "rust",
+      "docker_output_path": "/output/serviceradar-bmp-collector",
+      "output_path": "/usr/local/bin/serviceradar-bmp-collector",
+      "source_path": "rust/bmp-collector"
+    },
+    "conffiles": [
+      "/etc/serviceradar/bmp-collector.json"
+    ],
+    "config_files": [
+      {
+        "dest": "/etc/serviceradar/bmp-collector.json",
+        "source": "packaging/bmp-collector/config/bmp-collector.json"
+      }
+    ],
+    "custom_steps": [],
+    "deb": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "rust/bmp-collector/Dockerfile"
+    },
+    "description": "ServiceRadar BMP collector powered by arancini-lib",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "name": "bmp-collector",
+    "package_name": "serviceradar-bmp-collector",
+    "postinst": {
+      "source": "packaging/bmp-collector/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/bmp-collector/scripts/preremove.sh"
+    },
+    "priority": "optional",
+    "rpm": {
+      "depends": [
+        "systemd",
+        "serviceradar-cli"
+      ],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.bmp-collector",
+      "release": "1"
+    },
+    "section": "net",
+    "systemd_service": {
+      "dest": "/lib/systemd/system/serviceradar-bmp-collector.service",
+      "source": "packaging/bmp-collector/systemd/serviceradar-bmp-collector.service"
+    },
+    "version": "1.0.58"
   }
 ]

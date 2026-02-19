@@ -10,7 +10,7 @@
 - [x] 1.3 Define and publish a versioned causal signal schema for SIEM/BMP events (mapped `prop2` IDs required).
 
 ## 2. Ingestion Pipeline
-- [ ] 2.1 Implement/confirm risotto BMP publication to NATS JetStream subjects for causal routing events (mapped `prop2` IDs required).
+- [x] 2.1 Implement/confirm risotto BMP publication to NATS JetStream subjects for causal routing events (mapped `prop2` IDs required).
 - [x] 2.2 Implement Elixir Broadway consumers for BMP causal subjects with durable replay and idempotent event handling (mapped `prop2` IDs required).
 - [x] 2.3 Normalize SIEM and BMP events into a common causal signal envelope used by topology overlays (mapped `prop2` IDs required).
 - [x] 2.4 Document and enforce source boundary: agent gRPC streams remain agent-originated; BMP ingress uses risotto/JetStream/Broadway (mapped `prop2` IDs required).

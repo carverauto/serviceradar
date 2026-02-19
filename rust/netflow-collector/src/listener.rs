@@ -1,6 +1,6 @@
 use crate::config::Config;
-use crate::converter::{Converter, is_valid_flow};
 use crate::converter::flowpb;
+use crate::converter::{Converter, is_valid_flow};
 use crate::error::GetCurrentTimeError;
 use anyhow::Result;
 use log::{debug, error, info, warn};
@@ -192,7 +192,11 @@ impl Listener {
                 }
             }
 
-            debug!("Converted {} flow records ({} dropped)", valid.len(), invalid.len());
+            debug!(
+                "Converted {} flow records ({} dropped)",
+                valid.len(),
+                invalid.len()
+            );
 
             // Encode and send each valid flow message to the publisher channel
             for flow_msg in valid {

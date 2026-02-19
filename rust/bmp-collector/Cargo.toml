@@ -1,0 +1,23 @@
+[package]
+name = "serviceradar-bmp-collector"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+arancini-lib = "0.7.1"
+async-nats = "0.42"
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+rustls = "0.23"
+rust-s3 = { version = "0.37", default-features = false, features = ["sync-rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
+
+[[bin]]
+name = "serviceradar-bmp-collector"
+path = "src/main.rs"
