@@ -173,3 +173,14 @@ netflowCollector:
       metallb.universe.tf/address-pool: k3s-pool
     loadBalancerIP: "23.138.124.25"
     externalTrafficPolicy: Local
+
+bmpCollector:
+  enabled: true
+  config:
+    stream_max_bytes: 1073741824
+  service:
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
+    loadBalancerIP: "23.138.124.27"
+    externalTrafficPolicy: Local

@@ -90,6 +90,7 @@ func NewAccountSigner(operator *Operator) *AccountSigner {
 
 			// NetFlow/sFlow/IPFIX collector
 			{From: "netflow.>", To: "{{namespace}}.netflow.>"},
+			{From: "arancini.updates.>", To: "{{namespace}}.arancini.updates.>"},
 
 			// OpenTelemetry collector
 			{From: "otel.>", To: "{{namespace}}.otel.>"},

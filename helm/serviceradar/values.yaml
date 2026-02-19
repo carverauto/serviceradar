@@ -24,6 +24,7 @@ image:
     trapd: *appTag
     flowgger: *appTag
     netflowCollector: *appTag
+    bmpCollector: *appTag
     zen: *appTag
     rperfClient: *appTag
     faker: *appTag
@@ -392,6 +393,47 @@ netflowCollector:
     limits:
       memory: "512Mi"
       cpu: "500m"
+bmpCollector:
+  enabled: false
+  config:
+    listen_addr: "0.0.0.0:4000"
+    read_buffer_bytes: 65536
+    max_frame_size_bytes: 16777216
+    nats_url: "tls://serviceradar-nats:4222"
+    nats_creds_file: "/etc/serviceradar/creds/platform.creds"
+    nats_tls_required: true
+    nats_tls_ca_cert_path: "/etc/serviceradar/certs/root.pem"
+    nats_tls_client_cert_path: "/etc/serviceradar/certs/bmp-collector.pem"
+    nats_tls_client_key_path: "/etc/serviceradar/certs/bmp-collector-key.pem"
+    stream_name: "ARANCINI_CAUSAL"
+    subject_prefix: "arancini.updates"
+    stream_subjects:
+      - "arancini.updates.>"
+    stream_max_bytes: 10737418240
+    publish_timeout_ms: 5000
+  data:
+    enabled: true
+    existingClaim: ""
+    size: 1Gi
+    storageClassName: ""
+  service:
+    type: ClusterIP
+    annotations: {}
+    loadBalancerIP: ""
+    externalTrafficPolicy: Cluster
+    ports:
+      bmp:
+        enabled: true
+        port: 4000
+        targetPort: 4000
+        protocol: TCP
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
 configSync:
   flowgger:
     enabled: true
@@ -445,6 +487,7 @@ spire:
   flowggerServiceAccount: serviceradar-flowgger
   trapdServiceAccount: serviceradar-trapd
   netflowCollectorServiceAccount: serviceradar-netflow-collector
+  bmpCollectorServiceAccount: serviceradar-bmp-collector
   bundleConfigMap: spire-bundle
   server:
     image: ghcr.io/spiffe/spire-server:1.11.2

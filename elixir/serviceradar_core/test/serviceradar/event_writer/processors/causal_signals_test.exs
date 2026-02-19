@@ -197,6 +197,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
     test "normalizes arancini update payload into bmp causal envelope" do
       payload = load_event_writer_fixture!("arancini_update_route_update.json")
+      assert_arancini_contract_keys!(payload)
 
       message = %{
         data: Jason.encode!(payload),
@@ -222,6 +223,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
     test "normalizes arancini withdraw payload to route_withdraw event type" do
       payload = load_event_writer_fixture!("arancini_update_route_withdraw.json")
+      assert_arancini_contract_keys!(payload)
 
       message = %{
         data: Jason.encode!(payload),
@@ -239,6 +241,22 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.metadata["routing_correlation"]["prefix"] == "203.0.114.0/24"
       assert row.src_endpoint["ip"] == "192.0.2.11"
       assert row.src_endpoint["asn"] == 64_514
+    end
+
+    test "rejects arancini payloads missing required contract fields" do
+      payload =
+        load_event_writer_fixture!("arancini_update_route_update.json")
+        |> Map.delete("peer_asn")
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{
+          subject: "arancini.updates.v4_10_0_0_1.64513.1_1",
+          received_at: DateTime.utc_now()
+        }
+      }
+
+      assert CausalSignals.parse_message(message) == nil
     end
   end
 
@@ -448,5 +466,20 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     fixture_path
     |> File.read!()
     |> Jason.decode!()
+  end
+
+  defp assert_arancini_contract_keys!(payload) when is_map(payload) do
+    required_keys = [
+      "router_addr",
+      "peer_addr",
+      "peer_asn",
+      "prefix_addr",
+      "prefix_len",
+      "announced"
+    ]
+
+    for key <- required_keys do
+      assert Map.has_key?(payload, key), "missing required arancini key: #{key}"
+    end
   end
 end

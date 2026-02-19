@@ -7,7 +7,6 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   causality from a durable source.
 
   Expected subjects include:
-  - `bmp.events.>`
   - `arancini.updates.>`
   - `siem.events.>`
   - `signals.causal.>`
@@ -165,56 +164,84 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp normalize_payload(payload, metadata, raw_data) when is_map(payload) do
     subject = metadata[:subject] || ""
-    signal_type = infer_signal_type(subject, payload)
-    event_type = infer_event_type(subject, payload)
-    severity_id = normalize_severity(payload)
-    grouped_contexts = grouped_contexts(payload)
-    routing_correlation = routing_correlation(payload)
-    domains = signal_domains(payload, signal_type)
-    {primary_domain, precedence_rank} = primary_domain(domains)
-    truncated_contexts = Enum.take(grouped_contexts, @max_grouped_contexts)
-    contexts_truncated = length(grouped_contexts) > length(truncated_contexts)
 
-    event_time =
-      payload["timestamp"] ||
-        payload["time"] ||
-        payload["event_time"] ||
-        payload["time_bmp_header_ns"] ||
-        payload["time_received_ns"] ||
-        metadata[:received_at]
+    if arancini_subject?(subject) and not valid_arancini_payload?(payload) do
+      {:error, :invalid_arancini_payload}
+    else
+      signal_type = infer_signal_type(subject, payload)
+      event_type = infer_event_type(subject, payload)
+      severity_id = normalize_severity(payload)
+      grouped_contexts = grouped_contexts(payload)
+      routing_correlation = routing_correlation(payload)
+      domains = signal_domains(payload, signal_type)
+      {primary_domain, precedence_rank} = primary_domain(domains)
+      truncated_contexts = Enum.take(grouped_contexts, @max_grouped_contexts)
+      contexts_truncated = length(grouped_contexts) > length(truncated_contexts)
 
-    envelope = %{
-      "schema_version" => @schema_version,
-      "signal_type" => signal_type,
-      "event_type" => event_type,
-      "severity_id" => severity_id,
-      "source" => normalize_source(payload, subject),
-      "source_identity" => source_identity(payload),
-      "event_identity" => stable_event_identity(subject, payload, raw_data),
-      "event_time" => normalize_time(event_time),
-      "routing_correlation" => routing_correlation,
-      "grouped_contexts" => truncated_contexts,
-      "signal_domains" => domains,
-      "primary_domain" => primary_domain,
-      "explainability" => %{
-        "source_signal_refs" => source_signal_refs(payload),
-        "context_ids" => Enum.map(truncated_contexts, & &1["id"]),
-        "routing_topology_keys" => routing_correlation["topology_keys"],
+      event_time =
+        payload["timestamp"] ||
+          payload["time"] ||
+          payload["event_time"] ||
+          payload["time_bmp_header_ns"] ||
+          payload["time_received_ns"] ||
+          metadata[:received_at]
+
+      envelope = %{
+        "schema_version" => @schema_version,
+        "signal_type" => signal_type,
+        "event_type" => event_type,
+        "severity_id" => severity_id,
+        "source" => normalize_source(payload, subject),
+        "source_identity" => source_identity(payload),
+        "event_identity" => stable_event_identity(subject, payload, raw_data),
+        "event_time" => normalize_time(event_time),
+        "routing_correlation" => routing_correlation,
+        "grouped_contexts" => truncated_contexts,
+        "signal_domains" => domains,
         "primary_domain" => primary_domain,
-        "precedence_rank" => precedence_rank
-      },
-      "guardrails" => %{
-        "max_grouped_contexts" => @max_grouped_contexts,
-        "contexts_truncated" => contexts_truncated,
-        "input_context_count" => length(grouped_contexts),
-        "applied_context_count" => length(truncated_contexts)
+        "explainability" => %{
+          "source_signal_refs" => source_signal_refs(payload),
+          "context_ids" => Enum.map(truncated_contexts, & &1["id"]),
+          "routing_topology_keys" => routing_correlation["topology_keys"],
+          "primary_domain" => primary_domain,
+          "precedence_rank" => precedence_rank
+        },
+        "guardrails" => %{
+          "max_grouped_contexts" => @max_grouped_contexts,
+          "contexts_truncated" => contexts_truncated,
+          "input_context_count" => length(grouped_contexts),
+          "applied_context_count" => length(truncated_contexts)
+        }
       }
-    }
 
-    {:ok, envelope}
+      {:ok, envelope}
+    end
   end
 
   defp normalize_payload(_, _, _), do: {:error, :invalid_payload}
+
+  defp arancini_subject?(subject) when is_binary(subject),
+    do: String.starts_with?(subject, "arancini.updates.")
+
+  defp arancini_subject?(_), do: false
+
+  defp valid_arancini_payload?(payload) when is_map(payload) do
+    required_string_keys_present? =
+      Enum.all?(["router_addr", "peer_addr", "prefix_addr"], fn key ->
+        payload[key] |> normalize_optional_string() |> is_binary()
+      end)
+
+    required_numeric_keys_present? =
+      is_integer(normalize_int(payload["peer_asn"])) and
+        is_integer(normalize_int(payload["prefix_len"]))
+
+    required_boolean_keys_present? = is_boolean(payload["announced"])
+
+    required_string_keys_present? and required_numeric_keys_present? and
+      required_boolean_keys_present?
+  end
+
+  defp valid_arancini_payload?(_), do: false
 
   defp infer_event_type(subject, payload) when is_binary(subject) and is_map(payload) do
     candidate =

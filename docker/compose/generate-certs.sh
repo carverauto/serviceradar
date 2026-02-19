@@ -271,6 +271,7 @@ generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:r
 generate_cert "otel" "otel.serviceradar" "DNS:otel,DNS:otel.serviceradar,DNS:serviceradar-otel,DNS:localhost,IP:127.0.0.1"
 generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:flowgger.serviceradar,DNS:serviceradar-flowgger,DNS:localhost,IP:127.0.0.1"
 generate_cert "netflow-collector" "netflow-collector.serviceradar" "DNS:netflow-collector,DNS:netflow-collector.serviceradar,DNS:serviceradar-netflow-collector,DNS:localhost,IP:127.0.0.1"
+generate_cert "bmp-collector" "bmp-collector.serviceradar" "DNS:bmp-collector,DNS:bmp-collector.serviceradar,DNS:serviceradar-bmp-collector,DNS:localhost,IP:127.0.0.1"
 
 # Alias netflow client cert names for collector defaults.
 if [ -f "$CERT_DIR/netflow-collector.pem" ] && [ -f "$CERT_DIR/netflow-collector-key.pem" ]; then
