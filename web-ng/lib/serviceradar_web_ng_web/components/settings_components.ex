@@ -221,6 +221,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   def network_tabs(current_path, current_scope \\ nil) do
     path = current_path || ""
+
     network_tabs_with_state(path)
     |> Enum.filter(&show_network_tab?(&1.label, current_scope))
   end
