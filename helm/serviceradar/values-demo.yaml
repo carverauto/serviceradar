@@ -127,6 +127,11 @@ core:
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
 
+zenRulesBootstrap:
+  # Disabled in demo for now: this post-upgrade hook job is currently failing
+  # and keeps Helm upgrades stuck in pending-upgrade.
+  enabled: false
+
 # Temporarily disabled client CA for initial testing - there's a circular dependency
 # where CNPG needs the client CA secret, but the job that creates it
 # runs post-install and needs CNPG to be running first.
