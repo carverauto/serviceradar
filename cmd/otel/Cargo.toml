@@ -33,6 +33,7 @@ http-body-util = "0.1"
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 config-bootstrap = { path = "../../rust/config-bootstrap" }
+rustls = "0.23"
 
 [dev-dependencies]
 tempfile = "3.0"

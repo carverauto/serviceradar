@@ -10,7 +10,7 @@ use arancini_lib::state_store::memory::MemoryStore;
 use bytes::BytesMut;
 use clap::Parser;
 use log::{debug, error, info};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
@@ -155,7 +155,7 @@ fn next_packet_length(
     Ok(Some(packet_length))
 }
 
-fn path_to_string(path: &PathBuf) -> Result<&str> {
+fn path_to_string(path: &Path) -> Result<&str> {
     path.to_str()
         .ok_or_else(|| anyhow::anyhow!("config path contains non-UTF-8 characters"))
 }

@@ -22,6 +22,7 @@ use futures::Stream;
 use log::{info, warn};
 use serde::Serialize;
 use std::pin::Pin;
+use std::sync::Once;
 use std::{fs, net::SocketAddr};
 use tokio::net::UdpSocket;
 
@@ -70,6 +71,7 @@ struct TrapMessage {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    ensure_rustls_provider_installed();
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let cli = Cli::parse();
@@ -175,6 +177,13 @@ async fn main() -> Result<()> {
             }
         }
     }
+}
+
+fn ensure_rustls_provider_installed() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
 }
 
 fn build_message(pdu: &snmp2::Pdu<'_>, addr: SocketAddr) -> TrapMessage {

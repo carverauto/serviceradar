@@ -6,7 +6,9 @@ use arancini_lib::update::Update;
 use async_nats::ConnectOptions;
 use async_nats::jetstream::{self, stream::StorageType};
 use log::debug;
+use log::warn;
 use std::net::IpAddr;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::Once;
 use std::time::Duration;
@@ -44,10 +46,7 @@ impl Publisher {
             options = options.add_root_certificates(path.clone().into());
         }
 
-        if let (Some(cert), Some(key)) = (
-            &config.nats_tls_client_cert_path,
-            &config.nats_tls_client_key_path,
-        ) {
+        if let Some((cert, key)) = resolved_client_cert_pair(&config) {
             options = options.add_client_certificate(cert.clone().into(), key.clone().into());
         }
 
@@ -87,6 +86,35 @@ impl Publisher {
         );
         Ok(())
     }
+}
+
+fn resolved_client_cert_pair(config: &Config) -> Option<(String, String)> {
+    let cert = config.nats_tls_client_cert_path.as_deref()?;
+    let key = config.nats_tls_client_key_path.as_deref()?;
+
+    if path_exists(cert) && path_exists(key) {
+        return Some((cert.to_string(), key.to_string()));
+    }
+
+    let fallback_cert = "/etc/serviceradar/certs/client.pem";
+    let fallback_key = "/etc/serviceradar/certs/client-key.pem";
+    if path_exists(fallback_cert) && path_exists(fallback_key) {
+        warn!(
+            "configured NATS client cert/key missing (cert={}, key={}); falling back to cert={} key={}",
+            cert, key, fallback_cert, fallback_key
+        );
+        return Some((fallback_cert.to_string(), fallback_key.to_string()));
+    }
+
+    warn!(
+        "configured NATS client cert/key missing and fallback cert/key not found (configured cert={}, key={})",
+        cert, key
+    );
+    Some((cert.to_string(), key.to_string()))
+}
+
+fn path_exists(path: &str) -> bool {
+    Path::new(path).exists()
 }
 
 impl UpdateSender for Publisher {

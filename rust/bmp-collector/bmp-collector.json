@@ -3,7 +3,6 @@
   "read_buffer_bytes": 65536,
   "max_frame_size_bytes": 16777216,
   "nats_url": "tls://127.0.0.1:4222",
-  "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
   "nats_tls_required": true,
   "nats_tls_ca_cert_path": "/etc/serviceradar/certs/root.pem",
   "nats_tls_client_cert_path": "/etc/serviceradar/certs/bmp-collector.pem",

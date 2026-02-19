@@ -174,10 +174,21 @@ netflowCollector:
     loadBalancerIP: "23.138.124.25"
     externalTrafficPolicy: Local
 
+certs:
+  regenerator:
+    # Ensure new collector certs (including bmp-collector.pem) are created
+    # in existing demo cert volumes during upgrades.
+    enabled: true
+
 bmpCollector:
   enabled: true
   config:
     stream_max_bytes: 1073741824
+    # Workaround: NATS verify_and_map currently fails to match the
+    # serviceradar-bmp-collector DN in demo.
+    # Use the known-good debug client mTLS identity for NATS auth.
+    nats_tls_client_cert_path: "/etc/serviceradar/certs/client.pem"
+    nats_tls_client_key_path: "/etc/serviceradar/certs/client-key.pem"
   service:
     type: LoadBalancer
     annotations:
