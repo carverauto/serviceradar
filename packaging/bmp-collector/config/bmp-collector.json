@@ -1,5 +1,5 @@
 {
-  "listen_addr": "0.0.0.0:4000",
+  "listen_addr": "0.0.0.0:11019",
   "read_buffer_bytes": 65536,
   "max_frame_size_bytes": 16777216,
   "nats_url": "tls://127.0.0.1:4222",

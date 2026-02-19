@@ -396,7 +396,7 @@ netflowCollector:
 bmpCollector:
   enabled: false
   config:
-    listen_addr: "0.0.0.0:4000"
+    listen_addr: "0.0.0.0:11019"
     read_buffer_bytes: 65536
     max_frame_size_bytes: 16777216
     nats_url: "tls://serviceradar-nats:4222"
@@ -425,8 +425,8 @@ bmpCollector:
     ports:
       bmp:
         enabled: true
-        port: 4000
-        targetPort: 4000
+        port: 11019
+        targetPort: 11019
         protocol: TCP
   resources:
     requests:
