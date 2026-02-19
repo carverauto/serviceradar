@@ -78,7 +78,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp parse_components(%{data: data, metadata: metadata}) do
-    with {:ok, payload} <- Jason.decode(data),
+    with {:ok, payload} <- decode_payload(data, metadata),
          {:ok, normalized} <- normalize_payload(payload, metadata, data) do
       %{
         normalized: normalized,
@@ -94,6 +94,33 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp parse_components(_), do: nil
+
+  defp decode_payload(data, metadata) when is_binary(data) and is_map(metadata) do
+    case Jason.decode(data) do
+      {:ok, payload} ->
+        {:ok, payload}
+
+      _ ->
+        decode_arancini_capnp_payload(data, metadata)
+    end
+  end
+
+  defp decode_payload(_data, _metadata), do: {:error, :invalid_payload}
+
+  defp decode_arancini_capnp_payload(data, %{subject: subject}) when is_binary(subject) do
+    if String.starts_with?(subject, "arancini.updates.") do
+      with {:ok, json_payload} <- ServiceRadarSRQL.Native.decode_arancini_update_capnp(data),
+           {:ok, payload} <- Jason.decode(json_payload) do
+        {:ok, payload}
+      else
+        _ -> {:error, :invalid_payload}
+      end
+    else
+      {:error, :invalid_payload}
+    end
+  end
+
+  defp decode_arancini_capnp_payload(_data, _metadata), do: {:error, :invalid_payload}
 
   defp insert_rows(_table, []), do: 0
 

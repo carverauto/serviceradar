@@ -395,23 +395,21 @@ netflowCollector:
       cpu: "500m"
 bmpCollector:
   enabled: false
-  config:
-    listen_addr: "0.0.0.0:11019"
-    read_buffer_bytes: 65536
-    max_frame_size_bytes: 16777216
-    nats_url: "tls://serviceradar-nats:4222"
-    # Use cert-mapped mTLS identity for NATS auth.
-    nats_creds_file: null
-    nats_tls_required: true
-    nats_tls_ca_cert_path: "/etc/serviceradar/certs/root.pem"
-    nats_tls_client_cert_path: "/etc/serviceradar/certs/bmp-collector.pem"
-    nats_tls_client_key_path: "/etc/serviceradar/certs/bmp-collector-key.pem"
-    stream_name: "ARANCINI_CAUSAL"
-    subject_prefix: "arancini.updates"
-    stream_subjects:
-      - "arancini.updates.>"
-    stream_max_bytes: 10737418240
-    publish_timeout_ms: 5000
+  image:
+    repository: ghcr.io/carverauto/arancini
+    tag: "v0.7.1"
+    pullPolicy: IfNotPresent
+  args:
+    - "--bmp-address=0.0.0.0:11019"
+    - "--kafka-disable"
+    - "--nats-enable"
+    - "--nats-server=nats://serviceradar-nats:4222"
+    - "--nats-subject=arancini.updates"
+    - "--nats-tls-required"
+    - "--nats-tls-ca-cert-path=/etc/serviceradar/certs/root.pem"
+    - "--nats-tls-client-cert-path=/etc/serviceradar/certs/bmp-collector.pem"
+    - "--nats-tls-client-key-path=/etc/serviceradar/certs/bmp-collector-key.pem"
+    - "--curation-state-path=/var/lib/serviceradar/state.bin"
   data:
     enabled: true
     existingClaim: ""

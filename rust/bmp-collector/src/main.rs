@@ -23,7 +23,7 @@ const BMP_MAX_MESSAGE_TYPE: u8 = 6;
 #[command(about = "ServiceRadar BMP collector backed by arancini-lib")]
 struct Cli {
     /// Path to BMP collector JSON config.
-    #[arg(long, default_value = "rust/bmp-collector/bmp-collector.json")]
+    #[arg(long)]
     config: PathBuf,
 }
 

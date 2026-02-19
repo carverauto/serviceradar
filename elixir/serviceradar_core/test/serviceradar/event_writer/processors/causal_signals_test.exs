@@ -258,6 +258,43 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       assert CausalSignals.parse_message(message) == nil
     end
+
+    test "decodes arancini Cap'n Proto payloads on arancini subjects" do
+      payload = %{
+        "time_received_ns" => "2026-02-16T12:00:01Z",
+        "time_bmp_header_ns" => "2026-02-16T12:00:00Z",
+        "router_addr" => "10.0.0.1",
+        "peer_addr" => "192.0.2.10",
+        "peer_asn" => 64_513,
+        "prefix_addr" => "203.0.113.0",
+        "prefix_len" => 24,
+        "announced" => true,
+        "synthetic" => false
+      }
+
+      {:ok, capnp_payload} =
+        ServiceRadarSRQL.Native.encode_arancini_update_capnp(Jason.encode!(payload))
+
+      message = %{
+        data: capnp_payload,
+        metadata: %{
+          subject: "arancini.updates.v4_10_0_0_1.64513.1_1",
+          received_at: DateTime.utc_now()
+        }
+      }
+
+      row = CausalSignals.parse_message(message)
+
+      refute is_nil(row)
+      assert row.type_uid == 100_811
+      assert row.metadata["signal_type"] == "bmp"
+      assert row.metadata["event_type"] == "route_update"
+      assert row.metadata["routing_correlation"]["router_ip"] == "10.0.0.1"
+      assert row.metadata["routing_correlation"]["peer_ip"] == "192.0.2.10"
+      assert row.metadata["routing_correlation"]["prefix"] == "203.0.113.0/24"
+      assert row.src_endpoint["ip"] == "192.0.2.10"
+      assert row.src_endpoint["asn"] == 64_513
+    end
   end
 
   describe "replay determinism via Broadway causal routing" do

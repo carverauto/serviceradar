@@ -1,17 +1,28 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary")
-load("@rust_crates//:defs.bzl", "all_crate_deps")
-
 package(default_visibility = ["//visibility:public"])
 
-exports_files([
-    "bmp-collector.json",
-])
-
-rust_binary(
+genrule(
     name = "bmp-collector",
-    srcs = glob(["src/**/*.rs"]),
-    crate_root = "src/main.rs",
-    edition = "2024",
-    deps = all_crate_deps(normal = True),
-    proc_macro_deps = all_crate_deps(proc_macro = True),
+    srcs = [
+        "//arancini:Cargo.toml",
+        "//arancini:workspace_files",
+    ],
+    outs = ["serviceradar-bmp-collector"],
+    cmd = """
+set -euo pipefail
+SRC_MANIFEST="$(location //arancini:Cargo.toml)"
+SRC_ROOT="$${SRC_MANIFEST%/Cargo.toml}"
+WORKDIR="$(@D)/arancini-work"
+mkdir -p "$$WORKDIR"
+cp "$$SRC_ROOT/Cargo.toml" "$$WORKDIR/Cargo.toml"
+cp "$$SRC_ROOT/Cargo.lock" "$$WORKDIR/Cargo.lock"
+cp "$$SRC_ROOT/README.md" "$$WORKDIR/README.md"
+cp "$$SRC_ROOT/LICENSE" "$$WORKDIR/LICENSE"
+cp -R "$$SRC_ROOT/arancini" "$$WORKDIR/arancini"
+cp -R "$$SRC_ROOT/arancini-lib" "$$WORKDIR/arancini-lib"
+CARGO_TARGET_DIR="$(@D)/cargo-target" \\
+  cargo build --release --manifest-path "$$WORKDIR/Cargo.toml" -p arancini
+cp "$(@D)/cargo-target/release/arancini" "$@"
+chmod 0755 "$@"
+""",
+    tags = ["no-remote"],
 )
