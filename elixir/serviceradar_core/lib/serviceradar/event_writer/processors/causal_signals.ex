@@ -8,6 +8,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   Expected subjects include:
   - `bmp.events.>`
+  - `arancini.updates.>`
   - `siem.events.>`
   - `signals.causal.>`
   """
@@ -158,7 +159,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp routing_message(payload, normalized) do
-    payload["message"] || payload["description"] || "#{normalized["signal_type"] || "bmp"} routing signal"
+    payload["message"] || payload["description"] ||
+      "#{normalized["signal_type"] || "bmp"} routing signal"
   end
 
   defp normalize_payload(payload, metadata, raw_data) when is_map(payload) do
@@ -174,7 +176,12 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     contexts_truncated = length(grouped_contexts) > length(truncated_contexts)
 
     event_time =
-      payload["timestamp"] || payload["time"] || payload["event_time"] || metadata[:received_at]
+      payload["timestamp"] ||
+        payload["time"] ||
+        payload["event_time"] ||
+        payload["time_bmp_header_ns"] ||
+        payload["time_received_ns"] ||
+        metadata[:received_at]
 
     envelope = %{
       "schema_version" => @schema_version,
@@ -213,6 +220,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     candidate =
       payload["event_type"] ||
         payload["eventType"] ||
+        arancini_event_type(payload) ||
         subject_to_event_type(subject)
 
     normalize_event_type(candidate)
@@ -230,6 +238,21 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       _ -> "unknown"
     end
   end
+
+  defp arancini_event_type(payload) when is_map(payload) do
+    cond do
+      is_boolean(payload["announced"]) and payload["announced"] ->
+        "route_update"
+
+      is_boolean(payload["announced"]) and not payload["announced"] ->
+        "route_withdraw"
+
+      true ->
+        nil
+    end
+  end
+
+  defp arancini_event_type(_), do: nil
 
   defp normalize_event_type(value) when is_binary(value) do
     value
@@ -286,6 +309,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     cond do
       is_binary(payload["signal_type"]) -> String.downcase(payload["signal_type"])
       String.starts_with?(subject, "bmp.events.") -> "bmp"
+      String.starts_with?(subject, "arancini.updates.") -> "bmp"
       String.starts_with?(subject, "siem.events.") -> "siem"
       true -> "unknown"
     end
@@ -295,7 +319,10 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     %{
       "subject" => subject,
       "collector" => payload["collector"] || payload["source_collector"],
-      "system" => payload["source"] || payload["provider"] || "external"
+      "system" =>
+        payload["source"] ||
+          payload["provider"] ||
+          if(String.starts_with?(subject, "arancini.updates."), do: "arancini", else: "external")
     }
   end
 
@@ -313,10 +340,17 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         first_non_blank([
           payload["router_ip"],
           payload["routerIp"],
+          payload["router_addr"],
           payload["device_ip"],
           payload["source_ip"]
         ]),
-      "peer_ip" => first_non_blank([payload["peer_ip"], payload["peerIp"], payload["src_ip"]])
+      "peer_ip" =>
+        first_non_blank([
+          payload["peer_ip"],
+          payload["peerIp"],
+          payload["peer_addr"],
+          payload["src_ip"]
+        ])
     }
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
     |> Map.new()
@@ -327,6 +361,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       first_non_blank([
         payload["router_id"],
         payload["routerId"],
+        payload["router_addr"],
         payload["device_id"],
         payload["deviceId"]
       ])
@@ -335,15 +370,35 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       first_non_blank([
         payload["router_ip"],
         payload["routerIp"],
+        payload["router_addr"],
         payload["device_ip"],
         payload["source_ip"]
       ])
 
-    peer_ip = first_non_blank([payload["peer_ip"], payload["peerIp"], payload["src_ip"]])
+    peer_ip =
+      first_non_blank([
+        payload["peer_ip"],
+        payload["peerIp"],
+        payload["peer_addr"],
+        payload["src_ip"]
+      ])
+
     peer_asn = normalize_int(payload["peer_asn"] || payload["peerAsn"])
-    local_asn = normalize_int(payload["local_asn"] || payload["localAsn"] || payload["asn"])
+
+    local_asn =
+      normalize_int(
+        payload["local_asn"] || payload["localAsn"] || payload["local_as"] || payload["asn"]
+      )
+
     vrf = first_non_blank([payload["vrf"], payload["routing_instance"]])
-    prefix = first_non_blank([payload["prefix"], payload["nlri"], payload["announced_prefix"]])
+
+    prefix =
+      first_non_blank([
+        payload["prefix"],
+        payload["nlri"],
+        payload["announced_prefix"],
+        arancini_prefix(payload)
+      ])
 
     topology_keys =
       [router_id, router_ip, peer_ip, prefix]
@@ -452,6 +507,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       payload["id"],
       payload["eventId"],
       payload["alert_id"],
+      payload["arancini_message_id"],
       payload["bmp_message_id"],
       payload["message_id"]
     ]
@@ -516,7 +572,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp type_uid_for(_), do: 100_810
 
   defp normalize_device(payload) do
-    device_id = payload["device_id"] || payload["deviceId"] || payload["router_id"]
+    device_id =
+      payload["device_id"] || payload["deviceId"] || payload["router_id"] ||
+        payload["router_addr"]
 
     if is_binary(device_id) and device_id != "" do
       %{"uid" => device_id}
@@ -526,7 +584,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp normalize_src_endpoint(payload) do
-    ip = payload["peer_ip"] || payload["src_ip"] || payload["source_ip"]
+    ip = payload["peer_ip"] || payload["peer_addr"] || payload["src_ip"] || payload["source_ip"]
     asn = normalize_int(payload["peer_asn"] || payload["peerAsn"])
 
     %{"ip" => normalize_optional_string(ip), "asn" => asn}
@@ -540,6 +598,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         payload["id"] ||
         payload["eventId"] ||
         payload["alert_id"] ||
+        payload["arancini_message_id"] ||
         payload["bmp_message_id"] ||
         payload["message_id"]
 
@@ -592,4 +651,16 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp normalize_int(_), do: nil
+
+  defp arancini_prefix(payload) when is_map(payload) do
+    with prefix_addr when is_binary(prefix_addr) <-
+           normalize_optional_string(payload["prefix_addr"]),
+         prefix_len when is_integer(prefix_len) <- normalize_int(payload["prefix_len"]) do
+      "#{prefix_addr}/#{prefix_len}"
+    else
+      _ -> nil
+    end
+  end
+
+  defp arancini_prefix(_), do: nil
 end
