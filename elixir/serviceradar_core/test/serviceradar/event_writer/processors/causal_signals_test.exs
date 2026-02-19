@@ -196,17 +196,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     end
 
     test "normalizes arancini update payload into bmp causal envelope" do
-      payload = %{
-        "time_received_ns" => "2026-02-16T12:00:01Z",
-        "time_bmp_header_ns" => "2026-02-16T12:00:00Z",
-        "router_addr" => "10.0.0.1",
-        "peer_addr" => "192.0.2.10",
-        "peer_asn" => 64_513,
-        "prefix_addr" => "203.0.113.0",
-        "prefix_len" => 24,
-        "announced" => true,
-        "synthetic" => false
-      }
+      payload = load_event_writer_fixture!("arancini_update_route_update.json")
 
       message = %{
         data: Jason.encode!(payload),
@@ -228,6 +218,27 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.metadata["routing_correlation"]["prefix"] == "203.0.113.0/24"
       assert row.src_endpoint["ip"] == "192.0.2.10"
       assert row.device["uid"] == "10.0.0.1"
+    end
+
+    test "normalizes arancini withdraw payload to route_withdraw event type" do
+      payload = load_event_writer_fixture!("arancini_update_route_withdraw.json")
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{
+          subject: "arancini.updates.v4_10_0_0_2.64514.1_1",
+          received_at: DateTime.utc_now()
+        }
+      }
+
+      row = CausalSignals.parse_message(message)
+
+      refute is_nil(row)
+      assert row.metadata["signal_type"] == "bmp"
+      assert row.metadata["event_type"] == "route_withdraw"
+      assert row.metadata["routing_correlation"]["prefix"] == "203.0.114.0/24"
+      assert row.src_endpoint["ip"] == "192.0.2.11"
+      assert row.src_endpoint["asn"] == 64_514
     end
   end
 
@@ -419,5 +430,23 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       {row.metadata["event_identity"], row.metadata["primary_domain"], context_ids}
     end)
     |> Enum.sort()
+  end
+
+  defp load_event_writer_fixture!(file_name) do
+    fixture_path =
+      Path.join([
+        __DIR__,
+        "..",
+        "..",
+        "..",
+        "support",
+        "fixtures",
+        "event_writer",
+        file_name
+      ])
+
+    fixture_path
+    |> File.read!()
+    |> Jason.decode!()
   end
 end
