@@ -1,6 +1,7 @@
-# Faker Service - Armis API Emulator
+# Faker Service - Armis API Emulator + BGP/BMP Simulator
 
 The faker service emulates the Armis API for testing and reproducing pipeline issues with large datasets.
+It can also simulate FRR-like BGP activity and export BMP to an Arancini collector for end-to-end ingest testing.
 
 ## Features
 
@@ -17,7 +18,7 @@ The faker service emulates the Armis API for testing and reproducing pipeline is
 
 ```bash
 # Build
-go build -o faker cmd/faker/main.go
+go build -o faker ./cmd/faker
 
 # Run
 ./faker
@@ -61,6 +62,29 @@ curl "http://localhost:8080/api/v1/search/?aql=in:devices&length=100&from=0"
 # Get next page
 curl "http://localhost:8080/api/v1/search/?aql=in:devices&length=100&from=100"
 ```
+
+## BGP/BMP Simulation (Arancini Path)
+
+This mode is disabled by default and is intended for demo/test environments.
+
+Prerequisites:
+- `gobgpd` and `gobgp` must be in `PATH`.
+- Arancini BMP collector must be reachable at `simulation.bgp.bmp_collector_address`.
+
+Enable by setting `simulation.bgp.enabled=true` in `cmd/faker/config.json` (or your deployed config).
+
+Key config fields:
+- `simulation.bgp.bmp_collector_address` (example: `127.0.0.1:11019`)
+- `simulation.bgp.local_asn` and `simulation.bgp.router_id`
+- `simulation.bgp.peers` (FRR-like defaults are included)
+- `simulation.bgp.advertised_prefixes` (defaults: `23.138.124.0/24`, `2602:f678::/48`)
+- `simulation.bgp.publish_interval`, `outage_interval`, `outage_duration_min`, `outage_duration_max`
+
+Smoke test flow:
+1. Start Arancini collector with BMP listen enabled.
+2. Start faker with BGP simulation enabled.
+3. Confirm faker logs show route announce/withdraw events and periodic outage windows.
+4. Confirm Arancini collector logs show incoming BMP session/messages from faker's GoBGP daemon.
 
 ## Using with Embedded Sync (Agent)
 

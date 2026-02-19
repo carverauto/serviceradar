@@ -145,6 +145,15 @@ core:
       pauseOnDrift: true
       alertOnDrift: true
 faker:
+  gobgp:
+    # When enabled, an initContainer copies gobgpd/gobgp binaries into a shared volume
+    # mounted into the faker container.
+    enabled: false
+    image:
+      repository: docker.io/osrg/gobgp
+      tag: latest
+      pullPolicy: IfNotPresent
+    binDir: /opt/gobgp
   simulation:
     totalDevices: 50000
     ipShuffle:
@@ -154,6 +163,127 @@ faker:
       warmupCycles: 2
       allowExpansion: false
       poolHeadroomPercent: 0
+    bgp:
+      enabled: false
+      seed: 40164200
+      publishInterval: "15s"
+      outageInterval: "2m"
+      outageDurationMin: "20s"
+      outageDurationMax: "45s"
+      gobgpBinary: "gobgpd"
+      gobgpCliBinary: "gobgp"
+      bmpCollectorAddress: "serviceradar-bmp-collector:11019"
+      routerId: "204.209.51.59"
+      maxPrefixesPerTick: 3
+      localAsn: 401642
+      advertisedPrefixes:
+        - "23.138.124.0/24"
+        - "2602:f678::/48"
+      peers:
+        - name: "k8s-cp1-control"
+          ip: "10.0.2.2"
+          peer_asn: 401642
+          description: "k8s-cp1-control"
+        - name: "k8s-cp2-control"
+          ip: "10.0.2.3"
+          peer_asn: 401642
+          description: "k8s-cp2-control"
+        - name: "k8s-cp3-control"
+          ip: "10.0.2.4"
+          peer_asn: 401642
+          description: "k8s-cp3-control"
+        - name: "k8s-cp1-worker1"
+          ip: "10.0.2.5"
+          peer_asn: 401642
+          description: "k8s-cp1-worker1"
+        - name: "k8s-cp1-worker2"
+          ip: "10.0.2.6"
+          peer_asn: 401642
+          description: "k8s-cp1-worker2"
+        - name: "k8s-cp1-worker3"
+          ip: "10.0.2.7"
+          peer_asn: 401642
+          description: "k8s-cp1-worker3"
+        - name: "k8s-cp2-worker1"
+          ip: "10.0.2.8"
+          peer_asn: 401642
+          description: "k8s-cp2-worker1"
+        - name: "k8s-cp2-worker2"
+          ip: "10.0.2.9"
+          peer_asn: 401642
+          description: "k8s-cp2-worker2"
+        - name: "k8s-cp2-worker3"
+          ip: "10.0.2.10"
+          peer_asn: 401642
+          description: "k8s-cp2-worker3"
+        - name: "k8s-cp3-worker1"
+          ip: "10.0.2.11"
+          peer_asn: 401642
+          description: "k8s-cp3-worker1"
+        - name: "k8s-cp3-worker2"
+          ip: "10.0.2.12"
+          peer_asn: 401642
+          description: "k8s-cp3-worker2"
+        - name: "k8s-cp3-worker3"
+          ip: "10.0.2.13"
+          peer_asn: 401642
+          description: "k8s-cp3-worker3"
+        - name: "isp-ipv4"
+          ip: "204.209.51.58"
+          peer_asn: 10242
+          description: "ISP-IPv4"
+        - name: "k8s-cp1-control-ipv6"
+          ip: "2602:f678:0:ff::2"
+          peer_asn: 401642
+          description: "k8s-cp1-control-ipv6"
+        - name: "k8s-cp2-control-ipv6"
+          ip: "2602:f678:0:ff::3"
+          peer_asn: 401642
+          description: "k8s-cp2-control-ipv6"
+        - name: "k8s-cp3-control-ipv6"
+          ip: "2602:f678:0:ff::4"
+          peer_asn: 401642
+          description: "k8s-cp3-control-ipv6"
+        - name: "k8s-cp1-worker1-ipv6"
+          ip: "2602:f678:0:ff::5"
+          peer_asn: 401642
+          description: "k8s-cp1-worker1-ipv6"
+        - name: "k8s-cp1-worker2-ipv6"
+          ip: "2602:f678:0:ff::6"
+          peer_asn: 401642
+          description: "k8s-cp1-worker2-ipv6"
+        - name: "k8s-cp1-worker3-ipv6"
+          ip: "2602:f678:0:ff::7"
+          peer_asn: 401642
+          description: "k8s-cp1-worker3-ipv6"
+        - name: "k8s-cp2-worker1-ipv6"
+          ip: "2602:f678:0:ff::8"
+          peer_asn: 401642
+          description: "k8s-cp2-worker1-ipv6"
+        - name: "k8s-cp2-worker2-ipv6"
+          ip: "2602:f678:0:ff::9"
+          peer_asn: 401642
+          description: "k8s-cp2-worker2-ipv6"
+        - name: "k8s-cp2-worker3-ipv6"
+          ip: "2602:f678:0:ff::10"
+          peer_asn: 401642
+          description: "k8s-cp2-worker3-ipv6"
+        - name: "k8s-cp3-worker1-ipv6"
+          ip: "2602:f678:0:ff::11"
+          peer_asn: 401642
+          description: "k8s-cp3-worker1-ipv6"
+        - name: "k8s-cp3-worker2-ipv6"
+          ip: "2602:f678:0:ff::12"
+          peer_asn: 401642
+          description: "k8s-cp3-worker2-ipv6"
+        - name: "k8s-cp3-worker3-ipv6"
+          ip: "2602:f678:0:ff::13"
+          peer_asn: 401642
+          description: "k8s-cp3-worker3-ipv6"
+        - name: "isp-ipv6"
+          ip: "2605:8400:ff:142::"
+          peer_asn: 10242
+          description: "ISP-IPv6"
 coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
   secMode: spiffe

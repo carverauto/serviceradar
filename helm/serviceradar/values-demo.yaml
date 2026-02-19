@@ -105,6 +105,15 @@ webNg:
     downloadTtlSeconds: 86400
 
 faker:
+  gobgp:
+    enabled: true
+    # Keep latest for demo iterations; pin to a digest/tag if reproducibility
+    # requirements tighten.
+    image:
+      repository: docker.io/osrg/gobgp
+      tag: latest
+      pullPolicy: IfNotPresent
+    binDir: /opt/gobgp
   simulation:
     totalDevices: 1000
     ipShuffle:
@@ -114,6 +123,11 @@ faker:
       warmupCycles: 2
       allowExpansion: false
       poolHeadroomPercent: 0
+    bgp:
+      enabled: true
+      gobgpBinary: "/opt/gobgp/gobgpd"
+      gobgpCliBinary: "/opt/gobgp/gobgp"
+      bmpCollectorAddress: "serviceradar-bmp-collector:11019"
 
 core:
   logPromotionConsumerEnabled: true
