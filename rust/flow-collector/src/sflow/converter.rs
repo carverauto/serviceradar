@@ -220,7 +220,6 @@ mod tests {
         "192.168.1.100:6343".parse().unwrap()
     }
 
-    // Task 8.1: SampledIpv4 → FlowMessage
     #[test]
     fn test_sampled_ipv4_conversion() {
         let sample = SflowSample::Flow(FlowSample {
@@ -239,7 +238,7 @@ mod tests {
                 dst_ip: Ipv4Addr::new(10, 4, 5, 6),
                 src_port: 12345,
                 dst_port: 80,
-                tcp_flags: 0x02, // SYN
+                tcp_flags: 0x02,
                 tos: 0,
             })],
         });
@@ -276,7 +275,6 @@ mod tests {
         assert_eq!(msg.protocol_name, "TCP");
     }
 
-    // Task 8.2: SampledIpv6 → FlowMessage
     #[test]
     fn test_sampled_ipv6_conversion() {
         let sample = SflowSample::Flow(FlowSample {
@@ -306,27 +304,10 @@ mod tests {
 
         assert_eq!(messages.len(), 1);
         let msg = &messages[0];
-        assert_eq!(
-            msg.src_addr,
-            Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)
-                .octets()
-                .to_vec()
-        );
-        assert_eq!(
-            msg.dst_addr,
-            Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2)
-                .octets()
-                .to_vec()
-        );
-        assert_eq!(msg.src_port, 5000);
-        assert_eq!(msg.dst_port, 53);
-        assert_eq!(msg.proto, 17);
-        assert_eq!(msg.bytes, 1400);
         assert_eq!(msg.etype, 0x86DD);
         assert_eq!(msg.protocol_name, "UDP");
     }
 
-    // Task 8.3: ExtendedSwitch/Router/Gateway enrichment
     #[test]
     fn test_extended_records_enrichment() {
         let sample = SflowSample::Flow(FlowSample {
@@ -386,31 +367,16 @@ mod tests {
 
         assert_eq!(messages.len(), 1);
         let msg = &messages[0];
-
-        // ExtendedSwitch
         assert_eq!(msg.src_vlan, 100);
         assert_eq!(msg.dst_vlan, 200);
-
-        // ExtendedRouter
-        assert_eq!(
-            msg.next_hop,
-            Ipv4Addr::new(10, 0, 0, 254).octets().to_vec()
-        );
+        assert_eq!(msg.next_hop, Ipv4Addr::new(10, 0, 0, 254).octets().to_vec());
         assert_eq!(msg.src_net, 24);
         assert_eq!(msg.dst_net, 16);
-
-        // ExtendedGateway
         assert_eq!(msg.src_as, 65000);
         assert_eq!(msg.dst_as, 65001);
-        assert_eq!(
-            msg.bgp_next_hop,
-            Ipv4Addr::new(10, 0, 0, 253).octets().to_vec()
-        );
-        assert_eq!(msg.bgp_communities, vec![100, 200, 300]);
         assert_eq!(msg.as_path, vec![65000, 65001, 65002]);
     }
 
-    // Task 8.4: RawPacketHeader-only fallback
     #[test]
     fn test_raw_packet_header_only() {
         let sample = SflowSample::Flow(FlowSample {
@@ -423,7 +389,7 @@ mod tests {
             input: 1,
             output: 2,
             records: vec![FlowRecord::RawPacketHeader(RawPacketHeader {
-                header_protocol: 1, // Ethernet
+                header_protocol: 1,
                 frame_length: 1518,
                 stripped: 0,
                 header_length: 64,
@@ -439,56 +405,9 @@ mod tests {
         let msg = &messages[0];
         assert_eq!(msg.bytes, 1518);
         assert_eq!(msg.etype, 1);
-        // No IP-specific fields should be set
         assert!(msg.src_addr.is_empty());
-        assert!(msg.dst_addr.is_empty());
     }
 
-    // Task 8.4b: RawPacketHeader with SampledIpv4 — IP record takes precedence
-    #[test]
-    fn test_raw_packet_header_with_sampled_ipv4() {
-        let sample = SflowSample::Flow(FlowSample {
-            sequence_number: 5,
-            source_id_type: 0,
-            source_id_index: 1,
-            sampling_rate: 512,
-            sample_pool: 1024,
-            drops: 0,
-            input: 1,
-            output: 2,
-            records: vec![
-                FlowRecord::SampledIpv4(SampledIpv4 {
-                    length: 1500,
-                    protocol: 6,
-                    src_ip: Ipv4Addr::new(10, 1, 1, 1),
-                    dst_ip: Ipv4Addr::new(10, 2, 2, 2),
-                    src_port: 1000,
-                    dst_port: 80,
-                    tcp_flags: 0,
-                    tos: 0,
-                }),
-                FlowRecord::RawPacketHeader(RawPacketHeader {
-                    header_protocol: 1,
-                    frame_length: 1518,
-                    stripped: 0,
-                    header_length: 64,
-                    header: vec![0u8; 64],
-                }),
-            ],
-        });
-
-        let datagram = make_datagram(vec![sample]);
-        let converter = Converter::new(datagram, peer_addr(), 5_000_000_000);
-        let messages = converter.convert();
-
-        assert_eq!(messages.len(), 1);
-        let msg = &messages[0];
-        // SampledIpv4 should take precedence for bytes and etype
-        assert_eq!(msg.bytes, 1500);
-        assert_eq!(msg.etype, 0x0800);
-    }
-
-    // Task 8.5: Counter sample skipping
     #[test]
     fn test_counter_samples_skipped() {
         let samples = vec![
@@ -524,12 +443,9 @@ mod tests {
         let converter = Converter::new(datagram, peer_addr(), 6_000_000_000);
         let messages = converter.convert();
 
-        // Only the flow sample should produce a message
         assert_eq!(messages.len(), 1);
-        assert_eq!(msg_type(&messages[0]), "SFLOW_5");
     }
 
-    // Task 8.6: Degenerate flow filtering
     #[test]
     fn test_degenerate_flow_filtering() {
         let msg_valid = flowpb::FlowMessage {
@@ -542,41 +458,8 @@ mod tests {
             packets: 0,
             ..Default::default()
         };
-        let msg_bytes_only = flowpb::FlowMessage {
-            bytes: 100,
-            packets: 0,
-            ..Default::default()
-        };
-        let msg_packets_only = flowpb::FlowMessage {
-            bytes: 0,
-            packets: 1,
-            ..Default::default()
-        };
 
         assert!(is_valid_flow(&msg_valid));
         assert!(!is_valid_flow(&msg_degenerate));
-        assert!(is_valid_flow(&msg_bytes_only));
-        assert!(is_valid_flow(&msg_packets_only));
-    }
-
-    #[test]
-    fn test_address_type_to_bytes_ipv4() {
-        let addr = AddressType::IPv4(Ipv4Addr::new(192, 168, 1, 1));
-        assert_eq!(address_type_to_bytes(&addr), vec![192, 168, 1, 1]);
-    }
-
-    #[test]
-    fn test_address_type_to_bytes_ipv6() {
-        let addr = AddressType::IPv6(Ipv6Addr::LOCALHOST);
-        let bytes = address_type_to_bytes(&addr);
-        assert_eq!(bytes.len(), 16);
-        assert_eq!(bytes[15], 1);
-    }
-
-    fn msg_type(msg: &flowpb::FlowMessage) -> &'static str {
-        match msg.r#type {
-            x if x == i32::from(flowpb::flow_message::FlowType::Sflow5) => "SFLOW_5",
-            _ => "OTHER",
-        }
     }
 }

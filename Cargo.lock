@@ -5275,6 +5275,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "serviceradar-flow-collector"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-nats",
+ "clap 4.5.56",
+ "env_logger 0.11.8",
+ "flowparser-sflow",
+ "log 0.4.29",
+ "netflow_parser",
+ "prost 0.13.5",
+ "serde 1.0.228",
+ "serde_json 1.0.149",
+ "tokio",
+ "tonic-build 0.12.3",
+]
+
+[[package]]
 name = "serviceradar-flowgger"
 version = "0.3.4"
 dependencies = [
@@ -5314,23 +5332,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serviceradar-netflow-collector"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-nats",
- "clap 4.5.56",
- "env_logger 0.11.8",
- "log 0.4.29",
- "netflow_parser",
- "prost 0.13.5",
- "serde 1.0.228",
- "serde_json 1.0.149",
- "tokio",
- "tonic-build 0.12.3",
-]
-
-[[package]]
 name = "serviceradar-rperf-checker"
 version = "1.0.30"
 dependencies = [
@@ -5352,23 +5353,6 @@ dependencies = [
  "tonic-health 0.9.2",
  "tonic-reflection 0.9.2",
  "which 7.0.3",
-]
-
-[[package]]
-name = "serviceradar-sflow-collector"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-nats",
- "clap 4.5.56",
- "env_logger 0.11.8",
- "flowparser-sflow",
- "log 0.4.29",
- "prost 0.13.5",
- "serde 1.0.228",
- "serde_json 1.0.149",
- "tokio",
- "tonic-build 0.12.3",
 ]
 
 [[package]]
