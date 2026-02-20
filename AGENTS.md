@@ -46,7 +46,7 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 ## Build & Test Commands
 
 - General Go lint/test: `make lint`, `make test`.
-- Focused Go packages: `go test ./pkg/...`.
+- Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
 - Web (Next.js) lint/build: `cd web && npm install && npm run lint && npm run build` (if needed).

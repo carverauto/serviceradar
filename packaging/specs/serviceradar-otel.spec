@@ -19,7 +19,7 @@ mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/var/log/serviceradar
 
-# Install the binary (assumes binary is built at /src/cmd/otel/target/release/serviceradar-otel)
+# Install the binary (assumes binary is built at /src/rust/otel/target/release/serviceradar-otel)
 install -m 755 %{_builddir}/serviceradar-otel %{buildroot}/usr/local/bin/
 
 # Install systemd service from packaging directory

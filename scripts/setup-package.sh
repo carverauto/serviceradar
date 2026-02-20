@@ -236,7 +236,7 @@ build_component() {
             output_path=$(echo "$config" | jq -r '.binary.output_path')
             echo "Building Go binary from $src_path with version $VERSION and build $BUILD_ID..."
             GOOS=linux GOARCH=amd64 go build \
-                -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=$VERSION -X github.com/carverauto/serviceradar/pkg/version.buildID=$BUILD_ID" \
+                -ldflags "-X github.com/carverauto/serviceradar/go/pkg/version.version=$VERSION -X github.com/carverauto/serviceradar/go/pkg/version.buildID=$BUILD_ID" \
                 -o "${pkg_root}${output_path}" \
                 "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not built"; exit 1; }
@@ -265,10 +265,10 @@ build_component() {
             echo "Building Next.js application in $build_dir via Bazel..."
 
             bazel="${BASE_DIR}/tools/bazel/bazel"
-            NEXT_PUBLIC_VERSION="$VERSION" NEXT_PUBLIC_BUILD_ID="$BUILD_ID" "${bazel}" build //pkg/core/api/web:files || { echo "Error: Bazel build failed"; exit 1; }
+            NEXT_PUBLIC_VERSION="$VERSION" NEXT_PUBLIC_BUILD_ID="$BUILD_ID" "${bazel}" build //go/pkg/core/api/web:files || { echo "Error: Bazel build failed"; exit 1; }
 
             bazel_bin="$("${bazel}" info bazel-bin)"
-            web_bundle="${bazel_bin}/pkg/core/api/web/.next"
+            web_bundle="${bazel_bin}/go/pkg/core/api/web/.next"
 
             # Prepare destination directories
             rm -rf "${pkg_root}${output_dir}"
@@ -504,7 +504,7 @@ EOF
                     echo "Building Go binary from $src_path..."
                     output_path=$(echo "$config" | jq -r '.binary.output_path')
                     GOOS=linux GOARCH=amd64 go build \
-                        -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=$version -X github.com/carverauto/serviceradar/pkg/version.buildID=$BUILD_ID" \
+                        -ldflags "-X github.com/carverauto/serviceradar/go/pkg/version.version=$version -X github.com/carverauto/serviceradar/go/pkg/version.buildID=$BUILD_ID" \
                         -o "${RPMBUILD_DIR}/BUILD/$(basename $output_path)" \
                         "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
                 elif [ "$build_method" = "none" ]; then

@@ -23,7 +23,7 @@ mkdir -p "${PACKAGE_DIR}/var/log/serviceradar"
 # Build the binary
 echo "Building faker binary..."
 cd ../../../
-CGO_ENABLED=0 GOOS=linux GOARCH=${ARCH} go build -ldflags="-s -w -X main.Version=${VERSION}" -o "${PACKAGE_DIR}/usr/local/bin/serviceradar-faker" ./cmd/faker
+CGO_ENABLED=0 GOOS=linux GOARCH=${ARCH} go build -ldflags="-s -w -X main.Version=${VERSION}" -o "${PACKAGE_DIR}/usr/local/bin/serviceradar-faker" ./go/cmd/faker
 
 # Copy configuration files
 cp packaging/faker/config/faker.json "${PACKAGE_DIR}/usr/share/serviceradar/faker/config/"

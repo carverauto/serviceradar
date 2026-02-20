@@ -44,12 +44,12 @@ PACKAGES = {
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd", "libcap"],
         "binary": {
-            "target": "//cmd/agent:agent",
+            "target": "//go/cmd/agent:agent",
             "dest": "/usr/local/bin/serviceradar-agent",
         },
         "files": [
             {
-                "src": "//cmd/cli:cli",
+                "src": "//go/cmd/cli:cli",
                 "dest": "/usr/local/bin/serviceradar-cli",
                 "mode": "0755",
             },
@@ -154,7 +154,7 @@ PACKAGES = {
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "//cmd/data-services:data_services",
+            "target": "//go/cmd/data-services:data_services",
             "dest": "/usr/local/bin/serviceradar-datasvc",
         },
         "files": [
@@ -185,7 +185,7 @@ PACKAGES = {
         "deb_depends": ["systemd", "jq"],
         "rpm_requires": ["systemd", "jq"],
         "binary": {
-            "target": "//cmd/consumers/db-event-writer:db-event-writer",
+            "target": "//go/cmd/consumers/db-event-writer:db-event-writer",
             "dest": "/usr/local/bin/serviceradar-event-writer",
         },
         "files": [
@@ -216,7 +216,7 @@ PACKAGES = {
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "//cmd/faker:faker",
+            "target": "//go/cmd/faker:faker",
             "dest": "/usr/local/bin/serviceradar-faker",
         },
         "files": [
@@ -247,7 +247,7 @@ PACKAGES = {
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "//cmd/trapd:trapd",
+            "target": "//rust/trapd:trapd",
             "dest": "/usr/local/bin/serviceradar-trapd",
         },
         "files": [
@@ -278,7 +278,7 @@ PACKAGES = {
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "//cmd/flowgger:flowgger",
+            "target": "//rust/flowgger:flowgger",
             "dest": "/usr/local/bin/serviceradar-flowgger",
         },
         "files": [
@@ -412,7 +412,7 @@ PACKAGES = {
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "//cmd/consumers/zen:zen",
+            "target": "//rust/consumers/zen:zen",
             "dest": "/usr/local/bin/serviceradar-zen",
         },
         "files": [
@@ -463,7 +463,7 @@ PACKAGES = {
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "//cmd/checkers/rperf-server:rperf",
+            "target": "//rust/checkers/rperf-server:rperf",
             "dest": "/usr/local/bin/serviceradar-rperf",
         },
         "files": [
@@ -498,7 +498,7 @@ PACKAGES = {
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "//cmd/checkers/rperf-client:rperf_checker",
+            "target": "//rust/checkers/rperf-client:rperf_checker",
             "dest": "/usr/local/bin/serviceradar-rperf-checker",
         },
         "files": [
@@ -529,7 +529,7 @@ PACKAGES = {
         "deb_depends": [],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "//cmd/ebpf/profiler:profiler",
+            "target": "//rust/ebpf/profiler:profiler",
             "dest": "/usr/local/bin/serviceradar-profiler",
         },
         "files": [
@@ -560,7 +560,7 @@ PACKAGES = {
         "deb_depends": [],
         "rpm_requires": [],
         "binary": {
-            "target": "//cmd/cli:cli",
+            "target": "//go/cmd/cli:cli",
             "dest": "/usr/local/bin/serviceradar-cli",
         },
         "postinst": "scripts/postinstall.sh",
@@ -576,7 +576,7 @@ PACKAGES = {
         "deb_depends": [],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "//cmd/otel:otel",
+            "target": "//rust/otel:otel",
             "dest": "/usr/local/bin/serviceradar-otel",
         },
         "files": [

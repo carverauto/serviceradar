@@ -11,7 +11,7 @@ COPY . .
 
 # Build serviceradar-cli for Linux/amd64
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -o serviceradar-cli ./cmd/cli
+    go build -o serviceradar-cli ./go/cmd/cli
 
 # Runtime stage
 FROM ubuntu:22.04

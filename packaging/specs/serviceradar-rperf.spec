@@ -16,7 +16,7 @@ mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/var/log/rperf
 
-# Install the binary (assumes binary is built at /src/cmd/checkers/rperf-server/target/release/serviceradar-rperf)
+# Install the binary (assumes binary is built at /src/rust/checkers/rperf-server/target/release/serviceradar-rperf)
 install -m 755 %{_builddir}/serviceradar-rperf %{buildroot}/usr/local/bin/
 
 # Install systemd service from packaging directory

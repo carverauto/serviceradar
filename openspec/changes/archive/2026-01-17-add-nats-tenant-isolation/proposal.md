@@ -521,7 +521,7 @@ streams {
     - `docker/compose/nats*.conf` - JWT resolver mode configuration
     - Helm charts - NATS operator bootstrap, datasvc secrets
   - **Collectors** (Rust) (TODO):
-    - `cmd/flowgger/`, `cmd/trapd/` - Add NATS credentials file support
+    - `rust/flowgger/`, `rust/trapd/` - Add NATS credentials file support
 
 **NOT affected** (by design):
 - Collector configs do NOT need tenant_slug - NATS handles subject mapping

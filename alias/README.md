@@ -13,7 +13,7 @@ In practice, you write your library with its Build file as usual, and then you a
 ```text
 alias(
     name = "agent",
-    actual = "//pkg/agent:agent",
+    actual = "//go/pkg/agent:agent",
 )
 ```
 

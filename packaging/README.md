@@ -52,7 +52,7 @@ Each entry in `components.json` is a JSON object representing a component. The a
 |-------|------|----------|-------------|
 | source_path | String | No | Source directory for the binary (e.g., `cmd/core`). Required for `go` and `docker` build methods. |
 | build_method | String | Yes | Build method for the binary (`go`, `rust`, `docker`). |
-| dockerfile | String | No | Path to the Dockerfile for building the binary (e.g., `cmd/checkers/rperf-client/Dockerfile`). Required for `rust` and some `docker` builds. |
+| dockerfile | String | No | Path to the Dockerfile for building the binary (e.g., `rust/checkers/rperf-client/Dockerfile`). Required for `rust` and some `docker` builds. |
 | output_path | String | Yes | Destination path for the binary in the package (e.g., `/usr/local/bin/serviceradar-agent`). |
 
 ### external_binary Object (Used with build_method: external)

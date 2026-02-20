@@ -47,7 +47,7 @@ To run the located test targets:
 
 
 ```bash 
-    bazel test //pkg/agent:agent_test
+    bazel test //go/pkg/agent:agent_test
 ```
 
 To explore all dependencies of a specific crate, run:
@@ -76,7 +76,7 @@ Note, these vendored external dependencies are shared across all crates.
 To visualize all dependencies of the top level binary agent, run
 
 ```bash 
-   bazel query 'deps(//cmd/agent, 3) ' --output graph --noimplicit_deps  | dot -Tpng -o graph.png
+   bazel query 'deps(//go/cmd/agent, 3) ' --output graph --noimplicit_deps  | dot -Tpng -o graph.png
    
    open graph.png # Works on Mac. 
 ```

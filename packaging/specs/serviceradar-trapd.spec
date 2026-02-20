@@ -18,7 +18,7 @@ mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/etc/serviceradar
 
-# Install the binary (assumes binary is built at /src/cmd/trapd/target/release/serviceradar-trapd)
+# Install the binary (assumes binary is built at /src/rust/trapd/target/release/serviceradar-trapd)
 install -m 755 %{_builddir}/serviceradar-trapd %{buildroot}/usr/local/bin/
 
 # Install systemd service and config files from packaging directory

@@ -74,7 +74,7 @@ The web UI reads this information from:
 
 For Go binaries, the version and build ID are embedded via ldflags into the `pkg/version` package:
 ```go
-import "github.com/carverauto/serviceradar/pkg/version"
+import "github.com/carverauto/serviceradar/go/pkg/version"
 
 fmt.Printf("Version: %s\n", version.GetFullVersion())
 // Output: 1.0.53 (build: 102141f6)

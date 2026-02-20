@@ -28,7 +28,7 @@
     "binary": {
       "build_method": "go",
       "output_path": "/usr/local/bin/serviceradar-event-writer",
-      "source_path": "cmd/consumers/db-event-writer"
+      "source_path": "go/cmd/consumers/db-event-writer"
     },
     "conffiles": [
       "/etc/serviceradar/consumers/db-event-writer.json"
@@ -122,7 +122,7 @@
     "binary": {
       "build_method": "go",
       "output_path": "/usr/local/bin/serviceradar-faker",
-      "source_path": "cmd/faker"
+      "source_path": "go/cmd/faker"
     },
     "conffiles": [
       "/etc/serviceradar/faker.json"
@@ -169,7 +169,7 @@
     "binary": {
       "build_method": "go",
       "output_path": "/usr/local/bin/serviceradar-agent",
-      "source_path": "cmd/agent"
+      "source_path": "go/cmd/agent"
     },
     "conffiles": [
       "/etc/serviceradar/agent.json",
@@ -282,7 +282,7 @@
     "binary": {
       "build_method": "go",
       "output_path": "/usr/local/bin/serviceradar-datasvc",
-      "source_path": "cmd/data-services"
+      "source_path": "go/cmd/data-services"
     },
     "conffiles": [
       "/etc/serviceradar/datasvc.json"
@@ -333,7 +333,7 @@
     "binary": {
       "build_method": "rust",
       "output_path": "/usr/local/bin/serviceradar-zen",
-      "source_path": "cmd/consumers/zen"
+      "source_path": "rust/consumers/zen"
     },
     "conffiles": [
       "/etc/serviceradar/consumers/zen-consumer.json",
@@ -373,7 +373,7 @@
       "depends": [
         "systemd"
       ],
-      "dockerfile": "cmd/consumers/zen/Dockerfile"
+      "dockerfile": "rust/consumers/zen/Dockerfile"
     },
     "description": "ServiceRadar Zen Consumer Service",
     "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
@@ -415,7 +415,7 @@
       "depends": [
         "systemd"
       ],
-      "dockerfile": "cmd/checkers/rperf-server/Dockerfile-deb"
+      "dockerfile": "rust/checkers/rperf-server/Dockerfile-deb"
     },
     "description": "ServiceRadar RPerf Network Performance Testing Tool",
     "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
@@ -448,7 +448,7 @@
       "build_method": "rust",
       "docker_output_path": "/output/serviceradar-rperf-checker",
       "output_path": "/usr/local/bin/serviceradar-rperf-checker",
-      "source_path": "cmd/checkers/rperf-client"
+      "source_path": "rust/checkers/rperf-client"
     },
     "conffiles": [
       "/etc/serviceradar/checkers/rperf.json.example"
@@ -464,7 +464,7 @@
       "depends": [
         "systemd"
       ],
-      "dockerfile": "cmd/checkers/rperf-client/Dockerfile"
+      "dockerfile": "rust/checkers/rperf-client/Dockerfile"
     },
     "description": "ServiceRadar RPerf Network Performance Test Checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
@@ -497,7 +497,7 @@
       "build_method": "rust",
       "docker_output_path": "/output/serviceradar-flowgger",
       "output_path": "/usr/local/bin/serviceradar-flowgger",
-      "source_path": "cmd/flowgger"
+      "source_path": "rust/flowgger"
     },
     "conffiles": [
       "/etc/serviceradar/flowgger.toml"
@@ -514,7 +514,7 @@
         "systemd",
         "serviceradar-cli"
       ],
-      "dockerfile": "cmd/flowgger/Dockerfile"
+      "dockerfile": "rust/flowgger/Dockerfile"
     },
     "description": "ServiceRadar Flowgger log ingestion service",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
@@ -599,7 +599,7 @@
       "build_method": "rust",
       "docker_output_path": "/output/serviceradar-trapd",
       "output_path": "/usr/local/bin/serviceradar-trapd",
-      "source_path": "cmd/trapd"
+      "source_path": "rust/trapd"
     },
     "conffiles": [
       "/etc/serviceradar/trapd.json"
@@ -616,7 +616,7 @@
         "systemd",
         "serviceradar-cli"
       ],
-      "dockerfile": "cmd/trapd/Dockerfile"
+      "dockerfile": "rust/trapd/Dockerfile"
     },
     "description": "ServiceRadar SNMP trap receiver service",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
@@ -649,7 +649,7 @@
     "binary": {
       "build_method": "go",
       "output_path": "/usr/local/bin/serviceradar",
-      "source_path": "cmd/cli"
+      "source_path": "go/cmd/cli"
     },
     "conffiles": [],
     "config_files": [],
@@ -682,7 +682,7 @@
     "binary": {
       "build_method": "rust",
       "output_path": "/usr/local/bin/serviceradar-otel",
-      "source_path": "cmd/otel"
+      "source_path": "rust/otel"
     },
     "conffiles": [
       "/etc/serviceradar/otel.toml"
@@ -697,7 +697,7 @@
       "depends": [
         "serviceradar-cli"
       ],
-      "dockerfile": "cmd/otel/Dockerfile"
+      "dockerfile": "rust/otel/Dockerfile"
     },
     "description": "ServiceRadar OTEL Collector",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
@@ -730,7 +730,7 @@
     "binary": {
       "build_method": "rust",
       "output_path": "/usr/local/bin/serviceradar-profiler",
-      "source_path": "cmd/ebpf/profiler"
+      "source_path": "rust/ebpf/profiler"
     },
     "conffiles": [
       "/etc/serviceradar/profiler.toml"
@@ -743,7 +743,7 @@
     ],
     "deb": {
       "depends": [],
-      "dockerfile": "cmd/ebpf/profiler/Dockerfile"
+      "dockerfile": "rust/ebpf/profiler/Dockerfile"
     },
     "description": "ServiceRadar Profiler agent",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",

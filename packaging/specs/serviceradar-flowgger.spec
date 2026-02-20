@@ -18,7 +18,7 @@ mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/etc/serviceradar
 
-# Install the binary (assumes binary is built at /src/cmd/flowgger/target/release/serviceradar-flowgger)
+# Install the binary (assumes binary is built at /src/rust/flowgger/target/release/serviceradar-flowgger)
 install -m 755 %{_builddir}/serviceradar-flowgger %{buildroot}/usr/local/bin/
 
 # Install systemd service and config files from packaging directory
