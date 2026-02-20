@@ -1,16 +1,58 @@
 use crate::config::ListenerConfig;
+use crate::error::GetCurrentTimeError;
 use crate::metrics::ListenerMetrics;
 use crate::netflow::NetflowHandler;
 use crate::sflow::SflowHandler;
-use crate::sflow::converter::flowpb::FlowMessage;
+use crate::flowpb::FlowMessage;
 use anyhow::Result;
 use log::{error, info, warn};
 use prost::Message;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
+
+/// Check if a flow message is valid (not degenerate).
+pub fn is_valid_flow(msg: &FlowMessage) -> bool {
+    msg.bytes > 0 || msg.packets > 0
+}
+
+/// Get current time in nanoseconds since UNIX epoch.
+pub fn get_current_time_ns() -> Result<u64, GetCurrentTimeError> {
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(GetCurrentTimeError::SystemTimeError)?;
+    u64::try_from(duration.as_nanos()).map_err(GetCurrentTimeError::TryFromIntError)
+}
+
+/// Filter degenerate flows and update metrics counters.
+/// Returns only valid flows (bytes > 0 or packets > 0).
+pub fn filter_and_track_flows(
+    flows: Vec<FlowMessage>,
+    peer: SocketAddr,
+    metrics: &ListenerMetrics,
+) -> Vec<FlowMessage> {
+    let (valid, invalid): (Vec<_>, Vec<_>) = flows.into_iter().partition(is_valid_flow);
+
+    if !invalid.is_empty() {
+        warn!(
+            "Dropped {} degenerate flow record(s) from {} (0 bytes, 0 packets)",
+            invalid.len(),
+            peer
+        );
+        metrics
+            .flows_dropped
+            .fetch_add(invalid.len() as u64, Ordering::Relaxed);
+    }
+
+    metrics
+        .flows_converted
+        .fetch_add(valid.len() as u64, Ordering::Relaxed);
+
+    valid
+}
 
 pub trait FlowHandler: Send + Sync {
     /// Parse a raw UDP datagram and return zero or more FlowMessages.

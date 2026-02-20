@@ -1,5 +1,6 @@
 mod config;
 mod error;
+pub mod flowpb;
 mod listener;
 mod metrics;
 mod netflow;

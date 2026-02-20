@@ -25,8 +25,3 @@ impl std::error::Error for GetCurrentTimeError {
         }
     }
 }
-
-#[derive(Debug)]
-pub enum ConversionError {
-    NoGeneratedMessages,
-}

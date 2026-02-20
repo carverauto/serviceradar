@@ -1,6 +1,4 @@
-use crate::error::ConversionError;
-use crate::sflow::converter::flowpb;
-use anyhow::Result;
+use crate::flowpb;
 use log::debug;
 use netflow_parser::NetflowPacket;
 use netflow_parser::protocol::ProtocolTypes;
@@ -25,7 +23,7 @@ impl Converter {
         }
     }
 
-    pub fn convert_v5(&self, packet: &V5) -> Result<Vec<flowpb::FlowMessage>, ConversionError> {
+    pub fn convert_v5(&self, packet: &V5) -> Vec<flowpb::FlowMessage> {
         let mut messages = Vec::with_capacity(packet.flowsets.len());
 
         for flow in &packet.flowsets {
@@ -70,13 +68,13 @@ impl Converter {
             messages.push(msg);
         }
 
-        Ok(messages)
+        messages
     }
 
     pub fn convert_v9(
         &self,
         packet: &netflow_parser::variable_versions::v9::V9,
-    ) -> Result<Vec<flowpb::FlowMessage>, ConversionError> {
+    ) -> Vec<flowpb::FlowMessage> {
         use netflow_parser::variable_versions::v9::FlowSetBody;
 
         let mut messages = Vec::new();
@@ -204,13 +202,13 @@ impl Converter {
             }
         }
 
-        Ok(messages)
+        messages
     }
 
     pub fn convert_ipfix(
         &self,
         packet: &netflow_parser::variable_versions::ipfix::IPFix,
-    ) -> Result<Vec<flowpb::FlowMessage>, ConversionError> {
+    ) -> Vec<flowpb::FlowMessage> {
         use netflow_parser::variable_versions::ipfix::FlowSetBody;
 
         let mut messages = Vec::new();
@@ -422,7 +420,7 @@ impl Converter {
             }
         }
 
-        Ok(messages)
+        messages
     }
 }
 
@@ -527,11 +525,6 @@ fn field_value_to_mac_u64(value: &FieldValue) -> u64 {
     }
 }
 
-/// Returns true if the flow message contains meaningful traffic data.
-pub fn is_valid_flow(msg: &flowpb::FlowMessage) -> bool {
-    msg.bytes > 0 || msg.packets > 0
-}
-
 fn protocol_type_name(pt: ProtocolTypes) -> String {
     format!("{pt:?}").to_uppercase()
 }
@@ -547,13 +540,11 @@ fn field_value_to_protocol_name(value: &FieldValue) -> String {
     }
 }
 
-impl TryFrom<Converter> for Vec<flowpb::FlowMessage> {
-    type Error = ConversionError;
-
-    fn try_from(converter: Converter) -> Result<Self, Self::Error> {
+impl From<Converter> for Vec<flowpb::FlowMessage> {
+    fn from(converter: Converter) -> Self {
         match converter.packet {
             NetflowPacket::V5(ref v5) => converter.convert_v5(v5),
-            NetflowPacket::V7(_) => Ok(vec![]),
+            NetflowPacket::V7(_) => vec![],
             NetflowPacket::V9(ref v9) => converter.convert_v9(v9),
             NetflowPacket::IPFix(ref ipfix) => converter.convert_ipfix(ipfix),
         }
@@ -630,6 +621,8 @@ mod tests {
 
     #[test]
     fn test_is_valid_flow() {
+        use crate::listener::is_valid_flow;
+
         let valid = flowpb::FlowMessage { bytes: 100, packets: 1, ..Default::default() };
         let invalid = flowpb::FlowMessage { bytes: 0, packets: 0, ..Default::default() };
         assert!(is_valid_flow(&valid));

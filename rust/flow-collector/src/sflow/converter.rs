@@ -1,14 +1,10 @@
+use crate::flowpb;
 use flowparser_sflow::{
     AddressType, FlowRecord, SflowDatagram, SflowSample,
 };
 use flowparser_sflow::samples::FlowSample;
 use log::debug;
 use std::net::SocketAddr;
-
-// Include generated protobuf code
-pub mod flowpb {
-    include!(concat!(env!("OUT_DIR"), "/flowpb.rs"));
-}
 
 pub struct Converter {
     pub datagram: SflowDatagram,
@@ -169,11 +165,6 @@ pub fn address_type_to_bytes(addr: &AddressType) -> Vec<u8> {
         AddressType::IPv4(v4) => v4.octets().to_vec(),
         AddressType::IPv6(v6) => v6.octets().to_vec(),
     }
-}
-
-/// Check if a flow message is valid (not degenerate).
-pub fn is_valid_flow(msg: &flowpb::FlowMessage) -> bool {
-    msg.bytes > 0 || msg.packets > 0
 }
 
 /// Map protocol number to human-readable name.
@@ -448,6 +439,8 @@ mod tests {
 
     #[test]
     fn test_degenerate_flow_filtering() {
+        use crate::listener::is_valid_flow;
+
         let msg_valid = flowpb::FlowMessage {
             bytes: 100,
             packets: 1,

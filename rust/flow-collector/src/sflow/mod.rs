@@ -1,16 +1,14 @@
 pub mod converter;
 
-use crate::error::GetCurrentTimeError;
-use crate::listener::FlowHandler;
+use crate::listener::{FlowHandler, filter_and_track_flows, get_current_time_ns};
 use crate::metrics::ListenerMetrics;
-use converter::flowpb::FlowMessage;
-use converter::{Converter, is_valid_flow};
+use crate::flowpb::FlowMessage;
+use converter::Converter;
 use flowparser_sflow::SflowParser;
 use log::{debug, warn};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct SflowHandler {
     parser: SflowParser,
@@ -29,18 +27,11 @@ impl SflowHandler {
 
         Self { parser, metrics }
     }
-
-    fn get_current_time_ns() -> Result<u64, GetCurrentTimeError> {
-        let duration = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(GetCurrentTimeError::SystemTimeError)?;
-        u64::try_from(duration.as_nanos()).map_err(GetCurrentTimeError::TryFromIntError)
-    }
 }
 
 impl FlowHandler for SflowHandler {
     fn parse_datagram(&self, buf: &[u8], _len: usize, peer: SocketAddr) -> Vec<FlowMessage> {
-        let receive_time_ns = match Self::get_current_time_ns() {
+        let receive_time_ns = match get_current_time_ns() {
             Ok(t) => t,
             Err(e) => {
                 warn!("Failed to get current time: {}", e);
@@ -66,26 +57,7 @@ impl FlowHandler for SflowHandler {
             );
 
             let converter = Converter::new(datagram, peer, receive_time_ns);
-            let flow_messages = converter.convert();
-
-            let (valid, invalid): (Vec<_>, Vec<_>) =
-                flow_messages.into_iter().partition(is_valid_flow);
-
-            if !invalid.is_empty() {
-                warn!(
-                    "Dropped {} degenerate flow record(s) from {} (0 bytes, 0 packets)",
-                    invalid.len(),
-                    peer
-                );
-                self.metrics
-                    .flows_dropped
-                    .fetch_add(invalid.len() as u64, Ordering::Relaxed);
-            }
-
-            self.metrics
-                .flows_converted
-                .fetch_add(valid.len() as u64, Ordering::Relaxed);
-
+            let valid = filter_and_track_flows(converter.convert(), peer, &self.metrics);
             all_messages.extend(valid);
         }
 

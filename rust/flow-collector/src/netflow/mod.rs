@@ -1,18 +1,16 @@
 pub mod converter;
 
-use crate::error::GetCurrentTimeError;
-use crate::listener::FlowHandler;
+use crate::config::PendingFlowsCacheConfig;
+use crate::listener::{FlowHandler, filter_and_track_flows, get_current_time_ns};
 use crate::metrics::ListenerMetrics;
-use crate::sflow::converter::flowpb::FlowMessage;
-use converter::{Converter, is_valid_flow};
+use crate::flowpb::FlowMessage;
+use converter::Converter;
 use log::{debug, info, warn};
 use netflow_parser::{AutoScopedParser, NetflowParserBuilder, PendingFlowsConfig, TemplateEvent};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-use crate::config::PendingFlowsCacheConfig;
+use std::time::Duration;
 
 fn make_template_event_callback(pending_enabled: bool) -> impl Fn(&TemplateEvent) {
     move |event: &TemplateEvent| {
@@ -108,18 +106,11 @@ impl NetflowHandler {
             metrics,
         }
     }
-
-    fn get_current_time_ns() -> Result<u64, GetCurrentTimeError> {
-        let duration = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(GetCurrentTimeError::SystemTimeError)?;
-        u64::try_from(duration.as_nanos()).map_err(GetCurrentTimeError::TryFromIntError)
-    }
 }
 
 impl FlowHandler for NetflowHandler {
     fn parse_datagram(&self, buf: &[u8], _len: usize, peer: SocketAddr) -> Vec<FlowMessage> {
-        let receive_time_ns = match Self::get_current_time_ns() {
+        let receive_time_ns = match get_current_time_ns() {
             Ok(t) => t,
             Err(e) => {
                 warn!("Failed to get current time: {}", e);
@@ -148,32 +139,9 @@ impl FlowHandler for NetflowHandler {
             debug!("Parsed NetFlow packet {:?}", packet);
 
             let flow_messages: Vec<FlowMessage> =
-                match Converter::new(packet, peer, receive_time_ns).try_into() {
-                    Ok(messages) => messages,
-                    Err(e) => {
-                        warn!("Failed to convert NetFlow packet to protobuf: {:?}", e);
-                        continue;
-                    }
-                };
+                Converter::new(packet, peer, receive_time_ns).into();
 
-            let (valid, invalid): (Vec<_>, Vec<_>) =
-                flow_messages.into_iter().partition(is_valid_flow);
-
-            if !invalid.is_empty() {
-                warn!(
-                    "Dropped {} degenerate flow record(s) from {} (0 bytes, 0 packets)",
-                    invalid.len(),
-                    peer
-                );
-                self.metrics
-                    .flows_dropped
-                    .fetch_add(invalid.len() as u64, Ordering::Relaxed);
-            }
-
-            self.metrics
-                .flows_converted
-                .fetch_add(valid.len() as u64, Ordering::Relaxed);
-
+            let valid = filter_and_track_flows(flow_messages, peer, &self.metrics);
             all_messages.extend(valid);
         }
 
