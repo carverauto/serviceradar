@@ -22,7 +22,6 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
       stream_names = Enum.map(streams, & &1.name)
 
       assert "EVENTS" in stream_names or "EVENTS_LEGACY" in stream_names
-      assert "LOGS" in stream_names or "LOGS_LEGACY" in stream_names
       assert "OTEL_METRICS" in stream_names or "OTEL_METRICS_LEGACY" in stream_names
       assert "OTEL_TRACES" in stream_names or "OTEL_TRACES_LEGACY" in stream_names
     end

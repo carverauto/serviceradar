@@ -461,13 +461,6 @@ if config_env() == :prod do
           batch_timeout: 1_000
         },
         %{
-          name: "LOGS",
-          subject: "logs.>",
-          processor: ServiceRadar.EventWriter.Processors.Logs,
-          batch_size: 100,
-          batch_timeout: 1_000
-        },
-        %{
           name: "BMP_CAUSAL",
           subject: "bmp.events.>",
           processor: ServiceRadar.EventWriter.Processors.CausalSignals,
