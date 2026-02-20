@@ -121,8 +121,8 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     octets = json["octets"] || json["bytes"] || 0
     packets = json["packets"] || 0
 
-    # Determine flow source from NATS subject (e.g. "flows.raw.sflow" → "sFlow")
-    flow_source = flow_source_from_subject(nats_metadata[:subject])
+    # Prefer version-specific label from collector JSON, fall back to NATS subject
+    flow_source = json["flow_source"] || flow_source_from_subject(nats_metadata[:subject])
 
     # Build full OCSF payload for the JSONB column
     ocsf_payload = %{

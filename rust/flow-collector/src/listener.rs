@@ -69,6 +69,18 @@ fn bytes_to_ip(bytes: &[u8]) -> Option<String> {
     }
 }
 
+/// Map FlowType enum to a human-readable version label.
+fn flow_source_label(flow_type: i32) -> &'static str {
+    use crate::flowpb::flow_message::FlowType;
+    match FlowType::try_from(flow_type) {
+        Ok(FlowType::Sflow5) => "sFlow v5",
+        Ok(FlowType::NetflowV5) => "NetFlow v5",
+        Ok(FlowType::NetflowV9) => "NetFlow v9",
+        Ok(FlowType::Ipfix) => "IPFIX",
+        _ => "Unknown",
+    }
+}
+
 /// Serialize a FlowMessage to JSON bytes for the Elixir EventWriter.
 pub fn flow_to_json(msg: &FlowMessage) -> Option<Vec<u8>> {
     let src_addr = bytes_to_ip(&msg.src_addr).unwrap_or_default();
@@ -93,6 +105,7 @@ pub fn flow_to_json(msg: &FlowMessage) -> Option<Vec<u8>> {
         "dst_as": msg.dst_as,
         "protocol_name": msg.protocol_name,
         "timestamp": msg.time_received_ns,
+        "flow_source": flow_source_label(msg.r#type),
     });
 
     serde_json::to_vec(&json).ok()

@@ -1022,7 +1022,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                 <% flow_src = flow_get_in(flow, ["ocsf_payload", "flow_source"]) %>
                 <.ui_badge
                   :if={is_binary(flow_src) and flow_src != "Unknown"}
-                  variant={if flow_src == "sFlow", do: "info", else: "success"}
+                  variant={cond do
+                    String.starts_with?(flow_src, "sFlow") -> "info"
+                    String.starts_with?(flow_src, "IPFIX") -> "warning"
+                    true -> "success"
+                  end}
                   size="xs"
                   class="font-mono"
                 >
