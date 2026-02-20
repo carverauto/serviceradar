@@ -80,9 +80,9 @@ fi
 
 AGENT_BIN="${DIST_DIR}/bin/serviceradar-agent"
 CONFIG_JSON="${DIST_DIR}/agent.json"
-AGENT_PLIST="${REPO_ROOT}/packaging/agent/macos/com.serviceradar.agent.plist"
-CONFIG_TEMPLATE="${REPO_ROOT}/packaging/agent/config/agent.json"
-PKG_SCRIPTS_DIR="${REPO_ROOT}/packaging/agent/macos/scripts"
+AGENT_PLIST="${REPO_ROOT}/build/packaging/agent/macos/com.serviceradar.agent.plist"
+CONFIG_TEMPLATE="${REPO_ROOT}/build/packaging/agent/config/agent.json"
+PKG_SCRIPTS_DIR="${REPO_ROOT}/build/packaging/agent/macos/scripts"
 
 # Copy default config if not present
 if [[ ! -f "${CONFIG_JSON}" ]]; then

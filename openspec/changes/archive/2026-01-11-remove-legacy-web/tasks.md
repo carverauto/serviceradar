@@ -2,8 +2,8 @@
 - [x] 1.1 Remove `web/` directory (legacy Next.js application)
 
 ## 2. Packaging Cleanup
-- [x] 2.1 Remove `packaging/web/` directory
-- [x] 2.2 Remove `packaging/specs/serviceradar-web.spec`
+- [x] 2.1 Remove `build/packaging/web/` directory
+- [x] 2.2 Remove `build/packaging/specs/serviceradar-web.spec`
 
 ## 3. Docker Cleanup
 - [x] 3.1 Remove `docker/compose/Dockerfile.web`

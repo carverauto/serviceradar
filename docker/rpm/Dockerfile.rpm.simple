@@ -90,24 +90,24 @@ ARG COMPONENT
 COPY --from=builder /build-out/* /root/rpmbuild/BUILD/
 
 # Copy packaging files
-COPY packaging /root/rpmbuild/SOURCES/packaging/
+COPY build/packaging /root/rpmbuild/SOURCES/build/packaging/
 
 # Copy spec file
-COPY packaging/specs/serviceradar-${COMPONENT}.spec /root/rpmbuild/SPECS/
+COPY build/packaging/specs/serviceradar-${COMPONENT}.spec /root/rpmbuild/SPECS/
 
 # Debug packaging files
 RUN echo "===== PACKAGING FILES =====" && \
-    find /root/rpmbuild/SOURCES/packaging -type f | grep -E "${COMPONENT}|systemd|config"
+    find /root/rpmbuild/SOURCES/build/packaging -type f | grep -E "${COMPONENT}|systemd|config"
 
 # Copy service files from packaging
 RUN mkdir -p /root/rpmbuild/SOURCES/${COMPONENT}/systemd /root/rpmbuild/SOURCES/${COMPONENT}/config/checkers && \
-    cp -v /root/rpmbuild/SOURCES/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service /root/rpmbuild/SOURCES/systemd/ || echo "Warning: Service file not found!"
+    cp -v /root/rpmbuild/SOURCES/build/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service /root/rpmbuild/SOURCES/systemd/ || echo "Warning: Service file not found!"
 
 # Dynamically copy config files based on component
 RUN echo "Copying configuration files for ${COMPONENT}..." && \
-    if [ -d "/root/rpmbuild/SOURCES/packaging/${COMPONENT}/config" ]; then \
-        find "/root/rpmbuild/SOURCES/packaging/${COMPONENT}/config" -type f -name "*.json" | while read config_file; do \
-            target_dir="/root/rpmbuild/SOURCES/config/$(dirname "$config_file" | sed "s|/root/rpmbuild/SOURCES/packaging/${COMPONENT}/config||")" && \
+    if [ -d "/root/rpmbuild/SOURCES/build/packaging/${COMPONENT}/config" ]; then \
+        find "/root/rpmbuild/SOURCES/build/packaging/${COMPONENT}/config" -type f -name "*.json" | while read config_file; do \
+            target_dir="/root/rpmbuild/SOURCES/config/$(dirname "$config_file" | sed "s|/root/rpmbuild/SOURCES/build/packaging/${COMPONENT}/config||")" && \
             mkdir -p "$target_dir" && \
             cp -v "$config_file" "$target_dir/" || echo "Warning: Failed to copy $config_file"; \
         done; \

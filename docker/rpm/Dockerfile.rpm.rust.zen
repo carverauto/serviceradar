@@ -56,14 +56,14 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 
 # Set up RPM build environment
 WORKDIR /root/rpmbuild
-COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+COPY build/packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
 RUN mkdir -p SOURCES/${COMPONENT}/systemd SOURCES/${COMPONENT}/config
 RUN mkdir -p SOURCES/${COMPONENT}/systemd \
     SOURCES/${COMPONENT}/config \
     SOURCES/${COMPONENT}/rules
-COPY packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
-COPY packaging/${COMPONENT}/config/zen-consumer.json SOURCES/${COMPONENT}/config/
-COPY packaging/${COMPONENT}/rules/*.json SOURCES/${COMPONENT}/rules/
+COPY build/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
+COPY build/packaging/${COMPONENT}/config/zen-consumer.json SOURCES/${COMPONENT}/config/
+COPY build/packaging/${COMPONENT}/rules/*.json SOURCES/${COMPONENT}/rules/
 
 # Build the RPM
 # Sanitize VERSION for RPM (remove pre-release suffixes like -pre1)

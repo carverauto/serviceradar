@@ -55,10 +55,10 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 
 # Set up RPM build environment
 WORKDIR /root/rpmbuild
-COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+COPY build/packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
 RUN mkdir -p SOURCES/${COMPONENT}/systemd SOURCES/${COMPONENT}/config
-COPY packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
-COPY packaging/${COMPONENT}/config/netflow-collector.json SOURCES/${COMPONENT}/config/
+COPY build/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
+COPY build/packaging/${COMPONENT}/config/netflow-collector.json SOURCES/${COMPONENT}/config/
 
 # Build the RPM
 # Sanitize VERSION for RPM (remove pre-release suffixes like -pre1)

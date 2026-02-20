@@ -33,7 +33,7 @@ The Edge NATS Leaf scenario is critical for:
 
 ## Current State
 
-The `nats-leaf.conf` template exists in `packaging/nats/config/` but:
+The `nats-leaf.conf` template exists in `build/packaging/nats/config/` but:
 - No UI to register edge sites or generate leaf configurations
 - No automated certificate generation for leaf nodes
 - No way for collectors to know they should connect to a local leaf vs. SaaS
@@ -81,7 +81,7 @@ end
 
 ### 3. Configuration Generation
 
-Generate NATS leaf config based on `packaging/nats/config/nats-leaf.conf`:
+Generate NATS leaf config based on `build/packaging/nats/config/nats-leaf.conf`:
 
 ```
 # Generated NATS Leaf Configuration
@@ -206,7 +206,7 @@ Leaf → SaaS Cluster:        mTLS + Leaf account credentials
 - `serviceradar-cli` Go binary for edge setup automation
 
 **Packaging**:
-- MODIFY: `packaging/nats/` - update config templates
+- MODIFY: `build/packaging/nats/` - update config templates
 
 ### Breaking Changes
 None - this is additive. Existing direct-to-SaaS collectors continue working.

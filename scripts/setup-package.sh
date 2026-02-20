@@ -18,7 +18,7 @@
 set -e
 
 # Configuration
-CONFIG_FILE="packaging/components.json"
+CONFIG_FILE="build/packaging/components.json"
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_DIR="${BASE_DIR}/release-artifacts"
 
@@ -539,14 +539,14 @@ EOF
 
                 # Copy the entire packaging directory for this component
                 # This ensures all config files, scripts, systemd services, etc. are available
-                if [ -d "${BASE_DIR}/packaging/${component}" ]; then
-                    echo "Copying packaging/${component} to SOURCES..."
+                if [ -d "${BASE_DIR}/build/packaging/${component}" ]; then
+                    echo "Copying build/packaging/${component} to SOURCES..."
                     mkdir -p "${RPMBUILD_DIR}/SOURCES/packaging"
-                    cp -r "${BASE_DIR}/packaging/${component}" "${RPMBUILD_DIR}/SOURCES/packaging/"
+                    cp -r "${BASE_DIR}/build/packaging/${component}" "${RPMBUILD_DIR}/SOURCES/build/packaging/"
                 fi
 
                 # Copy spec file
-                spec_file="${BASE_DIR}/packaging/specs/${package_name}.spec"
+                spec_file="${BASE_DIR}/build/packaging/specs/${package_name}.spec"
                 if [ ! -f "$spec_file" ]; then
                     echo "Error: Spec file not found: $spec_file"
                     exit 1

@@ -20,7 +20,7 @@ Kong is no longer required as an API gateway. We want the default deployment sta
 ## Migration Plan
 1. Remove Kong services/config from compose/Helm/K8s manifests.
 2. Update edge proxy routing rules for `/api` (web-ng handles SRQL endpoints too).
-3. Remove Kong packaging/config artifacts.
+3. Remove Kong build/packaging/config artifacts.
 4. Update docs and validate compose + Bazel workflows.
 
 ## Open Questions
