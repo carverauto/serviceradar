@@ -38,5 +38,5 @@
 - [x] 5.1 Add Rust unit tests for CAGG routing decision logic (threshold boundary: 5h59m → raw, 6h → CAGG)
 - [x] 5.2 Add Rust unit tests for CAGG query SQL generation per entity
 - [x] 5.3 Add Rust unit tests for extended time range validation (>90d allowed for CAGG-eligible, rejected for raw)
-- [ ] 5.4 Verify CAGG migrations run cleanly against dev TimescaleDB instance
+- [x] 5.4 Verify CAGG migrations run cleanly against dev TimescaleDB instance
 - [ ] 5.5 Integration test: `in:cpu_metrics time:last_7d stats:avg(usage_percent)` returns results from CAGG
