@@ -1,3 +1,16 @@
+# ServiceRadar v1.1.2
+
+Arancini-backed BMP ingest, BMP observability workflows, and EventWriter JetStream durability improvements.
+
+## Whats New
+
+**1.1.2**
+- Switched BMP ingest to Arancini and aligned deployment/runtime defaults for `ghcr.io/carverauto/arancini:v0.7.2`.
+- Added `bmp_events` SRQL support and a dedicated Observability BMP page for routing-focused investigation.
+- Added/validated BMP routing investigative indexes and retention behavior for `platform.bmp_routing_events`.
+- Hardened EventWriter JetStream durable consumer behavior for causal streams and reduced unhandled/default processor noise.
+- Updated release/deployment defaults to use the corrected Arancini image label flow instead of transient branch tags.
+
 # ServiceRadar v1.1.1
 
 Mapper/DIRE robustness hardening, SNMP enrichment rule improvements, topology projection fixes, and device enrollment profile updates.
