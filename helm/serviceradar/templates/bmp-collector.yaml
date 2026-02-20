@@ -1,13 +1,5 @@
 {{- if .Values.bmpCollector.enabled }}
 {{- $data := default (dict) .Values.bmpCollector.data -}}
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: serviceradar-bmp-collector-config
-data:
-  bmp-collector.json: |
-    {{- toJson .Values.bmpCollector.config | nindent 4 }}
----
 {{- if and ($data.enabled | default true) (not $data.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -47,36 +39,31 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: bmp-collector
-        image: ghcr.io/carverauto/serviceradar-bmp-collector:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "bmpCollector") }}
-        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        image: {{ .Values.bmpCollector.image.repository }}:{{ .Values.bmpCollector.image.tag }}
+        imagePullPolicy: {{ .Values.bmpCollector.image.pullPolicy | default (include "serviceradar.imagePullPolicy" .) }}
         ports:
         {{- if .Values.bmpCollector.service.ports.bmp.enabled }}
         - name: bmp
-          containerPort: {{ .Values.bmpCollector.service.ports.bmp.targetPort | default 4000 }}
+          containerPort: {{ .Values.bmpCollector.service.ports.bmp.targetPort | default 11019 }}
           protocol: {{ .Values.bmpCollector.service.ports.bmp.protocol | default "TCP" }}
         {{- end }}
+        {{- with .Values.bmpCollector.args }}
         args:
-        - "--config"
-        - "/etc/serviceradar/bmp-collector.json"
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         env:
         - name: RUST_LOG
           value: "info"
         livenessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - "pgrep -f bmp-collector > /dev/null"
+          tcpSocket:
+            port: bmp
           initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - "pgrep -f bmp-collector > /dev/null"
+          tcpSocket:
+            port: bmp
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
@@ -87,8 +74,6 @@ spec:
           capabilities:
             add: ["NET_BIND_SERVICE"]
         volumeMounts:
-        - name: bmp-collector-config
-          mountPath: /etc/serviceradar
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
@@ -100,9 +85,6 @@ spec:
         - name: logs
           mountPath: /var/log/serviceradar
       volumes:
-      - name: bmp-collector-config
-        configMap:
-          name: serviceradar-bmp-collector-config
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
@@ -145,8 +127,8 @@ spec:
   ports:
   {{- if .Values.bmpCollector.service.ports.bmp.enabled }}
   - name: bmp
-    port: {{ .Values.bmpCollector.service.ports.bmp.port | default 4000 }}
-    targetPort: {{ .Values.bmpCollector.service.ports.bmp.targetPort | default 4000 }}
+    port: {{ .Values.bmpCollector.service.ports.bmp.port | default 11019 }}
+    targetPort: {{ .Values.bmpCollector.service.ports.bmp.targetPort | default 11019 }}
     protocol: {{ .Values.bmpCollector.service.ports.bmp.protocol | default "TCP" }}
   {{- end }}
 ---

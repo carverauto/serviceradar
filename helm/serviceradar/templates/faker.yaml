@@ -13,6 +13,22 @@ spec:
         app: serviceradar-faker
         app.kubernetes.io/part-of: serviceradar
     spec:
+      {{- if .Values.faker.gobgp.enabled }}
+      initContainers:
+      - name: gobgp-binaries
+        image: {{ .Values.faker.gobgp.image.repository }}:{{ .Values.faker.gobgp.image.tag }}
+        imagePullPolicy: {{ .Values.faker.gobgp.image.pullPolicy | default "IfNotPresent" }}
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          cp "$(command -v gobgpd)" /gobgp-bin/gobgpd
+          cp "$(command -v gobgp)" /gobgp-bin/gobgp
+          chmod 0755 /gobgp-bin/gobgpd /gobgp-bin/gobgp
+        volumeMounts:
+        - name: gobgp-bin
+          mountPath: /gobgp-bin
+      {{- end }}
       containers:
       - name: faker
         image: ghcr.io/carverauto/serviceradar-faker:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "faker") }}
@@ -27,11 +43,20 @@ spec:
           value: "/etc/serviceradar/faker.json"
         - name: LOG_LEVEL
           value: "info"
+        {{- if .Values.faker.gobgp.enabled }}
+        - name: PATH
+          value: "{{ .Values.faker.gobgp.binDir }}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        {{- end }}
         volumeMounts:
         - name: faker-data
           mountPath: /var/lib/serviceradar/faker
         - name: faker-data
           mountPath: /data
+        {{- if .Values.faker.gobgp.enabled }}
+        - name: gobgp-bin
+          mountPath: {{ .Values.faker.gobgp.binDir }}
+          readOnly: true
+        {{- end }}
         - name: serviceradar-config
           mountPath: /etc/serviceradar
           readOnly: true
@@ -71,6 +96,10 @@ spec:
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
           type: DirectoryOrCreate
+      {{- if .Values.faker.gobgp.enabled }}
+      - name: gobgp-bin
+        emptyDir: {}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

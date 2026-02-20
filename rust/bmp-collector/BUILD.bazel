@@ -1,17 +1,66 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary")
-load("@rust_crates//:defs.bzl", "all_crate_deps")
-
 package(default_visibility = ["//visibility:public"])
 
-exports_files([
-    "bmp-collector.json",
-])
-
-rust_binary(
+genrule(
     name = "bmp-collector",
-    srcs = glob(["src/**/*.rs"]),
-    crate_root = "src/main.rs",
-    edition = "2024",
-    deps = all_crate_deps(normal = True),
-    proc_macro_deps = all_crate_deps(proc_macro = True),
+    srcs = [
+        "//arancini:Cargo.toml",
+        "//arancini:workspace_files",
+    ],
+    tools = [
+        "@rules_rust//rust/toolchain:current_cargo_files",
+        "@rules_rust//rust/toolchain:current_rust_stdlib_files",
+        "@rules_rust//rust/toolchain:current_rustc_files",
+        "@rules_rust//rust/toolchain:current_rustc_lib_files",
+    ],
+    outs = ["serviceradar-bmp-collector"],
+    cmd = """
+set -euo pipefail
+
+# Use Bazel-provided Rust toolchain binaries instead of relying on host cargo.
+for tool in $(locations @rules_rust//rust/toolchain:current_cargo_files) \
+            $(locations @rules_rust//rust/toolchain:current_rustc_files) \
+            $(locations @rules_rust//rust/toolchain:current_rust_stdlib_files) \
+            $(locations @rules_rust//rust/toolchain:current_rustc_lib_files); do
+  tool_dir="$${tool%/*}"
+  case ":$${PATH:-}:" in
+    *:"$$tool_dir":*) ;;
+    *) PATH="$$tool_dir:$${PATH:-}" ;;
+  esac
+done
+export PATH
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo not found in PATH=$$PATH" >&2
+  exit 127
+fi
+if ! command -v rustc >/dev/null 2>&1; then
+  echo "rustc not found in PATH=$$PATH" >&2
+  exit 127
+fi
+
+# Make cargo/rustc resolution deterministic inside Bazel's action sandbox.
+export CARGO="$$(command -v cargo)"
+export RUSTC="$$(command -v rustc)"
+
+SRC_MANIFEST="$(location //arancini:Cargo.toml)"
+SRC_ROOT="$${SRC_MANIFEST%/Cargo.toml}"
+WORKDIR="$(@D)/arancini-work"
+TARGET_DIR="$(@D)/cargo-target"
+rm -rf "$$WORKDIR"
+mkdir -p "$$WORKDIR"
+cp "$$SRC_ROOT/Cargo.toml" "$$WORKDIR/Cargo.toml"
+cp "$$SRC_ROOT/Cargo.lock" "$$WORKDIR/Cargo.lock"
+cp "$$SRC_ROOT/README.md" "$$WORKDIR/README.md"
+cp "$$SRC_ROOT/LICENSE" "$$WORKDIR/LICENSE"
+cp -R "$$SRC_ROOT/arancini" "$$WORKDIR/arancini"
+cp -R "$$SRC_ROOT/arancini-lib" "$$WORKDIR/arancini-lib"
+
+# Avoid stale toolchain/cargo state between Bazel invocations.
+rm -rf "$$TARGET_DIR"
+CARGO_TARGET_DIR="$$TARGET_DIR" \\
+  cargo build --release --manifest-path "$$WORKDIR/Cargo.toml" -p arancini
+cp "$(@D)/cargo-target/release/arancini" "$@"
+chmod 0755 "$@"
+""",
+    local = True,
+    tags = ["local", "no-remote", "no-remote-exec"],
 )

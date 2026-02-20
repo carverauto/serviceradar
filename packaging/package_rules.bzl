@@ -129,6 +129,7 @@ def serviceradar_package(
         summary = None,
         version_file = "//:VERSION",
         rpm_tags = [],
+        package_tags = [],
         rpm_disable_remote = False,
         rpm_spec_template = None,
     ):
@@ -178,6 +179,7 @@ def serviceradar_package(
         srcs = data_targets,
         package_dir = "/",
         extension = "tar",
+        tags = package_tags,
     )
 
     # Helper filegroups for scripts ------------------------------------------
@@ -208,6 +210,7 @@ def serviceradar_package(
         priority = priority,
         conffiles = conffiles,
         data = ":{}_data".format(name),
+        tags = package_tags,
         **deb_kwargs
     )
 

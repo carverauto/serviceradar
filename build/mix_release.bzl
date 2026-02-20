@@ -544,10 +544,12 @@ copy_dir() {{
   local src="$1"
   local dest="$2"
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a "$src" "$dest"
+    # Bazel presents source files as symlinks in execroot; dereference them
+    # so Mix writes (e.g. mix.lock updates) stay inside the writable WORKDIR.
+    rsync -aL "$src" "$dest"
   else
     mkdir -p "$dest"
-    cp -a "${{src%/}}/." "$dest"
+    cp -aL "${{src%/}}/." "$dest"
   fi
 }}
 

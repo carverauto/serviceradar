@@ -564,6 +564,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp maybe_add_default_time(tokens, entity) do
     if entity in [
          "events",
+         "bmp_events",
          "logs",
          "device_updates",
          "otel_metrics",

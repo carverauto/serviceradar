@@ -461,9 +461,23 @@ if config_env() == :prod do
           batch_timeout: 1_000
         },
         %{
-          name: "LOGS",
-          subject: "logs.>",
-          processor: ServiceRadar.EventWriter.Processors.Logs,
+          name: "BMP_CAUSAL",
+          subject: "bmp.events.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "ARANCINI_CAUSAL",
+          subject: "arancini.updates.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "SIEM_CAUSAL",
+          subject: "siem.events.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
         }

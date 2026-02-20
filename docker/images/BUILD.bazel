@@ -909,14 +909,13 @@ pkg_tar(
     name = "bmp_collector_layer_amd64",
     files = {
         "//rust/bmp-collector:bmp-collector": "usr/local/bin/serviceradar-bmp-collector",
-        "//rust/bmp-collector:bmp-collector.json": "etc/serviceradar/bmp-collector.json",
     },
     modes = {
         "usr/local/bin/serviceradar-bmp-collector": "0755",
-        "etc/serviceradar/bmp-collector.json": "0644",
     },
     empty_dirs = [
         "etc/serviceradar/certs",
+        "etc/serviceradar/creds",
         "var/log/serviceradar",
         "var/lib/serviceradar",
     ],
@@ -928,21 +927,20 @@ oci_image(
     base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
     tars = [":common_tools_amd64", ":bmp_collector_layer_amd64"],
     entrypoint = ["/usr/local/bin/serviceradar-bmp-collector"],
-    cmd = ["--config", "/etc/serviceradar/bmp-collector.json"],
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
     },
     workdir = "/var/lib/serviceradar",
-    exposed_ports = ["4000/tcp"],
+    exposed_ports = ["11019/tcp", "8080/tcp"],
     labels = {
-        "org.opencontainers.image.title": "serviceradar-bmp-collector",
+        "org.opencontainers.image.title": "arancini",
     },
 )
 
 oci_load(
     name = "bmp_collector_image_amd64_tar",
     image = ":bmp_collector_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-bmp-collector:local"],
+    repo_tags = ["ghcr.io/carverauto/arancini:local"],
 )
 
 pkg_tar(

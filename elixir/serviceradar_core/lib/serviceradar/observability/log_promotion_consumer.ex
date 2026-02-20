@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
 
   alias Jetstream.API.Consumer
   alias ServiceRadar.NATS.Connection
+  alias ServiceRadar.NATS.JetstreamConsumer
   alias ServiceRadar.Observability.{LogPromotion, LogPromotionParser}
 
   @default_stream "events"
@@ -243,61 +244,23 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
   end
 
   defp create_consumer_when_connected(config) do
-    payload =
-      %{
-        stream_name: config.stream_name,
-        config:
-          compact_map(%{
-            durable_name: config.consumer_name,
-            description: "Promote processed logs into OCSF events",
-            ack_policy: :explicit,
-            ack_wait: @ack_wait_ns,
-            deliver_policy: config.deliver_policy,
-            filter_subject: config.filter_subject,
-            max_ack_pending: @max_ack_pending,
-            max_deliver: @max_deliver,
-            replay_policy: :instant
-          })
-      }
-      |> Jason.encode!()
-
-    topic =
-      "#{js_api(config.domain)}.CONSUMER.DURABLE.CREATE.#{config.stream_name}.#{config.consumer_name}"
-
-    case Jetstream.API.Util.request(config.connection_name, topic, payload) do
-      {:ok, _} ->
-        :ok
-
-      {:error, reason} ->
-        handle_consumer_error(reason)
+    case JetstreamConsumer.ensure_durable(config.connection_name,
+           stream_name: config.stream_name,
+           consumer_name: config.consumer_name,
+           filter_subject: config.filter_subject,
+           description: "Promote processed logs into OCSF events",
+           ack_policy: :explicit,
+           ack_wait: @ack_wait_ns,
+           deliver_policy: config.deliver_policy,
+           max_ack_pending: @max_ack_pending,
+           max_deliver: @max_deliver,
+           replay_policy: :instant,
+           domain: config.domain
+         ) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
-
-  defp handle_consumer_error(%{"description" => description} = err)
-       when is_binary(description) do
-    if consumer_exists_error?(description) do
-      :ok
-    else
-      {:error, err}
-    end
-  end
-
-  defp handle_consumer_error(reason), do: {:error, reason}
-
-  defp consumer_exists_error?(description) when is_binary(description) do
-    String.contains?(description, "consumer name already") or
-      String.contains?(description, "consumer already exists")
-  end
-
-  defp compact_map(map) do
-    map
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
-  end
-
-  defp js_api(nil), do: "$JS.API"
-  defp js_api(""), do: "$JS.API"
-  defp js_api(domain), do: "$JS.#{domain}.API"
 
   defp migration_only? do
     System.get_env("SERVICERADAR_MIGRATION_ONLY", "false") in ~w(true 1 yes)

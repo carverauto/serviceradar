@@ -145,6 +145,15 @@ core:
       pauseOnDrift: true
       alertOnDrift: true
 faker:
+  gobgp:
+    # When enabled, an initContainer copies gobgpd/gobgp binaries into a shared volume
+    # mounted into the faker container.
+    enabled: false
+    image:
+      repository: docker.io/osrg/gobgp
+      tag: latest
+      pullPolicy: IfNotPresent
+    binDir: /opt/gobgp
   simulation:
     totalDevices: 50000
     ipShuffle:
@@ -154,6 +163,156 @@ faker:
       warmupCycles: 2
       allowExpansion: false
       poolHeadroomPercent: 0
+    bgp:
+      enabled: false
+      seed: 40164200
+      publishInterval: "15s"
+      outageInterval: "2m"
+      outageDurationMin: "20s"
+      outageDurationMax: "45s"
+      manageDaemon: true
+      gobgpApiAddress: "127.0.0.1:50051"
+      gobgpBinary: "gobgpd"
+      gobgpCliBinary: "gobgp"
+      bmpCollectorAddress: "serviceradar-bmp-collector:11019"
+      routerId: "204.209.51.59"
+      maxPrefixesPerTick: 3
+      localAsn: 401642
+      advertisedPrefixes:
+        - "23.138.124.0/24"
+        - "2602:f678::/48"
+      peers:
+        - name: "k8s-cp1-control"
+          ip: "10.0.2.2"
+          peer_asn: 401642
+          description: "k8s-cp1-control"
+        - name: "k8s-cp2-control"
+          ip: "10.0.2.3"
+          peer_asn: 401642
+          description: "k8s-cp2-control"
+        - name: "k8s-cp3-control"
+          ip: "10.0.2.4"
+          peer_asn: 401642
+          description: "k8s-cp3-control"
+        - name: "k8s-cp1-worker1"
+          ip: "10.0.2.5"
+          peer_asn: 401642
+          description: "k8s-cp1-worker1"
+        - name: "k8s-cp1-worker2"
+          ip: "10.0.2.6"
+          peer_asn: 401642
+          description: "k8s-cp1-worker2"
+        - name: "k8s-cp1-worker3"
+          ip: "10.0.2.7"
+          peer_asn: 401642
+          description: "k8s-cp1-worker3"
+        - name: "k8s-cp2-worker1"
+          ip: "10.0.2.8"
+          peer_asn: 401642
+          description: "k8s-cp2-worker1"
+        - name: "k8s-cp2-worker2"
+          ip: "10.0.2.9"
+          peer_asn: 401642
+          description: "k8s-cp2-worker2"
+        - name: "k8s-cp2-worker3"
+          ip: "10.0.2.10"
+          peer_asn: 401642
+          description: "k8s-cp2-worker3"
+        - name: "k8s-cp3-worker1"
+          ip: "10.0.2.11"
+          peer_asn: 401642
+          description: "k8s-cp3-worker1"
+        - name: "k8s-cp3-worker2"
+          ip: "10.0.2.12"
+          peer_asn: 401642
+          description: "k8s-cp3-worker2"
+        - name: "k8s-cp3-worker3"
+          ip: "10.0.2.13"
+          peer_asn: 401642
+          description: "k8s-cp3-worker3"
+        - name: "isp-ipv4"
+          ip: "204.209.51.58"
+          peer_asn: 10242
+          description: "ISP-IPv4"
+        - name: "k8s-cp1-control-ipv6"
+          ip: "2602:f678:0:ff::2"
+          peer_asn: 401642
+          description: "k8s-cp1-control-ipv6"
+        - name: "k8s-cp2-control-ipv6"
+          ip: "2602:f678:0:ff::3"
+          peer_asn: 401642
+          description: "k8s-cp2-control-ipv6"
+        - name: "k8s-cp3-control-ipv6"
+          ip: "2602:f678:0:ff::4"
+          peer_asn: 401642
+          description: "k8s-cp3-control-ipv6"
+        - name: "k8s-cp1-worker1-ipv6"
+          ip: "2602:f678:0:ff::5"
+          peer_asn: 401642
+          description: "k8s-cp1-worker1-ipv6"
+        - name: "k8s-cp1-worker2-ipv6"
+          ip: "2602:f678:0:ff::6"
+          peer_asn: 401642
+          description: "k8s-cp1-worker2-ipv6"
+        - name: "k8s-cp1-worker3-ipv6"
+          ip: "2602:f678:0:ff::7"
+          peer_asn: 401642
+          description: "k8s-cp1-worker3-ipv6"
+        - name: "k8s-cp2-worker1-ipv6"
+          ip: "2602:f678:0:ff::8"
+          peer_asn: 401642
+          description: "k8s-cp2-worker1-ipv6"
+        - name: "k8s-cp2-worker2-ipv6"
+          ip: "2602:f678:0:ff::9"
+          peer_asn: 401642
+          description: "k8s-cp2-worker2-ipv6"
+        - name: "k8s-cp2-worker3-ipv6"
+          ip: "2602:f678:0:ff::10"
+          peer_asn: 401642
+          description: "k8s-cp2-worker3-ipv6"
+        - name: "k8s-cp3-worker1-ipv6"
+          ip: "2602:f678:0:ff::11"
+          peer_asn: 401642
+          description: "k8s-cp3-worker1-ipv6"
+        - name: "k8s-cp3-worker2-ipv6"
+          ip: "2602:f678:0:ff::12"
+          peer_asn: 401642
+          description: "k8s-cp3-worker2-ipv6"
+        - name: "k8s-cp3-worker3-ipv6"
+          ip: "2602:f678:0:ff::13"
+          peer_asn: 401642
+          description: "k8s-cp3-worker3-ipv6"
+        - name: "isp-ipv6"
+          ip: "2605:8400:ff:142::"
+          peer_asn: 10242
+          description: "ISP-IPv6"
+gobgp:
+  enabled: false
+  image:
+    repository: docker.io/osrg/gobgp
+    tag: latest
+    pullPolicy: IfNotPresent
+  api:
+    host: "0.0.0.0"
+    port: 50051
+  bgp:
+    localAsn: 401642
+    routerId: "204.209.51.59"
+  bmp:
+    address: "serviceradar-bmp-collector"
+    port: 11019
+  # By default we reuse faker BGP peers to keep topology aligned.
+  peers: []
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+  service:
+    type: ClusterIP
+    annotations: {}
 coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
   secMode: spiffe
@@ -395,23 +554,21 @@ netflowCollector:
       cpu: "500m"
 bmpCollector:
   enabled: false
-  config:
-    listen_addr: "0.0.0.0:11019"
-    read_buffer_bytes: 65536
-    max_frame_size_bytes: 16777216
-    nats_url: "tls://serviceradar-nats:4222"
-    # Use cert-mapped mTLS identity for NATS auth.
-    nats_creds_file: null
-    nats_tls_required: true
-    nats_tls_ca_cert_path: "/etc/serviceradar/certs/root.pem"
-    nats_tls_client_cert_path: "/etc/serviceradar/certs/bmp-collector.pem"
-    nats_tls_client_key_path: "/etc/serviceradar/certs/bmp-collector-key.pem"
-    stream_name: "ARANCINI_CAUSAL"
-    subject_prefix: "arancini.updates"
-    stream_subjects:
-      - "arancini.updates.>"
-    stream_max_bytes: 10737418240
-    publish_timeout_ms: 5000
+  image:
+    repository: ghcr.io/carverauto/arancini
+    tag: "v0.7.2"
+    pullPolicy: IfNotPresent
+  args:
+    - "--bmp-address=0.0.0.0:11019"
+    - "--kafka-disable"
+    - "--nats-enable"
+    - "--nats-server=nats://serviceradar-nats:4222"
+    - "--nats-subject=arancini.updates"
+    - "--nats-tls-required"
+    - "--nats-tls-ca-cert-path=/etc/serviceradar/certs/root.pem"
+    - "--nats-tls-client-cert-path=/etc/serviceradar/certs/bmp-collector.pem"
+    - "--nats-tls-client-key-path=/etc/serviceradar/certs/bmp-collector-key.pem"
+    - "--curation-state-path=/var/lib/serviceradar/state.bin"
   data:
     enabled: true
     existingClaim: ""
