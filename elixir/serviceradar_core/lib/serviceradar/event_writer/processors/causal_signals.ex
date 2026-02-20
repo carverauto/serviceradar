@@ -78,7 +78,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp parse_components(%{data: data, metadata: metadata}) do
-    with {:ok, payload} <- Jason.decode(data),
+    with {:ok, payload} <- decode_payload(data, metadata),
          {:ok, normalized} <- normalize_payload(payload, metadata, data) do
       %{
         normalized: normalized,
@@ -94,6 +94,33 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp parse_components(_), do: nil
+
+  defp decode_payload(data, metadata) when is_binary(data) and is_map(metadata) do
+    case Jason.decode(data) do
+      {:ok, payload} ->
+        {:ok, payload}
+
+      _ ->
+        decode_arancini_capnp_payload(data, metadata)
+    end
+  end
+
+  defp decode_payload(_data, _metadata), do: {:error, :invalid_payload}
+
+  defp decode_arancini_capnp_payload(data, %{subject: subject}) when is_binary(subject) do
+    if arancini_subject?(subject) do
+      with {:ok, json_payload} <- ServiceRadarSRQL.Native.decode_arancini_update_capnp(data),
+           {:ok, payload} <- Jason.decode(json_payload) do
+        {:ok, payload}
+      else
+        _ -> {:error, :invalid_payload}
+      end
+    else
+      {:error, :invalid_payload}
+    end
+  end
+
+  defp decode_arancini_capnp_payload(_data, _metadata), do: {:error, :invalid_payload}
 
   defp insert_rows(_table, []), do: 0
 
@@ -146,7 +173,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       prefix: correlation["prefix"],
       message: routing_message(payload, normalized),
       metadata: normalized,
-      raw_data: raw_data,
+      raw_data: normalize_raw_data(raw_data),
       created_at: DateTime.utc_now()
     }
   end
@@ -221,7 +248,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp normalize_payload(_, _, _), do: {:error, :invalid_payload}
 
   defp arancini_subject?(subject) when is_binary(subject),
-    do: String.starts_with?(subject, "arancini.updates.")
+    do: subject == "arancini.updates" or String.starts_with?(subject, "arancini.updates.")
 
   defp arancini_subject?(_), do: false
 
@@ -327,7 +354,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       log_level: payload["level"],
       log_version: payload["version"] || @schema_version,
       unmapped: payload,
-      raw_data: raw_data,
+      raw_data: normalize_raw_data(raw_data),
       created_at: DateTime.utc_now()
     }
   end
@@ -336,7 +363,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     cond do
       is_binary(payload["signal_type"]) -> String.downcase(payload["signal_type"])
       String.starts_with?(subject, "bmp.events.") -> "bmp"
-      String.starts_with?(subject, "arancini.updates.") -> "bmp"
+      arancini_subject?(subject) -> "bmp"
       String.starts_with?(subject, "siem.events.") -> "siem"
       true -> "unknown"
     end
@@ -349,7 +376,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "system" =>
         payload["source"] ||
           payload["provider"] ||
-          if(String.starts_with?(subject, "arancini.updates."), do: "arancini", else: "external")
+          if(arancini_subject?(subject), do: "arancini", else: "external")
     }
   end
 
@@ -690,4 +717,13 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp arancini_prefix(_), do: nil
+
+  defp normalize_raw_data(data) when is_binary(data) do
+    case String.valid?(data) do
+      true -> data
+      false -> Base.encode64(data)
+    end
+  end
+
+  defp normalize_raw_data(data), do: inspect(data)
 end

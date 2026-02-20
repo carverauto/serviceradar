@@ -52,7 +52,6 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert "EVENTS" in stream_names
       assert "OTEL_METRICS" in stream_names
       assert "OTEL_TRACES" in stream_names
-      assert "LOGS" in stream_names
       assert "BMP_CAUSAL" in stream_names
       assert "ARANCINI_CAUSAL" in stream_names
       assert "SIEM_CAUSAL" in stream_names

@@ -177,6 +177,47 @@ impl DeviceRow {
 }
 
 #[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::bmp_routing_events)]
+pub struct BmpRoutingEventRow {
+    pub time: DateTime<Utc>,
+    pub id: Uuid,
+    pub event_type: String,
+    pub severity_id: Option<i32>,
+    pub router_id: Option<String>,
+    pub router_ip: Option<String>,
+    pub peer_ip: Option<String>,
+    pub peer_asn: Option<i64>,
+    pub local_asn: Option<i64>,
+    pub prefix: Option<String>,
+    pub message: Option<String>,
+    pub metadata: serde_json::Value,
+    pub raw_data: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl BmpRoutingEventRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "time": self.time,
+            "event_timestamp": self.time,
+            "id": self.id.to_string(),
+            "event_type": self.event_type,
+            "severity_id": self.severity_id,
+            "router_id": self.router_id,
+            "router_ip": self.router_ip,
+            "peer_ip": self.peer_ip,
+            "peer_asn": self.peer_asn,
+            "local_asn": self.local_asn,
+            "prefix": self.prefix,
+            "message": self.message,
+            "metadata": self.metadata,
+            "raw_data": self.raw_data,
+            "created_at": self.created_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Serialize)]
 #[diesel(table_name = crate::schema::ocsf_events)]
 pub struct EventRow {
     pub time: DateTime<Utc>,

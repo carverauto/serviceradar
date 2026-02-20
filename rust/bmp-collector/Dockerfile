@@ -6,17 +6,18 @@ WORKDIR /usr/src/serviceradar
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
+    capnproto \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY Cargo.toml Cargo.lock ./
-COPY rust ./rust
-RUN cargo fetch --locked --manifest-path rust/bmp-collector/Cargo.toml
+COPY arancini ./arancini
+RUN cargo fetch --locked --manifest-path arancini/Cargo.toml
 
 RUN cargo build \
-        --manifest-path rust/bmp-collector/Cargo.toml \
+        --manifest-path arancini/Cargo.toml \
         --locked \
-        --release
+        --release \
+        -p arancini
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -29,18 +30,15 @@ RUN apt-get update && apt-get install -y \
 
 RUN mkdir -p /output /var/lib/serviceradar /var/log/serviceradar
 
-COPY --from=builder /usr/src/serviceradar/target/release/serviceradar-bmp-collector /usr/local/bin/serviceradar-bmp-collector
-COPY --from=builder /usr/src/serviceradar/target/release/serviceradar-bmp-collector /output/serviceradar-bmp-collector
-
-WORKDIR /etc/serviceradar
-COPY rust/bmp-collector/bmp-collector.json /etc/serviceradar/bmp-collector.json
+COPY --from=builder /usr/src/serviceradar/arancini/target/release/arancini /usr/local/bin/serviceradar-bmp-collector
+COPY --from=builder /usr/src/serviceradar/arancini/target/release/arancini /output/serviceradar-bmp-collector
 
 RUN groupadd -r -g 1001 serviceradar && useradd -r -u 1001 -g serviceradar serviceradar && \
-    chown -R serviceradar:serviceradar /etc/serviceradar /var/lib/serviceradar /var/log/serviceradar
+    chown -R serviceradar:serviceradar /var/lib/serviceradar /var/log/serviceradar
 
 USER serviceradar
 
-EXPOSE 4000/tcp
+EXPOSE 11019/tcp
 
 ENTRYPOINT ["/usr/local/bin/serviceradar-bmp-collector"]
-CMD ["--config", "/etc/serviceradar/bmp-collector.json"]
+CMD ["--bmp-address=0.0.0.0:11019", "--kafka-disable", "--nats-enable", "--nats-server=nats://127.0.0.1:4222", "--nats-subject=arancini.updates", "--nats-tls-required", "--nats-tls-ca-cert-path=/etc/serviceradar/certs/root.pem", "--nats-tls-client-cert-path=/etc/serviceradar/certs/bmp-collector.pem", "--nats-tls-client-key-path=/etc/serviceradar/certs/bmp-collector-key.pem", "--curation-state-path=/var/lib/serviceradar/state.bin"]

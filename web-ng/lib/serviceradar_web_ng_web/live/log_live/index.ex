@@ -2698,6 +2698,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.tab_button id="events" label="Events" icon="hero-bell-alert" active={@active} />
         <.tab_button id="alerts" label="Alerts" icon="hero-exclamation-triangle" active={@active} />
         <.tab_button id="netflows" label="NetFlow" icon="hero-arrow-path" active={@active} />
+        <.link
+          navigate={~p"/observability/bmp"}
+          class="btn btn-sm btn-ghost rounded-lg flex items-center gap-2"
+        >
+          <.icon name="hero-arrows-right-left" class="size-4" /> BMP
+        </.link>
       </div>
     </div>
     """

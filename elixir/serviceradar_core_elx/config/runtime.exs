@@ -66,13 +66,14 @@ base_geolite_dbs = [
 ]
 
 city_geolite_dbs =
-  (geolite_city_enabled && [
-     %{
-       id: :geolite2_city,
-       adapter: Geolix.Adapter.MMDB2,
-       source: Path.join(geolite_dir, "GeoLite2-City.mmdb")
-     }
-   ]) || []
+  (geolite_city_enabled &&
+     [
+       %{
+         id: :geolite2_city,
+         adapter: Geolix.Adapter.MMDB2,
+         source: Path.join(geolite_dir, "GeoLite2-City.mmdb")
+       }
+     ]) || []
 
 ipinfo_dbs = [
   %{
@@ -194,7 +195,8 @@ config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
   cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-  workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+  workload_api_socket:
+    System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
 
 if config_env() == :prod do
   cloak_key =
@@ -233,14 +235,14 @@ if config_env() == :prod do
     cloak_key: cloak_key,
     repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "true") in ~w(true 1 yes),
     vault_enabled: System.get_env("SERVICERADAR_CORE_VAULT_ENABLED", "true") in ~w(true 1 yes),
-    registries_enabled: System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
+    registries_enabled:
+      System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
     run_startup_migrations:
       System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
     cluster_enabled: cluster_enabled,
     cluster_coordinator: cluster_coordinator,
     # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
-    status_handler_enabled:
-      System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
+    status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
 
@@ -300,6 +302,7 @@ if config_env() == :prod do
   cnpg_port = String.to_integer(System.get_env("CNPG_PORT", "5432"))
   cnpg_database = System.get_env("CNPG_DATABASE", "serviceradar")
   cnpg_username = System.get_env("CNPG_USERNAME", "serviceradar")
+
   cnpg_password =
     case System.get_env("CNPG_PASSWORD_FILE") do
       nil ->
@@ -491,6 +494,7 @@ if config_env() == :prod do
 
   if nats_enabled do
     nats_creds_file = System.get_env("NATS_CREDS_FILE")
+
     if nats_creds_file in [nil, ""] do
       raise """
       NATS_CREDS_FILE is required when NATS_ENABLED=true.
@@ -532,6 +536,7 @@ if config_env() == :prod do
 
   if event_writer_enabled do
     event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
+
     if event_writer_creds in [nil, ""] do
       raise """
       EVENT_WRITER_NATS_CREDS_FILE is required when EVENT_WRITER_ENABLED=true.
@@ -575,7 +580,16 @@ if config_env() == :prod do
       consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
       streams: [
         %{
+          name: "EVENTS",
+          stream_name: "events",
+          subject: "events.>",
+          processor: ServiceRadar.EventWriter.Processors.Events,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
           name: "OTEL_METRICS",
+          stream_name: "events",
           subject: "otel.metrics.>",
           processor: ServiceRadar.EventWriter.Processors.OtelMetrics,
           batch_size: 100,
@@ -583,15 +597,33 @@ if config_env() == :prod do
         },
         %{
           name: "OTEL_TRACES",
+          stream_name: "events",
           subject: "otel.traces.>",
           processor: ServiceRadar.EventWriter.Processors.OtelTraces,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
-          name: "LOGS",
-          subject: "logs.>",
-          processor: ServiceRadar.EventWriter.Processors.Logs,
+          name: "BMP_CAUSAL",
+          stream_name: "events",
+          subject: "bmp.events.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "ARANCINI_CAUSAL",
+          stream_name: "ARANCINI_CAUSAL",
+          subject: "arancini.updates.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "SIEM_CAUSAL",
+          stream_name: "events",
+          subject: "siem.events.>",
+          processor: ServiceRadar.EventWriter.Processors.CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
         }

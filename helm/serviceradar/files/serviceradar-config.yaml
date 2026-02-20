@@ -889,7 +889,7 @@ data:
             user: "CN=serviceradar-bmp-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: ["arancini.updates.>", "$JS.API.STREAM.INFO.ARANCINI_CAUSAL", "$JS.API.STREAM.CREATE.ARANCINI_CAUSAL", "$JS.API.>"]
+                allow: ["arancini.updates", "arancini.updates.>", "$JS.API.STREAM.INFO.ARANCINI_CAUSAL", "$JS.API.STREAM.CREATE.ARANCINI_CAUSAL", "$JS.API.>"]
               }
               subscribe: {
                 allow: ["$JS.API.>", "_INBOX.>"]
@@ -1018,6 +1018,24 @@ data:
             "allow_expansion": {{ .Values.faker.simulation.ipShuffle.allowExpansion | default false }},
             "pool_headroom_percent": {{ .Values.faker.simulation.ipShuffle.poolHeadroomPercent | default 0 }},
             "log_changes": true
+          },
+          "bgp": {
+            "enabled": {{ .Values.faker.simulation.bgp.enabled | default false }},
+            "seed": {{ .Values.faker.simulation.bgp.seed | default 40164200 }},
+            "publish_interval": "{{ .Values.faker.simulation.bgp.publishInterval | default "15s" }}",
+            "outage_interval": "{{ .Values.faker.simulation.bgp.outageInterval | default "2m" }}",
+            "outage_duration_min": "{{ .Values.faker.simulation.bgp.outageDurationMin | default "20s" }}",
+            "outage_duration_max": "{{ .Values.faker.simulation.bgp.outageDurationMax | default "45s" }}",
+            "manage_daemon": {{- if hasKey .Values.faker.simulation.bgp "manageDaemon" }} {{ .Values.faker.simulation.bgp.manageDaemon }} {{- else }} true {{- end }},
+            "gobgp_api_address": "{{ .Values.faker.simulation.bgp.gobgpApiAddress | default "127.0.0.1:50051" }}",
+            "gobgp_binary": "{{ .Values.faker.simulation.bgp.gobgpBinary | default "gobgpd" }}",
+            "gobgp_cli_binary": "{{ .Values.faker.simulation.bgp.gobgpCliBinary | default "gobgp" }}",
+            "bmp_collector_address": "{{ .Values.faker.simulation.bgp.bmpCollectorAddress | default "serviceradar-bmp-collector:11019" }}",
+            "router_id": "{{ .Values.faker.simulation.bgp.routerId | default "204.209.51.59" }}",
+            "max_prefixes_per_tick": {{ .Values.faker.simulation.bgp.maxPrefixesPerTick | default 3 }},
+            "local_asn": {{ .Values.faker.simulation.bgp.localAsn | default 401642 }},
+            "advertised_prefixes": {{ toJson (.Values.faker.simulation.bgp.advertisedPrefixes | default (list "23.138.124.0/24" "2602:f678::/48")) }},
+            "peers": {{ toJson (.Values.faker.simulation.bgp.peers | default (list)) }}
           }
         },
         "storage": {

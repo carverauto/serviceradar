@@ -66,10 +66,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp insert_log_rows(rows) do
+    rows_for_insert = Enum.map(rows, &encode_text_columns/1)
+
     # DB connection's search_path determines the schema
     case ServiceRadar.Repo.insert_all(
            table_name(),
-           rows,
+           rows_for_insert,
            on_conflict: :nothing,
            returning: false
          ) do
@@ -89,12 +91,13 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_json_log(json, metadata) when is_map(json) do
-    log_id = Ash.UUID.generate()
+    log_id = generated_uuid()
     attributes = FieldParser.encode_jsonb(json["attributes"]) || %{}
     attributes = attach_ingest_metadata(attributes, metadata)
     resource_attributes = normalize_resource_attributes(json)
     {scope_name, scope_version} = parse_scope_fields(json)
     source = FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
+    scope_attributes = parse_scope_attributes(json)
 
     observed_timestamp = parse_observed_timestamp(json) || metadata[:received_at]
 
@@ -134,7 +137,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         ),
       scope_name: scope_name,
       scope_version: scope_version,
-      scope_attributes: parse_scope_attributes(json),
+      scope_attributes: scope_attributes,
       attributes: attributes,
       resource_attributes: resource_attributes,
       created_at: DateTime.utc_now()
@@ -298,7 +301,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     Enum.flat_map(log_records, fn log_record ->
       log_attributes = key_values_to_map(log_record.attributes)
       log_attributes = attach_ingest_metadata(log_attributes, metadata)
-      log_id = Ash.UUID.generate()
+      log_id = generated_uuid()
       source = source_kind(metadata[:subject])
 
       [
@@ -410,6 +413,43 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp source_kind(_), do: nil
+
+  defp generated_uuid do
+    Ecto.UUID.generate() |> Ecto.UUID.dump!()
+  end
+
+  defp encode_text_columns(row) when is_map(row) do
+    row
+    |> maybe_stringify_text(:trace_id)
+    |> maybe_stringify_text(:span_id)
+    |> maybe_stringify_text(:severity_text)
+    |> maybe_stringify_text(:body)
+    |> maybe_stringify_text(:event_name)
+    |> maybe_stringify_text(:source)
+    |> maybe_stringify_text(:service_name)
+    |> maybe_stringify_text(:service_version)
+    |> maybe_stringify_text(:service_instance)
+    |> maybe_stringify_text(:scope_name)
+    |> maybe_stringify_text(:scope_version)
+    |> maybe_encode_text(:attributes)
+    |> maybe_encode_text(:resource_attributes)
+    |> maybe_encode_text(:scope_attributes)
+  end
+
+  defp maybe_encode_text(row, key) do
+    case Map.get(row, key) do
+      value when is_map(value) or is_list(value) -> Map.put(row, key, FieldParser.encode_json(value))
+      _ -> row
+    end
+  end
+
+  defp maybe_stringify_text(row, key) do
+    case Map.get(row, key) do
+      nil -> row
+      value when is_binary(value) -> row
+      value -> Map.put(row, key, to_string(value))
+    end
+  end
 
   defp maybe_promote_logs(rows) do
     # DB connection's search_path determines the schema

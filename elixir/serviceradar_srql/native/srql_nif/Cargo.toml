@@ -2,6 +2,7 @@
 name = "srql_nif"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [lib]
 name = "srql_nif"
@@ -9,8 +10,13 @@ crate-type = ["cdylib"]
 
 [dependencies]
 anyhow = "1.0.89"
+capnp = "0.21"
+chrono = "0.4"
 rustler = "0.36.1"
 serde_json = "1.0.132"
 srql = { path = "../../../../rust/srql" }
+
+[build-dependencies]
+capnpc = "0.21"
 
 [workspace]

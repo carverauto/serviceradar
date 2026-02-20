@@ -93,6 +93,7 @@ macro_rules! apply_eq_filter {
 
 mod agents;
 mod alerts;
+mod bmp_events;
 mod cpu_metrics;
 mod device_graph;
 mod device_updates;
@@ -182,6 +183,7 @@ impl QueryEngine {
                     graph_cypher::execute(&mut conn, &plan, &self.config.age_graph_name).await?
                 }
                 Entity::Events => events::execute(&mut conn, &plan).await?,
+                Entity::BmpEvents => bmp_events::execute(&mut conn, &plan).await?,
                 Entity::Flows => flows::execute(&mut conn, &plan).await?,
                 Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
                 Entity::Logs => logs::execute(&mut conn, &plan).await?,
@@ -579,6 +581,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,
             Entity::GraphCypher => graph_cypher::to_sql_and_params(&plan, &config.age_graph_name)?,
             Entity::Events => events::to_sql_and_params(&plan)?,
+            Entity::BmpEvents => bmp_events::to_sql_and_params(&plan)?,
             Entity::Flows => flows::to_sql_and_params(&plan)?,
             Entity::Interfaces => interfaces::to_sql_and_params(&plan)?,
             Entity::Logs => logs::to_sql_and_params(&plan)?,

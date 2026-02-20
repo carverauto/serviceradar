@@ -332,7 +332,7 @@ PACKAGES = {
     },
     "bmp-collector": {
         "package_name": "serviceradar-bmp-collector",
-        "description": "ServiceRadar BMP collector powered by arancini-lib",
+        "description": "ServiceRadar BMP collector powered by Arancini runtime",
         "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
         "architecture": "amd64",
         "section": "net",
@@ -343,23 +343,16 @@ PACKAGES = {
             "target": "//rust/bmp-collector:bmp-collector",
             "dest": "/usr/local/bin/serviceradar-bmp-collector",
         },
-        "files": [
-            {
-                "src": "config/bmp-collector.json",
-                "dest": "/etc/serviceradar/bmp-collector.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
+        "files": [],
         "systemd": {
             "src": "systemd/serviceradar-bmp-collector.service",
             "dest": "/lib/systemd/system/serviceradar-bmp-collector.service",
         },
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/bmp-collector.json",
-        ],
+        "conffiles": [],
+        "package_tags": ["local", "no-remote", "no-remote-exec"],
+        "rpm_tags": ["local", "no-remote", "no-remote-exec"],
     },
     "nats": {
         "package_name": "serviceradar-nats",

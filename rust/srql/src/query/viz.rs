@@ -299,6 +299,34 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: None,
             }],
         },
+        Entity::BmpEvents => VizMeta {
+            columns: vec![
+                col("time", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("event_type", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("severity_id", ColumnType::Int, None),
+                col("router_id", ColumnType::Text, None),
+                col("router_ip", ColumnType::Text, None),
+                col("peer_ip", ColumnType::Text, None),
+                col("peer_asn", ColumnType::Int, None),
+                col("local_asn", ColumnType::Int, None),
+                col("prefix", ColumnType::Text, None),
+                col("message", ColumnType::Text, None),
+                col("metadata", ColumnType::Jsonb, None),
+                col("raw_data", ColumnType::Text, None),
+                col(
+                    "created_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
         Entity::Logs => VizMeta {
             columns: vec![
                 col("id", ColumnType::Text, Some(ColumnSemantic::Id)),

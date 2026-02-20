@@ -635,20 +635,25 @@ services:
     restart: unless-stopped
 
   bmp-collector:
-    image: ghcr.io/carverauto/serviceradar-bmp-collector:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/arancini:${ARANCINI_TAG:-v0.7.2}
     container_name: serviceradar-bmp-collector-mtls
     ports:
-      - "4000:4000"
+      - "11019:11019"
     volumes:
-      - ./rust/bmp-collector/bmp-collector.json:/etc/serviceradar/bmp-collector.json:ro
       - cert-data:/etc/serviceradar/certs:ro
-      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - bmp-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
-    environment:
-      - CONFIG_SOURCE=file
-      - CONFIG_PATH=/etc/serviceradar/bmp-collector.json
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+    command:
+      - "--bmp-address=0.0.0.0:11019"
+      - "--kafka-disable"
+      - "--nats-enable"
+      - "--nats-server=nats://nats:4222"
+      - "--nats-subject=arancini.updates"
+      - "--nats-tls-required"
+      - "--nats-tls-ca-cert-path=/etc/serviceradar/certs/root.pem"
+      - "--nats-tls-client-cert-path=/etc/serviceradar/certs/bmp-collector.pem"
+      - "--nats-tls-client-key-path=/etc/serviceradar/certs/bmp-collector-key.pem"
+      - "--curation-state-path=/var/lib/serviceradar/state.bin"
     cap_add:
       - NET_BIND_SERVICE
     depends_on:

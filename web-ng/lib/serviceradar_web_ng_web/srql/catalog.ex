@@ -83,6 +83,27 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "bmp_events",
+      label: "BMP Events",
+      route: "/observability",
+      default_time: "last_24h",
+      default_sort_field: "time",
+      default_sort_dir: "desc",
+      default_filter_field: "router_ip",
+      filter_fields: [
+        "event_type",
+        "severity_id",
+        "router_id",
+        "router_ip",
+        "peer_ip",
+        "peer_asn",
+        "local_asn",
+        "prefix",
+        "message"
+      ],
+      downsample: false
+    },
+    %{
       id: "alerts",
       label: "Alerts",
       route: "/alerts",

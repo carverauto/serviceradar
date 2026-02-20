@@ -16,6 +16,7 @@ pub enum Entity {
     DeviceGraph,
     GraphCypher,
     Events,
+    BmpEvents,
     Logs,
     Services,
     Gateways,
@@ -371,6 +372,7 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "device_updates" | "device_update" | "updates" => Ok(Entity::DeviceUpdates),
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
+        "bmp_events" | "bmp_event" | "bmp_routing_events" => Ok(Entity::BmpEvents),
         "logs" => Ok(Entity::Logs),
         "services" | "service" => Ok(Entity::Services),
         "gateways" | "gateway" => Ok(Entity::Gateways),
@@ -897,6 +899,14 @@ mod tests {
     fn parses_interfaces_entity() {
         let ast = parse("in:interfaces time:last_24h").unwrap();
         assert!(matches!(ast.entity, Entity::Interfaces));
+    }
+
+    #[test]
+    fn parses_bmp_events_entity() {
+        let ast = parse("in:bmp_events router_ip:10.42.68.85 time:last_24h").unwrap();
+        assert!(matches!(ast.entity, Entity::BmpEvents));
+        assert_eq!(ast.filters.len(), 1);
+        assert_eq!(ast.filters[0].field, "router_ip");
     }
 
     #[test]

@@ -26,6 +26,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
 	"net/http"
 	"os"
@@ -51,8 +52,25 @@ var (
 	errIdleTimeoutRequired        = errors.New("server.idle_timeout is required")
 	errIPShuffleIntervalRequired  = errors.New("simulation.ip_shuffle.interval is required")
 	errIPShufflePercentageInvalid = errors.New("simulation.ip_shuffle.percentage must be > 0")
+	errBGPPublishIntervalRequired = errors.New("simulation.bgp.publish_interval is required")
+	errBGPOutageIntervalRequired  = errors.New("simulation.bgp.outage_interval is required")
+	errBGPOutageMinRequired       = errors.New("simulation.bgp.outage_duration_min is required")
+	errBGPOutageMaxRequired       = errors.New("simulation.bgp.outage_duration_max is required")
+	errBGPBMPCollectorRequired    = errors.New("simulation.bgp.bmp_collector_address is required")
+	errBGPAPIAddressRequired      = errors.New("simulation.bgp.gobgp_api_address is required")
+	errBGPGobgpBinaryRequired     = errors.New("simulation.bgp.gobgp_binary is required")
+	errBGPGobgpCLIBinaryRequired  = errors.New("simulation.bgp.gobgp_cli_binary is required")
+	errBGPRouterIDRequired        = errors.New("simulation.bgp.router_id is required")
+	errBGPMaxPrefixesRequired     = errors.New("simulation.bgp.max_prefixes_per_tick must be > 0")
+	errBGPPrefixesRequired        = errors.New("simulation.bgp.advertised_prefixes must include at least one prefix")
+	errBGPPeersRequired           = errors.New("simulation.bgp.peers must include at least one peer")
+	errBGPPeerIPRequired          = errors.New("simulation.bgp peer ip is required")
+	errBGPPeerASNRequired         = errors.New("simulation.bgp peer_asn must be > 0")
 	errDataDirRequired            = errors.New("storage.data_dir is required")
 	errDevicesFileRequired        = errors.New("storage.devices_file is required")
+	errNonFiniteFloat             = errors.New("non-finite float")
+	errNotInteger                 = errors.New("value is not an integer")
+	errInt64Overflow              = errors.New("value overflows int64")
 )
 
 const (
@@ -153,6 +171,153 @@ type AccessTokenResponse struct {
 	Success bool `json:"success"`
 }
 
+type BGPSimulationPeer struct {
+	Name        string `json:"name"`
+	IP          string `json:"ip"`
+	PeerASN     uint32 `json:"peer_asn"`
+	Description string `json:"description,omitempty"`
+}
+
+type BGPSimulationConfig struct {
+	Enabled             bool                `json:"enabled"`
+	Seed                int64               `json:"seed"`
+	PublishInterval     string              `json:"publish_interval"`
+	OutageInterval      string              `json:"outage_interval"`
+	OutageDurationMin   string              `json:"outage_duration_min"`
+	OutageDurationMax   string              `json:"outage_duration_max"`
+	ManageDaemon        bool                `json:"manage_daemon"`
+	GobgpAPIAddress     string              `json:"gobgp_api_address"`
+	GobgpBinary         string              `json:"gobgp_binary"`
+	GobgpCLIBinary      string              `json:"gobgp_cli_binary"`
+	BMPCollectorAddress string              `json:"bmp_collector_address"`
+	RouterID            string              `json:"router_id"`
+	MaxPrefixesPerTick  int                 `json:"max_prefixes_per_tick"`
+	LocalASN            uint32              `json:"local_asn"`
+	Peers               []BGPSimulationPeer `json:"peers"`
+	AdvertisedPrefixes  []string            `json:"advertised_prefixes"`
+}
+
+type bgpSimulationConfigWire struct {
+	Enabled             *bool                `json:"enabled"`
+	Seed                json.RawMessage      `json:"seed"`
+	PublishInterval     *string              `json:"publish_interval"`
+	OutageInterval      *string              `json:"outage_interval"`
+	OutageDurationMin   *string              `json:"outage_duration_min"`
+	OutageDurationMax   *string              `json:"outage_duration_max"`
+	ManageDaemon        *bool                `json:"manage_daemon"`
+	GobgpAPIAddress     *string              `json:"gobgp_api_address"`
+	GobgpBinary         *string              `json:"gobgp_binary"`
+	GobgpCLIBinary      *string              `json:"gobgp_cli_binary"`
+	BMPCollectorAddress *string              `json:"bmp_collector_address"`
+	RouterID            *string              `json:"router_id"`
+	MaxPrefixesPerTick  *int                 `json:"max_prefixes_per_tick"`
+	LocalASN            *uint32              `json:"local_asn"`
+	Peers               *[]BGPSimulationPeer `json:"peers"`
+	AdvertisedPrefixes  *[]string            `json:"advertised_prefixes"`
+}
+
+func (c *BGPSimulationConfig) UnmarshalJSON(data []byte) error {
+	var wire bgpSimulationConfigWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+
+	if wire.Enabled != nil {
+		c.Enabled = *wire.Enabled
+	}
+	if len(wire.Seed) > 0 {
+		seed, err := parseFlexibleInt64(wire.Seed)
+		if err != nil {
+			return fmt.Errorf("parse seed: %w", err)
+		}
+		c.Seed = seed
+	}
+	if wire.PublishInterval != nil {
+		c.PublishInterval = *wire.PublishInterval
+	}
+	if wire.OutageInterval != nil {
+		c.OutageInterval = *wire.OutageInterval
+	}
+	if wire.OutageDurationMin != nil {
+		c.OutageDurationMin = *wire.OutageDurationMin
+	}
+	if wire.OutageDurationMax != nil {
+		c.OutageDurationMax = *wire.OutageDurationMax
+	}
+	if wire.ManageDaemon != nil {
+		c.ManageDaemon = *wire.ManageDaemon
+	}
+	if wire.GobgpAPIAddress != nil {
+		c.GobgpAPIAddress = *wire.GobgpAPIAddress
+	}
+	if wire.GobgpBinary != nil {
+		c.GobgpBinary = *wire.GobgpBinary
+	}
+	if wire.GobgpCLIBinary != nil {
+		c.GobgpCLIBinary = *wire.GobgpCLIBinary
+	}
+	if wire.BMPCollectorAddress != nil {
+		c.BMPCollectorAddress = *wire.BMPCollectorAddress
+	}
+	if wire.RouterID != nil {
+		c.RouterID = *wire.RouterID
+	}
+	if wire.MaxPrefixesPerTick != nil {
+		c.MaxPrefixesPerTick = *wire.MaxPrefixesPerTick
+	}
+	if wire.LocalASN != nil {
+		c.LocalASN = *wire.LocalASN
+	}
+	if wire.Peers != nil {
+		c.Peers = *wire.Peers
+	}
+	if wire.AdvertisedPrefixes != nil {
+		c.AdvertisedPrefixes = *wire.AdvertisedPrefixes
+	}
+
+	return nil
+}
+
+func parseFlexibleInt64(raw json.RawMessage) (int64, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return 0, nil
+	}
+
+	if value, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+		return value, nil
+	}
+
+	if len(trimmed) >= 2 && trimmed[0] == '"' && trimmed[len(trimmed)-1] == '"' {
+		unquoted, err := strconv.Unquote(trimmed)
+		if err != nil {
+			return 0, err
+		}
+
+		if value, err := strconv.ParseInt(unquoted, 10, 64); err == nil {
+			return value, nil
+		}
+
+		trimmed = unquoted
+	}
+
+	floatValue, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(floatValue) || math.IsInf(floatValue, 0) {
+		return 0, fmt.Errorf("%w: %q", errNonFiniteFloat, trimmed)
+	}
+	if math.Trunc(floatValue) != floatValue {
+		return 0, fmt.Errorf("%w: %q", errNotInteger, trimmed)
+	}
+	if floatValue < math.MinInt64 || floatValue > math.MaxInt64 {
+		return 0, fmt.Errorf("%w: %q", errInt64Overflow, trimmed)
+	}
+
+	return int64(floatValue), nil
+}
+
 // Config holds the configuration for the faker service
 type Config struct {
 	Service struct {
@@ -177,6 +342,7 @@ type Config struct {
 			AllowExpansion      bool   `json:"allow_expansion,omitempty"`
 			PoolHeadroomPercent int    `json:"pool_headroom_percent,omitempty"`
 		} `json:"ip_shuffle"`
+		BGP BGPSimulationConfig `json:"bgp"`
 	} `json:"simulation"`
 	Storage struct {
 		DataDir        string `json:"data_dir"`
@@ -226,6 +392,54 @@ func (c *Config) Validate() error {
 	if c.Simulation.IPShuffle.PoolHeadroomPercent < 0 {
 		c.Simulation.IPShuffle.PoolHeadroomPercent = defaultShufflePoolHeadroom
 	}
+	if c.Simulation.BGP.Enabled {
+		if c.Simulation.BGP.PublishInterval == "" {
+			return errBGPPublishIntervalRequired
+		}
+		if c.Simulation.BGP.OutageInterval == "" {
+			return errBGPOutageIntervalRequired
+		}
+		if c.Simulation.BGP.OutageDurationMin == "" {
+			return errBGPOutageMinRequired
+		}
+		if c.Simulation.BGP.OutageDurationMax == "" {
+			return errBGPOutageMaxRequired
+		}
+		if c.Simulation.BGP.ManageDaemon {
+			if c.Simulation.BGP.BMPCollectorAddress == "" {
+				return errBGPBMPCollectorRequired
+			}
+			if c.Simulation.BGP.GobgpBinary == "" {
+				return errBGPGobgpBinaryRequired
+			}
+		}
+		if c.Simulation.BGP.GobgpAPIAddress == "" {
+			return errBGPAPIAddressRequired
+		}
+		if c.Simulation.BGP.GobgpCLIBinary == "" {
+			return errBGPGobgpCLIBinaryRequired
+		}
+		if c.Simulation.BGP.RouterID == "" {
+			return errBGPRouterIDRequired
+		}
+		if c.Simulation.BGP.MaxPrefixesPerTick <= 0 {
+			return errBGPMaxPrefixesRequired
+		}
+		if len(c.Simulation.BGP.AdvertisedPrefixes) == 0 {
+			return errBGPPrefixesRequired
+		}
+		if len(c.Simulation.BGP.Peers) == 0 {
+			return errBGPPeersRequired
+		}
+		for _, peer := range c.Simulation.BGP.Peers {
+			if strings.TrimSpace(peer.IP) == "" {
+				return errBGPPeerIPRequired
+			}
+			if peer.PeerASN == 0 {
+				return errBGPPeerASNRequired
+			}
+		}
+	}
 	if c.Storage.DataDir == "" {
 		return errDataDirRequired
 	}
@@ -249,6 +463,25 @@ func (c *Config) applyDefaults() {
 	c.Simulation.IPShuffle.LogChanges = true
 	c.Simulation.IPShuffle.AllowExpansion = false
 	c.Simulation.IPShuffle.PoolHeadroomPercent = 0
+	c.Simulation.BGP.Enabled = false
+	c.Simulation.BGP.Seed = 40_164_200
+	c.Simulation.BGP.PublishInterval = "15s"
+	c.Simulation.BGP.OutageInterval = "2m"
+	c.Simulation.BGP.OutageDurationMin = "20s"
+	c.Simulation.BGP.OutageDurationMax = "45s"
+	c.Simulation.BGP.ManageDaemon = true
+	c.Simulation.BGP.GobgpAPIAddress = "127.0.0.1:50051"
+	c.Simulation.BGP.GobgpBinary = "gobgpd"
+	c.Simulation.BGP.GobgpCLIBinary = "gobgp"
+	c.Simulation.BGP.BMPCollectorAddress = "127.0.0.1:11019"
+	c.Simulation.BGP.RouterID = "204.209.51.59"
+	c.Simulation.BGP.MaxPrefixesPerTick = 3
+	c.Simulation.BGP.LocalASN = 401_642
+	c.Simulation.BGP.Peers = defaultBGPPeers()
+	c.Simulation.BGP.AdvertisedPrefixes = []string{
+		"23.138.124.0/24",
+		"2602:f678::/48",
+	}
 	c.Storage.DataDir = "/var/lib/serviceradar/faker"
 	c.Storage.DevicesFile = "fake_armis_devices.json"
 	c.Storage.PersistChanges = true
@@ -595,6 +828,9 @@ func main() {
 	// Start the background process to simulate IP changes if enabled
 	if config.Simulation.IPShuffle.Enabled {
 		go shuffleIPs()
+	}
+	if config.Simulation.BGP.Enabled {
+		go runBGPSimulator(config.Simulation.BGP)
 	}
 
 	mux := http.NewServeMux()

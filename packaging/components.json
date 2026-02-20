@@ -776,17 +776,10 @@
       "build_method": "rust",
       "docker_output_path": "/output/serviceradar-bmp-collector",
       "output_path": "/usr/local/bin/serviceradar-bmp-collector",
-      "source_path": "rust/bmp-collector"
+      "source_path": "arancini/arancini"
     },
-    "conffiles": [
-      "/etc/serviceradar/bmp-collector.json"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/bmp-collector.json",
-        "source": "packaging/bmp-collector/config/bmp-collector.json"
-      }
-    ],
+    "conffiles": [],
+    "config_files": [],
     "custom_steps": [],
     "deb": {
       "depends": [
@@ -795,7 +788,7 @@
       ],
       "dockerfile": "rust/bmp-collector/Dockerfile"
     },
-    "description": "ServiceRadar BMP collector powered by arancini-lib",
+    "description": "ServiceRadar BMP collector powered by Arancini runtime",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "name": "bmp-collector",
     "package_name": "serviceradar-bmp-collector",
