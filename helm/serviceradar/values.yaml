@@ -170,6 +170,8 @@ faker:
       outageInterval: "2m"
       outageDurationMin: "20s"
       outageDurationMax: "45s"
+      manageDaemon: true
+      gobgpApiAddress: "127.0.0.1:50051"
       gobgpBinary: "gobgpd"
       gobgpCliBinary: "gobgp"
       bmpCollectorAddress: "serviceradar-bmp-collector:11019"
@@ -284,6 +286,33 @@ faker:
           ip: "2605:8400:ff:142::"
           peer_asn: 10242
           description: "ISP-IPv6"
+gobgp:
+  enabled: false
+  image:
+    repository: docker.io/osrg/gobgp
+    tag: latest
+    pullPolicy: IfNotPresent
+  api:
+    host: "0.0.0.0"
+    port: 50051
+  bgp:
+    localAsn: 401642
+    routerId: "204.209.51.59"
+  bmp:
+    address: "serviceradar-bmp-collector"
+    port: 11019
+  # By default we reuse faker BGP peers to keep topology aligned.
+  peers: []
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+  service:
+    type: ClusterIP
+    annotations: {}
 coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
   secMode: spiffe
@@ -527,7 +556,7 @@ bmpCollector:
   enabled: false
   image:
     repository: ghcr.io/carverauto/arancini
-    tag: "v0.7.1"
+    tag: "chore-fix-publish-crate"
     pullPolicy: IfNotPresent
   args:
     - "--bmp-address=0.0.0.0:11019"

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"math/rand"
 	"testing"
 	"time"
@@ -56,10 +57,22 @@ func TestConfigValidateRequiresBMPWhenBGPEnabled(t *testing.T) {
 	cfg := &Config{}
 	cfg.applyDefaults()
 	cfg.Simulation.BGP.Enabled = true
+	cfg.Simulation.BGP.ManageDaemon = true
 	cfg.Simulation.BGP.BMPCollectorAddress = ""
 
 	err := cfg.Validate()
 	require.ErrorIs(t, err, errBGPBMPCollectorRequired)
+}
+
+func TestConfigValidateDoesNotRequireBMPWhenBGPExternalDaemon(t *testing.T) {
+	cfg := &Config{}
+	cfg.applyDefaults()
+	cfg.Simulation.BGP.Enabled = true
+	cfg.Simulation.BGP.ManageDaemon = false
+	cfg.Simulation.BGP.BMPCollectorAddress = ""
+
+	err := cfg.Validate()
+	require.NoError(t, err)
 }
 
 func TestConfigValidateRequiresMaxPrefixesWhenBGPEnabled(t *testing.T) {
@@ -70,4 +83,21 @@ func TestConfigValidateRequiresMaxPrefixesWhenBGPEnabled(t *testing.T) {
 
 	err := cfg.Validate()
 	require.ErrorIs(t, err, errBGPMaxPrefixesRequired)
+}
+
+func TestBGPSimulationConfigUnmarshalAcceptsScientificSeed(t *testing.T) {
+	cfg := BGPSimulationConfig{}
+	data := []byte(`{"seed":4.01642e+07}`)
+
+	err := json.Unmarshal(data, &cfg)
+	require.NoError(t, err)
+	require.Equal(t, int64(40164200), cfg.Seed)
+}
+
+func TestBGPSimulationConfigUnmarshalRejectsFractionalSeed(t *testing.T) {
+	cfg := BGPSimulationConfig{}
+	data := []byte(`{"seed":123.45}`)
+
+	err := json.Unmarshal(data, &cfg)
+	require.Error(t, err)
 }

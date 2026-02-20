@@ -20,5 +20,6 @@ go_library(
 go_binary(
     name = "faker",
     embed = [":faker_lib"],
+    tags = ["local", "no-remote", "no-remote-exec"],
     visibility = ["//visibility:public"],
 )

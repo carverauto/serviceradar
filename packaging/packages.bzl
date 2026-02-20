@@ -351,6 +351,8 @@ PACKAGES = {
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
         "conffiles": [],
+        "package_tags": ["local", "no-remote", "no-remote-exec"],
+        "rpm_tags": ["local", "no-remote", "no-remote-exec"],
     },
     "nats": {
         "package_name": "serviceradar-nats",

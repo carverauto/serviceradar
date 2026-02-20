@@ -106,7 +106,7 @@ webNg:
 
 faker:
   gobgp:
-    enabled: true
+    enabled: false
     # Keep latest for demo iterations; pin to a digest/tag if reproducibility
     # requirements tighten.
     image:
@@ -124,10 +124,19 @@ faker:
       allowExpansion: false
       poolHeadroomPercent: 0
     bgp:
-      enabled: true
+      enabled: false
+      manageDaemon: false
+      gobgpApiAddress: "serviceradar-gobgp:50051"
       gobgpBinary: "/opt/gobgp/gobgpd"
       gobgpCliBinary: "/opt/gobgp/gobgp"
       bmpCollectorAddress: "serviceradar-bmp-collector:11019"
+
+gobgp:
+  enabled: true
+  image:
+    repository: docker.io/osrg/gobgp
+    tag: latest
+    pullPolicy: IfNotPresent
 
 core:
   logPromotionConsumerEnabled: true

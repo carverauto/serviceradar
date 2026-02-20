@@ -28,6 +28,8 @@
       "outage_interval": "2m",
       "outage_duration_min": "20s",
       "outage_duration_max": "45s",
+      "manage_daemon": true,
+      "gobgp_api_address": "127.0.0.1:50051",
       "gobgp_binary": "gobgpd",
       "gobgp_cli_binary": "gobgp",
       "bmp_collector_address": "127.0.0.1:11019",

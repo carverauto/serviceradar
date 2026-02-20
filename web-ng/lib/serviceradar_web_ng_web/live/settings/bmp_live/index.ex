@@ -23,7 +23,8 @@ defmodule ServiceRadarWebNGWeb.Settings.BmpLive.Index do
        |> assign(:page_title, "BMP Settings")
        |> assign(:current_path, "/settings/networks/bmp")
        |> assign(:settings, settings)
-       |> assign(:settings_form, settings_to_form(settings))}
+       |> assign(:settings_params, settings_to_params(settings))
+       |> assign(:settings_form, to_settings_form(settings_to_params(settings)))}
     else
       {:ok,
        socket
@@ -34,8 +35,12 @@ defmodule ServiceRadarWebNGWeb.Settings.BmpLive.Index do
 
   @impl true
   def handle_event("settings_validate", %{"settings" => params}, socket) do
+    merged_params = merge_settings_form(socket.assigns.settings_params, params)
+
     {:noreply,
-     assign(socket, :settings_form, merge_settings_form(socket.assigns.settings_form, params))}
+     socket
+     |> assign(:settings_params, merged_params)
+     |> assign(:settings_form, to_settings_form(merged_params))}
   end
 
   def handle_event("settings_save", %{"settings" => params}, socket) do
@@ -57,12 +62,14 @@ defmodule ServiceRadarWebNGWeb.Settings.BmpLive.Index do
       {:ok, %BmpSettings{} = updated} ->
         _ = BmpSettings.apply_routing_retention_policy(updated)
         _ = BmpSettingsRuntime.force_refresh()
+        updated_params = settings_to_params(updated)
 
         {:noreply,
          socket
          |> put_flash(:info, "Saved BMP settings")
          |> assign(:settings, updated)
-         |> assign(:settings_form, settings_to_form(updated))}
+         |> assign(:settings_params, updated_params)
+         |> assign(:settings_form, to_settings_form(updated_params))}
 
       {:error, err} ->
         {:noreply, socket |> put_flash(:error, "Failed to save settings: #{inspect(err)}")}
@@ -158,7 +165,7 @@ defmodule ServiceRadarWebNGWeb.Settings.BmpLive.Index do
     end
   end
 
-  defp settings_to_form(%BmpSettings{} = settings) do
+  defp settings_to_params(%BmpSettings{} = settings) do
     %{
       "bmp_routing_retention_days" => to_string(settings.bmp_routing_retention_days),
       "bmp_ocsf_min_severity" => to_string(settings.bmp_ocsf_min_severity),
@@ -171,7 +178,9 @@ defmodule ServiceRadarWebNGWeb.Settings.BmpLive.Index do
     }
   end
 
-  defp settings_to_form(_), do: default_settings_form()
+  defp settings_to_params(_), do: default_settings_form()
+
+  defp to_settings_form(params) when is_map(params), do: to_form(params, as: :settings)
 
   defp default_settings_form do
     %{

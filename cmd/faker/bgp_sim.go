@@ -25,6 +25,8 @@ type gobgpRunner struct {
 	cfg        BGPSimulationConfig
 	workDir    string
 	configPath string
+	apiHost    string
+	apiPort    int
 
 	mu  sync.Mutex
 	cmd *exec.Cmd
@@ -35,13 +37,15 @@ func runBGPSimulator(cfg BGPSimulationConfig) {
 		return
 	}
 
-	if err := ensureGoBGPBinary(cfg.GobgpBinary); err != nil {
-		log.Printf("BGP simulation disabled: %v", err)
-		return
-	}
 	if err := ensureGoBGPBinary(cfg.GobgpCLIBinary); err != nil {
 		log.Printf("BGP simulation disabled: %v", err)
 		return
+	}
+	if cfg.ManageDaemon {
+		if err := ensureGoBGPBinary(cfg.GobgpBinary); err != nil {
+			log.Printf("BGP simulation disabled: %v", err)
+			return
+		}
 	}
 
 	publishInterval, err := time.ParseDuration(cfg.PublishInterval)
@@ -67,6 +71,11 @@ func runBGPSimulator(cfg BGPSimulationConfig) {
 	if outageMax < outageMin {
 		outageMax = outageMin
 	}
+	apiHost, apiPort, err := splitHostPort(cfg.GobgpAPIAddress)
+	if err != nil {
+		log.Printf("invalid BGP gobgp_api_address %q, skipping simulator: %v", cfg.GobgpAPIAddress, err)
+		return
+	}
 
 	rng := rand.New(rand.NewSource(cfg.Seed)) //nolint:gosec // deterministic simulator seed by design
 	runner, err := newGoBGPRunner(cfg)
@@ -74,16 +83,20 @@ func runBGPSimulator(cfg BGPSimulationConfig) {
 		log.Printf("BGP simulation disabled: %v", err)
 		return
 	}
+	runner.apiHost = apiHost
+	runner.apiPort = apiPort
 
-	if err := runner.start(); err != nil {
-		log.Printf("failed to start gobgpd for BGP simulation: %v", err)
-		return
-	}
-	defer func() {
-		if stopErr := runner.stop(); stopErr != nil {
-			log.Printf("failed to stop gobgpd: %v", stopErr)
+	if cfg.ManageDaemon {
+		if err := runner.start(); err != nil {
+			log.Printf("failed to start gobgpd for BGP simulation: %v", err)
+			return
 		}
-	}()
+		defer func() {
+			if stopErr := runner.stop(); stopErr != nil {
+				log.Printf("failed to stop gobgpd: %v", stopErr)
+			}
+		}()
+	}
 
 	announced := make(map[string]bool, len(cfg.AdvertisedPrefixes))
 
@@ -92,8 +105,8 @@ func runBGPSimulator(cfg BGPSimulationConfig) {
 	defer publishTicker.Stop()
 	defer outageTicker.Stop()
 
-	log.Printf("BGP simulator active: local_asn=%d bmp_collector=%s peers=%d prefixes=%d",
-		cfg.LocalASN, cfg.BMPCollectorAddress, len(cfg.Peers), len(cfg.AdvertisedPrefixes))
+	log.Printf("BGP simulator active: local_asn=%d gobgp_api=%s manage_daemon=%t peers=%d prefixes=%d",
+		cfg.LocalASN, cfg.GobgpAPIAddress, cfg.ManageDaemon, len(cfg.Peers), len(cfg.AdvertisedPrefixes))
 
 	for {
 		select {
@@ -101,22 +114,43 @@ func runBGPSimulator(cfg BGPSimulationConfig) {
 			publishCycle(rng, runner, cfg, announced)
 		case <-outageTicker.C:
 			d := randomDuration(rng, outageMin, outageMax)
-			log.Printf("BGP simulator outage window: stopping gobgpd for %s", d)
-			if err := runner.stop(); err != nil {
-				log.Printf("failed to stop gobgpd for outage simulation: %v", err)
-				continue
-			}
-			time.Sleep(d)
-			if err := runner.start(); err != nil {
-				log.Printf("failed to restart gobgpd after outage: %v", err)
-				continue
-			}
-			for prefix, isAnnounced := range announced {
-				if !isAnnounced {
+			if cfg.ManageDaemon {
+				log.Printf("BGP simulator outage window: stopping gobgpd for %s", d)
+				if err := runner.stop(); err != nil {
+					log.Printf("failed to stop gobgpd for outage simulation: %v", err)
 					continue
 				}
-				if err := runner.setPrefix(prefix, true); err != nil {
-					log.Printf("failed to restore announced prefix %s after outage: %v", prefix, err)
+				time.Sleep(d)
+				if err := runner.start(); err != nil {
+					log.Printf("failed to restart gobgpd after outage: %v", err)
+					continue
+				}
+				for prefix, isAnnounced := range announced {
+					if !isAnnounced {
+						continue
+					}
+					if err := runner.setPrefix(prefix, true); err != nil {
+						log.Printf("failed to restore announced prefix %s after outage: %v", prefix, err)
+					}
+				}
+			} else {
+				log.Printf("BGP simulator outage window: withdrawing announced prefixes for %s", d)
+				for prefix, isAnnounced := range announced {
+					if !isAnnounced {
+						continue
+					}
+					if err := runner.setPrefix(prefix, false); err != nil {
+						log.Printf("failed to withdraw announced prefix %s for outage simulation: %v", prefix, err)
+					}
+				}
+				time.Sleep(d)
+				for prefix, isAnnounced := range announced {
+					if !isAnnounced {
+						continue
+					}
+					if err := runner.setPrefix(prefix, true); err != nil {
+						log.Printf("failed to restore announced prefix %s after outage simulation: %v", prefix, err)
+					}
 				}
 			}
 		}
@@ -140,8 +174,10 @@ func newGoBGPRunner(cfg BGPSimulationConfig) (*gobgpRunner, error) {
 		configPath: filepath.Join(workDir, "gobgp.toml"),
 	}
 
-	if err := r.writeConfig(); err != nil {
-		return nil, err
+	if cfg.ManageDaemon {
+		if err := r.writeConfig(); err != nil {
+			return nil, err
+		}
 	}
 
 	return r, nil
@@ -196,6 +232,9 @@ func (r *gobgpRunner) writeConfig() error {
 }
 
 func (r *gobgpRunner) start() error {
+	if !r.cfg.ManageDaemon {
+		return nil
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -217,6 +256,9 @@ func (r *gobgpRunner) start() error {
 }
 
 func (r *gobgpRunner) stop() error {
+	if !r.cfg.ManageDaemon {
+		return nil
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -260,7 +302,20 @@ func (r *gobgpRunner) setPrefix(prefix string, announced bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, r.cfg.GobgpCLIBinary, "global", "rib", action, prefix, "-a", afi)
+	cmd := exec.CommandContext(
+		ctx,
+		r.cfg.GobgpCLIBinary,
+		"-u",
+		r.apiHost,
+		"-p",
+		fmt.Sprintf("%d", r.apiPort),
+		"global",
+		"rib",
+		action,
+		prefix,
+		"-a",
+		afi,
+	)
 	cmd.Dir = r.workDir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

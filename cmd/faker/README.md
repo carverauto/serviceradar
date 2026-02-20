@@ -75,6 +75,8 @@ Enable by setting `simulation.bgp.enabled=true` in `cmd/faker/config.json` (or y
 
 Key config fields:
 - `simulation.bgp.bmp_collector_address` (example: `127.0.0.1:11019`)
+- `simulation.bgp.manage_daemon` (`true`: faker starts/stops `gobgpd`, `false`: faker controls external `gobgpd`)
+- `simulation.bgp.gobgp_api_address` (example: `serviceradar-gobgp:50051` for external daemon control)
 - `simulation.bgp.local_asn` and `simulation.bgp.router_id`
 - `simulation.bgp.peers` (FRR-like defaults are included)
 - `simulation.bgp.advertised_prefixes` (defaults: `23.138.124.0/24`, `2602:f678::/48`)
