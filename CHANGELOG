@@ -1,3 +1,13 @@
+# ServiceRadar v1.1.3
+
+Security refresh release to remediate Cap'n Proto dependency exposure.
+
+## Whats New
+
+**1.1.3**
+- Updated `capnp`/`capnpc` dependencies in `elixir/serviceradar_srql/native/srql_nif` to address the critical CVE identified by dependabot.
+- Re-cut release metadata and chart versioning from updated staging baseline so published artifacts include the security fix.
+
 # ServiceRadar v1.1.2
 
 Arancini-backed BMP ingest, BMP observability workflows, and EventWriter JetStream durability improvements.
