@@ -37,7 +37,7 @@ Demo site available at https://demo.serviceradar.cloud login: `demo@localhost` p
 - **Causal Engine**: Real-time triage and isolation via [DeepCausality](https://github.com/deepcausality-rs) (Rust). Employs hybrid filtering and [roaring bitmaps](https://github.com/RoaringBitmap/roaring) to identify root causes and visually isolate an event's "blast radius" in microseconds.
 - **SRQL**: intuitive key:value syntax for querying time-series and relational data.
 - **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, and Apache AGE for relational, time-series, and graph topology data.
-- **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), and NetFlow.
+- **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), BGP ([BMP](https://github.com/carverauto/arancini)), and NetFlow.
 - **Graph Network Mapper**: Discovery engine that maps interfaces and topology relationships via SNMP/LLDP/CDP.
 - **Security**: Hardened with mTLS (SPIFFE/SPIRE on Kubernetes), RBAC, and SSO integration.
 
