@@ -1,12 +1,14 @@
-# ServiceRadar v1.1.3
+# ServiceRadar v1.1.4
 
 Security refresh release to remediate Cap'n Proto dependency exposure.
 
 ## Whats New
 
-**1.1.3**
+**1.1.4**
 - Updated `capnp`/`capnpc` dependencies in `elixir/serviceradar_srql/native/srql_nif` to address the critical CVE identified by dependabot.
 - Re-cut release metadata and chart versioning from updated staging baseline so published artifacts include the security fix.
+- Restored the `arancini` source package in-repo as a submodule so Bazel image/publish targets resolve in CI.
+- Updated stale Alpine `postgresql16-client` and `libpq` APK pins in `MODULE.bazel` to currently available `16.12-r0` artifacts.
 
 # ServiceRadar v1.1.2
 
