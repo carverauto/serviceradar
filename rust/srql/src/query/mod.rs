@@ -1440,6 +1440,58 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn cpu_stats_without_group_by_translates_and_routes_to_cagg() {
+        let config = test_config();
+        let request = QueryRequest {
+            query: "in:cpu_metrics time:last_7d stats:avg(usage_percent) as avg_usage".into(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response =
+            translate_request(&config, request).expect("ungrouped cpu stats should translate");
+        let sql = response.sql.to_lowercase();
+        assert!(
+            sql.contains("from cpu_metrics_hourly"),
+            "expected CAGG source for large-window stats query, got: {}",
+            response.sql
+        );
+        assert!(
+            !sql.contains("group by device_id"),
+            "ungrouped query should not force device grouping, got: {}",
+            response.sql
+        );
+    }
+
+    #[test]
+    fn cpu_stats_without_alias_translates_and_routes_to_cagg() {
+        let config = test_config();
+        let request = QueryRequest {
+            query: "in:cpu_metrics time:last_7d stats:avg(usage_percent)".into(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response =
+            translate_request(&config, request).expect("alias-less cpu stats should translate");
+        let sql = response.sql.to_lowercase();
+        assert!(
+            sql.contains("from cpu_metrics_hourly"),
+            "expected CAGG source for large-window stats query, got: {}",
+            response.sql
+        );
+        assert!(
+            !sql.contains("group by device_id"),
+            "ungrouped query should not force device grouping, got: {}",
+            response.sql
+        );
+    }
 }
 
 #[derive(Debug, Clone)]

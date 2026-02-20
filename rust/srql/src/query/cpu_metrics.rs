@@ -31,6 +31,7 @@ type CpuQuery<'a> =
 #[derive(Debug, Clone)]
 struct CpuStatsSpec {
     alias: String,
+    group_by_device_id: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -437,21 +438,66 @@ fn build_stats_query_with_source(
         }
     }
 
-    let mut sql = String::from("SELECT jsonb_build_object('device_id', device_id, '");
-    sql.push_str(&spec.alias);
-    sql.push_str("', ");
-    sql.push_str(aggregate_expr);
+    let mut sql = String::from("SELECT jsonb_build_object(");
+    if spec.group_by_device_id {
+        sql.push_str("'device_id', device_id, '");
+        sql.push_str(&spec.alias);
+        sql.push_str("', ");
+        sql.push_str(aggregate_expr);
+    } else {
+        sql.push('\'');
+        sql.push_str(&spec.alias);
+        sql.push_str("', ");
+        sql.push_str(aggregate_expr);
+    }
     sql.push_str(") AS payload\nFROM ");
     sql.push_str(table);
     if !clauses.is_empty() {
         sql.push_str("\nWHERE ");
         sql.push_str(&clauses.join(" AND "));
     }
-    sql.push_str("\nGROUP BY device_id");
-    sql.push_str(&build_stats_order_clause(plan, &spec.alias, aggregate_expr));
+    if spec.group_by_device_id {
+        sql.push_str("\nGROUP BY device_id");
+        sql.push_str(&build_stats_order_clause(plan, &spec.alias, aggregate_expr));
+    } else {
+        sql.push_str(&build_ungrouped_stats_order_clause(
+            plan,
+            &spec.alias,
+            aggregate_expr,
+        ));
+    }
     sql.push_str(&format!("\nLIMIT {} OFFSET {}", plan.limit, plan.offset));
 
     Ok(CpuStatsSql { sql, binds })
+}
+
+fn build_ungrouped_stats_order_clause(
+    plan: &QueryPlan,
+    alias: &str,
+    aggregate_expr: &str,
+) -> String {
+    if plan.order.is_empty() {
+        return String::new();
+    }
+
+    let mut parts = Vec::new();
+    for clause in &plan.order {
+        if !clause.field.eq_ignore_ascii_case(alias) {
+            continue;
+        }
+
+        let dir = match clause.direction {
+            OrderDirection::Asc => "ASC",
+            OrderDirection::Desc => "DESC",
+        };
+        parts.push(format!("{aggregate_expr} {dir}"));
+    }
+
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("\nORDER BY {}", parts.join(", "))
+    }
 }
 
 fn build_stats_order_clause(plan: &QueryPlan, alias: &str, aggregate_expr: &str) -> String {
@@ -642,18 +688,19 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<CpuStatsSpec>> {
         ));
     }
 
-    let (expr_segment, group_segment) = split_group_clause(stats_raw).ok_or_else(|| {
-        ServiceError::InvalidRequest("stats expression must include 'by device_id'".into())
-    })?;
+    let (expr_segment, group_by_device_id) = match split_group_clause(stats_raw) {
+        Some((expr_segment, group_segment)) => {
+            if !group_segment.eq_ignore_ascii_case("device_id") {
+                return Err(ServiceError::InvalidRequest(
+                    "cpu metrics stats only support grouping by device_id".into(),
+                ));
+            }
+            (expr_segment, true)
+        }
+        None => (stats_raw.to_string(), false),
+    };
 
-    if !group_segment.eq_ignore_ascii_case("device_id") {
-        return Err(ServiceError::InvalidRequest(
-            "cpu metrics stats only support grouping by device_id".into(),
-        ));
-    }
-
-    let (expr, alias_raw) = split_alias(&expr_segment)?;
-    let alias = sanitize_alias(alias_raw)?;
+    let (expr, alias) = parse_expr_and_alias(&expr_segment)?;
     let expr_lower = expr.trim().to_lowercase();
 
     if !expr_lower.starts_with("avg(") || !expr_lower.ends_with(')') {
@@ -673,7 +720,29 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<CpuStatsSpec>> {
         ));
     }
 
-    Ok(Some(CpuStatsSpec { alias }))
+    Ok(Some(CpuStatsSpec {
+        alias,
+        group_by_device_id,
+    }))
+}
+
+fn parse_expr_and_alias(segment: &str) -> Result<(String, String)> {
+    let lower = segment.to_lowercase();
+    if lower.rfind(" as ").is_some() {
+        let (expr, alias_raw) = split_alias(segment)?;
+        let alias = sanitize_alias(alias_raw)?;
+        return Ok((expr, alias));
+    }
+
+    let expr = segment.trim().to_string();
+    if expr.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "stats expression must not be empty".into(),
+        ));
+    }
+
+    // Alias is optional for cpu stats; default to the aggregate+field name.
+    Ok((expr, "avg_usage_percent".to_string()))
 }
 
 fn split_group_clause(raw: &str) -> Option<(String, String)> {
@@ -772,6 +841,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(spec.alias, "avg_cpu");
+        assert!(spec.group_by_device_id);
 
         let sql = build_stats_query(&plan, &spec).expect("stats SQL should build");
         assert!(
@@ -783,6 +853,53 @@ mod tests {
             sql.sql
         );
         assert_eq!(sql.binds.len(), 3, "expected time range + filter binds");
+    }
+
+    #[test]
+    fn stats_query_allows_missing_alias() {
+        let plan = stats_plan("avg(usage_percent) by device_id", "demo-partition");
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(spec.alias, "avg_usage_percent");
+        assert!(spec.group_by_device_id);
+    }
+
+    #[test]
+    fn stats_query_supports_ungrouped_cpu_aggregate() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(7);
+        let plan = QueryPlan {
+            entity: Entity::CpuMetrics,
+            filters: vec![],
+            order: vec![OrderClause {
+                field: "avg_usage".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "avg(usage_percent) as avg_usage",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        assert!(!spec.group_by_device_id);
+
+        let sql = build_cagg_stats_query(&plan, &spec).expect("cagg stats SQL should build");
+        assert!(
+            sql.sql.contains("FROM cpu_metrics_hourly")
+                && sql.sql.contains("jsonb_build_object('avg_usage'")
+                && !sql.sql.contains("GROUP BY device_id"),
+            "unexpected ungrouped cagg stats SQL: {}",
+            sql.sql
+        );
     }
 
     #[test]
