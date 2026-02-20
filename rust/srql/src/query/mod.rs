@@ -123,11 +123,14 @@ use crate::{
     parser::{self, Entity, Filter, OrderClause, QueryAst},
     time::TimeRange,
 };
-use chrono::Utc;
+use chrono::{Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use tracing::error;
+
+const CAGG_ROUTING_THRESHOLD_HOURS: i64 = 6;
+const CAGG_MAX_TIME_RANGE_DAYS: i64 = 395;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "t", content = "v", rename_all = "snake_case")]
@@ -250,9 +253,10 @@ fn build_query_plan(
         .transpose()?
         .unwrap_or(0)
         .max(0);
+    let max_time_range_days = max_time_range_days_for_ast(&ast);
     let time_range = ast
         .time_filter
-        .map(|spec| spec.resolve(Utc::now()))
+        .map(|spec| spec.resolve_with_max_days(Utc::now(), max_time_range_days))
         .transpose()?;
 
     let (filters, order, downsample) =
@@ -324,6 +328,120 @@ fn normalize_device_aliases(
     });
 
     (filters, order, downsample)
+}
+
+pub(super) fn supports_hourly_cagg(entity: &Entity) -> bool {
+    matches!(
+        entity,
+        Entity::CpuMetrics
+            | Entity::MemoryMetrics
+            | Entity::DiskMetrics
+            | Entity::ProcessMetrics
+            | Entity::TimeseriesMetrics
+            | Entity::SnmpMetrics
+            | Entity::RperfMetrics
+    )
+}
+
+pub(super) fn cagg_table_for_entity(entity: &Entity) -> Option<&'static str> {
+    match entity {
+        Entity::CpuMetrics => Some("cpu_metrics_hourly"),
+        Entity::MemoryMetrics => Some("memory_metrics_hourly"),
+        Entity::DiskMetrics => Some("disk_metrics_hourly"),
+        Entity::ProcessMetrics => Some("process_metrics_hourly"),
+        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
+            Some("timeseries_metrics_hourly")
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn cagg_column_for_entity(
+    entity: &Entity,
+    agg_fn: &str,
+    field: &str,
+) -> Option<&'static str> {
+    let agg = agg_fn.trim().to_ascii_lowercase();
+    let field = field.trim().to_ascii_lowercase();
+
+    match entity {
+        Entity::CpuMetrics => match (agg.as_str(), field.as_str()) {
+            ("avg", "usage_percent") => Some("avg_usage_percent"),
+            ("max", "usage_percent") => Some("max_usage_percent"),
+            _ => None,
+        },
+        Entity::MemoryMetrics => match (agg.as_str(), field.as_str()) {
+            ("avg", "usage_percent") => Some("avg_usage_percent"),
+            ("max", "usage_percent") => Some("max_usage_percent"),
+            ("avg", "used_bytes") => Some("avg_used_bytes"),
+            ("avg", "available_bytes") => Some("avg_available_bytes"),
+            _ => None,
+        },
+        Entity::DiskMetrics => match (agg.as_str(), field.as_str()) {
+            ("avg", "usage_percent") => Some("avg_usage_percent"),
+            ("max", "usage_percent") => Some("max_usage_percent"),
+            ("avg", "used_bytes") => Some("avg_used_bytes"),
+            ("avg", "available_bytes") => Some("avg_available_bytes"),
+            _ => None,
+        },
+        Entity::ProcessMetrics => match (agg.as_str(), field.as_str()) {
+            ("avg", "cpu_usage") => Some("avg_cpu_usage"),
+            ("max", "cpu_usage") => Some("max_cpu_usage"),
+            ("avg", "memory_usage") => Some("avg_memory_usage"),
+            ("max", "memory_usage") => Some("max_memory_usage"),
+            _ => None,
+        },
+        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
+            match (agg.as_str(), field.as_str()) {
+                ("avg", "value") => Some("avg_value"),
+                ("min", "value") => Some("min_value"),
+                ("max", "value") => Some("max_value"),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn is_hourly_cagg_eligible_query(entity: &Entity, has_stats: bool, has_downsample: bool) -> bool {
+    supports_hourly_cagg(entity) && (has_stats || has_downsample)
+}
+
+fn max_time_range_days_for_ast(ast: &QueryAst) -> i64 {
+    if is_hourly_cagg_eligible_query(&ast.entity, ast.stats.is_some(), ast.downsample.is_some()) {
+        CAGG_MAX_TIME_RANGE_DAYS
+    } else {
+        90
+    }
+}
+
+pub(super) fn should_route_to_hourly_cagg(
+    entity: &Entity,
+    time_range: Option<&TimeRange>,
+    has_stats: bool,
+    has_downsample: bool,
+) -> bool {
+    if !is_hourly_cagg_eligible_query(entity, has_stats, has_downsample) {
+        return false;
+    }
+
+    let Some(time_range) = time_range else {
+        return false;
+    };
+
+    time_range
+        .end
+        .signed_duration_since(time_range.start)
+        .ge(&ChronoDuration::hours(CAGG_ROUTING_THRESHOLD_HOURS))
+}
+
+pub(super) fn should_route_plan_to_hourly_cagg(plan: &QueryPlan) -> bool {
+    should_route_to_hourly_cagg(
+        &plan.entity,
+        plan.time_range.as_ref(),
+        plan.stats.is_some(),
+        plan.downsample.is_some(),
+    )
 }
 
 fn extract_include_deleted(filters: Vec<Filter>) -> Result<(Vec<Filter>, bool)> {
@@ -624,7 +742,6 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
 mod tests {
     use super::{devices, gateways, interfaces, *};
     use crate::parser::{self, FilterOp, FilterValue, OrderDirection};
-    use chrono::Duration as ChronoDuration;
     use std::time::Duration as StdDuration;
 
     #[test]
@@ -1021,8 +1138,8 @@ mod tests {
         let sql = response.sql.to_lowercase();
 
         assert!(
-            sql.contains("avg(used_bytes)"),
-            "expected downsample to use used_bytes, got: {}",
+            sql.contains("avg(used_bytes)") || sql.contains("avg(avg_used_bytes)"),
+            "expected downsample to use used_bytes or avg_used_bytes, got: {}",
             response.sql
         );
     }
@@ -1223,6 +1340,104 @@ mod tests {
         assert!(
             err.to_string().contains("unsupported"),
             "error should mention unsupported field, got: {err}"
+        );
+    }
+
+    #[test]
+    fn cagg_routing_threshold_boundary() {
+        let now = chrono::Utc::now();
+        let under = TimeRange {
+            start: now - ChronoDuration::hours(5) - ChronoDuration::minutes(59),
+            end: now,
+        };
+        let at = TimeRange {
+            start: now - ChronoDuration::hours(6),
+            end: now,
+        };
+
+        assert!(!should_route_to_hourly_cagg(
+            &Entity::CpuMetrics,
+            Some(&under),
+            true,
+            false
+        ));
+        assert!(should_route_to_hourly_cagg(
+            &Entity::CpuMetrics,
+            Some(&at),
+            true,
+            false
+        ));
+    }
+
+    #[test]
+    fn aggregate_metric_query_allows_one_year_timeframe() {
+        let config = test_config();
+        let query = "in:cpu_metrics time:last_1y stats:avg(usage_percent) as avg_usage";
+        let ast = parser::parse(query).expect("query should parse");
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let plan = build_query_plan(&config, &request, ast)
+            .expect("stats metric query should allow extended range");
+        let range = plan.time_range.expect("time range should exist");
+        assert!(
+            range.end.signed_duration_since(range.start) >= ChronoDuration::days(365),
+            "expected ~1 year range, got: {:?}",
+            range.end.signed_duration_since(range.start)
+        );
+    }
+
+    #[test]
+    fn plain_metric_query_still_rejects_one_year_timeframe() {
+        let config = test_config();
+        let query = "in:cpu_metrics time:last_1y";
+        let ast = parser::parse(query).expect("query should parse");
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let err = build_query_plan(&config, &request, ast)
+            .expect_err("plain query should still enforce 90 day limit");
+        assert!(
+            err.to_string().contains("cannot exceed 90 days"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn cagg_column_mappings_cover_metric_entities() {
+        assert_eq!(
+            cagg_column_for_entity(&Entity::CpuMetrics, "avg", "usage_percent"),
+            Some("avg_usage_percent")
+        );
+        assert_eq!(
+            cagg_column_for_entity(&Entity::MemoryMetrics, "avg", "used_bytes"),
+            Some("avg_used_bytes")
+        );
+        assert_eq!(
+            cagg_column_for_entity(&Entity::DiskMetrics, "max", "usage_percent"),
+            Some("max_usage_percent")
+        );
+        assert_eq!(
+            cagg_column_for_entity(&Entity::ProcessMetrics, "avg", "cpu_usage"),
+            Some("avg_cpu_usage")
+        );
+        assert_eq!(
+            cagg_column_for_entity(&Entity::TimeseriesMetrics, "min", "value"),
+            Some("min_value")
+        );
+        assert_eq!(
+            cagg_column_for_entity(&Entity::TimeseriesMetrics, "sum", "value"),
+            None
         );
     }
 }

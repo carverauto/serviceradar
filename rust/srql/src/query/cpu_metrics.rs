@@ -92,7 +92,11 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     ensure_entity(plan)?;
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
-        let sql = build_stats_query(plan, &spec)?;
+        let sql = if should_route_stats_to_cagg(plan) {
+            build_cagg_stats_query(plan, &spec)?
+        } else {
+            build_stats_query(plan, &spec)?
+        };
         let params = sql.binds.into_iter().map(bind_param_from_stats).collect();
         return Ok((rewrite_placeholders(&sql.sql), params));
     }
@@ -369,7 +373,11 @@ async fn execute_stats(
     plan: &QueryPlan,
     spec: &CpuStatsSpec,
 ) -> Result<Vec<Value>> {
-    let sql = build_stats_query(plan, spec)?;
+    let sql = if should_route_stats_to_cagg(plan) {
+        build_cagg_stats_query(plan, spec)?
+    } else {
+        build_stats_query(plan, spec)?
+    };
     let mut query = sql_query(rewrite_placeholders(&sql.sql)).into_boxed::<Pg>();
     for bind in &sql.binds {
         query = bind.apply(query);
@@ -382,18 +390,48 @@ async fn execute_stats(
 }
 
 fn build_stats_query(plan: &QueryPlan, spec: &CpuStatsSpec) -> Result<CpuStatsSql> {
+    build_stats_query_with_source(plan, spec, "cpu_metrics", "timestamp", "AVG(usage_percent)")
+}
+
+fn build_cagg_stats_query(plan: &QueryPlan, spec: &CpuStatsSpec) -> Result<CpuStatsSql> {
+    let avg_col = super::cagg_column_for_entity(&Entity::CpuMetrics, "avg", "usage_percent")
+        .ok_or_else(|| {
+            ServiceError::InvalidRequest(
+                "missing CAGG mapping for avg(usage_percent) on cpu_metrics".into(),
+            )
+        })?;
+    build_stats_query_with_source(
+        plan,
+        spec,
+        "cpu_metrics_hourly",
+        "bucket",
+        &format!(
+            "CASE WHEN SUM(sample_count) = 0 THEN NULL ELSE SUM({avg_col} * sample_count)::float8 / SUM(sample_count)::float8 END"
+        ),
+    )
+}
+
+fn build_stats_query_with_source(
+    plan: &QueryPlan,
+    spec: &CpuStatsSpec,
+    table: &str,
+    time_col: &str,
+    aggregate_expr: &str,
+) -> Result<CpuStatsSql> {
     let mut clauses = Vec::new();
     let mut binds = Vec::new();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        clauses.push("timestamp >= ?".to_string());
+        clauses.push(format!("{time_col} >= ?"));
         binds.push(SqlBindValue::Timestamp(*start));
-        clauses.push("timestamp <= ?".to_string());
+        clauses.push(format!("{time_col} <= ?"));
         binds.push(SqlBindValue::Timestamp(*end));
     }
 
     for filter in &plan.filters {
-        if let Some((clause, mut values)) = build_stats_filter_clause(filter)? {
+        if let Some((clause, mut values)) =
+            build_stats_filter_clause(filter, table == "cpu_metrics_hourly")?
+        {
             clauses.push(clause);
             binds.append(&mut values);
         }
@@ -401,27 +439,30 @@ fn build_stats_query(plan: &QueryPlan, spec: &CpuStatsSpec) -> Result<CpuStatsSq
 
     let mut sql = String::from("SELECT jsonb_build_object('device_id', device_id, '");
     sql.push_str(&spec.alias);
-    sql.push_str("', AVG(usage_percent)) AS payload\nFROM cpu_metrics");
+    sql.push_str("', ");
+    sql.push_str(aggregate_expr);
+    sql.push_str(") AS payload\nFROM ");
+    sql.push_str(table);
     if !clauses.is_empty() {
         sql.push_str("\nWHERE ");
         sql.push_str(&clauses.join(" AND "));
     }
     sql.push_str("\nGROUP BY device_id");
-    sql.push_str(&build_stats_order_clause(plan, &spec.alias));
+    sql.push_str(&build_stats_order_clause(plan, &spec.alias, aggregate_expr));
     sql.push_str(&format!("\nLIMIT {} OFFSET {}", plan.limit, plan.offset));
 
     Ok(CpuStatsSql { sql, binds })
 }
 
-fn build_stats_order_clause(plan: &QueryPlan, alias: &str) -> String {
+fn build_stats_order_clause(plan: &QueryPlan, alias: &str, aggregate_expr: &str) -> String {
     if plan.order.is_empty() {
-        return "\nORDER BY AVG(usage_percent) DESC".to_string();
+        return format!("\nORDER BY {aggregate_expr} DESC");
     }
 
     let mut parts = Vec::new();
     for clause in &plan.order {
         let column = if clause.field.eq_ignore_ascii_case(alias) {
-            "AVG(usage_percent)"
+            aggregate_expr
         } else if clause.field.eq_ignore_ascii_case("device_id") {
             "device_id"
         } else {
@@ -436,13 +477,24 @@ fn build_stats_order_clause(plan: &QueryPlan, alias: &str) -> String {
     }
 
     if parts.is_empty() {
-        "\nORDER BY AVG(usage_percent) DESC".to_string()
+        format!("\nORDER BY {aggregate_expr} DESC")
     } else {
         format!("\nORDER BY {}", parts.join(", "))
     }
 }
 
-fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlBindValue>)>> {
+fn build_stats_filter_clause(
+    filter: &Filter,
+    cagg_mode: bool,
+) -> Result<Option<(String, Vec<SqlBindValue>)>> {
+    if cagg_mode {
+        return match filter.field.as_str() {
+            "host_id" => Ok(Some(build_text_clause("host_id", filter)?)),
+            "device_id" => Ok(Some(build_text_clause("device_id", filter)?)),
+            _ => Ok(None),
+        };
+    }
+
     match filter.field.as_str() {
         "gateway_id" => Ok(Some(build_text_clause("gateway_id", filter)?)),
         "agent_id" => Ok(Some(build_text_clause("agent_id", filter)?)),
@@ -456,6 +508,16 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
         "frequency_hz" => Ok(Some(build_numeric_clause("frequency_hz", filter, false)?)),
         _ => Ok(None),
     }
+}
+
+fn should_route_stats_to_cagg(plan: &QueryPlan) -> bool {
+    if !super::should_route_plan_to_hourly_cagg(plan) {
+        return false;
+    }
+
+    plan.filters
+        .iter()
+        .all(|filter| matches!(filter.field.as_str(), "device_id" | "host_id"))
 }
 
 fn build_text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
@@ -721,6 +783,46 @@ mod tests {
             sql.sql
         );
         assert_eq!(sql.binds.len(), 3, "expected time range + filter binds");
+    }
+
+    #[test]
+    fn stats_query_uses_hourly_cagg_for_large_windows() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(7);
+        let plan = QueryPlan {
+            entity: Entity::CpuMetrics,
+            filters: vec![Filter {
+                field: "device_id".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("dev-1".to_string()),
+            }],
+            order: vec![OrderClause {
+                field: "avg_cpu".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "avg(usage_percent) as avg_cpu by device_id",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let sql = build_cagg_stats_query(&plan, &spec).expect("cagg stats SQL should build");
+        assert!(
+            sql.sql.contains("FROM cpu_metrics_hourly")
+                && sql.sql.contains("avg_usage_percent")
+                && sql.sql.contains("sample_count"),
+            "unexpected cagg stats SQL: {}",
+            sql.sql
+        );
+        assert!(should_route_stats_to_cagg(&plan));
     }
 
     fn stats_plan(stats: &str, partition: &str) -> QueryPlan {
