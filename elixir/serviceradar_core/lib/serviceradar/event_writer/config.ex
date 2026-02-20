@@ -153,7 +153,14 @@ defmodule ServiceRadar.EventWriter.Config do
       %{
         name: "SFLOW_RAW",
         subject: "flows.raw.sflow",
-        processor: ServiceRadar.EventWriter.Processors.NetFlowMetrics,
+        processor: ServiceRadar.EventWriter.Processors.Flows,
+        batch_size: 50,
+        batch_timeout: 500
+      },
+      %{
+        name: "NETFLOW_RAW",
+        subject: "flows.raw.netflow",
+        processor: ServiceRadar.EventWriter.Processors.Flows,
         batch_size: 50,
         batch_timeout: 500
       }

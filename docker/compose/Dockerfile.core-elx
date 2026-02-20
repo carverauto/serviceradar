@@ -38,6 +38,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY elixir/connection ./elixir/connection
 COPY elixir/serviceradar_srql ./elixir/serviceradar_srql
 COPY elixir/serviceradar_core ./elixir/serviceradar_core
+COPY elixir/vendor ./elixir/vendor
 
 # Copy core-elx source
 COPY elixir/serviceradar_core_elx ./elixir/serviceradar_core_elx

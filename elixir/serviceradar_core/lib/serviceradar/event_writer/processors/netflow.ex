@@ -107,134 +107,77 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   end
 
   # DB connection's search_path determines the schema
+  # Produces a flat row matching the ocsf_network_activity table columns.
   defp parse_netflow(json, nats_metadata) do
     time = FieldParser.parse_timestamp(json["timestamp"])
     activity_id = OCSF.activity_network_traffic()
 
-    # Get protocol info
     protocol_num = json["protocol"]
     protocol_name = OCSF.protocol_name(protocol_num)
 
-    # Build source endpoint
-    src_endpoint =
-      OCSF.build_network_endpoint(
-        ip: FieldParser.get_field(json, "src_addr", "srcAddr") || json["sourceAddress"],
-        port: FieldParser.get_field(json, "src_port", "srcPort") || json["sourcePort"]
-      )
+    src_ip = FieldParser.get_field(json, "src_addr", "srcAddr") || json["sourceAddress"]
+    src_port = FieldParser.get_field(json, "src_port", "srcPort") || json["sourcePort"]
+    dst_ip = FieldParser.get_field(json, "dst_addr", "dstAddr") || json["destinationAddress"]
+    dst_port = FieldParser.get_field(json, "dst_port", "dstPort") || json["destinationPort"]
 
-    # Build destination endpoint
-    dst_endpoint =
-      OCSF.build_network_endpoint(
-        ip: FieldParser.get_field(json, "dst_addr", "dstAddr") || json["destinationAddress"],
-        port: FieldParser.get_field(json, "dst_port", "dstPort") || json["destinationPort"]
-      )
+    octets = json["octets"] || json["bytes"] || 0
+    packets = json["packets"] || 0
 
-    # Build traffic statistics
-    traffic = build_traffic_stats(json)
-
-    # Build observables
-    observables = build_flow_observables(json)
-
-    # Determine direction
-    {direction, direction_id} = parse_direction(json)
-
-    %{
-      # Primary key components
-      id: Ecto.UUID.bingenerate(),
-      time: time,
-
-      # OCSF Classification (required)
-      class_uid: OCSF.class_network_activity(),
-      category_uid: OCSF.category_network_activity(),
-      type_uid: OCSF.type_uid(OCSF.class_network_activity(), activity_id),
-      activity_id: activity_id,
-      severity_id: OCSF.severity_informational(),
-
-      # Content
-      message: build_traffic_message(json, protocol_name),
-      severity: OCSF.severity_name(OCSF.severity_informational()),
-      activity_name: OCSF.network_activity_name(activity_id),
-
-      # Action (allowed for observed traffic)
-      action_id: OCSF.action_allowed(),
-      action: "Allowed",
-
-      # Status
-      status_id: OCSF.status_success(),
-      status: "Success",
-      status_code: nil,
-      status_detail: nil,
-
-      # OCSF Metadata
-      metadata:
+    # Build full OCSF payload for the JSONB column
+    ocsf_payload = %{
+      "class_uid" => OCSF.class_network_activity(),
+      "category_uid" => OCSF.category_network_activity(),
+      "activity_id" => activity_id,
+      "type_uid" => OCSF.type_uid(OCSF.class_network_activity(), activity_id),
+      "severity_id" => OCSF.severity_informational(),
+      "message" => build_traffic_message(json, protocol_name),
+      "src_endpoint" => %{"ip" => src_ip, "port" => src_port},
+      "dst_endpoint" => %{"ip" => dst_ip, "port" => dst_port},
+      "traffic" => %{"bytes" => octets, "packets" => packets},
+      "protocol_name" => protocol_name,
+      "protocol_num" => protocol_num,
+      "metadata" =>
         OCSF.build_metadata(
           product_name: "NetFlowCollector",
           correlation_uid: nats_metadata[:subject]
         ),
+      "sampler_address" =>
+        FieldParser.get_field(json, "sampler_address", "samplerAddress"),
+      "unmapped" => extract_unmapped(json)
+    }
 
-      # Observables
-      observables: observables,
-
-      # Endpoints
-      src_endpoint: src_endpoint,
-      dst_endpoint: dst_endpoint,
-
-      # Connection info
-      connection_info: %{
-        sampler_address: FieldParser.get_field(json, "sampler_address", "samplerAddress"),
-        input_snmp: FieldParser.get_field(json, "input_snmp", "inputSnmp"),
-        output_snmp: FieldParser.get_field(json, "output_snmp", "outputSnmp")
-      },
-
-      # Traffic statistics
-      traffic: traffic,
-
-      # Protocol
-      protocol_name: protocol_name,
+    # Flat row matching ocsf_network_activity table columns
+    %{
+      time: time,
+      class_uid: OCSF.class_network_activity(),
+      category_uid: OCSF.category_network_activity(),
+      activity_id: activity_id,
+      type_uid: OCSF.type_uid(OCSF.class_network_activity(), activity_id),
+      severity_id: OCSF.severity_informational(),
+      src_endpoint_ip: src_ip,
+      src_endpoint_port: safe_int(src_port),
+      src_as_number: safe_int(json["src_as"]),
+      dst_endpoint_ip: dst_ip,
+      dst_endpoint_port: safe_int(dst_port),
+      dst_as_number: safe_int(json["dst_as"]),
       protocol_num: protocol_num,
-
-      # Direction
-      direction: direction,
-      direction_id: direction_id,
-
-      # Duration (not typically in NetFlow v5, may be in IPFIX)
-      duration: nil,
-
-      # Device (the flow exporter/router)
-      device:
-        OCSF.build_device(
-          uid: FieldParser.get_field(json, "device_id", "deviceId"),
-          name: FieldParser.get_field(json, "device_id", "deviceId")
-        ),
-
-      # Actor (the gateway/collector)
-      actor:
-        OCSF.build_actor(
-          app_name: "ServiceRadar NetFlow Collector",
-          app_ver: "1.0.0"
-        ),
-
-      # Scan-specific fields (not applicable for NetFlow)
-      scan_type: nil,
-      ports_scanned: [],
-      ports_open: [],
-      icmp_available: nil,
-      response_time_ns: nil,
-
-      # Unmapped data
-      unmapped: extract_unmapped(json),
-
-      # Raw data
-      raw_data: nil,
-
-      # Gateway/Agent tracking
-      gateway_id: FieldParser.get_field(json, "gateway_id", "gatewayId"),
-      agent_id: FieldParser.get_field(json, "agent_id", "agentId"),
-
-      # Record timestamp
+      protocol_name: protocol_name,
+      tcp_flags: json["tcp_flags"],
+      bytes_total: octets,
+      packets_total: packets,
+      bytes_in: nil,
+      bytes_out: nil,
+      sampler_address:
+        FieldParser.get_field(json, "sampler_address", "samplerAddress"),
+      ocsf_payload: ocsf_payload,
+      partition: "default",
       created_at: DateTime.utc_now()
     }
   end
+
+  defp safe_int(nil), do: nil
+  defp safe_int(v) when is_integer(v), do: v
+  defp safe_int(_), do: nil
 
   defp build_traffic_stats(json) do
     octets = json["octets"] || json["bytes"]

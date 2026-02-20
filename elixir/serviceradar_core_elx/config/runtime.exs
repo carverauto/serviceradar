@@ -533,10 +533,7 @@ if config_env() == :prod do
   if event_writer_enabled do
     event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
     if event_writer_creds in [nil, ""] do
-      raise """
-      EVENT_WRITER_NATS_CREDS_FILE is required when EVENT_WRITER_ENABLED=true.
-      Generate or provision JWT credentials and set EVENT_WRITER_NATS_CREDS_FILE.
-      """
+      IO.puts("[EventWriter] No NATS creds file set; connecting without JWT auth")
     end
 
     nats_url = System.get_env("EVENT_WRITER_NATS_URL", "nats://localhost:4222")
@@ -594,6 +591,20 @@ if config_env() == :prod do
           processor: ServiceRadar.EventWriter.Processors.Logs,
           batch_size: 100,
           batch_timeout: 1_000
+        },
+        %{
+          name: "SFLOW_RAW",
+          subject: "flows.raw.sflow",
+          processor: ServiceRadar.EventWriter.Processors.Flows,
+          batch_size: 50,
+          batch_timeout: 500
+        },
+        %{
+          name: "NETFLOW_RAW",
+          subject: "flows.raw.netflow",
+          processor: ServiceRadar.EventWriter.Processors.Flows,
+          batch_size: 50,
+          batch_timeout: 500
         }
       ]
   end

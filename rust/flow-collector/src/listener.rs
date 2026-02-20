@@ -6,8 +6,7 @@ use crate::sflow::SflowHandler;
 use crate::flowpb::FlowMessage;
 use anyhow::Result;
 use log::{error, info, warn};
-use prost::Message;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -52,6 +51,51 @@ pub fn filter_and_track_flows(
         .fetch_add(valid.len() as u64, Ordering::Relaxed);
 
     valid
+}
+
+/// Convert raw IP bytes to a string representation.
+fn bytes_to_ip(bytes: &[u8]) -> Option<String> {
+    match bytes.len() {
+        4 => {
+            let addr = Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]);
+            Some(IpAddr::V4(addr).to_string())
+        }
+        16 => {
+            let octets: [u8; 16] = bytes.try_into().ok()?;
+            let addr = Ipv6Addr::from(octets);
+            Some(IpAddr::V6(addr).to_string())
+        }
+        _ => None,
+    }
+}
+
+/// Serialize a FlowMessage to JSON bytes for the Elixir EventWriter.
+pub fn flow_to_json(msg: &FlowMessage) -> Option<Vec<u8>> {
+    let src_addr = bytes_to_ip(&msg.src_addr).unwrap_or_default();
+    let dst_addr = bytes_to_ip(&msg.dst_addr).unwrap_or_default();
+    let sampler_addr = bytes_to_ip(&msg.sampler_address).unwrap_or_default();
+
+    let json = serde_json::json!({
+        "src_addr": src_addr,
+        "dst_addr": dst_addr,
+        "src_port": msg.src_port,
+        "dst_port": msg.dst_port,
+        "protocol": msg.proto,
+        "packets": msg.packets,
+        "bytes": msg.bytes,
+        "sampling_rate": msg.sampling_rate,
+        "sampler_address": sampler_addr,
+        "input_snmp": msg.in_if,
+        "output_snmp": msg.out_if,
+        "tcp_flags": msg.tcp_flags,
+        "ip_tos": msg.ip_tos,
+        "src_as": msg.src_as,
+        "dst_as": msg.dst_as,
+        "protocol_name": msg.protocol_name,
+        "timestamp": msg.time_received_ns,
+    });
+
+    serde_json::to_vec(&json).ok()
 }
 
 pub trait FlowHandler: Send + Sync {
@@ -104,11 +148,13 @@ impl Listener {
                     let messages = self.handler.parse_datagram(&buf[..len], len, peer_addr);
 
                     for flow_msg in messages {
-                        let mut encoded = Vec::new();
-                        if let Err(e) = flow_msg.encode(&mut encoded) {
-                            error!("[{}] Failed to encode protobuf: {}", protocol, e);
-                            continue;
-                        }
+                        let encoded = match flow_to_json(&flow_msg) {
+                            Some(json) => json,
+                            None => {
+                                error!("[{}] Failed to encode JSON", protocol);
+                                continue;
+                            }
+                        };
 
                         match self.tx.try_send((self.subject.clone(), encoded)) {
                             Ok(_) => {}
