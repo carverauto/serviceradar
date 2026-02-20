@@ -13,7 +13,7 @@ PACKAGES = {
         "rpm_tags": [],
         "files": [
             {
-                "src": "//web-ng:release_tar",
+                "src": "//elixir/web-ng:release_tar",
                 "dest": "/usr/local/share/serviceradar-web-ng/serviceradar-web-ng.tar.gz",
                 "mode": "0644",
             },

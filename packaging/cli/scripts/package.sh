@@ -37,7 +37,7 @@ mkdir -p usr/local/bin
 echo "Building Go binary..."
 
 # Build Go binary
-cd "${BASE_DIR}/cmd/cli"
+cd "${BASE_DIR}/go/cmd/cli"
 GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-cli-build/usr/local/bin/serviceradar-cli"
 cd "${BASE_DIR}"
 

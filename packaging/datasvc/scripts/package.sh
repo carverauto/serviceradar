@@ -39,7 +39,7 @@ mkdir -p lib/systemd/system
 echo "Building Go binary..."
 
 # Build Go binary
-cd "${BASE_DIR}/cmd/data-services"
+cd "${BASE_DIR}/go/cmd/data-services"
 GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-datasvc-build/usr/local/bin/serviceradar-datasvc"
 cd "${BASE_DIR}"
 

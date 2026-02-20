@@ -39,7 +39,7 @@ mkdir -p lib/systemd/system
 echo "Building event writer binary..."
 
 # Build Go binary
-cd "${BASE_DIR}/cmd/consumers/db-event-writer"
+cd "${BASE_DIR}/go/cmd/consumers/db-event-writer"
 GOOS=linux GOARCH=amd64 go build -o "../../../serviceradar-event-writer-build/usr/local/bin/serviceradar-event-writer"
 cd "${BASE_DIR}"
 

@@ -406,11 +406,11 @@ tar -czf "$@" -C "$${ROOT}" .
 
 genrule(
     name = "web_ng_release_rootfs_amd64",
-    srcs = ["//web-ng:release_tar"],
+    srcs = ["//elixir/web-ng:release_tar"],
     outs = ["web_ng_release_rootfs_amd64.tar"],
     cmd = """
 set -euo pipefail
-TAR=$(location //web-ng:release_tar)
+TAR=$(location //elixir/web-ng:release_tar)
 ROOT=$(@D)/rootfs
 rm -rf "$${ROOT}"
 mkdir -p "$${ROOT}/app"

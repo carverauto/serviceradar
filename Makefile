@@ -180,7 +180,7 @@ lint: get-golangcilint ## Run linting checks
 	@cd rust/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/srql && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy --all-targets -- -D warnings
 	@echo "$(COLOR_BOLD)Running web-ng Credo$(COLOR_RESET)"
-	@cd web-ng && mix credo --all
+	@cd elixir/web-ng && mix credo --all
 	@echo "$(COLOR_BOLD)Running serviceradar_core Credo$(COLOR_RESET)"
 	@cd elixir/serviceradar_core && mix credo --strict --mute-exit-status
 
@@ -204,7 +204,7 @@ test: $(TEST_PREREQS) ## Run all tests with coverage
 	  *) ENV_FILE="$(CURDIR)/$${ENV_FILE}" ;; \
 	esac; \
 	if [ -f "$${ENV_FILE}" ]; then set -a; . "$${ENV_FILE}"; set +a; fi; \
-	cd web-ng && mix precommit
+	cd elixir/web-ng && mix precommit
 
 .PHONY: test-integration
 test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG fixture)
