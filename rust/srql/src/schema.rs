@@ -136,6 +136,27 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    bmp_routing_events (time, id) {
+        time -> Timestamptz,
+        id -> Uuid,
+        event_type -> Text,
+        severity_id -> Nullable<Int4>,
+        router_id -> Nullable<Text>,
+        router_ip -> Nullable<Text>,
+        peer_ip -> Nullable<Text>,
+        peer_asn -> Nullable<Int8>,
+        local_asn -> Nullable<Int8>,
+        prefix -> Nullable<Text>,
+        message -> Nullable<Text>,
+        metadata -> Jsonb,
+        raw_data -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     ocsf_events (time, id) {
         time -> Timestamptz,
         id -> Uuid,
