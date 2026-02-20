@@ -34,17 +34,17 @@ def build_sflow_v5_datagram(agent_ip, seq, samples):
 def build_flow_sample(src_ip, dst_ip, src_port, dst_port, proto, byte_count, sampling_rate=512):
     """Build an sFlow v5 flow sample with a sampled IPv4 record."""
     # Sampled IPv4 record (enterprise=0, format=3)
+    # All fields are 4-byte unsigned ints per sFlow v5 XDR spec
     ipv4_record = struct.pack(
-        "!IIIIIHHHBB",
+        "!IIIIIIII",
         byte_count,   # length
         proto,        # protocol
         struct.unpack("!I", socket.inet_aton(src_ip))[0],
         struct.unpack("!I", socket.inet_aton(dst_ip))[0],
-        src_port,     # src port
-        dst_port,     # dst port
-        0,            # tcp_flags
-        0,            # tos
-        0, 0,         # padding
+        src_port,     # src port (uint32)
+        dst_port,     # dst port (uint32)
+        0,            # tcp_flags (uint32)
+        0,            # tos (uint32)
     )
 
     # Flow record header: enterprise_format(4) + length(4)

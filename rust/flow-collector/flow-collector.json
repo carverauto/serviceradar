@@ -1,5 +1,5 @@
 {
-  "nats_url": "nats://localhost:4222",
+  "nats_url": "nats://nats:4222",
   "stream_name": "events",
   "channel_size": 10000,
   "batch_size": 100,
