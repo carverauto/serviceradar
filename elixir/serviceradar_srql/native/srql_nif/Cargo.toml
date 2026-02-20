@@ -17,6 +17,6 @@ serde_json = "1.0.132"
 srql = { path = "../../../../rust/srql" }
 
 [build-dependencies]
-capnpc = "0.21"
+capnpc = "0.25.0"
 
 [workspace]
