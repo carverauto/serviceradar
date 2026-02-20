@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   @nf_dims_ordered [
     {"Protocol (group)", "protocol_group"},
     {"Application", "app"},
+    {"Flow source", "flow_source"},
     {"Dest port", "dst_port"},
     {"Source IP", "src_ip"},
     {"Dest IP", "dst_ip"},
@@ -898,6 +899,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20 text-right">
               Proto
             </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-16 text-right">
+              Source
+            </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-28 text-right">
               Packets / Bytes
             </th>
@@ -1013,6 +1017,23 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                     {app}
                   </div>
                 </div>
+              </td>
+              <td class="whitespace-nowrap text-xs text-right font-mono align-top">
+                <% flow_src = flow_get_in(flow, ["ocsf_payload", "flow_source"]) %>
+                <.ui_badge
+                  :if={is_binary(flow_src) and flow_src != "Unknown"}
+                  variant={if flow_src == "sFlow", do: "info", else: "success"}
+                  size="xs"
+                  class="font-mono"
+                >
+                  {flow_src}
+                </.ui_badge>
+                <span
+                  :if={!is_binary(flow_src) or flow_src == "Unknown"}
+                  class="text-base-content/40"
+                >
+                  —
+                </span>
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">
                 <% packets = flow_get(flow, ["packets_total", "packets"]) %>

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-flowparser-sflow = "0.1"
+flowparser-sflow = "0.2"
 netflow_parser = { version = "0.9.0", features = ["parse_unknown_fields"] }
 prost = "0.13"
 async-nats = "0.42"
