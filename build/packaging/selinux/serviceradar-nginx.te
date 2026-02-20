@@ -1,0 +1,10 @@
+module serviceradar-nginx 1.0;
+
+require {
+    type httpd_t;
+    type unreserved_port_t;
+    class tcp_socket name_connect;
+}
+
+#============= httpd_t ==============
+allow httpd_t unreserved_port_t:tcp_socket name_connect;

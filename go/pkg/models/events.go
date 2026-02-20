@@ -1,0 +1,102 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package models
+
+import (
+	"fmt"
+	"time"
+)
+
+var (
+	errNATSURLRequired = fmt.Errorf("nats url is required")
+)
+
+// NATSConfig configures NATS connectivity
+type NATSConfig struct {
+	URL       string          `json:"url"`
+	Domain    string          `json:"domain,omitempty"`
+	Security  *SecurityConfig `json:"security,omitempty"`
+	CredsFile string          `json:"creds_file,omitempty"`
+}
+
+// Validate ensures the NATS configuration is valid
+func (c *NATSConfig) Validate() error {
+	if c.URL == "" {
+		return errNATSURLRequired
+	}
+
+	return nil
+}
+
+// EventsConfig configures the event publishing system
+type EventsConfig struct {
+	Enabled    bool     `json:"enabled"`
+	StreamName string   `json:"stream_name"`
+	Subjects   []string `json:"subjects"`
+}
+
+// Validate ensures the events configuration is valid
+func (c *EventsConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+
+	if c.StreamName == "" {
+		c.StreamName = "events" // Default stream name
+	}
+
+	if len(c.Subjects) == 0 {
+		// Default subjects for events stream
+		c.Subjects = []string{
+			"events.ocsf.processed",
+			"logs.>",
+			"otel.traces.>",
+			"otel.metrics.>",
+		}
+	}
+
+	return nil
+}
+
+// GatewayHealthEventData represents the data payload for gateway health events.
+type GatewayHealthEventData struct {
+	GatewayID      string    `json:"gateway_id"`
+	PreviousState  string    `json:"previous_state"`
+	CurrentState   string    `json:"current_state"`
+	Timestamp      time.Time `json:"timestamp"`
+	LastSeen       time.Time `json:"last_seen"`
+	Host           string    `json:"host,omitempty"`
+	RemoteAddr     string    `json:"remote_addr,omitempty"`
+	SourceIP       string    `json:"source_ip,omitempty"`
+	Partition      string    `json:"partition,omitempty"`
+	AlertSent      bool      `json:"alert_sent"`
+	RecoveryReason string    `json:"recovery_reason,omitempty"`
+}
+
+// DeviceLifecycleEventData represents lifecycle changes for a device (manual delete, restore, etc).
+type DeviceLifecycleEventData struct {
+	DeviceID   string            `json:"device_id"`
+	Partition  string            `json:"partition,omitempty"`
+	Action     string            `json:"action"` // e.g. deleted, restored
+	Actor      string            `json:"actor,omitempty"`
+	Reason     string            `json:"reason,omitempty"`
+	Timestamp  time.Time         `json:"timestamp"`
+	Severity   string            `json:"severity,omitempty"`
+	Level      int32             `json:"level,omitempty"`
+	RemoteAddr string            `json:"remote_addr,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+}

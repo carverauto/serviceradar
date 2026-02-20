@@ -1,0 +1,11 @@
+package(default_visibility = ["//visibility:public"])
+
+config_setting(
+    name = "remote_executor",
+    define_values = {"EXECUTOR": "remote"},
+)
+
+config_setting(
+    name = "linux",
+    constraint_values = ["@platforms//os:linux"],
+)

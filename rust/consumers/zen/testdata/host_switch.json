@@ -1,0 +1,57 @@
+{
+  "nodes": [
+    {
+      "id": "23d19fe0-d520-438c-9fae-eaac7effb03f",
+      "type": "inputNode",
+      "position": { "x": 80, "y": 150 },
+      "name": "Request"
+    },
+    {
+      "id": "c616a8c5-fbf3-45c0-b5d5-0e539542325c",
+      "type": "switchNode",
+      "position": { "x": 300, "y": 150 },
+      "name": "Host Switch",
+      "content": {
+        "statements": [
+          { "id": "36766a9c-91a2-4e42-ab61-b2adaa802170", "condition": "host == 'tonka01'" },
+          { "id": "2c58954e-eca8-4f42-b005-dee2380b8dd3", "condition": "" }
+        ]
+      }
+    },
+    {
+      "id": "5c3a0503-d1f5-49b7-947f-f386e3037dfa",
+      "type": "expressionNode",
+      "position": { "x": 560, "y": 120 },
+      "name": "Known Device",
+      "content": {
+        "expressions": [
+          { "id": "3d104576-91dc-4104-8739-b9224021c552", "key": "device", "value": "'unifi'" }
+        ]
+      }
+    },
+    {
+      "id": "06b6eed5-529c-48bb-bdb3-45e832729f67",
+      "type": "expressionNode",
+      "position": { "x": 560, "y": 240 },
+      "name": "Unknown Device",
+      "content": {
+        "expressions": [
+          { "id": "ec61085f-f8c2-42e0-9fbe-3dc702714b52", "key": "device", "value": "'other'" }
+        ]
+      }
+    },
+    {
+      "id": "c5494e63-4bbd-4562-b347-909a21f3288d",
+      "type": "outputNode",
+      "position": { "x": 820, "y": 180 },
+      "name": "Response"
+    }
+  ],
+  "edges": [
+    { "id": "c6e10fab-1038-48c9-8ead-aeab189a3bee", "sourceId": "23d19fe0-d520-438c-9fae-eaac7effb03f", "type": "edge", "targetId": "c616a8c5-fbf3-45c0-b5d5-0e539542325c" },
+    { "id": "04867e89-df5e-4e66-9265-067ade65e342", "sourceId": "c616a8c5-fbf3-45c0-b5d5-0e539542325c", "type": "edge", "targetId": "5c3a0503-d1f5-49b7-947f-f386e3037dfa", "sourceHandle": "36766a9c-91a2-4e42-ab61-b2adaa802170" },
+    { "id": "65a28212-f634-4dca-8cbb-136ca27cf22d", "sourceId": "c616a8c5-fbf3-45c0-b5d5-0e539542325c", "type": "edge", "targetId": "06b6eed5-529c-48bb-bdb3-45e832729f67", "sourceHandle": "2c58954e-eca8-4f42-b005-dee2380b8dd3" },
+    { "id": "2ee0c6c1-8017-4240-81b3-8330022ae90f", "sourceId": "5c3a0503-d1f5-49b7-947f-f386e3037dfa", "type": "edge", "targetId": "c5494e63-4bbd-4562-b347-909a21f3288d" },
+    { "id": "9a7d8ed4-9aab-4ed0-8fef-3ff59629642e", "sourceId": "06b6eed5-529c-48bb-bdb3-45e832729f67", "type": "edge", "targetId": "c5494e63-4bbd-4562-b347-909a21f3288d" }
+  ]
+}

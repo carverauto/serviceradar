@@ -1,0 +1,41 @@
+{
+  "checkers_dir": "/etc/serviceradar/checkers",
+  "agent_id": "default-agent",
+  "agent_name": "127.0.0.1",
+  "host_ip": "PLACEHOLDER_HOST_IP",
+  "partition": "default",
+  "gateway_addr": "agent-gateway:50052",
+  "push_interval": "30s",
+  "status_debounce_interval": "30s",
+  "status_heartbeat_interval": "5m",
+  "sync_runtime_enabled": true,
+  "gateway_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "agent-gateway",
+    "role": "client",
+    "tls": {
+      "cert_file": "agent.pem",
+      "key_file": "agent-key.pem",
+      "ca_file": "root.pem"
+    }
+  },
+  "logging": {
+    "level": "info",
+    "debug": false,
+    "output": "stdout",
+    "time_format": "",
+    "otel": {
+      "enabled": false,
+      "endpoint": "",
+      "service_name": "serviceradar-agent",
+      "batch_timeout": "5s",
+      "insecure": false,
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/agent.pem",
+        "key_file": "/etc/serviceradar/certs/agent-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      }
+    }
+  }
+}

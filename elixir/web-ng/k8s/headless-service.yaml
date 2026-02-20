@@ -1,0 +1,73 @@
+# Headless service for ServiceRadar ERTS cluster discovery
+# Required for Kubernetes DNS-based cluster strategy
+#
+# This service enables libcluster's Kubernetes strategy to discover
+# pod IPs via DNS queries to: serviceradar-headless.serviceradar.svc.cluster.local
+#
+# Deploy with: kubectl apply -f k8s/headless-service.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-headless
+  namespace: serviceradar
+  labels:
+    app: serviceradar
+    component: cluster
+spec:
+  clusterIP: None  # Headless service - no cluster IP
+  selector:
+    app: serviceradar
+  ports:
+    # EPMD port for Erlang Port Mapper Daemon
+    - name: epmd
+      port: 4369
+      targetPort: 4369
+      protocol: TCP
+    # Erlang distribution port range
+    # Configure in vm.args: -kernel inet_dist_listen_min 9100 inet_dist_listen_max 9155
+    - name: distribution
+      port: 9100
+      targetPort: 9100
+      protocol: TCP
+  publishNotReadyAddresses: true  # Include pods not yet ready in DNS
+
+---
+# Secret template for node TLS certificates
+# Create the actual secret with your certificates:
+# kubectl create secret generic serviceradar-node-tls \
+#   --from-file=ca.crt=ca.crt \
+#   --from-file=node.crt=node.crt \
+#   --from-file=node.key=node.key \
+#   -n serviceradar
+apiVersion: v1
+kind: Secret
+metadata:
+  name: serviceradar-node-tls
+  namespace: serviceradar
+  labels:
+    app: serviceradar
+    component: cluster
+type: Opaque
+data:
+  # Base64 encoded certificate files
+  # ca.crt: <base64-encoded-ca-certificate>
+  # node.crt: <base64-encoded-node-certificate>
+  # node.key: <base64-encoded-node-private-key>
+
+---
+# Secret for Erlang distribution cookie
+# Create with: kubectl create secret generic serviceradar-cookie \
+#   --from-literal=cookie=$(openssl rand -hex 32) \
+#   -n serviceradar
+apiVersion: v1
+kind: Secret
+metadata:
+  name: serviceradar-cookie
+  namespace: serviceradar
+  labels:
+    app: serviceradar
+type: Opaque
+data:
+  # Base64 encoded cookie value
+  # cookie: <base64-encoded-cookie>

@@ -1,0 +1,3 @@
+# Placeholder eBPF object file
+# In a real implementation, this would be compiled eBPF bytecode
+# generated from the eBPF program in src/bpf/profiler.rs

@@ -1,0 +1,19 @@
+{
+  "checkers_dir": "C:\serviceradar\checkers",
+  "listen_addr": ":50051",
+  "service_type": "grpc",
+  "service_name": "AgentService",
+  "agent_id": "default-agent",
+  "agent_name": "127.0.0.1",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "C:\serviceradar\certs",
+    "server_name": "127.0.0.1",
+    "role": "agent",
+    "tls": {
+      "cert_file": "agent.pem",
+      "key_file": "agent-key.pem",
+      "ca_file": "root.pem"
+    }
+  }
+}

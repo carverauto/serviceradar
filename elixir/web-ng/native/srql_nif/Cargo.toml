@@ -1,0 +1,16 @@
+[package]
+name = "srql_nif"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "srql_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0.89"
+rustler = "0.36.1"
+serde_json = "1.0.132"
+srql = { path = "../../../rust/srql" }
+
+[workspace]
