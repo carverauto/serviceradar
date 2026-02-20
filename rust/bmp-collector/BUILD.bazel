@@ -32,9 +32,19 @@ if ! command -v cargo >/dev/null 2>&1; then
   echo "cargo not found in PATH=$$PATH" >&2
   exit 127
 fi
+if ! command -v rustc >/dev/null 2>&1; then
+  echo "rustc not found in PATH=$$PATH" >&2
+  exit 127
+fi
+
+# Make cargo/rustc resolution deterministic inside Bazel's action sandbox.
+export CARGO="$$(command -v cargo)"
+export RUSTC="$$(command -v rustc)"
+
 SRC_MANIFEST="$(location //arancini:Cargo.toml)"
 SRC_ROOT="$${SRC_MANIFEST%/Cargo.toml}"
 WORKDIR="$(@D)/arancini-work"
+TARGET_DIR="$(@D)/cargo-target"
 rm -rf "$$WORKDIR"
 mkdir -p "$$WORKDIR"
 cp "$$SRC_ROOT/Cargo.toml" "$$WORKDIR/Cargo.toml"
@@ -43,7 +53,10 @@ cp "$$SRC_ROOT/README.md" "$$WORKDIR/README.md"
 cp "$$SRC_ROOT/LICENSE" "$$WORKDIR/LICENSE"
 cp -R "$$SRC_ROOT/arancini" "$$WORKDIR/arancini"
 cp -R "$$SRC_ROOT/arancini-lib" "$$WORKDIR/arancini-lib"
-CARGO_TARGET_DIR="$(@D)/cargo-target" \\
+
+# Avoid stale toolchain/cargo state between Bazel invocations.
+rm -rf "$$TARGET_DIR"
+CARGO_TARGET_DIR="$$TARGET_DIR" \\
   cargo build --release --manifest-path "$$WORKDIR/Cargo.toml" -p arancini
 cp "$(@D)/cargo-target/release/arancini" "$@"
 chmod 0755 "$@"
