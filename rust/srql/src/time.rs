@@ -32,7 +32,11 @@ pub enum TimeFilterSpec {
 
 impl TimeFilterSpec {
     pub fn resolve(&self, now: DateTime<Utc>) -> Result<TimeRange> {
-        let max_duration = Duration::days(MAX_TIME_RANGE_DAYS);
+        self.resolve_with_max_days(now, MAX_TIME_RANGE_DAYS)
+    }
+
+    pub fn resolve_with_max_days(&self, now: DateTime<Utc>, max_days: i64) -> Result<TimeRange> {
+        let max_duration = Duration::days(max_days);
         let range = match self {
             TimeFilterSpec::RelativeMinutes(minutes) => TimeRange {
                 start: now - Duration::minutes(*minutes),
@@ -97,7 +101,7 @@ impl TimeFilterSpec {
         let span = range.end.signed_duration_since(range.start);
         if span > max_duration {
             return Err(ServiceError::InvalidRequest(format!(
-                "time range cannot exceed {MAX_TIME_RANGE_DAYS} days"
+                "time range cannot exceed {max_days} days"
             )));
         }
         Ok(range)
@@ -182,6 +186,7 @@ fn parse_numeric_suffix(value: &str) -> Option<TimeFilterSpec> {
         }
         "h" | "hour" | "hours" => Some(TimeFilterSpec::RelativeHours(amount)),
         "d" | "day" | "days" => Some(TimeFilterSpec::RelativeDays(amount)),
+        "y" | "year" | "years" => Some(TimeFilterSpec::RelativeDays(amount * 365)),
         _ => None,
     }
 }
