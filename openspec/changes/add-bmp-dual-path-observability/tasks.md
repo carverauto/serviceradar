@@ -11,7 +11,7 @@
 
 ## 3. Database Query Performance
 - [x] 3.1 Add or validate indexes on `platform.bmp_routing_events` for investigative filter patterns.
-- [ ] 3.2 Verify retention policy and query plans remain acceptable for expected BMP volume.
+- [x] 3.2 Verify retention policy and query plans remain acceptable for expected BMP volume.
 
 ## 4. UI: Observability BMP
 - [x] 4.1 Add a BMP observability page/route in web-ng using SRQL (`in:bmp_events`).
@@ -19,6 +19,6 @@
 - [x] 4.3 Add summary counters for recent BMP activity (e.g., route updates/withdraws, peer transitions).
 
 ## 5. Correlation and Validation
-- [ ] 5.1 Verify raw BMP rows and promoted OCSF rows preserve stable correlation identifiers/topology keys.
-- [ ] 5.2 Validate end-to-end flow in `demo` with active GoBGP feed (raw BMP present, curated OCSF present, no OCSF flood).
-- [ ] 5.3 Run `openspec validate add-bmp-dual-path-observability --strict`.
+- [x] 5.1 Verify raw BMP rows and promoted OCSF rows preserve stable correlation identifiers/topology keys.
+- [x] 5.2 Validate end-to-end flow in `demo` with active GoBGP feed (raw BMP present, curated OCSF present, no OCSF flood).
+- [x] 5.3 Run `openspec validate add-bmp-dual-path-observability --strict`.
