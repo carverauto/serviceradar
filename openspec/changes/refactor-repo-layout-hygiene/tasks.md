@@ -18,11 +18,11 @@
 - [x] 2.7 Remove now-empty legacy directories after each move wave is validated.
 
 ## 3. Tooling and Build Parity
-- [ ] 3.1 Update Bazel BUILD/MODULE references for relocated paths.
+- [x] 3.1 Update Bazel BUILD/MODULE references for relocated paths.
 - [x] 3.2 Update `Makefile` and scripts for new canonical paths.
 - [x] 3.3 Update Go module/workspace configuration and imports for relocated code.
 - [x] 3.4 Update Elixir project references and release/build config for moved apps.
-- [ ] 3.5 Remove dead scripts and obsolete path references after replacement paths are active.
+- [x] 3.5 Remove dead scripts and obsolete path references after replacement paths are active.
 
 ## 4. Validation and Documentation
 - [ ] 4.1 Run language-specific and repo-wide validation (`make test`, targeted Bazel, Mix compile/tests, cargo checks where affected).

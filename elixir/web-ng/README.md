@@ -24,10 +24,10 @@ The repo’s `docker-compose.yml` publishes CNPG on `${CNPG_PUBLIC_BIND:-127.0.0
    - Find the cert volume: `docker volume ls | rg 'cert-data'`
    - Copy out `root.pem`, `workstation.pem`, `workstation-key.pem` from that volume.
 
-3. On your workstation, point `web-ng/` at CNPG:
+3. On your workstation, point `elixir/web-ng/` at CNPG:
 
 ```bash
-cd web-ng
+cd elixir/web-ng
 export CNPG_HOST=192.168.2.134
 export CNPG_PORT=5455
 export CNPG_DATABASE=serviceradar

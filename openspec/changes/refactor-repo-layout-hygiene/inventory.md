@@ -153,6 +153,19 @@ These directories are not part of repo-layout cleanup execution unless separatel
 - Pending (Wave 5 remainder):
   - Evaluate `alias/` relocation/retirement strategy.
   - Keep `third_party/` at root unless compatibility-safe relocation is proven.
+- Completed (2026-02-20): goflow2 retirement cleanup
+  - Removed `goflow2` from active packaging metadata in `build/packaging/components.json`:
+    - deleted component definition (`name: goflow2`)
+    - removed `goflow2` from shared certificate component list
+  - Removed goflow2 packaging artifacts:
+    - deleted `build/packaging/goflow2/`
+    - deleted `build/packaging/specs/serviceradar-goflow2.spec`
+    - deleted `docker/rpm/Dockerfile.rpm.goflow2`
+  - Updated active docs to remove goflow2 references:
+    - `docs/CNCF/CNCF_DAY0.md`
+- Validation status:
+  - Static scan confirms no remaining non-archived `goflow2` / `serviceradar-goflow2` references (excluding changelog/LF artifacts).
+  - `jq empty build/packaging/components.json`
 - Assessed (2026-02-20): `alias/` relocation risk
   - Current coupling remains high (`//alias:*` referenced in active non-archived source/build files across Go command BUILD targets and docs).
   - Decision for this wave: keep `alias/` at root for compatibility; treat migration/retirement as a separate follow-up change with explicit Bazel transition plan.

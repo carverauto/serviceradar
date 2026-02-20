@@ -22,13 +22,13 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'web-ng/**'
+      - 'elixir/web-ng/**'
       - '.github/workflows/web-ng-lint.yml'
       - '.tool-versions'
   pull_request:
     branches: [ main ]
     paths:
-      - 'web-ng/**'
+      - 'elixir/web-ng/**'
       - '.github/workflows/web-ng-lint.yml'
       - '.tool-versions'
 
@@ -38,7 +38,7 @@ jobs:
     runs-on: arc-runner-set
     defaults:
       run:
-        working-directory: web-ng
+        working-directory: elixir/web-ng
 
     steps:
       - uses: actions/checkout@v6

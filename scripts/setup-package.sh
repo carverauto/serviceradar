@@ -541,7 +541,7 @@ EOF
                 # This ensures all config files, scripts, systemd services, etc. are available
                 if [ -d "${BASE_DIR}/build/packaging/${component}" ]; then
                     echo "Copying build/packaging/${component} to SOURCES..."
-                    mkdir -p "${RPMBUILD_DIR}/SOURCES/packaging"
+                    mkdir -p "${RPMBUILD_DIR}/SOURCES/build/packaging"
                     cp -r "${BASE_DIR}/build/packaging/${component}" "${RPMBUILD_DIR}/SOURCES/build/packaging/"
                 fi
 
