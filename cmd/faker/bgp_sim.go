@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -19,6 +20,12 @@ import (
 const (
 	defaultGobgpStatsTimeoutSeconds = 600
 	defaultGobgpReadyWait           = 2 * time.Second
+)
+
+var (
+	errGobgpShutdownTimeout = errors.New("timeout waiting for gobgpd shutdown")
+	errBinaryPathEmpty      = errors.New("binary path is empty")
+	errBinaryNotFound       = errors.New("binary not found in PATH")
 )
 
 type gobgpRunner struct {
@@ -242,7 +249,7 @@ func (r *gobgpRunner) start() error {
 		return nil
 	}
 
-	cmd := exec.Command(r.cfg.GobgpBinary, "--config-file", r.configPath)
+	cmd := exec.CommandContext(context.Background(), r.cfg.GobgpBinary, "--config-file", r.configPath)
 	cmd.Dir = r.workDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -285,7 +292,7 @@ func (r *gobgpRunner) stop() error {
 	case <-time.After(5 * time.Second):
 		_ = r.cmd.Process.Kill()
 		r.cmd = nil
-		return fmt.Errorf("timeout waiting for gobgpd shutdown")
+		return errGobgpShutdownTimeout
 	}
 }
 
@@ -370,7 +377,7 @@ func splitHostPort(addr string) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	port, err := net.LookupPort("tcp", portStr)
+	port, err := (&net.Resolver{}).LookupPort(context.Background(), "tcp", portStr)
 	if err != nil {
 		return "", 0, err
 	}
@@ -379,11 +386,11 @@ func splitHostPort(addr string) (string, int, error) {
 
 func ensureGoBGPBinary(binary string) error {
 	if strings.TrimSpace(binary) == "" {
-		return fmt.Errorf("binary path is empty")
+		return errBinaryPathEmpty
 	}
 	_, err := exec.LookPath(binary)
 	if err != nil {
-		return fmt.Errorf("%s not found in PATH", binary)
+		return fmt.Errorf("%w: %s", errBinaryNotFound, binary)
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   """
 
   require Logger
+  alias Jetstream.API.Util
 
   @default_ack_wait_ns 30_000_000_000
   @default_max_ack_pending 5_000
@@ -43,41 +44,14 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     domain = Keyword.get(opts, :domain)
 
     case find_streams_by_subject(connection_ref, subject, domain) do
-      {:ok, []} when is_binary(requested) and requested != "" ->
-        {:ok, requested}
-
       {:ok, []} ->
-        {:error, {:stream_not_found_for_subject, subject}}
-
-      {:ok, streams} when is_binary(requested) and requested != "" ->
-        if requested in streams do
-          {:ok, requested}
-        else
-          Logger.warning("Requested stream not matched by subject; using discovered stream",
-            requested_stream: requested,
-            subject: subject,
-            discovered_stream: hd(streams)
-          )
-
-          {:ok, hd(streams)}
-        end
+        resolve_empty_streams(requested, subject)
 
       {:ok, streams} ->
-        {:ok, hd(streams)}
-
-      {:error, _reason} = error when is_binary(requested) and requested != "" ->
-        fallback_stream = normalize_stream_name(requested)
-
-        Logger.warning("Failed to resolve stream by subject; falling back to configured stream",
-          requested_stream: fallback_stream,
-          subject: subject,
-          reason: inspect(error)
-        )
-
-        {:ok, fallback_stream}
+        resolve_discovered_streams(requested, subject, streams)
 
       {:error, _reason} = error ->
-        error
+        resolve_discovery_error(requested, subject, error)
     end
   end
 
@@ -85,7 +59,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     payload = Jason.encode!(%{subject: subject})
     topic = "#{js_api(domain)}.STREAM.NAMES"
 
-    case Jetstream.API.Util.request(connection_ref, topic, payload) do
+    case Util.request(connection_ref, topic, payload) do
       {:ok, %{"streams" => streams}} when is_list(streams) ->
         {:ok, Enum.filter(streams, &is_binary/1)}
 
@@ -123,7 +97,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
       }
       |> Jason.encode!()
 
-    case Jetstream.API.Util.request(connection_ref, topic, payload) do
+    case Util.request(connection_ref, topic, payload) do
       {:ok, _} ->
         :ok
 
@@ -157,4 +131,52 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
       name
     end
   end
+
+  defp resolve_empty_streams(requested, subject) do
+    if valid_requested_stream?(requested) do
+      {:ok, requested}
+    else
+      {:error, {:stream_not_found_for_subject, subject}}
+    end
+  end
+
+  defp resolve_discovered_streams(requested, subject, streams) do
+    if valid_requested_stream?(requested) do
+      choose_requested_or_first_stream(requested, subject, streams)
+    else
+      {:ok, hd(streams)}
+    end
+  end
+
+  defp resolve_discovery_error(requested, subject, error) do
+    if valid_requested_stream?(requested) do
+      fallback_stream = normalize_stream_name(requested)
+
+      Logger.warning("Failed to resolve stream by subject; falling back to configured stream",
+        requested_stream: fallback_stream,
+        subject: subject,
+        reason: inspect(error)
+      )
+
+      {:ok, fallback_stream}
+    else
+      error
+    end
+  end
+
+  defp choose_requested_or_first_stream(requested, subject, streams) do
+    if requested in streams do
+      {:ok, requested}
+    else
+      Logger.warning("Requested stream not matched by subject; using discovered stream",
+        requested_stream: requested,
+        subject: subject,
+        discovered_stream: hd(streams)
+      )
+
+      {:ok, hd(streams)}
+    end
+  end
+
+  defp valid_requested_stream?(requested), do: is_binary(requested) and requested != ""
 end

@@ -68,6 +68,9 @@ var (
 	errBGPPeerASNRequired         = errors.New("simulation.bgp peer_asn must be > 0")
 	errDataDirRequired            = errors.New("storage.data_dir is required")
 	errDevicesFileRequired        = errors.New("storage.devices_file is required")
+	errNonFiniteFloat             = errors.New("non-finite float")
+	errNotInteger                 = errors.New("value is not an integer")
+	errInt64Overflow              = errors.New("value overflows int64")
 )
 
 const (
@@ -303,13 +306,13 @@ func parseFlexibleInt64(raw json.RawMessage) (int64, error) {
 		return 0, err
 	}
 	if math.IsNaN(floatValue) || math.IsInf(floatValue, 0) {
-		return 0, fmt.Errorf("non-finite float %q", trimmed)
+		return 0, fmt.Errorf("%w: %q", errNonFiniteFloat, trimmed)
 	}
 	if math.Trunc(floatValue) != floatValue {
-		return 0, fmt.Errorf("value %q is not an integer", trimmed)
+		return 0, fmt.Errorf("%w: %q", errNotInteger, trimmed)
 	}
 	if floatValue < math.MinInt64 || floatValue > math.MaxInt64 {
-		return 0, fmt.Errorf("value %q overflows int64", trimmed)
+		return 0, fmt.Errorf("%w: %q", errInt64Overflow, trimmed)
 	}
 
 	return int64(floatValue), nil
