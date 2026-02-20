@@ -147,6 +147,10 @@ core:
       # Provide existingConfigMap/existingSecret/existingClaim when you want custom rules.
       enabled: true
   extraEnv:
+    EVENT_WRITER_ENABLED: "true"
+    EVENT_WRITER_NATS_CREDS_FILE: "/etc/serviceradar/creds/platform.creds"
+    EVENT_WRITER_NATS_URL: "tls://serviceradar-nats:4222"
+    EVENT_WRITER_NATS_TLS: "true"
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
 
@@ -210,6 +214,21 @@ certs:
 
 bmpCollector:
   enabled: true
+  image:
+    tag: "sha-eba20eb9c7f4"
+  args:
+    - "--bmp-address=0.0.0.0:11019"
+    - "--kafka-disable"
+    - "--nats-enable"
+    - "--nats-server=nats://serviceradar-nats:4222"
+    - "--nats-subject=arancini.updates"
+    - "--nats-tls-required"
+    - "--nats-tls-ca-cert-path=/etc/serviceradar/certs/root.pem"
+    - "--nats-tls-client-cert-path=/etc/serviceradar/certs/bmp-collector.pem"
+    - "--nats-tls-client-key-path=/etc/serviceradar/certs/bmp-collector-key.pem"
+    - "--curation-state-path=/var/lib/serviceradar/state.bin"
+    - "--curation-snapshot-backend=local"
+    - "-vvv"
   config:
     stream_max_bytes: 1073741824
     # Workaround: NATS verify_and_map currently fails to match the

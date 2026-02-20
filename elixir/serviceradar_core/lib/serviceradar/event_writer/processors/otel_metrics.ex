@@ -99,32 +99,36 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   end
 
   defp parse_json_metric(json, _metadata) do
-    timestamp = FieldParser.parse_timestamp(json["timestamp"])
+    if not is_map(json) do
+      nil
+    else
+      timestamp = FieldParser.parse_timestamp(json["timestamp"])
 
-    %{
-      timestamp: timestamp,
-      trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
-      span_id: FieldParser.get_field(json, "span_id", "spanId"),
-      service_name: FieldParser.get_field(json, "service_name", "serviceName", "unknown"),
-      span_name:
-        FieldParser.get_field(json, "span_name", "spanName") || json["name"] || "unknown",
-      span_kind: FieldParser.get_field(json, "span_kind", "spanKind"),
-      duration_ms: FieldParser.parse_duration_ms(json),
-      duration_seconds: FieldParser.parse_duration_seconds(json),
-      metric_type: FieldParser.get_field(json, "metric_type", "metricType"),
-      http_method: FieldParser.get_field(json, "http_method", "httpMethod"),
-      http_route: FieldParser.get_field(json, "http_route", "httpRoute"),
-      http_status_code:
-        to_string(FieldParser.get_field(json, "http_status_code", "httpStatusCode", "")),
-      grpc_service: FieldParser.get_field(json, "grpc_service", "grpcService"),
-      grpc_method: FieldParser.get_field(json, "grpc_method", "grpcMethod"),
-      grpc_status_code:
-        to_string(FieldParser.get_field(json, "grpc_status_code", "grpcStatusCode", "")),
-      is_slow: FieldParser.get_field(json, "is_slow", "isSlow", false),
-      component: json["component"],
-      level: json["level"],
-      created_at: DateTime.utc_now()
-    }
+      %{
+        timestamp: timestamp,
+        trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
+        span_id: FieldParser.get_field(json, "span_id", "spanId"),
+        service_name: FieldParser.get_field(json, "service_name", "serviceName", "unknown"),
+        span_name:
+          FieldParser.get_field(json, "span_name", "spanName") || json["name"] || "unknown",
+        span_kind: FieldParser.get_field(json, "span_kind", "spanKind"),
+        duration_ms: FieldParser.parse_duration_ms(json),
+        duration_seconds: FieldParser.parse_duration_seconds(json),
+        metric_type: FieldParser.get_field(json, "metric_type", "metricType"),
+        http_method: FieldParser.get_field(json, "http_method", "httpMethod"),
+        http_route: FieldParser.get_field(json, "http_route", "httpRoute"),
+        http_status_code:
+          to_string(FieldParser.get_field(json, "http_status_code", "httpStatusCode", "")),
+        grpc_service: FieldParser.get_field(json, "grpc_service", "grpcService"),
+        grpc_method: FieldParser.get_field(json, "grpc_method", "grpcMethod"),
+        grpc_status_code:
+          to_string(FieldParser.get_field(json, "grpc_status_code", "grpcStatusCode", "")),
+        is_slow: FieldParser.get_field(json, "is_slow", "isSlow", false),
+        component: json["component"],
+        level: json["level"],
+        created_at: DateTime.utc_now()
+      }
+    end
   end
 
   defp parse_protobuf_metric(_data, _metadata) do

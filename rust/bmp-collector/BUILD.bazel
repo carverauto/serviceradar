@@ -35,6 +35,7 @@ fi
 SRC_MANIFEST="$(location //arancini:Cargo.toml)"
 SRC_ROOT="$${SRC_MANIFEST%/Cargo.toml}"
 WORKDIR="$(@D)/arancini-work"
+rm -rf "$$WORKDIR"
 mkdir -p "$$WORKDIR"
 cp "$$SRC_ROOT/Cargo.toml" "$$WORKDIR/Cargo.toml"
 cp "$$SRC_ROOT/Cargo.lock" "$$WORKDIR/Cargo.lock"

@@ -156,17 +156,27 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   # Private functions
 
   defp build_batchers(config) do
-    config.streams
-    |> Enum.map(fn stream ->
-      batcher_name = stream_to_batcher_name(stream.name)
+    stream_batchers =
+      config.streams
+      |> Enum.map(fn stream ->
+        batcher_name = stream_to_batcher_name(stream.name)
 
-      {batcher_name,
-       [
-         batch_size: stream[:batch_size] || config.batch_size,
-         batch_timeout: stream[:batch_timeout] || config.batch_timeout
-       ]}
-    end)
-    |> Keyword.new()
+        {batcher_name,
+         [
+           batch_size: stream[:batch_size] || config.batch_size,
+           batch_timeout: stream[:batch_timeout] || config.batch_timeout
+         ]}
+      end)
+      |> Keyword.new()
+
+    if Keyword.has_key?(stream_batchers, :default) do
+      stream_batchers
+    else
+      Keyword.put(stream_batchers, :default,
+        batch_size: config.batch_size,
+        batch_timeout: config.batch_timeout
+      )
+    end
   end
 
   defp determine_batcher(subject) when is_binary(subject) do
@@ -182,7 +192,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:default, &ignore_logs_subject?/1},
       {:logs, &log_subject?/1},
       {:default, &ignore_events_subject?/1},
-      {:causal_signals, &causal_signal_subject?/1},
+      {:bmp_causal, &bmp_causal_subject?/1},
+      {:arancini_causal, &arancini_causal_subject?/1},
+      {:siem_causal, &siem_causal_subject?/1},
       {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
       {:otel_traces, &String.starts_with?(&1, "otel.traces")},
       {:logs, &String.starts_with?(&1, "logs.")},
@@ -208,16 +220,25 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       String.starts_with?(subject, "snmp.traps")
   end
 
-  defp causal_signal_subject?(subject) do
-    String.starts_with?(subject, "bmp.events.") or
-      String.starts_with?(subject, "arancini.updates.") or
-      String.starts_with?(subject, "siem.events.") or
-      String.starts_with?(subject, "signals.causal.")
-  end
+  defp bmp_causal_subject?(subject),
+    do:
+      subject == "bmp.events" or
+        String.starts_with?(subject, "bmp.events.") or
+        subject == "signals.causal" or
+        String.starts_with?(subject, "signals.causal.")
+
+  defp arancini_causal_subject?(subject),
+    do: subject == "arancini.updates" or String.starts_with?(subject, "arancini.updates.")
+
+  defp siem_causal_subject?(subject),
+    do: subject == "siem.events" or String.starts_with?(subject, "siem.events.")
 
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
   defp get_processor(:events), do: ServiceRadar.EventWriter.Processors.Events
+  defp get_processor(:bmp_causal), do: ServiceRadar.EventWriter.Processors.CausalSignals
+  defp get_processor(:arancini_causal), do: ServiceRadar.EventWriter.Processors.CausalSignals
+  defp get_processor(:siem_causal), do: ServiceRadar.EventWriter.Processors.CausalSignals
   defp get_processor(:causal_signals), do: ServiceRadar.EventWriter.Processors.CausalSignals
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:telemetry), do: ServiceRadar.EventWriter.Processors.Telemetry

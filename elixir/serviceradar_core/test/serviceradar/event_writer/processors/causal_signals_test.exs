@@ -368,7 +368,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
              end)
     end
 
-    test "arancini subject routes to causal_signals batcher" do
+    test "arancini subject routes to arancini_causal batcher" do
       event = %{
         data: Jason.encode!(%{"announced" => true}),
         metadata: %{
@@ -380,7 +380,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
       message = Pipeline.transform(event, [])
       routed = Pipeline.handle_message(:default, message, %{})
-      assert routed.batcher == :causal_signals
+      assert routed.batcher == :arancini_causal
     end
   end
 
@@ -443,7 +443,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     Enum.map(events, fn event ->
       message = Pipeline.transform(event, [])
       routed = Pipeline.handle_message(:default, message, %{})
-      assert routed.batcher == :causal_signals
+      assert routed.batcher in [:bmp_causal, :arancini_causal, :siem_causal]
       routed
     end)
   end
