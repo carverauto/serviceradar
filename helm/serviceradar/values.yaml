@@ -556,7 +556,7 @@ bmpCollector:
   enabled: false
   image:
     repository: ghcr.io/carverauto/arancini
-    tag: "chore-fix-publish-crate"
+    tag: "v0.7.2"
     pullPolicy: IfNotPresent
   args:
     - "--bmp-address=0.0.0.0:11019"
