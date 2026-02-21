@@ -11,9 +11,9 @@ public struct SurveyView: View {
     @ObservedObject public var wifiScanner: RealWiFiScanner
     @StateObject private var networkMonitor = NetworkMonitor()
     
-    @State private var showRoomPlan = false
     @State private var isStreaming = false
     @State private var showSettings = false
+    @State private var isMapView = false
     @State private var sessionID: String = UUID().uuidString
     
     // Core Pipeline Instantiation for God-View Ingestion
@@ -26,7 +26,7 @@ public struct SurveyView: View {
 
     public var body: some View {
         ZStack {
-            CompositeSurveyView(roomScanner: roomScanner, wifiScanner: wifiScanner)
+            CompositeSurveyView(roomScanner: roomScanner, wifiScanner: wifiScanner, isMapView: $isMapView)
                 .edgesIgnoringSafeArea(.all)
             
             VStack {
@@ -49,7 +49,7 @@ public struct SurveyView: View {
                             .foregroundColor(.green)
                             .shadow(color: .green, radius: 2, x: 0, y: 0)
                         
-                        Text("Composite AR Mode")
+                        Text(isMapView ? "God-View Map Mode" : "Composite AR Mode")
                             .font(.subheadline)
                             .foregroundColor(.white)
                             .opacity(0.8)
@@ -87,15 +87,28 @@ public struct SurveyView: View {
                     
                     Spacer()
                     
-                    Button(action: {
-                        showSettings.toggle()
-                    }) {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.white)
-                            .padding(12)
-                            .background(Color.black.opacity(0.7))
-                            .clipShape(Circle())
+                    VStack(spacing: 12) {
+                        Button(action: {
+                            showSettings.toggle()
+                        }) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Color.black.opacity(0.7))
+                                .clipShape(Circle())
+                        }
+                        
+                        Button(action: {
+                            isMapView.toggle()
+                        }) {
+                            Image(systemName: isMapView ? "arkit" : "map.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(isMapView ? .cyan : .white)
+                                .padding(12)
+                                .background(Color.black.opacity(0.7))
+                                .clipShape(Circle())
+                        }
                     }
                 }
                 .padding(.top, 40)
@@ -179,24 +192,6 @@ public struct SurveyView: View {
     }
 }
 
-// Wrapper for the RoomCaptureView to integrate with SwiftUI
-@available(iOS 16.0, *)
-public struct RoomCaptureViewContainer: UIViewRepresentable {
-    let scanner: RoomScanner
-    
-    public func makeUIView(context: Context) -> RoomCaptureView {
-        let captureView = RoomCaptureView(frame: .zero)
-        scanner.startSession(in: captureView)
-        return captureView
-    }
-    
-    public func updateUIView(_ uiView: RoomCaptureView, context: Context) {}
-    
-    public static func dismantleUIView(_ uiView: RoomCaptureView, coordinator: ()) {
-        uiView.captureSession.stop()
-    }
-}
-
 @available(iOS 16.0, *)
 public struct ContentView: View {
     @StateObject private var settings = SettingsManager.shared
@@ -210,24 +205,8 @@ public struct ContentView: View {
             if settings.authToken.isEmpty {
                 LoginView()
             } else {
-                TabView {
-                    SurveyView(roomScanner: roomScanner, wifiScanner: wifiScanner)
-                        .tabItem {
-                            Label("Scan", systemImage: "viewfinder.circle.fill")
-                        }
-                    
-                    MapView(roomScanner: roomScanner, wifiScanner: wifiScanner)
-                        .tabItem {
-                            Label("Map", systemImage: "map.fill")
-                        }
-                    
-                    Text("Sync") // Placeholder for offline batch management
-                        .tabItem {
-                            Label("Sync", systemImage: "arrow.triangle.2.circlepath.circle.fill")
-                        }
-                }
-                .accentColor(.green)
-                .preferredColorScheme(.dark)
+                SurveyView(roomScanner: roomScanner, wifiScanner: wifiScanner)
+                    .preferredColorScheme(.dark)
             }
         }
     }
@@ -423,81 +402,6 @@ public struct LoginView: View {
                 }
             }
         }.resume()
-    }
-}
-
-@available(iOS 16.0, *)
-public struct MapView: View {
-    @ObservedObject public var roomScanner: RoomScanner
-    @ObservedObject public var wifiScanner: RealWiFiScanner
-    
-    public init(roomScanner: RoomScanner, wifiScanner: RealWiFiScanner) {
-        self.roomScanner = roomScanner
-        self.wifiScanner = wifiScanner
-    }
-
-    public var body: some View {
-        ZStack(alignment: .topLeading) {
-            SceneView(
-                scene: createScene(),
-                options: [.allowsCameraControl, .autoenablesDefaultLighting]
-            )
-            .edgesIgnoringSafeArea(.top)
-            
-            VStack(alignment: .leading) {
-                Text("God-View Map")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding()
-                    .background(Color.black.opacity(0.6))
-                    .cornerRadius(8)
-                    
-                Text("\(wifiScanner.apPositions.count) RF Sources Mapped")
-                    .font(.caption)
-                    .foregroundColor(.white)
-                    .padding(.horizontal)
-            }
-            .padding(.top, 50)
-            .padding(.leading, 20)
-        }
-    }
-
-    private func createScene() -> SCNScene {
-        let scene = SCNScene()
-        
-        let floor = SCNFloor()
-        floor.firstMaterial?.diffuse.contents = UIColor.darkGray
-        floor.firstMaterial?.specular.contents = UIColor.white
-        let floorNode = SCNNode(geometry: floor)
-        scene.rootNode.addChildNode(floorNode)
-        
-        let samples = wifiScanner.accessPoints
-        
-        for (bssid, pos) in wifiScanner.apPositions {
-            let sample = samples[bssid]
-            let freq = sample?.frequency ?? 2412
-            let rssi = sample?.rssi ?? -90.0
-            
-            let sphere = SCNSphere(radius: 0.15)
-            sphere.firstMaterial?.diffuse.contents = freq > 4000 ? UIColor.cyan : UIColor.orange
-            sphere.firstMaterial?.emission.contents = freq > 4000 ? UIColor.cyan : UIColor.orange
-            
-            let node = SCNNode(geometry: sphere)
-            node.position = SCNVector3(pos.x, pos.y, pos.z)
-            
-            let scale = max(0.1, min(1.0, Float(rssi + 90) / 60.0))
-            node.scale = SCNVector3(scale, scale, scale)
-            
-            scene.rootNode.addChildNode(node)
-        }
-        
-        let cameraNode = SCNNode()
-        cameraNode.camera = SCNCamera()
-        cameraNode.position = SCNVector3(0, 5, 8)
-        cameraNode.eulerAngles = SCNVector3(-Float.pi / 8, 0, 0)
-        scene.rootNode.addChildNode(cameraNode)
-        
-        return scene
     }
 }
 #endif

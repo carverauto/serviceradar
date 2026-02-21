@@ -8,9 +8,10 @@ import os.log
 /// of the environment while walking the survey.
 @available(iOS 16.0, *)
 @MainActor
-public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate {
+public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
     @Published public var isScanning = false
     @Published public var finalResult: CapturedRoom? = nil
+    @Published public var currentRoom: CapturedRoom? = nil
     
     // We act as the delegate for the RoomCaptureView wrapped in our SwiftUI view.
     private let logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "RoomScanner")
@@ -26,6 +27,7 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate {
     
     public func startSession(in view: RoomCaptureView) {
         view.delegate = self
+        view.captureSession.delegate = self
         
         let configuration = RoomCaptureSession.Configuration()
         view.captureSession.run(configuration: configuration)
@@ -37,6 +39,14 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate {
         view.captureSession.stop()
         isScanning = false
         logger.info("RoomPlan session stopped.")
+    }
+    
+    // MARK: - RoomCaptureSessionDelegate
+    
+    public func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
+        DispatchQueue.main.async {
+            self.currentRoom = room
+        }
     }
     
     // MARK: - RoomCaptureViewDelegate
