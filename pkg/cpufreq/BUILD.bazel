@@ -1,0 +1,16 @@
+package(default_visibility = ["//visibility:public"])
+
+alias(
+    name = "cpufreq",
+    actual = "//go/pkg/cpufreq:cpufreq",
+)
+
+alias(
+    name = "cpufreq_test",
+    actual = "//go/pkg/cpufreq:cpufreq_test",
+)
+
+alias(
+    name = "hostfreq_darwin_cc",
+    actual = "//go/pkg/cpufreq:hostfreq_darwin_cc",
+)
