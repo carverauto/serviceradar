@@ -1473,6 +1473,7 @@ genrule(
     srcs = [
         "@postgresql_16_postgis_3_amd64_deb//file",
         "@postgresql_16_postgis_3_scripts_all_deb//file",
+        "@postgresql_16_pgvector_amd64_deb//file",
         "@debian_libgeos_c1v5_amd64_deb//file",
         "@debian_libgeos3_11_1_amd64_deb//file",
         "@debian_libproj25_amd64_deb//file",
@@ -1506,6 +1507,7 @@ mkdir -p "$${ROOT_DIR}"
 python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
   "$(location @postgresql_16_postgis_3_amd64_deb//file)" \
   "$(location @postgresql_16_postgis_3_scripts_all_deb//file)" \
+  "$(location @postgresql_16_pgvector_amd64_deb//file)" \
   "$(location @debian_libgeos_c1v5_amd64_deb//file)" \
   "$(location @debian_libgeos3_11_1_amd64_deb//file)" \
   "$(location @debian_libproj25_amd64_deb//file)" \

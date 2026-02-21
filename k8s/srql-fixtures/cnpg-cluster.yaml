@@ -4,9 +4,9 @@ metadata:
   name: srql-fixture
   namespace: srql-fixtures
 spec:
-  description: Shared CNPG instance for SRQL API tests (Timescale + Apache AGE + PostGIS)
+  description: Shared CNPG instance for SRQL API tests (Timescale + Apache AGE + PostGIS + pgvector)
   instances: 2
-  imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr4
+  imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr5
   imagePullSecrets:
     - name: ghcr-io-cred
 
@@ -24,6 +24,7 @@ spec:
         - CREATE EXTENSION IF NOT EXISTS timescaledb;
         - CREATE EXTENSION IF NOT EXISTS age;
         - CREATE EXTENSION IF NOT EXISTS postgis;
+        - CREATE EXTENSION IF NOT EXISTS vector;
         - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
   postgresql:

@@ -52,7 +52,7 @@
 {{- end }}
 {{- $extensionsSQL := $pg.extensionsSQL }}
 {{- if not $extensionsSQL }}
-  {{- $extensionsSQL = list "CREATE EXTENSION IF NOT EXISTS timescaledb;" "CREATE EXTENSION IF NOT EXISTS age;" "CREATE EXTENSION IF NOT EXISTS postgis;" }}
+  {{- $extensionsSQL = list "CREATE EXTENSION IF NOT EXISTS timescaledb;" "CREATE EXTENSION IF NOT EXISTS age;" "CREATE EXTENSION IF NOT EXISTS postgis;" "CREATE EXTENSION IF NOT EXISTS vector;" }}
 {{- end }}
 ---
 apiVersion: v1

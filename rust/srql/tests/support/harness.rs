@@ -371,6 +371,9 @@ impl RemoteFixtureGuard {
             .batch_execute("CREATE EXTENSION IF NOT EXISTS postgis;")
             .await?;
         client
+            .batch_execute("CREATE EXTENSION IF NOT EXISTS vector;")
+            .await?;
+        client
             .batch_execute(&format!(
                 "GRANT USAGE ON SCHEMA ag_catalog TO {};",
                 quote_ident(&config.database_owner)

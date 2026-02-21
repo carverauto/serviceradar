@@ -94,7 +94,7 @@ image):
    ```bash
    kubectl exec -n demo cnpg-1 -- \
      psql -U spire -d spire \
-       -c "SELECT extname FROM pg_extension WHERE extname IN ('timescaledb','age','postgis');"
+       -c "SELECT extname FROM pg_extension WHERE extname IN ('timescaledb','age','postgis','vector');"
    ```
 
    Both rows should be present. If either extension is missing, re-run the

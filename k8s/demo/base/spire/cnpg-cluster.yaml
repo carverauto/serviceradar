@@ -5,7 +5,7 @@ metadata:
   namespace: demo
 spec:
   instances: 3
-  imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr4
+  imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr5
   imagePullSecrets:
     - name: ghcr-io-cred
 
@@ -23,6 +23,7 @@ spec:
         - CREATE EXTENSION IF NOT EXISTS timescaledb;
         - CREATE EXTENSION IF NOT EXISTS age;
         - CREATE EXTENSION IF NOT EXISTS postgis;
+        - CREATE EXTENSION IF NOT EXISTS vector;
         - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
   postgresql:
