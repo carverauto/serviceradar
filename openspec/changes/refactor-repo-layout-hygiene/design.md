@@ -2,14 +2,14 @@
 Repository structure drift has accumulated over time and now spans multiple languages and build systems. Issue #2851 requests a broad cleanup, but this cannot be treated as a single bulk move without sequencing because Bazel labels, Go imports, Mix project paths, and release tooling have different coupling points.
 
 ## Current Snapshot (Issue #2851 Scope)
-Relevant top-level directories currently include: `cmd/`, `pkg/`, `internal/`, `web-ng/`, `elixir/`, `rust/`, `scripts/`, `snmp/`, `plugins/`, `age/`, `timescaledb/`, `release/`, `build/packaging/`, `alias/`, `third_party/`, and `build/`.
+Relevant top-level directories currently include: `cmd/`, `pkg/`, `internal/`, `web-ng/`, `elixir/`, `rust/`, `scripts/`, `snmp/`, `plugins/`, `age/`, `timescaledb/`, `release/`, `packaging/`, `alias/`, `third_party/`, and `build/`.
 
 Target mapping for requested cleanup:
 - `cmd/`, `pkg/`, `internal/` -> `go/`
 - `web-ng/` -> `elixir/` (single canonical home)
 - `age/`, `timescaledb/` -> `database/`
 - `snmp/`, `plugins/` -> `contrib/`
-- `build/packaging/`, selected `release/`, `alias/` -> `build/`
+- `packaging/`, selected `release/`, `alias/` -> `build/`
 - `third_party/` -> conditional move (retain at root if Bazel compatibility requires)
 
 ## Goals / Non-Goals

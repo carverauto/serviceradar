@@ -166,6 +166,16 @@ These directories are not part of repo-layout cleanup execution unless separatel
 - Validation status:
   - Static scan confirms no remaining non-archived `goflow2` / `serviceradar-goflow2` references (excluding changelog/LF artifacts).
   - `jq empty build/packaging/components.json`
+- Completed (2026-02-20): layout documentation refresh
+  - Added contributor-facing canonical layout doc with ownership table:
+    - `docs/docs/repository-layout.md`
+  - Added docs sidebar entry:
+    - `docs/sidebars.ts` (`Repository Layout` in Start Here)
+  - Updated active OpenSpec change docs to use canonical Phoenix path references (`elixir/web-ng/...`) in place of legacy root `web-ng/...` path mentions.
+- Additional validation performed (2026-02-20):
+  - `bazel query //build/release:package_artifacts`
+  - `bazel query //build/packaging/...`
+  - `go test ./go/pkg/scan -run TestDoesNotExist`
 - Assessed (2026-02-20): `alias/` relocation risk
   - Current coupling remains high (`//alias:*` referenced in active non-archived source/build files across Go command BUILD targets and docs).
   - Decision for this wave: keep `alias/` at root for compatibility; treat migration/retirement as a separate follow-up change with explicit Bazel transition plan.

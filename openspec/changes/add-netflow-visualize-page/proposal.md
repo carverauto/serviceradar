@@ -28,7 +28,7 @@ We need an operator-friendly, dedicated NetFlow page that can iterate independen
   - `build-web-ui`
   - `srql`
 - Affected code:
-  - `web-ng/` new LiveView route/module, URL state codec, and UI scaffolding
+  - `elixir/web-ng/` new LiveView route/module, URL state codec, and UI scaffolding
 
 ## Non-Goals
 

@@ -13,6 +13,6 @@ Secondary issues: the `MapboxFlowMap` JS hook had no error handling, no `map.res
 ## Impact
 - Affected specs: `ui-maps`
 - Affected code:
-  - `web-ng/lib/serviceradar_web_ng_web/router.ex` — CSP policy
-  - `web-ng/assets/js/app.js` — `MapboxFlowMap` hook
-  - `web-ng/lib/serviceradar_web_ng_web/live/netflow_live/visualize.ex` — map container markup
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex` — CSP policy
+  - `elixir/web-ng/assets/js/app.js` — `MapboxFlowMap` hook
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/netflow_live/visualize.ex` — map container markup

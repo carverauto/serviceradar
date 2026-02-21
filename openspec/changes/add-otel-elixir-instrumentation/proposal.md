@@ -19,7 +19,7 @@ The OTEL collector (`serviceradar-otel:4317`) is already running in both Docker 
 - Affected specs: `ash-observability`, `docker-compose-stack`
 - Affected code:
   - `elixir/serviceradar_core/` (shared OTEL library, telemetry bridge)
-  - `web-ng/serviceradar/` (Phoenix + Ecto instrumentation)
+  - `elixir/web-ng/serviceradar/` (Phoenix + Ecto instrumentation)
   - `elixir/serviceradar_agent_gateway/` (gRPC instrumentation)
   - `elixir/serviceradar_core_elx/` (release config, runtime OTEL setup)
   - `docker-compose.yml` (env vars for Elixir services)

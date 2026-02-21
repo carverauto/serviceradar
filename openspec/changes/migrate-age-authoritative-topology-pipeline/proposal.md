@@ -59,5 +59,5 @@ We need a single authoritative topology path where:
   - mapper payload/streaming contracts
   - `elixir/serviceradar_core/lib/serviceradar/network_discovery/mapper_results_ingestor.ex`
   - `elixir/serviceradar_core/lib/serviceradar/topology/topology_graph.ex`
-  - `web-ng/lib/serviceradar_web_ng/topology/god_view_stream.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng/topology/god_view_stream.ex`
   - migration/reset scripts for topology evidence and AGE projection tables

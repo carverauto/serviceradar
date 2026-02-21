@@ -40,10 +40,10 @@ AshAuthentication was not designed to coexist with Ueberauth/Guardian and create
 - Affected code:
   - `elixir/serviceradar_core/lib/serviceradar/identity/user.ex` - Remove AshAuthentication extension
   - `elixir/serviceradar_core/lib/serviceradar/identity/token.ex` - Repurpose for Guardian
-  - `web-ng/lib/serviceradar_web_ng_web/controllers/auth_controller.ex` - Complete rewrite
-  - `web-ng/lib/serviceradar_web_ng_web/user_auth.ex` - Replace token verification
-  - `web-ng/lib/serviceradar_web_ng_web/plugs/api_auth.ex` - Use Guardian verification
-  - `web-ng/lib/serviceradar_web_ng_web/router.ex` - Replace auth route macros
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/auth_controller.ex` - Complete rewrite
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/user_auth.ex` - Replace token verification
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/plugs/api_auth.ex` - Use Guardian verification
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex` - Replace auth route macros
   - New: `auth_settings` resource, SSO controllers, user settings UI
 - **BREAKING**: Internal token format changes (existing sessions invalidated on deploy)
 - **Security**: Requires careful handling of encrypted credentials and SAML signature validation

@@ -29,5 +29,5 @@ We also need first-class route-path analysis similar to `topo-lldp` so operators
 - Affected code:
   - `pkg/mapper/*` (LLDP normalization, route snapshot collection, evidence typing)
   - `elixir/serviceradar_core/lib/serviceradar/network_discovery/*` (ingestion/reconciliation/projection)
-  - `web-ng/lib/serviceradar_web_ng/topology/*` (filtering + route analysis UI API)
+  - `elixir/web-ng/lib/serviceradar_web_ng/topology/*` (filtering + route analysis UI API)
   - tests/fixtures for synthetic topology and route validation

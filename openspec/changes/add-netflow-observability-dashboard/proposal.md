@@ -19,7 +19,7 @@ The current NetFlow UI provides basic â€œtop talkers / top ports / recent flowsâ
 ## Impact
 - Affected specs: `observability-netflow` (new), `srql`, `cnpg`
 - Affected code (expected):
-  - `web-ng/` NetFlow UI (dashboard layout, charts, table, detail side panel, filtering UX)
+  - `elixir/web-ng/` NetFlow UI (dashboard layout, charts, table, detail side panel, filtering UX)
   - SRQL query translation for `in:flows` aggregations / rollups
   - CNPG migrations (Timescale retention policies, continuous aggregates, enrichment cache tables)
 - Breaking changes: None intended (additive, gated to the NetFlow dashboard)

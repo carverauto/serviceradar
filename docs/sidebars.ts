@@ -17,7 +17,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Start Here',
-      items: [{type: 'doc', id: 'intro', label: 'Introduction'}, {type: 'doc', id: 'quickstart', label: 'Quickstart'}, {type: 'doc', id: 'architecture', label: 'Architecture'}],
+      items: [{type: 'doc', id: 'intro', label: 'Introduction'}, {type: 'doc', id: 'quickstart', label: 'Quickstart'}, {type: 'doc', id: 'architecture', label: 'Architecture'}, {type: 'doc', id: 'repository-layout', label: 'Repository Layout'}],
     },
     {
       type: 'category',

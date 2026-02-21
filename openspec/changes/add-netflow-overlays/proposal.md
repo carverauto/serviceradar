@@ -18,8 +18,8 @@ Akvorado's Visualize experience is strongly shaped by overlays: bidirectional tr
 ## Impact
 
 - Affected code:
-  - `web-ng/lib/serviceradar_web_ng_web/live/netflow_live/visualize.ex`
-  - `web-ng/lib/serviceradar_web_ng_web/netflow_visualize/query.ex`
-  - `web-ng/assets/js/app.js`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/netflow_live/visualize.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/netflow_visualize/query.ex`
+  - `elixir/web-ng/assets/js/app.js`
 - Affected specs:
   - `netflow-analytics` (UI behavior and chart semantics)

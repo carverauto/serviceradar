@@ -22,7 +22,7 @@ GeoIP enrichment is required to make NetFlow traffic actionable (country flags/f
 - Affected specs: `observability-netflow`
 - Affected code:
   - Elixir (Ash/AshOban/AshCloak) background jobs and settings resources
-  - `web-ng/` admin settings UI + RBAC gating
+  - `elixir/web-ng/` admin settings UI + RBAC gating
   - Existing SRQL NetFlow geo grouping continues to use `platform.ip_geo_enrichment_cache`
 - Data model:
   - New provider/settings table(s) in the `platform` schema (via Elixir migrations only)
