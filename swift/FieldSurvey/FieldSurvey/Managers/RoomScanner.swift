@@ -58,9 +58,10 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
             logger.error("Capture processing error: \(error.localizedDescription)")
             
             // Auto-recover from tracking failures (e.g. moving too fast, poor lighting)
-            DispatchQueue.main.async {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 if self.isScanning, let view = self.currentView {
                     self.logger.info("Auto-recovering RoomPlan session after tracking failure...")
+                    view.captureSession.stop()
                     let configuration = RoomCaptureSession.Configuration()
                     view.captureSession.run(configuration: configuration)
                 }
@@ -74,9 +75,10 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
         if let error = error {
             logger.error("Final processing error: \(error.localizedDescription)")
             
-            DispatchQueue.main.async {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 if self.isScanning, let view = self.currentView {
                     self.logger.info("Auto-recovering RoomPlan session after final processing failure...")
+                    view.captureSession.stop()
                     let configuration = RoomCaptureSession.Configuration()
                     view.captureSession.run(configuration: configuration)
                 }
