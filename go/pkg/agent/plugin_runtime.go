@@ -1825,7 +1825,10 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	if !ok {
 		return pluginErrInvalid
 	}
-	wsURL := strings.TrimSpace(string(urlBytes))
+	wsURL, headers, parseErr := parseWebSocketConnectPayload(urlBytes)
+	if parseErr != nil {
+		return pluginErrInvalid
+	}
 	if wsURL == "" {
 		return pluginErrInvalid
 	}
@@ -1865,7 +1868,7 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	conn, resp, err := dialer.DialContext(dialCtx, wsURL, nil)
+	conn, resp, err := dialer.DialContext(dialCtx, wsURL, headers)
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}
@@ -1883,6 +1886,51 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	}
 
 	return int32(handle)
+}
+
+type websocketConnectPayload struct {
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+func parseWebSocketConnectPayload(raw []byte) (string, http.Header, error) {
+	payload := strings.TrimSpace(string(raw))
+	if payload == "" {
+		return "", nil, errInvalidPath
+	}
+
+	// Backward-compatible mode: payload is just a URL string.
+	if !strings.HasPrefix(payload, "{") {
+		return payload, nil, nil
+	}
+
+	var parsed websocketConnectPayload
+	if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
+		return "", nil, err
+	}
+
+	wsURL := strings.TrimSpace(parsed.URL)
+	if wsURL == "" {
+		return "", nil, errInvalidPath
+	}
+
+	if len(parsed.Headers) == 0 {
+		return wsURL, nil, nil
+	}
+
+	headers := make(http.Header, len(parsed.Headers))
+	for key, value := range parsed.Headers {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		headers.Set(trimmedKey, value)
+	}
+
+	if len(headers) == 0 {
+		return wsURL, nil, nil
+	}
+	return wsURL, headers, nil
 }
 
 func (e *pluginExecution) hostWebSocketSend(_ context.Context, mod api.Module, handle, dataPtr, dataLen, timeoutMS uint32) int32 {

@@ -154,6 +154,7 @@ defmodule ServiceRadar.Application do
         netflow_security_scheduler_child(),
         netflow_cache_scheduler_child(),
         topology_state_scheduler_child(),
+        plugin_target_policy_scheduler_child(),
 
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
@@ -282,6 +283,14 @@ defmodule ServiceRadar.Application do
   defp startup_migrations_child do
     if Application.get_env(:serviceradar_core, :run_startup_migrations, false) do
       ServiceRadar.Cluster.StartupMigrations
+    else
+      nil
+    end
+  end
+
+  defp plugin_target_policy_scheduler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) and job_scheduler_node?() do
+      ServiceRadar.Plugins.PluginTargetPolicyScheduler
     else
       nil
     end
