@@ -166,10 +166,12 @@ public struct SurveyView: View {
         .onAppear {
             wifiScanner.startScanning()
             BLEScanner.shared.startScanning()
+            SubnetScanner.shared.startScanning()
         }
         .onDisappear {
             wifiScanner.stopScanning()
             BLEScanner.shared.stopScanning()
+            SubnetScanner.shared.stopScanning()
             if isStreaming {
                 arrowStreamer.disconnect()
                 isStreaming = false

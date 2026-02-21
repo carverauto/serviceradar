@@ -120,7 +120,9 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                 position: position,
                 latitude: existing.latitude,
                 longitude: existing.longitude,
-                uncertainty: existing.uncertainty
+                uncertainty: existing.uncertainty,
+                ipAddress: existing.ipAddress,
+                hostname: existing.hostname
             )
             accessPoints[bssid] = updated
         }
@@ -152,6 +154,35 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                 )
                 // Continuously update the sample so the AR View receives the latest RSSI for trilateration
                 self.accessPoints[bssid] = sample
+            }
+        }
+        
+        // Ingest mDNS/Bonjour Subnet Devices
+        let mdnsDevices = SubnetScanner.shared.discoveredDevices
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            for (name, data) in mdnsDevices {
+                let pseudoBssid = "mdns-\(data.ip)"
+                let sample = SurveySample(
+                    id: UUID(),
+                    timestamp: Date().timeIntervalSince1970,
+                    scannerDeviceId: SettingsManager.shared.scannerDeviceId,
+                    bssid: pseudoBssid,
+                    ssid: data.hostname,
+                    rssi: -50.0, // Fixed pseudo-RSSI for wired/LAN devices
+                    frequency: 0,
+                    securityType: "mDNS Device",
+                    isSecure: true,
+                    rfVector: [],
+                    bleVector: BLEScanner.shared.currentBleVector,
+                    position: SIMD3<Float>(0, 0, 0), // Will be transformed by AR Session Anchors
+                    latitude: self.lastLocation?.latitude ?? 0.0,
+                    longitude: self.lastLocation?.longitude ?? 0.0,
+                    uncertainty: 0.1,
+                    ipAddress: data.ip,
+                    hostname: data.hostname
+                )
+                self.accessPoints[pseudoBssid] = sample
             }
         }
         

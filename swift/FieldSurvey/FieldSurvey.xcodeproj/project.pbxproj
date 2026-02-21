@@ -18,8 +18,6 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		DA5F4C9B2F4A14BB00255097 /* FieldSurvey */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = FieldSurvey;
 			sourceTree = "<group>";
 		};

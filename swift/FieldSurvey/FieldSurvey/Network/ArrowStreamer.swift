@@ -79,6 +79,8 @@ public class ArrowStreamer {
         let latBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
         let lonBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
         let uncertaintyBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
+        let ipAddressBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
+        let hostnameBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
         
         for sample in samples {
             timestampBuilder.append(sample.timestamp)
@@ -102,6 +104,8 @@ public class ArrowStreamer {
             latBuilder.append(sample.latitude)
             lonBuilder.append(sample.longitude)
             uncertaintyBuilder.append(sample.uncertainty)
+            ipAddressBuilder.append(sample.ipAddress)
+            hostnameBuilder.append(sample.hostname)
         }
         
         let recordBatchBuilder = RecordBatch.Builder()
@@ -122,6 +126,8 @@ public class ArrowStreamer {
             .addColumn("latitude", arrowArray: try latBuilder.toHolder())
             .addColumn("longitude", arrowArray: try lonBuilder.toHolder())
             .addColumn("uncertainty", arrowArray: try uncertaintyBuilder.toHolder())
+            .addColumn("ipAddress", arrowArray: try ipAddressBuilder.toHolder())
+            .addColumn("hostname", arrowArray: try hostnameBuilder.toHolder())
             .finish()
 
         let batch: RecordBatch

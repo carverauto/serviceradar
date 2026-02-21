@@ -35,7 +35,11 @@ public struct SurveySample: Identifiable, Codable, Equatable {
     // Derived Confidence/Uncertainty (0.0 to 1.0)
     public let uncertainty: Float
     
-    public init(id: UUID = UUID(), timestamp: TimeInterval = Date().timeIntervalSince1970, scannerDeviceId: String, bssid: String, ssid: String, rssi: Double, frequency: Int, securityType: String = "Unknown", isSecure: Bool = true, rfVector: [Double] = [], bleVector: [Double] = [], position: simd_float3, latitude: Double = 0.0, longitude: Double = 0.0, uncertainty: Float) {
+    // Local Network Discovery (Subnet Sweeping)
+    public let ipAddress: String
+    public let hostname: String
+    
+    public init(id: UUID = UUID(), timestamp: TimeInterval = Date().timeIntervalSince1970, scannerDeviceId: String, bssid: String, ssid: String, rssi: Double, frequency: Int, securityType: String = "Unknown", isSecure: Bool = true, rfVector: [Double] = [], bleVector: [Double] = [], position: simd_float3, latitude: Double = 0.0, longitude: Double = 0.0, uncertainty: Float, ipAddress: String = "", hostname: String = "") {
         self.id = id
         self.timestamp = timestamp
         self.scannerDeviceId = scannerDeviceId
@@ -53,5 +57,7 @@ public struct SurveySample: Identifiable, Codable, Equatable {
         self.latitude = latitude
         self.longitude = longitude
         self.uncertainty = uncertainty
+        self.ipAddress = ipAddress
+        self.hostname = hostname
     }
 }
