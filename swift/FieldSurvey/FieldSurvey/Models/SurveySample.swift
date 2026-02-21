@@ -3,7 +3,7 @@ import simd
 
 /// Represents a single cyber-physical RF sample.
 /// In production, this would be mapped directly to an Apache Arrow columnar layout.
-public struct SurveySample: Identifiable, Codable {
+public struct SurveySample: Identifiable, Codable, Equatable {
     public let id: UUID
     public let timestamp: TimeInterval
     

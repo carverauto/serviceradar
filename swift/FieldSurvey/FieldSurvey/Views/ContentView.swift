@@ -235,8 +235,8 @@ public struct LoginView: View {
     @StateObject private var settings = SettingsManager.shared
     
     @State private var serverURL: String = SettingsManager.shared.apiURL
-    @State private var clientId: String = ""
-    @State private var clientSecret: String = ""
+    @State private var username: String = ""
+    @State private var password: String = ""
     @State private var isAuthenticating: Bool = false
     @State private var errorMessage: String?
     
@@ -253,9 +253,10 @@ public struct LoginView: View {
                         .fill(Color.green.opacity(0.2))
                         .frame(width: 100, height: 100)
                     
-                    Image(systemName: "radar")
-                        .font(.system(size: 50, weight: .bold))
-                        .foregroundColor(.green)
+                    Image("serviceradar_logo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 60, height: 60)
                 }
                 
                 Text("ServiceRadar")
@@ -283,26 +284,27 @@ public struct LoginView: View {
                         .cornerRadius(10)
                 }
                 
-                // Client ID Input
+                // Username Input
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Client ID")
+                    Text("Username")
                         .font(.subheadline)
                         .foregroundColor(.gray)
                     
-                    TextField("00000000-0000-0000-0000-000000000000", text: $clientId)
+                    TextField("operator@serviceradar.com", text: $username)
                         .autocapitalization(.none)
+                        .keyboardType(.emailAddress)
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
                 }
                 
-                // Client Secret Input
+                // Password Input
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Client Secret")
+                    Text("Password")
                         .font(.subheadline)
                         .foregroundColor(.gray)
                     
-                    SecureField("Enter API Secret", text: $clientSecret)
+                    SecureField("Enter Password", text: $password)
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(10)
@@ -337,7 +339,7 @@ public struct LoginView: View {
                 .foregroundColor(.black)
                 .cornerRadius(12)
             }
-            .disabled(isAuthenticating || clientId.isEmpty || clientSecret.isEmpty || serverURL.isEmpty)
+            .disabled(isAuthenticating || username.isEmpty || password.isEmpty || serverURL.isEmpty)
             .padding(.horizontal, 30)
             .padding(.top, 10)
             
@@ -362,7 +364,8 @@ public struct LoginView: View {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
-        let parameters = "grant_type=client_credentials&client_id=\(clientId)&client_secret=\(clientSecret)"
+        // Use standard password grant
+        let parameters = "grant_type=password&username=\(username.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&password=\(password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
         request.httpBody = parameters.data(using: .utf8)
         
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -392,7 +395,7 @@ public struct LoginView: View {
                         self.errorMessage = "Failed to parse authentication response."
                     }
                 } else if httpResponse.statusCode == 401 {
-                    self.errorMessage = "Invalid Client ID or Secret."
+                    self.errorMessage = "Invalid Username or Password."
                 } else {
                     self.errorMessage = "Server returned error \(httpResponse.statusCode)."
                 }

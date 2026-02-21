@@ -1,9 +1,11 @@
 #if os(iOS)
 import Foundation
+import Combine
 import CoreBluetooth
 
 /// Manages Bluetooth Low Energy (BLE) scanning to capture the BLE environment 
 /// for high-fidelity indoor positioning alongside Wi-Fi arrays.
+@MainActor
 public class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
     public static let shared = BLEScanner()
     
@@ -13,7 +15,7 @@ public class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
     
     public override init() {
         super.init()
-        self.centralManager = CBCentralManager(delegate: self, queue: DispatchQueue(label: "com.serviceradar.ble"))
+        self.centralManager = CBCentralManager(delegate: self, queue: nil)
     }
     
     public func startScanning() {
@@ -43,9 +45,7 @@ public class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
         let rssiValue = RSSI.doubleValue
         // Ignore wildly invalid RSSI values
         if rssiValue < 0 && rssiValue > -100 {
-            DispatchQueue.main.async {
-                self.discoveredPeripherals[peripheral.identifier] = rssiValue
-            }
+            self.discoveredPeripherals[peripheral.identifier] = rssiValue
         }
     }
 }

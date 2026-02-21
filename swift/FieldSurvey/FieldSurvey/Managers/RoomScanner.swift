@@ -1,19 +1,28 @@
 #if os(iOS)
 import Foundation
 import RoomPlan
+import Combine
 import os.log
 
 /// Manages the RoomPlan LiDAR scanning session to build a physical 3D mesh
 /// of the environment while walking the survey.
 @available(iOS 16.0, *)
-public class RoomScanner: ObservableObject, RoomCaptureViewDelegate {
+@MainActor
+public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate {
     @Published public var isScanning = false
     @Published public var finalResult: CapturedRoom? = nil
     
     // We act as the delegate for the RoomCaptureView wrapped in our SwiftUI view.
     private let logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "RoomScanner")
     
-    public init() {}
+    public override init() { super.init() }
+    
+    public required init?(coder: NSCoder) {
+        super.init()
+    }
+    
+    public func encode(with coder: NSCoder) {
+    }
     
     public func startSession(in view: RoomCaptureView) {
         view.delegate = self

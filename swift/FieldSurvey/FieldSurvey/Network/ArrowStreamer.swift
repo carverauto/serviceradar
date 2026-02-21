@@ -5,6 +5,7 @@ import Combine
 
 /// A high-performance Arrow IPC streamer that builds valid RecordBatches 
 /// using the apache/arrow-swift package instead of mock byte layouts.
+@MainActor
 public class ArrowStreamer {
     private let logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "ArrowStreamer")
     

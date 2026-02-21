@@ -3,7 +3,7 @@ import Combine
 
 /// Manages application-wide settings for the FieldSurvey app, persisting them to UserDefaults.
 public class SettingsManager: ObservableObject {
-    public static let shared = SettingsManager()
+    @MainActor public static let shared = SettingsManager()
     
     // The rate (in seconds) at which the Wi-Fi scanner polls for new networks/RSSI updates.
     // Lower interval = higher resolution data, but higher battery drain.

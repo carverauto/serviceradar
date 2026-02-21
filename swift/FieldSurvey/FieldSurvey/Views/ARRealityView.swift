@@ -59,7 +59,7 @@ public struct ARRealityView: UIViewRepresentable {
         
         let samples = Array(scanner.accessPoints.values)
         
-        for var sample in samples {
+        for sample in samples {
             let entityName = "AP_\(sample.bssid)"
             currentEntities.remove(entityName)
             
