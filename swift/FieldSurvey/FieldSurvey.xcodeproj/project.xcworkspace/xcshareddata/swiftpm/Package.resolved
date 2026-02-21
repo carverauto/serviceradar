@@ -1,5 +1,5 @@
 {
-  "originHash" : "2c81ac24339ae955a7ab8ba6f5c133560147a37fee2eeb3c333e02240bcc5c5a",
+  "originHash" : "bc25bb73015d9e4025b11c19be22d8cbaee2e091eede68ab6ae089a9410225bd",
   "pins" : [
     {
       "identity" : "arrow-swift",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "1c514626e83c20fffa8557e75641848e1e15cd5e",
         "version" : "25.2.10"
+      }
+    },
+    {
+      "identity" : "rperfclient",
+      "kind" : "localSourceControl",
+      "location" : "/Users/mfreeman/src/serviceradar/swift/RPerfClient",
+      "state" : {
+        "branch" : "main",
+        "revision" : "8132227ea3cca6100d85ead038d14569999090b4"
       }
     },
     {
