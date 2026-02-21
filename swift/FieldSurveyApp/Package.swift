@@ -4,7 +4,8 @@ import PackageDescription
 let package = Package(
     name: "FieldSurveyApp",
     platforms: [
-        .iOS(.v16)
+        .iOS(.v16),
+        .macOS(.v13)
     ],
     products: [
         .library(
@@ -19,6 +20,9 @@ let package = Package(
             name: "FieldSurveyApp",
             dependencies: [
                 .product(name: "Arrow", package: "arrow-swift")
-            ])
+            ]),
+        .testTarget(
+            name: "FieldSurveyAppTests",
+            dependencies: ["FieldSurveyApp"]),
     ]
 )
