@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCacheTest do
   which don't require database access. The auth settings tests may return
   {:error, :not_configured} or actual settings depending on database state.
 
-  Run with: mix test test/serviceradar_web_ng_web/auth/config_cache_test.exs
+  Run with: mix test test/phoenix/auth/config_cache_test.exs
   """
 
   use ExUnit.Case, async: false

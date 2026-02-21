@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
   These tests focus on the pure functions and claim extraction logic
   that can be tested without external OIDC provider connectivity.
 
-  Run with: mix test test/serviceradar_web_ng_web/auth/oidc_client_test.exs
+  Run with: mix test test/phoenix/auth/oidc_client_test.exs
   """
 
   use ExUnit.Case, async: true

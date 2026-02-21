@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.Auth.RateLimiterTest do
   (for ETS tables). The test_helper.exs currently requires database connection,
   so these tests run as part of the standard test suite.
 
-  Run with: mix test test/serviceradar_web_ng_web/auth/rate_limiter_test.exs
+  Run with: mix test test/phoenix/auth/rate_limiter_test.exs
   """
 
   use ExUnit.Case, async: false
