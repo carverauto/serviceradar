@@ -1320,8 +1320,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <.input
             field={@unifi_form[:base_url]}
             type="text"
-            label="Base URL"
-            placeholder="https://controller:8443"
+            label="Controller URL"
+            placeholder="https://controller:8443 or https://controller:8443/proxy/network/integration/v1"
           />
           <.input
             field={@unifi_form[:api_key]}
