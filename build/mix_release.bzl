@@ -647,6 +647,10 @@ rm -rf /tmp/elixir/serviceradar_srql
 ln -s "$WORKDIR/elixir/serviceradar_srql" /tmp/elixir/serviceradar_srql
 rm -rf /tmp/serviceradar_core
 ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/serviceradar_core
+rm -rf /tmp/serviceradar_srql
+ln -s "$WORKDIR/elixir/serviceradar_srql" /tmp/serviceradar_srql
+rm -rf /tmp/datasvc
+ln -s "$WORKDIR/elixir/datasvc" /tmp/datasvc
 
 cd "$WORKDIR"
 chmod -R u+w .
