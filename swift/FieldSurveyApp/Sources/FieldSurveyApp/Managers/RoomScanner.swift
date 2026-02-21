@@ -45,12 +45,46 @@ public class RoomScanner: ObservableObject, RoomCaptureViewDelegate {
             return
         }
         
-        // This CapturedRoom contains walls, doors, windows, and objects.
-        // In the pipeline, this USDZ / geometry data is saved and uploaded
-        // along with the Arrow IPC RF samples for the God-View backend.
         DispatchQueue.main.async {
             self.finalResult = processedResult
             self.logger.info("Room scan completed. Captured \(processedResult.walls.count) walls and \(processedResult.objects.count) objects.")
+            
+            // Automatically export and upload the USDZ mesh payload for the God-View backend
+            Task {
+                do {
+                    let fileURL = try self.exportUSDZ()
+                    self.uploadUSDZ(fileURL: fileURL, sessionID: UUID().uuidString)
+                } catch {
+                    self.logger.error("Failed to export USDZ for upload: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
+    /// Streams the captured USDZ physical environment model to the ServiceRadar backend.
+    private func uploadUSDZ(fileURL: URL, sessionID: String) {
+        guard let url = URL(string: "https://serviceradar-api.internal/v1/topology/physical-mesh/\(sessionID)") else { return }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("model/vnd.usdz+zip", forHTTPHeaderField: "Content-Type")
+        
+        do {
+            let data = try Data(contentsOf: fileURL)
+            request.httpBody = data
+            
+            let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+                if let error = error {
+                    self?.logger.error("USDZ upload failed: \(error.localizedDescription)")
+                } else if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                    self?.logger.error("USDZ upload rejected by server: HTTP \(httpResponse.statusCode)")
+                } else {
+                    self?.logger.info("Successfully pushed physical USDZ mesh to backend God-View.")
+                }
+            }
+            task.resume()
+        } catch {
+            logger.error("Failed to read USDZ file for upload: \(error.localizedDescription)")
         }
     }
     
