@@ -15,6 +15,7 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
     
     // We act as the delegate for the RoomCaptureView wrapped in our SwiftUI view.
     private let logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "RoomScanner")
+    private weak var currentView: RoomCaptureView?
     
     public override init() { super.init() }
     
@@ -26,6 +27,7 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
     }
     
     public func startSession(in view: RoomCaptureView) {
+        self.currentView = view
         view.delegate = self
         view.captureSession.delegate = self
         
@@ -54,6 +56,15 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
     public func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
         if let error = error {
             logger.error("Capture processing error: \(error.localizedDescription)")
+            
+            // Auto-recover from tracking failures (e.g. moving too fast, poor lighting)
+            DispatchQueue.main.async {
+                if self.isScanning, let view = self.currentView {
+                    self.logger.info("Auto-recovering RoomPlan session after tracking failure...")
+                    let configuration = RoomCaptureSession.Configuration()
+                    view.captureSession.run(configuration: configuration)
+                }
+            }
             return false
         }
         return true
@@ -62,6 +73,14 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
     public func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
         if let error = error {
             logger.error("Final processing error: \(error.localizedDescription)")
+            
+            DispatchQueue.main.async {
+                if self.isScanning, let view = self.currentView {
+                    self.logger.info("Auto-recovering RoomPlan session after final processing failure...")
+                    let configuration = RoomCaptureSession.Configuration()
+                    view.captureSession.run(configuration: configuration)
+                }
+            }
             return
         }
         
