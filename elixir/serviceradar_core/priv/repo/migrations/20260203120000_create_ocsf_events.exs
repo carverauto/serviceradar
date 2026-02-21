@@ -11,7 +11,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateOcsfEvents do
 
   def up do
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.#{@table} (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.#{@table} (
       id           UUID        NOT NULL,
       time         TIMESTAMPTZ NOT NULL,
       class_uid    INTEGER     NOT NULL,
@@ -49,16 +49,16 @@ defmodule ServiceRadar.Repo.Migrations.CreateOcsfEvents do
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_events_time
-      ON #{prefix()}.#{@table} (time DESC)
+      ON #{prefix() || "platform"}.#{@table} (time DESC)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_events_severity
-      ON #{prefix()}.#{@table} (severity_id)
+      ON #{prefix() || "platform"}.#{@table} (severity_id)
     """)
 
     execute("""
-    COMMENT ON TABLE #{prefix()}.#{@table} IS
+    COMMENT ON TABLE #{prefix() || "platform"}.#{@table} IS
       'OCSF Event Log Activity entries from log promotion and internal writers'
     """)
 
@@ -67,9 +67,9 @@ defmodule ServiceRadar.Repo.Migrations.CreateOcsfEvents do
 
   def down do
     remove_retention_policy(@table)
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_events_severity")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_events_time")
-    execute("DROP TABLE IF EXISTS #{prefix()}.#{@table}")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_events_severity")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_events_time")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.#{@table}")
   end
 
   defp maybe_create_hypertable(table_name, time_column) do
@@ -88,12 +88,12 @@ defmodule ServiceRadar.Repo.Migrations.CreateOcsfEvents do
         IF NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_name = '#{table_name}'
-            AND hypertable_schema = '#{prefix()}'
+            AND hypertable_schema = '#{prefix() || "platform"}'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.#{table_name}',
+            '#{prefix() || "platform"}.#{table_name}',
             '#{time_column}'
           );
           RAISE NOTICE 'Created hypertable for #{table_name}';
@@ -114,7 +114,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateOcsfEvents do
       table_ident text;
       ts_schema text;
     BEGIN
-      table_ident := format('%I.%I', '#{prefix()}', '#{table_name}');
+      table_ident := format('%I.%I', '#{prefix() || "platform"}', '#{table_name}');
       SELECT n.nspname
       INTO ts_schema
       FROM pg_extension e
@@ -125,7 +125,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateOcsfEvents do
          AND EXISTS (
            SELECT 1
            FROM timescaledb_information.hypertables
-           WHERE hypertable_schema = '#{prefix()}'
+           WHERE hypertable_schema = '#{prefix() || "platform"}'
              AND hypertable_name = '#{table_name}'
          ) THEN
         EXECUTE format(
@@ -152,7 +152,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateOcsfEvents do
       table_ident text;
       ts_schema text;
     BEGIN
-      table_ident := format('%I.%I', '#{prefix()}', '#{table_name}');
+      table_ident := format('%I.%I', '#{prefix() || "platform"}', '#{table_name}');
       SELECT n.nspname
       INTO ts_schema
       FROM pg_extension e

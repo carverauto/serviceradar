@@ -8,10 +8,10 @@ defmodule ServiceRadar.Repo.Migrations.AddUniqueSweepHostResultsExecutionIp do
       IF EXISTS (
         SELECT 1
         FROM pg_tables
-        WHERE schemaname = '#{prefix()}'
+        WHERE schemaname = '#{prefix() || "platform"}'
           AND tablename = 'sweep_host_results'
       ) THEN
-        DELETE FROM #{prefix()}.sweep_host_results
+        DELETE FROM #{prefix() || "platform"}.sweep_host_results
         WHERE id IN (
           SELECT id
           FROM (
@@ -20,7 +20,7 @@ defmodule ServiceRadar.Repo.Migrations.AddUniqueSweepHostResultsExecutionIp do
                      PARTITION BY execution_id, ip
                      ORDER BY inserted_at DESC, id DESC
                    ) AS rn
-            FROM #{prefix()}.sweep_host_results
+            FROM #{prefix() || "platform"}.sweep_host_results
           ) dedupe
           WHERE dedupe.rn > 1
         );

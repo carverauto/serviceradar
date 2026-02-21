@@ -28,7 +28,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
   def up do
     # Create events table (CloudEvents-style activity log)
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.events (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.events (
       event_timestamp TIMESTAMPTZ NOT NULL,
       specversion     TEXT,
       id              TEXT        NOT NULL,
@@ -50,7 +50,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create logs table (OpenTelemetry logs)
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.logs (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.logs (
       timestamp           TIMESTAMPTZ NOT NULL,
       id                  UUID        NOT NULL DEFAULT gen_random_uuid(),
       trace_id            TEXT,
@@ -72,7 +72,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create service_status table
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.service_status (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.service_status (
       timestamp    TIMESTAMPTZ NOT NULL,
       gateway_id   TEXT        NOT NULL,
       agent_id     TEXT,
@@ -89,7 +89,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create otel_traces table (OpenTelemetry traces/spans)
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.otel_traces (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.otel_traces (
       timestamp            TIMESTAMPTZ NOT NULL,
       trace_id             TEXT,
       span_id              TEXT        NOT NULL,
@@ -116,7 +116,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create otel_metrics table (OpenTelemetry metrics derived from traces)
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.otel_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.otel_metrics (
       timestamp        TIMESTAMPTZ NOT NULL,
       trace_id         TEXT,
       span_id          TEXT,
@@ -143,7 +143,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create timeseries_metrics table (generic time-series metrics)
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.timeseries_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.timeseries_metrics (
       timestamp        TIMESTAMPTZ NOT NULL,
       gateway_id       TEXT        NOT NULL,
       agent_id         TEXT,
@@ -166,7 +166,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create cpu_metrics table
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.cpu_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.cpu_metrics (
       timestamp     TIMESTAMPTZ NOT NULL,
       gateway_id    TEXT        NOT NULL,
       agent_id      TEXT,
@@ -185,7 +185,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create disk_metrics table
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.disk_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.disk_metrics (
       timestamp       TIMESTAMPTZ NOT NULL,
       gateway_id      TEXT        NOT NULL DEFAULT '',
       agent_id        TEXT,
@@ -205,7 +205,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create memory_metrics table
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.memory_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.memory_metrics (
       timestamp       TIMESTAMPTZ NOT NULL,
       gateway_id      TEXT        NOT NULL DEFAULT '',
       agent_id        TEXT,
@@ -223,7 +223,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create process_metrics table
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.process_metrics (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.process_metrics (
       timestamp    TIMESTAMPTZ NOT NULL,
       gateway_id   TEXT        NOT NULL DEFAULT '',
       agent_id     TEXT,
@@ -243,7 +243,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create device_updates table (device history log)
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.device_updates (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.device_updates (
       observed_at      TIMESTAMPTZ NOT NULL,
       agent_id         TEXT        NOT NULL DEFAULT '',
       gateway_id       TEXT        NOT NULL DEFAULT '',
@@ -262,7 +262,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create otel_metrics_hourly_stats table (pre-computed hourly stats for analytics)
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.otel_metrics_hourly_stats (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.otel_metrics_hourly_stats (
       bucket           TIMESTAMPTZ NOT NULL,
       service_name     TEXT        NOT NULL DEFAULT '',
       total_count      BIGINT      NOT NULL DEFAULT 0,
@@ -300,107 +300,107 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
 
     # Create indexes for common query patterns
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON #{prefix()}.events (event_timestamp DESC)"
+      "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON #{prefix() || "platform"}.events (event_timestamp DESC)"
     )
 
-    execute("CREATE INDEX IF NOT EXISTS idx_events_source ON #{prefix()}.events (source)")
-    execute("CREATE INDEX IF NOT EXISTS idx_events_severity ON #{prefix()}.events (severity)")
+    execute("CREATE INDEX IF NOT EXISTS idx_events_source ON #{prefix() || "platform"}.events (source)")
+    execute("CREATE INDEX IF NOT EXISTS idx_events_severity ON #{prefix() || "platform"}.events (severity)")
 
-    execute("CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON #{prefix()}.logs (timestamp DESC)")
-    execute("CREATE INDEX IF NOT EXISTS idx_logs_service ON #{prefix()}.logs (service_name)")
-    execute("CREATE INDEX IF NOT EXISTS idx_logs_severity ON #{prefix()}.logs (severity_text)")
-
-    execute(
-      "CREATE INDEX IF NOT EXISTS idx_logs_trace_id ON #{prefix()}.logs (trace_id) WHERE trace_id IS NOT NULL"
-    )
+    execute("CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON #{prefix() || "platform"}.logs (timestamp DESC)")
+    execute("CREATE INDEX IF NOT EXISTS idx_logs_service ON #{prefix() || "platform"}.logs (service_name)")
+    execute("CREATE INDEX IF NOT EXISTS idx_logs_severity ON #{prefix() || "platform"}.logs (severity_text)")
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_service_status_timestamp ON #{prefix()}.service_status (timestamp DESC)"
+      "CREATE INDEX IF NOT EXISTS idx_logs_trace_id ON #{prefix() || "platform"}.logs (trace_id) WHERE trace_id IS NOT NULL"
     )
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_service_status_gateway ON #{prefix()}.service_status (gateway_id)"
+      "CREATE INDEX IF NOT EXISTS idx_service_status_timestamp ON #{prefix() || "platform"}.service_status (timestamp DESC)"
     )
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_otel_traces_timestamp ON #{prefix()}.otel_traces (timestamp DESC)"
-    )
-
-    execute("CREATE INDEX IF NOT EXISTS idx_otel_traces_trace_id ON #{prefix()}.otel_traces (trace_id)")
-
-    execute(
-      "CREATE INDEX IF NOT EXISTS idx_otel_traces_service ON #{prefix()}.otel_traces (service_name)"
+      "CREATE INDEX IF NOT EXISTS idx_service_status_gateway ON #{prefix() || "platform"}.service_status (gateway_id)"
     )
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_otel_metrics_timestamp ON #{prefix()}.otel_metrics (timestamp DESC)"
+      "CREATE INDEX IF NOT EXISTS idx_otel_traces_timestamp ON #{prefix() || "platform"}.otel_traces (timestamp DESC)"
+    )
+
+    execute("CREATE INDEX IF NOT EXISTS idx_otel_traces_trace_id ON #{prefix() || "platform"}.otel_traces (trace_id)")
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_otel_traces_service ON #{prefix() || "platform"}.otel_traces (service_name)"
     )
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_otel_metrics_service ON #{prefix()}.otel_metrics (service_name)"
+      "CREATE INDEX IF NOT EXISTS idx_otel_metrics_timestamp ON #{prefix() || "platform"}.otel_metrics (timestamp DESC)"
     )
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_timestamp ON #{prefix()}.timeseries_metrics (timestamp DESC)"
+      "CREATE INDEX IF NOT EXISTS idx_otel_metrics_service ON #{prefix() || "platform"}.otel_metrics (service_name)"
     )
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_name ON #{prefix()}.timeseries_metrics (metric_name)"
+      "CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_timestamp ON #{prefix() || "platform"}.timeseries_metrics (timestamp DESC)"
     )
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_device ON #{prefix()}.timeseries_metrics (device_id) WHERE device_id IS NOT NULL"
+      "CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_name ON #{prefix() || "platform"}.timeseries_metrics (metric_name)"
     )
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_device_updates_device ON #{prefix()}.device_updates (device_id)"
+      "CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_device ON #{prefix() || "platform"}.timeseries_metrics (device_id) WHERE device_id IS NOT NULL"
     )
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_device_updates_timestamp ON #{prefix()}.device_updates (observed_at DESC)"
+      "CREATE INDEX IF NOT EXISTS idx_device_updates_device ON #{prefix() || "platform"}.device_updates (device_id)"
     )
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_otel_metrics_hourly_stats_bucket ON #{prefix()}.otel_metrics_hourly_stats (bucket DESC)"
+      "CREATE INDEX IF NOT EXISTS idx_device_updates_timestamp ON #{prefix() || "platform"}.device_updates (observed_at DESC)"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_otel_metrics_hourly_stats_bucket ON #{prefix() || "platform"}.otel_metrics_hourly_stats (bucket DESC)"
     )
   end
 
   def down do
     # Drop indexes first
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_metrics_hourly_stats_bucket")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_device_updates_timestamp")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_device_updates_device")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_timeseries_metrics_device")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_timeseries_metrics_name")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_timeseries_metrics_timestamp")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_metrics_service")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_metrics_timestamp")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_traces_service")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_traces_trace_id")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_otel_traces_timestamp")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_service_status_gateway")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_service_status_timestamp")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_logs_trace_id")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_logs_severity")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_logs_service")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_logs_timestamp")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_events_severity")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_events_source")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_events_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_otel_metrics_hourly_stats_bucket")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_device_updates_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_device_updates_device")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_timeseries_metrics_device")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_timeseries_metrics_name")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_timeseries_metrics_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_otel_metrics_service")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_otel_metrics_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_otel_traces_service")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_otel_traces_trace_id")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_otel_traces_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_service_status_gateway")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_service_status_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_logs_trace_id")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_logs_severity")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_logs_service")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_logs_timestamp")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_events_severity")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_events_source")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_events_timestamp")
 
     # Drop tables (note: if they're hypertables, this works correctly)
-    execute("DROP TABLE IF EXISTS #{prefix()}.otel_metrics_hourly_stats")
-    execute("DROP TABLE IF EXISTS #{prefix()}.device_updates")
-    execute("DROP TABLE IF EXISTS #{prefix()}.process_metrics")
-    execute("DROP TABLE IF EXISTS #{prefix()}.memory_metrics")
-    execute("DROP TABLE IF EXISTS #{prefix()}.disk_metrics")
-    execute("DROP TABLE IF EXISTS #{prefix()}.cpu_metrics")
-    execute("DROP TABLE IF EXISTS #{prefix()}.timeseries_metrics")
-    execute("DROP TABLE IF EXISTS #{prefix()}.otel_metrics")
-    execute("DROP TABLE IF EXISTS #{prefix()}.otel_traces")
-    execute("DROP TABLE IF EXISTS #{prefix()}.service_status")
-    execute("DROP TABLE IF EXISTS #{prefix()}.logs")
-    execute("DROP TABLE IF EXISTS #{prefix()}.events")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.otel_metrics_hourly_stats")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.device_updates")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.process_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.memory_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.disk_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.cpu_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.timeseries_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.otel_metrics")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.otel_traces")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.service_status")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.logs")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.events")
   end
 
   # Helper to conditionally create hypertable (idempotent)
@@ -423,12 +423,12 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
         IF NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_name = '#{table_name}'
-          AND hypertable_schema = '#{prefix()}'
+          AND hypertable_schema = '#{prefix() || "platform"}'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.#{table_name}',
+            '#{prefix() || "platform"}.#{table_name}',
             '#{time_column}'
           );
           RAISE NOTICE 'Created hypertable for #{table_name}';
@@ -452,9 +452,9 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
       IF EXISTS (
         SELECT 1 FROM pg_tables
         WHERE tablename = '#{table_name}'
-        AND schemaname = '#{prefix()}'
+        AND schemaname = '#{prefix() || "platform"}'
       ) THEN
-        EXECUTE format('ALTER TABLE %I.%I OWNER TO CURRENT_USER', '#{prefix()}', '#{table_name}');
+        EXECUTE format('ALTER TABLE %I.%I OWNER TO CURRENT_USER', '#{prefix() || "platform"}', '#{table_name}');
       END IF;
     EXCEPTION
       WHEN others THEN

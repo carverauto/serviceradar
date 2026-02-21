@@ -21,7 +21,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   use Oban.Worker,
     queue: :nats_accounts,
     max_attempts: 5,
-    unique: [period: 60, keys: [:package_id]]
+    unique: [period: :infinity, keys: [:package_id]]
 
   require Ash.Query
   require Logger

@@ -29,9 +29,9 @@ defmodule ServiceRadar.Repo.Migrations.AddEventRules do
 
     create unique_index(:event_rules, [:name], name: "event_rules_unique_name_index")
     execute("""
-    INSERT INTO #{prefix()}.event_rules (id, name, enabled, priority, source_type, source, match, event, inserted_at, updated_at)
+    INSERT INTO #{prefix() || "platform"}.event_rules (id, name, enabled, priority, source_type, source, match, event, inserted_at, updated_at)
     SELECT id, name, enabled, priority, 'log', '{}'::jsonb, match, event, inserted_at, updated_at
-    FROM #{prefix()}.log_promotion_rules
+    FROM #{prefix() || "platform"}.log_promotion_rules
     ON CONFLICT (name) DO NOTHING
     """)
   end

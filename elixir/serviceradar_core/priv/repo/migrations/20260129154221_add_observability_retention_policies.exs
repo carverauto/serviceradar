@@ -58,7 +58,7 @@ defmodule ServiceRadar.Repo.Migrations.AddObservabilityRetentionPolicies do
       table_ident text;
       ts_schema text;
     BEGIN
-      table_ident := format('%I.%I', '#{prefix()}', '#{table_name}');
+      table_ident := format('%I.%I', '#{prefix() || "platform"}', '#{table_name}');
       SELECT n.nspname
       INTO ts_schema
       FROM pg_extension e
@@ -70,7 +70,7 @@ defmodule ServiceRadar.Repo.Migrations.AddObservabilityRetentionPolicies do
          AND EXISTS (
            SELECT 1
            FROM timescaledb_information.hypertables
-           WHERE hypertable_schema = '#{prefix()}'
+           WHERE hypertable_schema = '#{prefix() || "platform"}'
              AND hypertable_name = '#{table_name}'
          ) THEN
         EXECUTE format(
@@ -97,7 +97,7 @@ defmodule ServiceRadar.Repo.Migrations.AddObservabilityRetentionPolicies do
       table_ident text;
       ts_schema text;
     BEGIN
-      table_ident := format('%I.%I', '#{prefix()}', '#{table_name}');
+      table_ident := format('%I.%I', '#{prefix() || "platform"}', '#{table_name}');
       SELECT n.nspname
       INTO ts_schema
       FROM pg_extension e
