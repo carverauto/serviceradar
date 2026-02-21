@@ -13,7 +13,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     queue: :maintenance,
     max_attempts: 3,
     # Daily refresh; don't let retries/parallel instances hammer GitHub.
-    unique: [period: 86_400, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.GeoIP

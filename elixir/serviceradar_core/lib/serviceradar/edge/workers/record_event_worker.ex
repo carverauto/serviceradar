@@ -10,7 +10,7 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
   use Oban.Worker,
     queue: :events,
     max_attempts: 3,
-    unique: [period: 60, keys: [:package_id, :event_type, :event_time]]
+    unique: [period: :infinity, keys: [:package_id, :event_type, :event_time]]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingEvent

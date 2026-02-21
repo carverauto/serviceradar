@@ -3,7 +3,7 @@ defmodule ServiceRadar.Repo.Migrations.SetAgentDevicesManagedTrusted do
 
   def up do
     execute("""
-    UPDATE #{prefix()}.ocsf_devices
+    UPDATE #{prefix() || "platform"}.ocsf_devices
     SET is_managed = true,
         is_trusted = true
     WHERE agent_id IS NOT NULL

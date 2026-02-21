@@ -10,7 +10,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateOcsfNetworkActivity do
 
   def up do
     execute("""
-    CREATE TABLE IF NOT EXISTS #{prefix()}.#{@table} (
+    CREATE TABLE IF NOT EXISTS #{prefix() || "platform"}.#{@table} (
       time                 TIMESTAMPTZ       NOT NULL,
       class_uid            INTEGER           NOT NULL DEFAULT 4001,
       category_uid         INTEGER           NOT NULL DEFAULT 4,
@@ -43,109 +43,109 @@ defmodule ServiceRadar.Repo.Migrations.CreateOcsfNetworkActivity do
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_src_ip_time
-      ON #{prefix()}.#{@table} (src_endpoint_ip, time DESC)
+      ON #{prefix() || "platform"}.#{@table} (src_endpoint_ip, time DESC)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_dst_ip_time
-      ON #{prefix()}.#{@table} (dst_endpoint_ip, time DESC)
+      ON #{prefix() || "platform"}.#{@table} (dst_endpoint_ip, time DESC)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_proto_time
-      ON #{prefix()}.#{@table} (protocol_num, time DESC)
+      ON #{prefix() || "platform"}.#{@table} (protocol_num, time DESC)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_src_port_time
-      ON #{prefix()}.#{@table} (src_endpoint_port, time DESC)
+      ON #{prefix() || "platform"}.#{@table} (src_endpoint_port, time DESC)
       WHERE src_endpoint_port IS NOT NULL
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_dst_port_time
-      ON #{prefix()}.#{@table} (dst_endpoint_port, time DESC)
+      ON #{prefix() || "platform"}.#{@table} (dst_endpoint_port, time DESC)
       WHERE dst_endpoint_port IS NOT NULL
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_sampler_time
-      ON #{prefix()}.#{@table} (sampler_address, time DESC)
+      ON #{prefix() || "platform"}.#{@table} (sampler_address, time DESC)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_payload_gin
-      ON #{prefix()}.#{@table} USING gin (ocsf_payload)
+      ON #{prefix() || "platform"}.#{@table} USING gin (ocsf_payload)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_top_talkers
-      ON #{prefix()}.#{@table} (time DESC, src_endpoint_ip, bytes_total)
+      ON #{prefix() || "platform"}.#{@table} (time DESC, src_endpoint_ip, bytes_total)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_top_ports
-      ON #{prefix()}.#{@table} (time DESC, dst_endpoint_port, bytes_total)
+      ON #{prefix() || "platform"}.#{@table} (time DESC, dst_endpoint_port, bytes_total)
     """)
 
     execute("""
     CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_partition
-      ON #{prefix()}.#{@table} (partition, time DESC)
+      ON #{prefix() || "platform"}.#{@table} (partition, time DESC)
     """)
 
     execute("""
-    COMMENT ON TABLE #{prefix()}.#{@table} IS
+    COMMENT ON TABLE #{prefix() || "platform"}.#{@table} IS
       'OCSF 1.7.0 Network Activity events from NetFlow/IPFIX collectors'
     """)
 
     execute("""
-    COMMENT ON COLUMN #{prefix()}.#{@table}.time IS
+    COMMENT ON COLUMN #{prefix() || "platform"}.#{@table}.time IS
       'Flow end time or receive time (ms since epoch)'
     """)
 
     execute("""
-    COMMENT ON COLUMN #{prefix()}.#{@table}.class_uid IS
+    COMMENT ON COLUMN #{prefix() || "platform"}.#{@table}.class_uid IS
       'OCSF class UID (4001 = Network Activity)'
     """)
 
     execute("""
-    COMMENT ON COLUMN #{prefix()}.#{@table}.activity_id IS
+    COMMENT ON COLUMN #{prefix() || "platform"}.#{@table}.activity_id IS
       'OCSF activity ID (6 = Traffic)'
     """)
 
     execute("""
-    COMMENT ON COLUMN #{prefix()}.#{@table}.type_uid IS
+    COMMENT ON COLUMN #{prefix() || "platform"}.#{@table}.type_uid IS
       'OCSF type UID (400106 = Network Activity: Traffic)'
     """)
 
     execute("""
-    COMMENT ON COLUMN #{prefix()}.#{@table}.ocsf_payload IS
+    COMMENT ON COLUMN #{prefix() || "platform"}.#{@table}.ocsf_payload IS
       'Full OCSF event as JSON for complete event reconstruction'
     """)
 
     execute("""
-    COMMENT ON COLUMN #{prefix()}.#{@table}.bytes_total IS
+    COMMENT ON COLUMN #{prefix() || "platform"}.#{@table}.bytes_total IS
       'Total bytes transferred in flow'
     """)
 
     execute("""
-    COMMENT ON COLUMN #{prefix()}.#{@table}.packets_total IS
+    COMMENT ON COLUMN #{prefix() || "platform"}.#{@table}.packets_total IS
       'Total packets transferred in flow'
     """)
   end
 
   def down do
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_network_activity_partition")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_network_activity_top_ports")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_network_activity_top_talkers")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_network_activity_payload_gin")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_network_activity_sampler_time")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_network_activity_dst_port_time")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_network_activity_src_port_time")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_network_activity_proto_time")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_network_activity_dst_ip_time")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_ocsf_network_activity_src_ip_time")
-    execute("DROP TABLE IF EXISTS #{prefix()}.#{@table}")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_network_activity_partition")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_network_activity_top_ports")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_network_activity_top_talkers")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_network_activity_payload_gin")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_network_activity_sampler_time")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_network_activity_dst_port_time")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_network_activity_src_port_time")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_network_activity_proto_time")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_network_activity_dst_ip_time")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_ocsf_network_activity_src_ip_time")
+    execute("DROP TABLE IF EXISTS #{prefix() || "platform"}.#{@table}")
   end
 
   defp maybe_create_hypertable(table_name, time_column) do
@@ -164,12 +164,12 @@ defmodule ServiceRadar.Repo.Migrations.CreateOcsfNetworkActivity do
         IF NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_name = '#{table_name}'
-            AND hypertable_schema = '#{prefix()}'
+            AND hypertable_schema = '#{prefix() || "platform"}'
         ) THEN
           EXECUTE format(
             'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
-            '#{prefix()}.#{table_name}',
+            '#{prefix() || "platform"}.#{table_name}',
             '#{time_column}'
           );
           RAISE NOTICE 'Created hypertable for #{table_name}';

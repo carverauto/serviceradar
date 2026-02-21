@@ -6,7 +6,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 300, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page

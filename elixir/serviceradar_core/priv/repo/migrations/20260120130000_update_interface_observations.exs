@@ -13,7 +13,7 @@ defmodule ServiceRadar.Repo.Migrations.UpdateInterfaceObservations do
     end
 
     execute("""
-    UPDATE #{prefix()}.discovered_interfaces
+    UPDATE #{prefix() || "platform"}.discovered_interfaces
        SET interface_uid = CASE
          WHEN interface_uid IS NOT NULL AND interface_uid <> '' THEN interface_uid
          WHEN if_index IS NOT NULL THEN 'ifindex:' || if_index::text
@@ -25,28 +25,28 @@ defmodule ServiceRadar.Repo.Migrations.UpdateInterfaceObservations do
     """)
 
     execute("""
-    UPDATE #{prefix()}.discovered_interfaces
+    UPDATE #{prefix() || "platform"}.discovered_interfaces
        SET speed_bps = if_speed
      WHERE speed_bps IS NULL AND if_speed IS NOT NULL
     """)
 
     execute(
-      "ALTER TABLE #{prefix()}.discovered_interfaces DROP CONSTRAINT IF EXISTS discovered_interfaces_pkey"
+      "ALTER TABLE #{prefix() || "platform"}.discovered_interfaces DROP CONSTRAINT IF EXISTS discovered_interfaces_pkey"
     )
 
-    execute("ALTER TABLE #{prefix()}.discovered_interfaces ALTER COLUMN interface_uid SET NOT NULL")
-    execute("ALTER TABLE #{prefix()}.discovered_interfaces ALTER COLUMN if_index DROP NOT NULL")
+    execute("ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ALTER COLUMN interface_uid SET NOT NULL")
+    execute("ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ALTER COLUMN if_index DROP NOT NULL")
 
     execute(
-      "ALTER TABLE #{prefix()}.discovered_interfaces ADD PRIMARY KEY (timestamp, device_id, interface_uid)"
-    )
-
-    execute(
-      "CREATE INDEX IF NOT EXISTS idx_discovered_interfaces_device ON #{prefix()}.discovered_interfaces (device_id)"
+      "ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD PRIMARY KEY (timestamp, device_id, interface_uid)"
     )
 
     execute(
-      "CREATE INDEX IF NOT EXISTS idx_discovered_interfaces_device_time ON #{prefix()}.discovered_interfaces (device_id, timestamp DESC)"
+      "CREATE INDEX IF NOT EXISTS idx_discovered_interfaces_device ON #{prefix() || "platform"}.discovered_interfaces (device_id)"
+    )
+
+    execute(
+      "CREATE INDEX IF NOT EXISTS idx_discovered_interfaces_device_time ON #{prefix() || "platform"}.discovered_interfaces (device_id, timestamp DESC)"
     )
 
     # Convert to hypertable and add retention policy if TimescaleDB is available
@@ -57,10 +57,10 @@ defmodule ServiceRadar.Repo.Migrations.UpdateInterfaceObservations do
         IF NOT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_name = 'discovered_interfaces'
-          AND hypertable_schema = '#{prefix()}'
+          AND hypertable_schema = '#{prefix() || "platform"}'
         ) THEN
           PERFORM create_hypertable(
-            '#{prefix()}.discovered_interfaces'::regclass,
+            '#{prefix() || "platform"}.discovered_interfaces'::regclass,
             'timestamp',
             migrate_data => true,
             if_not_exists => true
@@ -68,7 +68,7 @@ defmodule ServiceRadar.Repo.Migrations.UpdateInterfaceObservations do
         END IF;
 
         PERFORM add_retention_policy(
-          '#{prefix()}.discovered_interfaces'::regclass,
+          '#{prefix() || "platform"}.discovered_interfaces'::regclass,
           INTERVAL '3 days',
           if_not_exists => true
         );
@@ -82,17 +82,17 @@ defmodule ServiceRadar.Repo.Migrations.UpdateInterfaceObservations do
   end
 
   def down do
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_discovered_interfaces_device_time")
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_discovered_interfaces_device")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_discovered_interfaces_device_time")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_discovered_interfaces_device")
 
     execute(
-      "ALTER TABLE #{prefix()}.discovered_interfaces DROP CONSTRAINT IF EXISTS discovered_interfaces_pkey"
+      "ALTER TABLE #{prefix() || "platform"}.discovered_interfaces DROP CONSTRAINT IF EXISTS discovered_interfaces_pkey"
     )
 
-    execute("ALTER TABLE #{prefix()}.discovered_interfaces ALTER COLUMN if_index SET NOT NULL")
+    execute("ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ALTER COLUMN if_index SET NOT NULL")
 
     execute(
-      "ALTER TABLE #{prefix()}.discovered_interfaces ADD PRIMARY KEY (timestamp, device_id, if_index)"
+      "ALTER TABLE #{prefix() || "platform"}.discovered_interfaces ADD PRIMARY KEY (timestamp, device_id, if_index)"
     )
 
     alter table(:discovered_interfaces) do

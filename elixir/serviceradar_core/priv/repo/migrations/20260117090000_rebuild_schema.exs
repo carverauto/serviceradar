@@ -2,6 +2,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
   use Ecto.Migration
 
   def up do
+    execute("CREATE SCHEMA IF NOT EXISTS \"platform\"")
     execute("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
     execute("CREATE EXTENSION IF NOT EXISTS \"citext\"")
 
@@ -1570,11 +1571,11 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              name: "stateful_alert_rules_unique_name_index"
            )
 
-    Oban.Migrations.up(prefix: prefix())
+    Oban.Migrations.up(prefix: prefix() || "platform")
   end
 
   def down do
-    Oban.Migrations.down(prefix: prefix())
+    Oban.Migrations.down(prefix: prefix() || "platform")
 
     drop_if_exists unique_index(:stateful_alert_rules, [:name],
                      name: "stateful_alert_rules_unique_name_index"

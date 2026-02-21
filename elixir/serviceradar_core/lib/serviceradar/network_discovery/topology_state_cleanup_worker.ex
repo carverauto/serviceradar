@@ -6,7 +6,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 300, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.NetworkDiscovery.TopologyStateCleanup
   alias ServiceRadar.Repo

@@ -6,18 +6,18 @@ defmodule ServiceRadar.Repo.Migrations.AddLogsSource do
 
   def up do
     execute("""
-    ALTER TABLE IF EXISTS #{prefix()}.logs
+    ALTER TABLE IF EXISTS #{prefix() || "platform"}.logs
       ADD COLUMN IF NOT EXISTS source TEXT
     """)
 
-    execute("CREATE INDEX IF NOT EXISTS idx_logs_source ON #{prefix()}.logs (source)")
+    execute("CREATE INDEX IF NOT EXISTS idx_logs_source ON #{prefix() || "platform"}.logs (source)")
   end
 
   def down do
-    execute("DROP INDEX IF EXISTS #{prefix()}.idx_logs_source")
+    execute("DROP INDEX IF EXISTS #{prefix() || "platform"}.idx_logs_source")
 
     execute("""
-    ALTER TABLE IF EXISTS #{prefix()}.logs
+    ALTER TABLE IF EXISTS #{prefix() || "platform"}.logs
       DROP COLUMN IF EXISTS source
     """)
   end

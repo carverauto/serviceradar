@@ -9,7 +9,7 @@ defmodule ServiceRadar.Edge.AgentCommandCleanupWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 60, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommand

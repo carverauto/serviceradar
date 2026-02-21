@@ -27,7 +27,7 @@ defmodule ServiceRadar.Repo.Migrations.AddOcsfEventsHourlyStats do
       WHERE e.extname = 'timescaledb';
 
       IF ts_schema IS NOT NULL THEN
-        view_ident := format('%I.%I', '#{prefix()}', '#{@view}');
+        view_ident := format('%I.%I', '#{prefix() || "platform"}', '#{@view}');
 
         EXECUTE format(
           'CREATE MATERIALIZED VIEW IF NOT EXISTS %I.%I WITH (timescaledb.continuous) AS '
@@ -36,23 +36,23 @@ defmodule ServiceRadar.Repo.Migrations.AddOcsfEventsHourlyStats do
           'COUNT(*)::bigint AS total_count '
           'FROM %I.%I '
           'GROUP BY 1, 2',
-          '#{prefix()}',
+          '#{prefix() || "platform"}',
           '#{@view}',
-          '#{prefix()}',
+          '#{prefix() || "platform"}',
           '#{@source_table}'
         );
 
         EXECUTE format(
           'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I.%I (bucket, severity_id)',
           'idx_ocsf_events_hourly_stats_bucket_severity',
-          '#{prefix()}',
+          '#{prefix() || "platform"}',
           '#{@view}'
         );
 
         EXECUTE format(
           'CREATE INDEX IF NOT EXISTS %I ON %I.%I (bucket DESC)',
           'idx_ocsf_events_hourly_stats_bucket',
-          '#{prefix()}',
+          '#{prefix() || "platform"}',
           '#{@view}'
         );
 
@@ -109,7 +109,7 @@ defmodule ServiceRadar.Repo.Migrations.AddOcsfEventsHourlyStats do
       ts_schema text;
       view_ident text;
     BEGIN
-      view_ident := format('%I.%I', '#{prefix()}', '#{@view}');
+      view_ident := format('%I.%I', '#{prefix() || "platform"}', '#{@view}');
 
       SELECT n.nspname
       INTO ts_schema
@@ -141,15 +141,15 @@ defmodule ServiceRadar.Repo.Migrations.AddOcsfEventsHourlyStats do
         END;
       END IF;
 
-      EXECUTE format('DROP MATERIALIZED VIEW IF EXISTS %I.%I', '#{prefix()}', '#{@view}');
+      EXECUTE format('DROP MATERIALIZED VIEW IF EXISTS %I.%I', '#{prefix() || "platform"}', '#{@view}');
       EXECUTE format(
         'DROP INDEX IF EXISTS %I.%I',
-        '#{prefix()}',
+        '#{prefix() || "platform"}',
         'idx_ocsf_events_hourly_stats_bucket_severity'
       );
       EXECUTE format(
         'DROP INDEX IF EXISTS %I.%I',
-        '#{prefix()}',
+        '#{prefix() || "platform"}',
         'idx_ocsf_events_hourly_stats_bucket'
       );
     EXCEPTION

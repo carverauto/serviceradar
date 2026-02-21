@@ -45,7 +45,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateInterfaceClassificationRules do
            )
 
     execute("""
-    INSERT INTO #{prefix()}.interface_classification_rules
+    INSERT INTO #{prefix() || "platform"}.interface_classification_rules
       (name, enabled, priority, vendor_pattern, if_name_pattern, if_descr_pattern, classifications, inserted_at, updated_at)
     VALUES
       (
@@ -86,7 +86,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateInterfaceClassificationRules do
 
   def down do
     execute("""
-    DELETE FROM #{prefix()}.interface_classification_rules
+    DELETE FROM #{prefix() || "platform"}.interface_classification_rules
     WHERE name IN (
       'ubiquiti_management_adapter',
       'wireguard_interface_name',
