@@ -14,7 +14,7 @@
 - [ ] 2.3 Ensure Rust code is located under `rust/` only.
 - [x] 2.4 Move database-oriented assets (AGE/Timescale artifacts) into `database/`.
 - [x] 2.5 Move contrib-style assets to `contrib/` (`snmp/`, optional plugin assets).
-- [ ] 2.6 Move build-only assets to `build/` where appropriate (`packaging`, selected `release/`, `alias`, potentially `third_party` if compatibility is preserved).
+- [x] 2.6 Move build-only assets to `build/` where appropriate (`packaging`, selected `release/`, `alias`, potentially `third_party` if compatibility is preserved).
 - [x] 2.7 Remove now-empty legacy directories after each move wave is validated.
 
 ## 3. Tooling and Build Parity

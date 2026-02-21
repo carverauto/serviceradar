@@ -150,9 +150,9 @@ These directories are not part of repo-layout cleanup execution unless separatel
   - Static scan confirms root `release/` no longer exists and `build/release/` exists.
   - Static scan confirms no active `//release:` labels remain in non-archived sources.
   - Full Bazel target validation is pending in a clean host session (`bazel query //build/release:package_artifacts`).
-- Pending (Wave 5 remainder):
-  - Evaluate `alias/` relocation/retirement strategy.
-  - Keep `third_party/` at root unless compatibility-safe relocation is proven.
+- Completed (Wave 5 remainder decision, 2026-02-20):
+  - `alias/` relocation deferred by explicit compatibility decision (high coupling, follow-up change required).
+  - `third_party/` intentionally retained at root pending compatibility-safe relocation proof.
 - Completed (2026-02-20): goflow2 retirement cleanup
   - Removed `goflow2` from active packaging metadata in `build/packaging/components.json`:
     - deleted component definition (`name: goflow2`)
@@ -176,6 +176,13 @@ These directories are not part of repo-layout cleanup execution unless separatel
   - `bazel query //build/release:package_artifacts`
   - `bazel query //build/packaging/...`
   - `go test ./go/pkg/scan -run TestDoesNotExist`
+  - `cd rust/flowgger && cargo check`
+  - `cd elixir/web-ng && mix compile`
+- Follow-up fix from validation (2026-02-20):
+  - Fixed moved-path Elixir local dependencies in `elixir/web-ng/mix.exs`:
+    - `../elixir/serviceradar_core` -> `../serviceradar_core`
+    - `../elixir/serviceradar_srql` -> `../serviceradar_srql`
+    - `../elixir/datasvc` -> `../datasvc`
 - Assessed (2026-02-20): `alias/` relocation risk
   - Current coupling remains high (`//alias:*` referenced in active non-archived source/build files across Go command BUILD targets and docs).
   - Decision for this wave: keep `alias/` at root for compatibility; treat migration/retirement as a separate follow-up change with explicit Bazel transition plan.

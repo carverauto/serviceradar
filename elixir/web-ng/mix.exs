@@ -50,10 +50,10 @@ defmodule ServiceRadarWebNG.MixProject do
     [
       {:usage_rules, "~> 1.0", only: [:dev]},
       # ServiceRadar Core - Ash domains, cluster, registry
-      {:serviceradar_core, path: "../elixir/serviceradar_core"},
+      {:serviceradar_core, path: "../serviceradar_core"},
 
       # SRQL shared library for query parsing and execution
-      {:serviceradar_srql, path: "../elixir/serviceradar_srql", override: true},
+      {:serviceradar_srql, path: "../serviceradar_srql", override: true},
 
       # Phoenix Web Framework
       {:bcrypt_elixir, "~> 3.0"},
@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:earmark, "~> 1.4"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:datasvc, path: "../elixir/datasvc"},
+      {:datasvc, path: "../datasvc"},
       {:protobuf, "~> 0.16.0", override: true},
       {:permit, "~> 0.3.3"},
       {:permit_phoenix, "~> 0.4.0"},
