@@ -1,5 +1,0 @@
-{
-  "hosts": ["zen-consumer.serviceradar"],
-  "key": {"algo": "ecdsa", "size": 256},
-  "names": [{"O": "ServiceRadar", "CN": "zen-consumer.serviceradar"}]
-}
