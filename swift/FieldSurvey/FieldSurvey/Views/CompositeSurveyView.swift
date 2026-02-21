@@ -155,34 +155,35 @@ public struct CompositeSurveyView: UIViewRepresentable {
             
             var currentKeys = Set(roomNodes.keys)
             
-            func updateNode(id: UUID, transform: simd_float4x4, dimensions: simd_float3, color: UIColor, opacity: CGFloat, isWireframe: Bool = false) {
+            func updateNode(id: UUID, transform: simd_float4x4, dimensions: simd_float3, color: UIColor, opacity: CGFloat) {
                 currentKeys.remove(id)
                 if let existing = roomNodes[id] {
                     existing.simdTransform = transform
+                    existing.isHidden = !isMapView
                 } else {
-                    let box = SCNBox(width: CGFloat(dimensions.x), height: CGFloat(dimensions.y), length: CGFloat(dimensions.z), chamferRadius: 0.01)
+                    let box = SCNBox(width: CGFloat(dimensions.x), height: CGFloat(dimensions.y), length: CGFloat(dimensions.z), chamferRadius: 0.02)
                     box.firstMaterial?.diffuse.contents = color
-                    box.firstMaterial?.emission.contents = color
-                    box.firstMaterial?.emission.intensity = 1.0
                     box.firstMaterial?.transparency = opacity
-                    box.firstMaterial?.writesToDepthBuffer = true
-                    box.firstMaterial?.blendMode = .add
-                    box.firstMaterial?.fillMode = isWireframe ? .lines : .fill
+                    box.firstMaterial?.lightingModel = .physicallyBased
+                    box.firstMaterial?.blendMode = .alpha
                     let node = SCNNode(geometry: box)
                     node.simdTransform = transform
+                    node.isHidden = !isMapView
                     scene.rootNode.addChildNode(node)
                     roomNodes[id] = node
                 }
             }
             
-            // "Matrix" neon green cyber-physical vibes
-            let neonGreen = UIColor(red: 0.1, green: 0.9, blue: 0.2, alpha: 1.0)
-            let dimGreen = UIColor(red: 0.0, green: 0.4, blue: 0.1, alpha: 1.0)
+            // Solid, Apple-like 3D rendering for the Map View
+            let wallColor = UIColor(white: 0.95, alpha: 1.0)
+            let doorColor = UIColor(red: 0.6, green: 0.4, blue: 0.2, alpha: 1.0)
+            let windowColor = UIColor(red: 0.5, green: 0.8, blue: 1.0, alpha: 0.5)
+            let objectColor = UIColor(white: 0.8, alpha: 1.0)
             
-            for wall in room.walls { updateNode(id: wall.identifier, transform: wall.transform, dimensions: wall.dimensions, color: neonGreen, opacity: 0.15, isWireframe: true) }
-            for door in room.doors { updateNode(id: door.identifier, transform: door.transform, dimensions: door.dimensions, color: neonGreen, opacity: 0.25) }
-            for window in room.windows { updateNode(id: window.identifier, transform: window.transform, dimensions: window.dimensions, color: neonGreen, opacity: 0.2, isWireframe: true) }
-            for object in room.objects { updateNode(id: object.identifier, transform: object.transform, dimensions: object.dimensions, color: dimGreen, opacity: 0.2) }
+            for wall in room.walls { updateNode(id: wall.identifier, transform: wall.transform, dimensions: wall.dimensions, color: wallColor, opacity: 1.0) }
+            for door in room.doors { updateNode(id: door.identifier, transform: door.transform, dimensions: door.dimensions, color: doorColor, opacity: 1.0) }
+            for window in room.windows { updateNode(id: window.identifier, transform: window.transform, dimensions: window.dimensions, color: windowColor, opacity: 0.5) }
+            for object in room.objects { updateNode(id: object.identifier, transform: object.transform, dimensions: object.dimensions, color: objectColor, opacity: 1.0) }
             
             for stale in currentKeys {
                 roomNodes[stale]?.removeFromParentNode()
@@ -198,24 +199,25 @@ public struct CompositeSurveyView: UIViewRepresentable {
             let color = is5G ? UIColor.cyan : UIColor.orange
             
             // Core
-            let core = SCNSphere(radius: 0.1)
+            let core = SCNSphere(radius: 0.15)
             core.firstMaterial?.diffuse.contents = color
             core.firstMaterial?.emission.contents = color
-            core.firstMaterial?.emission.intensity = 1.5
+            core.firstMaterial?.emission.intensity = 2.0
             let coreNode = SCNNode(geometry: core)
             coreNode.name = "Core"
             container.addChildNode(coreNode)
             
             // Uncertainty/Coverage Sphere
             let coverage = SCNSphere(radius: 2.0)
-            coverage.firstMaterial?.diffuse.contents = color.withAlphaComponent(0.1)
-            coverage.firstMaterial?.emission.contents = color.withAlphaComponent(0.05)
-            coverage.firstMaterial?.isDoubleSided = true
-            coverage.firstMaterial?.blendMode = .add
+            coverage.firstMaterial?.diffuse.contents = color
+            coverage.firstMaterial?.emission.contents = color
+            coverage.firstMaterial?.emission.intensity = 0.5
+            coverage.firstMaterial?.transparent.contents = UIColor(white: 1.0, alpha: 0.15)
+            coverage.firstMaterial?.isDoubleSided = false
             coverage.firstMaterial?.writesToDepthBuffer = false
+            coverage.firstMaterial?.blendMode = .alpha
             let coverageNode = SCNNode(geometry: coverage)
             coverageNode.name = "Coverage"
-            coverageNode.opacity = 0.3
             container.addChildNode(coverageNode)
             
             // Text Label
@@ -230,7 +232,7 @@ public struct CompositeSurveyView: UIViewRepresentable {
             let (min, max) = textNode.boundingBox
             textNode.pivot = SCNMatrix4MakeTranslation((max.x - min.x)/2, (max.y - min.y)/2, 0)
             textNode.scale = SCNVector3(1, 1, 1)
-            textNode.position = SCNVector3(0, 0.3, 0)
+            textNode.position = SCNVector3(0, 0.4, 0)
             
             let billboard = SCNBillboardConstraint()
             billboard.freeAxes = .all
