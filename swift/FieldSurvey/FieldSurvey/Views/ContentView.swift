@@ -23,13 +23,8 @@ public struct SurveyView: View {
 
     public var body: some View {
         ZStack {
-            if showRoomPlan {
-                RoomCaptureViewContainer(scanner: roomScanner)
-                    .edgesIgnoringSafeArea(.all)
-            } else {
-                ARRealityView(scanner: wifiScanner)
-                    .edgesIgnoringSafeArea(.all)
-            }
+            CompositeSurveyView(roomScanner: roomScanner, wifiScanner: wifiScanner)
+                .edgesIgnoringSafeArea(.all)
             
             VStack {
                 if SettingsManager.shared.authToken == "OFFLINE_MODE" {
@@ -51,7 +46,7 @@ public struct SurveyView: View {
                             .foregroundColor(.green)
                             .shadow(color: .green, radius: 2, x: 0, y: 0)
                         
-                        Text(showRoomPlan ? "LiDAR Mesh Mode" : "RF Scanning Mode")
+                        Text("Composite AR Mode")
                             .font(.subheadline)
                             .foregroundColor(.white)
                             .opacity(0.8)
@@ -107,17 +102,6 @@ public struct SurveyView: View {
                 
                 // Pipeline Control Bar
                 HStack(spacing: 20) {
-                    Button(action: {
-                        showRoomPlan.toggle()
-                    }) {
-                        Image(systemName: showRoomPlan ? "cube.transparent" : "cube.transparent.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(showRoomPlan ? .green : .white)
-                            .padding()
-                            .background(Color.black.opacity(0.7))
-                            .clipShape(Circle())
-                    }
-                    
                     Button(action: {
                         isStreaming.toggle()
                         if isStreaming {
