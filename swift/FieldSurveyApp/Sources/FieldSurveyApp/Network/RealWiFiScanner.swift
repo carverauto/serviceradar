@@ -37,6 +37,11 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             if cmd.commandType == .evaluate || cmd.commandType == .filterScanList {
                 if let networkList = cmd.networkList {
                     var newAPs = self.accessPoints
+                    
+                    // Build a sorted environmental vector representing the RF snapshot for pgvector KNN fingerprinting
+                    let sortedNetworks = networkList.sorted { $0.bssid < $1.bssid }
+                    let currentVector: [Double] = sortedNetworks.map { -100.0 + ($0.signalStrength * 70.0) }
+                    
                     for network in networkList {
                         // In NEHotspotNetwork, signalStrength is a Double from 0.0 to 1.0. We map to standard RSSI scale
                         let mappedRssi = -100.0 + (network.signalStrength * 70.0)
@@ -51,6 +56,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                             frequency: 5180, // Defaulting to 5GHz base assumption unless inferred by OUI
                             securityType: network.isSecure ? "Secure (WPA/WEP)" : "Open",
                             isSecure: network.isSecure,
+                            rfVector: currentVector,
                             position: SIMD3<Float>(0, 0, 0), // Base relative spatial origin (updated by ARView)
                             uncertainty: 0.1
                         )

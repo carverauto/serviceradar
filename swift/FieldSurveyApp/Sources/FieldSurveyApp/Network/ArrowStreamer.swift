@@ -37,6 +37,8 @@ public class ArrowStreamer {
             .addField("frequency", type: ArrowType.int64, isNullable: false)
             .addField("securityType", type: ArrowType.string, isNullable: false)
             .addField("isSecure", type: ArrowType.boolean, isNullable: false)
+            // rfVector is a List<Double>
+            .addField("rfVector", type: ArrowType.list(ArrowType.float64), isNullable: false)
             .addField("x", type: ArrowType.float32, isNullable: false)
             .addField("y", type: ArrowType.float32, isNullable: false)
             .addField("z", type: ArrowType.float32, isNullable: false)
@@ -51,6 +53,9 @@ public class ArrowStreamer {
         let freqBuilder = try NumberArrayBuilder<Int64>()
         let securityTypeBuilder = try StringArrayBuilder()
         let isSecureBuilder = try BoolArrayBuilder()
+        
+        let rfVectorBuilder = try ListArrayBuilder<Double>(ArrowType.float64)
+        
         let xBuilder = try NumberArrayBuilder<Float>()
         let yBuilder = try NumberArrayBuilder<Float>()
         let zBuilder = try NumberArrayBuilder<Float>()
@@ -66,6 +71,10 @@ public class ArrowStreamer {
             freqBuilder.append(Int64(sample.frequency))
             securityTypeBuilder.append(sample.securityType)
             isSecureBuilder.append(sample.isSecure)
+            
+            // Build the variable-length list array for this specific row's rfVector
+            rfVectorBuilder.append(sample.rfVector)
+            
             xBuilder.append(sample.x)
             yBuilder.append(sample.y)
             zBuilder.append(sample.z)
@@ -82,6 +91,7 @@ public class ArrowStreamer {
             .addColumn("frequency", array: try freqBuilder.finish())
             .addColumn("securityType", array: try securityTypeBuilder.finish())
             .addColumn("isSecure", array: try isSecureBuilder.finish())
+            .addColumn("rfVector", array: try rfVectorBuilder.finish())
             .addColumn("x", array: try xBuilder.finish())
             .addColumn("y", array: try yBuilder.finish())
             .addColumn("z", array: try zBuilder.finish())
