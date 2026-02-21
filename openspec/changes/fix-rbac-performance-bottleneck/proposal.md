@@ -81,12 +81,12 @@ Permit (`Permit.Phoenix.LiveView.AuthorizeHook`) is only used on 4 routes (`/set
 - Affected specs: `rbac-route-protection`, `ash-authorization`
 - Affected code:
   - `elixir/serviceradar_core/lib/serviceradar/identity/rbac.ex` (process cache)
-  - `web-ng/lib/serviceradar_web_ng_web/user_auth.ex` (scope enrichment)
-  - `web-ng/lib/serviceradar_web_ng/accounts/scope.ex` (permissions field)
-  - `web-ng/lib/serviceradar_web_ng/ash_scope.ex` (enriched actor)
-  - `web-ng/lib/serviceradar_web_ng/rbac.ex` (scope-aware can?)
-  - `web-ng/lib/serviceradar_web_ng_web/router.ex` (set_ash_actor optimization)
-  - `web-ng/mix.exs` and `elixir/serviceradar_core/mix.exs` (Phase 2: OTEL deps)
-  - `web-ng/config/config.exs` (Phase 2: OTEL config)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/user_auth.ex` (scope enrichment)
+  - `elixir/web-ng/lib/serviceradar_web_ng/accounts/scope.ex` (permissions field)
+  - `elixir/web-ng/lib/serviceradar_web_ng/ash_scope.ex` (enriched actor)
+  - `elixir/web-ng/lib/serviceradar_web_ng/rbac.ex` (scope-aware can?)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex` (set_ash_actor optimization)
+  - `elixir/web-ng/mix.exs` and `elixir/serviceradar_core/mix.exs` (Phase 2: OTEL deps)
+  - `elixir/web-ng/config/config.exs` (Phase 2: OTEL config)
 - **BREAKING**: None. All changes are internal optimization; external behavior unchanged.
 - **Expected improvement**: ~25x reduction in RoleProfile DB queries per page load (from 25+ to 1)

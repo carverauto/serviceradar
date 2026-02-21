@@ -1,0 +1,29 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "models",
+    srcs = glob(
+        ["*.go"],
+        exclude = ["*_test.go"],
+    ),
+    importpath = "github.com/carverauto/serviceradar/go/pkg/models",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/logger",
+        "//proto/discovery",
+    ],
+)
+
+go_test(
+    name = "models_test",
+    srcs = [
+        "service_device_test.go",
+        "sync_test.go",
+        "utils_test.go",
+    ],
+    embed = [":models"],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

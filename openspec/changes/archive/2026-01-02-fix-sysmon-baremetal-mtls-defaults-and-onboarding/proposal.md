@@ -1,7 +1,7 @@
 # Change: Fix sysmon bare-metal mTLS defaults and edge onboarding
 
 ## Why
-- Sysmon RPM/Deb packages currently seed and ship a SPIFFE/SPIRE default config (`cmd/checkers/sysmon/config/default_template.json`, `packaging/sysmon/config/checkers/sysmon.json.example`). Bare-metal installs should default to mTLS so sysmon starts without SPIRE infrastructure.
+- Sysmon RPM/Deb packages currently seed and ship a SPIFFE/SPIRE default config (`cmd/checkers/sysmon/config/default_template.json`, `build/packaging/sysmon/config/checkers/sysmon.json.example`). Bare-metal installs should default to mTLS so sysmon starts without SPIRE infrastructure.
 - Sysmon edge onboarding is failing in some bare-metal environments with `502 {"message":"failed to deliver edge package"}`, blocking zero-touch installs.
 - Existing edge-onboarding changes added mTLS bundles and sysmon bootstrap support, but sysmon bare-metal defaults and sysmon-specific onboarding hardening remain inconsistent.
 
@@ -18,7 +18,7 @@
 - Affected specs: `sysmon-checker`, `edge-onboarding`.
 - Affected code (expected):
   - `cmd/checkers/sysmon/config/default_template.json`
-  - `packaging/sysmon/config/checkers/sysmon.json.example`
+  - `build/packaging/sysmon/config/checkers/sysmon.json.example`
   - `pkg/core/edge_onboarding.go`, `pkg/core/api/edge_onboarding.go`
   - KV seeding/templates for sysmon checkers (`templates/checkers/mtls/sysmon.json`)
   - sysmon RPM/Deb systemd/service install paths and docs.

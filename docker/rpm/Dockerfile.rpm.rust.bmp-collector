@@ -23,9 +23,9 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     cp /tmp/target/x86_64-unknown-linux-gnu/release/arancini ${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/serviceradar-bmp-collector
 
 WORKDIR /root/rpmbuild
-COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+COPY build/packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
 RUN mkdir -p SOURCES/${COMPONENT}/systemd
-COPY packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
+COPY build/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
 
 RUN RPM_VERSION=$(echo ${VERSION} | sed 's/-.*//') && \
     sed -i "s/%{version}/${RPM_VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \

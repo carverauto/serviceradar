@@ -27,4 +27,4 @@ GitHub Issue: #2426
 - Affected code:
   - `helm/serviceradar/templates/zen-rules-bootstrap-job.yaml` (new)
   - `helm/serviceradar/values.yaml` (add zen bootstrap config)
-  - `cmd/consumers/zen/Dockerfile` (ensure zen-put-rule is included)
+  - `rust/consumers/zen/Dockerfile` (ensure zen-put-rule is included)

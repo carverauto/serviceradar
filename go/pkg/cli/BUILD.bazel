@@ -1,0 +1,31 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "cli",
+    srcs = [
+        "checker.go",
+        "cli.go",
+        "edge_onboarding.go",
+        "enroll.go",
+        "errors.go",
+        "flags.go",
+        "help.go",
+        "jwt_keys.go",
+        "nats_bootstrap.go",
+        "spire.go",
+        "tls.go",
+        "types.go",
+        "utils.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/cli",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/edgeonboarding",
+        "//go/pkg/nats/accounts",
+        "@com_github_atotto_clipboard//:clipboard",
+        "@com_github_charmbracelet_bubbles//textinput",
+        "@com_github_charmbracelet_bubbletea//:bubbletea",
+        "@com_github_charmbracelet_lipgloss//:lipgloss",
+        "@org_golang_x_crypto//bcrypt",
+    ],
+)

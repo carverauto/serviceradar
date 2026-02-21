@@ -4,7 +4,7 @@ FROM ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest AS builder
 ARG VERSION=1.0.33
 ARG RELEASE=1
 ARG COMPONENT=trapd
-ARG BINARY_PATH=cmd/trapd
+ARG BINARY_PATH=rust/trapd
 
 # Use workspace root so workspace deps resolve
 WORKDIR /src
@@ -26,18 +26,18 @@ COPY Cargo.lock ./
 # Include shared protobuf definitions for build.rs resolution
 RUN mkdir -p proto
 COPY proto ./proto/
-RUN mkdir -p cmd/otel/proto
-COPY cmd/otel/proto ./cmd/otel/proto/
+RUN mkdir -p rust/otel/proto
+COPY rust/otel/proto ./rust/otel/proto/
 
 # Update Rust to latest to support edition 2024  
 RUN rustup update && rustup install nightly && rustup default nightly
 
 # Copy all workspace members to satisfy cargo workspace requirements
 COPY rust/kvutil ./rust/kvutil/
-COPY cmd/trapd ./cmd/trapd/
-COPY cmd/flowgger ./cmd/flowgger/
-COPY cmd/otel ./cmd/otel/
-COPY cmd/consumers/zen ./cmd/consumers/zen
+COPY rust/trapd ./rust/trapd/
+COPY rust/flowgger ./rust/flowgger/
+COPY rust/otel ./rust/otel/
+COPY rust/consumers/zen ./rust/consumers/zen
 
 # Build the Rust binary with cache mounts and copy artifacts out
 RUN --mount=type=cache,target=/root/.cargo/registry \
@@ -54,10 +54,10 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 
 # Set up RPM build environment
 WORKDIR /root/rpmbuild
-COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+COPY build/packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
 RUN mkdir -p SOURCES/${COMPONENT}/systemd SOURCES/${COMPONENT}/config
-COPY packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
-COPY packaging/${COMPONENT}/config/trapd.json SOURCES/${COMPONENT}/config/
+COPY build/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
+COPY build/packaging/${COMPONENT}/config/trapd.json SOURCES/${COMPONENT}/config/
 
 # Build the RPM
 # Sanitize VERSION for RPM (remove pre-release suffixes like -pre1)

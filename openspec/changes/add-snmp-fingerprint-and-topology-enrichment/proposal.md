@@ -23,5 +23,5 @@ Issue #2825 highlights that current SNMP-driven enrichment is not extracting eno
   - `elixir/serviceradar_core/lib/serviceradar/network_discovery/mapper_results_ingestor.ex`
   - `elixir/serviceradar_core/lib/serviceradar/inventory/*` enrichment/rule evaluation modules
   - `elixir/serviceradar_core/lib/serviceradar/topology/topology_graph.ex`
-  - `web-ng/lib/serviceradar_web_ng_web/live/device_live/show.ex`
-  - `web-ng/lib/serviceradar_web_ng_web/live/devices_live/index.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/show.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/devices_live/index.ex`

@@ -31,20 +31,20 @@
   - `//pkg/core/templateregistry:templateregistry`
   - `//pkg/mcp:mcp`
 - [ ] 2.2 Remove core binary mapping from `docker/images/BUILD.bazel`
-- [ ] 2.3 Remove core target from `packaging/packages.bzl`
+- [ ] 2.3 Remove core target from `build/packaging/packages.bzl`
 - [ ] 2.4 Verify `bazel build //...` succeeds
 - [ ] 2.5 Verify `bazel test //...` succeeds
 
 ## 3. Packaging Artifacts Removal
 
-- [ ] 3.1 Remove `packaging/core/` directory:
-  - `packaging/core/config/core.json`
-  - `packaging/core/config/core.docker.json`
-  - `packaging/core/scripts/postinstall.sh`
-  - `packaging/core/scripts/preremove.sh`
-  - `packaging/core/systemd/serviceradar-core.service`
-- [ ] 3.2 Remove core entry from `packaging/components.json`
-- [ ] 3.3 Remove `packaging/specs/serviceradar-core.spec`
+- [ ] 3.1 Remove `build/packaging/core/` directory:
+  - `build/packaging/core/config/core.json`
+  - `build/packaging/core/config/core.docker.json`
+  - `build/packaging/core/scripts/postinstall.sh`
+  - `build/packaging/core/scripts/preremove.sh`
+  - `build/packaging/core/systemd/serviceradar-core.service`
+- [ ] 3.2 Remove core entry from `build/packaging/components.json`
+- [ ] 3.3 Remove `build/packaging/specs/serviceradar-core.spec`
 - [ ] 3.4 Remove `docker/rpm/Dockerfile.rpm.core`
 
 ## 4. Docker Cleanup

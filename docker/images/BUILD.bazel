@@ -36,7 +36,7 @@ pkg_tar(
         "@jq_linux_amd64//file": "usr/local/bin/jq",
         "@curl_linux_amd64//file": "usr/local/bin/curl",
         "@grpcurl_linux_amd64//:grpcurl": "usr/local/bin/grpcurl",
-        "//cmd/tools/waitforport:wait-for-port": "usr/local/bin/wait-for-port",
+        "//go/cmd/tools/waitforport:wait-for-port": "usr/local/bin/wait-for-port",
     },
     modes = {
         "usr/local/bin/jq": "0755",
@@ -406,11 +406,11 @@ tar -czf "$@" -C "$${ROOT}" .
 
 genrule(
     name = "web_ng_release_rootfs_amd64",
-    srcs = ["//web-ng:release_tar"],
+    srcs = ["//elixir/web-ng:release_tar"],
     outs = ["web_ng_release_rootfs_amd64.tar"],
     cmd = """
 set -euo pipefail
-TAR=$(location //web-ng:release_tar)
+TAR=$(location //elixir/web-ng:release_tar)
 ROOT=$(@D)/rootfs
 rm -rf "$${ROOT}"
 mkdir -p "$${ROOT}/app"
@@ -661,7 +661,7 @@ oci_load(
 pkg_tar(
     name = "agent_layer_amd64",
     files = {
-        "//cmd/agent:agent": "usr/local/bin/serviceradar-agent",
+        "//go/cmd/agent:agent": "usr/local/bin/serviceradar-agent",
         "//docker/compose:agent.docker.json": "etc/serviceradar/agent.json",
         "//docker/compose:sweep.docker.json": "etc/serviceradar/checkers/sweep/sweep.json",
     },
@@ -701,7 +701,7 @@ oci_load(
 pkg_tar(
     name = "db_event_writer_layer_amd64",
     files = {
-        "//cmd/consumers/db-event-writer:db-event-writer": "usr/local/bin/serviceradar-db-event-writer",
+        "//go/cmd/consumers/db-event-writer:db-event-writer": "usr/local/bin/serviceradar-db-event-writer",
         "//docker/compose:entrypoint-db-event-writer.sh": "usr/local/bin/entrypoint.sh",
     },
     modes = {
@@ -742,7 +742,7 @@ oci_load(
 pkg_tar(
     name = "datasvc_layer_amd64",
     files = {
-        "//cmd/data-services:data_services": "usr/local/bin/serviceradar-datasvc",
+        "//go/cmd/data-services:data_services": "usr/local/bin/serviceradar-datasvc",
         "//docker/compose:entrypoint-datasvc.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:datasvc.docker.json": "etc/serviceradar/datasvc.json",
     },
@@ -783,7 +783,7 @@ oci_load(
 pkg_tar(
     name = "flowgger_layer_amd64",
     files = {
-        "//cmd/flowgger:flowgger": "usr/local/bin/serviceradar-flowgger",
+        "//rust/flowgger:flowgger": "usr/local/bin/serviceradar-flowgger",
         "//docker/compose:entrypoint-flowgger.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:flowgger.docker.toml": "etc/serviceradar/flowgger.toml",
     },
@@ -826,7 +826,7 @@ oci_load(
 pkg_tar(
     name = "trapd_layer_amd64",
     files = {
-        "//cmd/trapd:trapd": "usr/local/bin/serviceradar-trapd",
+        "//rust/trapd:trapd": "usr/local/bin/serviceradar-trapd",
         "//docker/compose:entrypoint-trapd.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:trapd.docker.json": "etc/serviceradar/trapd.json",
     },
@@ -946,7 +946,7 @@ oci_load(
 pkg_tar(
     name = "otel_layer_amd64",
     files = {
-        "//cmd/otel:otel": "usr/local/bin/serviceradar-otel",
+        "//rust/otel:otel": "usr/local/bin/serviceradar-otel",
         "//docker/compose:entrypoint-otel.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:otel.docker.toml": "etc/serviceradar/otel.toml",
     },
@@ -988,7 +988,7 @@ oci_load(
 pkg_tar(
     name = "rperf_client_layer_amd64",
     files = {
-        "//cmd/checkers/rperf-client:rperf_checker": "usr/local/bin/serviceradar-rperf-checker",
+        "//rust/checkers/rperf-client:rperf_checker": "usr/local/bin/serviceradar-rperf-checker",
         "//docker/compose:entrypoint-rperf-client.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:rperf-client.docker.json": "tmp/rperf-client.docker.json",
     },
@@ -1031,7 +1031,7 @@ oci_load(
 pkg_tar(
     name = "faker_layer_amd64",
     files = {
-        "//cmd/faker:faker": "usr/local/bin/serviceradar-faker",
+        "//go/cmd/faker:faker": "usr/local/bin/serviceradar-faker",
     },
     modes = {
         "usr/local/bin/serviceradar-faker": "0755",
@@ -1068,15 +1068,15 @@ oci_load(
 pkg_tar(
     name = "zen_layer_amd64",
     files = {
-        "//cmd/consumers/zen:zen": "usr/local/bin/serviceradar-zen",
-        "//cmd/consumers/zen:zen_put_rule": "usr/local/bin/zen-put-rule",
+        "//rust/consumers/zen:zen": "usr/local/bin/serviceradar-zen",
+        "//rust/consumers/zen:zen_put_rule": "usr/local/bin/zen-put-rule",
         "//docker/compose:entrypoint-zen.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:zen-install-rules.sh": "usr/local/bin/zen-install-rules.sh",
         "//docker/compose:zen.docker.json": "etc/serviceradar/zen.json",
-        "//cmd/consumers/zen:data/cef_severity.json": "var/lib/serviceradar/data/cef_severity.json",
-        "//cmd/consumers/zen:data/snmp_severity.json": "var/lib/serviceradar/data/snmp_severity.json",
-        "//cmd/consumers/zen:data/passthrough.json": "var/lib/serviceradar/data/passthrough.json",
-        "//cmd/consumers/zen:data/strip_full_message.json": "var/lib/serviceradar/data/strip_full_message.json",
+        "//rust/consumers/zen:data/cef_severity.json": "var/lib/serviceradar/data/cef_severity.json",
+        "//rust/consumers/zen:data/snmp_severity.json": "var/lib/serviceradar/data/snmp_severity.json",
+        "//rust/consumers/zen:data/passthrough.json": "var/lib/serviceradar/data/passthrough.json",
+        "//rust/consumers/zen:data/strip_full_message.json": "var/lib/serviceradar/data/strip_full_message.json",
         "//rust/netflow-collector:data/flows/netflow_to_ocsf.json": "var/lib/serviceradar/data/netflow_to_ocsf.json",
     },
     modes = {
@@ -1123,7 +1123,7 @@ oci_load(
 pkg_tar(
     name = "config_updater_layer_amd64",
     files = {
-        "//cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+        "//go/cmd/cli:cli": "usr/local/bin/serviceradar-cli",
         "//docker/compose:update-config.sh": "usr/local/bin/update-config.sh",
     },
     modes = {
@@ -1188,7 +1188,7 @@ oci_load(
 pkg_tar(
     name = "tools_layer_amd64",
     files = {
-        "//cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+        "//go/cmd/cli:cli": "usr/local/bin/serviceradar-cli",
         "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
         "//docker/compose:tools-motd.txt": "etc/motd",
@@ -1325,7 +1325,7 @@ genrule(
         "@debian_gcc_15_base_amd64_deb//file",
         "@debian_libgcc_s1_amd64_deb//file",
         "@debian_libc6_amd64_deb//file",
-        "//timescaledb:source_tree",
+        "//database/timescaledb:source_tree",
         "//docker/images:pg_config_wrapper.sh",
     ],
     outs = ["timescaledb_extension_layer.tar"],
@@ -1353,7 +1353,7 @@ python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
 sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 
-SRC_TREE="$$(pwd)/$(execpath //timescaledb:source_tree)"
+SRC_TREE="$$(pwd)/$(execpath //database/timescaledb:source_tree)"
 echo "Copying TimescaleDB sources from $${SRC_TREE}"
 if [[ -d "$${OUT_DIR}/timescaledb" ]]; then
   chmod -R u+w "$${OUT_DIR}/timescaledb"
@@ -1406,7 +1406,7 @@ genrule(
         "@debian_gcc_15_base_amd64_deb//file",
         "@debian_libgcc_s1_amd64_deb//file",
         "@debian_libc6_amd64_deb//file",
-        "//age:source_tree",
+        "//database/age:source_tree",
         "//docker/images:pg_config_wrapper.sh",
     ],
     outs = ["age_extension_layer.tar"],
@@ -1431,7 +1431,7 @@ python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
 sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 
-AGE_TREE="$$(pwd)/$(execpath //age:source_tree)"
+AGE_TREE="$$(pwd)/$(execpath //database/age:source_tree)"
 if [[ -d "$${OUT_DIR}/age" ]]; then
   chmod -R u+w "$${OUT_DIR}/age"
   rm -rf "$${OUT_DIR}/age"

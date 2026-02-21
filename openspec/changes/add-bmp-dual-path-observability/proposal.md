@@ -25,8 +25,8 @@ ServiceRadar already has a dedicated `bmp_routing_events` path and a separate OC
   - `rust/srql/src/query/mod.rs`
   - `rust/srql/src/query/viz.rs`
   - `rust/srql/src/query/bmp_events.rs` (new)
-  - `web-ng/lib/serviceradar_web_ng_web/srql/catalog.ex`
-  - `web-ng/lib/serviceradar_web_ng_web/live/observability_bmp_live/*` (new)
-  - `web-ng/lib/serviceradar_web_ng_web/router.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/srql/catalog.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/observability_bmp_live/*` (new)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex`
 - Breaking changes:
   - No API-breaking change expected for existing `in:events` or `in:logs` SRQL entities.

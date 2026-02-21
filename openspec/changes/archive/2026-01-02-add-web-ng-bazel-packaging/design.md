@@ -2,7 +2,7 @@
 The Phoenix/LiveView `web-ng` app currently builds via Mix/Compose only. All other components ship through Bazel with rules_oci + rules_pkg for OCI images and RPM/DEB installers. Kubernetes cutover tasks (add-serviceradar-web-ng-foundation §7) depend on having Bazel-built images. We need a hermetic, RBE-friendly path to compile assets, run `mix release`, and package the release for containers and system packages without relying on host toolchains.
 
 ## Goals / Non-Goals
-- Goals: hermetic Bazel targets for `mix assets.build` + `mix release`; OCI image under //docker/images; RPM/DEB packages under //packaging using existing macros; push targets wired into push_all; docs/runbooks updated.
+- Goals: hermetic Bazel targets for `mix assets.build` + `mix release`; OCI image under //docker/images; RPM/DEB packages under //build/packaging using existing macros; push targets wired into push_all; docs/runbooks updated.
 - Non-Goals: removing the legacy `serviceradar-web` targets; redesigning Phoenix runtime configuration; introducing a new router/ingress story (covered by existing k8s cutover tasks).
 
 ## Decisions

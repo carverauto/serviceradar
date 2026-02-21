@@ -33,7 +33,7 @@
   - `pkg/datasvc/nats.go` - robust prefix listing for KV templates
   - `web/src/app/admin/edge-packages/page.tsx` - update form UX with dropdown/custom
   - KV seeding scripts/configs - add default templates (compose mTLS; Helm SPIRE)
-  - `packaging/*/config/checkers/*.json` - ensure all checkers have templates
+  - `build/packaging/*/config/checkers/*.json` - ensure all checkers have templates
 
 ## Status
 - **Blocking bug**: Users cannot onboard sysmon checkers without manually providing full checker_config_json

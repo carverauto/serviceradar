@@ -22,7 +22,7 @@ Akvorado-style NetFlow analytics relies on interface and exporter metadata (inte
 - Affected code (planned):
   - `elixir/serviceradar_core/` (migrations + Ash resources + Oban worker)
   - `rust/srql/` (flows query: joins/projections for new dimensions)
-  - `web-ng/` (dimension selector labels for exporter/interface dims; units work in follow-up change)
+  - `elixir/web-ng/` (dimension selector labels for exporter/interface dims; units work in follow-up change)
 - Affected specs:
   - `srql`
   - `build-web-ui` (NetFlow Visualize dims list)

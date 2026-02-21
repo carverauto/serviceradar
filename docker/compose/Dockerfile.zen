@@ -8,8 +8,8 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN GOTOOLCHAIN=auto go mod download
 
-COPY cmd/tools/waitforport ./cmd/tools/waitforport
-RUN GOTOOLCHAIN=auto CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./cmd/tools/waitforport
+COPY go/cmd/tools/waitforport ./go/cmd/tools/waitforport
+RUN GOTOOLCHAIN=auto CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./go/cmd/tools/waitforport
 
 # Multi-stage build for ServiceRadar Zen service (Rust) - FIXED
 FROM rust:latest AS builder
@@ -67,7 +67,7 @@ COPY --from=waitforport-builder /wait-for-port /usr/local/bin/wait-for-port
 RUN chmod +x /usr/local/bin/wait-for-port
 
 # Copy rule data files
-COPY cmd/consumers/zen/data /var/lib/serviceradar/data
+COPY rust/consumers/zen/data /var/lib/serviceradar/data
 
 # Copy entrypoint and rule installation scripts
 COPY docker/compose/entrypoint-zen.sh /usr/local/bin/entrypoint.sh

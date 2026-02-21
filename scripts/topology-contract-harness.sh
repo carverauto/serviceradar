@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "[topology-harness] mapper contract tests"
 (
   cd "$ROOT_DIR"
-  go test ./pkg/mapper/... -run 'SNMPL2|Topology|Identity|LLDP'
+  go test ./go/pkg/mapper/... -run 'SNMPL2|Topology|Identity|LLDP'
 )
 
 echo "[topology-harness] core projection contract tests"

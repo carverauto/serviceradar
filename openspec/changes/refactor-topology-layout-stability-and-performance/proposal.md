@@ -14,7 +14,7 @@
 - Affected specs:
   - `build-web-ui`
 - Expected code areas:
-  - `web-ng/lib/serviceradar_web_ng/topology/*`
+  - `elixir/web-ng/lib/serviceradar_web_ng/topology/*`
   - Rust NIF layout paths used by web-ng topology snapshots
 
 ## In-Scope Deferred Items (prop2 Traceability)
@@ -45,13 +45,13 @@
 ## Implementation Traceability (P2 -> Artifact -> Evidence)
 | P2 ID | Disposition | Implementation Artifacts | Evidence |
 |---|---|---|---|
-| `P2-034` | implemented | `web-ng/lib/serviceradar_web_ng/topology/god_view_stream.ex`, `web-ng/native/god_view_nif/src/lib.rs` | Weighted node anchor inputs + layered placement logic |
-| `P2-036` | implemented | `web-ng/native/god_view_nif/src/lib.rs` | Replaced ring geometry with deterministic layered layout function |
-| `P2-038` | implemented | `web-ng/native/god_view_nif/src/lib.rs` | Root/anchor selection now weight+degree deterministic ordering |
-| `P2-039` | implemented | `web-ng/native/god_view_nif/src/lib.rs` | Removed snapshot betweenness computation from `encode_snapshot_impl` metadata path |
-| `P2-040` | implemented | `web-ng/native/god_view_nif/src/lib.rs` | Layout geometry now builds adjacency directly from binary edges (no hypergraph conversion in layout path) |
-| `P2-041` | implemented | `web-ng/native/god_view_nif/src/lib.rs`, `web-ng/lib/serviceradar_web_ng/topology/god_view_stream.ex` | Typed telemetry-only runtime contract; JSON fallback parsing removed from enrichment hot path |
-| `P2-045` | re-dispositioned (partial implement + defer) | non-breaking perf updates in `web-ng/native/god_view_nif/src/lib.rs`; no snapshot schema break | Non-breaking performance contract improvements completed; structural layered snapshot schema evolution deferred to `add-advanced-causal-hypergraph-overlays` to avoid payload breakage |
+| `P2-034` | implemented | `elixir/web-ng/lib/serviceradar_web_ng/topology/god_view_stream.ex`, `elixir/web-ng/native/god_view_nif/src/lib.rs` | Weighted node anchor inputs + layered placement logic |
+| `P2-036` | implemented | `elixir/web-ng/native/god_view_nif/src/lib.rs` | Replaced ring geometry with deterministic layered layout function |
+| `P2-038` | implemented | `elixir/web-ng/native/god_view_nif/src/lib.rs` | Root/anchor selection now weight+degree deterministic ordering |
+| `P2-039` | implemented | `elixir/web-ng/native/god_view_nif/src/lib.rs` | Removed snapshot betweenness computation from `encode_snapshot_impl` metadata path |
+| `P2-040` | implemented | `elixir/web-ng/native/god_view_nif/src/lib.rs` | Layout geometry now builds adjacency directly from binary edges (no hypergraph conversion in layout path) |
+| `P2-041` | implemented | `elixir/web-ng/native/god_view_nif/src/lib.rs`, `elixir/web-ng/lib/serviceradar_web_ng/topology/god_view_stream.ex` | Typed telemetry-only runtime contract; JSON fallback parsing removed from enrichment hot path |
+| `P2-045` | re-dispositioned (partial implement + defer) | non-breaking perf updates in `elixir/web-ng/native/god_view_nif/src/lib.rs`; no snapshot schema break | Non-breaking performance contract improvements completed; structural layered snapshot schema evolution deferred to `add-advanced-causal-hypergraph-overlays` to avoid payload breakage |
 
 ## Verification Evidence
 - Rust unit tests:
@@ -61,4 +61,4 @@
   - `enrich_edges_telemetry_prefers_typed_values`
   - `enrich_edges_telemetry_uses_metric_and_speed_fallback_when_typed_missing`
 - God-View integration tests:
-  - `web-ng/test/serviceradar_web_ng/topology/god_view_stream_test.exs` includes causal-only coordinate stability and high-fanout stability regression cases.
+  - `elixir/web-ng/test/serviceradar_web_ng/topology/god_view_stream_test.exs` includes causal-only coordinate stability and high-fanout stability regression cases.

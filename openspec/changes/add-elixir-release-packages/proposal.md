@@ -10,11 +10,11 @@ GitHub issue #2751: `serviceradar-core-elx` is completely missing from release b
 
 ## Scope
 
-- Add `core-elx` and `agent-gateway` entries to `packaging/packages.bzl`
+- Add `core-elx` and `agent-gateway` entries to `build/packaging/packages.bzl`
 - Create packaging directories with env config, systemd units, and install scripts (mirroring the existing `web-ng` pattern exactly)
 - Create Bazel BUILD files that wire into `release_targets.bzl` auto-discovery
 
-No workflow changes needed — `release_targets.bzl` auto-discovers all entries in `PACKAGES` and the release workflow already publishes everything from `//release:package_artifacts`.
+No workflow changes needed — `release_targets.bzl` auto-discovers all entries in `PACKAGES` and the release workflow already publishes everything from `//build/release:package_artifacts`.
 
 ## Affected Specs
 

@@ -14,7 +14,7 @@ Static assets that MUST be preserved:
 The build process SHALL copy these files from the source `priv/static/` directory to the build output directory before running asset compilation, ensuring they are included in the final release tarball.
 
 #### Scenario: Static assets included in release
-- **WHEN** the Bazel target `//web-ng:release_tar` is built
+- **WHEN** the Bazel target `//elixir/web-ng:release_tar` is built
 - **THEN** the resulting tarball contains `priv/static/favicon.ico`
 - **AND** the tarball contains `priv/static/images/logo.svg`
 - **AND** the tarball contains `priv/static/robots.txt`

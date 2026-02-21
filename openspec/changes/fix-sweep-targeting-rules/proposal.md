@@ -18,7 +18,7 @@ The targeting rules are not displayed - the SRQL builder shows empty.
 
 **Root Cause Investigation:**
 
-The `criteria_to_rules` function (`web-ng/.../networks_live/index.ex:2321`) only handles single operator-value pairs per field:
+The `criteria_to_rules` function (`elixir/web-ng/.../networks_live/index.ex:2321`) only handles single operator-value pairs per field:
 
 ```elixir
 defp criteria_to_rules(criteria) when is_map(criteria) do
@@ -93,7 +93,7 @@ The agent requests config via agent-gateway RPC, which calls `AgentConfigGenerat
 
 - Affected specs: `sweep-jobs`, `agent-config`
 - Affected code:
-  - `web-ng/lib/serviceradar_web_ng_web/live/settings/networks_live/index.ex` - SRQL builder
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/networks_live/index.ex` - SRQL builder
   - `elixir/serviceradar_core/lib/serviceradar/edge/agent_config_generator.ex` - config loading
   - `elixir/serviceradar_core/lib/serviceradar/agent_config/compilers/sweep_compiler.ex` - compilation
   - `elixir/serviceradar_core/lib/serviceradar/sweep_jobs/sweep_group.ex` - Ash resource

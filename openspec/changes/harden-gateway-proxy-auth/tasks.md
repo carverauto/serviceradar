@@ -20,5 +20,5 @@
 
 ## 3. Verification
 - [ ] `cd docs && npm run build`
-- [ ] `cd web-ng && mix test` (or focused tests for auth plug + router)
+- [ ] `cd elixir/web-ng && mix test` (or focused tests for auth plug + router)
 

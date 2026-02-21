@@ -40,5 +40,5 @@ The builder is the primary user interface for SRQL queries. Fixing it there prov
 ## Impact
 - Affected specs: srql
 - Affected code:
-  - `web-ng/lib/serviceradar_web_ng_web/srql/catalog.ex` - add `array_fields` metadata
-  - `web-ng/lib/serviceradar_web_ng_web/srql/builder.ex` - wrap array field values in list syntax
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/srql/catalog.ex` - add `array_fields` metadata
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/srql/builder.ex` - wrap array field values in list syntax

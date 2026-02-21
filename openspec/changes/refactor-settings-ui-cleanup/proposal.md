@@ -48,7 +48,7 @@ The Settings UI has accumulated navigation bugs, broken forms, and structural in
 
 ## Impact
 - Affected specs: `build-web-ui`
-- Affected code: `web-ng/lib/service_radar_web/live/settings/`, device views, integration forms
+- Affected code: `elixir/web-ng/lib/service_radar_web/live/settings/`, device views, integration forms
 - Related issues: #2310, #2289, #2292, #2293, #2254, #2269, #2265, #2262, #2259
 
 ## Out of Scope

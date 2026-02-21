@@ -31,7 +31,7 @@ The default decision group for syslog chains two GoRules/zen flows that focus on
 - `strip_full_message` removes the duplicated `full_message` field that UniFi devices emit so only the structured payload remains.
 - `cef_severity` inspects the CEF header segment and maps the embedded numeric severity into the ServiceRadar priority scale (`Low`, `Medium`, `High`, `Very High`, or `Unknown`).
 
-You can inspect the JSON definitions in `packaging/zen/rules/` (and the rendered Helm ConfigMap in your cluster). The Rule Builder UI now manages these flows without touching JSON; see the [Rule Builder](./rule-builder.md) guide.
+You can inspect the JSON definitions in `build/packaging/zen/rules/` (and the rendered Helm ConfigMap in your cluster). The Rule Builder UI now manages these flows without touching JSON; see the [Rule Builder](./rule-builder.md) guide.
 
 ## Managing Rules
 
@@ -50,7 +50,7 @@ You can inspect the JSON definitions in `packaging/zen/rules/` (and the rendered
 
 ## Parsing and Routing
 
-- The zen engine now owns all parsing before data lands in CNPG. Add or update GoRules flows under `packaging/zen/rules/` and redeploy `serviceradar-zen` to change normalization.
+- The zen engine now owns all parsing before data lands in CNPG. Add or update GoRules flows under `build/packaging/zen/rules/` and redeploy `serviceradar-zen` to change normalization.
 - Route noisy facilities (e.g., `local7.debug`) to lower retention tiers by adjusting db-event-writer stream mappings or by downsampling in CNPG (see the [CNPG monitoring guide](./cnpg-monitoring.md) for helper queries).
 - Convert critical events into alerts through the Core API; use the Rule Builder UI to promote and route events (see [Rule Builder](./rule-builder.md)).
 

@@ -19,7 +19,7 @@ The current NetFlow dashboard is strong for top-N widgets and drill-down, but it
 - Affected specs: `observability-netflow`, `srql`.
 - Affected code:
   - SRQL translator/planner for flows (geo join fields, multi-dimension grouping guardrails).
-  - `web-ng/` LiveView dashboard components (Sankey, heatmap, compare overlays).
+  - `elixir/web-ng/` LiveView dashboard components (Sankey, heatmap, compare overlays).
 - Data model: reuses `platform.ip_geo_enrichment_cache`; no new external services required.
 
 ## Risks / Considerations

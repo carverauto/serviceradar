@@ -1,0 +1,39 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//visibility:public"])
+
+go_library(
+    name = "sysmon",
+    srcs = [
+        "collector.go",
+        "config.go",
+        "cpu.go",
+        "disk.go",
+        "host.go",
+        "memory.go",
+        "metrics.go",
+        "network.go",
+        "process.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/sysmon",
+    deps = [
+        "//go/pkg/agent/core",
+        "//go/pkg/cpufreq",
+        "//go/pkg/logger",
+        "@com_github_shirou_gopsutil_v3//cpu:go_default_library",
+        "@com_github_shirou_gopsutil_v3//disk:go_default_library",
+        "@com_github_shirou_gopsutil_v3//mem:go_default_library",
+        "@com_github_shirou_gopsutil_v3//net:go_default_library",
+        "@com_github_shirou_gopsutil_v3//process:go_default_library",
+    ],
+)
+
+go_test(
+    name = "sysmon_test",
+    srcs = ["collector_test.go"],
+    embed = [":sysmon"],
+    deps = [
+        "//go/pkg/cpufreq",
+        "//go/pkg/logger",
+    ],
+)

@@ -99,7 +99,7 @@ zen:
 
 **Why:** The zen-put-rule binary was failing with "authorization violation" when trying to install initial rules because it only supported mTLS authentication but not JWT/NKEY authentication via credentials files.
 
-**Implementation:** Updated `cmd/consumers/zen/src/bin/put_rule.rs` to:
+**Implementation:** Updated `rust/consumers/zen/src/bin/put_rule.rs` to:
 1. Add `nats_creds_file` field to the Config struct
 2. Call `opts.credentials_file()` when connecting to NATS
 

@@ -1,0 +1,22 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "config",
+    srcs = [
+        "config.go",
+        "diff.go",
+        "env_loader.go",
+        "file_loader.go",
+        "interfaces.go",
+        "registry.go",
+        "sanitize.go",
+        "toml_mask.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/config",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/logger",
+        "//go/pkg/models",
+        "@com_github_rs_zerolog//:zerolog",
+    ],
+)

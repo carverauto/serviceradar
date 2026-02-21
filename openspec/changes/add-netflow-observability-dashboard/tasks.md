@@ -1,5 +1,5 @@
 ## 1. Spec And Design
-- [x] 1.1 Confirm current NetFlow dashboard behavior in `web-ng/` (widgets, table fields, refresh model)
+- [x] 1.1 Confirm current NetFlow dashboard behavior in `elixir/web-ng/` (widgets, table fields, refresh model)
 - [x] 1.2 Confirm current flows storage shape (OCSF network activity table(s), hypertable status, indexes)
 - [x] 1.3 Confirm current SRQL `in:flows` support and identify missing tokens needed for dashboard queries
 
@@ -92,8 +92,8 @@ Surfacing is added to the NetFlow flow details panel (badges/summary), gated by 
 
 Notes (7.1):
 Added web-ng LiveView coverage for:
-- NetFlow settings (create CIDR, RBAC gate) in `web-ng/test/serviceradar_web_ng_web/live/settings/netflow_live_test.exs`
-- Direction chips SRQL patching in `web-ng/test/serviceradar_web_ng_web/live/log_live/netflows_test.exs`
+- NetFlow settings (create CIDR, RBAC gate) in `elixir/web-ng/test/serviceradar_web_ng_web/live/settings/netflow_live_test.exs`
+- Direction chips SRQL patching in `elixir/web-ng/test/serviceradar_web_ng_web/live/log_live/netflows_test.exs`
 Also ran SRQL unit tests in `rust/srql` after adding direction filter/group-by support.
 
 Notes (7.2):

@@ -42,9 +42,9 @@ else
 	CARGO_HOME ?= $(HOME)/.cargo
 endif
 
-RPERF_CLIENT_BUILD_DIR ?= cmd/checkers/rperf-client/target/release
+RPERF_CLIENT_BUILD_DIR ?= rust/checkers/rperf-client/target/release
 RPERF_CLIENT_BIN ?= serviceradar-rperf-checker
-RPERF_SERVER_BUILD_DIR ?= cmd/checkers/rperf-server/target/release
+RPERF_SERVER_BUILD_DIR ?= rust/checkers/rperf-server/target/release
 RPERF_SERVER_BIN ?= rperf
 
 # Version configuration
@@ -67,13 +67,13 @@ COLOR_CYAN = \033[36m
 HOST_OS := $(shell uname -s)
 
 ifeq ($(HOST_OS),Darwin)
-HOSTFREQ_OBJ := pkg/cpufreq/hostfreq_darwin_embed.o
-HOSTFREQ_SRC := pkg/cpufreq/hostfreq_darwin.mm
-HOSTFREQ_HDR := pkg/cpufreq/hostfreq_bridge.h
+HOSTFREQ_OBJ := go/pkg/cpufreq/hostfreq_darwin_embed.o
+HOSTFREQ_SRC := go/pkg/cpufreq/hostfreq_darwin.mm
+HOSTFREQ_HDR := go/pkg/cpufreq/hostfreq_bridge.h
 
 $(HOSTFREQ_OBJ): $(HOSTFREQ_SRC) $(HOSTFREQ_HDR)
 	@echo "$(COLOR_BOLD)Compiling hostfreq Objective-C++ bridge$(COLOR_RESET)"
-	@xcrun clang++ -arch arm64 -std=c++20 -fobjc-arc -x objective-c++ -I pkg/cpufreq -c $(HOSTFREQ_SRC) -o $@
+	@xcrun clang++ -arch arm64 -std=c++20 -fobjc-arc -x objective-c++ -I go/pkg/cpufreq -c $(HOSTFREQ_SRC) -o $@
 
 .PHONY: hostfreq-embed-object
 hostfreq-embed-object: $(HOSTFREQ_OBJ)
@@ -145,7 +145,7 @@ cnpg-smoke: ## Run CNPG API smoke tests (set NAMESPACE=<ns>, default demo-stagin
 agent-build-darwin: hostfreq-embed-object ## Build the agent for macOS (arm64) into dist/agent/bin
 	@OUTDIR=$(abspath $(if $(WORKSPACE),$(WORKSPACE),dist/agent)/bin); \
 	mkdir -p "$$OUTDIR"; \
-	if ! GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags hostfreq_embed -trimpath -ldflags "-s -w" -o "$$OUTDIR/serviceradar-agent" ./cmd/agent; then exit 1; fi
+	if ! GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags hostfreq_embed -trimpath -ldflags "-s -w" -o "$$OUTDIR/serviceradar-agent" ./go/cmd/agent; then exit 1; fi
 
 .PHONY: agent-package-macos
 agent-package-macos: ## Build macOS agent installer package (.pkg) with signing/notarization support
@@ -157,11 +157,11 @@ tidy: ## Tidy and format Go code
 	@$(GO) mod tidy
 	@$(GO) fmt ./...
 	@echo "$(COLOR_BOLD)Formatting Rust code$(COLOR_RESET)"
-	@cd cmd/checkers/rperf-client && $(RUSTFMT) src/*.rs
-	@cd cmd/trapd && $(RUSTFMT) src/*.rs
-	@cd cmd/consumers/zen && $(RUSTFMT) src/*.rs
-	@cd cmd/otel && $(RUSTFMT) src/*.rs
-	@cd cmd/flowgger && $(RUSTFMT) src/*.rs src/flowgger/*.rs
+	@cd rust/checkers/rperf-client && $(RUSTFMT) src/*.rs
+	@cd rust/trapd && $(RUSTFMT) src/*.rs
+	@cd rust/consumers/zen && $(RUSTFMT) src/*.rs
+	@cd rust/otel && $(RUSTFMT) src/*.rs
+	@cd rust/flowgger && $(RUSTFMT) src/*.rs src/flowgger/*.rs
 
 .PHONY: get-golangcilint
 get-golangcilint: ## Install golangci-lint
@@ -173,14 +173,14 @@ lint: get-golangcilint ## Run linting checks
 	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
 	@$(GOLANGCI_LINT) run ./...
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
-	@cd cmd/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
-	@cd cmd/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
-	@cd cmd/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
-	@cd cmd/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
-	@cd cmd/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd rust/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd rust/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd rust/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd rust/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd rust/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/srql && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy --all-targets -- -D warnings
 	@echo "$(COLOR_BOLD)Running web-ng Credo$(COLOR_RESET)"
-	@cd web-ng && mix credo --all
+	@cd elixir/web-ng && mix credo --all
 	@echo "$(COLOR_BOLD)Running serviceradar_core Credo$(COLOR_RESET)"
 	@cd elixir/serviceradar_core && mix credo --strict --mute-exit-status
 
@@ -191,11 +191,11 @@ test: $(TEST_PREREQS) ## Run all tests with coverage
 	@echo "$(COLOR_BOLD)Running Go long tests$(COLOR_RESET)"
 	@$(GO) test $(GO_TEST_TAGS) -timeout=120s -race -count=1 -failfast -shuffle=on ./... -coverprofile=./cover.long.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
-	@cd cmd/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
-	@cd cmd/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
-	@cd cmd/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
-	@cd cmd/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
-	@cd cmd/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd rust/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd rust/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd rust/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd rust/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd rust/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/srql && SRQL_ALLOW_AGE_SKIP=1 RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@echo "$(COLOR_BOLD)Running web-ng precommit$(COLOR_RESET)"
 	@ENV_FILE="$${ENV_FILE:-$(CURDIR)/.env}"; \
@@ -204,7 +204,7 @@ test: $(TEST_PREREQS) ## Run all tests with coverage
 	  *) ENV_FILE="$(CURDIR)/$${ENV_FILE}" ;; \
 	esac; \
 	if [ -f "$${ENV_FILE}" ]; then set -a; . "$${ENV_FILE}"; set +a; fi; \
-	cd web-ng && mix precommit
+	cd elixir/web-ng && mix precommit
 
 .PHONY: test-integration
 test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG fixture)
@@ -280,11 +280,11 @@ clean: ## Clean up build artifacts
 	@rm -f cover.*.profile cover.html
 	@rm -rf bin/
 	@rm -rf serviceradar-*_* release-artifacts/
-	@cd cmd/checkers/rperf-client && $(CARGO) clean
-	@cd cmd/trapd && $(CARGO) clean
-	@cd cmd/consumers/zen && $(CARGO) clean
-	@cd cmd/otel && $(CARGO) clean
-	@cd cmd/flowgger && $(CARGO) clean
+	@cd rust/checkers/rperf-client && $(CARGO) clean
+	@cd rust/trapd && $(CARGO) clean
+	@cd rust/consumers/zen && $(CARGO) clean
+	@cd rust/otel && $(CARGO) clean
+	@cd rust/flowgger && $(CARGO) clean
 
 .PHONY: generate-proto
 generate-proto: ## Generate Go and Rust code from protobuf definitions
@@ -330,24 +330,24 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 .PHONY: build-binaries
 build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@echo "$(COLOR_BOLD)Building all binaries$(COLOR_RESET)"
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-agent cmd/agent/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-agent go/cmd/agent/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-datasvc cmd/data-services/main.go
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cli cmd/cli/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-datasvc go/cmd/data-services/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cli go/cmd/cli/main.go
 	@echo "$(COLOR_BOLD)Building Rust binaries$(COLOR_RESET)"
-	@cd cmd/checkers/rperf-client && $(CARGO) build --release
-	@cd cmd/checkers/rperf-server && $(CARGO) build --release
-	@cd cmd/trapd && $(CARGO) build --release
-	@cd cmd/consumers/zen && $(CARGO) build --release
-	@cd cmd/otel && $(CARGO) build --release
-	@cd cmd/flowgger && $(CARGO) build --release
+	@cd rust/checkers/rperf-client && $(CARGO) build --release
+	@cd rust/checkers/rperf-server && $(CARGO) build --release
+	@cd rust/trapd && $(CARGO) build --release
+	@cd rust/consumers/zen && $(CARGO) build --release
+	@cd rust/otel && $(CARGO) build --release
+	@cd rust/flowgger && $(CARGO) build --release
 	@mkdir -p bin
 	@cp $(RPERF_CLIENT_BUILD_DIR)/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
 	@cp $(RPERF_SERVER_BUILD_DIR)/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
-	@cp cmd/trapd/target/release/serviceradar-trapd bin/serviceradar-trapd
-	@cp cmd/consumers/zen/target/release/zen-consumer bin/serviceradar-zen-consumer
-	@cp cmd/otel/target/release/serviceradar-otel bin/serviceradar-otel
-	@cp cmd/flowgger/target/release/flowgger bin/serviceradar-flowgger
+	@cp rust/trapd/target/release/serviceradar-trapd bin/serviceradar-trapd
+	@cp rust/consumers/zen/target/release/zen-consumer bin/serviceradar-zen-consumer
+	@cp rust/otel/target/release/serviceradar-otel bin/serviceradar-otel
+	@cp rust/flowgger/target/release/flowgger bin/serviceradar-flowgger
 
 # Build Debian packages
 .PHONY: deb-agent
@@ -478,9 +478,9 @@ docs-setup: ## Initial setup for Docusaurus development
 .PHONY: build-rperf-checker
 build-rperf-checker: generate-proto ## Build only the rperf plugin
 	@echo "$(COLOR_BOLD)Building Rust rperf checker$(COLOR_RESET)"
-	@cd cmd/checkers/rperf-client && $(CARGO) build --release
+	@cd rust/checkers/rperf-client && $(CARGO) build --release
 	@mkdir -p bin
-	@cp -v $(shell pwd)/cmd/checkers/rperf-client/target/release/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
+	@cp -v $(shell pwd)/rust/checkers/rperf-client/target/release/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
 
 .PHONY: run-rperf-checker
 run-rperf-checker: build-rperf-checker ## Run the rperf plugin
@@ -491,9 +491,9 @@ run-rperf-checker: build-rperf-checker ## Run the rperf plugin
 .PHONY: build-rperf
 build-rperf: generate-proto ## Build only the rperf server
 	@echo "$(COLOR_BOLD)Building Rust rperf server$(COLOR_RESET)"
-	@cd cmd/checkers/rperf-server && $(CARGO) build --release
+	@cd rust/checkers/rperf-server && $(CARGO) build --release
 	@mkdir -p bin
-	@cp -v $(shell pwd)/cmd/checkers/rperf-server/target/release/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
+	@cp -v $(shell pwd)/rust/checkers/rperf-server/target/release/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
 
 .PHONY: run-rperf
 run-rperf: build-rperf ## Run the rperf server

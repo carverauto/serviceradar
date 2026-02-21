@@ -40,7 +40,7 @@
 ## 5. Cleanup Standalone Binary
 
 - [x] 5.1 Remove `cmd/checkers/dusk/` directory entirely
-- [x] 5.2 Remove `packaging/dusk-checker/` directory entirely
+- [x] 5.2 Remove `build/packaging/dusk-checker/` directory entirely
 - [x] 5.3 Remove dusk-checker from Makefile targets
 - [x] 5.4 Remove dusk-checker from packaging config files (packages.bzl, components.json)
 - [x] 5.5 Remove dusk-checker from config registry, CLI utilities, install script

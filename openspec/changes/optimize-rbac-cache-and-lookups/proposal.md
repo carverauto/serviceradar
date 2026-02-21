@@ -23,8 +23,8 @@ The current RBAC permission system has three architectural bottlenecks:
   - `elixir/serviceradar_core/lib/serviceradar/identity/rbac.ex` -- cache layer
   - `elixir/serviceradar_core/lib/serviceradar/identity/rbac/cache.ex` -- new GenServer
   - `elixir/serviceradar_core/lib/serviceradar/policies/checks.ex` -- ActorHasPermission fast path
-  - `web-ng/lib/serviceradar_web_ng/rbac.ex` -- MapSet-aware `can?`
-  - `web-ng/lib/serviceradar_web_ng/accounts/scope.ex` -- permissions type
-  - `web-ng/lib/serviceradar_web_ng_web/user_auth.ex` -- store MapSet in scope
-  - `web-ng/lib/serviceradar_web_ng/ash_scope.ex` -- pass MapSet to actor
+  - `elixir/web-ng/lib/serviceradar_web_ng/rbac.ex` -- MapSet-aware `can?`
+  - `elixir/web-ng/lib/serviceradar_web_ng/accounts/scope.ex` -- permissions type
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/user_auth.ex` -- store MapSet in scope
+  - `elixir/web-ng/lib/serviceradar_web_ng/ash_scope.ex` -- pass MapSet to actor
 - GitHub issue: #2747

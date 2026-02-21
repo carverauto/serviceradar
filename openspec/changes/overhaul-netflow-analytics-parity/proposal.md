@@ -74,7 +74,7 @@ Plan/proposal is valid (`openspec validate overhaul-netflow-analytics-parity --s
 
 - Affected specs: `build-web-ui`, `srql`, `observability-signals`
 - Affected code:
-  - `web-ng/` - New LiveView pages, D3 hooks, SRQL catalog extensions
+  - `elixir/web-ng/` - New LiveView pages, D3 hooks, SRQL catalog extensions
   - `rust/srql/` - New dimensions, aggregation modes, resolution auto-selection
   - `elixir/serviceradar_core/` - New Ash resources, enrichment workers, Oban jobs
   - Database migrations for new schema fields, continuous aggregates, network dictionaries

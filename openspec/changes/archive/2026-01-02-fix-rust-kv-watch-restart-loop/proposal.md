@@ -5,12 +5,12 @@ Rust services with KV-backed configuration (flowgger, trapd, sysmon, rperf-clien
 
 ## What Changes
 - Apply the same `is_initial` skip pattern to all Rust services using RestartHandle with KV watching:
-  - flowgger (`cmd/flowgger/src/main.rs`)
-  - trapd (`cmd/trapd/src/main.rs`)
+  - flowgger (`rust/flowgger/src/main.rs`)
+  - trapd (`rust/trapd/src/main.rs`)
   - sysmon (`cmd/checkers/sysmon/src/main.rs`)
-  - rperf-client (`cmd/checkers/rperf-client/src/main.rs`)
+  - rperf-client (`rust/checkers/rperf-client/src/main.rs`)
 - The fix skips the first KV watch event (the initial current value) and only triggers restart on subsequent real config changes
 
 ## Impact
 - Affected specs: kv-configuration
-- Affected code: `cmd/flowgger/src/main.rs`, `cmd/trapd/src/main.rs`, `cmd/checkers/sysmon/src/main.rs`, `cmd/checkers/rperf-client/src/main.rs`
+- Affected code: `rust/flowgger/src/main.rs`, `rust/trapd/src/main.rs`, `cmd/checkers/sysmon/src/main.rs`, `rust/checkers/rperf-client/src/main.rs`

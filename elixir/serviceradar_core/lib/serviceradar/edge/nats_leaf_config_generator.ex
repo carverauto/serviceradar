@@ -2,7 +2,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
   @moduledoc """
   Generates NATS leaf server configuration files.
 
-  Configuration is based on the template at `packaging/nats/config/nats-leaf.conf`
+  Configuration is based on the template at `build/packaging/nats/config/nats-leaf.conf`
   and includes:
 
   - Server name based on edge site slug

@@ -65,7 +65,7 @@
 
 ### Files Modified:
 
-1. **web-ng/.../networks_live/index.ex**
+1. **elixir/web-ng/.../networks_live/index.ex**
    - Added debug logging to `save_group` handler (lines 323-336)
    - Added debug logging to `apply_action(:edit_group)` (lines 175-182)
    - Improved `criteria_to_rules` to handle edge cases and log parsing (lines 2350-2393)
@@ -81,7 +81,7 @@
 
 ### Test Files Created:
 
-4. **web-ng/.../live/settings/networks_live_criteria_test.exs** (NEW)
+4. **elixir/web-ng/.../live/settings/networks_live_criteria_test.exs** (NEW)
    - Tests for targeting rules round-trip persistence (CIDR, tags, hostname, multiple criteria)
    - Tests for criteria validation (invalid operators, multiple operators per field, invalid CIDR)
    - Tests for criteria combined with static_targets

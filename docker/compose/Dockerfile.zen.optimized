@@ -18,17 +18,17 @@ COPY Cargo.lock ./
 
 # Create minimal stub files to satisfy cargo build dependencies
 # This allows Docker to cache the dependency compilation layer
-RUN mkdir -p rust/kvutil/src cmd/flowgger/src cmd/trapd/src cmd/otel/src cmd/consumers/zen/src cmd/consumers/zen/src/bin && \
-    echo "fn main() {}" > cmd/consumers/zen/src/main.rs && \
-    echo "fn main() {}" > cmd/consumers/zen/src/bin/put_rule.rs && \
-    touch rust/kvutil/src/lib.rs cmd/flowgger/src/lib.rs cmd/trapd/src/lib.rs cmd/otel/src/lib.rs
+RUN mkdir -p rust/kvutil/src rust/flowgger/src rust/trapd/src rust/otel/src rust/consumers/zen/src rust/consumers/zen/src/bin && \
+    echo "fn main() {}" > rust/consumers/zen/src/main.rs && \
+    echo "fn main() {}" > rust/consumers/zen/src/bin/put_rule.rs && \
+    touch rust/kvutil/src/lib.rs rust/flowgger/src/lib.rs rust/trapd/src/lib.rs rust/otel/src/lib.rs
 
 # Copy cargo manifests for individual packages
 COPY rust/kvutil/Cargo.toml ./rust/kvutil/
-COPY cmd/flowgger/Cargo.toml ./cmd/flowgger/
-COPY cmd/trapd/Cargo.toml ./cmd/trapd/
-COPY cmd/otel/Cargo.toml ./cmd/otel/
-COPY cmd/consumers/zen/Cargo.toml ./cmd/consumers/zen/
+COPY rust/flowgger/Cargo.toml ./rust/flowgger/
+COPY rust/trapd/Cargo.toml ./rust/trapd/
+COPY rust/otel/Cargo.toml ./rust/otel/
+COPY rust/consumers/zen/Cargo.toml ./rust/consumers/zen/
 
 # Build dependencies only (this layer will be cached)
 RUN cargo build -p serviceradar-zen --release && \
@@ -36,15 +36,15 @@ RUN cargo build -p serviceradar-zen --release && \
 
 # Now copy the actual source code
 COPY rust/kvutil ./rust/kvutil
-COPY cmd/flowgger ./cmd/flowgger
-COPY cmd/trapd ./cmd/trapd
-COPY cmd/otel ./cmd/otel
-COPY cmd/consumers/zen ./cmd/consumers/zen
-COPY cmd/otel/proto ./cmd/otel/proto
+COPY rust/flowgger ./rust/flowgger
+COPY rust/trapd ./rust/trapd
+COPY rust/otel ./rust/otel
+COPY rust/consumers/zen ./rust/consumers/zen
+COPY rust/otel/proto ./rust/otel/proto
 COPY proto ./proto
 
 # Override build.rs if needed
-COPY docker/compose/build-zen-fixed.rs ./cmd/consumers/zen/build.rs
+COPY docker/compose/build-zen-fixed.rs ./rust/consumers/zen/build.rs
 
 # Build arguments for version info
 ARG VERSION=dev
@@ -86,7 +86,7 @@ COPY --from=builder /usr/src/target/release/zen-put-rule /usr/local/bin/zen-put-
 RUN chmod +x /usr/local/bin/serviceradar-zen /usr/local/bin/zen-put-rule
 
 # Copy rule data files
-COPY cmd/consumers/zen/data /var/lib/serviceradar/data
+COPY rust/consumers/zen/data /var/lib/serviceradar/data
 
 # Copy entrypoint and rule installation scripts
 COPY docker/compose/entrypoint-zen.sh /usr/local/bin/entrypoint.sh

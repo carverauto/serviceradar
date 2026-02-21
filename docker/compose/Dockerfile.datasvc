@@ -36,12 +36,12 @@ ARG BUILD_ID=docker
 # Build the data service (detect architecture automatically)
 RUN CGO_ENABLED=0 GOOS=linux \
     go build \
-    -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=${VERSION} \
-              -X github.com/carverauto/serviceradar/pkg/version.buildID=${BUILD_ID}" \
-    -o serviceradar-datasvc ./cmd/data-services
+    -ldflags "-X github.com/carverauto/serviceradar/go/pkg/version.version=${VERSION} \
+              -X github.com/carverauto/serviceradar/go/pkg/version.buildID=${BUILD_ID}" \
+    -o serviceradar-datasvc ./go/cmd/data-services
 RUN CGO_ENABLED=0 GOOS=linux \
     go build \
-    -o wait-for-port ./cmd/tools/waitforport
+    -o wait-for-port ./go/cmd/tools/waitforport
 
 # Runtime stage - using Ubuntu for better compatibility
 FROM ubuntu:22.04
