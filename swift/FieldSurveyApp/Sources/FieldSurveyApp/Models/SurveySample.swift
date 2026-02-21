@@ -8,6 +8,7 @@ public struct SurveySample: Identifiable, Codable {
     public let timestamp: TimeInterval
     
     // Logical Identifiers
+    public let scannerDeviceId: String
     public let bssid: String
     public let ssid: String
     
@@ -25,9 +26,10 @@ public struct SurveySample: Identifiable, Codable {
     // Derived Confidence/Uncertainty (0.0 to 1.0)
     public let uncertainty: Float
     
-    public init(id: UUID = UUID(), timestamp: TimeInterval = Date().timeIntervalSince1970, bssid: String, ssid: String, rssi: Double, frequency: Int, securityType: String = "Unknown", isSecure: Bool = true, position: simd_float3, uncertainty: Float) {
+    public init(id: UUID = UUID(), timestamp: TimeInterval = Date().timeIntervalSince1970, scannerDeviceId: String, bssid: String, ssid: String, rssi: Double, frequency: Int, securityType: String = "Unknown", isSecure: Bool = true, position: simd_float3, uncertainty: Float) {
         self.id = id
         self.timestamp = timestamp
+        self.scannerDeviceId = scannerDeviceId
         self.bssid = bssid
         self.ssid = ssid
         self.rssi = rssi

@@ -13,9 +13,20 @@ public class SettingsManager: ObservableObject {
         }
     }
     
+    public let scannerDeviceId: String
+    
     private init() {
         // Default to high-resolution 1.0 second polling if not previously set
         let storedRate = UserDefaults.standard.double(forKey: "sampleRateSeconds")
         self.sampleRateSeconds = storedRate > 0 ? storedRate : 1.0
+        
+        // Persist a unique identifier for this specific device/scanner
+        if let existingId = UserDefaults.standard.string(forKey: "scannerDeviceId") {
+            self.scannerDeviceId = existingId
+        } else {
+            let newId = UUID().uuidString
+            UserDefaults.standard.set(newId, forKey: "scannerDeviceId")
+            self.scannerDeviceId = newId
+        }
     }
 }

@@ -30,6 +30,7 @@ public class ArrowStreamer {
         let schemaBuilder = ArrowSchema.Builder()
         let schema = schemaBuilder
             .addField("timestamp", type: ArrowType.float64, isNullable: false)
+            .addField("scannerDeviceId", type: ArrowType.string, isNullable: false)
             .addField("bssid", type: ArrowType.string, isNullable: false)
             .addField("ssid", type: ArrowType.string, isNullable: false)
             .addField("rssi", type: ArrowType.float64, isNullable: false)
@@ -43,6 +44,7 @@ public class ArrowStreamer {
             .finish()
 
         let timestampBuilder = try NumberArrayBuilder<Double>()
+        let scannerIdBuilder = try StringArrayBuilder()
         let bssidBuilder = try StringArrayBuilder()
         let ssidBuilder = try StringArrayBuilder()
         let rssiBuilder = try NumberArrayBuilder<Double>()
@@ -57,6 +59,7 @@ public class ArrowStreamer {
         // Populate columnar data arrays
         for sample in samples {
             timestampBuilder.append(sample.timestamp)
+            scannerIdBuilder.append(sample.scannerDeviceId)
             bssidBuilder.append(sample.bssid)
             ssidBuilder.append(sample.ssid)
             rssiBuilder.append(sample.rssi)
@@ -72,6 +75,7 @@ public class ArrowStreamer {
         let recordBatchBuilder = RecordBatch.Builder()
         let batch = try recordBatchBuilder
             .addColumn("timestamp", array: try timestampBuilder.finish())
+            .addColumn("scannerDeviceId", array: try scannerIdBuilder.finish())
             .addColumn("bssid", array: try bssidBuilder.finish())
             .addColumn("ssid", array: try ssidBuilder.finish())
             .addColumn("rssi", array: try rssiBuilder.finish())

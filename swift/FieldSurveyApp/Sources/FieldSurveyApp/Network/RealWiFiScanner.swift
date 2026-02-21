@@ -44,6 +44,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                         let sample = SurveySample(
                             id: UUID(),
                             timestamp: Date().timeIntervalSince1970,
+                            scannerDeviceId: SettingsManager.shared.scannerDeviceId,
                             bssid: network.bssid,
                             ssid: network.ssid,
                             rssi: mappedRssi,
@@ -89,6 +90,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
             let sample = SurveySample(
                 id: UUID(),
                 timestamp: Date().timeIntervalSince1970,
+                scannerDeviceId: SettingsManager.shared.scannerDeviceId,
                 bssid: network.bssid,
                 ssid: network.ssid,
                 rssi: mappedRssi,
