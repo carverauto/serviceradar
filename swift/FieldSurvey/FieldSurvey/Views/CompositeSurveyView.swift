@@ -131,7 +131,6 @@ public struct CompositeSurveyView: UIViewRepresentable {
         
         private var displayLink: CADisplayLink?
         private var apNodes: [String: SCNNode] = [:]
-        private var roomNodes: [UUID: SCNNode] = [:]
         
         init(_ parent: CompositeSurveyView) {
             self.parent = parent
@@ -180,9 +179,13 @@ public struct CompositeSurveyView: UIViewRepresentable {
                     // Center the God-View camera dynamically over the user's current physical coordinates
                     mapCameraNode.position = SCNVector3(cameraNode.position.x, 15, cameraNode.position.z)
                     
-                    // Show all solid room structural nodes when entering map view
-                    for node in roomNodes.values {
-                        node.isHidden = false
+                    // Render the exact out-of-the-box Apple RoomPlan 3D CAD mesh instead of manual boxes
+                    scnView.scene?.rootNode.childNode(withName: "AppleUSDZ", recursively: false)?.removeFromParentNode()
+                    if let usdzURL = try? parent.roomScanner.exportCurrentRoomToUSDZ(),
+                       let refNode = SCNReferenceNode(url: usdzURL) {
+                        refNode.load()
+                        refNode.name = "AppleUSDZ"
+                        scnView.scene?.rootNode.addChildNode(refNode)
                     }
                 }
             } else {
@@ -192,10 +195,8 @@ public struct CompositeSurveyView: UIViewRepresentable {
                 if scnView.pointOfView != cameraNode {
                     scnView.pointOfView = cameraNode
                     
-                    // Hide all room structural nodes when entering AR mode to prevent clutter
-                    for node in roomNodes.values {
-                        node.isHidden = true
-                    }
+                    // Hide the Apple CAD mesh when jumping back into first-person AR mode
+                    scnView.scene?.rootNode.childNode(withName: "AppleUSDZ", recursively: false)?.removeFromParentNode()
                 }
                 
                 if let frame = roomView.captureSession.arSession.currentFrame {

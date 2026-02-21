@@ -140,5 +140,20 @@ public class RoomScanner: NSObject, ObservableObject, RoomCaptureViewDelegate, R
         try finalResult.export(to: fileURL)
         return fileURL
     }
+    
+    /// Exports the live, in-progress room to a USDZ file URL for live Map View rendering.
+    public func exportCurrentRoomToUSDZ() throws -> URL {
+        guard let room = currentRoom ?? finalResult else {
+            throw NSError(domain: "RoomScanner", code: 2, userInfo: [NSLocalizedDescriptionKey: "No room data available yet."])
+        }
+        
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileURL = tempDir.appendingPathComponent("LivePreview.usdz")
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        try room.export(to: fileURL)
+        return fileURL
+    }
 }
 #endif
