@@ -32,6 +32,18 @@ public struct SurveyView: View {
             }
             
             VStack {
+                if SettingsManager.shared.authToken == "OFFLINE_MODE" {
+                    Text("Real-time streaming is not available in Offline Mode")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.black)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 16)
+                        .background(Color.yellow.opacity(0.9))
+                        .cornerRadius(20)
+                        .padding(.top, 10)
+                }
+                
                 HStack {
                     VStack(alignment: .leading) {
                         Text("ServiceRadar FieldSurvey")
@@ -123,6 +135,8 @@ public struct SurveyView: View {
                             .foregroundColor(isStreaming ? .white : .black)
                             .cornerRadius(25)
                     }
+                    .disabled(SettingsManager.shared.authToken == "OFFLINE_MODE")
+                    .opacity(SettingsManager.shared.authToken == "OFFLINE_MODE" ? 0.5 : 1.0)
                     
                     Button(action: {
                         if let _ = try? roomScanner.exportUSDZ() {
@@ -320,26 +334,42 @@ public struct LoginView: View {
             }
             .padding(.horizontal, 30)
             
-            // Login Button
-            Button(action: {
-                authenticate()
-            }) {
-                HStack {
-                    if isAuthenticating {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    } else {
-                        Text("Connect to Gateway")
-                            .fontWeight(.bold)
+            // Login Buttons
+            VStack(spacing: 12) {
+                Button(action: {
+                    authenticate()
+                }) {
+                    HStack {
+                        if isAuthenticating {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        } else {
+                            Text("Connect to Gateway")
+                                .fontWeight(.bold)
+                        }
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.green)
+                    .foregroundColor(.black)
+                    .cornerRadius(12)
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.green)
-                .foregroundColor(.black)
-                .cornerRadius(12)
+                .disabled(isAuthenticating || username.isEmpty || password.isEmpty || serverURL.isEmpty)
+                
+                Button(action: {
+                    settings.apiURL = "offline"
+                    settings.authToken = "OFFLINE_MODE"
+                }) {
+                    Text("Work Offline")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+                .disabled(isAuthenticating)
             }
-            .disabled(isAuthenticating || username.isEmpty || password.isEmpty || serverURL.isEmpty)
             .padding(.horizontal, 30)
             .padding(.top, 10)
             

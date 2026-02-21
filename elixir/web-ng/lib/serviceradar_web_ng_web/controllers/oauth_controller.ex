@@ -73,6 +73,9 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
       "client_credentials" ->
         handle_client_credentials(conn, params)
 
+      "password" ->
+        handle_password(conn, params)
+
       nil ->
         error_response(conn, 400, "invalid_request", "Missing grant_type parameter")
 
@@ -83,6 +86,57 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
           "unsupported_grant_type",
           "Grant type '#{grant_type}' is not supported"
         )
+    end
+  end
+
+  defp handle_password(conn, params) do
+    username = params["username"]
+    password = params["password"]
+
+    if is_nil(username) or is_nil(password) do
+      error_response(conn, 400, "invalid_request", "Missing username or password")
+    else
+      # Try to authenticate the user
+      actor = SystemActor.system(:oauth_token)
+
+      case ServiceRadar.Identity.User.authenticate(username, password, actor: actor) do
+        {:ok, user} ->
+          # Issue a token for the user directly
+          scopes = parse_scopes(params["scope"] || "read write")
+          scopes_atoms = Enum.map(scopes, &scope_to_atom/1)
+
+          extra_claims = %{
+            "scope" => Enum.join(scopes, " ")
+          }
+
+          case Guardian.create_api_token(user,
+                 scopes: scopes_atoms,
+                 claims: extra_claims,
+                 ttl: {@default_ttl_seconds, :second}
+               ) do
+            {:ok, token, _full_claims} ->
+              conn
+              |> put_resp_content_type("application/json")
+              |> put_resp_header("cache-control", "no-store")
+              |> put_resp_header("pragma", "no-cache")
+              |> send_resp(
+                200,
+                Jason.encode!(%{
+                  access_token: token,
+                  token_type: "Bearer",
+                  expires_in: @default_ttl_seconds,
+                  scope: Enum.join(scopes, " ")
+                })
+              )
+
+            {:error, reason} ->
+              Logger.error("Failed to create access token for user #{user.id}: #{inspect(reason)}")
+              error_response(conn, 500, "server_error", "Failed to generate access token")
+          end
+
+        {:error, _} ->
+          error_response(conn, 401, "invalid_grant", "Invalid username or password")
+      end
     end
   end
 
