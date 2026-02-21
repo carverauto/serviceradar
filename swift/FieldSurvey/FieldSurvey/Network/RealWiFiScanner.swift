@@ -131,15 +131,15 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         let blePeripherals = BLEScanner.shared.discoveredPeripherals
         Task { @MainActor [weak self] in
             guard let self = self else { return }
-            for (uuid, rssi) in blePeripherals {
+            for (uuid, data) in blePeripherals {
                 let bssid = uuid.uuidString
                 let sample = SurveySample(
                     id: UUID(),
                     timestamp: Date().timeIntervalSince1970,
                     scannerDeviceId: SettingsManager.shared.scannerDeviceId,
                     bssid: bssid,
-                    ssid: "BLE Beacon",
-                    rssi: rssi,
+                    ssid: data.name,
+                    rssi: data.rssi,
                     frequency: 2402, // Standard BLE Frequency
                     securityType: "BLE",
                     isSecure: false,
@@ -150,10 +150,8 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                     longitude: self.lastLocation?.longitude ?? 0.0,
                     uncertainty: 0.1
                 )
-                // Only overwrite if it doesn't have an AR spatial anchor yet to prevent map jitter
-                if self.accessPoints[bssid] == nil || self.apPositions[bssid] == nil {
-                    self.accessPoints[bssid] = sample
-                }
+                // Continuously update the sample so the AR View receives the latest RSSI for trilateration
+                self.accessPoints[bssid] = sample
             }
         }
         

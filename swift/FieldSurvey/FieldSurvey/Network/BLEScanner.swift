@@ -9,7 +9,7 @@ import CoreBluetooth
 public class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
     @MainActor public static let shared = BLEScanner()
     
-    @Published public var discoveredPeripherals: [UUID: Double] = [:]
+    @Published public var discoveredPeripherals: [UUID: (rssi: Double, name: String)] = [:]
     
     private var centralManager: CBCentralManager!
     
@@ -30,7 +30,7 @@ public class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
     
     public var currentBleVector: [Double] {
         // Sort by UUID string to maintain a deterministic vector for KNN fingerprinting
-        return discoveredPeripherals.sorted { $0.key.uuidString < $1.key.uuidString }.map { $0.value }
+        return discoveredPeripherals.sorted { $0.key.uuidString < $1.key.uuidString }.map { $0.value.rssi }
     }
     
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
@@ -44,8 +44,9 @@ public class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
         let rssiValue = RSSI.doubleValue
         // Ignore wildly invalid RSSI values
-        if rssiValue < 0 && rssiValue > -100 {
-            self.discoveredPeripherals[peripheral.identifier] = rssiValue
+        if rssiValue < 0 && rssiValue >= -100 {
+            let deviceName = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name ?? "BLE Beacon"
+            self.discoveredPeripherals[peripheral.identifier] = (rssi: rssiValue, name: deviceName)
         }
     }
 }
