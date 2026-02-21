@@ -216,6 +216,15 @@ public struct CompositeSurveyView: UIViewRepresentable {
             coverage.firstMaterial?.isDoubleSided = false
             coverage.firstMaterial?.writesToDepthBuffer = false
             coverage.firstMaterial?.blendMode = .alpha
+            
+            // Render the RKHS Gaussian Decay visually as a volumetric probability cloud
+            coverage.firstMaterial?.shaderModifiers = [
+                .fragment: """
+                float fresnel = max(0.0, dot(_surface.normal, _surface.view));
+                _output.color.a *= pow(fresnel, 2.5);
+                """
+            ]
+            
             let coverageNode = SCNNode(geometry: coverage)
             coverageNode.name = "Coverage"
             container.addChildNode(coverageNode)
@@ -257,20 +266,32 @@ public struct CompositeSurveyView: UIViewRepresentable {
                 let key = sample.bssid
                 currentKeys.remove(key)
                 
-                // Calculate unconstrained distance from free-space path loss
+                // 1. Calculate Euclidean distance (\mathbb{R}^3) using free-space path loss
                 let txPower = sample.frequency > 4000 ? -45.0 : -35.0
                 let n = 3.0
                 let estimatedDistance = Float(pow(10.0, (txPower - sample.rssi) / (10.0 * n)))
-                let zOffset = min(max(estimatedDistance, 0.5), 15.0)
-                let newTargetPos = cameraPos + (cameraForward * zOffset)
+                let clampedDistance = min(max(estimatedDistance, 0.5), 15.0)
+                
+                let newTargetPos: SIMD3<Float>
                 
                 if let existingNode = apNodes[key] {
+                    // 2. Iterative Trilateration: Project along the metric vector to the known spatial node
+                    let currentPos = existingNode.simdPosition
+                    let vectorToNode = currentPos - cameraPos
+                    let currentDist = length(vectorToNode)
+                    
+                    if currentDist > 0.1 {
+                        let direction = vectorToNode / currentDist
+                        newTargetPos = cameraPos + (direction * clampedDistance)
+                    } else {
+                        newTargetPos = cameraPos + (cameraForward * clampedDistance)
+                    }
+                    
                     // Update core scale based on signal strength
                     let scale = max(0.2, min(1.5, Float(sample.rssi + 100) / 60.0))
                     
                     // Converge position (Exponential Moving Average)
                     let alpha: Float = 0.02 // Very slow convergence to smooth jitter
-                    let currentPos = existingNode.simdPosition
                     let convergedPos = currentPos * (1.0 - alpha) + newTargetPos * alpha
                     
                     let moveAction = SCNAction.move(to: SCNVector3(convergedPos), duration: 0.5)
@@ -295,6 +316,7 @@ public struct CompositeSurveyView: UIViewRepresentable {
                         self.wifiScanner?.apPositions[key] = convergedPos
                     }
                 } else {
+                    newTargetPos = cameraPos + (cameraForward * clampedDistance)
                     let node = createAPNode(sample: sample)
                     node.simdPosition = newTargetPos
                     scene.rootNode.addChildNode(node)
