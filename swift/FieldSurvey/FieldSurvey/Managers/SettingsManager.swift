@@ -2,6 +2,7 @@ import Foundation
 import Combine
 
 /// Manages application-wide settings for the FieldSurvey app, persisting them to UserDefaults.
+@MainActor
 public class SettingsManager: ObservableObject {
     @MainActor public static let shared = SettingsManager()
     

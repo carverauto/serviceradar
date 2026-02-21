@@ -7,7 +7,7 @@ import CoreBluetooth
 /// for high-fidelity indoor positioning alongside Wi-Fi arrays.
 @MainActor
 public class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
-    public static let shared = BLEScanner()
+    @MainActor public static let shared = BLEScanner()
     
     @Published public var discoveredPeripherals: [UUID: Double] = [:]
     
