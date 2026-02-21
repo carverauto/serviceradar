@@ -127,6 +127,36 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     }
     
     private func fetchCurrentNetwork() {
+        // Ingest BLE Beacons as RF sources to guarantee map activity regardless of Hotspot Entitlements
+        let blePeripherals = BLEScanner.shared.discoveredPeripherals
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            for (uuid, rssi) in blePeripherals {
+                let bssid = uuid.uuidString
+                let sample = SurveySample(
+                    id: UUID(),
+                    timestamp: Date().timeIntervalSince1970,
+                    scannerDeviceId: SettingsManager.shared.scannerDeviceId,
+                    bssid: bssid,
+                    ssid: "BLE Beacon",
+                    rssi: rssi,
+                    frequency: 2402, // Standard BLE Frequency
+                    securityType: "BLE",
+                    isSecure: false,
+                    rfVector: [],
+                    bleVector: BLEScanner.shared.currentBleVector,
+                    position: SIMD3<Float>(0, 0, 0), // Transformed by AR Session
+                    latitude: self.lastLocation?.latitude ?? 0.0,
+                    longitude: self.lastLocation?.longitude ?? 0.0,
+                    uncertainty: 0.1
+                )
+                // Only overwrite if it doesn't have an AR spatial anchor yet to prevent map jitter
+                if self.accessPoints[bssid] == nil || self.apPositions[bssid] == nil {
+                    self.accessPoints[bssid] = sample
+                }
+            }
+        }
+        
         NEHotspotNetwork.fetchCurrent { network in
             guard let network = network else { return }
             
