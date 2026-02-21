@@ -7,6 +7,7 @@ import ARKit
 public struct ContentView: View {
     @StateObject private var roomScanner = RoomScanner()
     @StateObject private var wifiScanner = RealWiFiScanner()
+    @StateObject private var networkMonitor = NetworkMonitor()
     
     @State private var showRoomPlan = false
     @State private var isStreaming = false
@@ -39,6 +40,29 @@ public struct ContentView: View {
                             .font(.subheadline)
                             .foregroundColor(.white)
                             .opacity(0.8)
+                        
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(networkMonitor.isConnected ? Color.green : Color.red)
+                                .frame(width: 8, height: 8)
+                            
+                            Text(networkMonitor.isConnected ? "Online" : "Offline")
+                                .font(.caption)
+                                .foregroundColor(networkMonitor.isConnected ? .green : .red)
+                            
+                            if networkMonitor.isConnected {
+                                if networkMonitor.isWiFi {
+                                    Image(systemName: "wifi")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                } else if networkMonitor.isCellular {
+                                    Image(systemName: "antenna.radiowaves.left.and.right")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                }
+                            }
+                        }
+                        .padding(.top, 2)
                     }
                     .padding()
                     .background(Color.black.opacity(0.7))
