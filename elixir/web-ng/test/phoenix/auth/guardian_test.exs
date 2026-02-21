@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
   Tests for Guardian JWT token encoding/decoding.
 
   These tests require a database connection as they create test users.
-  Run with: mix test test/serviceradar_web_ng_web/auth/guardian_test.exs
+  Run with: mix test test/phoenix/auth/guardian_test.exs
   """
 
   use ServiceRadarWebNG.DataCase, async: true

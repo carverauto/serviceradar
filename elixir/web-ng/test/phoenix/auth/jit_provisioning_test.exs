@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
   JIT provisioning creates users automatically on first SSO login.
   This is used by OIDC, SAML, and gateway authentication.
 
-  Run with: mix test test/serviceradar_web_ng_web/auth/jit_provisioning_test.exs
+  Run with: mix test test/phoenix/auth/jit_provisioning_test.exs
   """
 
   use ServiceRadarWebNG.DataCase, async: true
