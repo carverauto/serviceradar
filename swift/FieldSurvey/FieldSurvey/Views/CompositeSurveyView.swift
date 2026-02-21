@@ -30,7 +30,26 @@ public struct CompositeSurveyView: UIViewRepresentable {
         scnView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         scnView.backgroundColor = .clear
         scnView.scene = SCNScene()
-        scnView.autoenablesDefaultLighting = true
+        scnView.autoenablesDefaultLighting = false // Custom Apple-style CAD lighting
+        
+        // Gorgeous, soft Apple-style lighting for Map View
+        let ambientLight = SCNLight()
+        ambientLight.type = .ambient
+        ambientLight.intensity = 600
+        let ambientNode = SCNNode()
+        ambientNode.light = ambientLight
+        scnView.scene?.rootNode.addChildNode(ambientNode)
+        
+        let dirLight = SCNLight()
+        dirLight.type = .directional
+        dirLight.intensity = 800
+        dirLight.castsShadow = true
+        dirLight.shadowMode = .deferred
+        dirLight.shadowColor = UIColor.black.withAlphaComponent(0.2)
+        let dirNode = SCNNode()
+        dirNode.light = dirLight
+        dirNode.eulerAngles = SCNVector3(-Float.pi / 3, Float.pi / 4, 0)
+        scnView.scene?.rootNode.addChildNode(dirNode)
         
         // Add subtle reference grid for the dark space look
         let floor = SCNFloor()
@@ -74,6 +93,8 @@ public struct CompositeSurveyView: UIViewRepresentable {
         context.coordinator.scnView = scnView
         context.coordinator.cameraNode = cameraNode
         context.coordinator.mapCameraNode = mapCameraNode
+        
+        context.coordinator.setupBackgroundObservers()
         context.coordinator.startDisplayLink()
         
         return container
@@ -87,6 +108,7 @@ public struct CompositeSurveyView: UIViewRepresentable {
     }
     
     public static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.removeBackgroundObservers()
         coordinator.stopDisplayLink()
         coordinator.roomView?.captureSession.stop()
     }
@@ -115,9 +137,30 @@ public struct CompositeSurveyView: UIViewRepresentable {
             self.parent = parent
         }
         
+        func setupBackgroundObservers() {
+            NotificationCenter.default.addObserver(self, selector: #selector(appDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(appWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
+        }
+        
+        func removeBackgroundObservers() {
+            NotificationCenter.default.removeObserver(self)
+        }
+        
+        @objc func appDidEnterBackground() {
+            stopDisplayLink()
+            scnView?.isPlaying = false
+        }
+        
+        @objc func appWillEnterForeground() {
+            startDisplayLink()
+            scnView?.isPlaying = true
+        }
+        
         func startDisplayLink() {
-            displayLink = CADisplayLink(target: self, selector: #selector(updateCamera))
-            displayLink?.add(to: .main, forMode: .common)
+            if displayLink == nil {
+                displayLink = CADisplayLink(target: self, selector: #selector(updateCamera))
+                displayLink?.add(to: .main, forMode: .common)
+            }
         }
         
         func stopDisplayLink() {
@@ -136,6 +179,11 @@ public struct CompositeSurveyView: UIViewRepresentable {
                     scnView.pointOfView = mapCameraNode
                     // Center the God-View camera dynamically over the user's current physical coordinates
                     mapCameraNode.position = SCNVector3(cameraNode.position.x, 15, cameraNode.position.z)
+                    
+                    // Show all solid room structural nodes when entering map view
+                    for node in roomNodes.values {
+                        node.isHidden = false
+                    }
                 }
             } else {
                 roomView.isHidden = false
@@ -143,6 +191,11 @@ public struct CompositeSurveyView: UIViewRepresentable {
                 
                 if scnView.pointOfView != cameraNode {
                     scnView.pointOfView = cameraNode
+                    
+                    // Hide all room structural nodes when entering AR mode to prevent clutter
+                    for node in roomNodes.values {
+                        node.isHidden = true
+                    }
                 }
                 
                 if let frame = roomView.captureSession.arSession.currentFrame {
@@ -153,6 +206,9 @@ public struct CompositeSurveyView: UIViewRepresentable {
         }
         
         func updateRoomNodes() {
+            // CRITICAL FIX: Skip jittery structural mesh updates while the user is actively viewing the 3D map
+            if isMapView { return }
+            
             guard let scene = scnView?.scene, let room = parent.roomScanner.currentRoom else { return }
             
             var currentKeys = Set(roomNodes.keys)
@@ -160,27 +216,31 @@ public struct CompositeSurveyView: UIViewRepresentable {
             func updateNode(id: UUID, transform: simd_float4x4, dimensions: simd_float3, color: UIColor, opacity: CGFloat) {
                 currentKeys.remove(id)
                 if let existing = roomNodes[id] {
+                    // Smooth SLAM drifts so the walls don't violently flash and redraw
+                    SCNTransaction.begin()
+                    SCNTransaction.animationDuration = 0.25
                     existing.simdTransform = transform
-                    existing.isHidden = !isMapView
+                    SCNTransaction.commit()
                 } else {
-                    let box = SCNBox(width: CGFloat(dimensions.x), height: CGFloat(dimensions.y), length: CGFloat(dimensions.z), chamferRadius: 0.02)
+                    let box = SCNBox(width: CGFloat(dimensions.x), height: CGFloat(dimensions.y), length: CGFloat(dimensions.z), chamferRadius: 0.0)
                     box.firstMaterial?.diffuse.contents = color
                     box.firstMaterial?.transparency = opacity
                     box.firstMaterial?.lightingModel = .physicallyBased
-                    box.firstMaterial?.blendMode = .alpha
+                    box.firstMaterial?.roughness.contents = NSNumber(value: 0.8)
+                    box.firstMaterial?.metalness.contents = NSNumber(value: 0.2)
                     let node = SCNNode(geometry: box)
                     node.simdTransform = transform
-                    node.isHidden = !isMapView
+                    node.isHidden = true // Hidden by default because we create them in AR mode
                     scene.rootNode.addChildNode(node)
                     roomNodes[id] = node
                 }
             }
             
-            // Solid, Apple-like 3D rendering for the Map View
-            let wallColor = UIColor(white: 0.95, alpha: 1.0)
-            let doorColor = UIColor(red: 0.6, green: 0.4, blue: 0.2, alpha: 1.0)
-            let windowColor = UIColor(red: 0.5, green: 0.8, blue: 1.0, alpha: 0.5)
-            let objectColor = UIColor(white: 0.8, alpha: 1.0)
+            // Refined CAD-like styling (Solid white walls, glass-like windows, wood-like doors)
+            let wallColor = UIColor.white
+            let doorColor = UIColor(red: 0.7, green: 0.5, blue: 0.3, alpha: 1.0)
+            let windowColor = UIColor(red: 0.4, green: 0.7, blue: 1.0, alpha: 0.6)
+            let objectColor = UIColor(white: 0.85, alpha: 1.0)
             
             for wall in room.walls { updateNode(id: wall.identifier, transform: wall.transform, dimensions: wall.dimensions, color: wallColor, opacity: 1.0) }
             for door in room.doors { updateNode(id: door.identifier, transform: door.transform, dimensions: door.dimensions, color: doorColor, opacity: 1.0) }
@@ -323,6 +383,11 @@ public struct CompositeSurveyView: UIViewRepresentable {
                     }
                 } else {
                     newTargetPos = cameraPos + (cameraForward * clampedDistance)
+                    
+                    if newTargetPos.x.isNaN || newTargetPos.y.isNaN || newTargetPos.z.isNaN {
+                        continue // Skip NaN corruption from early VIO frame drifts
+                    }
+                    
                     let node = createAPNode(sample: sample)
                     node.simdPosition = newTargetPos
                     scene.rootNode.addChildNode(node)
