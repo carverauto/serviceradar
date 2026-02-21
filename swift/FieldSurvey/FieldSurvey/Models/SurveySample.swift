@@ -21,16 +21,21 @@ public struct SurveySample: Identifiable, Codable {
     // RF Vector for KNN Fingerprinting
     // An array of RSSI values representing the local signal environment at the time of sampling.
     public let rfVector: [Double]
+    public let bleVector: [Double]
     
     // Physical Coordinates (from LiDAR / ARKit)
     public let x: Float
     public let y: Float
     public let z: Float
     
+    // GPS Coordinates
+    public let latitude: Double
+    public let longitude: Double
+    
     // Derived Confidence/Uncertainty (0.0 to 1.0)
     public let uncertainty: Float
     
-    public init(id: UUID = UUID(), timestamp: TimeInterval = Date().timeIntervalSince1970, scannerDeviceId: String, bssid: String, ssid: String, rssi: Double, frequency: Int, securityType: String = "Unknown", isSecure: Bool = true, rfVector: [Double] = [], position: simd_float3, uncertainty: Float) {
+    public init(id: UUID = UUID(), timestamp: TimeInterval = Date().timeIntervalSince1970, scannerDeviceId: String, bssid: String, ssid: String, rssi: Double, frequency: Int, securityType: String = "Unknown", isSecure: Bool = true, rfVector: [Double] = [], bleVector: [Double] = [], position: simd_float3, latitude: Double = 0.0, longitude: Double = 0.0, uncertainty: Float) {
         self.id = id
         self.timestamp = timestamp
         self.scannerDeviceId = scannerDeviceId
@@ -41,9 +46,12 @@ public struct SurveySample: Identifiable, Codable {
         self.securityType = securityType
         self.isSecure = isSecure
         self.rfVector = rfVector
+        self.bleVector = bleVector
         self.x = position.x
         self.y = position.y
         self.z = position.z
+        self.latitude = latitude
+        self.longitude = longitude
         self.uncertainty = uncertainty
     }
 }

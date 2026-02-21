@@ -11,6 +11,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published public var accessPoints: [String: SurveySample] = [:]
     
     private var locationManager: CLLocationManager
+    private var lastLocation: CLLocationCoordinate2D?
     private var timer: Timer?
     
     public override init() {
@@ -58,7 +59,10 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                             securityType: network.isSecure ? "Secure (WPA/WEP)" : "Open",
                             isSecure: network.isSecure,
                             rfVector: currentVector,
+                            bleVector: BLEScanner.shared.currentBleVector,
                             position: SIMD3<Float>(0, 0, 0), // Base relative spatial origin (updated by ARView)
+                            latitude: self.lastLocation?.latitude ?? 0.0,
+                            longitude: self.lastLocation?.longitude ?? 0.0,
                             uncertainty: 0.1
                         )
                         newAPs[network.bssid] = sample
@@ -104,7 +108,11 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                 frequency: 5180,
                 securityType: network.isSecure ? "Secure (WPA/WEP)" : "Open",
                 isSecure: network.isSecure,
+                rfVector: [],
+                bleVector: BLEScanner.shared.currentBleVector,
                 position: SIMD3<Float>(0, 0, 0), // Will be transformed by AR Session Anchors
+                latitude: self.lastLocation?.latitude ?? 0.0,
+                longitude: self.lastLocation?.longitude ?? 0.0,
                 uncertainty: 0.1
             )
             
@@ -117,6 +125,7 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
     // MARK: - CLLocationManagerDelegate
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         // GPS locations sync with RoomPlan/LiDAR coordinate normalization (WGS84 -> SceneKit space)
+        lastLocation = locations.last?.coordinate
     }
 }
 #endif

@@ -150,9 +150,11 @@ public struct ContentView: View {
         // Lifecycle Hooks for Core Location / Network Extension / MobileWiFi
         .onAppear {
             wifiScanner.startScanning()
+            BLEScanner.shared.startScanning()
         }
         .onDisappear {
             wifiScanner.stopScanning()
+            BLEScanner.shared.stopScanning()
             if isStreaming {
                 arrowStreamer.disconnect()
                 isStreaming = false

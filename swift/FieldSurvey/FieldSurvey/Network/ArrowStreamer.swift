@@ -62,9 +62,12 @@ public class ArrowStreamer {
         let securityTypeBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
         let isSecureBuilder = try ArrowArrayBuilders.loadBoolArrayBuilder()
         let rfVectorBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
+        let bleVectorBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
         let xBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
         let yBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
         let zBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
+        let latBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
+        let lonBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
         let uncertaintyBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
         
         for sample in samples {
@@ -80,9 +83,14 @@ public class ArrowStreamer {
             let vectorString = sample.rfVector.map { String($0) }.joined(separator: ",")
             rfVectorBuilder.append(vectorString)
             
+            let bleVectorString = sample.bleVector.map { String($0) }.joined(separator: ",")
+            bleVectorBuilder.append(bleVectorString)
+            
             xBuilder.append(sample.x)
             yBuilder.append(sample.y)
             zBuilder.append(sample.z)
+            latBuilder.append(sample.latitude)
+            lonBuilder.append(sample.longitude)
             uncertaintyBuilder.append(sample.uncertainty)
         }
         
@@ -97,9 +105,12 @@ public class ArrowStreamer {
             .addColumn("securityType", arrowArray: try securityTypeBuilder.toHolder())
             .addColumn("isSecure", arrowArray: try isSecureBuilder.toHolder())
             .addColumn("rfVector", arrowArray: try rfVectorBuilder.toHolder())
+            .addColumn("bleVector", arrowArray: try bleVectorBuilder.toHolder())
             .addColumn("x", arrowArray: try xBuilder.toHolder())
             .addColumn("y", arrowArray: try yBuilder.toHolder())
             .addColumn("z", arrowArray: try zBuilder.toHolder())
+            .addColumn("latitude", arrowArray: try latBuilder.toHolder())
+            .addColumn("longitude", arrowArray: try lonBuilder.toHolder())
             .addColumn("uncertainty", arrowArray: try uncertaintyBuilder.toHolder())
             .finish()
 
