@@ -11,6 +11,7 @@ import simd
 @MainActor
 public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published public var accessPoints: [String: SurveySample] = [:]
+    public var apPositions: [String: SIMD3<Float>] = [:]
     
     private var locationManager: CLLocationManager
     private var lastLocation: CLLocationCoordinate2D?
@@ -100,6 +101,29 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         timer?.invalidate()
         timer = nil
         locationManager.stopUpdatingLocation()
+    }
+    
+    public func updatePosition(bssid: String, position: SIMD3<Float>) {
+        if let existing = accessPoints[bssid] {
+            let updated = SurveySample(
+                id: existing.id,
+                timestamp: existing.timestamp,
+                scannerDeviceId: existing.scannerDeviceId,
+                bssid: existing.bssid,
+                ssid: existing.ssid,
+                rssi: existing.rssi,
+                frequency: existing.frequency,
+                securityType: existing.securityType,
+                isSecure: existing.isSecure,
+                rfVector: existing.rfVector,
+                bleVector: existing.bleVector,
+                position: position,
+                latitude: existing.latitude,
+                longitude: existing.longitude,
+                uncertainty: existing.uncertainty
+            )
+            accessPoints[bssid] = updated
+        }
     }
     
     private func fetchCurrentNetwork() {

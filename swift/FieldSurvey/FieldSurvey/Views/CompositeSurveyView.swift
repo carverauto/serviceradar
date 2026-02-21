@@ -115,6 +115,10 @@ public struct CompositeSurveyView: UIViewRepresentable {
                 let zOffset = min(estimatedDistance, 10.0)
                 let targetPos = SIMD3<Float>(cameraPos.x, cameraPos.y, cameraPos.z - zOffset)
                 
+                DispatchQueue.main.async {
+                    wifiScanner.apPositions[key] = targetPos
+                }
+                
                 if let existingNode = apNodes[key] {
                     // Update existing
                     let moveAction = SCNAction.move(to: SCNVector3(targetPos.x, targetPos.y, targetPos.z), duration: 1.0)

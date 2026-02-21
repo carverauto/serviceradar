@@ -7,8 +7,8 @@ import SceneKit
 
 @available(iOS 16.0, *)
 public struct SurveyView: View {
-    @StateObject private var roomScanner = RoomScanner()
-    @StateObject private var wifiScanner = RealWiFiScanner()
+    @ObservedObject public var roomScanner: RoomScanner
+    @ObservedObject public var wifiScanner: RealWiFiScanner
     @StateObject private var networkMonitor = NetworkMonitor()
     
     @State private var showRoomPlan = false
@@ -19,7 +19,10 @@ public struct SurveyView: View {
     // Core Pipeline Instantiation for God-View Ingestion
     private let arrowStreamer = ArrowStreamer()
     
-    public init() {}
+    public init(roomScanner: RoomScanner, wifiScanner: RealWiFiScanner) {
+        self.roomScanner = roomScanner
+        self.wifiScanner = wifiScanner
+    }
 
     public var body: some View {
         ZStack {
@@ -197,6 +200,8 @@ public struct RoomCaptureViewContainer: UIViewRepresentable {
 @available(iOS 16.0, *)
 public struct ContentView: View {
     @StateObject private var settings = SettingsManager.shared
+    @StateObject private var roomScanner = RoomScanner()
+    @StateObject private var wifiScanner = RealWiFiScanner()
     
     public init() {}
     
@@ -206,12 +211,12 @@ public struct ContentView: View {
                 LoginView()
             } else {
                 TabView {
-                    SurveyView()
+                    SurveyView(roomScanner: roomScanner, wifiScanner: wifiScanner)
                         .tabItem {
                             Label("Scan", systemImage: "viewfinder.circle.fill")
                         }
                     
-                    MapView()
+                    MapView(roomScanner: roomScanner, wifiScanner: wifiScanner)
                         .tabItem {
                             Label("Map", systemImage: "map.fill")
                         }
@@ -423,7 +428,13 @@ public struct LoginView: View {
 
 @available(iOS 16.0, *)
 public struct MapView: View {
-    public init() {}
+    @ObservedObject public var roomScanner: RoomScanner
+    @ObservedObject public var wifiScanner: RealWiFiScanner
+    
+    public init(roomScanner: RoomScanner, wifiScanner: RealWiFiScanner) {
+        self.roomScanner = roomScanner
+        self.wifiScanner = wifiScanner
+    }
 
     public var body: some View {
         ZStack(alignment: .topLeading) {
@@ -440,6 +451,11 @@ public struct MapView: View {
                     .padding()
                     .background(Color.black.opacity(0.6))
                     .cornerRadius(8)
+                    
+                Text("\(wifiScanner.apPositions.count) RF Sources Mapped")
+                    .font(.caption)
+                    .foregroundColor(.white)
+                    .padding(.horizontal)
             }
             .padding(.top, 50)
             .padding(.leading, 20)
@@ -449,34 +465,32 @@ public struct MapView: View {
     private func createScene() -> SCNScene {
         let scene = SCNScene()
         
-        // Add a simple grid/floor
         let floor = SCNFloor()
         floor.firstMaterial?.diffuse.contents = UIColor.darkGray
         floor.firstMaterial?.specular.contents = UIColor.white
         let floorNode = SCNNode(geometry: floor)
         scene.rootNode.addChildNode(floorNode)
         
-        // Add a stylized center node
-        let sphere = SCNSphere(radius: 0.5)
-        sphere.firstMaterial?.diffuse.contents = UIColor.green
-        sphere.firstMaterial?.emission.contents = UIColor.green
-        let centerNode = SCNNode(geometry: sphere)
-        centerNode.position = SCNVector3(0, 0.5, 0)
-        scene.rootNode.addChildNode(centerNode)
+        let samples = wifiScanner.accessPoints
         
-        // Add some mock data points orbiting
-        for i in 0..<5 {
-            let box = SCNBox(width: 0.2, height: 0.2, length: 0.2, chamferRadius: 0.05)
-            box.firstMaterial?.diffuse.contents = UIColor.cyan
-            let boxNode = SCNNode(geometry: box)
+        for (bssid, pos) in wifiScanner.apPositions {
+            let sample = samples[bssid]
+            let freq = sample?.frequency ?? 2412
+            let rssi = sample?.rssi ?? -90.0
             
-            let angle = Float(i) * (2.0 * Float.pi / 5.0)
-            let radius: Float = 3.0
-            boxNode.position = SCNVector3(radius * cos(angle), 0.5, radius * sin(angle))
-            scene.rootNode.addChildNode(boxNode)
+            let sphere = SCNSphere(radius: 0.15)
+            sphere.firstMaterial?.diffuse.contents = freq > 4000 ? UIColor.cyan : UIColor.orange
+            sphere.firstMaterial?.emission.contents = freq > 4000 ? UIColor.cyan : UIColor.orange
+            
+            let node = SCNNode(geometry: sphere)
+            node.position = SCNVector3(pos.x, pos.y, pos.z)
+            
+            let scale = max(0.1, min(1.0, Float(rssi + 90) / 60.0))
+            node.scale = SCNVector3(scale, scale, scale)
+            
+            scene.rootNode.addChildNode(node)
         }
         
-        // Camera
         let cameraNode = SCNNode()
         cameraNode.camera = SCNCamera()
         cameraNode.position = SCNVector3(0, 5, 8)
