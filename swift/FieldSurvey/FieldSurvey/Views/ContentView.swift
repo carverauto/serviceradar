@@ -3,9 +3,10 @@ import SwiftUI
 import RoomPlan
 import simd
 import ARKit
+import SceneKit
 
 @available(iOS 16.0, *)
-public struct ContentView: View {
+public struct SurveyView: View {
     @StateObject private var roomScanner = RoomScanner()
     @StateObject private var wifiScanner = RealWiFiScanner()
     @StateObject private var networkMonitor = NetworkMonitor()
@@ -192,6 +193,277 @@ public struct RoomCaptureViewContainer: UIViewRepresentable {
     
     public static func dismantleUIView(_ uiView: RoomCaptureView, coordinator: ()) {
         uiView.captureSession.stop()
+    }
+}
+
+@available(iOS 16.0, *)
+public struct ContentView: View {
+    @StateObject private var settings = SettingsManager.shared
+    
+    public init() {}
+    
+    public var body: some View {
+        Group {
+            if settings.authToken.isEmpty {
+                LoginView()
+            } else {
+                TabView {
+                    SurveyView()
+                        .tabItem {
+                            Label("Scan", systemImage: "viewfinder.circle.fill")
+                        }
+                    
+                    MapView()
+                        .tabItem {
+                            Label("Map", systemImage: "map.fill")
+                        }
+                    
+                    Text("Sync") // Placeholder for offline batch management
+                        .tabItem {
+                            Label("Sync", systemImage: "arrow.triangle.2.circlepath.circle.fill")
+                        }
+                }
+                .accentColor(.green)
+                .preferredColorScheme(.dark)
+            }
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+public struct LoginView: View {
+    @StateObject private var settings = SettingsManager.shared
+    
+    @State private var serverURL: String = SettingsManager.shared.apiURL
+    @State private var clientId: String = ""
+    @State private var clientSecret: String = ""
+    @State private var isAuthenticating: Bool = false
+    @State private var errorMessage: String?
+    
+    public init() {}
+    
+    public var body: some View {
+        VStack(spacing: 30) {
+            Spacer()
+            
+            // ServiceRadar Logo & Branding
+            VStack(spacing: 15) {
+                ZStack {
+                    Circle()
+                        .fill(Color.green.opacity(0.2))
+                        .frame(width: 100, height: 100)
+                    
+                    Image(systemName: "radar")
+                        .font(.system(size: 50, weight: .bold))
+                        .foregroundColor(.green)
+                }
+                
+                Text("ServiceRadar")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                
+                Text("FieldSurvey Operations")
+                    .font(.headline)
+                    .foregroundColor(.gray)
+            }
+            
+            VStack(spacing: 20) {
+                // Server URL Input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Server URL")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                    
+                    TextField("https://demo.serviceradar.cloud", text: $serverURL)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(10)
+                }
+                
+                // Client ID Input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Client ID")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                    
+                    TextField("00000000-0000-0000-0000-000000000000", text: $clientId)
+                        .autocapitalization(.none)
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(10)
+                }
+                
+                // Client Secret Input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Client Secret")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                    
+                    SecureField("Enter API Secret", text: $clientSecret)
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(10)
+                }
+                
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 5)
+                }
+            }
+            .padding(.horizontal, 30)
+            
+            // Login Button
+            Button(action: {
+                authenticate()
+            }) {
+                HStack {
+                    if isAuthenticating {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    } else {
+                        Text("Connect to Gateway")
+                            .fontWeight(.bold)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.green)
+                .foregroundColor(.black)
+                .cornerRadius(12)
+            }
+            .disabled(isAuthenticating || clientId.isEmpty || clientSecret.isEmpty || serverURL.isEmpty)
+            .padding(.horizontal, 30)
+            .padding(.top, 10)
+            
+            Spacer()
+        }
+        .preferredColorScheme(.dark)
+        .background(Color.black.edgesIgnoringSafeArea(.all))
+    }
+    
+    private func authenticate() {
+        isAuthenticating = true
+        errorMessage = nil
+        
+        let cleanedURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: "\(cleanedURL)/oauth/token") else {
+            errorMessage = "Invalid Server URL format."
+            isAuthenticating = false
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        
+        let parameters = "grant_type=client_credentials&client_id=\(clientId)&client_secret=\(clientSecret)"
+        request.httpBody = parameters.data(using: .utf8)
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                self.isAuthenticating = false
+                
+                if let error = error {
+                    self.errorMessage = "Connection error: \(error.localizedDescription)"
+                    return
+                }
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    self.errorMessage = "Invalid server response."
+                    return
+                }
+                
+                if httpResponse.statusCode == 200, let data = data {
+                    do {
+                        if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                           let token = json["access_token"] as? String {
+                            self.settings.apiURL = cleanedURL
+                            self.settings.authToken = token
+                        } else {
+                            self.errorMessage = "Invalid token format received."
+                        }
+                    } catch {
+                        self.errorMessage = "Failed to parse authentication response."
+                    }
+                } else if httpResponse.statusCode == 401 {
+                    self.errorMessage = "Invalid Client ID or Secret."
+                } else {
+                    self.errorMessage = "Server returned error \(httpResponse.statusCode)."
+                }
+            }
+        }.resume()
+    }
+}
+
+@available(iOS 16.0, *)
+public struct MapView: View {
+    public init() {}
+
+    public var body: some View {
+        ZStack(alignment: .topLeading) {
+            SceneView(
+                scene: createScene(),
+                options: [.allowsCameraControl, .autoenablesDefaultLighting]
+            )
+            .edgesIgnoringSafeArea(.top)
+            
+            VStack(alignment: .leading) {
+                Text("God-View Map")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .padding()
+                    .background(Color.black.opacity(0.6))
+                    .cornerRadius(8)
+            }
+            .padding(.top, 50)
+            .padding(.leading, 20)
+        }
+    }
+
+    private func createScene() -> SCNScene {
+        let scene = SCNScene()
+        
+        // Add a simple grid/floor
+        let floor = SCNFloor()
+        floor.firstMaterial?.diffuse.contents = UIColor.darkGray
+        floor.firstMaterial?.specular.contents = UIColor.white
+        let floorNode = SCNNode(geometry: floor)
+        scene.rootNode.addChildNode(floorNode)
+        
+        // Add a stylized center node
+        let sphere = SCNSphere(radius: 0.5)
+        sphere.firstMaterial?.diffuse.contents = UIColor.green
+        sphere.firstMaterial?.emission.contents = UIColor.green
+        let centerNode = SCNNode(geometry: sphere)
+        centerNode.position = SCNVector3(0, 0.5, 0)
+        scene.rootNode.addChildNode(centerNode)
+        
+        // Add some mock data points orbiting
+        for i in 0..<5 {
+            let box = SCNBox(width: 0.2, height: 0.2, length: 0.2, chamferRadius: 0.05)
+            box.firstMaterial?.diffuse.contents = UIColor.cyan
+            let boxNode = SCNNode(geometry: box)
+            
+            let angle = Float(i) * (2.0 * Float.pi / 5.0)
+            let radius: Float = 3.0
+            boxNode.position = SCNVector3(radius * cos(angle), 0.5, radius * sin(angle))
+            scene.rootNode.addChildNode(boxNode)
+        }
+        
+        // Camera
+        let cameraNode = SCNNode()
+        cameraNode.camera = SCNCamera()
+        cameraNode.position = SCNVector3(0, 5, 8)
+        cameraNode.eulerAngles = SCNVector3(-Float.pi / 8, 0, 0)
+        scene.rootNode.addChildNode(cameraNode)
+        
+        return scene
     }
 }
 #endif

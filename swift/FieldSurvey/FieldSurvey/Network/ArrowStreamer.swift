@@ -17,10 +17,19 @@ public class ArrowStreamer {
     
     /// Establishes a persistent WebSocket connection to the ServiceRadar ingestion pipeline.
     public func connect(sessionID: String) {
-        guard let url = URL(string: "wss://serviceradar-api.internal/v1/stream/\(sessionID)") else { return }
+        let apiURL = SettingsManager.shared.apiURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .replacingOccurrences(of: "http://", with: "ws://")
+            .replacingOccurrences(of: "https://", with: "wss://")
+            
+        guard let url = URL(string: "\(apiURL)/v1/stream/\(sessionID)") else { return }
+        
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(SettingsManager.shared.authToken)", forHTTPHeaderField: "Authorization")
         
         let session = URLSession(configuration: .default)
-        webSocketTask = session.webSocketTask(with: url)
+        webSocketTask = session.webSocketTask(with: request)
         webSocketTask?.resume()
         
         logger.info("Established WebSocket connection to stream: \(url.absoluteString)")
