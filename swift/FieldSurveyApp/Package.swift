@@ -12,12 +12,13 @@ let package = Package(
             targets: ["FieldSurveyApp"]),
     ],
     dependencies: [
-        // Arrow Swift bindings could theoretically go here, though often it's bridged via C++ 
-        // For this prototype, we're mocking the byte encoding to represent the pipeline structure.
+        .package(url: "https://github.com/apache/arrow-swift.git", branch: "main")
     ],
     targets: [
         .target(
             name: "FieldSurveyApp",
-            dependencies: [])
+            dependencies: [
+                .product(name: "Arrow", package: "arrow-swift")
+            ])
     ]
 )

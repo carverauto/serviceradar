@@ -1,0 +1,144 @@
+import SwiftUI
+import RoomPlan
+import simd
+import ARKit
+
+@available(iOS 16.0, *)
+public struct ContentView: View {
+    @StateObject private var roomScanner = RoomScanner()
+    @StateObject private var wifiScanner = RealWiFiScanner()
+    
+    @State private var showRoomPlan = false
+    @State private var isStreaming = false
+    
+    // Core Pipeline Instantiation for God-View Ingestion
+    private let arrowStreamer = ArrowStreamer()
+    
+    public init() {}
+
+    public var body: some View {
+        ZStack {
+            if showRoomPlan {
+                RoomCaptureViewContainer(scanner: roomScanner)
+                    .edgesIgnoringSafeArea(.all)
+            } else {
+                ARRealityView(scanner: wifiScanner)
+                    .edgesIgnoringSafeArea(.all)
+            }
+            
+            VStack {
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("ServiceRadar FieldSurvey")
+                            .font(.headline)
+                            .foregroundColor(.green)
+                            .shadow(color: .green, radius: 2, x: 0, y: 0)
+                        
+                        Text(showRoomPlan ? "LiDAR Mesh Mode" : "RF Scanning Mode")
+                            .font(.subheadline)
+                            .foregroundColor(.white)
+                            .opacity(0.8)
+                    }
+                    .padding()
+                    .background(Color.black.opacity(0.7))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.green, lineWidth: 1)
+                    )
+                    
+                    Spacer()
+                }
+                .padding(.top, 40)
+                .padding(.horizontal)
+                
+                Spacer()
+                
+                // Pipeline Control Bar
+                HStack(spacing: 20) {
+                    Button(action: {
+                        showRoomPlan.toggle()
+                    }) {
+                        Image(systemName: showRoomPlan ? "cube.transparent" : "cube.transparent.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(showRoomPlan ? .green : .white)
+                            .padding()
+                            .background(Color.black.opacity(0.7))
+                            .clipShape(Circle())
+                    }
+                    
+                    Button(action: {
+                        isStreaming.toggle()
+                    }) {
+                        Text(isStreaming ? "Stop Live Stream" : "Stream to God-View")
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(isStreaming ? Color.red.opacity(0.8) : Color.green.opacity(0.8))
+                            .foregroundColor(isStreaming ? .white : .black)
+                            .cornerRadius(25)
+                    }
+                    
+                    Button(action: {
+                        if let _ = try? roomScanner.exportUSDZ() {
+                            // Offline sync via compressed native LZFSE + Arrow IPC buffer
+                            let currentSamples = Array(wifiScanner.accessPoints.values)
+                            if let payload = try? arrowStreamer.encodeBatch(samples: currentSamples) {
+                                _ = try? arrowStreamer.compressForOfflineUpload(payload: payload, filename: "survey_bulk")
+                            }
+                        }
+                    }) {
+                        Image(systemName: "arrow.up.doc.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.white)
+                            .padding()
+                            .background(Color.black.opacity(0.7))
+                            .clipShape(Circle())
+                    }
+                }
+                .padding(.bottom, 40)
+            }
+        }
+        .preferredColorScheme(.dark)
+        // Lifecycle Hooks for Core Location / Network Extension / MobileWiFi
+        .onAppear {
+            wifiScanner.startScanning()
+        }
+        .onDisappear {
+            wifiScanner.stopScanning()
+            isStreaming = false
+        }
+        // Continuous Zero-Copy Ingestion Flow
+        .onChange(of: wifiScanner.accessPoints) { _ in
+            guard isStreaming else { return }
+            
+            let currentSamples = Array(wifiScanner.accessPoints.values)
+            guard !currentSamples.isEmpty else { return }
+            
+            DispatchQueue.global(qos: .userInitiated).async {
+                if let payload = try? arrowStreamer.encodeBatch(samples: currentSamples) {
+                    // Fire IPC payload through HTTP/2 directly to the backend Edge Gateway
+                    arrowStreamer.streamToBackend(payload: payload, sessionID: UUID().uuidString)
+                }
+            }
+        }
+    }
+}
+
+// Wrapper for the RoomCaptureView to integrate with SwiftUI
+@available(iOS 16.0, *)
+public struct RoomCaptureViewContainer: UIViewRepresentable {
+    let scanner: RoomScanner
+    
+    public func makeUIView(context: Context) -> RoomCaptureView {
+        let captureView = RoomCaptureView(frame: .zero)
+        scanner.startSession(in: captureView)
+        return captureView
+    }
+    
+    public func updateUIView(_ uiView: RoomCaptureView, context: Context) {}
+    
+    public static func dismantleUIView(_ uiView: RoomCaptureView, coordinator: ()) {
+        uiView.captureSession.stop()
+    }
+}
