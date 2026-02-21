@@ -519,37 +519,6 @@ PACKAGES = {
             "/etc/serviceradar/checkers/rperf.json.example",
         ],
     },
-    "profiler": {
-        "package_name": "serviceradar-profiler",
-        "description": "ServiceRadar Profiler agent",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": [],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//rust/ebpf/profiler:profiler",
-            "dest": "/usr/local/bin/serviceradar-profiler",
-        },
-        "files": [
-            {
-                "src": "config/profiler.toml",
-                "dest": "/etc/serviceradar/profiler.toml",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-profiler.service",
-            "dest": "/lib/systemd/system/serviceradar-profiler.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/profiler.toml",
-        ],
-    },
     "cli": {
         "package_name": "serviceradar-cli",
         "description": "ServiceRadar CLI tool",
