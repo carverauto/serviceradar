@@ -48,6 +48,8 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                             ssid: network.ssid,
                             rssi: mappedRssi,
                             frequency: 5180, // Defaulting to 5GHz base assumption unless inferred by OUI
+                            securityType: network.isSecure ? "Secure (WPA/WEP)" : "Open",
+                            isSecure: network.isSecure,
                             position: SIMD3<Float>(0, 0, 0), // Base relative spatial origin (updated by ARView)
                             uncertainty: 0.1
                         )
@@ -91,6 +93,8 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
                 ssid: network.ssid,
                 rssi: mappedRssi,
                 frequency: 5180,
+                securityType: network.isSecure ? "Secure (WPA/WEP)" : "Open",
+                isSecure: network.isSecure,
                 position: SIMD3<Float>(0, 0, 0), // Will be transformed by AR Session Anchors
                 uncertainty: 0.1
             )
