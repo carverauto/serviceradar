@@ -19,6 +19,10 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         self.locationManager.requestWhenInUseAuthorization()
     }
     
+    public var isScanning: Bool {
+        return timer != nil
+    }
+    
     public func startScanning() {
         // Start CoreLocation to trigger base station updates and ensure precise spatial anchors
         locationManager.startUpdatingLocation()
@@ -61,7 +65,8 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         }
         
         // Continuous poll for the currently connected network as a public API baseline
-        timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+        let sampleRate = SettingsManager.shared.sampleRateSeconds
+        timer = Timer.scheduledTimer(withTimeInterval: sampleRate, repeats: true) { [weak self] _ in
             self?.fetchCurrentNetwork()
         }
         fetchCurrentNetwork()

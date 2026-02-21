@@ -10,6 +10,7 @@ public struct ContentView: View {
     
     @State private var showRoomPlan = false
     @State private var isStreaming = false
+    @State private var showSettings = false
     
     // Core Pipeline Instantiation for God-View Ingestion
     private let arrowStreamer = ArrowStreamer()
@@ -48,6 +49,17 @@ public struct ContentView: View {
                     )
                     
                     Spacer()
+                    
+                    Button(action: {
+                        showSettings.toggle()
+                    }) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(Color.black.opacity(0.7))
+                            .clipShape(Circle())
+                    }
                 }
                 .padding(.top, 40)
                 .padding(.horizontal)
@@ -100,6 +112,9 @@ public struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showSettings) {
+            SettingsView(wifiScanner: wifiScanner)
+        }
         // Lifecycle Hooks for Core Location / Network Extension / MobileWiFi
         .onAppear {
             wifiScanner.startScanning()
