@@ -50,6 +50,10 @@
   {{- end }}
   {{- $sharedPreload = $trimmed }}
 {{- end }}
+{{- $extensionsSQL := $pg.extensionsSQL }}
+{{- if not $extensionsSQL }}
+  {{- $extensionsSQL = list "CREATE EXTENSION IF NOT EXISTS timescaledb;" "CREATE EXTENSION IF NOT EXISTS age;" "CREATE EXTENSION IF NOT EXISTS postgis;" }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Secret
@@ -120,6 +124,12 @@ spec:
       owner: {{ default "spire" $pg.username }}
       secret:
         name: {{ $pg.secretName }}
+      {{- if $extensionsSQL }}
+      postInitApplicationSQL:
+        {{- range $stmt := $extensionsSQL }}
+        - {{ $stmt | quote }}
+        {{- end }}
+      {{- end }}
   postgresql:
     {{- if $sharedPreload }}
     shared_preload_libraries:

@@ -32,6 +32,7 @@ kubectl exec -n "${namespace}" "${primary_pod}" -- bash -lc \
   "PGSSLMODE=require PGPASSWORD='${admin_password}' \
    psql -h 127.0.0.1 -U '${admin_user}' -d '${database}' -v ON_ERROR_STOP=1 \
    -c \"CREATE EXTENSION IF NOT EXISTS timescaledb;\" \
-   -c \"CREATE EXTENSION IF NOT EXISTS age;\""
+   -c \"CREATE EXTENSION IF NOT EXISTS age;\" \
+   -c \"CREATE EXTENSION IF NOT EXISTS postgis;\""
 
 echo "Reset ${database} on ${cluster} (${namespace}) complete."

@@ -1477,7 +1477,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "anfgzQokiHri4FJRiW4KvwSfiR7ComgkDZBoR/2HI1I=",
-        "usagesDigest": "pa/r7VF519Rwub+fAAtzos2Xrea12SRw75NFO9tFYdA=",
+        "usagesDigest": "Tbh6n/Q27avuZ1FjUHpHShmDscLxdZM4rsYBw7eEUpY=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -1830,6 +1830,35 @@
               "reproducible": false
             }
           },
+          "serviceradar_cnpg_16_6_0_sr3_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/serviceradar-cnpg",
+              "identifier": "sha256:882fdd3f4905342a6ffa347ee988840eafa4f8e8b234a26e6e8cb72ec71b8eb8",
+              "platform": "linux/amd64",
+              "target_name": "serviceradar_cnpg_16_6_0_sr3_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "serviceradar_cnpg_16_6_0_sr3": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "serviceradar_cnpg_16_6_0_sr3",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/serviceradar-cnpg",
+              "identifier": "sha256:882fdd3f4905342a6ffa347ee988840eafa4f8e8b234a26e6e8cb72ec71b8eb8",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@serviceradar_cnpg_16_6_0_sr3_linux_amd64"
+              },
+              "bzlmod_repository": "serviceradar_cnpg_16_6_0_sr3",
+              "reproducible": true
+            }
+          },
           "oci_crane_darwin_amd64": {
             "repoRuleId": "@@rules_oci+//oci:repositories.bzl%crane_repositories",
             "attributes": {
@@ -1969,7 +1998,9 @@
             "serviceradar_tools",
             "serviceradar_tools_linux_amd64",
             "cloudnativepg_postgresql_16_6",
-            "cloudnativepg_postgresql_16_6_linux_amd64"
+            "cloudnativepg_postgresql_16_6_linux_amd64",
+            "serviceradar_cnpg_16_6_0_sr3",
+            "serviceradar_cnpg_16_6_0_sr3_linux_amd64"
           ],
           "explicitRootModuleDirectDevDeps": [],
           "useAllRepos": "NO",
