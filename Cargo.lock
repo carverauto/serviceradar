@@ -840,9 +840,12 @@ checksum = "b867c15d8ff93c4d81b69c89280840f877331ef2a1fccbaf947afecc68b51a9e"
 
 [[package]]
 name = "capnp"
-version = "0.14.11"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dca085c2c7d9d65ad749d450b19b551efaa8e3476a439bdca07aca8533097f3"
+checksum = "e17cef220241d3b5d1c4fa17acfbf830033a3927b94c65e46e7945898318ff43"
+dependencies = [
+ "embedded-io",
+]
 
 [[package]]
 name = "capnpc"
@@ -1557,6 +1560,12 @@ checksum = "e079f19b08ca6239f47f8ba8509c11cf3ea30095831f7fed61441475edd8c449"
 dependencies = [
  "serde 1.0.228",
 ]
+
+[[package]]
+name = "embedded-io"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9eb1aa714776b75c7e67e1da744b81a129b3ff919c8712b5e1b32252c1f07cc7"
 
 [[package]]
 name = "encoding_rs"
@@ -5645,7 +5654,7 @@ version = "0.3.4"
 dependencies = [
  "anyhow",
  "async-nats",
- "capnp 0.14.11",
+ "capnp 0.24.0",
  "capnpc",
  "clap 4.5.56",
  "config-bootstrap",
