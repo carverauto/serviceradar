@@ -9,8 +9,7 @@ public class RoomScanner: ObservableObject, RoomCaptureViewDelegate {
     @Published public var isScanning = false
     @Published public var finalResult: CapturedRoom? = nil
     
-    // In a full SwiftUI app, we would wrap RoomCaptureView in UIViewRepresentable
-    // For this business logic manager, we handle the delegates.
+    // We act as the delegate for the RoomCaptureView wrapped in our SwiftUI view.
     private let logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "RoomScanner")
     
     public init() {}
