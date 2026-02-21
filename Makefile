@@ -42,9 +42,9 @@ else
 	CARGO_HOME ?= $(HOME)/.cargo
 endif
 
-RPERF_CLIENT_BUILD_DIR ?= rust/checkers/rperf-client/target/release
+RPERF_CLIENT_BUILD_DIR ?= rust/rperf-client/target/release
 RPERF_CLIENT_BIN ?= serviceradar-rperf-checker
-RPERF_SERVER_BUILD_DIR ?= rust/checkers/rperf-server/target/release
+RPERF_SERVER_BUILD_DIR ?= rust/rperf-server/target/release
 RPERF_SERVER_BIN ?= rperf
 
 # Version configuration
@@ -157,7 +157,7 @@ tidy: ## Tidy and format Go code
 	@$(GO) mod tidy
 	@$(GO) fmt ./...
 	@echo "$(COLOR_BOLD)Formatting Rust code$(COLOR_RESET)"
-	@cd rust/checkers/rperf-client && $(RUSTFMT) src/*.rs
+	@cd rust/rperf-client && $(RUSTFMT) src/*.rs
 	@cd rust/trapd && $(RUSTFMT) src/*.rs
 	@cd rust/consumers/zen && $(RUSTFMT) src/*.rs
 	@cd rust/otel && $(RUSTFMT) src/*.rs
@@ -173,7 +173,7 @@ lint: get-golangcilint ## Run linting checks
 	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
 	@$(GOLANGCI_LINT) run ./...
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
-	@cd rust/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
+	@cd rust/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
@@ -191,7 +191,7 @@ test: $(TEST_PREREQS) ## Run all tests with coverage
 	@echo "$(COLOR_BOLD)Running Go long tests$(COLOR_RESET)"
 	@$(GO) test $(GO_TEST_TAGS) -timeout=120s -race -count=1 -failfast -shuffle=on ./... -coverprofile=./cover.long.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
-	@cd rust/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
+	@cd rust/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
@@ -280,7 +280,7 @@ clean: ## Clean up build artifacts
 	@rm -f cover.*.profile cover.html
 	@rm -rf bin/
 	@rm -rf serviceradar-*_* release-artifacts/
-	@cd rust/checkers/rperf-client && $(CARGO) clean
+	@cd rust/rperf-client && $(CARGO) clean
 	@cd rust/trapd && $(CARGO) clean
 	@cd rust/consumers/zen && $(CARGO) clean
 	@cd rust/otel && $(CARGO) clean
@@ -335,8 +335,8 @@ build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-datasvc go/cmd/data-services/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cli go/cmd/cli/main.go
 	@echo "$(COLOR_BOLD)Building Rust binaries$(COLOR_RESET)"
-	@cd rust/checkers/rperf-client && $(CARGO) build --release
-	@cd rust/checkers/rperf-server && $(CARGO) build --release
+	@cd rust/rperf-client && $(CARGO) build --release
+	@cd rust/rperf-server && $(CARGO) build --release
 	@cd rust/trapd && $(CARGO) build --release
 	@cd rust/consumers/zen && $(CARGO) build --release
 	@cd rust/otel && $(CARGO) build --release
@@ -478,9 +478,9 @@ docs-setup: ## Initial setup for Docusaurus development
 .PHONY: build-rperf-checker
 build-rperf-checker: generate-proto ## Build only the rperf plugin
 	@echo "$(COLOR_BOLD)Building Rust rperf checker$(COLOR_RESET)"
-	@cd rust/checkers/rperf-client && $(CARGO) build --release
+	@cd rust/rperf-client && $(CARGO) build --release
 	@mkdir -p bin
-	@cp -v $(shell pwd)/rust/checkers/rperf-client/target/release/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
+	@cp -v $(shell pwd)/rust/rperf-client/target/release/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
 
 .PHONY: run-rperf-checker
 run-rperf-checker: build-rperf-checker ## Run the rperf plugin
@@ -491,9 +491,9 @@ run-rperf-checker: build-rperf-checker ## Run the rperf plugin
 .PHONY: build-rperf
 build-rperf: generate-proto ## Build only the rperf server
 	@echo "$(COLOR_BOLD)Building Rust rperf server$(COLOR_RESET)"
-	@cd rust/checkers/rperf-server && $(CARGO) build --release
+	@cd rust/rperf-server && $(CARGO) build --release
 	@mkdir -p bin
-	@cp -v $(shell pwd)/rust/checkers/rperf-server/target/release/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
+	@cp -v $(shell pwd)/rust/rperf-server/target/release/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
 
 .PHONY: run-rperf
 run-rperf: build-rperf ## Run the rperf server

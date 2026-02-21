@@ -9,10 +9,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy project files
-COPY rust/checkers/rperf-client/Cargo.toml rust/checkers/rperf-client/Cargo.lock* ./
-COPY rust/checkers/rperf-client/src ./src/
+COPY rust/rperf-client/Cargo.toml rust/rperf-client/Cargo.lock* ./
+COPY rust/rperf-client/src ./src/
 COPY proto ./proto/
-COPY rust/checkers/rperf-client/build.rs ./
+COPY rust/rperf-client/build.rs ./
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \

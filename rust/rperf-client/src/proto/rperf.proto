@@ -18,7 +18,7 @@ syntax = "proto3";
 
 package rperf;
 
-option go_package = "github.com/carverauto/serviceradar/rust/checkers/rperf-client/src/proto/rperf";
+option go_package = "github.com/carverauto/serviceradar/rust/rperf-client/src/proto/rperf";
 
 // Import the local copy of monitoring.proto
 import "monitoring.proto";

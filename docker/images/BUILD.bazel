@@ -988,7 +988,7 @@ oci_load(
 pkg_tar(
     name = "rperf_client_layer_amd64",
     files = {
-        "//rust/checkers/rperf-client:rperf_checker": "usr/local/bin/serviceradar-rperf-checker",
+        "//rust/rperf-client:rperf_checker": "usr/local/bin/serviceradar-rperf-checker",
         "//docker/compose:entrypoint-rperf-client.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:rperf-client.docker.json": "tmp/rperf-client.docker.json",
     },

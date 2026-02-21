@@ -24,10 +24,10 @@ RUN case "$TARGETARCH" in \
     esac
 
 # Copy project files
-COPY rust/checkers/rperf-client/Cargo.toml rust/checkers/rperf-client/Cargo.lock* ./
-COPY rust/checkers/rperf-client/src ./src/
+COPY rust/rperf-client/Cargo.toml rust/rperf-client/Cargo.lock* ./
+COPY rust/rperf-client/src ./src/
 COPY proto ./proto/
-COPY rust/checkers/rperf-client/build.rs ./
+COPY rust/rperf-client/build.rs ./
 
 # Set environment variables for cross-compilation
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \

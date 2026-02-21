@@ -9,7 +9,7 @@ members = [
     "rust/trapd",
     "rust/otel",
     "rust/consumers/zen",
-    "rust/checkers/rperf-client",
+    "rust/rperf-client",
     "rust/netflow-collector",
     "rust/srql",
 ]

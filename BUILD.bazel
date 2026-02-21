@@ -7,7 +7,7 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 # gazelle:exclude dist
 # gazelle:exclude release-artifacts
 # gazelle:exclude target
-# gazelle:exclude rust/checkers/rperf-client
+# gazelle:exclude rust/rperf-client
 # gazelle:exclude cmd/ebpf
 
 load("@platforms//host:extension.bzl", "host_platform")

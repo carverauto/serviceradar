@@ -35,7 +35,7 @@ COPY rust/flowgger ./rust/flowgger/
 COPY rust/trapd ./rust/trapd/
 COPY rust/otel ./rust/otel/
 COPY rust/consumers/zen ./rust/consumers/zen/
-COPY rust/checkers/rperf-client ./rust/checkers/rperf-client/
+COPY rust/rperf-client ./rust/rperf-client/
 COPY proto ./proto
 
 # Update Rust to latest to support edition 2024

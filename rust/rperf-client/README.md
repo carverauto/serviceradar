@@ -90,7 +90,7 @@ Create a JSON configuration file with the following structure:
 ```bash
 # Clone the repository
 git clone git@github.com:carverauto/serviceradar.git
-cd serviceradar/rust/checkers/rperf-client
+cd serviceradar/rust/rperf-client
 
 # Build the project
 cargo build --release
