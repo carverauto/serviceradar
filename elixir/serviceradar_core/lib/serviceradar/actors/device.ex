@@ -477,7 +477,7 @@ defmodule ServiceRadar.Actors.Device do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:device_actor)
 
-    case DeviceResource.get_by_uid(state.device_id, actor: actor) do
+    case DeviceResource.get_by_uid(state.device_id, false, actor: actor) do
       {:ok, device} ->
         identity = %{
           uid: device.uid,
@@ -509,7 +509,7 @@ defmodule ServiceRadar.Actors.Device do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:device_actor)
 
-    case DeviceResource.get_by_uid(device_id, actor: actor) do
+    case DeviceResource.get_by_uid(device_id, false, actor: actor) do
       {:ok, device} ->
         updates =
           identity

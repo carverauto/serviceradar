@@ -8,7 +8,7 @@ defmodule ServiceRadar.Repo.Migrations.EnsureDiscoveredInterfacesHypertable do
       table_ident text;
       ts_schema text;
     BEGIN
-      table_ident := format('%I.%I', '#{prefix()}', 'discovered_interfaces');
+      table_ident := format('%I.%I', '#{prefix() || "platform"}', 'discovered_interfaces');
       SELECT n.nspname
       INTO ts_schema
       FROM pg_extension e
@@ -26,7 +26,7 @@ defmodule ServiceRadar.Repo.Migrations.EnsureDiscoveredInterfacesHypertable do
          AND EXISTS (
            SELECT 1
            FROM pg_tables
-           WHERE schemaname = '#{prefix()}'
+           WHERE schemaname = '#{prefix() || "platform"}'
              AND tablename = 'discovered_interfaces'
          ) THEN
         EXECUTE format(
@@ -54,7 +54,7 @@ defmodule ServiceRadar.Repo.Migrations.EnsureDiscoveredInterfacesHypertable do
       table_ident text;
       ts_schema text;
     BEGIN
-      table_ident := format('%I.%I', '#{prefix()}', 'discovered_interfaces');
+      table_ident := format('%I.%I', '#{prefix() || "platform"}', 'discovered_interfaces');
       SELECT n.nspname
       INTO ts_schema
       FROM pg_extension e

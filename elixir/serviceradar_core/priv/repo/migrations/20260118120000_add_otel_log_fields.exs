@@ -7,7 +7,7 @@ defmodule ServiceRadar.Repo.Migrations.AddOtelLogFields do
 
   def up do
     execute("""
-    ALTER TABLE IF EXISTS #{prefix()}.logs
+    ALTER TABLE IF EXISTS #{prefix() || "platform"}.logs
       ADD COLUMN IF NOT EXISTS observed_timestamp TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS trace_flags INT,
       ADD COLUMN IF NOT EXISTS event_name TEXT,
@@ -17,7 +17,7 @@ defmodule ServiceRadar.Repo.Migrations.AddOtelLogFields do
 
   def down do
     execute("""
-    ALTER TABLE IF EXISTS #{prefix()}.logs
+    ALTER TABLE IF EXISTS #{prefix() || "platform"}.logs
       DROP COLUMN IF EXISTS scope_attributes,
       DROP COLUMN IF EXISTS event_name,
       DROP COLUMN IF EXISTS trace_flags,
