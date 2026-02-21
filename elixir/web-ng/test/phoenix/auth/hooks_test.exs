@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.Auth.HooksTest do
   Tests for authentication lifecycle hooks.
 
   Tests both the hooks behavior interface and the default implementation.
-  Run with: mix test test/serviceradar_web_ng_web/auth/hooks_test.exs
+  Run with: mix test test/phoenix/auth/hooks_test.exs
   """
 
   use ServiceRadarWebNG.DataCase, async: true

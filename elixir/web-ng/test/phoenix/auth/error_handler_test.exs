@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.Auth.ErrorHandlerTest do
   Tests for Guardian authentication error handler.
 
   Tests both JSON API and HTML browser error responses.
-  Run with: mix test test/serviceradar_web_ng_web/auth/error_handler_test.exs
+  Run with: mix test test/phoenix/auth/error_handler_test.exs
   """
 
   use ServiceRadarWebNGWeb.ConnCase, async: true

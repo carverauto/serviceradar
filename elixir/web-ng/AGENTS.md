@@ -356,7 +356,7 @@ env SERVICERADAR_REQUIRE_DB_TESTS=1 TEST_CNPG_PORT=5455 TEST_CNPG_DATABASE=servi
   TEST_CNPG_USERNAME=serviceradar TEST_CNPG_PASSWORD=serviceradar \
   CNPG_SSL_MODE=verify-ca CNPG_CA_FILE=/tmp/sr-certs/root.pem \
   CNPG_CERT_FILE=/tmp/sr-certs/db-client.pem CNPG_KEY_FILE=/tmp/sr-certs/db-client-key.pem \
-  mix test test/serviceradar_web_ng/srql_param_types_test.exs --trace
+  mix test test/app_domain/srql_param_types_test.exs --trace
 ```
 <!-- phoenix:ecto-end -->
 
