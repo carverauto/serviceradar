@@ -275,6 +275,10 @@
 				DEVELOPMENT_TEAM = 432Q4W72Q7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Bluetooth access is required for BLE beacon trilateration.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required for ARKit and LiDAR spatial mapping.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Local network access is required to perform high-fidelity network discovery.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location access is required for Wi-Fi and Bluetooth positioning mapping.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -309,6 +313,10 @@
 				DEVELOPMENT_TEAM = 432Q4W72Q7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Bluetooth access is required for BLE beacon trilateration.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required for ARKit and LiDAR spatial mapping.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Local network access is required to perform high-fidelity network discovery.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location access is required for Wi-Fi and Bluetooth positioning mapping.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
