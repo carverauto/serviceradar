@@ -12,6 +12,7 @@ public struct ContentView: View {
     @State private var showRoomPlan = false
     @State private var isStreaming = false
     @State private var showSettings = false
+    @State private var sessionID: String = UUID().uuidString
     
     // Core Pipeline Instantiation for God-View Ingestion
     private let arrowStreamer = ArrowStreamer()
@@ -105,6 +106,12 @@ public struct ContentView: View {
                     
                     Button(action: {
                         isStreaming.toggle()
+                        if isStreaming {
+                            sessionID = UUID().uuidString
+                            arrowStreamer.connect(sessionID: sessionID)
+                        } else {
+                            arrowStreamer.disconnect()
+                        }
                     }) {
                         Text(isStreaming ? "Stop Live Stream" : "Stream to God-View")
                             .fontWeight(.bold)
@@ -145,7 +152,10 @@ public struct ContentView: View {
         }
         .onDisappear {
             wifiScanner.stopScanning()
-            isStreaming = false
+            if isStreaming {
+                arrowStreamer.disconnect()
+                isStreaming = false
+            }
         }
         // Continuous Zero-Copy Ingestion Flow
         .onChange(of: wifiScanner.accessPoints) { _ in
@@ -156,8 +166,8 @@ public struct ContentView: View {
             
             DispatchQueue.global(qos: .userInitiated).async {
                 if let payload = try? arrowStreamer.encodeBatch(samples: currentSamples) {
-                    // Fire IPC payload through HTTP/2 directly to the backend Edge Gateway
-                    arrowStreamer.streamToBackend(payload: payload, sessionID: UUID().uuidString)
+                    // Fire IPC payload across the persistent WebSocket connection
+                    arrowStreamer.streamToBackend(payload: payload, sessionID: sessionID)
                 }
             }
         }
