@@ -100,6 +100,13 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/", PageController, :home)
   end
 
+  # Mobile God-View Streaming Scope
+  scope "/v1", ServiceRadarWebNG.Api do
+    pipe_through(:api_auth)
+
+    get("/stream/:session_id", StreamController, :connect)
+  end
+
   # Other scopes may use custom stacks.
   scope "/api", ServiceRadarWebNG.Api do
     pipe_through(:api_auth)
