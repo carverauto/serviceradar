@@ -14,9 +14,9 @@ We want a secure, well-defined, and test-covered behavior for passive proxy depl
 ## Impact
 - Affected specs: `ash-authentication`
 - Affected code:
-  - `web-ng/lib/serviceradar_web_ng_web/plugs/gateway_auth.ex`
-  - `web-ng/lib/serviceradar_web_ng_web/user_auth.ex`
-  - `web-ng/lib/serviceradar_web_ng_web/router.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/plugs/gateway_auth.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/user_auth.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex`
 - Deployment/ops:
   - Operators using Gateway Proxy mode must provide verifiable JWT configuration (JWKS or PEM) and claim mappings.
   - Documentation will be updated to match the hardened behavior.

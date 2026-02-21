@@ -5,8 +5,8 @@ The legacy `serviceradar-web` Next.js application has been fully replaced by the
 
 ## What Changes
 - **BREAKING** Remove `web/` directory (legacy Next.js source code)
-- Remove `packaging/web/` directory (legacy packaging artifacts)
-- Remove `packaging/specs/serviceradar-web.spec` (legacy RPM spec)
+- Remove `build/packaging/web/` directory (legacy packaging artifacts)
+- Remove `build/packaging/specs/serviceradar-web.spec` (legacy RPM spec)
 - Remove `docker/compose/Dockerfile.web` (legacy Docker build)
 - Remove `docker/compose/entrypoint-web.sh` (legacy entrypoint)
 - Remove `docker/rpm/Dockerfile.rpm.web` (legacy RPM Docker build)
@@ -17,4 +17,4 @@ The legacy `serviceradar-web` Next.js application has been fully replaced by the
 
 ## Impact
 - Affected specs: build-web-ui
-- Affected code: `web/`, `packaging/web/`, `packaging/specs/`, `docker/compose/`, `docker/rpm/`, `.github/workflows/`, `Makefile`, `scripts/`
+- Affected code: `web/`, `build/packaging/web/`, `build/packaging/specs/`, `docker/compose/`, `docker/rpm/`, `.github/workflows/`, `Makefile`, `scripts/`

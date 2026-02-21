@@ -23,7 +23,7 @@ We also need to keep `arancini` as a standalone upstream project so external ado
   - `rust/bmp-collector/*`
   - `docker-compose.yml`
   - `docker/compose/*` BMP collector config templates
-  - image packaging/build wiring for BMP collector
+  - image build/packaging wiring for BMP collector
   - Broadway/EventWriter BMP pipeline compatibility tests
 - Breaking changes:
   - No downstream subject/stream breaking change is planned; migration is collector-runtime internal.

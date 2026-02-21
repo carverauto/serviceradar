@@ -6,7 +6,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o serviceradar-cli ./cmd/cli
+RUN CGO_ENABLED=0 GOOS=linux go build -o serviceradar-cli ./go/cmd/cli
 
 # Runtime stage
 FROM alpine:3.20

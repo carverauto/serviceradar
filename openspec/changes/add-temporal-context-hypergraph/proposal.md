@@ -16,7 +16,7 @@ The NetFlow observability module requires relative temporal comparisons (e.g., "
 
 ## Impact
 - Affected components: `web-ng` (via new Rustler NIF).
-- New component: `rust/temporal_context` and `web-ng/native/temporal_context_nif`.
+- New component: `rust/temporal_context` and `elixir/web-ng/native/temporal_context_nif`.
 - Data model: Complements existing flow data with a graph-based context layer.
 
 ## Risks / Considerations

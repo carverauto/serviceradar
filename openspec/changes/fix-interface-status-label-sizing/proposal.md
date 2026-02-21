@@ -15,8 +15,8 @@ Network interface status badges ("Up", "Down", "Enabled", "Disabled", etc.) rend
 
 - Affected specs: `build-web-ui`
 - Affected code:
-  - `web-ng/lib/serviceradar_web_ng_web/live/device_live/show.ex` (interface list in device details)
-  - `web-ng/lib/serviceradar_web_ng_web/live/interface_live/show.ex` (interface detail header)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/show.ex` (interface list in device details)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/interface_live/show.ex` (interface detail header)
 
 ## References
 

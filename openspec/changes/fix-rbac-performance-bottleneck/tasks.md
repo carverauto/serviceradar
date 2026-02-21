@@ -2,21 +2,21 @@
 
 ### 1.1 Revert broken changes from prior branch
 - [x] 1.1.1 Remove `ash_opentelemetry` from `elixir/serviceradar_core/mix.exs`
-- [x] 1.1.2 Remove `ash_opentelemetry` from `web-ng/mix.exs`
+- [x] 1.1.2 Remove `ash_opentelemetry` from `elixir/web-ng/mix.exs`
 - [x] 1.1.3 Remove all OTEL dependencies from both mix.exs files (opentelemetry, opentelemetry_api, opentelemetry_exporter, opentelemetry_ecto, opentelemetry_phoenix, opentelemetry_live_view, opentelemetry_cowboy)
 - [x] 1.1.4 Remove `OpentelemetryEcto.setup` call from `elixir/serviceradar_core/lib/serviceradar/application.ex`
-- [x] 1.1.5 Remove `OpentelemetryPhoenix.setup` and `OpentelemetryLiveView.setup` from `web-ng/lib/serviceradar_web_ng/application.ex`
-- [x] 1.1.6 Remove OTEL config block from `web-ng/config/config.exs` (opentelemetry resource, processors, ash tracer)
+- [x] 1.1.5 Remove `OpentelemetryPhoenix.setup` and `OpentelemetryLiveView.setup` from `elixir/web-ng/lib/serviceradar_web_ng/application.ex`
+- [x] 1.1.6 Remove OTEL config block from `elixir/web-ng/config/config.exs` (opentelemetry resource, processors, ash tracer)
 
 ### 1.2 Keep and validate RBAC caching fixes
 - [x] 1.2.1 Verify process-level cache in `permissions_for_user/2` (`elixir/serviceradar_core/lib/serviceradar/identity/rbac.ex`) — keep Process.get/put pattern and `clear_process_cache/0`
-- [x] 1.2.2 Verify `permissions` field added to Scope struct (`web-ng/lib/serviceradar_web_ng/accounts/scope.ex`) — keep `defstruct user: nil, permissions: nil`
-- [x] 1.2.3 Verify `create_scope/1` in UserAuth pre-loads permissions (`web-ng/lib/serviceradar_web_ng_web/user_auth.ex`) — keep `permissions = RBAC.permissions_for_user(user)` + `Scope.for_user(user, permissions: permissions)`
-- [x] 1.2.4 Verify enriched actor in AshScope (`web-ng/lib/serviceradar_web_ng/ash_scope.ex`) — keep the new `get_actor` clause that returns map with permissions
-- [x] 1.2.5 Verify conditional permission reuse in `set_ash_actor` plug (`web-ng/lib/serviceradar_web_ng_web/router.ex`) — keep the `is_list(scope_permissions)` check
+- [x] 1.2.2 Verify `permissions` field added to Scope struct (`elixir/web-ng/lib/serviceradar_web_ng/accounts/scope.ex`) — keep `defstruct user: nil, permissions: nil`
+- [x] 1.2.3 Verify `create_scope/1` in UserAuth pre-loads permissions (`elixir/web-ng/lib/serviceradar_web_ng_web/user_auth.ex`) — keep `permissions = RBAC.permissions_for_user(user)` + `Scope.for_user(user, permissions: permissions)`
+- [x] 1.2.4 Verify enriched actor in AshScope (`elixir/web-ng/lib/serviceradar_web_ng/ash_scope.ex`) — keep the new `get_actor` clause that returns map with permissions
+- [x] 1.2.5 Verify conditional permission reuse in `set_ash_actor` plug (`elixir/web-ng/lib/serviceradar_web_ng_web/router.ex`) — keep the `is_list(scope_permissions)` check
 
 ### 1.3 Optimize WebRBAC.can?
-- [x] 1.3.1 Update `WebRBAC.can?/2` in `web-ng/lib/serviceradar_web_ng/rbac.ex` to check `scope.permissions` directly when available, falling back to `RBAC.has_permission?` for backward compatibility
+- [x] 1.3.1 Update `WebRBAC.can?/2` in `elixir/web-ng/lib/serviceradar_web_ng/rbac.ex` to check `scope.permissions` directly when available, falling back to `RBAC.has_permission?` for backward compatibility
 - [x] 1.3.2 Update `WebRBAC.permissions_for_scope/1` to return `scope.permissions` when available
 
 ### 1.4 Async LiveView data loading

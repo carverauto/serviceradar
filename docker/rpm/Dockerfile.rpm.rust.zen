@@ -4,7 +4,7 @@ FROM ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest AS builder
 ARG VERSION=1.0.33
 ARG RELEASE=1
 ARG COMPONENT=zen
-ARG BINARY_PATH=cmd/consumers/zen
+ARG BINARY_PATH=rust/consumers/zen
 
 # Set workspace root as working directory so Cargo can resolve workspace deps
 WORKDIR /src
@@ -26,17 +26,17 @@ COPY Cargo.lock ./
 # Include shared protobuf definitions for build.rs resolution
 RUN mkdir -p proto
 COPY proto ./proto/
-RUN mkdir -p cmd/otel/proto
-COPY cmd/otel/proto ./cmd/otel/proto/
+RUN mkdir -p rust/otel/proto
+COPY rust/otel/proto ./rust/otel/proto/
 
 # Update Rust to latest to support edition 2024
 RUN rustup update && rustup install nightly && rustup default nightly
 
 # Copy all workspace members to satisfy cargo workspace requirements
 COPY rust/kvutil ./rust/kvutil/
-COPY cmd/flowgger ./cmd/flowgger/
-COPY cmd/trapd ./cmd/trapd/
-COPY cmd/otel ./cmd/otel/
+COPY rust/flowgger ./rust/flowgger/
+COPY rust/trapd ./rust/trapd/
+COPY rust/otel ./rust/otel/
 
 # Copy the zen crate sources into workspace
 COPY ${BINARY_PATH} ./${BINARY_PATH}
@@ -56,14 +56,14 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 
 # Set up RPM build environment
 WORKDIR /root/rpmbuild
-COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+COPY build/packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
 RUN mkdir -p SOURCES/${COMPONENT}/systemd SOURCES/${COMPONENT}/config
 RUN mkdir -p SOURCES/${COMPONENT}/systemd \
     SOURCES/${COMPONENT}/config \
     SOURCES/${COMPONENT}/rules
-COPY packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
-COPY packaging/${COMPONENT}/config/zen-consumer.json SOURCES/${COMPONENT}/config/
-COPY packaging/${COMPONENT}/rules/*.json SOURCES/${COMPONENT}/rules/
+COPY build/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
+COPY build/packaging/${COMPONENT}/config/zen-consumer.json SOURCES/${COMPONENT}/config/
+COPY build/packaging/${COMPONENT}/rules/*.json SOURCES/${COMPONENT}/rules/
 
 # Build the RPM
 # Sanitize VERSION for RPM (remove pre-release suffixes like -pre1)

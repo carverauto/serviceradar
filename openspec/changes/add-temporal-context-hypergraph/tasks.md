@@ -3,7 +3,7 @@
 ## Phase 1: Infrastructure & Integration
 - [ ] 1.1 Create `rust/temporal_context` crate.
 - [ ] 1.2 Add `deep_causality` dependency to the new crate.
-- [ ] 1.3 Scaffold `web-ng/native/temporal_context_nif` using Rustler.
+- [ ] 1.3 Scaffold `elixir/web-ng/native/temporal_context_nif` using Rustler.
 - [ ] 1.4 Implement `ResourceArc` for the Context Hypergraph.
 
 ## Phase 2: Core Implementation

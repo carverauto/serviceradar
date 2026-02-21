@@ -32,7 +32,7 @@ Traps complement polling by pushing urgent events:
 2. Expose the trap listener service in Kubernetes with a `LoadBalancer` or NodePort, or map it locally in Docker Compose.
 3. Confirm delivery with `tcpdump` or `kubectl logs` on the trap receiver pod.
 
-`serviceradar-trapd` is stateless; see `helm/serviceradar/files/serviceradar-config.yaml` or `packaging/trapd/config/trapd.json` for base settings you can override through file edits or a pinned overlay.
+`serviceradar-trapd` is stateless; see `helm/serviceradar/files/serviceradar-config.yaml` or `build/packaging/trapd/config/trapd.json` for base settings you can override through file edits or a pinned overlay.
 
 ## Trap Processing Pipeline
 
@@ -42,7 +42,7 @@ Traps complement polling by pushing urgent events:
 
 ## Default Trap Rules
 
-- `snmp_severity` normalizes the severity field to a known value if the trap does not supply one. Review the JSON under `packaging/zen/rules/snmp_severity.json`.
+- `snmp_severity` normalizes the severity field to a known value if the trap does not supply one. Review the JSON under `build/packaging/zen/rules/snmp_severity.json`.
 - `passthrough` is available for cases where you only need the `.processed` suffix without transformations; it copies the input event unchanged.
 
 These and the syslog-focused rules share the same GoRules/zen runtime. Use the Rule Builder UI to manage them; see the [Rule Builder](./rule-builder.md) guide.

@@ -14,7 +14,7 @@
 - [ ] 3.3 Add GHCR push target(s) and include in `push_all` / Makefile flows; capture build-info JSON like other images.
 
 ## 4. RPM/DEB packaging
-- [ ] 4.1 Add `packaging/web-ng/BUILD.bazel` plus new `PACKAGES["web-ng"]` entry with package metadata, config, and systemd unit.
+- [ ] 4.1 Add `build/packaging/web-ng/BUILD.bazel` plus new `PACKAGES["web-ng"]` entry with package metadata, config, and systemd unit.
 - [ ] 4.2 Ensure packages install release files under `/usr/local/share/serviceradar-web-ng` (or similar), drop config at `/etc/serviceradar`, and enable the service.
 - [ ] 4.3 Add postinst/prerm scripts and conffiles to match existing packaging patterns; verify `rpm -ql`/`dpkg -c` coverage.
 

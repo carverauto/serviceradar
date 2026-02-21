@@ -29,7 +29,7 @@
 - Add `--mtls-bootstrap-only` CLI flag that delegates to the edge-onboarding crate
 - Update systemd service file to use correct config path or support env-based override
 
-### 3. RPM/DEB packaging updates (`packaging/sysmon`)
+### 3. RPM/DEB packaging updates (`build/packaging/sysmon`)
 - postinst script creates `/var/log/serviceradar/` directory
 - postinst script creates `serviceradar` user/group if not exists
 - postinst script sets proper ownership on cert/config directories
@@ -43,8 +43,8 @@
 - Affected code:
   - Modified: `rust/edge-onboarding/src/lib.rs` (add bootstrap-only mode, service restart)
   - Modified: `cmd/checkers/sysmon/src/main.rs` (add CLI flag)
-  - Modified: `packaging/sysmon/systemd/serviceradar-sysmon-checker.service`
-  - Modified: `packaging/sysmon/scripts/postinstall.sh`
+  - Modified: `build/packaging/sysmon/systemd/serviceradar-sysmon-checker.service`
+  - Modified: `build/packaging/sysmon/scripts/postinstall.sh`
 - New modules in edge-onboarding crate:
   - `service.rs` - Platform-aware service restart logic
   - `paths.rs` - Systemd/launchd path configuration

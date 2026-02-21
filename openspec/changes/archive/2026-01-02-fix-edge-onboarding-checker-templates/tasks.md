@@ -1,10 +1,10 @@
 ## 1. Create default checker templates
 
-- [x] 1.1 Create `packaging/sysmon/config/checkers/sysmon.json` template with variable substitution placeholders
-- [x] 1.2 Create `packaging/sysmon-osx/config/checkers/sysmon-osx.json` template
+- [x] 1.1 Create `build/packaging/sysmon/config/checkers/sysmon.json` template with variable substitution placeholders
+- [x] 1.2 Create `build/packaging/sysmon-osx/config/checkers/sysmon-osx.json` template
 - [x] 1.3 Verify existing templates (`snmp.json`, `rperf.json`) use consistent variable substitution format
-- [x] 1.4 Create `packaging/sweep-checker/config/checkers/sweep.json` if missing (N/A - no sweep checker exists)
-- [x] 1.5 Create `packaging/dusk-checker/config/checkers/dusk.json` if missing
+- [x] 1.4 Create `build/packaging/sweep-checker/config/checkers/sweep.json` if missing (N/A - no sweep checker exists)
+- [x] 1.5 Create `build/packaging/dusk-checker/config/checkers/dusk.json` if missing
 
 ## 2. Add KV seeding for checker templates
 

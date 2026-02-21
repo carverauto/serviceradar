@@ -16,21 +16,21 @@ COPY Cargo.lock ./
 
 # Create minimal stub files to satisfy cargo build dependencies
 RUN echo "=== CREATING STUB FILES ===" && \
-    mkdir -p rust/kvutil/src cmd/consumers/zen/src cmd/consumers/zen/src/bin && \
-    echo "fn main() {}" > cmd/consumers/zen/src/main.rs && \
-    echo "fn main() {}" > cmd/consumers/zen/src/bin/put_rule.rs && \
+    mkdir -p rust/kvutil/src rust/consumers/zen/src rust/consumers/zen/src/bin && \
+    echo "fn main() {}" > rust/consumers/zen/src/main.rs && \
+    echo "fn main() {}" > rust/consumers/zen/src/bin/put_rule.rs && \
     touch rust/kvutil/src/lib.rs && \
     echo "=== STUB FILES CREATED ==="
 
 # Copy cargo manifests for individual packages
 COPY rust/kvutil/Cargo.toml ./rust/kvutil/
-COPY cmd/consumers/zen/Cargo.toml ./cmd/consumers/zen/
+COPY rust/consumers/zen/Cargo.toml ./rust/consumers/zen/
 
 # Debug: Check what we have so far
 RUN echo "=== CHECKING WORKSPACE ===" && \
     ls -la && \
     echo "=== CHECKING ZEN STRUCTURE ===" && \
-    find cmd/consumers/zen -type f && \
+    find rust/consumers/zen -type f && \
     echo "=== WORKSPACE CHECK COMPLETE ==="
 
 # Try a simple cargo check first to see if it hangs

@@ -21,8 +21,8 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY cmd/tools/waitforport ./cmd/tools/waitforport
-RUN CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./cmd/tools/waitforport
+COPY go/cmd/tools/waitforport ./go/cmd/tools/waitforport
+RUN CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./go/cmd/tools/waitforport
 
 FROM nginx:alpine
 

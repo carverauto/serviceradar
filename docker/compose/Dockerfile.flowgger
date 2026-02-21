@@ -22,8 +22,8 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY cmd/tools/waitforport ./cmd/tools/waitforport
-RUN CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./cmd/tools/waitforport
+COPY go/cmd/tools/waitforport ./go/cmd/tools/waitforport
+RUN CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./go/cmd/tools/waitforport
 
 # Multi-stage build for ServiceRadar Flowgger service (Rust)
 FROM rust:latest AS builder
@@ -42,10 +42,10 @@ COPY Cargo.lock ./
 
 # Copy workspace members required for dependency resolution and build
 COPY rust/kvutil ./rust/kvutil
-COPY cmd/flowgger ./cmd/flowgger
-COPY cmd/trapd ./cmd/trapd
-COPY cmd/otel ./cmd/otel
-COPY cmd/consumers/zen ./cmd/consumers/zen
+COPY rust/flowgger ./rust/flowgger
+COPY rust/trapd ./rust/trapd
+COPY rust/otel ./rust/otel
+COPY rust/consumers/zen ./rust/consumers/zen
 COPY proto ./proto
 
 # Build arguments for version info (unused in Rust but kept for consistency)

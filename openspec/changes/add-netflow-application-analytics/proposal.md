@@ -21,7 +21,7 @@ We also need a consistent, configurable definition of "application" for NetFlow 
   - `srql`
   - `cnpg`
 - Affected code (expected):
-  - `web-ng/` LiveView pages and JS hooks for charts
+  - `elixir/web-ng/` LiveView pages and JS hooks for charts
   - `rust/srql` flow query translation (application token + group-by)
   - `elixir/serviceradar_core` migrations/resources for classification rules and rollups
 - Data model:
@@ -34,7 +34,7 @@ We also need a consistent, configurable definition of "application" for NetFlow 
 - Per-tenant or multi-deployment routing (this remains a single-deployment system).
 
 ## Progress (Updated 2026-02-08)
-- Implemented SRQL-driven protocol/app stacked area charts and frequent talkers tables in `web-ng/`.
+- Implemented SRQL-driven protocol/app stacked area charts and frequent talkers tables in `elixir/web-ng/`.
 - Added `platform.netflow_app_classification_rules` (migration + Ash resource) and wired admin UI.
 - Extended SRQL `in:flows` with `app` and `protocol_group` (filters + stats/downsample support) and added tests.
 - Validation: `openspec validate ... --strict`, `make lint`, and `make test` are passing.

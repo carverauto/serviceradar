@@ -14,5 +14,5 @@ GitHub Issue: #2441
 ## Impact
 - Affected specs: build-web-ui
 - Affected code:
-  - `web-ng/lib/serviceradar_web_ng_web/router.ex`
-  - `web-ng/lib/serviceradar_web_ng_web/live/interface_live/index.ex` (new file)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/interface_live/index.ex` (new file)

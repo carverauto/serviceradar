@@ -7,7 +7,7 @@ This guide explains how to publish a ServiceRadar release from Bazel, including 
 Tags that follow the `v*` convention automatically trigger `.github/workflows/release.yml`. The job:
 
 - Ensures the tag matches the `VERSION` file and extracts the matching entry from `CHANGELOG` via `scripts/extract-changelog.py` (falling back to a default note when absent).
-- Runs `bazel run --config=remote --stamp //release:publish_packages` so that Bazel builds and uploads every Debian/RPM asset to the GitHub release.
+- Runs `bazel run --config=remote --stamp //build/release:publish_packages` so that Bazel builds and uploads every Debian/RPM asset to the GitHub release.
 - Verifies the resulting release with the GitHub API and fails if no `.deb` or `.rpm` assets are present.
 - Normalises the uploaded asset names to include the release version (for example `serviceradar-core_1.0.53-pre14_amd64.deb`).
 
@@ -42,14 +42,14 @@ Refer to `docs/GHCR_PUBLISHING.md` for more details on configuring registry cred
 ## Step 2 – Publish Debian and RPM artifacts
 
 ```
-bazel run --stamp //release:publish_packages -- \
+bazel run --stamp //build/release:publish_packages -- \
   --tag v$(cat VERSION) \
   --notes_file release-notes/v$(cat VERSION).md
 ```
 
 The `publish_packages` binary performs the following:
 
-1. Builds every `pkg_deb` and `pkg_rpm` target declared via `packaging/packages.bzl` (transitively pulled in through `//release:package_artifacts`).
+1. Builds every `pkg_deb` and `pkg_rpm` target declared via `build/packaging/packages.bzl` (transitively pulled in through `//build/release:package_artifacts`).
 2. Creates or updates the GitHub release identified by `--tag` (optionally pointing to `--commit` or the stamped commit SHA).
 3. Uploads each generated `.deb` and `.rpm` file, replacing existing assets when `--overwrite_assets` (default `true`).
 
@@ -76,13 +76,13 @@ After the commands complete:
 
 - Confirm container images in GHCR (`ghcr.io/carverauto/serviceradar-*`).
 - Verify that the GitHub release contains the expected `.deb` and `.rpm` assets.
-- Optionally attach checksums or additional assets by re-running `publish_packages` with extra files staged in `release/package_manifest.txt`.
+- Optionally attach checksums or additional assets by re-running `publish_packages` with extra files staged in `build/release/package_manifest.txt`.
 
 ## Troubleshooting
 
 - Use `--dry_run` to inspect which assets would be uploaded without touching GitHub.
-- The manifest `//release:package_manifest` lists every package path consumed by the publisher; inspect it with `bazel build //release:package_manifest && cat bazel-bin/release/package_manifest.txt` if you need to confirm coverage.
-- If Bazel fails while building packages, rebuild the specific target (e.g., `bazel build //packaging/core:core_deb`) to diagnose before rerunning the publish command.
+- The manifest `//build/release:package_manifest` lists every package path consumed by the publisher; inspect it with `bazel build //build/release:package_manifest && cat bazel-bin/build/release/package_manifest.txt` if you need to confirm coverage.
+- If Bazel fails while building packages, rebuild the specific target (e.g., `bazel build //build/packaging/core:core_deb`) to diagnose before rerunning the publish command.
 
 ### Keep `VERSION` in sync with your tag
 
@@ -97,7 +97,7 @@ The repository includes a BuildBuddy workflow (`.buildbuddy/workflows.yaml`) tha
 - `run --config=remote //:buildbuddy_setup_docker_auth`
 - `run --config=remote //tools/buildbuddy:release_pipeline`
 
-`//tools/buildbuddy:release_pipeline` is a thin shim over the manual commands: it determines the release tag (from the workflow input, Git tag, or the `VERSION` file), pushes all container images, and then invokes `//release:publish_packages`. Useful environment variables:
+`//tools/buildbuddy:release_pipeline` is a thin shim over the manual commands: it determines the release tag (from the workflow input, Git tag, or the `VERSION` file), pushes all container images, and then invokes `//build/release:publish_packages`. Useful environment variables:
 
 - `RELEASE_TAG` / workflow `tag` input – forces the tag passed to both publish steps.
 - `RELEASE_NOTES_FILE` / workflow `notes_file` input – points at a file that `publish_packages` should attach as the release body.

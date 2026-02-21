@@ -15,7 +15,7 @@ ServiceRadar needs to support customers deploying NATS leaf servers in their edg
 
 1. Must work with existing TenantCA certificate infrastructure
 2. Must integrate with existing NATS JWT authentication
-3. Leaf config must match `packaging/nats/config/nats-leaf.conf` structure
+3. Leaf config must match `build/packaging/nats/config/nats-leaf.conf` structure
 4. Cannot require customers to understand NATS internals
 
 ## Goals / Non-Goals

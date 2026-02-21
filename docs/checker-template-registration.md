@@ -137,7 +137,7 @@ Templates are seeded into KV at deployment time rather than being self-registere
 ### Template Source Files
 
 Default templates are stored in the codebase at:
-- `packaging/{checker}/config/checkers/{kind}.json` - Source templates for each checker
+- `build/packaging/{checker}/config/checkers/{kind}.json` - Source templates for each checker
 
 These templates are then:
 1. Copied into `docker/compose/checker-templates/` for docker-compose deployments
@@ -193,7 +193,7 @@ checkerTemplates:
 
 ### Adding a New Template
 
-1. Create the template file in `packaging/{checker}/config/checkers/{kind}.json`
+1. Create the template file in `build/packaging/{checker}/config/checkers/{kind}.json`
 2. Copy to `docker/compose/checker-templates/{kind}.json`
 3. Add to Helm ConfigMap in `templates/checker-templates-config.yaml`
 4. Deploy - the seeding job will automatically upload the new template
@@ -402,6 +402,6 @@ curl -X POST .../edge-packages ...
 - Edge Onboarding Implementation: `pkg/core/edge_onboarding.go`
 - KV Service Proto: `proto/kv.proto`
 - Template Discovery API: `pkg/core/api/edge_onboarding.go`
-- Example Templates: `packaging/*/config/checkers/*.json`
+- Example Templates: `build/packaging/*/config/checkers/*.json`
 - Docker Compose Templates: `docker/compose/checker-templates/`
 - Helm Chart Templates: `helm/serviceradar/templates/checker-templates-config.yaml`

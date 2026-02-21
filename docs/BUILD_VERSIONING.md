@@ -12,7 +12,7 @@ Versions are managed through a single `VERSION` file in the repository root. The
 2. **Environment variable**: `VERSION=1.0.52`
 3. **VERSION file**: Automatically read from repository root
 
-The version is centrally managed - no need to update `packaging/components.json` for each release.
+The version is centrally managed - no need to update `build/packaging/components.json` for each release.
 
 ## Build ID Management
 
@@ -74,7 +74,7 @@ The web UI reads this information from:
 
 For Go binaries, the version and build ID are embedded via ldflags into the `pkg/version` package:
 ```go
-import "github.com/carverauto/serviceradar/pkg/version"
+import "github.com/carverauto/serviceradar/go/pkg/version"
 
 fmt.Printf("Version: %s\n", version.GetFullVersion())
 // Output: 1.0.53 (build: 102141f6)

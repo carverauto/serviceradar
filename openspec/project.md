@@ -5,10 +5,10 @@ ServiceRadar is a distributed monitoring platform for infrastructure that lives 
 
 ## Tech Stack
 - Elixir services (`elixir/serviceradar_core`, `elixir/serviceradar_agent_gateway`) handle control-plane APIs, gateway orchestration, and registration.
-- Go services (`cmd/agent`, `cmd/sync`, `cmd/datasvc`, etc.) built with Bazel/Go modules power collectors, discovery, and sync integrations.
+- Go services (`go/cmd/agent`, `go/cmd/cli`, `go/cmd/data-services`, etc.) built with Bazel/Go modules power collectors, discovery, and sync integrations.
 - Rust components (collectors, flow/log agents, SRQL engine) live under `rust/`.
-- SRQL is implemented in Rust (`rust/srql`) and embedded in `web-ng` via Rustler/NIF (no separate SRQL microservice).
-- Phoenix LiveView web UI (`web-ng/`) is served through an edge proxy (Caddy/Nginx/Ingress) and talks to the core API; legacy Next.js code remains in `web/` for reference only.
+- SRQL is implemented in Rust (`rust/srql`) and embedded in `elixir/web-ng` via Rustler/NIF (no separate SRQL microservice).
+- Phoenix LiveView web UI (`elixir/web-ng/`) is served through an edge proxy (Caddy/Nginx/Ingress) and talks to the core API; legacy Next.js code remains in `web/` for reference only.
 - CNPG/Timescale stores high-volume telemetry; SRQL and the core ingest layer both target Postgres hypertables (docs/docs/architecture.md).
 - NATS JetStream is the bulk ingestion backbone for logs/flows/events. Some internal coordination may still use `datasvc` (planned to be phased out by 1.1.0), but services do not depend on nats-kv for service configuration.
 - SPIFFE/SPIRE handles workload identity and issues the mTLS credentials that every internal gRPC/HTTP hop relies on.

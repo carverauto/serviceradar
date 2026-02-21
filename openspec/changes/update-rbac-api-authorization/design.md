@@ -1,7 +1,7 @@
 ## Context
-This branch added RBAC policy management and expanded authentication features in `web-ng/` and `elixir/serviceradar_core/`. The system now has multiple request entrypoints with different auth mechanisms:
+This branch added RBAC policy management and expanded authentication features in `elixir/web-ng/` and `elixir/serviceradar_core/`. The system now has multiple request entrypoints with different auth mechanisms:
 
-- Browser + session access tokens (`web-ng/lib/serviceradar_web_ng_web/router.ex` `:browser` / `:api_auth` pipelines).
+- Browser + session access tokens (`elixir/web-ng/lib/serviceradar_web_ng_web/router.ex` `:browser` / `:api_auth` pipelines).
 - API key / bearer-token auth for CLI and automation (`:api_key_auth` pipeline using `ServiceRadarWebNGWeb.Plugs.ApiAuth`).
 - Token-gated download endpoints (`:api_token_auth` / public `/api` endpoints) that validate download tokens in-request.
 
