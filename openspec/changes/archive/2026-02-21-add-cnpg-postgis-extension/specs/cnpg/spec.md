@@ -1,5 +1,5 @@
 ## MODIFIED Requirements
-### Requirement: CNPG Postgres image ships TimescaleDB, Apache AGE, pg_trgm, and PostGIS
+### Requirement: CNPG Postgres image ships TimescaleDB, Apache AGE, and pg_trgm
 ServiceRadar MUST publish a CNPG-compatible Postgres image that bundles the TimescaleDB, Apache AGE, pg_trgm, and PostGIS extensions so clusters can enable analytics and geospatial capabilities without manual package installs.
 
 #### Scenario: PostGIS extension loads successfully
