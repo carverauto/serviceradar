@@ -8,6 +8,17 @@ import Combine
 public class ArrowStreamer {
     private let logger = Logger(subsystem: "com.serviceradar.fieldsurvey", category: "ArrowStreamer")
     
+    // We explicitly configure the session to prefer HTTP/3 (QUIC) to minimize latency 
+    // and avoid head-of-line blocking during continuous, high-velocity telemetry streaming.
+    private lazy var quicSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = true
+        // HTTP/3 uses QUIC. By setting assumesHTTP3Capable, iOS will attempt UDP QUIC immediately 
+        // without waiting for an Alt-Svc upgrade header over a TCP/HTTP2 connection.
+        config.assumesHTTP3Capable = true
+        return URLSession(configuration: config)
+    }()
+    
     public init() {}
     
     /// Encodes a batch of cyber-physical RF samples into an Apache Arrow IPC payload.
@@ -70,24 +81,25 @@ public class ArrowStreamer {
         return data
     }
     
-    /// Streams the encoded Arrow IPC payload over HTTP/2 (gRPC) or JetStream.
+    /// Streams the encoded Arrow IPC payload over UDP QUIC (HTTP/3).
+    /// QUIC eliminates TCP head-of-line blocking which is crucial for high-velocity IoT/RF telemetry.
     public func streamToBackend(payload: Data, sessionID: String) {
-        logger.info("Streaming \(payload.count) bytes to backend via NATS JetStream (Topic: sr.survey.\(sessionID).arrow)")
+        logger.info("Streaming \(payload.count) bytes to backend via UDP QUIC (HTTP/3) (Topic: sr.survey.\(sessionID).arrow)")
         
-        // The real networking call utilizing HTTP/POST over URLSession to the proxy
+        // The real networking call utilizing HTTP/POST over QUIC to the proxy
         guard let url = URL(string: "https://serviceradar-api.internal/v1/stream/\(sessionID)") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/vnd.apache.arrow.stream", forHTTPHeaderField: "Content-Type")
         request.httpBody = payload
         
-        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        let task = quicSession.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
-                self?.logger.error("Stream failed: \(error.localizedDescription)")
+                self?.logger.error("QUIC Stream failed: \(error.localizedDescription)")
             } else if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-                self?.logger.error("Stream rejected by server: HTTP \(httpResponse.statusCode)")
+                self?.logger.error("QUIC Stream rejected by server: HTTP \(httpResponse.statusCode)")
             } else {
-                self?.logger.debug("Successfully pushed IPC payload to server")
+                self?.logger.debug("Successfully pushed IPC payload over QUIC")
             }
         }
         task.resume()
