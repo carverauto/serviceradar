@@ -11,9 +11,9 @@ defmodule ServiceRadarWebNGWeb.Channels.ArrowStreamHandler do
   def init(options) do
     session_id = Keyword.fetch!(options, :session_id)
     user_id = Keyword.fetch!(options, :user_id)
-    
+
     Logger.info("ArrowStreamHandler initialized [session: #{session_id}, user: #{user_id}]")
-    
+
     {:ok, %{session_id: session_id, user_id: user_id, message_count: 0, bytes_received: 0}}
   end
 
@@ -30,21 +30,23 @@ defmodule ServiceRadarWebNGWeb.Channels.ArrowStreamHandler do
 
   defp process_binary_frame(data, state) do
     new_state = %{
-      state | 
-      message_count: state.message_count + 1,
-      bytes_received: state.bytes_received + byte_size(data)
+      state
+      | message_count: state.message_count + 1,
+        bytes_received: state.bytes_received + byte_size(data)
     }
-    
-    # Pass the binary frame to the Rust NIF for zero-copy deserialization
-    case ServiceRadarWebNG.Topology.Native.decode_arrow_payload(data) do
-      {:ok, samples} ->
-        Logger.debug("Decoded #{length(samples)} cyber-physical samples via Arrow IPC")
-        
-        # Here we would stream to TimescaleDB & PostGIS
-        # e.g., ServiceRadar.Spatial.SurveyIngester.bulk_insert(state.session_id, samples)
-        
-        {:ok, new_state}
-        
+
+        # Pass the binary frame to the Rust NIF for zero-copy deserialization
+        case ServiceRadarWebNG.Topology.Native.decode_arrow_payload(data) do
+          {:ok, samples} ->
+            Logger.debug("Decoded #{length(samples)} cyber-physical samples via Arrow IPC")
+            
+            # Stream to TimescaleDB & PostGIS
+            ServiceRadar.Spatial.SurveySample.bulk_insert!(
+              session_id: state.session_id, 
+              samples: samples
+            )
+            
+            {:ok, new_state}
       {:error, reason} ->
         Logger.error("Arrow IPC Decode Failed: #{inspect(reason)}")
         {:ok, new_state}
@@ -59,7 +61,10 @@ defmodule ServiceRadarWebNGWeb.Channels.ArrowStreamHandler do
 
   @impl true
   def terminate(reason, state) do
-    Logger.info("ArrowStreamHandler closed [session: #{state.session_id}, reason: #{inspect(reason)}, msgs: #{state.message_count}, bytes: #{state.bytes_received}]")
+    Logger.info(
+      "ArrowStreamHandler closed [session: #{state.session_id}, reason: #{inspect(reason)}, msgs: #{state.message_count}, bytes: #{state.bytes_received}]"
+    )
+
     :ok
   end
 end
