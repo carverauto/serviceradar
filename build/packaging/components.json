@@ -372,7 +372,7 @@
       "depends": [
         "systemd"
       ],
-      "dockerfile": "rust/checkers/rperf-server/Dockerfile-deb"
+      "dockerfile": "rust/rperf-server/Dockerfile-deb"
     },
     "description": "ServiceRadar RPerf Network Performance Testing Tool",
     "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
@@ -405,7 +405,7 @@
       "build_method": "rust",
       "docker_output_path": "/output/serviceradar-rperf-checker",
       "output_path": "/usr/local/bin/serviceradar-rperf-checker",
-      "source_path": "rust/checkers/rperf-client"
+      "source_path": "rust/rperf-client"
     },
     "conffiles": [
       "/etc/serviceradar/checkers/rperf.json.example"
@@ -421,7 +421,7 @@
       "depends": [
         "systemd"
       ],
-      "dockerfile": "rust/checkers/rperf-client/Dockerfile"
+      "dockerfile": "rust/rperf-client/Dockerfile"
     },
     "description": "ServiceRadar RPerf Network Performance Test Checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",

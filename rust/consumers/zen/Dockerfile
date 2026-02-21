@@ -20,12 +20,12 @@ COPY rust/trapd/Cargo.toml ./rust/trapd/Cargo.toml
 COPY rust/otel/Cargo.toml ./rust/otel/Cargo.toml
 COPY rust/netflow-collector/Cargo.toml ./rust/netflow-collector/Cargo.toml
 COPY rust/consumers/zen/Cargo.toml ./rust/consumers/zen/Cargo.toml
-COPY rust/checkers/rperf-client/Cargo.toml ./rust/checkers/rperf-client/Cargo.toml
+COPY rust/rperf-client/Cargo.toml ./rust/rperf-client/Cargo.toml
 COPY cmd/checkers/sysmon/Cargo.toml ./cmd/checkers/sysmon/Cargo.toml
 # Create stub targets to satisfy workspace validation
 RUN mkdir -p rust/kvutil/src rust/config-bootstrap/src rust/edge-onboarding/src \
              rust/flowgger/src rust/trapd/src rust/otel/src rust/netflow-collector/src \
-             rust/consumers/zen/src rust/checkers/rperf-client/src cmd/checkers/sysmon/src && \
+             rust/consumers/zen/src rust/rperf-client/src cmd/checkers/sysmon/src && \
     printf "pub fn _stub(){}" > rust/kvutil/src/lib.rs && \
     printf "pub fn _stub(){}" > rust/config-bootstrap/src/lib.rs && \
     printf "pub fn _stub(){}" > rust/edge-onboarding/src/lib.rs && \
@@ -36,7 +36,7 @@ RUN mkdir -p rust/kvutil/src rust/config-bootstrap/src rust/edge-onboarding/src 
     printf "pub fn _stub(){}" > rust/otel/src/lib.rs && \
     printf "fn main(){}" > rust/netflow-collector/src/main.rs && \
     printf "fn main(){}" > rust/consumers/zen/src/main.rs && \
-    printf "fn main(){}" > rust/checkers/rperf-client/src/main.rs && \
+    printf "fn main(){}" > rust/rperf-client/src/main.rs && \
     printf "fn main(){}" > cmd/checkers/sysmon/src/main.rs
 RUN cargo fetch --manifest-path rust/consumers/zen/Cargo.toml
 
