@@ -16,7 +16,7 @@ This matrix is derived from issue #2851 requests and current repo root inspectio
 | `plugins/` | `contrib/plugins/` | Medium | Low direct root-level coupling | Confirm plugin loader and docs references first. |
 | `packaging/` | `build/packaging/` | Medium | Indirect coupling via scripts/release flow | Coordinate with release automation and package scripts. |
 | `release/` | `build/release/` (selected assets) | Medium | ~10 references in Make/release flows | Likely phased/partial move to avoid breaking release tooling. |
-| `alias/` | `build/alias/` (or retire) | High | Bazel alias package currently maps many `//pkg/...` labels | Do not move until Go/Bazel label rewrite strategy is finalized. |
+| `alias/` | retired | High | Historical compatibility shim for `//pkg/...` transitions | Retired after direct `//go/pkg/...` dependency migration. |
 | `third_party/` | Conditional (`build/third_party/` only if compatible) | High | ~44 direct Bazel/module references | Keep at root unless compatibility proof is explicit. |
 | `scripts/` | keep root or split (`build/scripts`, `tools/scripts`) after audit | Medium | ~37 Make/workflow references | Requires usage audit to avoid deleting operational scripts. |
 
@@ -31,7 +31,7 @@ These directories are not part of repo-layout cleanup execution unless separatel
 2. Wave 2 (Medium): `snmp/`, `plugins/`, early `scripts/` classification only
 3. Wave 3 (High): `cmd/`, `pkg/`, `internal/` (coordinated Go+Bazel rewrite)
 4. Wave 4 (High): `web-ng/` consolidation under `elixir/`
-5. Wave 5 (Conditional): `packaging/` + `release/` moves into `build/`, then evaluate `alias/` and `third_party/`
+5. Wave 5 (Conditional): `packaging/` + `release/` moves into `build/`, then evaluate `third_party/`
 
 ## Execution Status
 - Completed (2026-02-20): Wave 1 directory moves
@@ -71,7 +71,7 @@ These directories are not part of repo-layout cleanup execution unless separatel
 - Validation performed:
   - `go test ./go/pkg/scan -run TestDoesNotExist`
   - `go test ./go/pkg/agent -run TestDoesNotExist`
-  - `bazel build //go/pkg/scan:scan //go/pkg/agent:agent //alias:scan //alias:agent`
+  - `bazel build //go/pkg/scan:scan //go/pkg/agent:agent`
 - Completed (2026-02-20): Wave 3 Go command slice (partial `cmd/`)
   - Moved Go-owned command trees:
     - `cmd/agent/` -> `go/cmd/agent/`
@@ -149,7 +149,6 @@ These directories are not part of repo-layout cleanup execution unless separatel
   - Static scan confirms no active `//release:` labels remain in non-archived sources.
   - Full Bazel target validation is pending in a clean host session (`bazel query //build/release:package_artifacts`).
 - Completed (Wave 5 remainder decision, 2026-02-20):
-  - `alias/` relocation deferred by explicit compatibility decision (high coupling, follow-up change required).
   - `third_party/` intentionally retained at root pending compatibility-safe relocation proof.
 - Completed (2026-02-20): goflow2 retirement cleanup
   - Removed `goflow2` from active packaging metadata in `build/packaging/components.json`:
@@ -182,6 +181,16 @@ These directories are not part of repo-layout cleanup execution unless separatel
     - `../elixir/serviceradar_core` -> `../serviceradar_core`
     - `../elixir/serviceradar_srql` -> `../serviceradar_srql`
     - `../elixir/datasvc` -> `../datasvc`
-- Assessed (2026-02-20): `alias/` relocation risk
-  - Current coupling remains high (`//alias:*` referenced in active non-archived source/build files across Go command BUILD targets and docs).
-  - Decision for this wave: keep `alias/` at root for compatibility; treat migration/retirement as a separate follow-up change with explicit Bazel transition plan.
+- Completed (2026-02-20): compatibility alias retirement (`4.3`)
+  - Migrated remaining Go command Bazel deps from `//alias:*` to direct `//go/pkg/...` labels:
+    - `go/cmd/agent/BUILD.bazel`
+    - `go/cmd/cli/BUILD.bazel`
+    - `go/cmd/data-services/BUILD.bazel`
+    - `go/cmd/consumers/db-event-writer/BUILD.bazel`
+    - `go/cmd/faker/BUILD.bazel`
+  - Removed alias shim package/files:
+    - `alias/BUILD.bazel`
+    - `alias/README.md`
+    - `alias/test_tools/BUILD.bazel`
+  - Updated Bazel documentation examples away from `//alias:*`:
+    - `Bazel.md`

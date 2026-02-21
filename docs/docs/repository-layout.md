@@ -23,7 +23,6 @@ This page documents the canonical root-level repository layout after issue `#285
 | `docs/` | User and operator documentation site sources |
 | `helm/` | Helm charts and chart values |
 | `scripts/` | Repository-level operational/dev scripts |
-| `alias/` | Bazel compatibility aliases (temporary, pending follow-up retirement plan) |
 | `third_party/` | Bazel third-party integrations kept at root for compatibility |
 
 ## Migration Notes
@@ -31,4 +30,4 @@ This page documents the canonical root-level repository layout after issue `#285
 - Legacy root paths (`cmd/`, `pkg/`, `internal/`, `web-ng/`, `packaging/`, `release/`, `age/`, `timescaledb/`, `snmp/`, `plugins/`) are no longer canonical.
 - Use `elixir/web-ng` for all Phoenix app workflows.
 - Use `build/packaging` and `build/release` for package/release workflows.
-- Keep `alias/` and `third_party/` at root until their dedicated migration/retirement changes are approved.
+- Keep `third_party/` at root until a compatibility-safe relocation strategy is approved.

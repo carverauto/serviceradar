@@ -4,14 +4,7 @@
 This mono-repo is configured to build and test with Bazel. 
 Please [install bazelisk ](https://github.com/bazelbuild/bazelisk)as it is the only requirement to build the repo with Bazel.
 
-To query available crate aliases with Bazel, run:
-
-```bash 
-    bazel query "kind('alias', //alias/...)"
-```
-
-Note, this project uses Bazel aliases extensively for dependencies to ensure that if a package relocates to a different folder, 
-only its alias in [alias/BUILD.bazel](alias/BUILD.bazel) needs to be update to let the build resume.
+This project now prefers direct Bazel dependencies on canonical package targets (for example `//go/pkg/...`) rather than compatibility alias shims.
 
 To build all targets with Bazel, run:
 
@@ -50,16 +43,16 @@ To run the located test targets:
     bazel test //go/pkg/agent:agent_test
 ```
 
-To explore all dependencies of a specific crate, run:
+To explore all dependencies of a specific target, run:
 
 ```bash 
-    bazel query "deps(//alias:agent)"
+    bazel query "deps(//go/pkg/agent:agent)"
 ```
 
 To find all reverse dependencies, i.e. packages that depends on a specific crate, run:
 
 ```bash 
-    bazel query "rdeps(//..., //alias:agent, 1)"
+    bazel query "rdeps(//..., //go/pkg/agent:agent, 1)"
 ```
 
 If you were to refactor the dcl_data_structures crate, the rdepds tell you

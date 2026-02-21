@@ -11,7 +11,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//go/pkg/config",
-        "//alias:config-bootstrap",
+        "//go/pkg/config/bootstrap:bootstrap",
         "//go/pkg/edgeonboarding:edgeonboarding",
         "//go/pkg/models:models",
     ],

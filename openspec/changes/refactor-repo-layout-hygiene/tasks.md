@@ -27,5 +27,5 @@
 ## 4. Validation and Documentation
 - [x] 4.1 Run language-specific and repo-wide validation (`make test`, targeted Bazel, Mix compile/tests, cargo checks where affected).
 - [x] 4.2 Add/update docs describing the new repository layout and migration notes for contributors.
-- [ ] 4.3 Remove compatibility shims/aliases once all references are migrated.
+- [x] 4.3 Remove compatibility shims/aliases once all references are migrated.
 - [x] 4.4 Add a final root-level layout table in docs that lists each canonical directory and owning subsystem.

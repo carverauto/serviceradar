@@ -5,7 +5,7 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/carverauto/serviceradar/go/cmd/cli",
     visibility = ["//visibility:private"],
-    deps = ["//alias:cli"],
+    deps = ["//go/pkg/cli:cli"],
 )
 
 go_binary(

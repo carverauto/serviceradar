@@ -2,14 +2,14 @@
 Repository structure drift has accumulated over time and now spans multiple languages and build systems. Issue #2851 requests a broad cleanup, but this cannot be treated as a single bulk move without sequencing because Bazel labels, Go imports, Mix project paths, and release tooling have different coupling points.
 
 ## Current Snapshot (Issue #2851 Scope)
-Relevant top-level directories currently include: `cmd/`, `pkg/`, `internal/`, `web-ng/`, `elixir/`, `rust/`, `scripts/`, `snmp/`, `plugins/`, `age/`, `timescaledb/`, `release/`, `packaging/`, `alias/`, `third_party/`, and `build/`.
+Relevant top-level directories currently include: `cmd/`, `pkg/`, `internal/`, `web-ng/`, `elixir/`, `rust/`, `scripts/`, `snmp/`, `plugins/`, `age/`, `timescaledb/`, `release/`, `packaging/`, `third_party/`, and `build/`.
 
 Target mapping for requested cleanup:
 - `cmd/`, `pkg/`, `internal/` -> `go/`
 - `web-ng/` -> `elixir/` (single canonical home)
 - `age/`, `timescaledb/` -> `database/`
 - `snmp/`, `plugins/` -> `contrib/`
-- `packaging/`, selected `release/`, `alias/` -> `build/`
+- `packaging/`, selected `release/` -> `build/`
 - `third_party/` -> conditional move (retain at root if Bazel compatibility requires)
 
 ## Goals / Non-Goals
@@ -48,7 +48,7 @@ Target mapping for requested cleanup:
 2. Wave 1 (low risk): move strictly isolated assets first (for example database and contrib candidates with minimal code import coupling).
 3. Wave 2 (medium risk): consolidate Go sources into `go/` and patch module/import/build references.
 4. Wave 3 (high risk): consolidate `web-ng` under `elixir/` and remove alternate roots only after Mix/Bazel/docs parity checks pass.
-5. Wave 4 (conditional): relocate build/support assets (`packaging`, `release`, `alias`, `third_party`) only where tooling compatibility is verified.
+5. Wave 4 (conditional): relocate build/support assets (`packaging`, `release`, `third_party`) only where tooling compatibility is verified.
 6. Remove obsolete paths/shims and finalize contributor documentation with canonical root layout ownership.
 
 ## Open Questions
