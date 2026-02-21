@@ -321,11 +321,20 @@ public struct CompositeSurveyView: UIViewRepresentable {
             let cameraPos = SIMD3<Float>(cameraTransform.columns.3.x, cameraTransform.columns.3.y, cameraTransform.columns.3.z)
             let cameraForward = SIMD3<Float>(-cameraTransform.columns.2.x, -cameraTransform.columns.2.y, -cameraTransform.columns.2.z)
             
+            let showBLE = SettingsManager.shared.showBLEBeacons
+            
             let samples = Array(wifiScanner.accessPoints.values)
             var currentKeys = Set(apNodes.keys)
             
             for sample in samples {
                 let key = sample.bssid
+                let isBLE = sample.securityType == "BLE"
+                
+                // Filter out BLE Beacons from the visualization if the user toggled it off to reduce noise
+                if !showBLE && isBLE {
+                    continue
+                }
+                
                 currentKeys.remove(key)
                 
                 // 1. Calculate Euclidean distance (\mathbb{R}^3) using free-space path loss

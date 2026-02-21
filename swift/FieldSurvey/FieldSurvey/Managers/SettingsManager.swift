@@ -26,12 +26,20 @@ public class SettingsManager: ObservableObject {
         }
     }
     
+    @Published public var showBLEBeacons: Bool {
+        didSet {
+            UserDefaults.standard.set(showBLEBeacons, forKey: "showBLEBeacons")
+        }
+    }
+    
     public let scannerDeviceId: String
     
     private init() {
         // Default to high-resolution 1.0 second polling if not previously set
         let storedRate = UserDefaults.standard.double(forKey: "sampleRateSeconds")
         self.sampleRateSeconds = storedRate > 0 ? storedRate : 1.0
+        
+        self.showBLEBeacons = UserDefaults.standard.bool(forKey: "showBLEBeacons") // Defaults false
         
         self.apiURL = UserDefaults.standard.string(forKey: "apiURL") ?? "https://demo.serviceradar.cloud"
         self.authToken = UserDefaults.standard.string(forKey: "authToken") ?? ""

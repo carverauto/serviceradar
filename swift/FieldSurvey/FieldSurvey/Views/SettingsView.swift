@@ -22,6 +22,17 @@ public struct SettingsView: View {
                 Section(header: Text("Data Ingestion Pipeline")) {
                     
                     VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Show BLE Beacons in Map", isOn: $settingsManager.showBLEBeacons)
+                            .font(.headline)
+                            .toggleStyle(SwitchToggleStyle(tint: .green))
+                        
+                        Text("When disabled, only true 802.11 Wi-Fi access points will be drawn in the AR/3D map. When enabled, BLE polyfill data is also drawn. Turn off to reduce visual clutter from laptops and phones.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.vertical, 8)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("RF Polling Resolution: \(String(format: "%.1f", settingsManager.sampleRateSeconds))s")
                             .font(.headline)
                         
