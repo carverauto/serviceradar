@@ -1,3 +1,4 @@
+#if os(iOS)
 import SwiftUI
 import RoomPlan
 import simd
@@ -191,3 +192,4 @@ public struct RoomCaptureViewContainer: UIViewRepresentable {
         uiView.captureSession.stop()
     }
 }
+#endif

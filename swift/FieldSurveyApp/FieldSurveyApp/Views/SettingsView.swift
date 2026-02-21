@@ -1,3 +1,4 @@
+#if os(iOS)
 import SwiftUI
 
 @available(iOS 16.0, *)
@@ -45,3 +46,4 @@ public struct SettingsView: View {
         .preferredColorScheme(.dark)
     }
 }
+#endif

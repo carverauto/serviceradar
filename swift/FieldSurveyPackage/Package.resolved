@@ -1,0 +1,32 @@
+{
+  "pins" : [
+    {
+      "identity" : "arrow-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apache/arrow-swift.git",
+      "state" : {
+        "revision" : "fb3f3d91be5acd511b7289c7820becc1a68e455d",
+        "version" : "21.0.0"
+      }
+    },
+    {
+      "identity" : "flatbuffers",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/google/flatbuffers.git",
+      "state" : {
+        "revision" : "7e163021e59cca4f8e1e35a7c828b5c6b7915953",
+        "version" : "25.12.19"
+      }
+    },
+    {
+      "identity" : "swift-atomics",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-atomics.git",
+      "state" : {
+        "revision" : "b601256eab081c0f92f059e12818ac1d4f178ff7",
+        "version" : "1.3.0"
+      }
+    }
+  ],
+  "version" : 2
+}

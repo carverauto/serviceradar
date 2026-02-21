@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Required to scan the 3D environment using ARKit and LiDAR.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Required to fetch base-station network updates and localize RF scans.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Required to stream Arrow IPC frames to the local ServiceRadar Edge Gateway.</string>
+</dict>
+</plist>

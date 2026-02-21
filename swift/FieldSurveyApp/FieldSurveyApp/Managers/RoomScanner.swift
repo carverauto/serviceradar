@@ -1,3 +1,4 @@
+#if os(iOS)
 import Foundation
 import RoomPlan
 import os.log
@@ -100,3 +101,4 @@ public class RoomScanner: ObservableObject, RoomCaptureViewDelegate {
         return fileURL
     }
 }
+#endif

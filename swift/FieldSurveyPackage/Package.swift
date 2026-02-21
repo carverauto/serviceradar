@@ -8,7 +8,7 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .executable(
+        .library(
             name: "FieldSurveyApp",
             targets: ["FieldSurveyApp"]),
     ],
@@ -16,12 +16,13 @@ let package = Package(
         .package(url: "https://github.com/apache/arrow-swift.git", exact: "21.0.0")
     ],
     targets: [
-        .executableTarget(
+        .target(
             name: "FieldSurveyApp",
             dependencies: [
                 .product(name: "Arrow", package: "arrow-swift")
-            ],
-            path: "FieldSurveyApp"
-        )
+            ]),
+        .testTarget(
+            name: "FieldSurveyAppTests",
+            dependencies: ["FieldSurveyApp"]),
     ]
 )

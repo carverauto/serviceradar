@@ -1,3 +1,4 @@
+#if os(iOS)
 import SwiftUI
 import RealityKit
 import ARKit
@@ -105,3 +106,4 @@ public struct ARRealityView: UIViewRepresentable {
         }
     }
 }
+#endif

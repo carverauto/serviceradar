@@ -1,3 +1,4 @@
+#if os(iOS)
 import Foundation
 import NetworkExtension
 import CoreLocation
@@ -118,3 +119,4 @@ public class RealWiFiScanner: NSObject, ObservableObject, CLLocationManagerDeleg
         // GPS locations sync with RoomPlan/LiDAR coordinate normalization (WGS84 -> SceneKit space)
     }
 }
+#endif
