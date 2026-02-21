@@ -777,6 +777,14 @@ http_file(
 )
 
 http_file(
+    name = "postgresql_16_pgvector_amd64_deb",
+    sha256 = "e7d4ce441c599c04d532e9596698cb97abb31ebc66825cda18c8847eb3b81d2f",
+    urls = [
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/pgvector/postgresql-16-pgvector_0.8.1-2.pgdg12+1_amd64.deb",
+    ],
+)
+
+http_file(
     name = "debian_libgeos_c1v5_amd64_deb",
     sha256 = "93651aef73ee0f154213010e48fad6a6fc5c3b4e1f916b748aa7ac0dd59b64ff",
     urls = [
