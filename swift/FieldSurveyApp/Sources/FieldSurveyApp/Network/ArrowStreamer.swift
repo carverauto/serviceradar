@@ -53,42 +53,20 @@ public class ArrowStreamer {
     public func encodeBatch(samples: [SurveySample]) throws -> Data {
         logger.debug("Encoding \(samples.count) samples to Arrow IPC Layout")
         
-        // Define the Arrow Schema representing the causal spatial join fields
-        let schemaBuilder = ArrowSchema.Builder()
-        let schema = schemaBuilder
-            .addField("timestamp", type: ArrowType.float64, isNullable: false)
-            .addField("scannerDeviceId", type: ArrowType.string, isNullable: false)
-            .addField("bssid", type: ArrowType.string, isNullable: false)
-            .addField("ssid", type: ArrowType.string, isNullable: false)
-            .addField("rssi", type: ArrowType.float64, isNullable: false)
-            .addField("frequency", type: ArrowType.int64, isNullable: false)
-            .addField("securityType", type: ArrowType.string, isNullable: false)
-            .addField("isSecure", type: ArrowType.boolean, isNullable: false)
-            // rfVector is a List<Double>
-            .addField("rfVector", type: ArrowType.list(ArrowType.float64), isNullable: false)
-            .addField("x", type: ArrowType.float32, isNullable: false)
-            .addField("y", type: ArrowType.float32, isNullable: false)
-            .addField("z", type: ArrowType.float32, isNullable: false)
-            .addField("uncertainty", type: ArrowType.float32, isNullable: false)
-            .finish()
-
-        let timestampBuilder = try NumberArrayBuilder<Double>()
-        let scannerIdBuilder = try StringArrayBuilder()
-        let bssidBuilder = try StringArrayBuilder()
-        let ssidBuilder = try StringArrayBuilder()
-        let rssiBuilder = try NumberArrayBuilder<Double>()
-        let freqBuilder = try NumberArrayBuilder<Int64>()
-        let securityTypeBuilder = try StringArrayBuilder()
-        let isSecureBuilder = try BoolArrayBuilder()
+        let timestampBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
+        let scannerIdBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
+        let bssidBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
+        let ssidBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
+        let rssiBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Double>
+        let freqBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Int64>
+        let securityTypeBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
+        let isSecureBuilder = try ArrowArrayBuilders.loadBoolArrayBuilder()
+        let rfVectorBuilder = try ArrowArrayBuilders.loadStringArrayBuilder()
+        let xBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
+        let yBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
+        let zBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
+        let uncertaintyBuilder = try ArrowArrayBuilders.loadNumberArrayBuilder() as NumberArrayBuilder<Float>
         
-        let rfVectorBuilder = try ListArrayBuilder<Double>(ArrowType.float64)
-        
-        let xBuilder = try NumberArrayBuilder<Float>()
-        let yBuilder = try NumberArrayBuilder<Float>()
-        let zBuilder = try NumberArrayBuilder<Float>()
-        let uncertaintyBuilder = try NumberArrayBuilder<Float>()
-        
-        // Populate columnar data arrays
         for sample in samples {
             timestampBuilder.append(sample.timestamp)
             scannerIdBuilder.append(sample.scannerDeviceId)
@@ -99,8 +77,8 @@ public class ArrowStreamer {
             securityTypeBuilder.append(sample.securityType)
             isSecureBuilder.append(sample.isSecure)
             
-            // Build the variable-length list array for this specific row's rfVector
-            rfVectorBuilder.append(sample.rfVector)
+            let vectorString = sample.rfVector.map { String($0) }.joined(separator: ",")
+            rfVectorBuilder.append(vectorString)
             
             xBuilder.append(sample.x)
             yBuilder.append(sample.y)
@@ -109,25 +87,38 @@ public class ArrowStreamer {
         }
         
         let recordBatchBuilder = RecordBatch.Builder()
-        let batch = try recordBatchBuilder
-            .addColumn("timestamp", array: try timestampBuilder.finish())
-            .addColumn("scannerDeviceId", array: try scannerIdBuilder.finish())
-            .addColumn("bssid", array: try bssidBuilder.finish())
-            .addColumn("ssid", array: try ssidBuilder.finish())
-            .addColumn("rssi", array: try rssiBuilder.finish())
-            .addColumn("frequency", array: try freqBuilder.finish())
-            .addColumn("securityType", array: try securityTypeBuilder.finish())
-            .addColumn("isSecure", array: try isSecureBuilder.finish())
-            .addColumn("rfVector", array: try rfVectorBuilder.finish())
-            .addColumn("x", array: try xBuilder.finish())
-            .addColumn("y", array: try yBuilder.finish())
-            .addColumn("z", array: try zBuilder.finish())
-            .addColumn("uncertainty", array: try uncertaintyBuilder.finish())
-            .finish(schema: schema)
+        let batchResult = recordBatchBuilder
+            .addColumn("timestamp", arrowArray: try timestampBuilder.toHolder())
+            .addColumn("scannerDeviceId", arrowArray: try scannerIdBuilder.toHolder())
+            .addColumn("bssid", arrowArray: try bssidBuilder.toHolder())
+            .addColumn("ssid", arrowArray: try ssidBuilder.toHolder())
+            .addColumn("rssi", arrowArray: try rssiBuilder.toHolder())
+            .addColumn("frequency", arrowArray: try freqBuilder.toHolder())
+            .addColumn("securityType", arrowArray: try securityTypeBuilder.toHolder())
+            .addColumn("isSecure", arrowArray: try isSecureBuilder.toHolder())
+            .addColumn("rfVector", arrowArray: try rfVectorBuilder.toHolder())
+            .addColumn("x", arrowArray: try xBuilder.toHolder())
+            .addColumn("y", arrowArray: try yBuilder.toHolder())
+            .addColumn("z", arrowArray: try zBuilder.toHolder())
+            .addColumn("uncertainty", arrowArray: try uncertaintyBuilder.toHolder())
+            .finish()
 
-        let writer = ArrowWriter()
-        let data = try writer.toStream(batch)
-        return data
+        let batch: RecordBatch
+        switch batchResult {
+        case .success(let recordBatch):
+            batch = recordBatch
+        case .failure(let err):
+            throw NSError(domain: "ArrowError", code: 2, userInfo: [NSLocalizedDescriptionKey: String(describing: err)])
+        }
+
+        switch ArrowWriter().toMessage(batch) {
+        case .success(let dataArray):
+            var combined = Data()
+            for d in dataArray { combined.append(d) }
+            return combined
+        case .failure(let err):
+            throw NSError(domain: "ArrowError", code: 1, userInfo: [NSLocalizedDescriptionKey: String(describing: err)])
+        }
     }
     
     /// Streams the encoded Arrow IPC payload over a persistent WebSocket connection.
