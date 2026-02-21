@@ -134,6 +134,8 @@ public struct CompositeSurveyView: UIViewRepresentable {
                 
                 if scnView.pointOfView != mapCameraNode {
                     scnView.pointOfView = mapCameraNode
+                    // Center the God-View camera dynamically over the user's current physical coordinates
+                    mapCameraNode.position = SCNVector3(cameraNode.position.x, 15, cameraNode.position.z)
                 }
             } else {
                 roomView.isHidden = false
@@ -280,11 +282,15 @@ public struct CompositeSurveyView: UIViewRepresentable {
                     let vectorToNode = currentPos - cameraPos
                     let currentDist = length(vectorToNode)
                     
-                    if currentDist > 0.1 {
+                    if currentDist > 0.1 && !currentDist.isNaN {
                         let direction = vectorToNode / currentDist
                         newTargetPos = cameraPos + (direction * clampedDistance)
                     } else {
                         newTargetPos = cameraPos + (cameraForward * clampedDistance)
+                    }
+                    
+                    if newTargetPos.x.isNaN || newTargetPos.y.isNaN || newTargetPos.z.isNaN {
+                        continue // Skip NaN corruption from early VIO frame drifts
                     }
                     
                     // Update core scale based on signal strength
