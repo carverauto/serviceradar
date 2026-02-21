@@ -9,7 +9,6 @@
           "sync",
           "event-writer",
           "otel",
-          "profiler",
           "trapd",
           "flowgger",
           "netflow-collector",
@@ -679,51 +678,6 @@
     "systemd_service": {
       "dest": "/lib/systemd/system/serviceradar-otel.service",
       "source": "build/packaging/otel/systemd/serviceradar-otel.service"
-    },
-    "version": "1.0.58"
-  },
-  {
-    "architecture": "amd64",
-    "binary": {
-      "build_method": "rust",
-      "output_path": "/usr/local/bin/serviceradar-profiler",
-      "source_path": "rust/ebpf/profiler"
-    },
-    "conffiles": [
-      "/etc/serviceradar/profiler.toml"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/profiler.toml",
-        "source": "build/packaging/profiler/config/profiler.toml"
-      }
-    ],
-    "deb": {
-      "depends": [],
-      "dockerfile": "rust/ebpf/profiler/Dockerfile"
-    },
-    "description": "ServiceRadar Profiler agent",
-    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-    "name": "profiler",
-    "package_name": "serviceradar-profiler",
-    "postinst": {
-      "source": "build/packaging/profiler/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "build/packaging/profiler/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.profiler",
-      "release": "1"
-    },
-    "section": "utils",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-profiler.service",
-      "source": "build/packaging/profiler/systemd/serviceradar-profiler.service"
     },
     "version": "1.0.58"
   },
