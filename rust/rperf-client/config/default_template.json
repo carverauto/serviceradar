@@ -1,0 +1,37 @@
+{
+  "listen_addr": "PLACEHOLDER_HOST_IP:50081",
+  "name": "rperf-checker",
+  "type": "grpc",
+  "timeout": "30s",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "tls": {
+      "cert_file": "rperf-checker.pem",
+      "key_file": "rperf-checker-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "default_poll_interval": 300,
+  "targets": [
+    {
+      "name": "TCP Test",
+      "address": "PLACEHOLDER_RPERF_TARGET_ADDRESS",
+      "port": 5199,
+      "tcp_port_pool": "5200-5210",
+      "protocol": "tcp",
+      "reverse": false,
+      "bandwidth": 1000000,
+      "duration": 10.0,
+      "parallel": 1,
+      "length": 0,
+      "omit": 1,
+      "no_delay": true,
+      "send_buffer": 0,
+      "receive_buffer": 0,
+      "send_interval": 0.05,
+      "poll_interval": 300
+    }
+  ]
+}
