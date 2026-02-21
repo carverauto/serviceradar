@@ -257,8 +257,9 @@ public struct LoginView: View {
     public init() {}
     
     public var body: some View {
-        VStack(spacing: 30) {
-            Spacer()
+        ScrollView {
+            VStack(spacing: 30) {
+                Spacer().frame(height: 40)
             
             // ServiceRadar Logo & Branding
             VStack(spacing: 15) {
@@ -373,7 +374,9 @@ public struct LoginView: View {
             .padding(.horizontal, 30)
             .padding(.top, 10)
             
-            Spacer()
+            Spacer().frame(height: 40)
+        }
+        .padding(.vertical)
         }
         .preferredColorScheme(.dark)
         .background(Color.black.edgesIgnoringSafeArea(.all))
