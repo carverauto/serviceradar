@@ -124,13 +124,11 @@ These directories are not part of repo-layout cleanup execution unless separatel
   - Updated active contributor/project docs to current canonical paths:
     - `AGENTS.md`: `cmd/` -> `go/cmd/`, `pkg/` -> `go/pkg/` in repository layout summary.
     - `openspec/project.md`: Go service examples updated to `go/cmd/...`.
-- Open (as of 2026-02-20): Rust-only-root objective (`2.3`)
-  - Rust sources still exist outside `rust/`, including:
-    - `elixir/web-ng/native/*`
-    - `elixir/serviceradar_srql/native/*`
-    - `arancini/*`
-    - helper/build Rust sources in `docker/compose/*`
-  - This requires a separate design decision on whether NIF-native Rust should be centralized under `rust/` or explicitly exempted as co-located app-native code.
+- Completed (2026-02-20): Rust layout scope decision (`2.3`)
+  - Standardized rule:
+    - Standalone Rust services/libraries belong under `rust/`.
+    - Co-located Rustler/native code under owning Elixir apps (`elixir/*/native/*`) is explicitly exempt and remains in place.
+  - Remaining Rust outside `rust/` is intentional under this rule (for example `elixir/web-ng/native/*`, `elixir/serviceradar_srql/native/*`), plus non-core auxiliary/tooling trees (`arancini/*`, helper Rust build sources in `docker/compose/*`).
 - Completed (2026-02-20): Wave 5 packaging move (partial build-assets wave)
   - `packaging/` -> `build/packaging/`
 - Follow-up adjustments:
@@ -178,6 +176,7 @@ These directories are not part of repo-layout cleanup execution unless separatel
   - `go test ./go/pkg/scan -run TestDoesNotExist`
   - `cd rust/flowgger && cargo check`
   - `cd elixir/web-ng && mix compile`
+  - `make test` (completed successfully in this environment; web-ng precommit noted: `Skipping web-ng tests; set SERVICERADAR_REQUIRE_DB_TESTS=1 to enable`)
 - Follow-up fix from validation (2026-02-20):
   - Fixed moved-path Elixir local dependencies in `elixir/web-ng/mix.exs`:
     - `../elixir/serviceradar_core` -> `../serviceradar_core`

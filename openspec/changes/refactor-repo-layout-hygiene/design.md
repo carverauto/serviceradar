@@ -30,6 +30,8 @@ Target mapping for requested cleanup:
   - Rationale: Aligns layout to language/runtime ownership and support responsibilities.
 - Decision: Keep temporary compatibility hooks only where required, then remove them in the same change stream.
   - Rationale: Avoids permanent dual-path complexity.
+- Decision: Scope “Rust under `rust/`” to standalone services/libraries and explicitly exempt co-located app-native Rust.
+  - Rationale: Rustler NIF projects are intentionally co-located with their owning Elixir applications under `elixir/*/native/*` for build/runtime coupling and should not be force-moved.
 
 ## Risks / Trade-offs
 - Risk: High volume rename churn can break Bazel labels and imports in non-obvious places.
@@ -38,6 +40,8 @@ Target mapping for requested cleanup:
   - Mitigation: Treat `third_party` as conditional; move only after proof that tooling compatibility is preserved.
 - Risk: Script cleanup may remove rarely used operational workflows.
   - Mitigation: Require usage audit before deletion and document replacements.
+- Risk: Forcing all Rust into `rust/` can break Rustler/native app integration and add brittle cross-tree build wiring.
+  - Mitigation: Keep NIF-native Rust co-located with owning Elixir apps and document this as an explicit repository-layout exception.
 
 ## Migration Plan
 1. Inventory and classify all move candidates, including explicit exclusions for generated/system directories.
