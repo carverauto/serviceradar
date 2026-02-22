@@ -1,0 +1,300 @@
+defmodule ServiceRadar.Plugins.PluginInputs do
+  @moduledoc """
+  First-class generic plugin input payload contract.
+
+  Schema: `serviceradar.plugin_inputs.v1`
+
+  This payload allows control-plane resolved SRQL inputs (devices, interfaces,
+  or other entities) to be passed to WASM plugins without plugin-side SRQL
+  execution or API credentials.
+  """
+
+  @schema_id "serviceradar.plugin_inputs.v1"
+  @soft_limit_bytes 262_144
+  @hard_limit_bytes 1_000_000
+  @max_items_per_input 500
+  @default_chunk_size 100
+
+  @schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => [
+      "schema",
+      "policy_id",
+      "policy_version",
+      "agent_id",
+      "generated_at",
+      "inputs"
+    ],
+    "properties" => %{
+      "schema" => %{"type" => "string", "const" => @schema_id},
+      "policy_id" => %{"type" => "string", "minLength" => 1},
+      "policy_version" => %{"type" => "integer", "minimum" => 1},
+      "agent_id" => %{"type" => "string", "minLength" => 1},
+      "generated_at" => %{"type" => "string"},
+      "template" => %{"type" => "object"},
+      "inputs" => %{
+        "type" => "array",
+        "minItems" => 1,
+        "items" => %{
+          "type" => "object",
+          "additionalProperties" => false,
+          "required" => [
+            "name",
+            "entity",
+            "query",
+            "chunk_index",
+            "chunk_total",
+            "chunk_hash",
+            "items"
+          ],
+          "properties" => %{
+            "name" => %{"type" => "string", "minLength" => 1},
+            "entity" => %{"type" => "string", "minLength" => 1},
+            "query" => %{"type" => "string", "minLength" => 1},
+            "chunk_index" => %{"type" => "integer", "minimum" => 0},
+            "chunk_total" => %{"type" => "integer", "minimum" => 1},
+            "chunk_hash" => %{"type" => "string", "pattern" => "^[a-f0-9]{64}$"},
+            "items" => %{
+              "type" => "array",
+              "minItems" => 1,
+              "maxItems" => @max_items_per_input,
+              "items" => %{"type" => "object"}
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @type input_descriptor :: %{
+          required(:name) => String.t(),
+          required(:entity) => String.t(),
+          required(:query) => String.t()
+        }
+
+  @spec schema_id() :: String.t()
+  def schema_id, do: @schema_id
+
+  @spec soft_limit_bytes() :: pos_integer()
+  def soft_limit_bytes, do: @soft_limit_bytes
+
+  @spec hard_limit_bytes() :: pos_integer()
+  def hard_limit_bytes, do: @hard_limit_bytes
+
+  @spec validate(map()) :: :ok | {:error, [String.t()]}
+  def validate(params) when is_map(params) do
+    params = stringify_keys(params)
+
+    if plugin_inputs_payload?(params) do
+      do_validate(params)
+    else
+      :ok
+    end
+  end
+
+  def validate(_), do: {:error, ["plugin inputs payload must be an object"]}
+
+  @spec payload_size_bytes(map()) :: non_neg_integer()
+  def payload_size_bytes(payload) when is_map(payload) do
+    payload
+    |> Jason.encode!()
+    |> byte_size()
+  end
+
+  @spec chunk_single_input_payloads(map(), input_descriptor(), [map()], keyword()) ::
+          {:ok, [map()]} | {:error, [String.t()]}
+  def chunk_single_input_payloads(base_payload, input, items, opts \\ [])
+
+  def chunk_single_input_payloads(base_payload, input, items, opts)
+      when is_map(base_payload) and is_map(input) and is_list(items) do
+    chunk_size = clamp_chunk_size(Keyword.get(opts, :chunk_size, @default_chunk_size))
+    hard_limit = Keyword.get(opts, :hard_limit_bytes, @hard_limit_bytes)
+
+    normalized_items =
+      items
+      |> Enum.map(&normalize_item/1)
+      |> Enum.sort_by(&item_sort_key/1)
+
+    chunks = Enum.chunk_every(normalized_items, chunk_size)
+
+    with {:ok, sized_chunks} <- enforce_size_chunks(base_payload, input, chunks, hard_limit),
+         {:ok, payloads} <- build_payloads(base_payload, input, sized_chunks),
+         :ok <- validate_payload_sizes(payloads, hard_limit) do
+      {:ok, payloads}
+    else
+      {:error, _} = error -> error
+    end
+  end
+
+  def chunk_single_input_payloads(_base_payload, _input, _items, _opts) do
+    {:error, ["base payload/input/items types are invalid"]}
+  end
+
+  defp build_payloads(base_payload, input, chunks) do
+    payload_base = stringify_keys(base_payload)
+    input = stringify_keys(input)
+    total = length(chunks)
+
+    payloads =
+      chunks
+      |> Enum.with_index()
+      |> Enum.map(fn {chunk, index} ->
+        input_entry = %{
+          "name" => Map.get(input, "name"),
+          "entity" => Map.get(input, "entity"),
+          "query" => Map.get(input, "query"),
+          "chunk_index" => index,
+          "chunk_total" => total,
+          "chunk_hash" => chunk_hash(chunk),
+          "items" => chunk
+        }
+
+        payload_base
+        |> Map.put("schema", @schema_id)
+        |> Map.put("inputs", [input_entry])
+      end)
+
+    errors =
+      payloads
+      |> Enum.flat_map(fn payload ->
+        case do_validate(payload) do
+          :ok -> []
+          {:error, errs} -> errs
+        end
+      end)
+
+    case errors do
+      [] -> {:ok, payloads}
+      _ -> {:error, errors}
+    end
+  end
+
+  defp validate_payload_sizes(payloads, hard_limit) do
+    oversized = Enum.filter(payloads, &(payload_size_bytes(&1) > hard_limit))
+
+    if oversized == [] do
+      :ok
+    else
+      {:error, ["generated plugin inputs payload exceeds hard size limit"]}
+    end
+  end
+
+  defp enforce_size_chunks(base_payload, input, chunks, hard_limit) do
+    chunks
+    |> Enum.reduce_while({:ok, []}, fn chunk, {:ok, acc} ->
+      case split_chunk_until_fits(base_payload, input, chunk, hard_limit) do
+        {:ok, split_chunks} -> {:cont, {:ok, acc ++ split_chunks}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp split_chunk_until_fits(base_payload, input, chunk, hard_limit) do
+    if chunk == [] do
+      {:ok, []}
+    else
+      test_payload =
+        build_test_payload(base_payload, input, chunk)
+
+      cond do
+        payload_size_bytes(test_payload) <= hard_limit and length(chunk) <= @max_items_per_input ->
+          {:ok, [chunk]}
+
+        length(chunk) == 1 ->
+          {:error, ["single input item exceeds hard size limit"]}
+
+        true ->
+          midpoint = div(length(chunk), 2)
+          {left, right} = Enum.split(chunk, midpoint)
+
+          with {:ok, left_chunks} <- split_chunk_until_fits(base_payload, input, left, hard_limit),
+               {:ok, right_chunks} <-
+                 split_chunk_until_fits(base_payload, input, right, hard_limit) do
+            {:ok, left_chunks ++ right_chunks}
+          end
+      end
+    end
+  end
+
+  defp build_test_payload(base_payload, input, chunk) do
+    payload_base = stringify_keys(base_payload)
+    input = stringify_keys(input)
+
+    payload_base
+    |> Map.put("schema", @schema_id)
+    |> Map.put("inputs", [
+      %{
+        "name" => Map.get(input, "name"),
+        "entity" => Map.get(input, "entity"),
+        "query" => Map.get(input, "query"),
+        "chunk_index" => 0,
+        "chunk_total" => 1,
+        "chunk_hash" => chunk_hash(chunk),
+        "items" => chunk
+      }
+    ])
+  end
+
+  defp do_validate(params) do
+    resolved = ExJsonSchema.Schema.resolve(@schema)
+
+    case ExJsonSchema.Validator.validate(resolved, params) do
+      :ok ->
+        size = payload_size_bytes(params)
+
+        if size > @hard_limit_bytes do
+          {:error,
+           ["plugin inputs payload exceeds hard size limit of #{@hard_limit_bytes} bytes"]}
+        else
+          :ok
+        end
+
+      {:error, errors} ->
+        {:error, Enum.map(errors, &format_error/1)}
+    end
+  end
+
+  defp plugin_inputs_payload?(%{"schema" => @schema_id}), do: true
+  defp plugin_inputs_payload?(%{"inputs" => _}), do: true
+  defp plugin_inputs_payload?(_), do: false
+
+  defp normalize_item(%{} = item), do: stringify_keys(item)
+  defp normalize_item(_), do: %{}
+
+  defp item_sort_key(item) do
+    cond do
+      is_binary(item["uid"]) and item["uid"] != "" -> "uid:" <> item["uid"]
+      is_binary(item["id"]) and item["id"] != "" -> "id:" <> item["id"]
+      true -> Jason.encode!(item)
+    end
+  end
+
+  defp chunk_hash(items) do
+    hash =
+      items
+      |> Enum.sort_by(&item_sort_key/1)
+      |> :erlang.term_to_binary()
+      |> then(&:crypto.hash(:sha256, &1))
+
+    Base.encode16(hash, case: :lower)
+  end
+
+  defp clamp_chunk_size(value) when is_integer(value) and value > 0 do
+    min(value, @max_items_per_input)
+  end
+
+  defp clamp_chunk_size(_), do: @default_chunk_size
+
+  defp stringify_keys(%{} = map) do
+    map
+    |> Enum.map(fn {key, value} -> {to_string(key), stringify_keys(value)} end)
+    |> Map.new()
+  end
+
+  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
+  defp stringify_keys(value), do: value
+
+  defp format_error(%ExJsonSchema.Validator.Error{} = error), do: inspect(error)
+  defp format_error(other), do: inspect(other)
+end

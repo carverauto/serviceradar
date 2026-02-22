@@ -259,3 +259,61 @@ func TestPluginPermissionsAllowsAddress(t *testing.T) {
 		t.Fatalf("expected address outside prefixes to be denied")
 	}
 }
+
+func TestParseWebSocketConnectPayloadURLOnly(t *testing.T) {
+	wsURL, headers, err := parseWebSocketConnectPayload([]byte("ws://camera.local/ws"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wsURL != "ws://camera.local/ws" {
+		t.Fatalf("unexpected ws url: %s", wsURL)
+	}
+	if headers != nil {
+		t.Fatalf("expected nil headers for URL-only payload")
+	}
+}
+
+func TestParseWebSocketConnectPayloadWithHeaders(t *testing.T) {
+	raw := []byte(`{"url":"wss://camera.local/ws","headers":{"Authorization":"Basic abc","X-Test":"1"}}`)
+	wsURL, headers, err := parseWebSocketConnectPayload(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wsURL != "wss://camera.local/ws" {
+		t.Fatalf("unexpected ws url: %s", wsURL)
+	}
+	if headers.Get("Authorization") != "Basic abc" {
+		t.Fatalf("expected Authorization header to be set")
+	}
+	if headers.Get("X-Test") != "1" {
+		t.Fatalf("expected X-Test header to be set")
+	}
+}
+
+func TestParseWebSocketConnectPayloadInvalidJSON(t *testing.T) {
+	_, _, err := parseWebSocketConnectPayload([]byte("{bad-json"))
+	if err == nil {
+		t.Fatalf("expected parse error for invalid JSON payload")
+	}
+}
+
+func TestParseWebSocketConnectPayloadEmptyURL(t *testing.T) {
+	_, _, err := parseWebSocketConnectPayload([]byte(`{"url":""}`))
+	if err == nil {
+		t.Fatalf("expected error for empty URL")
+	}
+}
+
+func TestParseWebSocketConnectPayloadSkipsBlankHeaders(t *testing.T) {
+	raw := []byte(`{"url":"ws://camera.local/ws","headers":{"":"x","  ":"y"}}`)
+	wsURL, headers, err := parseWebSocketConnectPayload(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wsURL == "" {
+		t.Fatalf("expected non-empty URL")
+	}
+	if len(headers) != 0 {
+		t.Fatalf("expected blank headers to be omitted")
+	}
+}

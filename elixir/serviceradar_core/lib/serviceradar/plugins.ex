@@ -14,6 +14,7 @@ defmodule ServiceRadar.Plugins do
     resource ServiceRadar.Plugins.Plugin
     resource ServiceRadar.Plugins.PluginPackage
     resource ServiceRadar.Plugins.PluginAssignment
+    resource ServiceRadar.Plugins.PluginTargetPolicy
   end
 
   authorization do
