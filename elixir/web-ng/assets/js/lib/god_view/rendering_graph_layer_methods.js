@@ -1,5 +1,5 @@
-import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 import {godViewRenderingGraphLayerTransportMethods} from "./rendering_graph_layer_transport_methods"
+import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 
 const godViewRenderingGraphLayerCoreMethods = {
   buildGraphLayers(effective, nodeData, edgeData, edgeLabelData) {

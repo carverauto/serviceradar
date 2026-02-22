@@ -1,5 +1,5 @@
-import {godViewLifecycleBootstrapChannelEventMethods} from "./lifecycle_bootstrap_channel_event_methods"
 import {godViewLifecycleBootstrapChannelSocketMethods} from "./lifecycle_bootstrap_channel_socket_methods"
+import {godViewLifecycleBootstrapChannelEventMethods} from "./lifecycle_bootstrap_channel_event_methods"
 
 const godViewLifecycleBootstrapChannelCoreMethods = {
   setupSnapshotChannel() {
